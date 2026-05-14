@@ -23,7 +23,7 @@ import type {
 import type { GatewayCommandResult } from './gateway-types.js';
 
 const SKILL_COMMAND_USAGE =
-  'Usage: `skill list [blocked]|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <source>|install <skill> <dependency>|upgrade <source>|uninstall <name>|revisions <name>|rollback <name> <revision-id>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
+  'Usage: `skill list [blocked]|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|unblock <name>|inspect <name>|inspect --all|runs <name>|install <source>|install <skill> <dependency>|upgrade <source>|uninstall <name>|revisions <name>|rollback <name> <revision-id>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
 
 interface SkillCommandContext {
   args: string[];
@@ -277,6 +277,41 @@ export async function handleSkillCommand(
       lines.push(`\`${skillName}\` remains globally disabled.`);
     }
     return context.plainCommand(lines.join('\n'));
+  }
+
+  if (sub === 'unblock') {
+    if (!isLocalSession(context)) {
+      return context.badCommand(
+        'Skill Unblock Restricted',
+        '`skill unblock` is only available from local TUI/web sessions.',
+      );
+    }
+    const skillName = parseIdArg(context.args, 2);
+    if (!skillName) {
+      return context.badCommand('Usage', 'Usage: `skill unblock <name>`');
+    }
+    const extraArg = parseIdArg(context.args, 3);
+    if (extraArg) {
+      return context.badCommand('Usage', 'Usage: `skill unblock <name>`');
+    }
+
+    const { unblockGuardedSkill } = await import('../skills/skills.js');
+    try {
+      const result = unblockGuardedSkill(skillName, 'gateway-command');
+      return context.infoCommand(
+        'Skill Unblocked',
+        [
+          `Unblocked \`${result.skillName}\` by bypassing future scanner blocks for this installed copy.`,
+          `Reason reviewed: ${result.blockedReason}`,
+          `Marker: ${result.markerPath}`,
+        ].join('\n'),
+      );
+    } catch (err) {
+      return context.badCommand(
+        'Skill Unblock Failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   if (sub === 'inspect') {

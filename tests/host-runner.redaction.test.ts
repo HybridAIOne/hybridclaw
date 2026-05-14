@@ -440,6 +440,31 @@ test('HostExecutor exposes the uploaded media cache root to host agent processes
 test('HostExecutor strips ambient credentials from host agent process env', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
+  fs.mkdirSync(path.join(homeDir, '.hybridclaw'), { recursive: true });
+  fs.writeFileSync(
+    path.join(homeDir, '.hybridclaw', 'config.json'),
+    `${JSON.stringify(
+      {
+        agents: {
+          list: [
+            {
+              id: 'default',
+              webSearch: {
+                searxngBaseUrl: 'https://search.default.example',
+                searxngBearerTokenRef: {
+                  source: 'store',
+                  id: 'DEFAULT_SEARXNG_BEARER_TOKEN',
+                },
+              },
+            },
+          ],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
   vi.stubEnv('OPENAI_API_KEY', 'openai-secret');
   vi.stubEnv('ANTHROPIC_API_KEY', 'anthropic-secret');
   vi.stubEnv('AWS_ACCESS_KEY_ID', 'aws-access-key');
@@ -553,6 +578,11 @@ test('HostExecutor strips ambient credentials from host agent process env', asyn
     String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
   ) as { webSearch?: Record<string, unknown> };
   expect(firstInput.webSearch).toMatchObject({
+    searxngBaseUrl: 'https://search.default.example',
+    searxngBearerTokenRef: {
+      source: 'store',
+      id: 'DEFAULT_SEARXNG_BEARER_TOKEN',
+    },
     braveApiKey: 'brave-secret',
     perplexityApiKey: 'perplexity-secret',
     tavilyApiKey: 'tavily-secret',

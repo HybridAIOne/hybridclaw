@@ -1,10 +1,12 @@
 export const MESSAGE_TOOL_CHANNEL_KINDS = [
   'discord',
+  'discord_webhook',
   'email',
   'imessage',
   'msteams',
   'signal',
   'slack',
+  'slack_webhook',
   'telegram',
   'threema',
   'tui',
@@ -13,11 +15,13 @@ export const MESSAGE_TOOL_CHANNEL_KINDS = [
 
 export const MESSAGE_TOOL_CHANNEL_LABELS = Object.freeze({
   discord: 'Discord',
+  discord_webhook: 'Discord webhook',
   email: 'email',
   imessage: 'iMessage',
   msteams: 'Microsoft Teams',
   signal: 'Signal',
   slack: 'Slack',
+  slack_webhook: 'Slack webhook',
   telegram: 'Telegram',
   threema: 'Threema',
   tui: 'local TUI',

@@ -392,6 +392,15 @@ async function importFreshCli(options?: {
     tools: string[];
     hooks: string[];
   }>;
+  pluginAvailableSummary?: Array<{
+    id: string;
+    name?: string;
+    version?: string;
+    description?: string;
+    source: 'bundled' | 'project';
+    dir: string;
+    installSource: string;
+  }>;
   agentPackError?: Error | null;
   agentPackResult?: {
     archivePath: string;
@@ -811,6 +820,10 @@ async function importFreshCli(options?: {
     }),
   );
   const listPluginSummary = vi.fn(() => options?.pluginListSummary || []);
+  const listInstallablePlugins = vi.fn(
+    () => options?.pluginAvailableSummary || [],
+  );
+  const formatDependencyPlanDetails = vi.fn(() => 'npm packages: demo');
   const ensurePluginManagerInitialized = vi.fn(async () => ({
     listPluginSummary,
   }));
@@ -1323,14 +1336,18 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/plugins/plugin-install.ts', () => ({
     checkPlugin,
+    formatDependencyPlanDetails,
     installPlugin,
+    listInstallablePlugins,
     PluginDependencyApprovalRequiredError,
     reinstallPlugin,
     uninstallPlugin,
   }));
   vi.doMock('../src/plugins/plugin-install.js', () => ({
     checkPlugin,
+    formatDependencyPlanDetails,
     installPlugin,
+    listInstallablePlugins,
     PluginDependencyApprovalRequiredError,
     reinstallPlugin,
     uninstallPlugin,
@@ -1386,6 +1403,7 @@ async function importFreshCli(options?: {
     PluginDependencyApprovalRequiredError,
     reinstallPlugin,
     uninstallPlugin,
+    listInstallablePlugins,
     importSkill,
     readPluginConfigEntry,
     readPluginConfigValue,
@@ -2800,39 +2818,65 @@ describe('CLI hybridai commands', () => {
   });
 
   it('lists discovered plugins with descriptions, commands, tools, hooks, and errors', async () => {
-    const { cli, ensurePluginManagerInitialized, listPluginSummary } =
-      await importFreshCli({
-        pluginListSummary: [
-          {
-            id: 'demo-plugin',
-            name: 'Demo Plugin',
-            version: '1.0.0',
-            description: 'Demo plugin for testing',
-            source: 'project',
-            enabled: true,
-            commands: ['demo_status'],
-            tools: ['demo_echo'],
-            hooks: ['demo-hook'],
-          },
-          {
-            id: 'broken-plugin',
-            source: 'home',
-            enabled: true,
-            error: 'register exploded',
-            commands: [],
-            tools: [],
-            hooks: [],
-          },
-        ],
-      });
+    const {
+      cli,
+      ensurePluginManagerInitialized,
+      listInstallablePlugins,
+      listPluginSummary,
+    } = await importFreshCli({
+      pluginListSummary: [
+        {
+          id: 'demo-plugin',
+          name: 'Demo Plugin',
+          version: '1.0.0',
+          description: 'Demo plugin for testing',
+          source: 'project',
+          enabled: true,
+          commands: ['demo_status'],
+          tools: ['demo_echo'],
+          hooks: ['demo-hook'],
+        },
+        {
+          id: 'broken-plugin',
+          source: 'home',
+          enabled: true,
+          error: 'register exploded',
+          commands: [],
+          tools: [],
+          hooks: [],
+        },
+      ],
+      pluginAvailableSummary: [
+        {
+          id: 'demo-plugin',
+          name: 'Demo Plugin',
+          version: '1.0.0',
+          description: 'Already installed',
+          source: 'project',
+          dir: '/tmp/project/plugins/demo-plugin',
+          installSource: 'demo-plugin',
+        },
+        {
+          id: 'available-plugin',
+          name: 'Available Plugin',
+          version: '0.1.0',
+          description: 'Available plugin for testing',
+          source: 'bundled',
+          dir: '/tmp/package/plugins/available-plugin',
+          installSource: 'available-plugin',
+        },
+      ],
+    });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await cli.main(['plugin', 'list']);
 
     expect(ensurePluginManagerInitialized).toHaveBeenCalled();
     expect(listPluginSummary).toHaveBeenCalled();
+    expect(listInstallablePlugins).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
       [
+        'Installed',
         'demo-plugin v1.0.0 [project]',
         '  name: Demo Plugin',
         '  description: Demo plugin for testing',
@@ -2847,6 +2891,52 @@ describe('CLI hybridai commands', () => {
         '  commands: (none)',
         '  tools: (none)',
         '  hooks: (none)',
+        '',
+        'Available',
+        'available-plugin v0.1.0 [bundled]',
+        '  name: Available Plugin',
+        '  description: Available plugin for testing',
+        '  install: /plugin install available-plugin',
+      ].join('\n'),
+    );
+  });
+
+  it('lists only available plugins when requested', async () => {
+    const { cli, listInstallablePlugins } = await importFreshCli({
+      pluginListSummary: [
+        {
+          id: 'demo-plugin',
+          source: 'home',
+          enabled: true,
+          commands: [],
+          tools: [],
+          hooks: [],
+        },
+      ],
+      pluginAvailableSummary: [
+        {
+          id: 'demo-plugin',
+          source: 'project',
+          dir: '/tmp/project/plugins/demo-plugin',
+          installSource: 'demo-plugin',
+        },
+        {
+          id: 'available-plugin',
+          source: 'bundled',
+          dir: '/tmp/package/plugins/available-plugin',
+          installSource: 'available-plugin',
+        },
+      ],
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['plugin', 'list', 'available']);
+
+    expect(listInstallablePlugins).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      [
+        'available-plugin [bundled]',
+        '  install: /plugin install available-plugin',
       ].join('\n'),
     );
   });
@@ -3557,7 +3647,9 @@ describe('CLI hybridai commands', () => {
 
     await cli.main(['config', 'get', 'hybridai.maxTokens']);
 
-    expect(logSpy).toHaveBeenCalledWith(`Active config: ${runtimeConfigPath()}`);
+    expect(logSpy).toHaveBeenCalledWith(
+      `Active config: ${runtimeConfigPath()}`,
+    );
     expect(logSpy).toHaveBeenCalledWith('Key: hybridai.maxTokens');
     expect(logSpy).toHaveBeenCalledWith('4096');
   });

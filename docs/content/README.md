@@ -11,7 +11,8 @@ advanced-user manual for running, extending, and understanding HybridClaw. The
 chapters are organized around what you are trying to do rather than how the
 repository is laid out. **Getting Started** walks through installation,
 onboarding, and your first run. **Channels** is the transport reference across
-Discord, Slack, Telegram, Signal, email, WhatsApp, iMessage, and Microsoft Teams.
+Discord, Slack, Telegram, Signal, Threema, email, WhatsApp, iMessage, and
+Microsoft Teams.
 **Guides** collects task-focused walkthroughs for everyday operational work,
 **Tutorials** provides practical owner, GTM, marketing, sales, and community
 workflows, **Extensibility** covers tools, skills, plugins, and the extension
@@ -26,13 +27,20 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- Native `image_generate` and `video_generate` tools produce managed media
+  artifacts through configured image and video providers.
+- Bundled skills cover Airtable, FastBill, Firecrawl, HeyGen, Google Ads, and
+  SearXNG-backed web/news/image search workflows.
+- Threema Gateway Basic mode is available for outbound operator messaging in
+  DACH-regulated or privacy-sensitive deployments.
+- A2A federation includes JSON-RPC Agent Card inbound delivery, signed
+  delegation bearer tokens, and a public-key trust ledger.
+- Browser automation supports local Playwright profiles, Camofox profiles, and
+  Browser Use Cloud sessions with SecretRef-gated credential fills.
+- Trace-judge eval gates and behavioral anomaly reranking give tool-call and
+  skill-trace review a deterministic test path.
 - `npm run desktop` launches a native macOS wrapper around the local chat UI,
   with gateway reuse/startup and admin access from the app menu.
-- Browser automation can run against local persistent Playwright profiles or
-  Browser Use Cloud sessions, with encrypted secret lookup and
-  `hybridclaw doctor browser-use` diagnostics.
-- A2A outbound delivery supports JSON-RPC Agent Card peers and signed webhook
-  peers through an audited retrying outbox.
 - Canonical user and agent identity helpers now include DNS-style discovery for
   mapping remote identities to peer URLs and public keys.
 - Approval policy evaluation runs through a hook-fed rule pipeline that keeps

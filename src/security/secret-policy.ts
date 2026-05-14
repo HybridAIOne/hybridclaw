@@ -20,7 +20,7 @@ export type SecretPolicyDecision = 'allow' | 'deny';
 export interface SecretPolicyContext {
   agentId?: string;
   skillName?: string;
-  secretSource: 'env' | 'store';
+  secretSource: 'store';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
@@ -90,8 +90,11 @@ export function readSecretPolicyStateFromDocument(
           Boolean(rule),
         )
     : [];
+  const normalizedDefault = normalizeLower(secret.default);
   const defaultAction =
-    normalizeLower(secret.default) === 'allow' ? 'allow' : 'deny';
+    normalizedDefault === 'deny' || normalizedDefault === 'block'
+      ? 'deny'
+      : 'allow';
   return { defaultAction, rules };
 }
 

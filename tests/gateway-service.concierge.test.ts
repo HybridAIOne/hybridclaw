@@ -53,6 +53,16 @@ async function createFixture() {
     '../src/gateway/gateway-chat-service.ts'
   );
   const { memoryService } = await import('../src/memory/memory-service.ts');
+  updateRuntimeConfig((draft) => {
+    draft.plugins.list = [
+      {
+        id: 'concierge-router',
+        enabled: true,
+        path: './plugins/concierge-router',
+        config: {},
+      },
+    ];
+  });
 
   return {
     handleGatewayMessage,
@@ -138,7 +148,7 @@ test('discord concierge prompts include rendered button components', async () =>
   });
 
   const { buildConciergeChoiceComponents } = await import(
-    '../src/gateway/concierge-choice.ts'
+    '../plugins/concierge-router/src/routing.js'
   );
 
   expect(result.status).toBe('success');

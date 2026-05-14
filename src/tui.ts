@@ -90,7 +90,13 @@ import {
   resolveTuiHistoryFetchLimit,
 } from './tui-history.js';
 import { TuiMultilineInputController } from './tui-input.js';
-import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
+import {
+  isGoalContinuationSource,
+  normalizeGoalContinuationText,
+  proactiveBadgeLabel,
+  proactiveInlineLabel,
+  proactiveSourceSuffix,
+} from './tui-proactive.js';
 import {
   buildTuiExitSummaryLines,
   buildTuiUnavailableExitSummaryLines,
@@ -123,6 +129,7 @@ import type { SessionShowMode } from './types/session.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
+const BOLD_OFF = '\x1b[22m';
 const JELLYFISH = '🪼';
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
@@ -841,6 +848,11 @@ interface TuiSectionCard {
   rows: string[];
 }
 
+interface TuiMarkdownTable {
+  rows: string[][];
+  endLine: number;
+}
+
 function stripAnsiTui(value: string): string {
   let output = '';
   for (let index = 0; index < value.length; ) {
@@ -1028,7 +1040,14 @@ function sliceAnsiTuiVisible(
       continue;
     }
 
-    if (visibleIndex >= start && visibleIndex < end) {
+    const symbolWidth = tuiCharacterWidth(token.value);
+    const nextVisibleIndex = visibleIndex + symbolWidth;
+    const includeToken =
+      symbolWidth === 0
+        ? started || (visibleIndex >= start && visibleIndex < end)
+        : nextVisibleIndex > start && visibleIndex < end;
+
+    if (includeToken) {
       if (!started) {
         output.push(...pendingAnsi);
         pendingAnsi.length = 0;
@@ -1039,7 +1058,7 @@ function sliceAnsiTuiVisible(
       finished = true;
       break;
     }
-    visibleIndex += 1;
+    visibleIndex = nextVisibleIndex;
     if (visibleIndex >= end && started) {
       finished = true;
     }
@@ -1082,6 +1101,247 @@ function truncateAnsiTuiEnd(value: string, width: number): string {
     index = next.nextIndex;
   }
   return output;
+}
+
+function stripInlineMarkdownForTui(value: string): string {
+  return String(value || '')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/__([^_\n]+)__/g, '$1')
+    .replace(/\\\|/g, '|');
+}
+
+function formatInlineMarkdownForTui(value: string): string {
+  return String(value || '')
+    .replace(/\*\*([^*\n]+)\*\*/g, `${BOLD}$1${BOLD_OFF}`)
+    .replace(/__([^_\n]+)__/g, `${BOLD}$1${BOLD_OFF}`)
+    .replace(/\\\|/g, '|');
+}
+
+function splitTuiMarkdownTableRow(line: string): string[] | null {
+  const trimmed = String(line || '').trim();
+  if (!trimmed.includes('|')) return null;
+  const source = trimmed.replace(/^\|/u, '').replace(/\|$/u, '');
+  const cells: string[] = [];
+  let cell = '';
+  let escaped = false;
+
+  for (const char of source) {
+    if (escaped) {
+      cell += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      cell += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '|') {
+      cells.push(cell.trim());
+      cell = '';
+      continue;
+    }
+    cell += char;
+  }
+
+  cells.push(cell.trim());
+  return cells.length >= 2 ? cells : null;
+}
+
+function isTuiMarkdownTableSeparator(cells: readonly string[]): boolean {
+  return (
+    cells.length >= 2 &&
+    cells.every((cell) => /^:?-{3,}:?$/u.test(String(cell || '').trim()))
+  );
+}
+
+function parseTuiMarkdownTableAt(
+  lines: readonly string[],
+  startLine: number,
+): TuiMarkdownTable | null {
+  const header = splitTuiMarkdownTableRow(lines[startLine] || '');
+  const separator = splitTuiMarkdownTableRow(lines[startLine + 1] || '');
+  if (!header || !separator) return null;
+  if (header.length !== separator.length) return null;
+  if (!isTuiMarkdownTableSeparator(separator)) return null;
+
+  const rows = [header];
+  let endLine = startLine + 2;
+  while (endLine < lines.length) {
+    const row = splitTuiMarkdownTableRow(lines[endLine] || '');
+    if (!row || row.length !== header.length) break;
+    rows.push(row);
+    endLine += 1;
+  }
+
+  return rows.length > 1 ? { rows, endLine } : null;
+}
+
+function hasTuiMarkdownFormatting(text: string): boolean {
+  const lines = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n');
+  let inFence = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] || '';
+    if (/^\s*```/u.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (/\*\*[^*\n]+\*\*|__[^_\n]+__/u.test(line)) return true;
+    if (parseTuiMarkdownTableAt(lines, index)) return true;
+  }
+  return false;
+}
+
+function wrapAnsiTuiVisibleLine(value: string, width: number): string[] {
+  const safeWidth = Math.max(1, Math.floor(width || 1));
+  if (visibleTuiLength(value) <= safeWidth) return [value];
+  const lines: string[] = [];
+  let remaining = value;
+
+  while (visibleTuiLength(remaining) > safeWidth) {
+    let takeWidth = safeWidth;
+    const visiblePrefix = stripAnsiTui(
+      sliceAnsiTuiVisible(remaining, 0, safeWidth),
+    );
+    const lastSpace = visiblePrefix.search(/\s+\S*$/u);
+    if (lastSpace > 0) takeWidth = lastSpace;
+    let segment = trimAnsiTuiCell(sliceAnsiTuiVisible(remaining, 0, takeWidth));
+    while (visibleTuiLength(segment) > safeWidth && takeWidth > 1) {
+      takeWidth -= 1;
+      segment = trimAnsiTuiCell(sliceAnsiTuiVisible(remaining, 0, takeWidth));
+    }
+    lines.push(
+      segment || trimAnsiTuiCell(sliceAnsiTuiVisible(remaining, 0, safeWidth)),
+    );
+    remaining = trimAnsiTuiCell(
+      sliceAnsiTuiVisible(
+        remaining,
+        takeWidth,
+        Math.max(1, visibleTuiLength(remaining) - takeWidth),
+      ),
+    );
+  }
+
+  if (remaining) lines.push(remaining);
+  return lines.length > 0 ? lines : [''];
+}
+
+function resolveTuiMarkdownTableWidths(
+  rows: readonly string[][],
+  contentWidth: number,
+): number[] {
+  const columnCount = rows[0]?.length || 0;
+  if (columnCount <= 0) return [];
+  const separatorWidth = Math.max(0, columnCount - 1) * 3;
+  const budget = Math.max(columnCount * 4, contentWidth - 4 - separatorWidth);
+  const minimum = Math.max(4, Math.min(12, Math.floor(budget / columnCount)));
+  const widths = Array.from({ length: columnCount }, (_, columnIndex) =>
+    Math.max(
+      minimum,
+      Math.min(
+        36,
+        Math.max(
+          ...rows.map((row) =>
+            visibleTuiLength(stripInlineMarkdownForTui(row[columnIndex] || '')),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  while (widths.reduce((total, width) => total + width, 0) > budget) {
+    let widestIndex = 0;
+    for (let index = 1; index < widths.length; index += 1) {
+      if (widths[index] > widths[widestIndex]) widestIndex = index;
+    }
+    if (widths[widestIndex] <= minimum) break;
+    widths[widestIndex] -= 1;
+  }
+
+  return widths;
+}
+
+function renderTuiMarkdownTable(
+  table: TuiMarkdownTable,
+  columns: number,
+  indent: string,
+): string[] {
+  const contentWidth = Math.max(16, Math.floor(columns || 80) - indent.length);
+  const widths = resolveTuiMarkdownTableWidths(table.rows, contentWidth);
+  if (widths.length === 0) return [];
+
+  const border = (left: string, join: string, right: string) =>
+    `${indent}${MUTED}${left}${widths.map((width) => '─'.repeat(width + 2)).join(join)}${right}${RESET}`;
+  const renderRow = (row: readonly string[], header = false): string[] => {
+    const wrappedCells = widths.map((width, columnIndex) =>
+      wrapAnsiTuiVisibleLine(
+        formatInlineMarkdownForTui(row[columnIndex] || ''),
+        width,
+      ),
+    );
+    const rowHeight = Math.max(1, ...wrappedCells.map((cell) => cell.length));
+    const lines: string[] = [];
+    for (let lineIndex = 0; lineIndex < rowHeight; lineIndex += 1) {
+      const cells = widths.map((width, columnIndex) => {
+        const raw = wrappedCells[columnIndex]?.[lineIndex] || '';
+        const value = header ? `${BOLD}${GOLD}${raw}${RESET}` : raw;
+        return ` ${padAnsiTuiEnd(value, width)} `;
+      });
+      lines.push(
+        `${indent}${MUTED}│${RESET}${cells.join(`${MUTED}│${RESET}`)}${MUTED}│${RESET}`,
+      );
+    }
+    return lines;
+  };
+
+  const bodyRows = table.rows.slice(1);
+  return [
+    border('╭', '┬', '╮'),
+    ...renderRow(table.rows[0] || [], true),
+    border('├', '┼', '┤'),
+    ...bodyRows.flatMap((row) => renderRow(row)),
+    border('╰', '┴', '╯'),
+  ];
+}
+
+export function formatTuiMarkdownOutput(
+  text: string,
+  columns: number,
+  indent = '  ',
+): string {
+  const lines = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n');
+  const output: string[] = [];
+  let inFence = false;
+
+  for (let index = 0; index < lines.length; ) {
+    const line = lines[index] || '';
+    if (/^\s*```/u.test(line)) {
+      inFence = !inFence;
+    }
+    if (!inFence) {
+      const table = parseTuiMarkdownTableAt(lines, index);
+      if (table) {
+        output.push(...renderTuiMarkdownTable(table, columns, indent));
+        index = table.endLine;
+        continue;
+      }
+    }
+
+    const wrapped = wrapTuiBlock(line, columns, indent)
+      .split('\n')
+      .map((wrappedLine) =>
+        inFence ? wrappedLine : formatInlineMarkdownForTui(wrappedLine),
+      );
+    output.push(...wrapped);
+    index += 1;
+  }
+
+  return output.join('\n');
 }
 
 function looksLikeTuiTableSection(rows: readonly string[]): boolean {
@@ -1297,7 +1557,7 @@ function terminalColumns(): number {
 }
 
 function formatTuiOutput(text: string): string {
-  return wrapTuiBlock(text, terminalColumns(), '  ');
+  return formatTuiMarkdownOutput(text, terminalColumns(), '  ');
 }
 
 export function formatTuiTitledCommandBlock(
@@ -1312,6 +1572,15 @@ export function formatTuiTitledCommandBlock(
 
 export function isMutedSkillListLine(line: string): boolean {
   return /\[disabled\]/i.test(line) || /^\s*installs:/i.test(line);
+}
+
+export function isPluginListHeaderLine(line: string): boolean {
+  const normalized = line.trim();
+  return (
+    normalized === 'Plugins' ||
+    normalized === 'Installed' ||
+    normalized === 'Available'
+  );
 }
 
 function printGatewayCommandResult(result: GatewayCommandResult): void {
@@ -1331,6 +1600,27 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     for (const line of formatTuiOutput(rendered).split('\n')) {
       const color = isMutedSkillListLine(line) ? MUTED : GOLD;
       console.log(`${color}${line}${RESET}`);
+    }
+    console.log();
+    return;
+  }
+  if (result.title === 'Plugins') {
+    clearTuiSlashMenu();
+    console.log();
+    for (const line of formatTuiTitledCommandBlock(
+      result.title,
+      result.text,
+      terminalColumns(),
+    )) {
+      if (!line) {
+        console.log();
+        continue;
+      }
+      if (isPluginListHeaderLine(line)) {
+        console.log(`${GOLD}${line}${RESET}`);
+      } else {
+        console.log(line);
+      }
     }
     console.log();
     return;
@@ -2541,30 +2831,46 @@ async function processMessage(
     const skillName = result.skillUsed;
     const hasUsageFooters =
       toolNames.length > 0 || pluginNames.length > 0 || !!skillName;
-    const hasStreamedText = sawVisibleTextDelta;
     const finalText = result.result || 'No response.';
     const pendingApproval = resolvePendingApproval(
       result,
       streamedApproval,
       resolveCachedApprovalDetails(tuiPendingApproval),
     );
+    const interrupted = isInterruptedResult(result);
+    const shouldReplayFormattedText =
+      !pendingApproval &&
+      !interrupted &&
+      result.status !== 'error' &&
+      sawVisibleTextDelta &&
+      process.stdout.isTTY &&
+      hasTuiMarkdownFormatting(finalText);
 
     s.flushVisibleText();
+    if (shouldReplayFormattedText) {
+      s.clearVisibleText();
+    }
     s.stop();
     s.clearThinkingPreview();
+    const hasStreamedText = sawVisibleTextDelta && !shouldReplayFormattedText;
     const streamedResponseTrailingNewlines = hasStreamedText
       ? s.trailingNewlinesAfterVisibleText()
       : '';
+    if (shouldReplayFormattedText) {
+      printResponse(finalText, {
+        leadingBlank: false,
+      });
+    }
     if (hasUsageFooters) {
-      if (!hasStreamedText) {
+      if (!hasStreamedText && !shouldReplayFormattedText) {
         s.clearTools();
-      } else {
+      } else if (hasStreamedText) {
         process.stdout.write(streamedResponseTrailingNewlines);
       }
       printUsageFooter(toolNames, pluginNames, skillName);
     }
 
-    if (isInterruptedResult(result)) {
+    if (interrupted) {
       if (hasStreamedText) {
         console.log();
       }
@@ -2593,6 +2899,10 @@ async function processMessage(
         process.stdout.write(
           hasUsageFooters ? '\n' : streamedResponseTrailingNewlines,
         );
+      } else if (shouldReplayFormattedText) {
+        if (hasUsageFooters) {
+          process.stdout.write('\n');
+        }
       } else {
         printResponse(finalText, {
           leadingBlank: hasUsageFooters,
@@ -2821,12 +3131,15 @@ function prepareProactiveRegularMessageOutput(
   rl: readline.Interface,
   hasDelegateStatus: boolean,
   promptVisible: boolean,
+  options: { leadingBlank?: boolean } = {},
 ): void {
   if (!hasDelegateStatus && promptVisible) {
     clearPromptBlockForDelegateStatus();
     resetReadlinePromptRows(rl);
   }
-  console.log();
+  if (options.leadingBlank !== false) {
+    console.log();
+  }
 }
 
 function renderProactiveRegularMessage(
@@ -2834,9 +3147,21 @@ function renderProactiveRegularMessage(
 ): boolean {
   if (handleDelegateStreamMessage(message)) return true;
 
+  if (isGoalContinuationSource(message.source)) {
+    console.log(formatTuiOutput(normalizeGoalContinuationText(message.text)));
+    return false;
+  }
+
   const badge = proactiveBadgeLabel(message.source);
+  const inlineLabel = proactiveInlineLabel(message.source);
   const suffix = proactiveSourceSuffix(message.source);
   const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
+  if (inlineLabel) {
+    console.log(
+      `  ${GOLD}${inlineLabel}:${RESET} ${formatTuiOutput(message.text)}${sourceSuffix}`,
+    );
+    return false;
+  }
   if (badge === 'delegate') {
     console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
     return false;
@@ -2848,16 +3173,22 @@ function renderProactiveRegularMessage(
   return false;
 }
 
-function renderProactiveRegularMessages(
-  messages: GatewayProactiveMessage[],
-): boolean {
+function renderProactiveRegularMessages(messages: GatewayProactiveMessage[]): {
+  sawDelegateStreamMessage: boolean;
+} {
   let sawDelegateStreamMessage = false;
+  let previousWasGoalContinuation = false;
   for (const message of messages) {
+    const isGoalMessage = isGoalContinuationSource(message.source);
+    if (isGoalMessage && previousWasGoalContinuation) {
+      console.log();
+    }
     if (renderProactiveRegularMessage(message)) {
       sawDelegateStreamMessage = true;
     }
+    previousWasGoalContinuation = isGoalMessage;
   }
-  return sawDelegateStreamMessage;
+  return { sawDelegateStreamMessage };
 }
 
 function restorePromptAfterProactiveMessages(
@@ -2915,14 +3246,18 @@ async function pollProactiveMessages(
       return;
     }
 
+    const onlyGoalContinuationMessages = regularMessages.every((message) =>
+      isGoalContinuationSource(message.source),
+    );
     prepareProactiveRegularMessageOutput(
       rl,
       Boolean(latestDelegateStatus),
       promptVisible,
+      { leadingBlank: !onlyGoalContinuationMessages },
     );
-    const sawDelegateStreamMessage =
+    const { sawDelegateStreamMessage } =
       renderProactiveRegularMessages(regularMessages);
-    if (!delegateStreamActive) {
+    if (!delegateStreamActive && !onlyGoalContinuationMessages) {
       console.log();
     }
     restorePromptAfterProactiveMessages(

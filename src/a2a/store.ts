@@ -6,6 +6,7 @@ import {
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { isAgentIdentityComponent } from '../identity/agent-id.js';
 import {
   type A2AEnvelope,
   A2AEnvelopeDuplicateError,
@@ -24,6 +25,19 @@ interface A2AThreadState {
   envelopes: A2AEnvelope[];
 }
 
+export interface A2AThreadSummary {
+  thread_id: string;
+  message_count: number;
+  participants: string[];
+  latest_message_id: string | null;
+  latest_parent_message_id: string | null;
+  latest_sender_agent_id: string | null;
+  latest_recipient_agent_id: string | null;
+  latest_intent: A2AEnvelope['intent'] | null;
+  latest_content: string | null;
+  latest_created_at: string | null;
+}
+
 function normalizeOpaqueId(value: string, field: string): string {
   const normalized = value.trim();
   if (!isA2AOpaqueId(normalized)) {
@@ -40,6 +54,20 @@ function normalizeThreadId(threadId: string): string {
 
 function normalizeEnvelopeId(envelopeId: string): string {
   return normalizeOpaqueId(envelopeId, 'id');
+}
+
+function normalizeSenderInstanceId(senderInstanceId: string): string {
+  const normalized = senderInstanceId.trim().toLowerCase();
+  if (!isAgentIdentityComponent(normalized)) {
+    throw new A2AEnvelopeValidationError([
+      'sender_instance_id must be a canonical instance id',
+    ]);
+  }
+  return normalized;
+}
+
+function a2aEnvelopeIdempotencyKey(envelope: A2AEnvelope): string {
+  return `${envelope.id}\u0000${envelope.sender_instance_id ?? ''}`;
 }
 
 export function a2aThreadAssetPath(threadId: string): string {
@@ -98,18 +126,21 @@ function parsePersistedThreadState(
   }
 
   const envelopes: A2AEnvelope[] = [];
-  const seenEnvelopeIds = new Set<string>();
+  const seenEnvelopeKeys = new Set<string>();
   if (Array.isArray(rawEnvelopes)) {
     rawEnvelopes.forEach((entry, index) => {
       try {
         const envelope = validateA2AEnvelope(entry);
+        const idempotencyKey = a2aEnvelopeIdempotencyKey(envelope);
         if (envelope.thread_id !== expectedThreadId) {
           issues.push(`envelopes[${index}] belongs to ${envelope.thread_id}`);
         }
-        if (seenEnvelopeIds.has(envelope.id)) {
-          issues.push(`duplicate envelope id: ${envelope.id}`);
+        if (seenEnvelopeKeys.has(idempotencyKey)) {
+          issues.push(
+            `duplicate envelope id/sender_instance_id: ${envelope.id}`,
+          );
         }
-        seenEnvelopeIds.add(envelope.id);
+        seenEnvelopeKeys.add(idempotencyKey);
         envelopes.push(envelope);
       } catch (error) {
         if (error instanceof A2AEnvelopeValidationError) {
@@ -156,6 +187,35 @@ export function listA2AThreadEnvelopes(threadId: string): A2AEnvelope[] {
   return readThreadState(threadId).envelopes;
 }
 
+function compareA2AEnvelopes(left: A2AEnvelope, right: A2AEnvelope): number {
+  const createdAtOrder = left.created_at.localeCompare(right.created_at);
+  if (createdAtOrder !== 0) return createdAtOrder;
+  return left.id.localeCompare(right.id);
+}
+
+function summarizeThreadState(state: A2AThreadState): A2AThreadSummary {
+  const orderedEnvelopes = [...state.envelopes].sort(compareA2AEnvelopes);
+  const latest = orderedEnvelopes.at(-1) ?? null;
+  const participants = new Set<string>();
+  for (const envelope of orderedEnvelopes) {
+    participants.add(envelope.sender_agent_id);
+    participants.add(envelope.recipient_agent_id);
+  }
+
+  return {
+    thread_id: state.thread_id,
+    message_count: state.envelopes.length,
+    participants: [...participants].sort(),
+    latest_message_id: latest?.id ?? null,
+    latest_parent_message_id: latest?.parent_message_id ?? null,
+    latest_sender_agent_id: latest?.sender_agent_id ?? null,
+    latest_recipient_agent_id: latest?.recipient_agent_id ?? null,
+    latest_intent: latest?.intent ?? null,
+    latest_content: latest?.content ?? null,
+    latest_created_at: latest?.created_at ?? null,
+  };
+}
+
 function threadIdFromAssetPath(assetPath: string): string | null {
   const threadsDir = path.join(DEFAULT_RUNTIME_HOME_DIR, 'a2a', 'threads');
   const relativePath = path.relative(threadsDir, assetPath);
@@ -182,6 +242,25 @@ function threadIdFromAssetPath(assetPath: string): string | null {
   }
 }
 
+export function listA2AThreads(): A2AThreadSummary[] {
+  const threads: A2AThreadSummary[] = [];
+  for (const state of listRuntimeAssetRevisionStates('a2a')) {
+    const threadId = threadIdFromAssetPath(state.assetPath);
+    if (!threadId) continue;
+    threads.push(
+      summarizeThreadState(parsePersistedThreadState(state.content, threadId)),
+    );
+  }
+
+  return threads.sort((left, right) => {
+    const recencyOrder = (right.latest_created_at ?? '').localeCompare(
+      left.latest_created_at ?? '',
+    );
+    if (recencyOrder !== 0) return recencyOrder;
+    return left.thread_id.localeCompare(right.thread_id);
+  });
+}
+
 export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
   const recipientAgentId = resolveA2AAgentId(agentId);
   const envelopes: A2AEnvelope[] = [];
@@ -197,21 +276,41 @@ export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
   }
 
   return envelopes.sort((left, right) => {
-    const createdAtOrder = left.created_at.localeCompare(right.created_at);
-    if (createdAtOrder !== 0) return createdAtOrder;
-    return left.id.localeCompare(right.id);
+    return compareA2AEnvelopes(left, right);
   });
 }
 
+/**
+ * Looks up a persisted envelope by the federation idempotency tuple.
+ * Callers may omit senderInstanceId only when the envelope id is unique
+ * within the thread; ambiguous federated ids fail fast.
+ */
 export function getA2AEnvelope(
   threadId: string,
   envelopeId: string,
+  senderInstanceId?: string,
 ): A2AEnvelope | null {
   const normalizedEnvelopeId = normalizeEnvelopeId(envelopeId);
-  const envelope = readThreadState(threadId).envelopes.find(
+  const normalizedSenderInstanceId =
+    senderInstanceId === undefined
+      ? undefined
+      : normalizeSenderInstanceId(senderInstanceId);
+  const matches = readThreadState(threadId).envelopes.filter(
     (entry) => entry.id === normalizedEnvelopeId,
   );
-  return envelope ?? null;
+  if (normalizedSenderInstanceId !== undefined) {
+    return (
+      matches.find(
+        (entry) => entry.sender_instance_id === normalizedSenderInstanceId,
+      ) ?? null
+    );
+  }
+  if (matches.length > 1) {
+    throw new A2AEnvelopeValidationError([
+      `envelope id ${normalizedEnvelopeId} is ambiguous; provide sender_instance_id`,
+    ]);
+  }
+  return matches[0] ?? null;
 }
 
 export function saveA2AEnvelope(
@@ -220,7 +319,13 @@ export function saveA2AEnvelope(
 ): A2AEnvelope {
   const normalizedEnvelope = resolveA2AEnvelopeAgentIds(envelope);
   const state = readThreadState(normalizedEnvelope.thread_id);
-  if (state.envelopes.some((entry) => entry.id === normalizedEnvelope.id)) {
+  if (
+    state.envelopes.some(
+      (entry) =>
+        a2aEnvelopeIdempotencyKey(entry) ===
+        a2aEnvelopeIdempotencyKey(normalizedEnvelope),
+    )
+  ) {
     throw new A2AEnvelopeDuplicateError(
       normalizedEnvelope.id,
       normalizedEnvelope.thread_id,

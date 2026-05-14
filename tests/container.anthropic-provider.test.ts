@@ -89,6 +89,58 @@ describe('Anthropic container provider', () => {
     expect(result.choices[0]?.message.content).toBe('hello back');
   });
 
+  test('marks the system prompt as an Anthropic cache breakpoint', async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.system).toEqual([
+          {
+            type: 'text',
+            text: 'Static system prompt',
+            cache_control: { type: 'ephemeral' },
+          },
+        ]);
+        return new Response(
+          JSON.stringify({
+            id: 'msg_cache',
+            model: 'claude-sonnet-4-6',
+            role: 'assistant',
+            stop_reason: 'end_turn',
+            usage: {
+              input_tokens: 4,
+              output_tokens: 2,
+              cache_creation_input_tokens: 1200,
+            },
+            content: [{ type: 'text', text: 'cached' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callAnthropicProvider({
+      ...baseArgs,
+      messages: [
+        { role: 'system', content: 'Static system prompt' },
+        {
+          role: 'user',
+          content: '<context>\nDate (UTC): 2026-05-13\n</context>',
+        },
+        { role: 'user', content: 'hello' },
+      ],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.usage?.cache_creation_input_tokens).toBe(1200);
+  });
+
   test('sets an inference timeout signal on streaming API requests', async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
     const fetchMock = vi.fn(

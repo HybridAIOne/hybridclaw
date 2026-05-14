@@ -29,6 +29,7 @@ import type {
   AdminCommandResult,
   AdminModelsResponse,
   AgentListItem,
+  DeleteSessionResult,
   GatewayStatus,
 } from '../../api/types';
 import { SidebarProvider } from '../../components/sidebar/index';
@@ -50,6 +51,8 @@ const fetchChatHistoryMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatHistoryResponse>>();
 const fetchChatContextMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatContextResponse>>();
+const deleteChatSessionMock =
+  vi.fn<(token: string, sessionId: string) => Promise<DeleteSessionResult>>();
 const createChatMobileQrMock =
   vi.fn<
     (
@@ -118,6 +121,8 @@ vi.mock('../../api/chat', () => ({
 }));
 
 vi.mock('../../api/client', () => ({
+  deleteSession: (token: string, sessionId: string) =>
+    deleteChatSessionMock(token, sessionId),
   fetchAgentList: (token: string) => fetchAgentListMock(token),
   fetchModels: (token: string) => fetchModelsMock(token),
 }));
@@ -222,6 +227,7 @@ describe('ChatPage', () => {
     fetchChatRecentMock.mockReset();
     fetchChatHistoryMock.mockReset();
     fetchChatContextMock.mockReset();
+    deleteChatSessionMock.mockReset();
     createChatMobileQrMock.mockReset();
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
@@ -293,6 +299,17 @@ describe('ChatPage', () => {
     fetchChatContextMock.mockResolvedValue({
       sessionId: 'session-a',
       snapshot: null,
+    });
+    deleteChatSessionMock.mockResolvedValue({
+      deleted: true,
+      sessionId: 'session-b',
+      deletedMessages: 3,
+      deletedTasks: 0,
+      deletedSemanticMemories: 0,
+      deletedUsageEvents: 0,
+      deletedAuditEntries: 0,
+      deletedStructuredAuditEntries: 0,
+      deletedApprovalEntries: 0,
     });
     executeCommandMock.mockResolvedValue({
       kind: 'plain',
@@ -813,6 +830,271 @@ describe('ChatPage', () => {
 
     expect(screen.getByText('Opened session A')).not.toBeNull();
     expect(fetchChatHistoryMock.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('deletes a recent session from the sidebar after confirmation', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete Session B session' }),
+    );
+    expect(await screen.findByText('Delete session?')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(deleteChatSessionMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-b',
+      ),
+    );
+    await waitFor(() => expect(fetchChatRecentMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Opened session A')).not.toBeNull();
+  });
+
+  it('keeps the delete dialog open when the session was not deleted', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    deleteChatSessionMock.mockResolvedValue({
+      deleted: false,
+      sessionId: 'session-b',
+      deletedMessages: 0,
+      deletedTasks: 0,
+      deletedSemanticMemories: 0,
+      deletedUsageEvents: 0,
+      deletedAuditEntries: 0,
+      deletedStructuredAuditEntries: 0,
+      deletedApprovalEntries: 0,
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete Session B session' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    expect(
+      await screen.findByText('Delete failed: session was not found.'),
+    ).not.toBeNull();
+    expect(screen.getByText('Delete session?')).not.toBeNull();
+    expect(fetchChatRecentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables session delete buttons while deletion is pending', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    deleteChatSessionMock.mockImplementation(
+      () => new Promise<DeleteSessionResult>(() => {}),
+    );
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete Session B session' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole('button', {
+            name: 'Delete Session A session',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true),
+    );
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Delete Session B session',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  it('starts a fresh chat after deleting the active recent session', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    deleteChatSessionMock.mockResolvedValue({
+      deleted: true,
+      sessionId: 'session-a',
+      deletedMessages: 2,
+      deletedTasks: 0,
+      deletedSemanticMemories: 0,
+      deletedUsageEvents: 0,
+      deletedAuditEntries: 0,
+      deletedStructuredAuditEntries: 0,
+      deletedApprovalEntries: 0,
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete Session A session' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(deleteChatSessionMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+      ),
+    );
+    await waitFor(() => expect(routerModule.__testRouter.lastTo).toBe('/chat'));
+  });
+
+  it('renders the jump-to-latest chip when scrolled away and clears it on click', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+
+    renderChatPage();
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    // Chip is gated on isPinned, which defaults to true — must not appear at
+    // rest even when the scroller has just hydrated.
+    expect(screen.queryByLabelText('Jump to latest message')).toBeNull();
+
+    // jsdom doesn't lay out scrollable content; stub the scroll metrics so the
+    // listener's threshold check sees the user well above the bottom.
+    const scroller = document.querySelector(
+      '[class*="messageArea"]',
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => 800,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+      configurable: true,
+      get: () => 200,
+    });
+
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+
+    const chip = await screen.findByLabelText('Jump to latest message');
+    fireEvent.click(chip);
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Jump to latest message')).toBeNull(),
+    );
+  });
+
+  it('re-pins to the latest when the user sends a message while scrolled up', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+
+    renderChatPage();
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    const scroller = document.querySelector(
+      '[class*="messageArea"]',
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => 800,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+      configurable: true,
+      get: () => 200,
+    });
+
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+    expect(
+      await screen.findByLabelText('Jump to latest message'),
+    ).not.toBeNull();
+
+    const input = screen.getByLabelText('Message input');
+    fireEvent.input(input, { target: { value: 'follow up' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith('follow up', []),
+    );
+    // Send re-pins by calling jumpToBottom() before stream dispatch; the chip
+    // must clear so the user lands on their own message.
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Jump to latest message')).toBeNull(),
+    );
+  });
+
+  it('clears the jump-to-latest chip across session switches even if the user was unpinned', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history:
+          sessionId === 'session-b'
+            ? [{ id: 201, role: 'assistant', content: 'Opened session B' }]
+            : [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+      }),
+    );
+
+    renderChatPage();
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    // Unpin in session A by scrolling away from the bottom.
+    const scroller = document.querySelector(
+      '[class*="messageArea"]',
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => 800,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+      configurable: true,
+      get: () => 200,
+    });
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+    expect(
+      await screen.findByLabelText('Jump to latest message'),
+    ).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByText('Session B').closest('button') as HTMLButtonElement,
+    );
+
+    // After session-b history loads, the session-change effect + the scrollRef
+    // safety-belt snap together leave us pinned, so the chip must be gone.
+    expect(await screen.findByText('Opened session B')).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Jump to latest message')).toBeNull(),
+    );
   });
 
   it('creates a branch, prefetches its history, then sends the edited message', async () => {

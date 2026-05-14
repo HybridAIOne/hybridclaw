@@ -32,6 +32,26 @@ export interface MediaContextItem {
 
 export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
+export interface ProviderCredential {
+  apiKey?: string;
+  baseUrl?: string;
+  audioModel?: string;
+  imageModel?: string;
+  videoModel?: string;
+}
+
+export interface ProviderCredentials {
+  speechToText?: {
+    defaultProvider?: string;
+  };
+  openai?: ProviderCredential;
+  gemini?: ProviderCredential;
+  xai?: ProviderCredential;
+  bfl?: ProviderCredential;
+  deepgram?: ProviderCredential;
+  assemblyai?: ProviderCredential;
+}
+
 export interface ContainerInput {
   healthCheck?: {
     nonce: string;
@@ -54,6 +74,7 @@ export interface ContainerInput {
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
+  scheduleSideEffectsEnabled?: boolean;
   skipContainerSystemPrompt?: boolean;
   streamTextDeltas?: boolean;
   debugModelResponses?: boolean;
@@ -71,6 +92,7 @@ export interface ContainerInput {
   taskModels?: TaskModelPolicies;
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
+  providerCredentials?: ProviderCredentials;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
   escalationTarget?: EscalationTarget;

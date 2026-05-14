@@ -65,6 +65,42 @@ export interface GatewayStatus {
     appTokenConfigured: boolean;
     appTokenSource: 'env' | 'runtime-secrets' | null;
   };
+  slackWebhook?: {
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+    lastReachabilityResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+    lastSendResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+  };
+  discordWebhook?: {
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+    lastReachabilityResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+    lastSendResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -410,6 +446,16 @@ export interface AdminChannelsResponse {
     defaultRequireMention: boolean;
     defaultReplyStyle: 'thread' | 'top-level';
   };
+  slackWebhook: {
+    enabled: boolean;
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+  };
+  discordWebhook: {
+    enabled: boolean;
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: 'open' | 'allowlist' | 'disabled';
@@ -439,8 +485,10 @@ export interface AdminConfig {
   };
   channelInstructions: {
     discord: string;
+    discord_webhook: string;
     msteams: string;
     slack: string;
+    slack_webhook: string;
     signal: string;
     telegram: string;
     threema: string;
@@ -550,6 +598,29 @@ export interface AdminConfig {
     textChunkLimit: number;
     replyStyle: 'thread' | 'top-level';
     mediaMaxMb: number;
+  };
+  slackWebhook: {
+    enabled: boolean;
+    webhooks: Record<
+      string,
+      {
+        webhookUrl: string;
+        defaultUsername: string;
+        defaultIconEmoji: string;
+        defaultIconUrl: string;
+      }
+    >;
+  };
+  discordWebhook: {
+    enabled: boolean;
+    webhooks: Record<
+      string,
+      {
+        webhookUrl: string;
+        defaultUsername: string;
+        defaultAvatarUrl: string;
+      }
+    >;
   };
   telegram: {
     enabled: boolean;
@@ -1080,6 +1151,30 @@ export interface AdminA2ATrustUpsertRequest {
   publicKeyFingerprint?: string;
   publicKeyJwk?: JsonWebKey;
   reason?: string;
+}
+
+export interface AdminA2AThreadMessage {
+  id: string;
+  threadId: string;
+  senderAgentId: string;
+  recipientAgentId: string;
+  parentMessageId: string | null;
+  intent: 'chat' | 'handoff' | 'escalate' | 'ack' | 'policy.update';
+  content: string;
+  createdAt: string;
+}
+
+export interface AdminA2AThreadSummary {
+  id: string;
+  messageCount: number;
+  participants: string[];
+  latestMessage: AdminA2AThreadMessage | null;
+}
+
+export interface AdminA2AInboxResponse {
+  threads: AdminA2AThreadSummary[];
+  selectedThreadId: string | null;
+  messages: AdminA2AThreadMessage[];
 }
 
 export interface AdminApprovalAgent {

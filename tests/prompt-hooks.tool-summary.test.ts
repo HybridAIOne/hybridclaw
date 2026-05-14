@@ -30,7 +30,9 @@ test('buildToolsSummary groups the full tool catalog', () => {
   );
   expect(summary).toContain('**Communication**: `message`');
   expect(summary).toContain('**Delegation**: `delegate`');
-  expect(summary).toContain('**Vision**: `vision_analyze`, `image`');
+  expect(summary).toContain('**Vision**: `vision_analyze`');
+  expect(summary).toContain('**Image Generation**: `image_generate`');
+  expect(summary).toContain('**Video Generation**: `video_generate`');
 });
 
 test('buildSystemPromptFromHooks reflects restricted tool availability', () => {
@@ -117,6 +119,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain(
     'Before running a helper under `skills/.../scripts/...`, make sure that exact path came from the skill instructions or from a file read/listing in this turn. Do not invent helper names or guess that a sibling script exists.',
   );
+  expect(prompt).toContain(
+    'Run documented skill helper commands exactly as shown unless the skill explicitly says to modify them. Do not add Node permission flags such as `--experimental-permission`, and do not rewrite `skills/...` helper paths to `/workspace/skills/...`.',
+  );
   expect(prompt).toContain('<available_skills>');
   expect(prompt).toContain('<name>pdf</name>');
   expect(prompt).toContain('<category>office</category>');
@@ -193,7 +198,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. Never emit the real token in prose or tool arguments.',
   );
   expect(prompt).toContain(
-    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
+    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
   );
   expect(prompt).toContain(
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
@@ -249,9 +254,7 @@ test('buildSystemPromptFromHooks uses the provided workspace path in runtime met
   });
 
   expect(prompt).toContain('Workspace: /tmp/hybridclaw-agent-workspace');
-  expect(prompt).toContain(
-    'HybridClaw Documentation: [https://www.hybridclaw.io/docs/](https://www.hybridclaw.io/docs/)',
-  );
+  expect(prompt).toContain('HybridClaw Documentation: [/docs/](/docs/)');
 });
 
 test('buildSystemPromptFromHooks combines model and provider in runtime metadata', () => {

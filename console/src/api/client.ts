@@ -1,4 +1,5 @@
 import type {
+  AdminA2AInboxResponse,
   AdminA2ATrustResponse,
   AdminA2ATrustUpsertRequest,
   AdminAdaptiveSkillAmendmentsResponse,
@@ -54,6 +55,10 @@ import type {
 
 export const TOKEN_STORAGE_KEY = 'hybridclaw_token';
 export const AUTH_REQUIRED_EVENT = 'hybridclaw:auth-required';
+const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
+const LOCAL_AUTH_RELOAD_STORAGE_KEY = 'hybridclaw_local_auth_reload_at';
+const LOCAL_AUTH_RELOAD_COOLDOWN_MS = 15_000;
+let reloadForAuth = () => window.location.reload();
 
 export interface WebCommandRequestBody {
   sessionId: string;
@@ -94,11 +99,64 @@ export function buildWebCommandRequestBody(options: {
 
 export function dispatchAuthRequired(message: string): void {
   clearStoredToken();
+  if (reloadLocalWebSurfaceForAuth()) return;
   window.dispatchEvent(
     new CustomEvent(AUTH_REQUIRED_EVENT, {
       detail: { message },
     }),
   );
+}
+
+function reloadLocalWebSurfaceForAuth(): boolean {
+  if (!isLocalWebSurfaceLocation()) return false;
+
+  const now = Date.now();
+  const lastReloadAt = Number(
+    window.sessionStorage.getItem(LOCAL_AUTH_RELOAD_STORAGE_KEY) || '0',
+  );
+  if (Number.isFinite(lastReloadAt)) {
+    const elapsedMs = now - lastReloadAt;
+    if (elapsedMs >= 0 && elapsedMs < LOCAL_AUTH_RELOAD_COOLDOWN_MS) {
+      return false;
+    }
+  }
+
+  window.sessionStorage.setItem(LOCAL_AUTH_RELOAD_STORAGE_KEY, String(now));
+  reloadForAuth();
+  return true;
+}
+
+function isLocalWebSurfaceLocation(): boolean {
+  if (!isLoopbackHostname(window.location.hostname)) return false;
+  const pathname = window.location.pathname;
+  return (
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/chat' ||
+    pathname.startsWith('/chat/')
+  );
+}
+
+function isLoopbackHostname(value: string): boolean {
+  const hostname = value.toLowerCase();
+  return (
+    hostname === 'localhost' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    /^127(?:\.\d{1,3}){3}$/.test(hostname)
+  );
+}
+
+export function setAuthReloadHandlerForTest(reload: () => void): () => void {
+  const previous = reloadForAuth;
+  reloadForAuth = reload;
+  return () => {
+    reloadForAuth = previous;
+  };
+}
+
+export function isLoopbackHostnameForTest(value: string): boolean {
+  return isLoopbackHostname(value);
 }
 
 export async function readErrorResponseMessage(
@@ -170,9 +228,22 @@ export function readStoredToken(): string {
   const queryToken = (search.get('token') || '').trim();
   if (queryToken) {
     window.localStorage.setItem(TOKEN_STORAGE_KEY, queryToken);
+    removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
     return queryToken;
   }
+  removeSearchParam(LOCAL_TOKEN_BOOTSTRAP_PARAM);
   return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+}
+
+function removeSearchParam(name: string): void {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has(name)) return;
+  url.searchParams.delete(name);
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${url.pathname}${url.search}${url.hash}`,
+  );
 }
 
 export function storeToken(token: string): void {
@@ -237,6 +308,18 @@ export function fetchStatistics(
 
 export function fetchA2ATrust(token: string): Promise<AdminA2ATrustResponse> {
   return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/trust', { token });
+}
+
+export function fetchA2AInbox(
+  token: string,
+  threadId?: string | null,
+): Promise<AdminA2AInboxResponse> {
+  const search = threadId?.trim()
+    ? `?${new URLSearchParams({ threadId: threadId.trim() }).toString()}`
+    : '';
+  return requestJson<AdminA2AInboxResponse>(`/api/admin/a2a/inbox${search}`, {
+    token,
+  });
 }
 
 export function revokeA2ATrustPeer(
@@ -595,6 +678,42 @@ export function saveConfig(
   });
 }
 
+export function saveSlackWebhookTarget(
+  token: string,
+  payload: {
+    target: string;
+    webhookUrl?: string;
+    defaultUsername?: string;
+    defaultIconEmoji?: string;
+    defaultIconUrl?: string;
+  },
+): Promise<AdminConfigResponse> {
+  return requestJson<AdminConfigResponse>('/api/admin/slack-webhook-targets', {
+    token,
+    method: 'PUT',
+    body: payload,
+  });
+}
+
+export function saveDiscordWebhookTarget(
+  token: string,
+  payload: {
+    target: string;
+    webhookUrl?: string;
+    defaultUsername?: string;
+    defaultAvatarUrl?: string;
+  },
+): Promise<AdminConfigResponse> {
+  return requestJson<AdminConfigResponse>(
+    '/api/admin/discord-webhook-targets',
+    {
+      token,
+      method: 'PUT',
+      body: payload,
+    },
+  );
+}
+
 export function startSignalLink(
   token: string,
   options: { cliPath?: string; deviceName?: string },
@@ -895,6 +1014,17 @@ export function uploadSkillZip(
     extraHeaders: {
       'Content-Type': 'application/zip',
     },
+  });
+}
+
+export function unblockSkill(
+  token: string,
+  skillName: string,
+): Promise<AdminSkillsResponse> {
+  return requestJson<AdminSkillsResponse>('/api/admin/skills/unblock', {
+    token,
+    method: 'POST',
+    body: { name: skillName },
   });
 }
 

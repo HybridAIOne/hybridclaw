@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@hybridaione/hybridclaw)](https://www.npmjs.com/package/@hybridaione/hybridclaw)
 [![Node](https://img.shields.io/badge/node-22.x-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/en/download)
 [![License](https://img.shields.io/github/license/HybridAIOne/hybridclaw)](https://github.com/HybridAIOne/hybridclaw/blob/main/LICENSE)
-[![Docs](https://img.shields.io/badge/docs-hybridclaw.io-blue)](https://www.hybridclaw.io/docs/)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://hybridaione.github.io/hybridclaw/docs/)
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/jsVW4vJw27)
 
@@ -19,26 +19,27 @@ security, and operational visibility. It combines sandboxed execution, secure
 credentials, approvals, persistent memory, and admin surfaces behind a single
 gateway.
 
-Connect it to Discord, Slack, Signal, WhatsApp, Telegram, Microsoft Teams,
-email, Twilio voice, or the web. Run it locally, deploy it for business
-workflows, and keep your agents, secrets, and data under your control.
+Connect it to Discord, Discord Incoming Webhooks, Slack, Slack Incoming
+Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, email, Twilio voice, or
+the web. Run it locally, deploy it for business workflows, and keep your
+agents, secrets, and data under your control.
 
-[Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart) ·
-[Installation](https://www.hybridclaw.io/docs/getting-started/installation) ·
-[Configuration](https://www.hybridclaw.io/docs/reference/configuration) ·
-[Migration](https://www.hybridclaw.io/docs/reference/commands#migration) ·
+[Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart) ·
+[Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation) ·
+[Configuration](https://hybridaione.github.io/hybridclaw/docs/reference/configuration) ·
+[Migration](https://hybridaione.github.io/hybridclaw/docs/reference/commands#migration) ·
 [Contributing](./CONTRIBUTING.md) ·
 [Support](./SUPPORT.md)
 
 ## Pick your path
 
 - Want the shortest path to a running assistant? Start with
-  [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart).
+  [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart).
 - Want the full setup flow with providers, channels, and admin surfaces? Start
-  with [Installation](https://www.hybridclaw.io/docs/getting-started/installation)
-  and [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication).
+  with [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation)
+  and [Authentication](https://hybridaione.github.io/hybridclaw/docs/getting-started/authentication).
 - Want to migrate from OpenClaw or Hermes? Start with the
-  [migration commands](https://www.hybridclaw.io/docs/reference/commands#migration).
+  [migration commands](https://hybridaione.github.io/hybridclaw/docs/reference/commands#migration).
 - Want to contribute from source? Start with [CONTRIBUTING.md](./CONTRIBUTING.md)
   and the maintainer docs under [docs/content/README.md](./docs/content/README.md).
 
@@ -98,7 +99,7 @@ listening on `http://127.0.0.1:9090`.
 
 Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
 operator and maintainer manual lives at
-[hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
+[hybridaione.github.io/hybridclaw/docs](https://hybridaione.github.io/hybridclaw/docs/).
 
 ## See it in Action
 
@@ -106,17 +107,20 @@ Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
 - Web Chat keeps a recent-session sidebar and can search conversation titles
-  with contextual snippets before you reopen an older browser session
+  with contextual snippets before you reopen or delete an older browser session
 - Web Chat shows live context-window usage, accepts `/context`, and lets you
   switch the active agent and model from the composer; active agent switching is
   preserved across session reloads and UI route changes
+- Web Chat keeps scrolling pinned when you read older messages and shows a
+  jump-to-latest affordance when new output arrives below the current viewport
 - Web Chat accepts `/btw <question>` side questions while a primary run is
   active, so you can ask an ephemeral follow-up without interrupting the
   current run
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, statistics, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
-- or connect Slack, Signal, WhatsApp, Telegram, Discord, Microsoft Teams, Email
+- or connect Discord, Discord Incoming Webhooks, Slack, Slack Incoming
+  Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, Email
 
 ## Operator workflows
 
@@ -137,6 +141,8 @@ Once the gateway is running, open HybridClaw locally:
   browser.
 - `/admin/statistics` reports message, session, token, cost, and channel trends
   across a selected date range.
+- The Usage rollup surfaces loading skeletons, cost metrics, and per-model
+  spend summaries without scanning every stored session on page load.
 - `/admin/agent-scoreboard` ranks agents by observed skill scores, reliability,
   timing, best skills, and CV links.
 - `hybridclaw agent config` accepts generated JSON payloads to upsert agent
@@ -145,15 +151,26 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/channels` edits transport config, encrypted channel credentials,
   Signal QR linking, Twilio voice settings, and per-channel instructions that
   are injected into prompts at runtime.
+- `slack_webhook` targets provide outbound-only Slack Incoming Webhook delivery
+  with encrypted webhook URLs, named destinations, Block Kit text chunking,
+  reachability status, and POST-only network policy grants.
+- `discord_webhook` targets provide outbound-only Discord Incoming Webhook
+  delivery with encrypted webhook URLs, named destinations, message chunking,
+  reachability status, and POST-only network policy grants.
 - `/admin/approvals` manages approval policies from the browser.
 - Approval policy evaluation runs through a hook-fed rule pipeline, so
   workspace policy ordering and plugin tool-use hooks share one approval path.
+- `/admin/a2a-trust` shows the local A2A public-key trust ledger for paired
+  peer instances.
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
   browser, and shows public URL plus tunnel status, without tearing down the
   enclosing workspace container; keep `hybridclaw gateway restart` for
   local/manual full restarts.
 - `/context` and the web chat context ring show current context-window usage,
   remaining headroom, and compaction counts for the active session.
+- `/goal` stores a standing completion condition for the current thread and
+  queues supervised continuations until the goal is judged complete, paused,
+  cleared, interrupted, or blocked by approval policy.
 - `proactive.delegation.model` can pin delegated work to a different model
   from the parent turn; `/status` shows delegate token totals and local-token
   share when that split is configured.
@@ -177,13 +194,13 @@ Once the gateway is running, open HybridClaw locally:
 - Generated artifacts remain downloadable and attachable even when the sandbox
   exposes a custom workspace display root such as `/app`.
 - `hybridclaw tui` includes live delegate progress, pulsing tool rows,
-  completion checkmarks, a keyboard-driven approval picker, and a ready-to-run
-  `hybridclaw tui --resume <sessionId>` command on exit. Pressing `Esc` stops
-  the active run and returns control to the prompt.
+  completion checkmarks, rendered Markdown tables, a keyboard-driven approval
+  picker, and a ready-to-run `hybridclaw tui --resume <sessionId>` command on
+  exit. Pressing `Esc` stops the active run and returns control to the prompt.
 - `hybridclaw doctor` checks runtime health including resource hygiene
   maintenance for stale gateway artifacts. `hybridclaw doctor browser-use`
-  checks the local browser automation substrate and can install missing
-  Playwright Chromium support with `--fix`.
+  checks the local Playwright browser automation substrate and can install
+  missing Chromium support with `--fix`.
 - `hybridclaw onboarding` and related local setup flows can restore the last
   known-good saved config snapshot or roll back to a tracked revision when
   `config.json` becomes invalid.
@@ -192,6 +209,9 @@ Once the gateway is running, open HybridClaw locally:
 - `hybridclaw skill install <source>`, `skill upgrade`, `skill revisions`, and
   `skill rollback` manage packaged business skills with manifests, audit
   events, and snapshots.
+- `hybridclaw skill list blocked` and `hybridclaw skill unblock <name>` let
+  local operators review scanner-blocked skills and record a bypass marker for
+  the installed copy when the finding has been accepted.
 - The bundled tutorials cover owner, GTM, marketing, sales, DevRel, content,
   invoicing, webinar, and release-launch workflows that can run from the TUI,
   web chat, or connected channels.
@@ -220,6 +240,12 @@ Once the gateway is running, open HybridClaw locally:
 - Brave, Perplexity, and Tavily web-search credentials can live in the
   encrypted runtime secret store and are passed into host or container agent
   runtimes from the active config.
+- Web search can also target a self-hosted SearXNG instance through
+  `web.search.searxngBaseUrl` or `SEARXNG_BASE_URL`; authenticated instances
+  use store-backed SearXNG bearer SecretRefs, and agents can override the
+  global SearXNG base URL and bearer SecretRef for tenant-specific search.
+  Bundled `search.web`, `search.news`, and `search.images` skills prefer that
+  sovereign search path.
 - Google OAuth credentials for Workspace skills live in the encrypted runtime
   secret store; agent runtimes receive short-lived access tokens for `gog` and
   `gws` instead of long-lived refresh tokens.
@@ -237,12 +263,27 @@ Once the gateway is running, open HybridClaw locally:
   credentials, supported channels, and per-agent autonomy policy.
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
   Salesforce inspection, GitHub issue queue processing (`gh-issues`),
-  monthly SaaS invoice harvesting (`download-platform-invoices`),
-  natural-language warehouse SQL (`warehouse-sql`), brand-voice drafting, and
-  editable Excalidraw diagram creation.
-- Browser automation can use local persistent Playwright profiles or Browser
-  Use Cloud sessions with encrypted `BROWSER_USE_API_KEY` storage, usage
-  metering, and shared navigation guards.
+  monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
+  FastBill, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
+  HeyGen, Hermes3000 long-form writing, natural-language warehouse SQL
+  (`warehouse-sql`), brand-voice drafting, speech transcription and language
+  detection (`speech.transcribe`, `speech.detect-language`), validated
+  diagram-as-code creation through `diagram`, and editable Excalidraw diagram
+  creation.
+- Native media tools generate images and videos through configured providers,
+  persist the resulting artifacts, and expose the same capability through the
+  bundled `image-generation`, `video-generation`, and `video.from-script`
+  skills.
+- Native audio transcription can route through configured local or provider
+  backends, produce private transcript artifacts, and attach language,
+  timestamp, speaker, duration, and cost metadata when available.
+- Dynamic per-turn context such as current date, host, today's daily memory,
+  session summary, and retrieved context is appended after the static system
+  prompt so provider prefix caches can reuse the stable prompt prefix.
+- Browser automation can use local persistent Playwright profiles, Camofox
+  profiles, or Browser Use Cloud sessions with encrypted `BROWSER_USE_API_KEY`
+  storage, usage metering, shared navigation guards, SecretRef-gated credential
+  fills, and deny-by-default host allowlisting for Camofox stealth mode.
 - The repo-shipped `brand-voice` plugin can flag, rewrite, or block final
   responses that violate configured voice rules before they reach users.
 - Built-in office skills handle longer PDF creation flows cleanly: the bundled
@@ -305,67 +346,69 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Signal, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, A2A peer trust, board-card storage, and channel integrations for Discord, Discord Incoming Webhooks, Slack, Slack Incoming Webhooks, Signal, Threema, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
   chatbot context before the first prompt, live delegate status/progress,
   an interactive approval picker for pending approvals, and an exit summary
   with a ready-to-run resume command
-- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
+- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, native media-generation tools, web/search adapters, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
 - Communication via file-based IPC (input.json / output.json)
 
 ## Documentation
 
 Browse the full manual at
-[hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
+[hybridaione.github.io/hybridclaw/docs](https://hybridaione.github.io/hybridclaw/docs/).
 
 - Getting started:
-  [Installation](https://www.hybridclaw.io/docs/getting-started/installation),
-  [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication), and
-  [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart)
+  [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation),
+  [Authentication](https://hybridaione.github.io/hybridclaw/docs/getting-started/authentication), and
+  [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart)
 - Enterprise deployment:
-  [Runtime Internals](https://www.hybridclaw.io/docs/developer-guide/runtime) and
-  [Architecture](https://www.hybridclaw.io/docs/developer-guide/architecture)
+  [Runtime Internals](https://hybridaione.github.io/hybridclaw/docs/developer-guide/runtime) and
+  [Architecture](https://hybridaione.github.io/hybridclaw/docs/developer-guide/architecture)
 - Operations:
-  [Remote Access](https://www.hybridclaw.io/docs/guides/remote-access)
+  [Remote Access](https://hybridaione.github.io/hybridclaw/docs/guides/remote-access)
 - Security:
   [SECURITY.md](./SECURITY.md) and [TRUST_MODEL.md](./TRUST_MODEL.md)
 - Migration:
-  [Commands: Migration](https://www.hybridclaw.io/docs/reference/commands#migration) and
-  [FAQ](https://www.hybridclaw.io/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
+  [Commands: Migration](https://hybridaione.github.io/hybridclaw/docs/reference/commands#migration) and
+  [FAQ](https://hybridaione.github.io/hybridclaw/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
 - Channels:
-  [Connect Your First Channel](https://www.hybridclaw.io/docs/getting-started/first-channel),
-  [Overview](https://www.hybridclaw.io/docs/channels/overview),
-  [Twilio Voice](https://www.hybridclaw.io/docs/guides/twilio-voice),
-  [Discord](https://www.hybridclaw.io/docs/channels/discord),
-  [Slack](https://www.hybridclaw.io/docs/channels/slack),
-  [Telegram](https://www.hybridclaw.io/docs/channels/telegram),
-  [Signal](https://www.hybridclaw.io/docs/channels/signal),
-  [Threema](https://www.hybridclaw.io/docs/channels/threema),
-  [Email](https://www.hybridclaw.io/docs/channels/email),
-  [WhatsApp](https://www.hybridclaw.io/docs/channels/whatsapp),
-  [iMessage](https://www.hybridclaw.io/docs/channels/imessage), and
-  [Microsoft Teams](https://www.hybridclaw.io/docs/channels/msteams)
+  [Connect Your First Channel](https://hybridaione.github.io/hybridclaw/docs/getting-started/first-channel),
+  [Overview](https://hybridaione.github.io/hybridclaw/docs/channels/overview),
+  [Twilio Voice](https://hybridaione.github.io/hybridclaw/docs/guides/twilio-voice),
+  [Discord](https://hybridaione.github.io/hybridclaw/docs/channels/discord),
+  [Discord Incoming Webhook](https://hybridaione.github.io/hybridclaw/docs/channels/discord-webhook),
+  [Slack](https://hybridaione.github.io/hybridclaw/docs/channels/slack),
+  [Slack Incoming Webhook](https://hybridaione.github.io/hybridclaw/docs/channels/slack-webhook),
+  [Telegram](https://hybridaione.github.io/hybridclaw/docs/channels/telegram),
+  [Signal](https://hybridaione.github.io/hybridclaw/docs/channels/signal),
+  [Threema](https://hybridaione.github.io/hybridclaw/docs/channels/threema),
+  [Email](https://hybridaione.github.io/hybridclaw/docs/channels/email),
+  [WhatsApp](https://hybridaione.github.io/hybridclaw/docs/channels/whatsapp),
+  [iMessage](https://hybridaione.github.io/hybridclaw/docs/channels/imessage), and
+  [Microsoft Teams](https://hybridaione.github.io/hybridclaw/docs/channels/msteams)
 - Tutorials:
-  [Practical Workflows](https://www.hybridclaw.io/docs/tutorials) for owner,
+  [Practical Workflows](https://hybridaione.github.io/hybridclaw/docs/tutorials) for owner,
   GTM, marketing, sales, DevRel, content, invoicing, webinar, and release
   launch workflows
 - Skills and plugins:
-  [Extensibility](https://www.hybridclaw.io/docs/extensibility),
-  [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
-  [Plugin System](https://www.hybridclaw.io/docs/extensibility/plugins),
-  [Memory Plugins](https://www.hybridclaw.io/docs/extensibility/memory-plugins),
-  [ByteRover Memory Plugin](https://www.hybridclaw.io/docs/extensibility/byterover-memory-plugin),
-  [GBrain Plugin](https://www.hybridclaw.io/docs/extensibility/gbrain-plugin),
-  [Mem0 Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mem0-memory-plugin),
-  [Honcho Memory Plugin](https://www.hybridclaw.io/docs/extensibility/honcho-memory-plugin), and
-  [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mempalace-memory-plugin)
+  [Extensibility](https://hybridaione.github.io/hybridclaw/docs/extensibility),
+  [Bundled Skills](https://hybridaione.github.io/hybridclaw/docs/guides/bundled-skills),
+  [Plugin System](https://hybridaione.github.io/hybridclaw/docs/extensibility/plugins),
+  [Memory Plugins](https://hybridaione.github.io/hybridclaw/docs/extensibility/memory-plugins),
+  [ByteRover Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/byterover-memory-plugin),
+  [GBrain Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/gbrain-plugin),
+  [Mem0 Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/mem0-memory-plugin),
+  [Honcho Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/honcho-memory-plugin), and
+  [MemPalace Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/mempalace-memory-plugin)
 - Configuration:
-  [Configuration Reference](https://www.hybridclaw.io/docs/reference/configuration)
+  [Configuration Reference](https://hybridaione.github.io/hybridclaw/docs/reference/configuration)
 - CLI reference:
-  [Commands](https://www.hybridclaw.io/docs/reference/commands),
-  [Diagnostics](https://www.hybridclaw.io/docs/reference/diagnostics), and
-  [FAQ](https://www.hybridclaw.io/docs/reference/faq)
+  [Commands](https://hybridaione.github.io/hybridclaw/docs/reference/commands),
+  [Diagnostics](https://hybridaione.github.io/hybridclaw/docs/reference/diagnostics), and
+  [FAQ](https://hybridaione.github.io/hybridclaw/docs/reference/faq)
 
 ## Contributing
 

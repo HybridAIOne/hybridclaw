@@ -3,10 +3,12 @@ import { pluralize } from '../lib/format';
 
 export type ChannelKind =
   | 'discord'
+  | 'discord_webhook'
   | 'slack'
   | 'signal'
   | 'telegram'
   | 'threema'
+  | 'slack_webhook'
   | 'voice'
   | 'whatsapp'
   | 'email'
@@ -23,8 +25,10 @@ export interface ChannelCatalogItem {
 
 interface ChannelCatalogOptions {
   discordTokenConfigured?: boolean;
+  discordWebhookDefaultConfigured?: boolean;
   slackBotTokenConfigured?: boolean;
   slackAppTokenConfigured?: boolean;
+  slackWebhookDefaultConfigured?: boolean;
   signalDaemonUrlConfigured?: boolean;
   signalAccountConfigured?: boolean;
   signalCliAvailable?: boolean;
@@ -274,6 +278,70 @@ function describeSlack(
   };
 }
 
+function describeSlackWebhook(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const targetCount = Object.keys(config.slackWebhook.webhooks).length;
+  const active =
+    config.slackWebhook.enabled &&
+    options.slackWebhookDefaultConfigured === true;
+  const configured = active || config.slackWebhook.enabled || targetCount > 0;
+  const statusTone = active
+    ? 'active'
+    : configured
+      ? 'configured'
+      : 'available';
+
+  return {
+    kind: 'slack_webhook',
+    label: 'Slack Incoming Webhook',
+    summary:
+      targetCount > 0
+        ? `${pluralize(targetCount, 'webhook target')} · outbound only`
+        : 'No webhook targets configured yet',
+    statusTone,
+    statusLabel:
+      statusTone === 'active'
+        ? 'active'
+        : statusTone === 'configured'
+          ? 'configured'
+          : 'available',
+  };
+}
+
+function describeDiscordWebhook(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const targetCount = Object.keys(config.discordWebhook.webhooks).length;
+  const active =
+    config.discordWebhook.enabled &&
+    options.discordWebhookDefaultConfigured === true;
+  const configured = active || config.discordWebhook.enabled || targetCount > 0;
+  const statusTone = active
+    ? 'active'
+    : configured
+      ? 'configured'
+      : 'available';
+
+  return {
+    kind: 'discord_webhook',
+    label: 'Discord Incoming Webhook',
+    summary:
+      targetCount > 0
+        ? `${pluralize(targetCount, 'webhook target')} · outbound only`
+        : 'No webhook targets configured yet',
+    statusTone,
+    statusLabel:
+      statusTone === 'active'
+        ? 'active'
+        : statusTone === 'configured'
+          ? 'configured'
+          : 'available',
+  };
+}
+
 function describeVoice(
   config: AdminConfig,
   options: ChannelCatalogOptions,
@@ -422,7 +490,9 @@ export function buildChannelCatalog(
 ): ChannelCatalogItem[] {
   return [
     describeDiscord(config, options),
+    describeDiscordWebhook(config, options),
     describeSlack(config, options),
+    describeSlackWebhook(config, options),
     describeTelegram(config, options),
     describeSignal(config, options),
     describeThreema(config, options),

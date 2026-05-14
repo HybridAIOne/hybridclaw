@@ -8,7 +8,7 @@ Use before implementation.
 
 ```markdown
 Skill design:
-- Name: <hyphen-case>
+- Name: <lowercase-skill-id>
 - Trigger description: <frontmatter description draft>
 - Scope: <in-scope tasks>
 - Exclusions: <out-of-scope tasks>

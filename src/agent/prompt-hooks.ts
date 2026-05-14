@@ -1,4 +1,3 @@
-import os from 'node:os';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,
@@ -35,7 +34,7 @@ import {
   type Skill,
   type SkillInvocation,
 } from '../skills/skills.js';
-import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
+import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
 import type {
   ExtendedPromptHookName,
   PromptPartName,
@@ -209,16 +208,19 @@ function buildSkillsSection(skillsPrompt: string): string {
     '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
     '- For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
     '- Before running a helper under `skills/.../scripts/...`, make sure that exact path came from the skill instructions or from a file read/listing in this turn. Do not invent helper names or guess that a sibling script exists.',
+    '- Run documented skill helper commands exactly as shown unless the skill explicitly says to modify them. Do not add Node permission flags such as `--experimental-permission`, and do not rewrite `skills/...` helper paths to `/workspace/skills/...`.',
     '',
     trimmed,
   ].join('\n');
 }
 
 function buildBootstrapHook(context: PromptHookContext): string {
-  const contextFiles = loadBootstrapFiles(context.agentId).filter((file) => {
-    const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
-    return part ? isBootstrapPartSelected(part, context) : true;
-  });
+  const contextFiles = loadStaticBootstrapFiles(context.agentId).filter(
+    (file) => {
+      const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
+      return part ? isBootstrapPartSelected(part, context) : true;
+    },
+  );
   const contextPrompt = buildContextPrompt(contextFiles);
   const skillsPrompt = context.explicitSkillInvocation
     ? ''
@@ -433,7 +435,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
     'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
     'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. Never emit the real token in prose or tool arguments.',
-    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
+    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
     'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
     'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',
     'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
@@ -593,8 +595,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
   const lines = [
     '## Runtime Metadata',
     `HybridClaw version: v${APP_VERSION}`,
-    'HybridClaw Documentation: [https://www.hybridclaw.io/docs/](https://www.hybridclaw.io/docs/)',
-    `Date (UTC): ${new Date().toISOString().slice(0, 10)}`,
+    'HybridClaw Documentation: [/docs/](/docs/)',
     modelSentence,
     runtimeInfo.channelId?.trim()
       ? `Channel ID: ${runtimeInfo.channelId.trim()}`
@@ -602,7 +603,6 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Guild ID: ${guildLabel}`,
     `Node: ${process.version}`,
     `OS: ${process.platform} (${process.arch})`,
-    `Host: ${os.hostname()}`,
     `Workspace: ${workspaceLabel}`,
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',

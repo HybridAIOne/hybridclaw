@@ -296,8 +296,13 @@ hybridclaw secret route remove <url-prefix> [header]
 hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
 hybridclaw channels slack manifest [--format <yaml|json>]
 hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
+hybridclaw channels discord_webhook setup --webhook-url <https://discord.com/api/webhooks/...> [--target default] [--default-username <name>] [--default-avatar-url <url>]
+hybridclaw channels slack_webhook setup --webhook-url <https://hooks.slack.com/services/...> [--target default] [--default-username <name>] [--default-icon-emoji <:emoji:>] [--default-icon-url <url>]
+hybridclaw channel add discord_webhook --webhook-url <https://discord.com/api/webhooks/...> [--target default]
+hybridclaw channel add slack_webhook --webhook-url <https://hooks.slack.com/services/...> [--target default]
 hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
 hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
+hybridclaw channels threema setup --identity <gateway-id> [--secret <gateway-secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
@@ -307,10 +312,14 @@ hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 ```
 
-Microsoft Teams and Slack setup use `auth login` instead of `channels setup`
-because they need app credentials rather than a local pairing flow. For the
-step-by-step setup guides, see [Channels: Overview](../channels/overview.md)
-and [Connect Your First Channel](../getting-started/first-channel.md).
+Microsoft Teams and full Slack setup use `auth login` instead of
+`channels setup` because they need app credentials rather than a local pairing
+flow. Slack Incoming Webhook and Discord Incoming Webhook setup are
+outbound-only and store each webhook URL as an encrypted runtime secret.
+Threema uses Gateway Basic mode for outbound text delivery. For the
+step-by-step setup guides, see
+[Channels: Overview](../channels/overview.md) and
+[Connect Your First Channel](../getting-started/first-channel.md).
 Twilio voice is configured through `/admin/channels` or direct `voice.*`
 config keys, then inspected or used for outbound dialing with
 `hybridclaw gateway voice info` and `hybridclaw gateway voice call <number>`.
@@ -570,6 +579,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/export session [sessionId]` | local and chat channels | Export a session snapshot |
 | `/export trace [sessionId|all]` | local and chat channels | Export trace JSONL |
 | `/fullauto [status|off|on [prompt]|prompt]` | local and chat channels | Inspect or control full-auto mode for the session |
+| `/goal [condition|status|pause|resume|clear]` | local and chat channels | Set a completion condition and keep working until judged complete or paused |
 | `/help` or `/h` | local and chat channels | Show slash-command help |
 | `/info` | TUI | Show bot, model, and runtime status together |
 | `/mcp [list|add|toggle|remove|reconnect]` | local and chat channels | Manage runtime MCP servers |
@@ -592,6 +602,52 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/usage [summary|daily|monthly|model ...]` | local and chat channels | Show token/cost usage summaries |
 | `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call |
 | `/exit`, `/quit`, or `/q` | TUI | Exit the TUI |
+
+### Standing Goals
+
+`/goal <condition>` and `/goal set <condition>` store one active completion
+condition for the current thread and queue it as the first supervised user-role
+turn. A useful shape is:
+
+```text
+/goal [do the work] until [measurable end state] without [constraints]
+```
+
+Strong conditions have three parts: the task in one clear line, a measurable
+done state, and any constraints the agent must follow. Examples:
+
+```text
+/goal research recent changes in EU AI Act enforcement until you have a cited brief without using non-primary sources
+/goal improve README until a new contributor can install, run, and test the project without asking follow-up questions
+/goal add a dark/light theme toggle until it persists in localStorage and is verified in browser without changing unrelated UI
+```
+
+Later continuations are also normal user-role turns tagged internally as
+`goal-continuation`; they do not change the system prompt, tool set, or
+approval policy. Only one standing goal is active per thread.
+
+Use `/goal` or `/goal status` to inspect progress, `/goal pause` to stop
+queueing continuations, `/goal resume` to continue, and `/goal clear` to remove
+the stored goal. `stop`, `off`, `reset`, `none`, and `cancel` are aliases for
+`clear`. Status shows the condition, elapsed time, evaluated turns, token/cost
+spend since the goal was set, and the judge's most recent reason. If the goal
+has already been achieved, `/goal` keeps showing the achieved condition and its
+final counters until you set or clear another goal. The default budget is 20
+continuation turns. After each continuation, a cheap judge checks the condition
+against the recent conversation context and returns strict JSON
+`{ "done": boolean, "reason": string }`; if the answer is no, the reason is
+included as guidance for the next turn. The loop pauses after three malformed
+judge responses.
+
+High-stakes tool calls inside goal continuations still escalate through the
+same approval flow as ordinary turns. Pending approvals pause the goal without
+counting another turn, and any real user message preempts the loop so the
+operator stays in control. `/goal` persists intent; it does not bypass
+approval policy or grant full-auto permissions.
+
+Agent budget hard-stops pause active goals through the R5.3 integration hook.
+The hard-stop emitter is not present in this release, so the hook is explicitly
+reserved for the R5.3 signal when that spend-tracking enforcement lands.
 
 - local TUI/web sessions also support `/memory inspect [sessionId]` to inspect
   the built-in memory layers for the current or an explicit session id

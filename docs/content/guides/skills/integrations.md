@@ -1,6 +1,6 @@
 ---
 title: Integrations & Utilities
-description: 1Password, Stripe, Sokosumi, Google Workspace, and utility skills.
+description: 1Password, Stripe, Google Ads, GA4, Firecrawl, Sokosumi, Google Workspace, and utility skills.
 sidebar_position: 9
 ---
 
@@ -204,6 +204,239 @@ hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-
   flow only accepts pre-hashed SHA-256 email, phone, and address-info values
   from a controlled source and splits list creation, offline job creation, hash
   add, and job run into separately approved commands.
+
+---
+
+## ga4
+
+Run production Google Analytics 4 Data API reports with reviewable request
+planning and gateway-injected bearer auth.
+
+**Prerequisites** — authorize Google OAuth with
+`https://www.googleapis.com/auth/analytics.readonly` and enable the Google
+Analytics Admin API and Google Analytics Data API in the same Google Cloud
+project. For unattended jobs, store service-account email/private-key secrets
+and use the service-account options documented in the skill.
+
+```bash
+hybridclaw auth login google \
+  --client-id "<client-id>" \
+  --client-secret "<client-secret>" \
+  --account you@example.com \
+  --scopes "https://www.googleapis.com/auth/analytics.readonly"
+
+hybridclaw secret route add https://analyticsadmin.googleapis.com/ google-oauth Authorization Bearer
+hybridclaw secret route add https://analyticsdata.googleapis.com/ google-oauth Authorization Bearer
+hybridclaw secret set GA4_PROPERTY_ID "<numeric-property-id>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with `report-plan` for natural-language analyst questions, then review
+> the emitted Data API request JSON before live execution.
+>
+> Keep GA4 reporting read-only. Property access changes, admin mutations,
+> key-event edits, and tag changes are outside this skill.
+>
+> Use stored defaults such as `GA4_PROPERTY_ID` for recurring reports so
+> scheduled jobs stay self-contained.
+
+> 🎯 **Try it yourself**
+>
+> `Show sessions, users, key events, and revenue for the last 7 days by default channel group`
+>
+> `Compare organic landing pages this week against the prior week and flag pages with falling conversions`
+>
+> `Build a GA4 runReport request for daily sessions and revenue over the last 30 days, then review it before execution`
+
+**Troubleshooting**
+
+- **`SERVICE_DISABLED`** — enable Google Analytics Admin API and Google
+  Analytics Data API in the OAuth client project, then retry after a few
+  minutes.
+- **`PERMISSION_DENIED`** — grant the authorized Google account Viewer or
+  Analyst access to the GA4 property.
+- **`insufficient authentication scopes`** — rerun `hybridclaw auth login
+  google` with the analytics readonly scope.
+
+---
+
+## airtable
+
+Search Airtable bases and tables, read records and computed fields, and prepare
+guarded record CRUD requests with schema-based field validation.
+
+**Prerequisites** — an Airtable personal access token or OAuth bearer token
+stored in HybridClaw encrypted runtime secrets.
+
+```bash
+hybridclaw secret set AIRTABLE_PAT "<pat-or-oauth-access-token>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with base and table discovery before reading or writing records.
+>
+> Read the schema before writes so field ids, field types, select choices, and
+> computed fields are known.
+>
+> Creates, updates, attachments, and deletes require explicit operator grant;
+> computed fields are read-only.
+
+> 🎯 **Try it yourself**
+>
+> `List my accessible Airtable bases and show the tables in the CRM base`
+>
+> `Find overdue records in the Projects table and summarize them by owner`
+>
+> `Plan an Airtable update that sets Status to "In Review" for record rec123, but do not execute it yet`
+
+---
+
+## fastbill
+
+Work with FastBill invoices, customers, payment state, reminders, and
+e-invoice handoff data through the FastBill XML API.
+
+**Prerequisites** — FastBill account email and API key stored as encrypted
+runtime secrets, plus a Basic-auth secret route for the FastBill API.
+
+```bash
+hybridclaw secret set FASTBILL_EMAIL you@example.com
+hybridclaw secret set FASTBILL_API_KEY "<fastbill-api-key>"
+hybridclaw secret set FASTBILL_BASIC_AUTH "<base64-email-colon-api-key>"
+hybridclaw secret route add https://my.fastbill.com/api/1.0/ FASTBILL_BASIC_AUTH Authorization Basic
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with read-only invoice and customer inspection.
+>
+> Use dry runs before creating customers or invoices from natural-language
+> source data.
+>
+> Complete, cancel, lock, delete, send, or mark-paid operations require exact
+> operator approval.
+
+> 🎯 **Try it yourself**
+>
+> `Show unpaid FastBill invoices due before the end of this month`
+>
+> `Draft a customer-create request for Acme GmbH without executing it`
+>
+> `Prepare the XRechnung/ZUGFeRD handoff information for invoice 12345`
+
+---
+
+## firecrawl
+
+Scrape pages, crawl public sites, map URLs, and run JSON-schema extraction
+through managed or self-hosted Firecrawl.
+
+**Prerequisites** — managed mode uses a Firecrawl API key stored in
+HybridClaw encrypted runtime secrets.
+
+```bash
+hybridclaw secret set FIRECRAWL_API_KEY "<fc-api-key>"
+```
+
+Self-host mode uses a gateway-reachable Firecrawl origin:
+
+```bash
+export FIRECRAWL_SELF_HOST_BASE_URL="http://firecrawl:3002"
+```
+
+If the self-hosted instance has API authentication enabled, store
+`FIRECRAWL_SELF_HOST_API_KEY` and pass `--self-host-auth` when building the
+request.
+
+> 💡 **Tips & Tricks**
+>
+> Use Firecrawl for public unauthenticated web ingestion.
+>
+> Use self-host mode when crawled content must stay on your own Firecrawl
+> infrastructure. Keep the self-host base URL reachable by the gateway, not
+> only by the agent container.
+>
+> Use browser automation instead when a task needs login, interaction, form
+> filling, visual inspection, or client-side state.
+>
+> Crawls and maps use explicit bounded limits and do not ignore robots.txt.
+
+> 🎯 **Try it yourself**
+>
+> `Scrape https://example.com/docs and return markdown`
+>
+> `Map the public URLs under https://example.com/docs with a limit of 100`
+>
+> `Extract product names and prices from a public pricing page into JSON`
+
+---
+
+## search.web, search.news, and search.images
+
+Search through the configured self-hosted SearXNG instance for current
+information, source discovery, news, or image result discovery.
+
+**Prerequisites** — a reachable SearXNG instance configured with
+`web.search.searxngBaseUrl` or `SEARXNG_BASE_URL`. Authenticated SearXNG
+instances must use store-backed bearer SecretRefs; plaintext bearer tokens are
+rejected.
+
+> 💡 **Tips & Tricks**
+>
+> Use these skills when sovereignty-sensitive research should avoid hosted
+> search APIs.
+>
+> Search result snippets are not page evidence. Fetch the best result before
+> relying on page-level facts.
+>
+> Use hosted search providers only when the user explicitly asks to leave the
+> self-hosted SearXNG path.
+>
+> Configure `agents.list[].webSearch.searxngBaseUrl` and
+> `agents.list[].webSearch.searxngBearerTokenRef` when one agent should use a
+> tenant-specific SearXNG instance.
+
+> 🎯 **Try it yourself**
+>
+> `Search the web for current HybridClaw documentation links`
+>
+> `Find recent news about European AI regulation and list the source URLs`
+>
+> `Search images for product-dashboard UI references`
+
+---
+
+## heygen
+
+Prepare guarded HeyGen Direct API requests for avatar video generation, video
+translation, asset discovery, and status polling.
+
+**Prerequisites** — a HeyGen API key stored in HybridClaw encrypted runtime
+secrets.
+
+```bash
+hybridclaw secret set HEYGEN_API_KEY "<api-key>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with avatar, voice, or translation-language discovery.
+>
+> Run marketing, sales, training, and public scripts through the brand-voice
+> gate before spending credits.
+>
+> Video generation and translation require explicit operator grant; public
+> publishing is a red-tier action.
+
+> 🎯 **Try it yourself**
+>
+> `List available HeyGen avatars and voices for an English onboarding video`
+>
+> `Plan an avatar video from this approved script without generating it yet`
+>
+> `Check the status of HeyGen video id abc123`
 
 ---
 
@@ -429,7 +662,7 @@ commands, runtime behavior, and release notes.
 
 > 💡 **Tips & Tricks**
 >
-> The skill consults public docs at `hybridclaw.io/docs` first, then falls back to GitHub source files.
+> The skill consults public docs at `hybridaione.github.io/hybridclaw/docs` first, then falls back to GitHub source files.
 >
 > It checks the CHANGELOG for recent changes when relevant.
 >

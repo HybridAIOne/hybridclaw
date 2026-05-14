@@ -8,6 +8,7 @@ import type {
 import type { ChannelInfo } from '../channels/channel.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { GatewayChatResult } from '../gateway/gateway-types.js';
+import type { AuxiliaryModelCallParams } from '../providers/auxiliary.js';
 import type { AIProvider } from '../providers/types.js';
 import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -110,6 +111,16 @@ export interface PluginCandidate {
   config: Record<string, unknown>;
 }
 
+export interface PluginAvailableSummary {
+  id: string;
+  name?: string;
+  version?: string;
+  description?: string;
+  source: 'bundled' | 'project';
+  dir: string;
+  installSource: string;
+}
+
 export interface PluginRuntime {
   readonly cwd: string;
   readonly homeDir: string;
@@ -180,6 +191,17 @@ export interface PluginTokenUsage {
   completionTokens: number;
   totalTokens: number;
   modelCalls: number;
+}
+
+export type PluginAuxiliaryModelRequest = Omit<
+  AuxiliaryModelCallParams,
+  'task'
+> & {
+  task?: AuxiliaryModelCallParams['task'];
+};
+
+export interface PluginAuxiliaryModelResult {
+  content: string;
 }
 
 export interface PluginAgentEndContext {
@@ -499,6 +521,9 @@ export interface HybridClawPluginApi {
   resolvePath(relative: string): string;
   getCredential(key: string): string | undefined;
   getMcpServerConfig(name: string): Readonly<McpServerConfig> | null;
+  callAuxiliaryModel(
+    request: PluginAuxiliaryModelRequest,
+  ): Promise<PluginAuxiliaryModelResult>;
   writeConfigValue(key: string, rawValue: string): Promise<void>;
   unsetConfigValue(key: string): Promise<void>;
   resolveSessionAgentId(sessionId: string): string;

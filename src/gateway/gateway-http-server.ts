@@ -25,7 +25,6 @@ import {
 import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
-import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
   getSignalLinkState,
   startSignalLink,
@@ -154,6 +153,7 @@ import {
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
   getGatewayA2AAgentCard,
+  getGatewayAdminA2AInbox,
   getGatewayAdminA2ATrust,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
@@ -193,10 +193,13 @@ import {
   revokeGatewayAdminA2ATrustPeer,
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
+  saveGatewayAdminDiscordWebhookTarget,
   saveGatewayAdminModels,
   saveGatewayAdminPolicyDefault,
   saveGatewayAdminPolicyRule,
+  saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
+  unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
   upsertGatewayAdminA2ATrustPeer,
@@ -205,6 +208,8 @@ import {
 } from './gateway-service.js';
 import type {
   GatewayAdminA2ATrustUpsertRequest,
+  GatewayAdminDiscordWebhookTargetRequest,
+  GatewayAdminSlackWebhookTargetRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
   GatewayChatRequestBody,
@@ -247,6 +252,7 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
+const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -748,13 +754,26 @@ function extractHostnameFromHostHeader(
 }
 
 function isLocalWebSessionAllowed(req: IncomingMessage): boolean {
+  return (
+    !WEB_API_TOKEN && isLoopbackHost(HEALTH_HOST) && isLoopbackWebRequest(req)
+  );
+}
+
+function isLoopbackWebRequest(req: IncomingMessage): boolean {
   const requestHost = extractHostnameFromHostHeader(req.headers.host);
   return (
-    !WEB_API_TOKEN &&
-    isLoopbackHost(HEALTH_HOST) &&
     isLoopbackSocketAddress(req.socket.remoteAddress) &&
     !hasForwardingHeaders(req) &&
     Boolean(requestHost && isLoopbackHost(requestHost))
+  );
+}
+
+function shouldBootstrapLocalWebToken(req: IncomingMessage, url: URL): boolean {
+  return (
+    Boolean(WEB_API_TOKEN) &&
+    isConsoleSpaPath(url.pathname) &&
+    !url.searchParams.has(LOCAL_TOKEN_BOOTSTRAP_PARAM) &&
+    isLoopbackWebRequest(req)
   );
 }
 
@@ -846,6 +865,39 @@ function dispatchWebhookRoute(
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(text);
+}
+
+function sendWebTokenBootstrap(
+  res: ServerResponse,
+  params: {
+    redirectTo: string;
+    userId?: string;
+  },
+): void {
+  const escapedToken = escapeInlineScriptValue(WEB_API_TOKEN);
+  const escapedRedirect = escapeInlineScriptValue(params.redirectTo);
+  const escapedUserId = escapeInlineScriptValue(params.userId || '');
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(
+    `<!DOCTYPE html><html><body><script>` +
+      `localStorage.setItem('hybridclaw_token',${escapedToken});` +
+      `if (${escapedUserId}) localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
+      `window.location.replace(${escapedRedirect});` +
+      `</script></body></html>`,
+  );
+}
+
+function sendLocalWebTokenBootstrap(res: ServerResponse, url: URL): void {
+  const redirectUrl = new URL(url);
+  redirectUrl.searchParams.set(LOCAL_TOKEN_BOOTSTRAP_PARAM, '1');
+  sendWebTokenBootstrap(res, {
+    redirectTo: `${redirectUrl.pathname}${redirectUrl.search}`,
+  });
 }
 
 function sendRedirect(
@@ -2990,6 +3042,36 @@ async function handleApiAdminConfig(
   sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
 }
 
+async function handleApiAdminSlackWebhookTargets(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as
+    | GatewayAdminSlackWebhookTargetRequest
+    | undefined;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    sendJson(res, 400, { error: 'Expected Slack webhook target object.' });
+    return;
+  }
+
+  sendJson(res, 200, saveGatewayAdminSlackWebhookTarget(body));
+}
+
+async function handleApiAdminDiscordWebhookTargets(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as
+    | GatewayAdminDiscordWebhookTargetRequest
+    | undefined;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    sendJson(res, 400, { error: 'Expected Discord webhook target object.' });
+    return;
+  }
+
+  sendJson(res, 200, saveGatewayAdminDiscordWebhookTarget(body));
+}
+
 async function handleApiAdminA2ATrust(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3039,6 +3121,21 @@ async function handleApiAdminA2ATrust(
         ? deleteGatewayAdminA2ATrustPeer({ peerId })
         : revokeGatewayAdminA2ATrustPeer({ peerId, reason }),
     );
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
+function handleApiAdminA2AInbox(res: ServerResponse, url: URL): void {
+  const threadId = (url.searchParams.get('threadId') || '').trim() || null;
+  try {
+    sendJson(res, 200, getGatewayAdminA2AInbox({ threadId }));
   } catch (error) {
     sendJson(
       res,
@@ -3901,6 +3998,28 @@ async function handleApiAdminSkills(
   );
 }
 
+async function handleApiAdminSkillUnblock(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = req.method || 'GET';
+  if (method !== 'POST') {
+    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as {
+    name?: unknown;
+  };
+  sendJson(
+    res,
+    200,
+    unblockGatewayAdminSkill({
+      name: String(body.name || ''),
+    }),
+  );
+}
+
 function handleApiAdminAgentScoreboard(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminAgentScoreboard());
 }
@@ -4410,35 +4529,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         // token prompt.  The token never appears in the URL (avoiding
         // leaks via browser history, referrer headers, or server logs).
         if (WEB_API_TOKEN) {
-          // Escape for safe inline-script embedding: JSON.stringify handles
-          // JS-level escaping, then replace `<` to prevent the HTML parser
-          // from closing the <script> block early (e.g. a token containing
-          // "</script>").
-          const escaped = JSON.stringify(WEB_API_TOKEN).replace(
-            /</g,
-            '\\u003c',
-          );
-          const escapedRedirect = JSON.stringify(redirectTo).replace(
-            /</g,
-            '\\u003c',
-          );
-          const escapedUserId = JSON.stringify(
-            normalizeOptionalString(payload.sub) || '',
-          ).replace(/</g, '\\u003c');
-          res.writeHead(200, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-store',
-            'Content-Security-Policy':
-              "default-src 'none'; script-src 'unsafe-inline'",
-            'X-Content-Type-Options': 'nosniff',
+          sendWebTokenBootstrap(res, {
+            redirectTo,
+            userId: normalizeOptionalString(payload.sub) || undefined,
           });
-          res.end(
-            `<!DOCTYPE html><html><body><script>` +
-              `localStorage.setItem('hybridclaw_token',${escaped});` +
-              `if (${escapedUserId}) localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
-              `window.location.replace(${escapedRedirect});` +
-              `</script></body></html>`,
-          );
         } else {
           sendRedirect(res, 302, redirectTo);
         }
@@ -4488,7 +4582,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
     if (pathname.startsWith('/api/')) {
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
-        dispatchWebhookRoute(res, () => handleMSTeamsWebhook(req, res));
+        dispatchWebhookRoute(res, async () => {
+          const { handleMSTeamsWebhook } = await import(
+            '../channels/msteams/runtime.js'
+          );
+          await handleMSTeamsWebhook(req, res);
+        });
         return;
       }
       if (pathname === IMESSAGE_WEBHOOK_PATH && method === 'POST') {
@@ -4652,10 +4751,28 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (
+            pathname === '/api/admin/slack-webhook-targets' &&
+            (method === 'POST' || method === 'PUT')
+          ) {
+            await handleApiAdminSlackWebhookTargets(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/discord-webhook-targets' &&
+            (method === 'POST' || method === 'PUT')
+          ) {
+            await handleApiAdminDiscordWebhookTargets(req, res);
+            return;
+          }
+          if (
             pathname === '/api/admin/a2a/trust' &&
             (method === 'GET' || method === 'DELETE')
           ) {
             await handleApiAdminA2ATrust(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {
+            handleApiAdminA2AInbox(res, url);
             return;
           }
           if (
@@ -4741,6 +4858,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/skills') {
             await handleApiAdminSkills(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/skills/unblock') {
+            await handleApiAdminSkillUnblock(req, res);
             return;
           }
           if (pathname === '/api/admin/skills/upload') {
@@ -4915,6 +5036,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
+      return;
+    }
+
+    if (shouldBootstrapLocalWebToken(req, url)) {
+      sendLocalWebTokenBootstrap(res, url);
       return;
     }
 

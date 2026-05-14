@@ -6,6 +6,8 @@ async function importFreshMessageToolActions() {
   const sendEmailAttachmentTo = vi.fn(async () => {});
   const sendToEmail = vi.fn(async () => {});
   const sendToSignalChat = vi.fn(async () => {});
+  const sendToSlackWebhookTarget = vi.fn(async () => {});
+  const sendToDiscordWebhookTarget = vi.fn(async () => {});
   const sendToThreemaChat = vi.fn(async () => {});
   const sendTelegramMediaToChat = vi.fn(async () => {});
   const sendToTelegramChat = vi.fn(async () => {});
@@ -171,6 +173,12 @@ async function importFreshMessageToolActions() {
     hasActiveSlackSession,
     sendToActiveSlackSession,
   }));
+  vi.doMock('../src/channels/slack-webhook/runtime.js', () => ({
+    sendToSlackWebhookTarget,
+  }));
+  vi.doMock('../src/channels/discord-webhook/runtime.js', () => ({
+    sendToDiscordWebhookTarget,
+  }));
   vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
     sendToWhatsAppChat,
     sendWhatsAppMediaToChat,
@@ -198,6 +206,8 @@ async function importFreshMessageToolActions() {
     sendEmailAttachmentTo,
     sendToEmail,
     sendToSignalChat,
+    sendToSlackWebhookTarget,
+    sendToDiscordWebhookTarget,
     sendToThreemaChat,
     sendTelegramMediaToChat,
     sendToTelegramChat,
@@ -300,6 +310,118 @@ test('send action routes Telegram targets through Telegram transport', async () 
     channelId: 'telegram:-1001234567890:topic:42',
     transport: 'telegram',
   });
+});
+
+test('send action routes Slack webhook targets through outbound webhook transport', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'slack_webhook:ops',
+    content: 'hello slack webhook',
+  });
+
+  expect(state.sendToSlackWebhookTarget).toHaveBeenCalledWith(
+    'slack_webhook:ops',
+    'hello slack webhook',
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'slack_webhook:ops',
+    transport: 'slack_webhook',
+  });
+});
+
+test('send action routes Discord webhook targets through outbound webhook transport', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'discord_webhook:ops',
+    content: 'hello discord webhook',
+  });
+
+  expect(state.sendToDiscordWebhookTarget).toHaveBeenCalledWith(
+    'discord_webhook:ops',
+    'hello discord webhook',
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'discord_webhook:ops',
+    transport: 'discord_webhook',
+  });
+});
+
+test('read action rejects Slack webhook targets with an outbound-only error', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'read',
+      channelId: 'slack_webhook:ops',
+    }),
+  ).rejects.toThrow('Slack webhook only supports outbound send actions.');
+  expect(state.sendToSlackWebhookTarget).not.toHaveBeenCalled();
+});
+
+test('read action rejects Discord webhook targets with an outbound-only error', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'read',
+      channelId: 'discord_webhook:ops',
+    }),
+  ).rejects.toThrow('Discord webhook only supports outbound send actions.');
+  expect(state.sendToDiscordWebhookTarget).not.toHaveBeenCalled();
+});
+
+test('reaction and thread actions reject Discord webhook targets as outbound-only', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'react',
+      channelId: 'discord_webhook:ops',
+      messageId: '123',
+      emoji: ':eyes:',
+    }),
+  ).rejects.toThrow('Discord webhook only supports outbound send actions.');
+  await expect(
+    state.runMessageToolAction({
+      action: 'thread-create',
+      channelId: 'discord_webhook:ops',
+      messageId: '123',
+      name: 'incident',
+    }),
+  ).rejects.toThrow('Discord webhook only supports outbound send actions.');
+  expect(state.sendToDiscordWebhookTarget).not.toHaveBeenCalled();
+});
+
+test('send action rejects Discord webhook files and components explicitly', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'discord_webhook:ops',
+      content: 'see attached',
+      filePath: '/discord-media-cache/example.png',
+    }),
+  ).rejects.toThrow('filePath is not supported for Discord webhook sends.');
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'discord_webhook:ops',
+      content: 'choose one',
+      components: [{ type: 1 }],
+    }),
+  ).rejects.toThrow('components are not supported for Discord webhook sends.');
+  expect(state.sendToDiscordWebhookTarget).not.toHaveBeenCalled();
 });
 
 test('send action rejects telegram-prefixed usernames for Telegram sends', async () => {

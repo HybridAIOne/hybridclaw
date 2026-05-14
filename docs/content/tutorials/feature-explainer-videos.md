@@ -42,7 +42,7 @@ Before starting, make sure you have:
 
 If you want animated inserts instead of only live screen footage, the docs
 also ships a [Publishing Skills](../skills/publishing.md) page with the
-`manim-video` workflow.
+`manim-video`, `video-generation`, and `video.from-script` workflows.
 
 ## Step 1: Define One Video, Not Ten
 
@@ -119,6 +119,24 @@ For YouTube, Creator Academy guidance is useful here:
 - premieres create a shareable watch page in advance
 - live chat and pinned messages help during premieres or live sessions
 
+## Optional: Render An Avatar Version
+
+If you have an approved script, a HeyGen avatar, and a voice id, use
+`video.from-script` to create an avatar-led variant for sales enablement,
+training, or localized follow-up:
+
+> 🎯 **Try it yourself**
+>
+> ```text
+> Use video.from-script to plan an avatar video from the approved 75-second
+> script. Avatar: avatar_123. Voice: voice_123. Return the render plan,
+> credit-spend risk, expected status polling steps, and the exact operator
+> grant needed before starting the HeyGen job.
+> ```
+
+Use this only after the script is final. Keep live founder/screencast footage
+as the default when trust and product specificity matter more than polish.
+
 ## Best Team Split
 
 - Founder 1: on-camera host
@@ -152,8 +170,11 @@ For YouTube, Creator Academy guidance is useful here:
 - prefer a founder intro plus screencast over a full talking-head format
 - keep the video value-led: show the outcome before the interface tour
 - when you need animated insets or explanatory diagrams, the
-  [Manim video and Excalidraw skills](../skills/publishing.md) can
-  produce them from a short script instead of a designer handoff
+  [Manim video and Excalidraw skills](../skills/publishing.md) can produce
+  them from a short script instead of a designer handoff
+- when you need a polished avatar variant from an approved script, use
+  [`video.from-script`](../skills/publishing.md#videofrom-script) after
+  checking the script with `brand-voice`
 
 ## Going Further
 

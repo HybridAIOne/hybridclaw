@@ -75,6 +75,17 @@ test('writeInput omits auth material from IPC files when requested', async () =>
       perplexityApiKey: 'perplexity-secret',
       tavilyApiKey: 'tavily-secret',
     },
+    providerCredentials: {
+      openai: {
+        apiKey: 'openai-secret',
+        baseUrl: 'https://api.openai.com/v1',
+        imageModel: 'gpt-image-2',
+      },
+      gemini: {
+        apiKey: 'gemini-secret',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      },
+    },
   };
 
   ensureSessionDirs('session-1');
@@ -110,10 +121,12 @@ test('writeInput omits auth material from IPC files when requested', async () =>
     searxngBaseUrl: '',
     tavilySearchDepth: 'advanced',
   });
+  expect(written.providerCredentials).toBeUndefined();
   expect(input.apiKey).toBe('token_secret');
   expect(input.requestHeaders.Authorization).toBe('Bearer token_secret');
   expect(input.taskModels.compression.apiKey).toBe('or-secret');
   expect(input.webSearch.braveApiKey).toBe('brave-secret');
+  expect(input.providerCredentials.openai?.apiKey).toBe('openai-secret');
 });
 
 test('readOutput enforces a hard deadline despite repeated activity', async () => {

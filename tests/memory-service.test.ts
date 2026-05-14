@@ -2602,6 +2602,12 @@ describe('MemoryService', () => {
       session: staleSession,
       query: 'changelog',
     });
+    const recallCallsBeforeSkip = recallCalls;
+    const withoutSemanticRecall = service.buildPromptMemoryContext({
+      session: staleSession,
+      query: 'changelog',
+      includeSemanticRecall: false,
+    });
 
     expect(first.summaryConfidence).toBeLessThan(0.3);
     expect(first.promptSummary).toContain('Relevant Memory Recall');
@@ -2624,6 +2630,10 @@ describe('MemoryService', () => {
     ]);
     expect(second.promptSummary).toContain('Relevant Memory Recall');
     expect(recallCalls).toBe(2);
+    expect(withoutSemanticRecall.semanticMemories).toEqual([]);
+    expect(withoutSemanticRecall.citationIndex).toEqual([]);
+    expect(withoutSemanticRecall.promptSummary).toBeNull();
+    expect(recallCalls).toBe(recallCallsBeforeSkip);
   });
 
   test('buildPromptMemoryContext honors the semantic prompt hard cap', () => {

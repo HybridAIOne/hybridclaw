@@ -207,6 +207,30 @@ test('local browser provider rejects profile hints that resolve outside the prof
   expect(mock.launchPersistentContext).not.toHaveBeenCalled();
 });
 
+test('local browser provider accepts profile hints under a symlinked profile root', async () => {
+  const root = makeTempRoot();
+  const realProfileRoot = path.join(root, 'real-browser-profiles');
+  const linkedProfileRoot = path.join(root, 'linked-browser-profiles');
+  const linkedProfile = path.join(linkedProfileRoot, 'agent-a');
+  fs.mkdirSync(realProfileRoot, { recursive: true });
+  fs.symlinkSync(realProfileRoot, linkedProfileRoot);
+  const mock = createMockPlaywright();
+  const provider = new LocalBrowserProvider({
+    profileRoot: linkedProfileRoot,
+    playwright: mock.playwright,
+  });
+
+  const session = await provider.launchSession({
+    profileDirHint: linkedProfile,
+  });
+  await provider.closeSession(session);
+
+  expect(mock.launchPersistentContext).toHaveBeenCalledWith(
+    fs.realpathSync(path.join(realProfileRoot, 'agent-a')),
+    expect.any(Object),
+  );
+});
+
 test('local browser provider rejects unsafe navigation schemes', async () => {
   const root = makeTempRoot();
   const mock = createMockPlaywright();
@@ -268,7 +292,6 @@ test('local browser provider requires skill context for secret ref fills', async
   const root = makeTempRoot();
   const mock = createMockPlaywright();
   const secretAudit = vi.fn();
-  process.env.TEST_BROWSER_PASSWORD = 'test-password';
   const provider = new LocalBrowserProvider({
     profileRoot: path.join(root, 'browser-profiles'),
     playwright: mock.playwright,
@@ -278,7 +301,7 @@ test('local browser provider requires skill context for secret ref fills', async
   const session = await provider.launchSession({});
   await expect(
     session.fill('#password', {
-      source: 'env',
+      source: 'store',
       id: 'TEST_BROWSER_PASSWORD',
     }),
   ).rejects.toThrow(/SessionOptions\.metering\.skillName/u);

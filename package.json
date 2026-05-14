@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.16.0",
+  "version": "0.19.2",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "repository": {
@@ -11,13 +11,15 @@
   "bugs": {
     "url": "https://github.com/HybridAIOne/hybridclaw/issues"
   },
+  "packageManager": "npm@11.10.0",
   "workspaces": [
     "desktop",
     "console",
     "container"
   ],
   "engines": {
-    "node": "22.x"
+    "node": "22.x",
+    "npm": ">=11.10.0 <12"
   },
   "publishConfig": {
     "access": "public"
@@ -36,6 +38,7 @@
     "presets/",
     "templates/",
     "docs/",
+    "plugins/concierge-router/",
     "container/Dockerfile",
     "container/.dockerignore",
     "container/package.json",
@@ -54,6 +57,7 @@
     "config.example.json"
   ],
   "scripts": {
+    "check:node": "node ./scripts/check-node-version.mjs",
     "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('console/dist',{recursive:true,force:true});fs.rmSync('container/dist',{recursive:true,force:true});fs.rmSync('desktop/dist',{recursive:true,force:true});fs.rmSync('desktop/release',{recursive:true,force:true});\"",
     "build:console": "npm --workspace console run build",
     "build:desktop": "npm run build && npm --workspace desktop run build",
@@ -63,17 +67,20 @@
     "check": "biome check src",
     "format": "biome check --write src",
     "test": "npm run test:unit",
-    "test:unit": "vitest run --configLoader runner --config vitest.unit.config.ts && npm --workspace console run test && npm --workspace desktop run test",
-    "test:watch": "vitest --configLoader runner --config vitest.unit.config.ts",
-    "test:integration": "vitest run --configLoader runner --config vitest.integration.config.ts --passWithNoTests",
-    "test:e2e": "vitest run --configLoader runner --config vitest.e2e.config.ts --passWithNoTests",
+    "test:unit": "vitest run --configLoader runner --project unit && npm --workspace console run test && npm --workspace desktop run test",
+    "test:watch": "vitest --configLoader runner --project unit",
+    "test:integration": "vitest run --configLoader runner --project integration --passWithNoTests",
+    "test:e2e": "vitest run --configLoader runner --project e2e --passWithNoTests",
     "test:console": "npm --workspace console run test",
+    "audit:signatures": "node ./scripts/audit-signatures.mjs && npm --prefix container audit signatures",
+    "deps:update-lockfile": "npm update --package-lock-only && npm --prefix container update --package-lock-only",
+    "deps:verify": "npm ci --no-audit --fund=false && npm --prefix container ci --no-audit --fund=false && npm run audit:signatures",
     "eval:trace-judge:gate": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate()).catch((err)=>{console.error(err);process.exitCode=1})\"",
     "eval:trace-judge:gate:live": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-live-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate({live:true})).catch((err)=>{console.error(err);process.exitCode=1})\"",
     "desktop": "npm run build:desktop && npm --workspace desktop run start",
     "desktop:mac": "npm run build:desktop && npm --workspace desktop run dist:mac",
     "desktop:linux": "npm run build:desktop && npm --workspace desktop run dist:linux",
-    "test:live": "vitest run --configLoader runner --config vitest.live.config.ts --passWithNoTests",
+    "test:live": "vitest run --configLoader runner --project live --passWithNoTests",
     "setup": "npm --prefix container install",
     "dev": "tsx src/cli.ts gateway",
     "dev:console": "HYBRIDCLAW_DEV_VITE_URL=http://127.0.0.1:4173 tsx src/cli.ts gateway restart && npm --workspace console run dev",
@@ -82,7 +89,8 @@
     "start": "node dist/cli.js gateway",
     "postinstall": "node ./scripts/postinstall-container.mjs",
     "build:container": "node ./scripts/build-container.mjs",
-    "prebuild": "npm run build:console",
+    "prebuild": "npm run check:node && npm run build:console",
+    "pretest:unit": "npm run check:node",
     "prepack": "npm run clean && npm run build && npm run release:check",
     "release:check": "node ./scripts/release-check.mjs",
     "publish:dry": "npm publish --access public --dry-run",
@@ -94,20 +102,21 @@
     "@opentelemetry/exporter-trace-otlp-http": "0.214.0",
     "@opentelemetry/resources": "2.6.1",
     "@opentelemetry/sdk-node": "0.214.0",
-    "@opentelemetry/semantic-conventions": "1.40.0",
     "@slack/bolt": "4.7.0",
     "@huggingface/transformers": "3.8.1",
     "@ngrok/ngrok": "1.5.2",
-    "@whiskeysockets/baileys": "7.0.0-rc.9",
+    "@whiskeysockets/baileys": "7.0.0-rc11",
     "ajv": "8.18.0",
     "better-sqlite3": "12.8.0",
     "botbuilder": "4.23.3",
+    "camoufox-js": "0.10.2",
     "cron-parser": "5.5.0",
     "csv-parse": "6.2.0",
     "discord.js": "14.25.1",
     "docx": "9.6.1",
     "iconv-lite": "0.7.2",
     "imapflow": "1.2.18",
+    "impit": "0.13.0",
     "mailparser": "3.9.6",
     "marked": "17.0.4",
     "node-pty": "1.1.0",
@@ -137,7 +146,6 @@
     "@types/yauzl": "2.10.3",
     "@types/yazl": "3.3.0",
     "@vitest/coverage-v8": "4.0.18",
-    "html-to-text": "9.0.5",
     "husky": "9.1.7",
     "tsx": "4.21.0",
     "typescript": "5.9.3",

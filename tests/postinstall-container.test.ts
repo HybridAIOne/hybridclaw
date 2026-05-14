@@ -84,12 +84,36 @@ test('prefers npm_execpath when npm exposes it during install', () => {
   expect(
     resolveNpmCommand('/tmp/hybridclaw-container', {
       ...process.env,
+      npm_config_user_agent: 'npm/11.10.0 node/v22.15.1 darwin arm64',
       npm_execpath: npmCliPath,
     }),
   ).toEqual({
     command: process.execPath,
     args: [
       npmCliPath,
+      '--prefix',
+      '/tmp/hybridclaw-container',
+      'install',
+      '--omit=dev',
+      '--workspaces=false',
+    ],
+  });
+});
+
+test('falls back to npm when installed through pnpm', () => {
+  const packageRoot = makeTempDir();
+  const pnpmCliPath = path.join(packageRoot, 'pnpm.cjs');
+  fs.writeFileSync(pnpmCliPath, '', 'utf-8');
+
+  expect(
+    resolveNpmCommand('/tmp/hybridclaw-container', {
+      ...process.env,
+      npm_config_user_agent: 'pnpm/11.1.1 npm/? node/v22.15.1 linux x64',
+      npm_execpath: pnpmCliPath,
+    }),
+  ).toEqual({
+    command: 'npm',
+    args: [
       '--prefix',
       '/tmp/hybridclaw-container',
       'install',
@@ -106,6 +130,7 @@ test('scrubs outer npm lifecycle variables before bootstrapping container deps',
       npm_config_cache: '/tmp/npm-cache',
       npm_config_global: 'true',
       npm_config_prefix: '/tmp/global-prefix',
+      npm_config_user_agent: 'pnpm/11.1.1 npm/? node/v22.15.1 linux x64',
       npm_execpath: '/tmp/npm-cli.js',
       npm_lifecycle_event: 'postinstall',
       npm_lifecycle_script: 'node ./scripts/postinstall-container.mjs',
@@ -169,6 +194,7 @@ process.exit(0);
       env: {
         ...process.env,
         npm_config_global: 'true',
+        npm_config_user_agent: 'npm/11.10.0 node/v22.15.1 darwin arm64',
         npm_lifecycle_event: 'postinstall',
         npm_lifecycle_script: 'node ./scripts/postinstall-container.mjs',
         npm_package_name: '@hybridaione/hybridclaw',

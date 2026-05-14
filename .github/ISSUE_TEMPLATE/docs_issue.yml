@@ -7,7 +7,7 @@ body:
     attributes:
       label: Affected page or file
       description: Link the docs page URL or file path if you know it.
-      placeholder: https://www.hybridclaw.io/docs/getting-started/quickstart or README.md
+      placeholder: https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart or README.md
     validations:
       required: true
   - type: textarea

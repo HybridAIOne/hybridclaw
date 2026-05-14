@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
+import type { MiddlewareEvent } from '../agent/middleware.js';
+import { emitPostTurnEvent } from '../agent/post-turn-events.js';
 import type { PromptMode } from '../agent/prompt-hooks.js';
 import {
   type PromptPartName,
@@ -33,6 +35,11 @@ import {
   PROACTIVE_DELEGATION_MAX_PER_TURN,
 } from '../config/config.js';
 import { preprocessContextReferences } from '../context-references/index.js';
+import {
+  clearScheduledGoalContinuation,
+  isGoalContinuationSource,
+  pauseActiveGoalForSession,
+} from '../goals/goal-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
@@ -41,6 +48,7 @@ import {
   createFreshSessionInstance,
   getTasksForSession,
   logAudit,
+  storeSemanticMemory,
 } from '../memory/db.js';
 import {
   type BuildMemoryPromptResult,
@@ -65,22 +73,19 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
+import type { MediaContextItem } from '../types/container.js';
 import {
   normalizeEscalationTarget,
   type PendingApproval,
   type ToolProgressEvent,
 } from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
+import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
-import { buildConciergeChoiceComponents } from './concierge-choice.js';
-import {
-  buildConciergeExecutionNotice,
-  type ConciergeProfile,
-} from './concierge-routing.js';
-import { resolveConciergeTurn } from './concierge-session.js';
+import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -103,7 +108,6 @@ import {
   buildStoredTurnMessages,
   buildStoredUserTurnContent,
   buildTokenUsageAuditPayload,
-  cloneMediaContextItems,
   enqueueDelegationBatchFromSideEffects,
   extractDelegationDepth,
   formatCanonicalContextPrompt,
@@ -115,6 +119,7 @@ import {
   normalizeDelegationEffect,
   normalizeMediaContextItems,
   prepareSessionAutoReset,
+  readDynamicContextMessage,
   readSystemPromptMessage,
   recordSuccessfulTurn,
   resolveCanonicalContextScope,
@@ -124,7 +129,11 @@ import {
   resolveSessionAutoResetPolicy,
   shouldForceNewTuiSession,
 } from './gateway-service.js';
-import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
+import type {
+  GatewayChatRequest,
+  GatewayChatResult,
+  GatewayMessageComponents,
+} from './gateway-types.js';
 import { firstNumber } from './gateway-utils.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import {
@@ -133,6 +142,54 @@ import {
 } from './show-mode.js';
 
 const MAX_HISTORY_MESSAGES = 40;
+
+function parseToolResultObject(result: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(result) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSpeechTranscriptsToScopedMemory(params: {
+  sessionId: string;
+  skillName: string | null;
+  toolExecutions: Array<{ name: string; result: string; isError?: boolean }>;
+}): void {
+  const scope = params.skillName?.startsWith('speech.')
+    ? `skill:${params.skillName}`
+    : 'skill:speech-to-text';
+  for (const execution of params.toolExecutions) {
+    if (execution.name !== 'audio_transcribe' || execution.isError) continue;
+    const payload = parseToolResultObject(execution.result);
+    if (!payload || payload.success !== true) continue;
+    if (typeof payload.action === 'string' && payload.action !== 'transcribe') {
+      continue;
+    }
+    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+    if (!text) continue;
+    storeSemanticMemory({
+      sessionId: params.sessionId,
+      role: 'assistant',
+      source: 'audio_transcribe',
+      scope,
+      content: text,
+      confidence: 0.95,
+      metadata: {
+        provider: payload.provider,
+        model: payload.model,
+        language: payload.language,
+        duration_sec: payload.duration_sec,
+        cost_usd: payload.cost_usd,
+        segments: payload.segments,
+        artifacts: payload.artifacts,
+      },
+    });
+  }
+}
 
 function formatEscalationRouteNotice(
   approval: PendingApproval,
@@ -316,6 +373,50 @@ function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
   };
 }
 
+interface ConciergeRouterMetadata {
+  profile?: string;
+  model?: string;
+  notice?: string | null;
+  effectiveUserTurnContent?: string;
+  effectiveUserTurnContentExpanded?: string;
+  effectiveUserTurnContentStripped?: string;
+  media?: MediaContextItem[];
+  components?: GatewayMessageComponents;
+}
+
+function getConciergeRouterMetadata(
+  event: MiddlewareEvent | undefined,
+): ConciergeRouterMetadata | null {
+  const raw = event?.metadata?.conciergeRouter;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  return raw as ConciergeRouterMetadata;
+}
+
+function resolvePluginRoutingModel(params: {
+  configuredModel?: string;
+  currentModel: string;
+  chatbotId: string;
+  profile?: string;
+}): string {
+  const configuredModel = String(params.configuredModel || '').trim();
+  if (!configuredModel) return params.currentModel;
+  if (!modelRequiresChatbotId(configuredModel) || params.chatbotId) {
+    return configuredModel;
+  }
+  if (!modelRequiresChatbotId(params.currentModel)) {
+    logger.info(
+      {
+        currentModel: params.currentModel,
+        configuredModel,
+        profile: params.profile,
+      },
+      'Routing middleware kept the current model because the configured model requires a chatbot',
+    );
+    return params.currentModel;
+  }
+  return configuredModel;
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -438,6 +539,42 @@ async function handleGatewayMessageInner(
     (channelType ? getChannel(channelType) : undefined) ||
     getChannelByContextId(req.channelId) ||
     undefined;
+  const emitPostTurnForResult = async (
+    result: GatewayChatResult,
+  ): Promise<void> => {
+    await emitPostTurnEvent({
+      type: 'post_turn',
+      session,
+      req: {
+        source: req.source,
+        guildId: req.guildId,
+        userId: req.userId,
+        username: req.username,
+        chatbotId: req.chatbotId,
+        model: req.model,
+        enableRag: req.enableRag,
+        onProactiveMessage: req.onProactiveMessage,
+        abortSignal: req.abortSignal,
+      },
+      channelType,
+      result,
+      runId,
+      createdAt: new Date().toISOString(),
+    });
+  };
+  if (
+    source !== 'fullauto' &&
+    !isGoalContinuationSource(source) &&
+    channelType !== 'scheduler' &&
+    channelType !== 'heartbeat'
+  ) {
+    clearScheduledGoalContinuation(req.sessionId);
+    pauseActiveGoalForSession({
+      session,
+      reason: 'user-message',
+      verdict: 'preempted',
+    });
+  }
   const autoApproveTools = req.autoApproveTools === true;
   if (session.agent_id !== agentId) {
     const reboundExpiryEvaluation = await prepareSessionAutoReset({
@@ -612,79 +749,126 @@ async function handleGatewayMessageInner(
       session.model?.trim() ||
       resolveAgentModel(resolvedAgent),
   );
-  const conciergeTurn = await resolveConciergeTurn({
-    sessionId: req.sessionId,
-    requestContent: req.content,
-    agentId,
-    chatbotId,
-    currentModel: model,
-    isInteractiveSource,
-    explicitModelPinned,
-    media,
-    effectiveUserTurnContent,
-    effectiveUserTurnContentExpanded,
-    effectiveUserTurnContentStripped,
-    normalizeMediaContextItems,
-    cloneMediaContextItems,
-  });
-  let conciergeExecutionProfile: ConciergeProfile | null = null;
-  if (conciergeTurn.kind === 'respond') {
-    const conciergeUserContent = buildStoredUserTurnContent(
-      userTurnContent,
-      media,
-    );
-    const storedTurn = recordSuccessfulTurn({
+  let routingExecutionNotice: string | null = null;
+  if (pluginManager?.hasMiddleware('routing')) {
+    const routingOutcome = await pluginManager.applyMiddleware('routing', {
       sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
-      channelId: req.channelId,
-      promptMode: req.promptMode,
-      runId,
-      turnIndex,
       userId: req.userId,
-      username: req.username,
-      canonicalScopeId: canonicalContextScope,
-      userContent: conciergeUserContent,
-      resultText: conciergeTurn.resultText,
-      toolCallCount: 0,
-      startedAt,
-      replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
-    });
-    maybeAutoTitleSession({
-      ...autoTitleParams(),
-      userContent: conciergeUserContent,
-    });
-    return attachSessionIdentity({
-      status: 'success',
-      result: conciergeTurn.resultText,
       agentId,
-      model,
-      provider,
-      components:
-        source === 'discord'
-          ? buildConciergeChoiceComponents({
-              sessionId: req.sessionId,
-              userId: req.userId,
-            })
-          : undefined,
-      toolsUsed: [],
-      assistantPresentation:
-        getGatewayAssistantPresentationForMessageAgent(agentId),
-      userMessageId: storedTurn.userMessageId,
-      assistantMessageId: storedTurn.assistantMessageId,
+      channelId: req.channelId,
+      source,
+      channelType,
+      model: model || undefined,
+      currentModel: model,
+      chatbotId,
+      isInteractiveSource,
+      explicitModelPinned,
+      workspacePath,
+      messages: [{ role: 'user', content: effectiveUserTurnContentExpanded }],
+      requestContent: req.content,
+      userContent: effectiveUserTurnContentExpanded,
+      media,
     });
+    const routingEvent = routingOutcome.events.find((event) =>
+      Boolean(event.metadata?.conciergeRouter),
+    );
+    const routingMetadata = getConciergeRouterMetadata(routingEvent);
+    for (const event of routingOutcome.events) {
+      if (event.action === 'allow') continue;
+      logger.info(
+        {
+          sessionId: req.sessionId,
+          agentId,
+          middlewareId: event.skillId,
+          action: event.action,
+          reason: event.reason,
+        },
+        'Plugin routing middleware adjusted turn',
+      );
+    }
+    if (routingOutcome.blocked) {
+      const blockedMedia = normalizeMediaContextItems(
+        routingMetadata?.media ?? media,
+      );
+      const blockedUserContent =
+        routingMetadata?.effectiveUserTurnContent ??
+        routingOutcome.userContent ??
+        effectiveUserTurnContentExpanded;
+      const routingUserContent = buildStoredUserTurnContent(
+        blockedUserContent,
+        blockedMedia,
+      );
+      const resultText =
+        routingOutcome.resultText || 'Message blocked by routing middleware.';
+      const storedTurn = recordSuccessfulTurn({
+        sessionId: req.sessionId,
+        agentId,
+        chatbotId,
+        enableRag,
+        model,
+        channelId: req.channelId,
+        promptMode: req.promptMode,
+        runId,
+        turnIndex,
+        userId: req.userId,
+        username: req.username,
+        canonicalScopeId: canonicalContextScope,
+        userContent: routingUserContent,
+        resultText,
+        toolCallCount: 0,
+        startedAt,
+        replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      });
+      maybeAutoTitleSession({
+        ...autoTitleParams(),
+        userContent: routingUserContent,
+      });
+      const result: GatewayChatResult = {
+        status: 'success',
+        result: resultText,
+        agentId,
+        model,
+        provider,
+        components:
+          source === 'discord' ? routingMetadata?.components : undefined,
+        toolsUsed: [],
+        assistantPresentation:
+          getGatewayAssistantPresentationForMessageAgent(agentId),
+        userMessageId: storedTurn.userMessageId,
+        assistantMessageId: storedTurn.assistantMessageId,
+      };
+      await emitPostTurnForResult(result);
+      return attachSessionIdentity(result);
+    }
+    if (routingMetadata) {
+      model = resolvePluginRoutingModel({
+        configuredModel: routingMetadata.model,
+        currentModel: model,
+        chatbotId,
+        profile: routingMetadata.profile,
+      });
+      provider = resolveModelProvider(model);
+      routingExecutionNotice =
+        typeof routingMetadata.notice === 'string'
+          ? routingMetadata.notice
+          : null;
+      media = normalizeMediaContextItems(routingMetadata.media ?? media);
+      effectiveUserTurnContent =
+        typeof routingMetadata.effectiveUserTurnContent === 'string'
+          ? routingMetadata.effectiveUserTurnContent
+          : routingOutcome.userContent;
+      effectiveUserTurnContentExpanded =
+        typeof routingMetadata.effectiveUserTurnContentExpanded === 'string'
+          ? routingMetadata.effectiveUserTurnContentExpanded
+          : routingOutcome.userContent;
+      effectiveUserTurnContentStripped =
+        typeof routingMetadata.effectiveUserTurnContentStripped === 'string'
+          ? routingMetadata.effectiveUserTurnContentStripped
+          : routingOutcome.userContent;
+    } else {
+      effectiveUserTurnContentExpanded = routingOutcome.userContent;
+    }
   }
-  conciergeExecutionProfile = conciergeTurn.conciergeExecutionProfile;
-  model = conciergeTurn.model;
-  provider = conciergeTurn.provider;
-  media = conciergeTurn.media;
-  effectiveUserTurnContent = conciergeTurn.effectiveUserTurnContent;
-  effectiveUserTurnContentExpanded =
-    conciergeTurn.effectiveUserTurnContentExpanded;
-  effectiveUserTurnContentStripped =
-    conciergeTurn.effectiveUserTurnContentStripped;
   if (model !== resolvedModel) {
     chatbotResolution = await resolveGatewayChatbotId({
       model,
@@ -793,7 +977,7 @@ async function handleGatewayMessageInner(
         },
       },
     });
-    return {
+    const result: GatewayChatResult = {
       status: 'error',
       result: null,
       toolsUsed: [],
@@ -802,6 +986,8 @@ async function handleGatewayMessageInner(
       provider,
       error,
     };
+    await emitPostTurnForResult(result);
+    return attachSessionIdentity(result);
   }
 
   if (isVersionOnlyQuestion(req.content)) {
@@ -838,6 +1024,7 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    await emitPostTurnForResult(result);
     maybeAutoTitleSession({
       ...autoTitleParams(),
       userContent: req.content,
@@ -916,6 +1103,7 @@ async function handleGatewayMessageInner(
       : memoryService.buildPromptMemoryContext({
           session,
           query: effectiveUserTurnContentStripped,
+          includeSemanticRecall: !isGoalContinuationSource(source),
         });
   const mergedSessionSummary = pluginMemoryBehavior.replacesBuiltInMemory
     ? pluginPromptSummary || null
@@ -1083,7 +1271,7 @@ async function handleGatewayMessageInner(
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       });
-      return attachSessionIdentity({
+      const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
         toolsUsed: [],
@@ -1095,7 +1283,9 @@ async function handleGatewayMessageInner(
           getGatewayAssistantPresentationForMessageAgent(agentId),
         userMessageId: storedTurn.userMessageId,
         assistantMessageId: storedTurn.assistantMessageId,
-      });
+      };
+      await emitPostTurnForResult(result);
+      return attachSessionIdentity(result);
     }
     agentUserContent = preSendOutcome.userContent;
   }
@@ -1179,11 +1369,8 @@ async function handleGatewayMessageInner(
       },
       'Gateway chat invoking agent',
     );
-    const conciergeExecutionNotice = conciergeExecutionProfile
-      ? buildConciergeExecutionNotice(conciergeExecutionProfile, model)
-      : null;
-    if (conciergeExecutionNotice) {
-      req.onTextDelta?.(conciergeExecutionNotice);
+    if (routingExecutionNotice) {
+      req.onTextDelta?.(routingExecutionNotice);
     }
     recordAuditEvent({
       sessionId: req.sessionId,
@@ -1195,6 +1382,7 @@ async function handleGatewayMessageInner(
         scheduledTaskCount: scheduledTasks.length,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),
+        dynamicContext: readDynamicContextMessage(messages),
       },
     });
     if (pluginManager) {
@@ -1226,6 +1414,7 @@ async function handleGatewayMessageInner(
       ralphMaxIterations: resolveSessionRalphIterations(session),
       fullAutoEnabled,
       fullAutoNeverApproveTools: neverAutoApproveTools,
+      scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
       scheduledTasks,
       allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
@@ -1257,6 +1446,16 @@ async function handleGatewayMessageInner(
       explicitSkillName,
       toolExecutions,
       skills,
+    });
+    persistSpeechTranscriptsToScopedMemory({
+      sessionId: req.sessionId,
+      skillName: observedSkillName,
+      toolExecutions,
+    });
+    emitDiagramRuntimeEventsForToolExecutions({
+      sessionId: req.sessionId,
+      runId,
+      toolExecutions,
     });
     emitToolExecutionAuditEvents({
       sessionId: req.sessionId,
@@ -1296,6 +1495,14 @@ async function handleGatewayMessageInner(
       costUsd,
       auditRunId: runId,
     });
+    for (const event of buildMediaGenerationUsageEvents({
+      sessionId: req.sessionId,
+      agentId,
+      auditRunId: runId,
+      toolExecutions,
+    })) {
+      enqueueTokenUsage(event);
+    }
     if (observedSkillName) {
       try {
         recordSkillExecution({
@@ -1379,6 +1586,7 @@ async function handleGatewayMessageInner(
         acceptedDelegations += requestedRuns;
         acceptedDelegationPlans.push(normalized.plan);
       },
+      allowSchedules: !isGoalContinuationSource(source),
     });
     const delegationAcknowledgement =
       acceptedDelegations > 0
@@ -1463,7 +1671,7 @@ async function handleGatewayMessageInner(
           durationMs,
         });
       }
-      return attachSessionIdentity({
+      const result: GatewayChatResult = {
         status: 'error',
         result: null,
         toolsUsed: output.toolsUsed || [],
@@ -1476,13 +1684,15 @@ async function handleGatewayMessageInner(
         toolExecutions,
         tokenUsage: output.tokenUsage,
         error: errorMessage,
-      });
+      };
+      await emitPostTurnForResult(result);
+      return attachSessionIdentity(result);
     }
 
     const rawResultText =
       delegationAcknowledgement || output.result || 'No response from agent.';
-    const unnormalizedResultText = conciergeExecutionNotice
-      ? `${conciergeExecutionNotice}${rawResultText}`
+    const unnormalizedResultText = routingExecutionNotice
+      ? `${routingExecutionNotice}${rawResultText}`
       : rawResultText;
     const normalizedResult = normalizeSilentMessageSendReply({
       status: 'success',
@@ -1651,6 +1861,7 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    await emitPostTurnForResult(result);
     maybeAutoTitleSession({
       ...autoTitleParams(),
       userContent: storedUserContent,
@@ -1727,7 +1938,14 @@ async function handleGatewayMessageInner(
         durationMs,
       });
     }
-    return attachSessionIdentity({
+    if (isGoalContinuationSource(source)) {
+      pauseActiveGoalForSession({
+        session,
+        reason: req.abortSignal?.aborted ? 'user-interrupted' : 'gateway error',
+        verdict: req.abortSignal?.aborted ? 'interrupted' : 'error',
+      });
+    }
+    const result = attachSessionIdentity({
       status: 'error',
       result: null,
       toolsUsed: [],
@@ -1738,6 +1956,8 @@ async function handleGatewayMessageInner(
       toolExecutions: undefined,
       error: errorMsg,
     });
+    await emitPostTurnForResult(result);
+    return result;
   } finally {
     activeGatewayRequest.release();
   }

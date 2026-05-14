@@ -1,5 +1,6 @@
 export type ChannelKind =
   | 'discord'
+  | 'discord_webhook'
   | 'email'
   | 'heartbeat'
   | 'imessage'
@@ -7,6 +8,7 @@ export type ChannelKind =
   | 'scheduler'
   | 'signal'
   | 'slack'
+  | 'slack_webhook'
   | 'telegram'
   | 'threema'
   | 'tui'
@@ -15,10 +17,12 @@ export type ChannelKind =
 
 export const SKILL_CONFIG_CHANNEL_KINDS = [
   'discord',
+  'discord_webhook',
   'email',
   'msteams',
   'signal',
   'slack',
+  'slack_webhook',
   'telegram',
   'threema',
   'voice',
@@ -61,6 +65,16 @@ export const DISCORD_CAPABILITIES: ChannelCapabilities = Object.freeze({
   embeds: true,
   attachments: true,
   messageEditing: true,
+  maxMessageLength: 2_000,
+});
+
+export const DISCORD_WEBHOOK_CAPABILITIES: ChannelCapabilities = Object.freeze({
+  typing: false,
+  reactions: false,
+  threads: false,
+  embeds: false,
+  attachments: false,
+  messageEditing: false,
   maxMessageLength: 2_000,
 });
 
@@ -139,6 +153,16 @@ export const SLACK_CAPABILITIES: ChannelCapabilities = Object.freeze({
   attachments: true,
   messageEditing: true,
   maxMessageLength: 12_000,
+});
+
+export const SLACK_WEBHOOK_CAPABILITIES: ChannelCapabilities = Object.freeze({
+  typing: false,
+  reactions: false,
+  threads: false,
+  embeds: true,
+  attachments: false,
+  messageEditing: false,
+  maxMessageLength: 40_000,
 });
 
 export const MSTEAMS_CAPABILITIES: ChannelCapabilities = Object.freeze({

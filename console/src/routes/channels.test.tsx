@@ -15,6 +15,8 @@ const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchEmailConfigMock = vi.fn();
 const fetchSignalLinkMock = vi.fn();
 const saveConfigMock = vi.fn();
+const saveDiscordWebhookTargetMock = vi.fn();
+const saveSlackWebhookTargetMock = vi.fn();
 const setRuntimeSecretMock = vi.fn();
 const startSignalLinkMock = vi.fn();
 const validateTokenMock = vi.fn();
@@ -25,6 +27,10 @@ vi.mock('../api/client', () => ({
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
+  saveDiscordWebhookTarget: (...args: unknown[]) =>
+    saveDiscordWebhookTargetMock(...args),
+  saveSlackWebhookTarget: (...args: unknown[]) =>
+    saveSlackWebhookTargetMock(...args),
   setRuntimeSecret: (...args: unknown[]) => setRuntimeSecretMock(...args),
   startSignalLink: (...args: unknown[]) => startSignalLinkMock(...args),
   validateToken: (...args: unknown[]) => validateTokenMock(...args),
@@ -54,8 +60,10 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
     },
     channelInstructions: {
       discord: '',
+      discord_webhook: '',
       msteams: '',
       slack: '',
+      slack_webhook: '',
       signal: '',
       telegram: '',
       threema: '',
@@ -145,6 +153,14 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       textChunkLimit: 12000,
       replyStyle: 'thread',
       mediaMaxMb: 20,
+    },
+    slackWebhook: {
+      enabled: false,
+      webhooks: {},
+    },
+    discordWebhook: {
+      enabled: false,
+      webhooks: {},
     },
     telegram: {
       enabled: false,
@@ -294,6 +310,8 @@ describe('ChannelsPage', () => {
     fetchEmailConfigMock.mockReset();
     fetchSignalLinkMock.mockReset();
     saveConfigMock.mockReset();
+    saveDiscordWebhookTargetMock.mockReset();
+    saveSlackWebhookTargetMock.mockReset();
     setRuntimeSecretMock.mockReset();
     startSignalLinkMock.mockReset();
     validateTokenMock.mockReset();
@@ -393,7 +411,9 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Discord/i });
+    await screen.findByRole('button', {
+      name: /^Discord(?! Incoming Webhook)/i,
+    });
     screen.getByRole('button', { name: /Telegram/i });
     screen.getByRole('button', { name: /Email/i });
     expect(screen.queryByText('No explicit bindings exist yet.')).toBeNull();
@@ -467,7 +487,7 @@ describe('ChannelsPage', () => {
     renderChannelsPage();
 
     const discordButton = await screen.findByRole('button', {
-      name: /Discord/i,
+      name: /^Discord(?! Incoming Webhook)/i,
     });
     expect(discordButton.textContent || '').toContain('available');
     expect(discordButton.textContent || '').not.toContain('active');
@@ -504,9 +524,14 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    const slackButton = await screen.findByRole('button', {
-      name: /Slack/i,
-    });
+    const slackButton = (
+      await screen.findAllByRole('button', {
+        name: /Slack/i,
+      })
+    ).find((button) =>
+      within(button).queryByText('Slack', { selector: 'strong' }),
+    );
+    if (!slackButton) throw new Error('Slack button not found.');
     expect(slackButton.textContent || '').toContain('active');
 
     fireEvent.click(slackButton);
@@ -515,6 +540,181 @@ describe('ChannelsPage', () => {
     ).toBeTruthy();
     expect(screen.getByText('Bot token')).toBeTruthy();
     expect(screen.getByText('App token')).toBeTruthy();
+  });
+
+  it('rotates Slack webhook targets without keeping the URL in the draft', async () => {
+    const config = makeConfig({
+      slackWebhook: {
+        enabled: true,
+        webhooks: {
+          default: {
+            webhookUrl: '',
+            defaultUsername: 'HybridClaw',
+            defaultIconEmoji: '',
+            defaultIconUrl: '',
+          },
+        },
+      },
+    });
+    const savedConfig = makeConfig({
+      slackWebhook: {
+        enabled: true,
+        webhooks: {
+          default: {
+            webhookUrl: '',
+            defaultUsername: 'HybridClaw',
+            defaultIconEmoji: ':robot_face:',
+            defaultIconUrl: '',
+          },
+        },
+      },
+    });
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      slackWebhook: {
+        targetCount: 1,
+        defaultTargetConfigured: true,
+        lastReachabilityResults: [],
+        lastSendResults: [],
+      },
+    });
+    saveSlackWebhookTargetMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: savedConfig,
+    });
+
+    renderChannelsPage();
+
+    const webhookButton = await screen.findByRole('button', {
+      name: /Slack Incoming Webhook/i,
+    });
+    fireEvent.click(webhookButton);
+    fireEvent.change(screen.getByLabelText('Webhook URL'), {
+      target: {
+        value: 'https://hooks.slack.com/services/T000/B000/SECRET',
+      },
+    });
+    fireEvent.change(screen.getByLabelText('Icon emoji'), {
+      target: { value: ':robot_face:' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save webhook target' }),
+    );
+
+    await waitFor(() => {
+      expect(saveSlackWebhookTargetMock).toHaveBeenCalledWith('test-token', {
+        target: 'default',
+        webhookUrl: 'https://hooks.slack.com/services/T000/B000/SECRET',
+        defaultUsername: 'HybridClaw',
+        defaultIconEmoji: ':robot_face:',
+        defaultIconUrl: '',
+      });
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText('Webhook URL') as HTMLInputElement).value,
+      ).toBe('');
+    });
+    expect(screen.queryByDisplayValue(/SECRET/)).toBeNull();
+  });
+
+  it('rotates Discord webhook targets without keeping the URL in the draft', async () => {
+    const config = makeConfig({
+      discordWebhook: {
+        enabled: true,
+        webhooks: {
+          default: {
+            webhookUrl: '',
+            defaultUsername: 'HybridClaw',
+            defaultAvatarUrl: '',
+          },
+        },
+      },
+    });
+    const savedConfig = makeConfig({
+      discordWebhook: {
+        enabled: true,
+        webhooks: {
+          default: {
+            webhookUrl: '',
+            defaultUsername: 'HybridClaw',
+            defaultAvatarUrl: 'https://example.com/avatar.png',
+          },
+        },
+      },
+    });
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      discordWebhook: {
+        targetCount: 1,
+        defaultTargetConfigured: true,
+        lastReachabilityResults: [],
+        lastSendResults: [],
+      },
+    });
+    saveDiscordWebhookTargetMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: savedConfig,
+    });
+
+    renderChannelsPage();
+
+    const webhookButton = await screen.findByRole('button', {
+      name: /Discord Incoming Webhook/i,
+    });
+    fireEvent.click(webhookButton);
+    fireEvent.change(screen.getByLabelText('Webhook URL'), {
+      target: {
+        value: 'https://discord.com/api/webhooks/123/TOKEN',
+      },
+    });
+    fireEvent.change(screen.getByLabelText('Avatar URL'), {
+      target: { value: 'https://example.com/avatar.png' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save webhook target' }),
+    );
+
+    await waitFor(() => {
+      expect(saveDiscordWebhookTargetMock).toHaveBeenCalledWith('test-token', {
+        target: 'default',
+        webhookUrl: 'https://discord.com/api/webhooks/123/TOKEN',
+        defaultUsername: 'HybridClaw',
+        defaultAvatarUrl: 'https://example.com/avatar.png',
+      });
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText('Webhook URL') as HTMLInputElement).value,
+      ).toBe('');
+    });
+    expect(screen.queryByDisplayValue(/TOKEN/)).toBeNull();
   });
 
   it('shows Discord as active in command-only mode when the token is configured', async () => {
@@ -566,7 +766,7 @@ describe('ChannelsPage', () => {
     renderChannelsPage();
 
     const discordButton = await screen.findByRole('button', {
-      name: /Discord/i,
+      name: /^Discord(?! Incoming Webhook)/i,
     });
     expect(discordButton.textContent || '').toContain('active');
   });
@@ -1062,9 +1262,15 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Discord/i });
+    await screen.findByRole('button', {
+      name: /^Discord(?! Incoming Webhook)/i,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Discord/i }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /^Discord(?! Incoming Webhook)/i,
+      }),
+    );
     const panel = screen
       .getByRole('heading', { name: 'Discord settings' })
       .closest('[data-slot="card"]');
@@ -1104,9 +1310,15 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Discord/i });
+    await screen.findByRole('button', {
+      name: /^Discord(?! Incoming Webhook)/i,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Discord/i }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /^Discord(?! Incoming Webhook)/i,
+      }),
+    );
     fireEvent.click(
       within(screen.getByRole('group', { name: 'Commands only' })).getByRole(
         'button',
@@ -1364,9 +1576,15 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Discord/i });
+    await screen.findByRole('button', {
+      name: /^Discord(?! Incoming Webhook)/i,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Discord/i }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /^Discord(?! Incoming Webhook)/i,
+      }),
+    );
     expect(screen.queryByLabelText('New token')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Change token' }));

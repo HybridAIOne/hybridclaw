@@ -205,6 +205,16 @@ function syncRuntimeSecretExports(): void {
     'HYBRIDAI_API_KEY',
     storedSecrets,
   );
+  OPENAI_API_KEY = readRuntimeSecretValue(
+    ['OPENAI_API_KEY'],
+    'OPENAI_API_KEY',
+    storedSecrets,
+  );
+  BFL_API_KEY = readRuntimeSecretValue(
+    ['BFL_API_KEY', 'BLACK_FOREST_LABS_API_KEY'],
+    'BFL_API_KEY',
+    storedSecrets,
+  );
   OPENROUTER_API_KEY = readRuntimeSecretValue(
     ['OPENROUTER_API_KEY'],
     'OPENROUTER_API_KEY',
@@ -297,6 +307,8 @@ export let MSTEAMS_APP_PASSWORD = '';
 export let SLACK_BOT_TOKEN = '';
 export let SLACK_APP_TOKEN = '';
 export let HYBRIDAI_API_KEY = '';
+export let OPENAI_API_KEY = '';
+export let BFL_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
 export let MISTRAL_API_KEY = '';
 export let ANTHROPIC_API_KEY = '';
@@ -547,6 +559,7 @@ export let CONTAINER_WARM_POOL: RuntimeConfig['container']['warmPool'] = {
   memoryPressureRssMb: 2_048,
 };
 export let MCP_SERVERS: RuntimeConfig['mcpServers'] = {};
+export let BROWSER_PROVIDER: RuntimeConfig['browser']['provider'] = 'local';
 export let WEB_SEARCH_PROVIDER: RuntimeConfig['web']['search']['provider'] =
   'auto';
 export let WEB_SEARCH_FALLBACK_PROVIDERS: RuntimeConfig['web']['search']['fallbackProviders'] =
@@ -554,6 +567,7 @@ export let WEB_SEARCH_FALLBACK_PROVIDERS: RuntimeConfig['web']['search']['fallba
 export let WEB_SEARCH_DEFAULT_COUNT = 5;
 export let WEB_SEARCH_CACHE_TTL_MINUTES = 5;
 export let WEB_SEARCH_SEARXNG_BASE_URL = '';
+export let WEB_SEARCH_SEARXNG_BEARER_TOKEN_REF: RuntimeConfig['web']['search']['searxngBearerTokenRef'];
 export let WEB_SEARCH_TAVILY_SEARCH_DEPTH: RuntimeConfig['web']['search']['tavilySearchDepth'] =
   'advanced';
 
@@ -1091,6 +1105,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   warnIfWarmPoolMinIdleIsClamped(config.container.warmPool);
   CONTAINER_WARM_POOL = structuredClone(config.container.warmPool);
   MCP_SERVERS = structuredClone(config.mcpServers || {});
+  BROWSER_PROVIDER = config.browser.provider;
   WEB_SEARCH_PROVIDER = config.web.search.provider;
   WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];
   WEB_SEARCH_DEFAULT_COUNT = Math.max(
@@ -1103,6 +1118,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   WEB_SEARCH_SEARXNG_BASE_URL =
     process.env.SEARXNG_BASE_URL || config.web.search.searxngBaseUrl;
+  WEB_SEARCH_SEARXNG_BEARER_TOKEN_REF = config.web.search.searxngBearerTokenRef;
   WEB_SEARCH_TAVILY_SEARCH_DEPTH = config.web.search.tavilySearchDepth;
 
   HEARTBEAT_ENABLED = config.heartbeat.enabled;

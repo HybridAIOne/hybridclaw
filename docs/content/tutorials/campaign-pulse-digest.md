@@ -29,6 +29,8 @@ Before starting, make sure you have:
 
 - HybridClaw installed and the gateway running
 - recent CSV exports from one or more ad platforms
+- optional Google OAuth access for live GA4 reporting; see
+  [Authentication](../../getting-started/authentication.md#google-oauth-for-direct-google-apis)
 - optional office tooling if you want recalculated `.xlsx` outputs; see
   [Optional Office Dependencies](../office-dependencies.md)
 
@@ -111,6 +113,24 @@ reminder:
 The reminder is usually better than a fully automated digest when your data
 still comes from manual exports.
 
+## Optional: Pull GA4 Directly
+
+If GA4 access is configured, replace a manual analytics export with a
+read-only GA4 request:
+
+> 🎯 **Try it yourself**
+>
+> ```text
+> Use the GA4 skill to compare sessions, users, key events, revenue, and top
+> landing pages for the last 7 days against the prior 7 days. Focus on
+> channel-group changes and pages where conversions dropped. Return a campaign
+> pulse digest with the same executive summary, actions, and metric table as
+> the CSV workflow.
+> ```
+
+Keep GA4 jobs read-only. Budget edits, campaign mutations, and access changes
+belong in a separate approved workflow.
+
 ## Best-Practice Notes
 
 - **Unit economics, not spend volume.** The first number in the digest
@@ -135,6 +155,8 @@ still comes from manual exports.
 - when your exports live in Google Sheets, pull them via the
   [Google Workspace skills](../skills/integrations.md) instead of
   re-uploading CSVs each week
+- when website analytics live in GA4, use the
+  [GA4 skill](../skills/integrations.md#ga4) to avoid stale manual exports
 
 ## Going Further
 

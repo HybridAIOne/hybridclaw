@@ -88,6 +88,169 @@ describe('config reload integration', () => {
     expect(cfg.ops.healthPort).toBe(7777);
   });
 
+  it('reloadRuntimeConfig accepts SearXNG bearer SecretRefs', () => {
+    writeConfig({
+      web: {
+        search: {
+          searxngBaseUrl: 'https://search.tenant.example',
+          searxngBearerTokenRef: {
+            source: 'store',
+            id: 'SEARXNG_BEARER_TOKEN',
+          },
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.web.search.searxngBaseUrl).toBe('https://search.tenant.example');
+    expect(cfg.web.search.searxngBearerTokenRef).toEqual({
+      source: 'store',
+      id: 'SEARXNG_BEARER_TOKEN',
+    });
+  });
+
+  it('reloadRuntimeConfig accepts per-agent SearXNG bearer SecretRefs', () => {
+    writeConfig({
+      agents: {
+        list: [
+          {
+            id: 'research',
+            webSearch: {
+              searxngBaseUrl: 'https://search.research.example',
+              searxngBearerTokenRef: {
+                source: 'store',
+                id: 'RESEARCH_SEARXNG_BEARER_TOKEN',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(
+      cfg.agents.list?.find((agent) => agent.id === 'research'),
+    ).toMatchObject({
+      webSearch: {
+        searxngBaseUrl: 'https://search.research.example',
+        searxngBearerTokenRef: {
+          source: 'store',
+          id: 'RESEARCH_SEARXNG_BEARER_TOKEN',
+        },
+      },
+    });
+  });
+
+  it('reloadRuntimeConfig rejects plaintext SearXNG bearer tokens', () => {
+    writeConfig({
+      web: {
+        search: {
+          searxngBearerTokenRef: 'plain-token',
+        },
+      },
+    });
+
+    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
+      'web.search.searxngBearerTokenRef must use a store SecretRef',
+    );
+  });
+
+  it('reloadRuntimeConfig rejects plaintext per-agent SearXNG bearer tokens', () => {
+    writeConfig({
+      agents: {
+        list: [
+          {
+            id: 'research',
+            webSearch: {
+              searxngBearerTokenRef: 'plain-token',
+            },
+          },
+        ],
+      },
+    });
+
+    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
+      'agents.list[].webSearch.searxngBearerTokenRef must use a store SecretRef',
+    );
+  });
+
+  it('reloadRuntimeConfig normalizes supported Camofox launch options', () => {
+    writeConfig({
+      browser: {
+        provider: 'camofox',
+        camofox: {
+          headed: true,
+          launchOptions: {
+            os: ['linux', 'macos'],
+            block_webrtc: true,
+            humanize: 1.25,
+            locale: ['de-DE', 'en-US'],
+            window: [1366, 768],
+            webgl_config: ['Apple', 'Apple GPU'],
+            env: {
+              CAMOFOX_TEST: 'enabled',
+              CAMOFOX_FLAG: true,
+              CAMOFOX_COUNT: 2,
+            },
+          },
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.browser).toMatchObject({
+      provider: 'camofox',
+      camofox: {
+        headed: true,
+        launchOptions: {
+          os: ['linux', 'macos'],
+          block_webrtc: true,
+          humanize: 1.25,
+          locale: ['de-DE', 'en-US'],
+          window: [1366, 768],
+          webgl_config: ['Apple', 'Apple GPU'],
+          env: {
+            CAMOFOX_TEST: 'enabled',
+            CAMOFOX_FLAG: true,
+            CAMOFOX_COUNT: 2,
+          },
+        },
+      },
+    });
+  });
+
+  it('reloadRuntimeConfig rejects unsupported Camofox launch option keys', () => {
+    writeConfig({
+      browser: {
+        camofox: {
+          launchOptions: {
+            stealth_magic: true,
+          },
+        },
+      },
+    });
+
+    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
+      /browser\.camofox\.launchOptions\.stealth_magic is not a supported Camofox launch option/u,
+    );
+  });
+
+  it('reloadRuntimeConfig rejects Camofox launch options managed by HybridClaw', () => {
+    writeConfig({
+      browser: {
+        camofox: {
+          launchOptions: {
+            timeout: 15_000,
+          },
+        },
+      },
+    });
+
+    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
+      /browser\.camofox\.launchOptions\.timeout is managed by HybridClaw/u,
+    );
+  });
+
   it('reloadRuntimeConfig normalizes trajectory retention policy', () => {
     writeConfig({
       adaptiveSkills: {

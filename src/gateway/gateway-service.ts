@@ -11,6 +11,11 @@ import {
 } from '../../container/shared/workspace-time.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
+  type A2AThreadSummary,
+  listA2AThreadEnvelopes,
+  listA2AThreads,
+} from '../a2a/store.js';
+import {
   type BuildLocalA2AAgentCardOptions,
   buildLocalA2AAgentCard,
   deleteA2ATrustedPublicKeyPeer,
@@ -71,6 +76,14 @@ import {
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
+import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
+import {
+  DISCORD_WEBHOOK_DEFAULT_TARGET,
+  discordWebhookSecretNameForTarget,
+  normalizeDiscordWebhookTargetName,
+  normalizeDiscordWebhookUrl,
+} from '../channels/discord-webhook/target.js';
 import {
   deleteLiveAdminEmailMessage,
   fetchLiveAdminEmailFolder,
@@ -81,6 +94,14 @@ import {
   getSignalCliAvailability,
   getSignalLinkState,
 } from '../channels/signal/pairing.js';
+import { allowSlackWebhookInWorkspacePolicy } from '../channels/slack-webhook/policy.js';
+import { getSlackWebhookStatus } from '../channels/slack-webhook/runtime.js';
+import {
+  normalizeSlackWebhookTargetName,
+  normalizeSlackWebhookUrl,
+  SLACK_WEBHOOK_DEFAULT_TARGET,
+  slackWebhookSecretNameForTarget,
+} from '../channels/slack-webhook/target.js';
 import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
@@ -148,6 +169,8 @@ import {
   resolveDefaultAgentId,
   runtimeConfigPath,
   saveRuntimeConfig,
+  setRuntimeConfigDiscordWebhookSecretInput,
+  setRuntimeConfigSlackWebhookSecretInput,
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
@@ -160,6 +183,8 @@ import {
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { handleGoalCommand } from '../goals/goal-command.js';
+import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -330,6 +355,8 @@ import {
   loadSkillCatalogs,
   resolveManagedCommunitySkillsDir,
   type SkillCatalogEntry,
+  SkillGuardUnblockInputError,
+  unblockGuardedSkill,
 } from '../skills/skills.js';
 import {
   guardSkillDirectory,
@@ -355,6 +382,7 @@ import type {
   DelegationTaskSpec,
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import {
   extractExplicitUsageCostUsd,
   resolveUsageCostUsdAfterMetadataRefresh,
@@ -377,7 +405,6 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
-import { handleConciergeCommand } from './concierge-commands.js';
 import { buildContextUsageSnapshot } from './context-usage.js';
 import { getCoworkerLivenessSummary } from './coworker-liveness.js';
 import {
@@ -437,6 +464,9 @@ import {
   reconnectGatewayAdminTunnel,
 } from './gateway-tunnel-service.js';
 import {
+  type GatewayAdminA2AInboxResponse,
+  type GatewayAdminA2AThreadMessage,
+  type GatewayAdminA2AThreadSummary,
   type GatewayAdminA2ATrustPeer,
   type GatewayAdminA2ATrustResponse,
   type GatewayAdminA2ATrustUpsertRequest,
@@ -454,6 +484,7 @@ import {
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
+  type GatewayAdminDiscordWebhookTargetRequest,
   type GatewayAdminEmailDeleteResponse,
   type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
@@ -470,6 +501,7 @@ import {
   type GatewayAdminSession,
   type GatewayAdminSkill,
   type GatewayAdminSkillsResponse,
+  type GatewayAdminSlackWebhookTargetRequest,
   type GatewayAdminStatisticsChannelRow,
   type GatewayAdminStatisticsResponse,
   type GatewayAdminStatisticsTrendDay,
@@ -500,6 +532,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -512,6 +545,8 @@ import {
 import { handleSkillCommand } from './skill-commands.js';
 
 export { reconnectGatewayAdminTunnel };
+
+initializeGoalContinuationRunner();
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
@@ -676,6 +711,20 @@ export function readSystemPromptMessage(
     : null;
 }
 
+export function readDynamicContextMessage(
+  messages: ChatMessage[],
+): string | null {
+  const dynamicContextMessage = messages.find(
+    (message) =>
+      message.role === 'user' &&
+      typeof message.content === 'string' &&
+      message.content.trimStart().startsWith('<context>'),
+  );
+  if (!dynamicContextMessage) return null;
+  const content = sanitizeRequestLogValue(dynamicContextMessage.content);
+  return typeof content === 'string' && content.trim() ? content : null;
+}
+
 function sanitizeRequestLogToolExecutions(
   toolExecutions: ToolExecution[],
 ): ToolExecution[] {
@@ -757,7 +806,9 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'browser_pdf',
   'browser_vision',
   'vision_analyze',
-  'image',
+  'audio_transcribe',
+  'image_generate',
+  'video_generate',
   'browser_get_images',
   'browser_console',
   'browser_network',
@@ -898,6 +949,14 @@ async function persistDelegationAttempt(params: {
       }),
       auditRunId: runId,
     });
+    for (const event of buildMediaGenerationUsageEvents({
+      sessionId: params.sessionId,
+      agentId: 'delegate',
+      auditRunId: runId,
+      toolExecutions,
+    })) {
+      enqueueTokenUsage(event);
+    }
   }
   maybeRecordGatewayRequestLog({
     sessionId: params.sessionId,
@@ -3829,6 +3888,25 @@ export async function getGatewayStatus(
     appTokenConfigured: Boolean(slackAppCredential.value),
     appTokenSource: slackAppCredential.source,
   } as NonNullable<GatewayStatus['slack']>;
+  const discordWebhookRuntimeStatus = getDiscordWebhookStatus();
+  const discordWebhook = {
+    targetCount: discordWebhookRuntimeStatus.targets.length,
+    defaultTargetConfigured: Boolean(
+      runtimeConfig.discordWebhook.webhooks.default?.webhookUrl,
+    ),
+    lastReachabilityResults:
+      discordWebhookRuntimeStatus.lastReachabilityResults,
+    lastSendResults: discordWebhookRuntimeStatus.lastSendResults,
+  } as NonNullable<GatewayStatus['discordWebhook']>;
+  const slackWebhookRuntimeStatus = getSlackWebhookStatus();
+  const slackWebhook = {
+    targetCount: slackWebhookRuntimeStatus.targets.length,
+    defaultTargetConfigured: Boolean(
+      runtimeConfig.slackWebhook.webhooks.default?.webhookUrl,
+    ),
+    lastReachabilityResults: slackWebhookRuntimeStatus.lastReachabilityResults,
+    lastSendResults: slackWebhookRuntimeStatus.lastSendResults,
+  } as NonNullable<GatewayStatus['slackWebhook']>;
   const telegram = resolveGatewayTokenStatus({
     storedSecretName: 'TELEGRAM_BOT_TOKEN',
     envValues: [TELEGRAM_BOT_TOKEN],
@@ -3896,6 +3974,7 @@ export async function getGatewayStatus(
       jobs: getSchedulerStatus(),
     },
     discord,
+    discordWebhook,
     signal: {
       enabled: runtimeConfig.signal.enabled,
       daemonUrlConfigured: Boolean(runtimeConfig.signal.daemonUrl.trim()),
@@ -3912,6 +3991,7 @@ export async function getGatewayStatus(
     },
     threema,
     slack,
+    slackWebhook,
     telegram,
     email,
     emailEnabled: runtimeConfig.email.enabled === true,
@@ -4805,6 +4885,20 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
       defaultRequireMention: runtimeConfig.slack.requireMention,
       defaultReplyStyle: runtimeConfig.slack.replyStyle,
     },
+    slackWebhook: {
+      enabled: runtimeConfig.slackWebhook.enabled,
+      targetCount: Object.keys(runtimeConfig.slackWebhook.webhooks).length,
+      defaultTargetConfigured: Boolean(
+        runtimeConfig.slackWebhook.webhooks.default?.webhookUrl,
+      ),
+    },
+    discordWebhook: {
+      enabled: runtimeConfig.discordWebhook.enabled,
+      targetCount: Object.keys(runtimeConfig.discordWebhook.webhooks).length,
+      defaultTargetConfigured: Boolean(
+        runtimeConfig.discordWebhook.webhooks.default?.webhookUrl,
+      ),
+    },
     msteams: {
       enabled: runtimeConfig.msteams.enabled,
       groupPolicy: runtimeConfig.msteams.groupPolicy,
@@ -4877,19 +4971,236 @@ export function removeGatewayAdminChannel(params: {
   return getGatewayAdminChannels();
 }
 
+function redactGatewayAdminConfigSecrets(config: RuntimeConfig): RuntimeConfig {
+  const redacted = structuredClone(config);
+  for (const webhook of Object.values(redacted.slackWebhook.webhooks)) {
+    webhook.webhookUrl = '';
+  }
+  for (const webhook of Object.values(redacted.discordWebhook.webhooks)) {
+    webhook.webhookUrl = '';
+  }
+  return redacted;
+}
+
 export function getGatewayAdminConfig(): GatewayAdminConfigResponse {
   return {
     path: runtimeConfigPath(),
-    config: getRuntimeConfig(),
+    config: redactGatewayAdminConfigSecrets(getRuntimeConfig()),
   };
 }
 
 export function saveGatewayAdminConfig(
   next: RuntimeConfig,
 ): GatewayAdminConfigResponse {
+  const current = getRuntimeConfig();
+  for (const [target, currentWebhook] of Object.entries(
+    current.slackWebhook.webhooks,
+  )) {
+    const incoming = next.slackWebhook.webhooks[target];
+    if (incoming && !String(incoming.webhookUrl || '').trim()) {
+      incoming.webhookUrl = currentWebhook.webhookUrl;
+    }
+  }
+  for (const [target, currentWebhook] of Object.entries(
+    current.discordWebhook.webhooks,
+  )) {
+    const incoming = next.discordWebhook.webhooks[target];
+    if (incoming && !String(incoming.webhookUrl || '').trim()) {
+      incoming.webhookUrl = currentWebhook.webhookUrl;
+    }
+  }
   return {
     path: runtimeConfigPath(),
-    config: saveRuntimeConfig(next),
+    config: redactGatewayAdminConfigSecrets(saveRuntimeConfig(next)),
+  };
+}
+
+export function saveGatewayAdminDiscordWebhookTarget(
+  input: GatewayAdminDiscordWebhookTargetRequest,
+): GatewayAdminConfigResponse {
+  const target = normalizeDiscordWebhookTargetName(input.target);
+  if (!target) {
+    throw new Error(
+      'Invalid Discord webhook target. Use letters, numbers, dots, dashes, or underscores.',
+    );
+  }
+
+  const webhookUrl = String(input.webhookUrl || '').trim();
+  const current = getRuntimeConfig();
+  const existing = current.discordWebhook.webhooks[target];
+  if (!webhookUrl && !existing?.webhookUrl) {
+    throw new Error('Discord webhook URL is required for a new target.');
+  }
+  if (
+    target !== DISCORD_WEBHOOK_DEFAULT_TARGET &&
+    !current.discordWebhook.webhooks[DISCORD_WEBHOOK_DEFAULT_TARGET]?.webhookUrl
+  ) {
+    throw new Error('Configure the default Discord webhook target first.');
+  }
+
+  let policyMessageHost: string | null = null;
+  if (webhookUrl) {
+    const normalizedUrl = normalizeDiscordWebhookUrl(
+      webhookUrl,
+      `discordWebhook.webhooks.${target}.webhook_url`,
+    );
+    const secretName = discordWebhookSecretNameForTarget(target);
+    saveNamedRuntimeSecrets({ [secretName]: normalizedUrl });
+    refreshRuntimeSecretsFromEnv();
+    setRuntimeConfigDiscordWebhookSecretInput(
+      target,
+      {
+        source: 'store',
+        id: secretName,
+      },
+      {
+        route: 'admin.discord-webhook.target-secret-ref',
+        source: 'user',
+      },
+    );
+    const policy = allowDiscordWebhookInWorkspacePolicy({
+      workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+      webhookUrl: normalizedUrl,
+    });
+    policyMessageHost = policy.rule.host;
+  }
+
+  const saved = updateRuntimeConfig(
+    (draft) => {
+      draft.discordWebhook.enabled =
+        target === DISCORD_WEBHOOK_DEFAULT_TARGET
+          ? true
+          : draft.discordWebhook.enabled;
+      const nextTarget = draft.discordWebhook.webhooks[target] ?? {
+        webhookUrl: existing?.webhookUrl || '',
+        defaultUsername: '',
+        defaultAvatarUrl: '',
+      };
+      draft.discordWebhook.webhooks[target] = {
+        ...nextTarget,
+        defaultUsername:
+          input.defaultUsername !== undefined
+            ? String(input.defaultUsername || '').trim()
+            : nextTarget.defaultUsername,
+        defaultAvatarUrl:
+          input.defaultAvatarUrl !== undefined
+            ? String(input.defaultAvatarUrl || '').trim()
+            : nextTarget.defaultAvatarUrl,
+      };
+    },
+    {
+      route: `admin.discord-webhook.target:${target}`,
+      source: 'user',
+    },
+  );
+
+  if (policyMessageHost) {
+    logger.info(
+      { target, host: policyMessageHost },
+      'Discord webhook network policy grant verified',
+    );
+  }
+
+  return {
+    path: runtimeConfigPath(),
+    config: redactGatewayAdminConfigSecrets(saved),
+  };
+}
+
+export function saveGatewayAdminSlackWebhookTarget(
+  input: GatewayAdminSlackWebhookTargetRequest,
+): GatewayAdminConfigResponse {
+  const target = normalizeSlackWebhookTargetName(input.target);
+  if (!target) {
+    throw new Error(
+      'Invalid Slack webhook target. Use letters, numbers, dots, dashes, or underscores.',
+    );
+  }
+
+  const webhookUrl = String(input.webhookUrl || '').trim();
+  const current = getRuntimeConfig();
+  const existing = current.slackWebhook.webhooks[target];
+  if (!webhookUrl && !existing?.webhookUrl) {
+    throw new Error('Slack webhook URL is required for a new target.');
+  }
+  if (
+    target !== SLACK_WEBHOOK_DEFAULT_TARGET &&
+    !current.slackWebhook.webhooks[SLACK_WEBHOOK_DEFAULT_TARGET]?.webhookUrl
+  ) {
+    throw new Error('Configure the default Slack webhook target first.');
+  }
+
+  let policyMessageHost: string | null = null;
+  if (webhookUrl) {
+    const normalizedUrl = normalizeSlackWebhookUrl(
+      webhookUrl,
+      `slackWebhook.webhooks.${target}.webhook_url`,
+    );
+    const secretName = slackWebhookSecretNameForTarget(target);
+    saveNamedRuntimeSecrets({ [secretName]: normalizedUrl });
+    refreshRuntimeSecretsFromEnv();
+    setRuntimeConfigSlackWebhookSecretInput(
+      target,
+      {
+        source: 'store',
+        id: secretName,
+      },
+      {
+        route: 'admin.slack-webhook.target-secret-ref',
+        source: 'user',
+      },
+    );
+    const policy = allowSlackWebhookInWorkspacePolicy({
+      workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+      webhookUrl: normalizedUrl,
+    });
+    policyMessageHost = policy.rule.host;
+  }
+
+  const saved = updateRuntimeConfig(
+    (draft) => {
+      draft.slackWebhook.enabled =
+        target === SLACK_WEBHOOK_DEFAULT_TARGET
+          ? true
+          : draft.slackWebhook.enabled;
+      const nextTarget = draft.slackWebhook.webhooks[target] ?? {
+        webhookUrl: existing?.webhookUrl || '',
+        defaultUsername: '',
+        defaultIconEmoji: '',
+        defaultIconUrl: '',
+      };
+      draft.slackWebhook.webhooks[target] = {
+        ...nextTarget,
+        defaultUsername:
+          input.defaultUsername !== undefined
+            ? String(input.defaultUsername || '').trim()
+            : nextTarget.defaultUsername,
+        defaultIconEmoji:
+          input.defaultIconEmoji !== undefined
+            ? String(input.defaultIconEmoji || '').trim()
+            : nextTarget.defaultIconEmoji,
+        defaultIconUrl:
+          input.defaultIconUrl !== undefined
+            ? String(input.defaultIconUrl || '').trim()
+            : nextTarget.defaultIconUrl,
+      };
+    },
+    {
+      route: `admin.slack-webhook.target:${target}`,
+      source: 'user',
+    },
+  );
+
+  if (policyMessageHost) {
+    logger.info(
+      { target, host: policyMessageHost },
+      'Slack webhook network policy grant verified',
+    );
+  }
+
+  return {
+    path: runtimeConfigPath(),
+    config: redactGatewayAdminConfigSecrets(saved),
   };
 }
 
@@ -4983,6 +5294,85 @@ export function deleteGatewayAdminA2ATrustPeer(params: {
 }): GatewayAdminA2ATrustResponse {
   deleteA2ATrustedPublicKeyPeer(params.peerId);
   return getGatewayAdminA2ATrust();
+}
+
+function mapA2AThreadMessage(
+  envelope: ReturnType<typeof listA2AThreadEnvelopes>[number],
+): GatewayAdminA2AThreadMessage {
+  return {
+    id: envelope.id,
+    threadId: envelope.thread_id,
+    senderAgentId: envelope.sender_agent_id,
+    recipientAgentId: envelope.recipient_agent_id,
+    parentMessageId: envelope.parent_message_id ?? null,
+    intent: envelope.intent,
+    content: envelope.content,
+    createdAt: envelope.created_at,
+  };
+}
+
+function compareA2AThreadEnvelopes(
+  left: ReturnType<typeof listA2AThreadEnvelopes>[number],
+  right: ReturnType<typeof listA2AThreadEnvelopes>[number],
+): number {
+  const createdAtOrder = left.created_at.localeCompare(right.created_at);
+  if (createdAtOrder !== 0) return createdAtOrder;
+  return left.id.localeCompare(right.id);
+}
+
+function mapA2AThreadSummary(
+  thread: A2AThreadSummary,
+): GatewayAdminA2AThreadSummary {
+  return {
+    id: thread.thread_id,
+    messageCount: thread.message_count,
+    participants: thread.participants,
+    latestMessage:
+      thread.latest_message_id &&
+      thread.latest_sender_agent_id &&
+      thread.latest_recipient_agent_id &&
+      thread.latest_intent &&
+      thread.latest_created_at
+        ? {
+            id: thread.latest_message_id,
+            threadId: thread.thread_id,
+            senderAgentId: thread.latest_sender_agent_id,
+            recipientAgentId: thread.latest_recipient_agent_id,
+            parentMessageId: thread.latest_parent_message_id,
+            intent: thread.latest_intent,
+            content: thread.latest_content ?? '',
+            createdAt: thread.latest_created_at,
+          }
+        : null,
+  };
+}
+
+export function getGatewayAdminA2AInbox(params?: {
+  threadId?: string | null;
+}): GatewayAdminA2AInboxResponse {
+  const threadSummaries = listA2AThreads();
+  const threads = threadSummaries.map(mapA2AThreadSummary);
+  const requestedThreadId = params?.threadId?.trim() || null;
+  const selectedThreadId = requestedThreadId || threads[0]?.id || null;
+
+  if (
+    requestedThreadId &&
+    !threads.some((thread) => thread.id === requestedThreadId)
+  ) {
+    throw new GatewayRequestError(404, 'A2A thread not found.');
+  }
+
+  const messages = selectedThreadId
+    ? listA2AThreadEnvelopes(selectedThreadId)
+        .sort(compareA2AThreadEnvelopes)
+        .map(mapA2AThreadMessage)
+    : [];
+
+  return {
+    threads,
+    selectedThreadId,
+    messages,
+  };
 }
 
 export function getGatewayA2AAgentCard(
@@ -5750,6 +6140,26 @@ export function setGatewayAdminSkillEnabled(input: {
   return getGatewayAdminSkills();
 }
 
+export function unblockGatewayAdminSkill(input: {
+  name: string;
+}): GatewayAdminSkillsResponse {
+  const name = String(input.name || '').trim();
+  if (!name) {
+    throw new GatewayRequestError(400, 'Expected non-empty skill `name`.');
+  }
+
+  try {
+    unblockGuardedSkill(name, 'admin-console');
+  } catch (error) {
+    if (!(error instanceof SkillGuardUnblockInputError)) {
+      throw error;
+    }
+    throw new GatewayRequestError(400, error.message);
+  }
+
+  return getGatewayAdminSkills();
+}
+
 function normalizeCreatedSkillCategory(raw: string | undefined): string {
   const normalized = String(raw || '')
     .trim()
@@ -6429,6 +6839,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         scheduledTaskCount: 0,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),
+        dynamicContext: readDynamicContextMessage(messages),
       },
     });
 
@@ -6494,6 +6905,14 @@ export async function ensureGatewayBootstrapAutostart(params: {
       }),
       auditRunId: runId,
     });
+    for (const event of buildMediaGenerationUsageEvents({
+      sessionId: session.id,
+      agentId: resolved.agentId,
+      auditRunId: runId,
+      toolExecutions: output.toolExecutions || [],
+    })) {
+      enqueueTokenUsage(event);
+    }
 
     if (output.status !== 'success' || !resultText) {
       deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
@@ -8132,37 +8551,6 @@ export async function handleGatewayCommand(
     };
   }
 
-  async function resolveValidatedRuntimeModelName(
-    rawModelName: string,
-  ): Promise<
-    { ok: true; model: string } | { ok: false; result: GatewayCommandResult }
-  > {
-    const normalizedModelName = resolveDisplayedModelName(
-      normalizeHybridAIModelForRuntime(rawModelName),
-    );
-    await refreshAvailableModelCatalogs({
-      includeHybridAI: resolveModelProvider(normalizedModelName) === 'hybridai',
-    });
-    const catalogModels = getAvailableModelList();
-    const resolvedModelName = resolveRequestedCatalogModelName(
-      rawModelName,
-      catalogModels,
-    );
-    if (
-      catalogModels.length > 0 &&
-      !catalogModels.includes(resolvedModelName)
-    ) {
-      return {
-        ok: false,
-        result: badCommand(
-          'Unknown Model',
-          `\`${rawModelName}\` is not in the available models list.`,
-        ),
-      };
-    }
-    return { ok: true, model: resolvedModelName };
-  }
-
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
@@ -8677,14 +9065,14 @@ export async function handleGatewayCommand(
           listModifierArg === 'full';
         const needsAvailableModels =
           sub === 'list' || sub === 'default' || sub === 'set';
-        if (needsAvailableModels) {
-          await refreshAvailableModelCatalogs({
-            includeHybridAI:
-              sub !== 'list' ||
-              !providerFilterArg ||
-              providerFilter === 'hybridai',
-          });
-        }
+        const modelCatalogRefreshResult = needsAvailableModels
+          ? await refreshAvailableModelCatalogs({
+              includeHybridAI:
+                sub !== 'list' ||
+                !providerFilterArg ||
+                providerFilter === 'hybridai',
+            })
+          : null;
         const gatewayStatus = needsAvailableModels
           ? await getGatewayStatusForModelSubcommand(sub)
           : null;
@@ -8716,6 +9104,7 @@ export async function handleGatewayCommand(
             const diagnostic = diagnoseProviderForModels(
               providerFilter,
               gatewayStatus.providerHealth,
+              modelCatalogRefreshResult?.failures,
             );
             if (diagnostic) {
               return infoCommand(
@@ -8888,16 +9277,6 @@ export async function handleGatewayCommand(
         );
       }
 
-      case 'concierge': {
-        return await handleConciergeCommand({
-          args: req.args,
-          badCommand,
-          infoCommand: (title, text) => infoCommand(title, text),
-          plainCommand,
-          resolveValidatedRuntimeModelName,
-        });
-      }
-
       case 'rag': {
         const sub = parseLowerArg(req.args, 1);
         if (sub === 'on' || sub === 'off') {
@@ -9064,6 +9443,10 @@ export async function handleGatewayCommand(
         return plainCommand(
           `Ralph loop set to ${formatRalphIterations(normalized)}.${restartNote}`,
         );
+      }
+
+      case 'goal': {
+        return await handleGoalCommand({ session, req });
       }
 
       case 'fullauto': {
@@ -9716,6 +10099,11 @@ export async function handleGatewayCommand(
 
       case 'stop':
       case 'abort': {
+        pauseActiveGoalForSession({
+          session,
+          reason: 'user-interrupted',
+          verdict: 'interrupted',
+        });
         await disableFullAutoSession({ sessionId: session.id });
         const stopped = interruptGatewaySessionExecution(req.sessionId);
         return plainCommand(

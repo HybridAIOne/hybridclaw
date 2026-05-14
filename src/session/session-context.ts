@@ -34,12 +34,14 @@ export interface SessionContext {
 
 const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
   discord: 'Discord',
+  discord_webhook: 'Discord Webhook',
   email: 'Email',
   heartbeat: 'Heartbeat',
   imessage: 'iMessage',
   msteams: 'Microsoft Teams',
   signal: 'Signal',
   slack: 'Slack',
+  slack_webhook: 'Slack Webhook',
   scheduler: 'Scheduler',
   telegram: 'Telegram',
   threema: 'Threema',

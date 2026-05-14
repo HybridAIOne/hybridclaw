@@ -417,6 +417,34 @@ describe('plugin install', () => {
     );
   });
 
+  test('lists installable project plugins from cwd/plugins', async () => {
+    const cwd = makeTempDir('hybridclaw-plugin-cwd-');
+    const sourceDir = path.join(cwd, 'plugins', 'project-plugin');
+    writePluginDir(sourceDir, {
+      pluginId: 'project-plugin',
+      pluginName: 'Project Plugin',
+      packageName: '@scope/project-plugin',
+    });
+
+    const { listInstallablePlugins } = await import(
+      '../src/plugins/plugin-install.js'
+    );
+    const result = listInstallablePlugins({ cwd });
+
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'project-plugin',
+          name: 'Project Plugin',
+          version: '1.0.0',
+          source: 'project',
+          dir: sourceDir,
+          installSource: 'project-plugin',
+        }),
+      ]),
+    );
+  });
+
   test('installs manifest-declared npm packages with scripts disabled when no package.json is present', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');

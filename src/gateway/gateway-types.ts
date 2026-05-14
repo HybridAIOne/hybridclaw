@@ -1,5 +1,6 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
+import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import type {
@@ -7,6 +8,8 @@ import type {
   AgentTeamStructureSnapshot,
 } from '../agents/team-structure.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
+import type { DiscordWebhookSendResult } from '../channels/discord-webhook/delivery.js';
+import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.js';
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
@@ -29,6 +32,7 @@ import type {
 import type { MemoryCitation } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import type { GatewayModelProviderKey } from './model-provider-keys.js';
 
 export type GatewayMessageComponents = NonNullable<
   BaseMessageOptions['components']
@@ -196,6 +200,7 @@ export interface GatewayCommandRequest {
   args: string[];
   userId?: string | null;
   username?: string | null;
+  onProactiveMessage?: GatewayChatRequest['onProactiveMessage'];
 }
 
 export interface GatewayProactiveMessage {
@@ -395,11 +400,23 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;
   };
+  discordWebhook?: {
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+    lastReachabilityResults: DiscordWebhookSendResult[];
+    lastSendResults: DiscordWebhookSendResult[];
+  };
   slack?: {
     botTokenConfigured: boolean;
     botTokenSource: 'env' | 'runtime-secrets' | null;
     appTokenConfigured: boolean;
     appTokenSource: 'env' | 'runtime-secrets' | null;
+  };
+  slackWebhook?: {
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+    lastReachabilityResults: SlackWebhookSendResult[];
+    lastSendResults: SlackWebhookSendResult[];
   };
   telegram?: {
     tokenConfigured: boolean;
@@ -448,28 +465,7 @@ export interface GatewayStatus {
     cliError: string | null;
   };
   providerHealth?: Partial<
-    Record<
-      | 'hybridai'
-      | 'codex'
-      | 'anthropic'
-      | 'openrouter'
-      | 'mistral'
-      | 'huggingface'
-      | 'gemini'
-      | 'deepseek'
-      | 'xai'
-      | 'zai'
-      | 'kimi'
-      | 'minimax'
-      | 'dashscope'
-      | 'xiaomi'
-      | 'kilo'
-      | 'ollama'
-      | 'lmstudio'
-      | 'llamacpp'
-      | 'vllm',
-      GatewayProviderHealthEntry
-    >
+    Record<GatewayModelProviderKey, GatewayProviderHealthEntry>
   >;
   localBackends?: Partial<
     Record<
@@ -865,6 +861,16 @@ export interface GatewayAdminChannelsResponse {
     defaultRequireMention: boolean;
     defaultReplyStyle: RuntimeConfig['slack']['replyStyle'];
   };
+  slackWebhook: {
+    enabled: boolean;
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+  };
+  discordWebhook: {
+    enabled: boolean;
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: RuntimeConfig['msteams']['groupPolicy'];
@@ -892,6 +898,21 @@ export type GatewayAdminChannelUpsertRequest =
 export interface GatewayAdminConfigResponse {
   path: string;
   config: RuntimeConfig;
+}
+
+export interface GatewayAdminSlackWebhookTargetRequest {
+  target: string;
+  webhookUrl?: string;
+  defaultUsername?: string;
+  defaultIconEmoji?: string;
+  defaultIconUrl?: string;
+}
+
+export interface GatewayAdminDiscordWebhookTargetRequest {
+  target: string;
+  webhookUrl?: string;
+  defaultUsername?: string;
+  defaultAvatarUrl?: string;
 }
 
 export interface GatewayAdminA2AIdentity {
@@ -933,6 +954,30 @@ export interface GatewayAdminA2ATrustUpsertRequest {
   publicKeyFingerprint?: unknown;
   publicKeyJwk?: unknown;
   reason?: unknown;
+}
+
+export interface GatewayAdminA2AThreadMessage {
+  id: string;
+  threadId: string;
+  senderAgentId: string;
+  recipientAgentId: string;
+  parentMessageId: string | null;
+  intent: A2AEnvelope['intent'];
+  content: string;
+  createdAt: string;
+}
+
+export interface GatewayAdminA2AThreadSummary {
+  id: string;
+  messageCount: number;
+  participants: string[];
+  latestMessage: GatewayAdminA2AThreadMessage | null;
+}
+
+export interface GatewayAdminA2AInboxResponse {
+  threads: GatewayAdminA2AThreadSummary[];
+  selectedThreadId: string | null;
+  messages: GatewayAdminA2AThreadMessage[];
 }
 
 export interface GatewayAdminAgentMarkdownFile {
@@ -1009,10 +1054,7 @@ export interface GatewayAdminAgentMarkdownRevisionResponse {
   };
 }
 
-/** Key into `GatewayAdminModelsResponse.providerStatus`. */
-export type GatewayModelProviderKey = keyof NonNullable<
-  GatewayAdminModelsResponse['providerStatus']
->;
+export type { GatewayModelProviderKey } from './model-provider-keys.js';
 
 export interface GatewayAdminModelCatalogEntry {
   id: string;

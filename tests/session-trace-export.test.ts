@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
@@ -64,6 +64,8 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       provider: 'hybridai',
       model: 'gpt-5-nano',
       systemPrompt: 'You are a focused coding assistant.',
+      dynamicContext:
+        '<context>\nDate (UTC): 2026-05-14\nHost: test-host\n</context>',
       promptMessages: 3,
       scheduledTaskCount: 0,
     },
@@ -237,6 +239,10 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
     content: 'I updated the parser test and verified the failure path.',
     model: 'hybridai/gpt-5-nano',
     system_prompt_hash: systemPromptHashes[0],
+    dynamic_context: {
+      role: 'user',
+      content: '<context>\nDate (UTC): 2026-05-14\nHost: test-host\n</context>',
+    },
     call_type: 'main',
     agent_role: 'main',
     token_usage: {
@@ -246,6 +252,20 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       cache_write_tokens: 15,
     },
   });
+  expect(secondStep.dynamic_context_hash).toMatch(/^[a-f0-9]{16}$/);
+  expect(secondStep.prompt_prefix).toEqual([
+    {
+      role: 'system',
+      kind: 'system_prompt',
+      system_prompt_hash: systemPromptHashes[0],
+    },
+    {
+      role: 'user',
+      kind: 'dynamic_context',
+      dynamic_context_hash: secondStep.dynamic_context_hash,
+      content: '<context>\nDate (UTC): 2026-05-14\nHost: test-host\n</context>',
+    },
+  ]);
   expect(secondStep.tool_calls).toEqual([
     {
       tool_call_id: `${runId}:tool:1`,
@@ -262,6 +282,255 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       error: null,
     },
   ]);
+});
+
+test('trace export keeps consecutive buildConversationContext system prompts byte-identical', async () => {
+  setupHome();
+  vi.useFakeTimers();
+
+  try {
+    const {
+      getOrCreateSession,
+      getSessionById,
+      getSessionUsageTotals,
+      getStructuredAuditForSession,
+      initDatabase,
+      storeMessage,
+      updateSessionModel,
+    } = await import('../src/memory/db.ts');
+    const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+    const { buildConversationContext } = await import(
+      '../src/agent/conversation.ts'
+    );
+    const { exportSessionTraceAtifJsonl } = await import(
+      '../src/session/session-trace-export.ts'
+    );
+
+    initDatabase({ quiet: true });
+    const session = getOrCreateSession(
+      'session-trace-static-prefix',
+      null,
+      'channel-trace-static-prefix',
+    );
+    updateSessionModel(session.id, 'gpt-5-nano');
+    storeMessage(session.id, 'user-1', 'alice', 'user', 'First turn');
+    storeMessage(session.id, 'assistant', null, 'assistant', 'First answer');
+    storeMessage(session.id, 'user-1', 'alice', 'user', 'Second turn');
+    storeMessage(session.id, 'assistant', null, 'assistant', 'Second answer');
+
+    const buildPromptAt = (
+      iso: string,
+      sessionSummary?: string,
+    ): { systemPrompt: string; dynamicContext: string } => {
+      vi.setSystemTime(new Date(iso));
+      const { messages } = buildConversationContext({
+        agentId: session.agent_id,
+        sessionSummary,
+        history: [],
+        currentUserContent: 'Trace prefix stability',
+        runtimeInfo: {
+          model: 'openai-codex/gpt-5.4',
+          channelType: 'discord',
+          channelId: 'channel-trace-static-prefix',
+          guildId: null,
+          workspacePath: '/workspace/trace-static-prefix',
+        },
+      });
+      const systemMessage = messages[0];
+      if (systemMessage?.role !== 'system') {
+        throw new Error(
+          'Expected buildConversationContext to emit a system message.',
+        );
+      }
+      const dynamicContextMessage = messages[1];
+      if (
+        dynamicContextMessage?.role !== 'user' ||
+        typeof dynamicContextMessage.content !== 'string'
+      ) {
+        throw new Error(
+          'Expected buildConversationContext to emit a dynamic context message.',
+        );
+      }
+      return {
+        systemPrompt: String(systemMessage.content || ''),
+        dynamicContext: dynamicContextMessage.content,
+      };
+    };
+
+    const firstPrompt = buildPromptAt('2026-05-13T12:00:00.000Z');
+    const secondPrompt = buildPromptAt(
+      '2026-05-13T12:01:00.000Z',
+      [
+        '### Relevant Memory Recall',
+        'Topic-matched context from older turns.',
+        '- [mem:1] User asked for date and local time.',
+      ].join('\n'),
+    );
+    expect(secondPrompt.systemPrompt).toBe(firstPrompt.systemPrompt);
+    expect(secondPrompt.dynamicContext).not.toBe(firstPrompt.dynamicContext);
+    expect(secondPrompt.dynamicContext).toContain('[mem:1]');
+
+    const recordTurn = (
+      index: number,
+      prompt: { systemPrompt: string; dynamicContext: string },
+    ) => {
+      const runId = `turn_trace_static_prefix_${index + 1}`;
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.start',
+          turnIndex: index + 1,
+          userInput: index === 0 ? 'First turn' : 'Second turn',
+          username: 'alice',
+          source: 'gateway.chat',
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'agent.start',
+          provider: 'hybridai',
+          model: 'gpt-5-nano',
+          systemPrompt: prompt.systemPrompt,
+          dynamicContext: prompt.dynamicContext,
+          promptMessages: 3,
+          scheduledTaskCount: 0,
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex: index + 1,
+          finishReason: 'completed',
+        },
+      });
+    };
+
+    const messagesForTurns = (turns: 1 | 2) => {
+      const messages = [
+        {
+          id: 1,
+          session_id: session.id,
+          user_id: 'user-1',
+          username: 'alice',
+          role: 'user',
+          content: 'First turn',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 2,
+          session_id: session.id,
+          user_id: 'assistant',
+          username: null,
+          role: 'assistant',
+          content: 'First answer',
+          created_at: new Date().toISOString(),
+        },
+      ];
+      if (turns === 1) return messages;
+      messages.push(
+        {
+          id: 3,
+          session_id: session.id,
+          user_id: 'user-1',
+          username: 'alice',
+          role: 'user',
+          content: 'Second turn',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 4,
+          session_id: session.id,
+          user_id: 'assistant',
+          username: null,
+          role: 'assistant',
+          content: 'Second answer',
+          created_at: new Date().toISOString(),
+        },
+      );
+      return messages;
+    };
+
+    const exportTraceRecord = async (turns: 1 | 2) => {
+      const refreshedSession = getSessionById(session.id);
+      if (!refreshedSession) {
+        throw new Error('Expected refreshed session to exist');
+      }
+      const exported = await exportSessionTraceAtifJsonl({
+        agentId: refreshedSession.agent_id,
+        session: refreshedSession,
+        messages: messagesForTurns(turns),
+        auditEntries: getStructuredAuditForSession(session.id),
+        usageTotals: getSessionUsageTotals(session.id),
+      });
+      expect(exported).not.toBeNull();
+      const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
+      return JSON.parse(raw) as Record<string, unknown>;
+    };
+
+    recordTurn(0, firstPrompt);
+    const firstTrace = await exportTraceRecord(1);
+
+    recordTurn(1, secondPrompt);
+    const secondTrace = await exportTraceRecord(2);
+
+    const firstSystemPrompts = firstTrace.system_prompts as Record<
+      string,
+      string
+    >;
+    const secondSystemPrompts = secondTrace.system_prompts as Record<
+      string,
+      string
+    >;
+    const firstSystemPromptHashes = Object.keys(firstSystemPrompts);
+    const secondSystemPromptHashes = Object.keys(secondSystemPrompts);
+    expect(firstSystemPromptHashes).toHaveLength(1);
+    expect(secondSystemPromptHashes).toEqual(firstSystemPromptHashes);
+    expect(secondSystemPrompts).toEqual(firstSystemPrompts);
+
+    const firstAgentStepHashes = (
+      (firstTrace.steps as Array<Record<string, unknown>>) || []
+    )
+      .map((step) => step.system_prompt_hash)
+      .filter(Boolean);
+    const secondAgentStepHashes = (
+      (secondTrace.steps as Array<Record<string, unknown>>) || []
+    )
+      .map((step) => step.system_prompt_hash)
+      .filter(Boolean);
+    expect(firstAgentStepHashes).toEqual([firstSystemPromptHashes[0]]);
+    expect(secondAgentStepHashes).toEqual([
+      firstSystemPromptHashes[0],
+      firstSystemPromptHashes[0],
+    ]);
+    const secondAgentSteps =
+      (secondTrace.steps as Array<Record<string, unknown>>) || [];
+    const secondTurnAgentStep = secondAgentSteps[3] || {};
+    expect(secondTurnAgentStep.dynamic_context).toMatchObject({
+      role: 'user',
+      content: secondPrompt.dynamicContext,
+    });
+    expect(secondTurnAgentStep.dynamic_context_hash).toMatch(/^[a-f0-9]{16}$/);
+    expect(secondTurnAgentStep.prompt_prefix).toEqual([
+      {
+        role: 'system',
+        kind: 'system_prompt',
+        system_prompt_hash: firstSystemPromptHashes[0],
+      },
+      {
+        role: 'user',
+        kind: 'dynamic_context',
+        dynamic_context_hash: secondTurnAgentStep.dynamic_context_hash,
+        content: secondPrompt.dynamicContext,
+      },
+    ]);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('trace export fills repository, dependencies, security, and attribution from workspace context', async () => {

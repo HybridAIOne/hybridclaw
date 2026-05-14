@@ -110,6 +110,7 @@ describe('A2A runtime API', () => {
     const deliveredEnvelope = {
       id: 'msg-1',
       sender_agent_id: 'stub-a@team@local-dev',
+      sender_instance_id: 'local-dev',
       recipient_agent_id: 'stub-b@team@local-dev',
       thread_id: 'thread-1',
       intent: 'handoff',

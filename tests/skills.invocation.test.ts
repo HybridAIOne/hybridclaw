@@ -97,6 +97,18 @@ test('expands $skill mentions into explicit skill instructions', () => {
   expect(expanded).toContain('Skill input: next track');
 });
 
+test('resolves dotted slash skill names through command sanitization', () => {
+  const searchImages = makeTempSkill('search.images');
+
+  const expanded = expandSkillInvocation('/search.images query cats', [
+    searchImages,
+  ]);
+
+  expect(expanded).toContain('[Explicit skill invocation]');
+  expect(expanded).toContain('Use the "search.images" skill for this request.');
+  expect(expanded).toContain('Skill input: query cats');
+});
+
 test('inherits the previous explicit skill for a short follow-up turn', () => {
   const appleMusic = makeTempSkill('apple-music');
 

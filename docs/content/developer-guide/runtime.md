@@ -84,9 +84,11 @@ Core details:
   owner-only `~/.hybridclaw/credentials.master.key` fallback.
 - The encrypted secret store accepts both built-in runtime secret keys and
   named secrets created through `/secret set <NAME> <VALUE>`.
-- Selected runtime config fields can use SecretRefs (`store` or `env`) instead
-  of plaintext values, and `tools.httpRequest.authRules[]` binds URL prefixes
-  to gateway-injected secret headers for the `http_request` tool.
+- Selected runtime config fields can use store-backed SecretRefs instead of
+  plaintext values, and `tools.httpRequest.authRules[]` binds URL prefixes to
+  gateway-injected secret headers for the `http_request` tool. New
+  configuration should use `{ "source": "store", "id": "SECRET_NAME" }`;
+  legacy Browser Use Cloud env refs are migrated to stored refs.
 - Some settings still require restart, such as bind host and port.
 - Default HybridAI chatbot is configured via `hybridai.defaultChatbotId`.
 - Agents are configured under `agents.defaults` and `agents.list`. Sessions bind
@@ -126,6 +128,7 @@ Common advanced areas:
 - Memory compaction and consolidation: `sessionCompaction.*`, `memory.*`
 - Session continuity and DM isolation: `sessionRouting.*`
 - Skill availability: `skills.disabled`, `skills.channelDisabled.*`
+- Browser stealth allowlisting: workspace `browser.stealth.rules`
 - Adaptive skill observation/amendment loop: `adaptiveSkills.*`
 - Proactive runtime: `proactive.*`, including
   `proactive.delegation.model` for a dedicated delegate model
@@ -182,6 +185,25 @@ Useful flags:
 The command is intended for first-install triage, auth/provider drift, Docker
 or gateway liveness checks, file-permission issues, and other local operator
 problems that are faster to diagnose from one aggregated report.
+
+## Prompt Context Assembly
+
+HybridClaw separates the static system prompt from per-turn dynamic context.
+`buildSystemPromptFromHooks()` should be byte-stable for the same agent,
+selected prompt parts, tools, skills, and channel contract. Wall-clock data,
+host metadata, today's `memory/YYYY-MM-DD.md` note, session summaries, and
+retrieval snippets belong in the user-role dynamic context block that is
+inserted immediately after the system prompt and before conversation history.
+
+This split keeps provider prompt-prefix caches effective without removing
+useful turn-local context from the model. It also gives trace exports a stable
+`system_prompt_hash` plus separate `dynamic_context_hash` and `prompt_prefix`
+entries so cache behavior and prompt composition can be audited per turn.
+
+When adding a prompt hook, keep durable instructions in the system prompt and
+put volatile facts in dynamic context or retrieval. Avoid reading clocks,
+hostnames, randomized values, live memory files, or current-session summaries
+from code that contributes to the static system prompt.
 
 ## Session Routing Internals
 

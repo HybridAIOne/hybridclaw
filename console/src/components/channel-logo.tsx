@@ -1,6 +1,7 @@
 export function ChannelLogo(props: {
   kind:
     | 'discord'
+    | 'discord_webhook'
     | 'telegram'
     | 'threema'
     | 'signal'
@@ -8,11 +9,13 @@ export function ChannelLogo(props: {
     | 'whatsapp'
     | 'email'
     | 'slack'
+    | 'slack_webhook'
     | 'msteams'
     | 'imessage';
 }) {
   switch (props.kind) {
     case 'discord':
+    case 'discord_webhook':
       return (
         <span className="channel-logo" aria-hidden="true">
           <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
@@ -115,6 +118,7 @@ export function ChannelLogo(props: {
         </span>
       );
     case 'slack':
+    case 'slack_webhook':
       return (
         <span className="channel-logo channel-logo-compact" aria-hidden="true">
           <svg viewBox="0 0 127 127" aria-hidden="true" focusable="false">

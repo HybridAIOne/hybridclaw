@@ -16,6 +16,8 @@ export {
 const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<MessageToolChannelKind, string> = {
   discord:
     'Discord: send/read messages, upload files, inspect members/channels, react, edit, pin, and manage threads.',
+  discord_webhook:
+    'Discord webhook: send outbound-only messages to configured Discord Incoming Webhook targets.',
   email: 'Email: send email and read ingested email thread history.',
   imessage: 'iMessage: send messages to explicit iMessage handles.',
   msteams:
@@ -24,6 +26,8 @@ const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<MessageToolChannelKind, string> = {
     'Signal: send messages to explicit Signal recipients (phone numbers, UUIDs, or `group:<id>`).',
   slack:
     'Slack: send/read known Slack conversations, upload files, and inspect members/channels.',
+  slack_webhook:
+    'Slack webhook: send outbound-only Block Kit messages to configured webhook targets.',
   telegram:
     'Telegram: send messages and uploads to explicit Telegram chat or topic targets.',
   threema:

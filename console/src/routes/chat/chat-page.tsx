@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChatBranch,
@@ -13,11 +13,25 @@ import type {
   BranchVariant,
   ChatMessage,
   ChatMobileQrResponse,
+  ChatRecentSession,
   MediaItem,
 } from '../../api/chat-types';
-import { fetchAgentList, fetchModels } from '../../api/client';
+import {
+  deleteSession as deleteChatSession,
+  fetchAgentList,
+  fetchModels,
+} from '../../api/client';
 import type { ChatModel } from '../../api/types';
 import { isAuthReadyForApi, useAuth } from '../../auth';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../components/dialog';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import { ViewSwitchNav } from '../../components/view-switch';
 import {
@@ -25,7 +39,6 @@ import {
   buildApprovalCommand,
   copyToClipboard,
   DEFAULT_AGENT_ID,
-  isScrolledNearBottom,
   nextMsgId,
   readStoredUserId,
 } from '../../lib/chat-helpers';
@@ -46,6 +59,7 @@ import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
+import { useStickToBottom } from './use-stick-to-bottom';
 
 type BranchInfo = {
   current: number;
@@ -92,6 +106,10 @@ function chatRecentQueryPrefix(token: string, userId: string) {
   return ['chat-recent', token, userId] as const;
 }
 
+function chatContextQueryKey(token: string, sessionId: string) {
+  return ['chat-context', token, sessionId] as const;
+}
+
 export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
@@ -106,6 +124,8 @@ export function ChatPage() {
   const [selectedModelId, setSelectedModelId] = useState('');
   const [recentChatScope, setRecentChatScope] =
     useState<RecentChatScope>('user');
+  const [sessionPendingDelete, setSessionPendingDelete] =
+    useState<ChatRecentSession | null>(null);
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const debouncedSessionSearchQuery = useDebouncedValue(
@@ -114,8 +134,13 @@ export function ChatPage() {
   );
   const trimmedSessionSearchQuery = debouncedSessionSearchQuery.trim();
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messageAreaRef = useRef<HTMLDivElement>(null);
+  const {
+    scrollRef: messageAreaRef,
+    contentRef: messageListRef,
+    isPinned,
+    jumpToBottom,
+    resetToBottom,
+  } = useStickToBottom();
   const mobileQrDialogRef = useRef<HTMLDivElement>(null);
   const mobileQrCloseRef = useRef<HTMLButtonElement>(null);
 
@@ -287,7 +312,7 @@ export function ChatPage() {
   });
 
   const contextQuery = useQuery({
-    queryKey: ['chat-context', auth.token, sessionId],
+    queryKey: chatContextQueryKey(auth.token, sessionId),
     queryFn: () => fetchChatContext(auth.token, sessionId),
     enabled: chatApiReady && Boolean(sessionId),
     staleTime: 15_000,
@@ -297,6 +322,39 @@ export function ChatPage() {
   const messages = historyQuery.data?.messages ?? EMPTY_MESSAGES;
   const branchFamilies =
     historyQuery.data?.branchFamilies ?? EMPTY_BRANCH_FAMILIES;
+
+  const deleteSessionMutation = useMutation({
+    mutationFn: (targetSessionId: string) =>
+      deleteChatSession(auth.token, targetSessionId),
+    onSuccess: (data) => {
+      if (!data.deleted) {
+        setError('Delete failed: session was not found.');
+        return;
+      }
+      const deletedSessionId = data.sessionId;
+      queryClient.removeQueries({
+        queryKey: chatHistoryQueryKey(auth.token, deletedSessionId),
+      });
+      queryClient.removeQueries({
+        queryKey: chatContextQueryKey(auth.token, deletedSessionId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: chatRecentQueryPrefix(auth.token, userId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['overview'],
+        refetchType: 'none',
+      });
+      setSessionPendingDelete(null);
+      const currentSessionId = getSessionId();
+      if (deletedSessionId === currentSessionId) {
+        startFreshChat();
+      }
+    },
+    onError: (err) => {
+      setError(`Delete failed: ${getErrorMessage(err)}`);
+    },
+  });
 
   // Forward fetch errors inline rather than throwing to the page-level error
   // boundary — a failed background refetch (invalidated after each stream)
@@ -370,28 +428,18 @@ export function ChatPage() {
   useEffect(() => {
     if (wasStreamingRef.current && !stream.isStreaming && sessionId) {
       void queryClient.invalidateQueries({
-        queryKey: ['chat-context', auth.token, sessionId],
+        queryKey: chatContextQueryKey(auth.token, sessionId),
       });
     }
     wasStreamingRef.current = stream.isStreaming;
   }, [stream.isStreaming, queryClient, auth.token, sessionId]);
 
-  const scrollRafRef = useRef(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on message changes to auto-scroll
+  // Reset pin state and instantly snap to the latest message on session
+  // switch so a long history doesn't crawl by under a smooth animation.
   useEffect(() => {
-    if (scrollRafRef.current) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = 0;
-      if (isScrolledNearBottom(messageAreaRef.current)) {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }
-    });
-  }, [messages]);
-  useEffect(() => {
-    return () => {
-      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-    };
-  }, []);
+    if (!sessionId) return;
+    resetToBottom();
+  }, [sessionId, resetToBottom]);
 
   const handleEditSave = useCallback(
     async (msg: ChatMessage, newContent: string) => {
@@ -430,13 +478,14 @@ export function ChatPage() {
   const handleRegenerate = useCallback(
     (msg: ChatMessage) => {
       if (!msg.replayRequest) return;
+      jumpToBottom();
       void stream.sendMessage(
         msg.replayRequest.content,
         msg.replayRequest.media,
         { hideUser: true },
       );
     },
-    [stream.sendMessage],
+    [jumpToBottom, stream.sendMessage],
   );
 
   const handleApprovalAction = useCallback(
@@ -445,12 +494,13 @@ export function ChatPage() {
       if (!cmd) return;
       setApprovalBusy(true);
       try {
+        jumpToBottom();
         await stream.sendMessage(cmd, [], { hideUser: true });
       } finally {
         setApprovalBusy(false);
       }
     },
-    [stream.sendMessage],
+    [jumpToBottom, stream.sendMessage],
   );
 
   const handleUploadFiles = useCallback(
@@ -483,9 +533,13 @@ export function ChatPage() {
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
       ensureSessionForSend();
+      // Sending re-engages the user with the live conversation — snap back so
+      // their bubble and the incoming stream are visible without the "↓ Latest"
+      // chip getting in the way.
+      jumpToBottom();
       void stream.sendMessage(content, media);
     },
-    [ensureSessionForSend, stream.sendMessage],
+    [ensureSessionForSend, jumpToBottom, stream.sendMessage],
   );
 
   const appendLocalCommandResult = useCallback(
@@ -562,7 +616,7 @@ export function ChatPage() {
           await switchToSession(resolvedSessionId, { replace: true });
         }
         void queryClient.invalidateQueries({
-          queryKey: ['chat-context', auth.token, resolvedSessionId],
+          queryKey: chatContextQueryKey(auth.token, resolvedSessionId),
         });
         refreshRecent();
         onAccepted(value);
@@ -616,6 +670,30 @@ export function ChatPage() {
     },
     [stream.isActive, navigateToSession],
   );
+
+  const canDeleteSession = useCallback(() => {
+    if (stream.isActive()) {
+      setError('Stop the current run before deleting a chat.');
+      return false;
+    }
+    return !deleteSessionMutation.isPending;
+  }, [deleteSessionMutation.isPending, stream.isActive]);
+
+  const handleRequestDeleteSession = useCallback(
+    (target: ChatRecentSession) => {
+      if (!canDeleteSession()) return;
+      setSessionPendingDelete(target);
+    },
+    [canDeleteSession],
+  );
+
+  const handleConfirmDeleteSession = useCallback(() => {
+    if (!sessionPendingDelete) {
+      throw new Error('Delete confirmation is missing a session.');
+    }
+    if (!canDeleteSession()) return;
+    deleteSessionMutation.mutate(sessionPendingDelete.sessionId);
+  }, [canDeleteSession, deleteSessionMutation, sessionPendingDelete]);
 
   const handleHoverSession = useCallback(
     (targetId: string) => {
@@ -700,6 +778,8 @@ export function ChatPage() {
     onNewChat: handleNewChat,
     onOpenSession: handleOpenSession,
     onHoverSession: handleHoverSession,
+    onRequestDeleteSession: handleRequestDeleteSession,
+    deleteDisabled: deleteSessionMutation.isPending,
     isPending: isSwitchingSession,
     searchQuery: sessionSearchQuery,
     onSearchQueryChange: setSessionSearchQuery,
@@ -780,7 +860,7 @@ export function ChatPage() {
             </div>
           ) : (
             <div className={css.messageArea} ref={messageAreaRef}>
-              <div className={css.messageList}>
+              <div className={css.messageList} ref={messageListRef}>
                 {messages.map((msg) =>
                   editingId === msg.id && msg.role !== 'thinking' ? (
                     <div key={msg.id} className={css.messageBlock}>
@@ -808,10 +888,20 @@ export function ChatPage() {
                     />
                   ),
                 )}
-                <div ref={messagesEndRef} />
               </div>
             </div>
           )}
+          {!isEmpty && !isPinned ? (
+            <button
+              type="button"
+              className={css.jumpToLatest}
+              onClick={jumpToBottom}
+              aria-label="Jump to latest message"
+            >
+              <span aria-hidden="true">↓</span>
+              <span>Latest</span>
+            </button>
+          ) : null}
 
           {error ? <div className={css.errorBanner}>{error}</div> : null}
 
@@ -829,6 +919,44 @@ export function ChatPage() {
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
           />
         </div>
+        <Dialog
+          open={sessionPendingDelete !== null}
+          onOpenChange={(open) => {
+            if (!open && !deleteSessionMutation.isPending) {
+              setSessionPendingDelete(null);
+            }
+          }}
+        >
+          <DialogContent
+            size="sm"
+            role="alertdialog"
+            preventCloseOnOutsideClick={deleteSessionMutation.isPending}
+          >
+            <DialogHeader>
+              <DialogTitle>Delete session?</DialogTitle>
+              <DialogDescription>
+                This permanently removes the conversation and associated session
+                records.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose
+                className="ghost-button"
+                disabled={deleteSessionMutation.isPending}
+              >
+                Cancel
+              </DialogClose>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={deleteSessionMutation.isPending}
+                onClick={handleConfirmDeleteSession}
+              >
+                {deleteSessionMutation.isPending ? 'Deleting...' : 'Delete'}
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </ChatSidebarProvider>
   );

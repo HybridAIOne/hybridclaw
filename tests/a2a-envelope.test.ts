@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
+  A2A_LOCAL_INSTANCE_ID,
   type A2AEnvelopeDuplicateError,
   A2AEnvelopeValidationError,
   classifyA2AAgentId,
@@ -71,6 +72,7 @@ describe('A2A envelope schema', () => {
       id: 'msg-1',
       sender_agent_id: 'researcher',
       recipient_agent_id: 'charly@benedikt@local-dev',
+      sender_instance_id: A2A_LOCAL_INSTANCE_ID,
       thread_id: 'thread-1',
       parent_message_id: 'msg-0',
       intent: 'handoff',
@@ -87,6 +89,7 @@ describe('A2A envelope schema', () => {
       id: 'msg-delegate-1',
       sender_agent_id: 'Researcher@Team-A@Inst-Source',
       recipient_agent_id: 'Writer@Team-B@Inst-Target',
+      sender_instance_id: ' Inst-Source ',
       source_instance_id: ' Inst-Source ',
       target_instance_id: ' Inst-Target ',
       thread_id: 'thread-delegate',
@@ -100,6 +103,7 @@ describe('A2A envelope schema', () => {
       id: 'msg-delegate-1',
       sender_agent_id: 'researcher@team-a@inst-source',
       recipient_agent_id: 'writer@team-b@inst-target',
+      sender_instance_id: 'inst-source',
       source_instance_id: 'inst-source',
       target_instance_id: 'inst-target',
       thread_id: 'thread-delegate',
@@ -114,9 +118,48 @@ describe('A2A envelope schema', () => {
       threadId: 'thread-delegate',
       senderAgentId: 'researcher@team-a@inst-source',
       recipientAgentId: 'writer@team-b@inst-target',
+      senderInstanceId: 'inst-source',
       sourceInstanceId: 'inst-source',
       targetInstanceId: 'inst-target',
       delegation: true,
+    });
+  });
+
+  test('derives sender_instance_id from canonical sender ids', () => {
+    const envelope = validateA2AEnvelope({
+      id: 'msg-federated-1',
+      sender_agent_id: 'Remote@Team@Peer-Instance',
+      recipient_agent_id: 'main',
+      thread_id: 'thread-federated',
+      intent: 'chat',
+      content: 'Federated hello.',
+      created_at: '2026-04-28T10:00:00.000Z',
+    });
+
+    expect(envelope).toMatchObject({
+      id: 'msg-federated-1',
+      sender_agent_id: 'remote@team@peer-instance',
+      sender_instance_id: 'peer-instance',
+      recipient_agent_id: 'main',
+    });
+  });
+
+  test('derives sender_instance_id for local compatibility envelopes', () => {
+    const envelope = validateA2AEnvelope({
+      id: 'msg-local-1',
+      sender_agent_id: 'main',
+      recipient_agent_id: 'writer',
+      thread_id: 'thread-local',
+      intent: 'chat',
+      content: 'Local compatibility hello.',
+      created_at: '2026-04-28T10:00:00.000Z',
+    });
+
+    expect(envelope).toMatchObject({
+      id: 'msg-local-1',
+      sender_agent_id: 'main',
+      sender_instance_id: A2A_LOCAL_INSTANCE_ID,
+      recipient_agent_id: 'writer',
     });
   });
 
@@ -203,6 +246,22 @@ describe('A2A envelope schema', () => {
       ]),
     );
 
+    const mismatchedSenderInstance = expectEnvelopeValidationIssues({
+      id: 'msg-federation-mismatch',
+      sender_agent_id: 'researcher@team@inst-source',
+      recipient_agent_id: 'writer@team@inst-target',
+      sender_instance_id: 'inst-other',
+      thread_id: 'thread-delegate',
+      intent: 'chat',
+      content: 'Bad federation metadata.',
+      created_at: '2026-04-28T10:00:00.000Z',
+    });
+    expect(mismatchedSenderInstance.issues).toEqual(
+      expect.arrayContaining([
+        'sender_instance_id must match the instance-id portion of sender_agent_id',
+      ]),
+    );
+
     const oversizedToken = expectEnvelopeValidationIssues({
       id: 'msg-delegate-oversized-token',
       sender_agent_id: 'researcher@team@inst-source',
@@ -274,9 +333,11 @@ describe('A2A envelope persistence', () => {
     const resolvedFirst = {
       ...first,
       sender_agent_id: 'main@benedikt@local-dev',
+      sender_instance_id: 'local-dev',
     };
     const resolvedSecond = {
       ...second,
+      sender_instance_id: 'local-dev',
       recipient_agent_id: 'main@benedikt@local-dev',
     };
 
@@ -335,6 +396,98 @@ describe('A2A envelope persistence', () => {
     });
   });
 
+  test('hydrates sender_instance_id from legacy canonical persisted envelopes without rewriting state', async () => {
+    const store = await import('../src/a2a/store.ts');
+    const revisions = await import('../src/config/runtime-config-revisions.ts');
+    const legacyState = {
+      version: 1,
+      thread_id: 'thread-legacy',
+      envelopes: [
+        {
+          id: 'msg-legacy',
+          sender_agent_id: 'remote@team@peer-instance',
+          recipient_agent_id: 'main',
+          thread_id: 'thread-legacy',
+          intent: 'chat',
+          content: 'Legacy persisted message.',
+          created_at: '2026-04-28T10:00:00.000Z',
+        },
+      ],
+    };
+    const assetPath = store.a2aThreadAssetPath('thread-legacy');
+    const legacyContent = JSON.stringify(legacyState);
+
+    revisions.syncRuntimeAssetRevisionState(
+      'a2a',
+      assetPath,
+      {
+        actor: 'test',
+        route: 'test.a2a.legacy',
+        source: 'internal',
+      },
+      {
+        exists: true,
+        content: legacyContent,
+      },
+    );
+
+    expect(store.listA2AThreadEnvelopes('thread-legacy')).toEqual([
+      {
+        ...legacyState.envelopes[0],
+        sender_instance_id: 'peer-instance',
+      },
+    ]);
+    expect(
+      revisions.getRuntimeAssetRevisionState('a2a', assetPath)?.content,
+    ).toBe(legacyContent);
+  });
+
+  test('hydrates sender_instance_id from legacy local persisted envelopes without rewriting state', async () => {
+    const store = await import('../src/a2a/store.ts');
+    const revisions = await import('../src/config/runtime-config-revisions.ts');
+    const legacyState = {
+      version: 1,
+      thread_id: 'thread-local-legacy',
+      envelopes: [
+        {
+          id: 'msg-local-legacy',
+          sender_agent_id: 'main',
+          recipient_agent_id: 'writer',
+          thread_id: 'thread-local-legacy',
+          intent: 'chat',
+          content: 'Legacy local persisted message.',
+          created_at: '2026-04-28T10:00:00.000Z',
+        },
+      ],
+    };
+    const assetPath = store.a2aThreadAssetPath('thread-local-legacy');
+    const legacyContent = JSON.stringify(legacyState);
+
+    revisions.syncRuntimeAssetRevisionState(
+      'a2a',
+      assetPath,
+      {
+        actor: 'test',
+        route: 'test.a2a.legacy-local',
+        source: 'internal',
+      },
+      {
+        exists: true,
+        content: legacyContent,
+      },
+    );
+
+    expect(store.listA2AThreadEnvelopes('thread-local-legacy')).toEqual([
+      {
+        ...legacyState.envelopes[0],
+        sender_instance_id: A2A_LOCAL_INSTANCE_ID,
+      },
+    ]);
+    expect(
+      revisions.getRuntimeAssetRevisionState('a2a', assetPath)?.content,
+    ).toBe(legacyContent);
+  });
+
   test('rejects unknown local agent ids without default-agent fallback', async () => {
     const store = await import('../src/a2a/store.ts');
     const envelopeMod = await import('../src/a2a/envelope.ts');
@@ -354,6 +507,77 @@ describe('A2A envelope persistence', () => {
     expect(() => store.saveA2AEnvelope(envelope)).toThrow(
       'local agent id researcher does not match a registered agent',
     );
+  });
+
+  test('lists persisted threads by latest message recency', async () => {
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const store = await import('../src/a2a/store.ts');
+    const envelopeMod = await import('../src/a2a/envelope.ts');
+
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [{ id: 'main', owner: 'team' }];
+    });
+
+    store.saveA2AEnvelope(
+      envelopeMod.validateA2AEnvelope({
+        id: 'msg-thread-a-1',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'main',
+        thread_id: 'thread-a',
+        intent: 'chat',
+        content: 'Older thread.',
+        created_at: '2026-04-28T10:00:00.000Z',
+      }),
+    );
+    store.saveA2AEnvelope(
+      envelopeMod.validateA2AEnvelope({
+        id: 'msg-thread-b-1',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'main',
+        thread_id: 'thread-b',
+        intent: 'handoff',
+        content: 'Newest thread.',
+        created_at: '2026-04-28T10:03:00.000Z',
+      }),
+    );
+    store.saveA2AEnvelope(
+      envelopeMod.validateA2AEnvelope({
+        id: 'msg-thread-a-2',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'main',
+        thread_id: 'thread-a',
+        parent_message_id: 'msg-thread-a-1',
+        intent: 'ack',
+        content: 'Thread A follow-up.',
+        created_at: '2026-04-28T10:02:00.000Z',
+      }),
+    );
+
+    expect(store.listA2AThreads()).toEqual([
+      expect.objectContaining({
+        thread_id: 'thread-b',
+        message_count: 1,
+        latest_message_id: 'msg-thread-b-1',
+        latest_intent: 'handoff',
+        latest_content: 'Newest thread.',
+        latest_created_at: '2026-04-28T10:03:00.000Z',
+        latest_sender_agent_id: 'main@team@local-dev',
+        latest_recipient_agent_id: 'main@team@local-dev',
+        participants: ['main@team@local-dev'],
+      }),
+      expect.objectContaining({
+        thread_id: 'thread-a',
+        message_count: 2,
+        latest_message_id: 'msg-thread-a-2',
+        latest_parent_message_id: 'msg-thread-a-1',
+        latest_intent: 'ack',
+        latest_content: 'Thread A follow-up.',
+        latest_created_at: '2026-04-28T10:02:00.000Z',
+        latest_sender_agent_id: 'main@team@local-dev',
+        latest_recipient_agent_id: 'main@team@local-dev',
+        participants: ['main@team@local-dev'],
+      }),
+    ]);
   });
 
   test('rejects duplicate envelope ids in a thread', async () => {
@@ -384,5 +608,58 @@ describe('A2A envelope persistence', () => {
       return;
     }
     throw new Error('Expected duplicate envelope save to fail.');
+  });
+
+  test('allows the same envelope id from different sender instances', async () => {
+    const store = await import('../src/a2a/store.ts');
+    const envelopeMod = await import('../src/a2a/envelope.ts');
+
+    const first = envelopeMod.validateA2AEnvelope({
+      id: 'msg-1',
+      sender_agent_id: 'agent@team@peer-a',
+      recipient_agent_id: 'main',
+      thread_id: 'thread-1',
+      intent: 'chat',
+      content: 'Peer A copy.',
+      created_at: '2026-04-28T10:00:00.000Z',
+    });
+    const second = envelopeMod.validateA2AEnvelope({
+      id: 'msg-1',
+      sender_agent_id: 'agent@team@peer-b',
+      recipient_agent_id: 'main',
+      thread_id: 'thread-1',
+      intent: 'chat',
+      content: 'Peer B copy.',
+      created_at: '2026-04-28T10:01:00.000Z',
+    });
+
+    expect(store.saveA2AEnvelope(first)).toMatchObject({
+      id: 'msg-1',
+      sender_instance_id: 'peer-a',
+    });
+    expect(store.saveA2AEnvelope(second)).toMatchObject({
+      id: 'msg-1',
+      sender_instance_id: 'peer-b',
+    });
+    expect(store.listA2AThreadEnvelopes('thread-1')).toHaveLength(2);
+    expect(store.getA2AEnvelope('thread-1', 'msg-1', 'PEER-A')).toMatchObject({
+      id: 'msg-1',
+      sender_instance_id: 'peer-a',
+      content: 'Peer A copy.',
+    });
+    expect(store.getA2AEnvelope('thread-1', 'msg-1', 'peer-b')).toMatchObject({
+      id: 'msg-1',
+      sender_instance_id: 'peer-b',
+      content: 'Peer B copy.',
+    });
+    expect(
+      store.getA2AEnvelope('thread-1', 'msg-1', 'missing-peer'),
+    ).toBeNull();
+    expect(() =>
+      store.getA2AEnvelope('thread-1', 'msg-1', 'bad instance'),
+    ).toThrow('sender_instance_id must be a canonical instance id');
+    expect(() => store.getA2AEnvelope('thread-1', 'msg-1')).toThrow(
+      'envelope id msg-1 is ambiguous; provide sender_instance_id',
+    );
   });
 });

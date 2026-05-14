@@ -53,6 +53,7 @@ describe('A2A outbound integration', () => {
       id: 'msg-int-a2a',
       sender_agent_id: 'main',
       recipient_agent_id: 'remote@team@peer-instance',
+      sender_instance_id: 'local',
       thread_id: 'thread-int-a2a',
       intent: 'chat',
       content: 'Peer should decode this.',

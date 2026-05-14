@@ -362,11 +362,15 @@ Current built-in SecretRef surfaces include:
 - `ops.gatewayApiToken`
 - `email.password`
 - `imessage.password`
+- `voice.twilio.authToken`
 - `local.backends.vllm.apiKey`
+- `browser.browserUseCloud.apiKeyRef`
+- `web.search.searxngBearerTokenRef`
+- `agents.list[].webSearch.searxngBearerTokenRef`
 
-Use `{ "source": "store", "id": "SECRET_NAME" }`,
-`{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand in those
-fields.
+Use `{ "source": "store", "id": "SECRET_NAME" }` in those fields.
+New configuration should use store-backed SecretRefs; env-backed SecretRefs
+are legacy-only and rejected on new secret-bearing surfaces.
 
 Legacy aliases are still supported, for example:
 

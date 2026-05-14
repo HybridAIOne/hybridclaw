@@ -18,7 +18,7 @@ user explicitly approves or denies it.
 | Pending red approvals | `3` | New blocked actions are denied once the queue is full |
 | Approval timeout | `120s` | Expired requests are removed from the pending queue |
 | Network default | `deny` | Unmatched HTTP/network access falls back to prompt unless changed to `allow` |
-| Seeded network rule | `allow hybridclaw.io:443 * /** agent=*` | New workspaces start with one explicit allow rule |
+| Seeded network rule | `allow hybridaione.github.io:443 * /hybridclaw/** agent=*` | New workspaces start with one explicit allow rule |
 | Workspace fence | `on` | Writes outside the workspace are blocked by default |
 | Agent trust file | `.hybridclaw/approval-agent-trust.json` | Durable `yes for agent` trust |
 | Workspace allowlist file | `approval-trust.json` | Durable `yes for all` trust |
@@ -85,7 +85,7 @@ calls are enforced by other layers.
 | Tier | Default behavior | Typical examples | Notes |
 | --- | --- | --- | --- |
 | Green | Runs immediately | read/search tools, image analysis, read-only MCP tools, allowlisted HTTP targets, unmatched network access when `network.default: allow` | No explicit approval required |
-| Yellow | Runs automatically, usually with narration | file edits, dependency installs, message sends, browser actions, unmatched network access when `network.default: deny` | Many text/local surfaces keep a short interrupt window before execution |
+| Yellow | Runs automatically, usually with narration | file edits, dependency installs, message sends, browser actions, unmatched network access when `network.default: deny` | The short pre-execution interrupt window is disabled by default; enable it with `approval.implicit_delay_enabled: true` |
 | Red | Blocks until explicit approval or denial, or is hard-blocked by policy | policy-blocked hosts, deletion, execute-like MCP tools, critical bash | Creates a pending approval with id and timeout unless the rule is an explicit network deny |
 
 Two important transitions:
@@ -101,13 +101,14 @@ Two important transitions:
 | --- | --- | --- | --- |
 | Read-only file and session tools | Green | `read`, `glob`, `grep`, `session_search` | No side effects |
 | Read-only channel actions | Green | `message read`, `message member-info`, `message channel-info` | Channel lookup only |
-| Image analysis | Green | `vision_analyze`, `image` | Read-only image inspection |
+| Image analysis | Green | `vision_analyze` | Read-only image inspection |
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
 | Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
 | Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test` | Includes bundled read-only PDF scripts |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
 | Channel mutations | Yellow | `message send` | May change channel state |
+| Media generation | Yellow | `image_generate`, `video_generate` | External provider call plus generated media written to workspace |
 | Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag` | Write side effects inside the workspace |
 | Dependency installs | Yellow | `npm install`, `pnpm add`, `pip install` | Local dependency state changes |
 | Browser interactions | Yellow | `browser_click`, `browser_type`, `browser_press`, `browser_upload` | External runtime state interaction |
@@ -168,6 +169,28 @@ Examples:
 - `hybridclaw policy deny "*.example.com" --agent research`
 - `hybridclaw policy preset add github`
 - `hybridclaw policy default allow`
+
+## Browser Stealth Policy
+
+Camofox stealth mode is host-allowlisted separately from normal browser
+navigation. The default decision is deny. Add a workspace policy rule before
+using stealth browsing against a host:
+
+```yaml
+browser:
+  stealth:
+    rules:
+      - action: allow
+        when:
+          predicate: browser_stealth_allowed
+          host: example.com
+```
+
+The `browser_stealth_allowed` predicate accepts `host`, `skillName`, and
+`agentId`. Host matching uses the same site-scoped pattern behavior as network
+policy, so `example.com` also covers `login.example.com`. This does not grant
+network access by itself; normal navigation and tool approval rules still
+apply.
 
 ## General Policy Engine
 
@@ -346,11 +369,12 @@ these local admin or operator commands.
 
 | Surface | Yellow interrupt delay |
 | --- | --- |
-| TUI, web, and other text/local surfaces | Usually enabled for implicit yellow actions; browser input tools have their own special handling |
+| TUI, web, and other text/local surfaces | Disabled by default; enable with `approval.implicit_delay_enabled: true` |
 | Voice | Disabled |
 
-The voice path intentionally skips the `5s` implicit yellow delay because dead
-air on a phone call is worse than the pause window used on text surfaces.
+When the policy switch is enabled, the voice path still skips the `5s` implicit
+yellow delay because dead air on a phone call is worse than the pause window
+used on text surfaces.
 
 ## Relevant Files
 

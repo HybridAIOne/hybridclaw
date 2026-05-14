@@ -1,6 +1,8 @@
+import { isDiscordWebhookChannelTarget } from '../channels/discord-webhook/target.js';
 import { isEmailAddress as isNormalizedEmailAddress } from '../channels/email/allowlist.js';
 import { isIMessageHandle } from '../channels/imessage/handle.js';
 import { isSlackChannelTarget } from '../channels/slack/target.js';
+import { isSlackWebhookChannelTarget } from '../channels/slack-webhook/target.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
 import { isThreemaChannelId } from '../channels/threema/target.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
@@ -23,6 +25,8 @@ export function isSupportedProactiveChannelId(channelId: string): boolean {
   if (isDiscordChannelId(trimmed)) return true;
   if (isWhatsAppJid(trimmed)) return true;
   if (isIMessageHandle(trimmed)) return true;
+  if (isDiscordWebhookChannelTarget(trimmed)) return true;
+  if (isSlackWebhookChannelTarget(trimmed)) return true;
   if (isSlackChannelTarget(trimmed)) return true;
   if (isTelegramChannelId(trimmed)) return true;
   if (isThreemaChannelId(trimmed)) return true;

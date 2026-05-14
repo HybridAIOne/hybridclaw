@@ -36,6 +36,13 @@ import {
   sendToChannel,
   setDiscordMaintenancePresence,
 } from '../channels/discord/runtime.js';
+import {
+  hasDiscordWebhookTargets,
+  initDiscordWebhook,
+  sendToDiscordWebhookTarget,
+  shutdownDiscordWebhook,
+} from '../channels/discord-webhook/runtime.js';
+import { isDiscordWebhookChannelTarget } from '../channels/discord-webhook/target.js';
 import { buildEmailDeliveryMetadata } from '../channels/email/metadata.js';
 import {
   initEmail,
@@ -53,8 +60,6 @@ import {
   sendToIMessageChat,
   shutdownIMessage,
 } from '../channels/imessage/runtime.js';
-import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
-import { initMSTeams } from '../channels/msteams/runtime.js';
 import {
   initSignal,
   type SignalReplyFn,
@@ -69,6 +74,13 @@ import {
   shutdownSlack,
 } from '../channels/slack/runtime.js';
 import { isSlackChannelTarget } from '../channels/slack/target.js';
+import {
+  hasSlackWebhookTargets,
+  initSlackWebhook,
+  sendToSlackWebhookTarget,
+  shutdownSlackWebhook,
+} from '../channels/slack-webhook/runtime.js';
+import { isSlackWebhookChannelTarget } from '../channels/slack-webhook/target.js';
 import {
   hasTelegramBotToken,
   initTelegram,
@@ -314,6 +326,55 @@ function hasSlackConfigChanged(
   );
 }
 
+function hasSlackWebhookConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['slackWebhook'],
+  prev: ReturnType<typeof getConfigSnapshot>['slackWebhook'],
+): boolean {
+  if (next.enabled !== prev.enabled) return true;
+  const nextTargets = Object.keys(next.webhooks);
+  const prevTargets = Object.keys(prev.webhooks);
+  if (!equalStringSets(nextTargets, prevTargets)) return true;
+
+  for (const target of nextTargets) {
+    const nextWebhook = next.webhooks[target];
+    const prevWebhook = prev.webhooks[target];
+    if (!nextWebhook || !prevWebhook) return true;
+    if (
+      nextWebhook.webhookUrl !== prevWebhook.webhookUrl ||
+      nextWebhook.defaultUsername !== prevWebhook.defaultUsername ||
+      nextWebhook.defaultIconEmoji !== prevWebhook.defaultIconEmoji ||
+      nextWebhook.defaultIconUrl !== prevWebhook.defaultIconUrl
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasDiscordWebhookConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['discordWebhook'],
+  prev: ReturnType<typeof getConfigSnapshot>['discordWebhook'],
+): boolean {
+  if (next.enabled !== prev.enabled) return true;
+  const nextTargets = Object.keys(next.webhooks);
+  const prevTargets = Object.keys(prev.webhooks);
+  if (!equalStringSets(nextTargets, prevTargets)) return true;
+
+  for (const target of nextTargets) {
+    const nextWebhook = next.webhooks[target];
+    const prevWebhook = prev.webhooks[target];
+    if (!nextWebhook || !prevWebhook) return true;
+    if (
+      nextWebhook.webhookUrl !== prevWebhook.webhookUrl ||
+      nextWebhook.defaultUsername !== prevWebhook.defaultUsername ||
+      nextWebhook.defaultAvatarUrl !== prevWebhook.defaultAvatarUrl
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function hasVoiceConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['voice'],
   prev: ReturnType<typeof getConfigSnapshot>['voice'],
@@ -452,9 +513,11 @@ function logGatewayStartup(params: {
   status: Awaited<ReturnType<typeof getGatewayStatus>>;
   channels: {
     discord: boolean;
+    discordWebhook: boolean;
     msteams: boolean;
     signal: boolean;
     slack: boolean;
+    slackWebhook: boolean;
     email: boolean;
     imessage: boolean;
     telegram: boolean;
@@ -701,6 +764,9 @@ async function handleTextChannelCommand(params: {
     args,
     userId,
     username,
+    onProactiveMessage: async (message) => {
+      await reply(message.text, buildArtifactAttachments(message.artifacts));
+    },
   });
   const text = renderTextChannelCommandResult(result);
   if (result.components !== undefined) {
@@ -943,6 +1009,68 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to email recipient',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isSlackWebhookChannelTarget(channelId)) {
+    const config = getConfigSnapshot().slackWebhook;
+    if (!config.enabled || !hasSlackWebhookTargets()) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive Slack webhook message suppressed: Slack webhook channel is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (attachments.length > 0) {
+        logger.warn(
+          { source, channelId, artifactCount: attachments.length },
+          'Slack webhook channel does not support proactive attachments; dropping artifacts',
+        );
+      }
+      if (text.trim()) {
+        await sendToSlackWebhookTarget(channelId, text);
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to Slack webhook target',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isDiscordWebhookChannelTarget(channelId)) {
+    const config = getConfigSnapshot().discordWebhook;
+    if (!config.enabled || !hasDiscordWebhookTargets()) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive Discord webhook message suppressed: Discord webhook channel is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (attachments.length > 0) {
+        logger.warn(
+          { source, channelId, artifactCount: attachments.length },
+          'Discord webhook channel does not support proactive attachments; dropping artifacts',
+        );
+      }
+      if (text.trim()) {
+        await sendToDiscordWebhookTarget(channelId, text);
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to Discord webhook target',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -1419,6 +1547,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
     );
   }
 
+  const { initMSTeams } = await import('../channels/msteams/runtime.js');
   initMSTeams(
     async (
       sessionId,
@@ -1535,9 +1664,16 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         }
 
         let attachments:
-          | Awaited<ReturnType<typeof buildTeamsArtifactAttachments>>
+          | Awaited<
+              ReturnType<
+                typeof import('../channels/msteams/attachments.js')['buildTeamsArtifactAttachments']
+              >
+            >
           | undefined;
         try {
+          const { buildTeamsArtifactAttachments } = await import(
+            '../channels/msteams/attachments.js'
+          );
           attachments = await buildTeamsArtifactAttachments({
             turnContext: context.turnContext,
             artifacts,
@@ -2235,6 +2371,58 @@ async function startThreemaIntegration(): Promise<boolean> {
   return true;
 }
 
+async function startSlackWebhookIntegration(): Promise<boolean> {
+  const config = getConfigSnapshot().slackWebhook;
+
+  if (!config.enabled) {
+    logger.info('Slack webhook channel disabled: slackWebhook.enabled=false');
+    return false;
+  }
+  if (!hasSlackWebhookTargets()) {
+    logger.info(
+      'Slack webhook channel disabled: slackWebhook.webhooks.default is not configured',
+    );
+    return false;
+  }
+
+  try {
+    await initSlackWebhook();
+  } catch (error) {
+    logger.warn({ error }, 'Slack webhook channel failed to start');
+    return false;
+  }
+
+  logger.info('Slack webhook channel started inside gateway');
+  return true;
+}
+
+async function startDiscordWebhookIntegration(): Promise<boolean> {
+  const config = getConfigSnapshot().discordWebhook;
+
+  if (!config.enabled) {
+    logger.info(
+      'Discord webhook channel disabled: discordWebhook.enabled=false',
+    );
+    return false;
+  }
+  if (!hasDiscordWebhookTargets()) {
+    logger.info(
+      'Discord webhook channel disabled: discordWebhook.webhooks.default is not configured',
+    );
+    return false;
+  }
+
+  try {
+    await initDiscordWebhook();
+  } catch (error) {
+    logger.warn({ error }, 'Discord webhook channel failed to start');
+    return false;
+  }
+
+  logger.info('Discord webhook channel started inside gateway');
+  return true;
+}
+
 function trimValue(value: string | null | undefined): string {
   return String(value || '').trim();
 }
@@ -2519,6 +2707,56 @@ async function refreshSlackIntegrationForConfigChange(
     );
   });
   await startSlackIntegration();
+}
+
+async function refreshSlackWebhookIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasSlackWebhookConfigChanged(next.slackWebhook, prev.slackWebhook)) {
+    return;
+  }
+
+  logger.info(
+    {
+      enabled: next.slackWebhook.enabled,
+      targets: Object.keys(next.slackWebhook.webhooks).sort(),
+    },
+    'Config changed, restarting Slack webhook channel',
+  );
+  await shutdownSlackWebhook().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Slack webhook runtime during config-change restart',
+    );
+  });
+  await startSlackWebhookIntegration();
+}
+
+async function refreshDiscordWebhookIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (
+    !hasDiscordWebhookConfigChanged(next.discordWebhook, prev.discordWebhook)
+  ) {
+    return;
+  }
+
+  logger.info(
+    {
+      enabled: next.discordWebhook.enabled,
+      targets: Object.keys(next.discordWebhook.webhooks).sort(),
+    },
+    'Config changed, restarting Discord webhook channel',
+  );
+  await shutdownDiscordWebhook().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Discord webhook runtime during config-change restart',
+    );
+  });
+  await startDiscordWebhookIntegration();
 }
 
 async function startVoiceIntegration(): Promise<boolean> {
@@ -2914,6 +3152,11 @@ function setupShutdown(broadcastShutdown: () => void): void {
     await runShutdownStep('stop Signal runtime', shutdownSignal);
     await runShutdownStep('stop Threema runtime', shutdownThreema);
     await runShutdownStep('stop Slack runtime', shutdownSlack);
+    await runShutdownStep(
+      'stop Discord webhook runtime',
+      shutdownDiscordWebhook,
+    );
+    await runShutdownStep('stop Slack webhook runtime', shutdownSlackWebhook);
     await runShutdownStep('stop Telegram runtime', shutdownTelegram);
     await runShutdownStep('stop WhatsApp runtime', shutdownWhatsApp);
     await runShutdownStep('stop Voice runtime', () =>
@@ -3185,9 +3428,11 @@ async function main(): Promise<void> {
   const httpServer = startGatewayHttpServer();
   setupShutdown(httpServer.broadcastShutdown.bind(httpServer));
   const discordActive = await startDiscordIntegration();
+  const discordWebhookActive = await startDiscordWebhookIntegration();
   const msteamsActive = await startMSTeamsIntegration();
   const signalActive = await startSignalIntegration();
   const threemaActive = await startThreemaIntegration();
+  const slackWebhookActive = await startSlackWebhookIntegration();
   const slackActive = await startSlackIntegration();
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
@@ -3240,6 +3485,22 @@ async function main(): Promise<void> {
         'Slack integration restart failed after config change',
       );
     });
+    void refreshSlackWebhookIntegrationForConfigChange(next, prev).catch(
+      (error) => {
+        logger.warn(
+          { error },
+          'Slack webhook channel restart failed after config change',
+        );
+      },
+    );
+    void refreshDiscordWebhookIntegrationForConfigChange(next, prev).catch(
+      (error) => {
+        logger.warn(
+          { error },
+          'Discord webhook channel restart failed after config change',
+        );
+      },
+    );
     void refreshVoiceIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
         { error },
@@ -3325,10 +3586,12 @@ async function main(): Promise<void> {
     status: await getGatewayStatus(),
     channels: {
       discord: discordActive,
+      discordWebhook: discordWebhookActive,
       msteams: msteamsActive,
       signal: signalActive,
       threema: threemaActive,
       slack: slackActive,
+      slackWebhook: slackWebhookActive,
       email: emailActive,
       imessage: imessageActive,
       telegram: telegramActive,

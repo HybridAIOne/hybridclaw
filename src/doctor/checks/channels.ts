@@ -15,6 +15,14 @@ export async function checkChannels(): Promise<DiagResult[]> {
   const config = getConfigSnapshot();
   const telegram = config.telegram;
   const threema = config.threema;
+  const discordWebhook = config.discordWebhook ?? {
+    enabled: false,
+    webhooks: {},
+  };
+  const slackWebhook = config.slackWebhook ?? {
+    enabled: false,
+    webhooks: {},
+  };
   const segments: string[] = [];
   const severities: DiagResult['severity'][] = [];
 
@@ -23,6 +31,33 @@ export async function checkChannels(): Promise<DiagResult[]> {
   } else if (Object.keys(config.discord.guilds).length > 0) {
     segments.push('Discord token missing');
     severities.push('error');
+  }
+
+  if (discordWebhook.enabled) {
+    const targetCount = Object.keys(discordWebhook.webhooks).length;
+    if (discordWebhook.webhooks.default?.webhookUrl) {
+      segments.push(
+        `Discord webhook configured (${targetCount} target${targetCount === 1 ? '' : 's'})`,
+      );
+      const { checkDiscordWebhookReachability } = await import(
+        '../../channels/discord-webhook/runtime.js'
+      );
+      const reachabilityResults = await checkDiscordWebhookReachability();
+      const failed = reachabilityResults.filter((result) => !result.ok);
+      if (failed.length > 0) {
+        segments.push(
+          `Discord webhook reachability failed (${failed
+            .map((result) => result.target)
+            .join(', ')})`,
+        );
+        severities.push('error');
+      } else if (reachabilityResults.length > 0) {
+        segments.push('Discord webhook reachability ok');
+      }
+    } else {
+      segments.push('Discord webhook default target missing');
+      severities.push('error');
+    }
   }
 
   if (config.msteams.enabled) {
@@ -72,6 +107,33 @@ export async function checkChannels(): Promise<DiagResult[]> {
     }
   }
 
+  if (slackWebhook.enabled) {
+    const targetCount = Object.keys(slackWebhook.webhooks).length;
+    if (slackWebhook.webhooks.default?.webhookUrl) {
+      segments.push(
+        `Slack webhook configured (${targetCount} target${targetCount === 1 ? '' : 's'})`,
+      );
+      const { checkSlackWebhookReachability } = await import(
+        '../../channels/slack-webhook/runtime.js'
+      );
+      const reachabilityResults = await checkSlackWebhookReachability();
+      const failed = reachabilityResults.filter((result) => !result.ok);
+      if (failed.length > 0) {
+        segments.push(
+          `Slack webhook reachability failed (${failed
+            .map((result) => result.target)
+            .join(', ')})`,
+        );
+        severities.push('error');
+      } else if (reachabilityResults.length > 0) {
+        segments.push('Slack webhook reachability ok');
+      }
+    } else {
+      segments.push('Slack webhook default target missing');
+      severities.push('error');
+    }
+  }
+
   const whatsapp = await getWhatsAppAuthStatus();
   const whatsappExpected =
     config.whatsapp.dmPolicy !== 'disabled' ||
@@ -89,7 +151,7 @@ export async function checkChannels(): Promise<DiagResult[]> {
         'channels',
         'Channels',
         'ok',
-        'No external channels enabled (Discord, Teams, Telegram, Threema, Email, and WhatsApp are all intentionally disabled)',
+        'No external channels enabled (Discord, Discord webhook, Teams, Telegram, Threema, Slack webhook, Email, and WhatsApp are all intentionally disabled)',
       ),
     ];
   }

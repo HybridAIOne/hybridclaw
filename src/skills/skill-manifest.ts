@@ -21,7 +21,7 @@ export type SkillManifestCredentialKind =
   | 'header';
 
 export interface SkillManifestSecretRef {
-  source: 'env' | 'store';
+  source: 'store';
   id: string;
 }
 
@@ -56,11 +56,13 @@ export interface SkillManifestParseOptions {
 
 export const DEFAULT_SKILL_SUPPORTED_CHANNELS: readonly ChannelKind[] = [
   'discord',
+  'discord_webhook',
   'email',
   'imessage',
   'msteams',
   'signal',
   'slack',
+  'slack_webhook',
   'telegram',
   'tui',
   'voice',

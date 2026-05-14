@@ -4,7 +4,7 @@ import {
   buildConciergeChoiceComponents,
   buildConciergeChoiceCustomId,
   parseConciergeChoiceCustomId,
-} from '../src/gateway/concierge-choice.js';
+} from '../plugins/concierge-router/src/routing.js';
 
 test('buildConciergeChoiceCustomId encodes session ids and parse reverses it', () => {
   const customId = buildConciergeChoiceCustomId({

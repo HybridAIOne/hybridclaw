@@ -72,7 +72,8 @@ layers as thin as possible.
 - `container/` holds the sandboxed runtime that executes tools and model calls.
 - `plugins/` holds composable extensions that bridge skills and core tooling.
 - `src/a2a/` holds the agent-to-agent envelope model, peer descriptors,
-  transport registry, JSON-RPC Agent Card adapter, webhook adapter, and retrying
+  transport registry, JSON-RPC Agent Card inbound/outbound adapters, webhook
+  adapters, signed delegation tokens, public-key trust ledger, and retrying
   outbound outbox.
 - Communication between host and sandbox uses file-based IPC.
 

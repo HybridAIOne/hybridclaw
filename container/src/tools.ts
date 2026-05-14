@@ -12,6 +12,7 @@ import {
   currentDateStampInTimezone,
   readUserTimezoneFile,
 } from '../shared/workspace-time.js';
+import { runAudioTranscribe } from './audio-transcribe.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
@@ -19,9 +20,16 @@ import {
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
 } from './browser-tools.js';
+import {
+  type DiagramFixupRequest,
+  type DiagramRuntimeOptions,
+  runDiagramTool,
+} from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
+import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
+import type { RuntimeProvider } from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -42,6 +50,7 @@ import {
   type DelegationTaskSpec,
   type MediaContextItem,
   type PluginRuntimeToolDefinition,
+  type ProviderCredentials,
   type ScheduleSideEffect,
   TASK_MODEL_KEYS,
   type TaskModelKey,
@@ -49,6 +58,7 @@ import {
   type ToolDefinition,
   type ToolRunResult,
 } from './types.js';
+import { runVideoGenerate } from './video-generation.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
 const DENY_PATTERNS: RegExp[] = [
@@ -97,21 +107,12 @@ type ScheduledTaskInfo = {
 let pendingSchedules: ScheduleSideEffect[] = [];
 let pendingDelegations: DelegationSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
+let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
 let gatewayChannelId = '';
-let currentModelProvider:
-  | 'hybridai'
-  | 'openai-codex'
-  | 'anthropic'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'llamacpp'
-  | 'vllm' = 'hybridai';
+let currentModelProvider: RuntimeProvider = 'hybridai';
 let currentModelBaseUrl = '';
 let currentModelApiKey = '';
 let currentModelName = '';
@@ -119,6 +120,7 @@ let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentModelMaxTokens: number | undefined;
 let currentModelDebugResponses = false;
+let currentProviderCredentials: ProviderCredentials = {};
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
@@ -756,6 +758,10 @@ export function setScheduledTasks(
   injectedTasks = tasks || [];
 }
 
+export function setScheduleSideEffectsEnabled(enabled: boolean): void {
+  scheduleSideEffectsEnabled = enabled;
+}
+
 export function setSessionContext(sessionId: string): void {
   const normalized = String(sessionId || '');
   if (normalized !== currentSessionId) {
@@ -779,18 +785,7 @@ export function setGatewayContext(
 }
 
 export function setModelContext(
-  provider:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'anthropic'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-    | undefined,
+  provider: RuntimeProvider | undefined,
   providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,
@@ -822,6 +817,13 @@ export function setModelContext(
     currentModelMaxTokens,
     debugModelResponses,
   );
+}
+
+export function setProviderCredentials(
+  credentials?: ProviderCredentials,
+): void {
+  if (!credentials) return;
+  currentProviderCredentials = { ...credentials };
 }
 
 export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
@@ -1269,6 +1271,99 @@ async function callGatewayPluginTool(
   return rawText;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isPlainRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return '';
+}
+
+function extractGoogleRpcReason(error: Record<string, unknown>): string {
+  const details = Array.isArray(error.details) ? error.details : [];
+  for (const detail of details) {
+    if (!isPlainRecord(detail)) continue;
+    const reason = firstString(detail.reason);
+    if (reason) return reason;
+  }
+  return '';
+}
+
+function extractGoogleRpcMetadata(
+  error: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const details = Array.isArray(error.details) ? error.details : [];
+  for (const detail of details) {
+    if (!isPlainRecord(detail) || !isPlainRecord(detail.metadata)) continue;
+    return detail.metadata;
+  }
+  return undefined;
+}
+
+function summarizeGatewayHttpFailure(
+  parsed: Record<string, unknown>,
+): Record<string, unknown> {
+  const bodyText = typeof parsed.body === 'string' ? parsed.body.trim() : '';
+  const bodyJson =
+    isPlainRecord(parsed.json) || Array.isArray(parsed.json)
+      ? parsed.json
+      : bodyText
+        ? parseJsonRecord(bodyText)
+        : null;
+  const upstreamError =
+    isPlainRecord(bodyJson) && isPlainRecord(bodyJson.error)
+      ? bodyJson.error
+      : isPlainRecord(parsed.error)
+        ? parsed.error
+        : null;
+  const upstreamReason = upstreamError
+    ? firstString(
+        upstreamError.reason,
+        extractGoogleRpcReason(upstreamError),
+        upstreamError.status,
+      )
+    : '';
+  const upstreamMessage = upstreamError
+    ? firstString(upstreamError.message, parsed.statusText)
+    : firstString(parsed.error, bodyText, parsed.statusText);
+  const result: Record<string, unknown> = {
+    ok: false,
+    status: parsed.status,
+    statusText: parsed.statusText,
+    url: parsed.url,
+    error: upstreamMessage || 'Upstream HTTP request failed.',
+  };
+  if (upstreamReason) result.reason = upstreamReason;
+  if (upstreamError) {
+    const metadata = extractGoogleRpcMetadata(upstreamError);
+    result.upstreamError = {
+      code: upstreamError.code,
+      status: upstreamError.status,
+      reason: upstreamReason || undefined,
+      message: upstreamMessage || undefined,
+      ...(metadata ? { metadata } : {}),
+      details: upstreamError.details,
+    };
+  } else if (bodyText) {
+    result.body = bodyText;
+  }
+  return result;
+}
+
 async function callGatewayHttpRequest(
   args: Record<string, unknown>,
 ): Promise<string> {
@@ -1322,6 +1417,12 @@ async function callGatewayHttpRequest(
         ? parsed.error
         : rawText || `HTTP ${response.status}`;
     return failTool(`Error: ${errorText}`);
+  }
+
+  if (parsed && parsed.ok === false) {
+    return failTool(
+      JSON.stringify(summarizeGatewayHttpFailure(parsed), null, 2),
+    );
   }
 
   if (parsed) return JSON.stringify(parsed, null, 2);
@@ -1693,6 +1794,7 @@ async function callVisionModel(
   runtimeContext: AuxiliaryRuntimeContext,
   question: string,
   imageDataUrl: string,
+  toolName: string,
 ): Promise<{ model: string; analysis: string }> {
   const vision = await callAuxiliaryModel({
     task: 'vision',
@@ -1700,7 +1802,7 @@ async function callVisionModel(
     fallbackContext: runtimeContext.fallbackContext,
     question,
     imageDataUrl,
-    toolName: 'vision_analyze',
+    toolName,
   });
   return {
     model: vision.model,
@@ -1711,6 +1813,7 @@ async function callVisionModel(
 async function runVisionAnalyze(
   args: Record<string, unknown>,
   runtimeContext: AuxiliaryRuntimeContext,
+  toolName = 'vision_analyze',
 ): Promise<string> {
   const question = readStringValue(args.question);
   if (!question) return failTool('Error: question is required');
@@ -1736,7 +1839,12 @@ async function runVisionAnalyze(
         ? await readVisionImageFromUrl(candidate)
         : await readVisionImageFromLocalPath(candidate);
       const dataUrl = `data:${image.mimeType};base64,${image.buffer.toString('base64')}`;
-      const vision = await callVisionModel(runtimeContext, question, dataUrl);
+      const vision = await callVisionModel(
+        runtimeContext,
+        question,
+        dataUrl,
+        toolName,
+      );
       return JSON.stringify(
         {
           success: true,
@@ -1756,7 +1864,7 @@ async function runVisionAnalyze(
   }
 
   return failTool(
-    `Error: vision_analyze failed. ${errors.join(' | ') || 'No candidate image sources succeeded.'}`,
+    `Error: ${toolName} failed. ${errors.join(' | ') || 'No candidate image sources succeeded.'}`,
   );
 }
 
@@ -2239,6 +2347,62 @@ async function callTextAuxiliaryTask(params: {
     toolName: params.toolName,
   });
   return response.content;
+}
+
+function stripDiagramFixupFence(content: string): string {
+  const trimmed = content.trim();
+  const match = trimmed.match(/^```[a-zA-Z0-9_-]*\s*\r?\n([\s\S]*?)\r?\n```$/);
+  return (match?.[1] || trimmed).trim();
+}
+
+async function fixDiagramSourceWithAuxiliary(
+  runtimeContext: AuxiliaryRuntimeContext,
+  request: DiagramFixupRequest,
+): Promise<string | null> {
+  try {
+    const fixed = await callTextAuxiliaryTask({
+      runtimeContext,
+      task: 'skills_hub',
+      toolName: 'diagram.fixup',
+      maxTokens: 1600,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You repair diagram-as-code source. Return only complete corrected source, with no prose and no markdown fence.',
+        },
+        {
+          role: 'user',
+          content: JSON.stringify(
+            {
+              action: request.action,
+              attempt: request.attempt,
+              format: request.format,
+              type: request.type,
+              requested_type: request.requestedType,
+              description: request.description,
+              instructions: request.instructions,
+              validation_errors: request.errors,
+              source: request.source,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    });
+    return stripDiagramFixupFence(fixed);
+  } catch {
+    return null;
+  }
+}
+
+function buildDiagramRuntimeOptions(): DiagramRuntimeOptions {
+  const runtimeContext = captureAuxiliaryRuntimeContext();
+  return {
+    fixSource: (request) =>
+      fixDiagramSourceWithAuxiliary(runtimeContext, request),
+  };
 }
 
 function buildSessionSearchContext(
@@ -3298,15 +3462,114 @@ async function executeToolInternal(
           freshness: args.freshness,
           country: args.country,
           language: args.language,
+          categories: args.categories,
+          engines: args.engines,
           provider: args.provider,
         },
         currentWebSearchConfig,
+        {
+          gateway: {
+            baseUrl: gatewayBaseUrl,
+            apiToken: gatewayApiToken,
+            sessionId: currentSessionId,
+          },
+        },
       );
     }
 
-    case 'vision_analyze':
-    case 'image': {
-      return await runVisionAnalyze(args, auxiliaryRuntimeContext);
+    case 'vision_analyze': {
+      return await runVisionAnalyze(args, auxiliaryRuntimeContext, name);
+    }
+
+    case 'image_generate': {
+      try {
+        return await runImageGenerate(args, {
+          provider: currentModelProvider,
+          baseUrl: currentModelBaseUrl,
+          apiKey: currentModelApiKey,
+          model: currentModelName,
+          requestHeaders: currentModelHeaders,
+          media: currentMediaContext,
+          providerCredentials: currentProviderCredentials,
+        });
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case 'audio_transcribe': {
+      try {
+        return await runAudioTranscribe(args, {
+          provider: currentModelProvider,
+          baseUrl: currentModelBaseUrl,
+          apiKey: currentModelApiKey,
+          model: currentModelName,
+          requestHeaders: currentModelHeaders,
+          media: currentMediaContext,
+          providerCredentials: currentProviderCredentials,
+        });
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case 'video_generate': {
+      try {
+        return await runVideoGenerate(args, {
+          provider: currentModelProvider,
+          baseUrl: currentModelBaseUrl,
+          apiKey: currentModelApiKey,
+          model: currentModelName,
+          requestHeaders: currentModelHeaders,
+          providerCredentials: currentProviderCredentials,
+        });
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case 'diagram_create': {
+      try {
+        return await runDiagramTool(
+          'create',
+          args,
+          buildDiagramRuntimeOptions(),
+        );
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case 'diagram_update': {
+      try {
+        return await runDiagramTool(
+          'update',
+          args,
+          buildDiagramRuntimeOptions(),
+        );
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case 'diagram_validate': {
+      try {
+        return await runDiagramTool('validate', args);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
     case 'browser_navigate':
@@ -3360,6 +3623,11 @@ async function executeToolInternal(
       }
 
       if (action === 'add') {
+        if (!scheduleSideEffectsEnabled) {
+          return failTool(
+            'Error: scheduled task creation is disabled for this run.',
+          );
+        }
         const promptInput =
           readStringValue(args.prompt) ||
           readStringValue(args.message) ||
@@ -3425,6 +3693,11 @@ async function executeToolInternal(
       }
 
       if (action === 'remove') {
+        if (!scheduleSideEffectsEnabled) {
+          return failTool(
+            'Error: scheduled task removal is disabled for this run.',
+          );
+        }
         if (!args.taskId) return failTool('Error: taskId is required');
         pendingSchedules.push({ action: 'remove', taskId: args.taskId });
         return `Scheduled removal of task #${args.taskId}`;
@@ -4064,6 +4337,39 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Name of a stored secret to inject as `Authorization: Bearer <secret>`.',
           },
+          googleServiceAccount: {
+            type: 'object',
+            description:
+              'Google service-account JWT-bearer auth for googleapis.com requests. The gateway reads the named stored secrets, signs the JWT server-side, exchanges it for a short-lived access token, and injects it as Authorization without exposing the private key or token.',
+            properties: {
+              clientEmailSecretName: {
+                type: 'string',
+                description:
+                  'Stored secret name containing the Google service-account client_email.',
+              },
+              privateKeySecretName: {
+                type: 'string',
+                description:
+                  'Stored secret name containing the Google service-account PEM private_key.',
+              },
+              scopes: {
+                type: 'array',
+                description:
+                  'OAuth scopes for the service-account token exchange.',
+                items: { type: 'string' },
+              },
+              subjectSecretName: {
+                type: 'string',
+                description:
+                  'Optional stored secret name containing the domain-wide delegation subject user.',
+              },
+            },
+            required: [
+              'clientEmailSecretName',
+              'privateKeySecretName',
+              'scopes',
+            ],
+          },
           secretHeaders: {
             type: 'array',
             description:
@@ -4135,6 +4441,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description: 'ISO 639-1 language code (e.g. "en", "de").',
           },
+          categories: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional SearXNG categories such as "general", "images", or "news". Only used by the searxng provider.',
+          },
+          engines: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional SearXNG engine names or comma-separated engine list. Only used by the searxng provider.',
+          },
           provider: {
             type: 'string',
             description:
@@ -4178,30 +4500,303 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
-      name: 'image',
-      description: 'Alias of vision_analyze for image analysis.',
+      name: 'image_generate',
+      description:
+        'Generate or edit deliverable images with a configured image provider. Use action="list" to inspect provider readiness. Do not use for image analysis; use vision_analyze for that.',
       parameters: {
         type: 'object',
         properties: {
-          image_url: {
+          action: {
             type: 'string',
-            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
+            enum: ['list'],
+            description:
+              'Use "list" to show configured image generation providers instead of generating.',
           },
-          question: {
+          prompt: {
             type: 'string',
-            description: 'Question to ask about the image.',
+            description: 'Image generation or editing prompt.',
           },
-          fallback_url: {
+          image: {
+            type: ['string', 'array'],
+            description:
+              'Optional reference image path or list of paths from /workspace, /discord-media-cache, /uploaded-media-cache, or a Discord CDN HTTPS URL.',
+            items: { type: 'string' },
+          },
+          images: {
+            type: 'array',
+            description:
+              'Optional reference image paths from /workspace, /discord-media-cache, /uploaded-media-cache, or Discord CDN HTTPS URLs.',
+            items: { type: 'string' },
+          },
+          aspectRatio: {
             type: 'string',
             description:
-              'Optional fallback Discord CDN URL if image_url cannot be read.',
+              'Optional aspect ratio such as 1:1, 3:2, 2:3, landscape, portrait, or square.',
           },
-          original_url: {
+          quality: {
             type: 'string',
-            description: 'Optional original URL alias for fallback_url.',
+            description:
+              'Optional quality hint. Unsupported provider values are reported as warnings.',
+          },
+          size: {
+            type: 'string',
+            description:
+              'Optional provider size or resolution such as 1024x1024.',
+          },
+          resolution: {
+            type: 'string',
+            description: 'Alias for size.',
+          },
+          count: {
+            type: 'number',
+            description: 'Number of images to generate, capped at 4.',
           },
         },
-        required: ['image_url', 'question'],
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'audio_transcribe',
+      description:
+        'Transcribe an audio attachment, local audio file, or HTTPS audio URL with a configured speech-to-text provider. Use action="list" to inspect provider readiness.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['list', 'detect-language'],
+            description:
+              'Use "list" to show configured speech-to-text providers, or "detect-language" to identify the dominant spoken language.',
+          },
+          provider: {
+            type: 'string',
+            description:
+              'Optional provider override: auto, openai, whisper, deepgram, or assemblyai.',
+          },
+          audio: {
+            type: 'string',
+            description:
+              'Audio path, attachment filename/ref, or HTTPS URL. If omitted, exactly one current audio attachment is used.',
+          },
+          audio_url: {
+            type: 'string',
+            description: 'Alias for audio when passing an HTTPS audio URL.',
+          },
+          path: {
+            type: 'string',
+            description: 'Alias for audio when passing a local audio path.',
+          },
+          language: {
+            type: 'string',
+            description:
+              'Optional ISO language hint. Omit for provider language detection.',
+          },
+          prompt: {
+            type: 'string',
+            description:
+              'Optional transcription prompt/context for names, terms, or style.',
+          },
+          timestamps: {
+            type: 'string',
+            enum: ['segment', 'word', 'none'],
+            description:
+              'Timestamp granularity. Segment is the default; word requests word-level timestamps when the provider supports them.',
+          },
+          diarization: {
+            type: 'boolean',
+            description:
+              'Request speaker labels when supported by the selected provider.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'video_generate',
+      description:
+        'Generate deliverable videos with a configured video provider. Supports OpenAI Sora and Google Veo. Use action="list" to inspect provider readiness.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['list'],
+            description:
+              'Use "list" to show configured video generation providers instead of generating.',
+          },
+          prompt: {
+            type: 'string',
+            description: 'Video generation prompt.',
+          },
+          aspectRatio: {
+            type: 'string',
+            description:
+              'Optional aspect ratio such as 16:9, 9:16, landscape, or portrait.',
+          },
+          resolution: {
+            type: 'string',
+            description:
+              'Optional provider resolution or size, such as 720x1280, 1280x720, 720p, 1080p, or 4k.',
+          },
+          size: {
+            type: 'string',
+            description: 'Alias for resolution.',
+          },
+          durationSeconds: {
+            type: 'number',
+            description: 'Optional duration in seconds when supported.',
+          },
+          duration: {
+            type: 'number',
+            description: 'Alias for durationSeconds.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_create',
+      description:
+        'Create and validate diagram-as-code artifacts, then optionally render them. Supports Mermaid, PlantUML, Graphviz DOT, and Excalidraw JSON. Provide source to render exact syntax, or description/type to generate a starter diagram.',
+      parameters: {
+        type: 'object',
+        properties: {
+          description: {
+            type: 'string',
+            description: 'Natural-language diagram description.',
+          },
+          source: {
+            type: 'string',
+            description:
+              'Optional diagram source. Mermaid source may be fenced or raw.',
+          },
+          type: {
+            type: 'string',
+            enum: [
+              'sequence',
+              'flowchart',
+              'state',
+              'er',
+              'class',
+              'gantt',
+              'git-graph',
+              'mindmap',
+              'pie',
+              'auto',
+            ],
+            description:
+              'Diagram type. Use auto to classify from description or source.',
+          },
+          format: {
+            type: 'string',
+            enum: ['mermaid', 'plantuml', 'graphviz', 'excalidraw'],
+            description: 'Source format. Defaults to mermaid.',
+          },
+          render_to: {
+            type: 'string',
+            enum: ['svg', 'png', 'pdf', 'none'],
+            description:
+              'Rendered artifact target. Defaults to svg except Excalidraw, which defaults to none.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_update',
+      description:
+        'Update an existing diagram source/artifact, validate it, and optionally re-render while preserving type and format. Provide artifact_ref or complete source; instructions are optional when source already contains the intended update.',
+      parameters: {
+        type: 'object',
+        properties: {
+          artifact_ref: {
+            type: 'string',
+            description:
+              'Existing diagram source artifact path from diagram_create.',
+          },
+          source: {
+            type: 'string',
+            description:
+              'Complete updated source. If omitted, the tool preserves existing source and adds a small update annotation.',
+          },
+          instructions: {
+            type: 'string',
+            description: 'Natural-language update instructions.',
+          },
+          type: {
+            type: 'string',
+            enum: [
+              'sequence',
+              'flowchart',
+              'state',
+              'er',
+              'class',
+              'gantt',
+              'git-graph',
+              'mindmap',
+              'pie',
+              'auto',
+            ],
+          },
+          format: {
+            type: 'string',
+            enum: ['mermaid', 'plantuml', 'graphviz', 'excalidraw'],
+          },
+          render_to: {
+            type: 'string',
+            enum: ['svg', 'png', 'pdf', 'none'],
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_validate',
+      description:
+        'Validate Mermaid, PlantUML, Graphviz DOT, or Excalidraw JSON diagram source without rendering. Returns valid/errors/suggested_fix.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source: {
+            type: 'string',
+            description: 'Diagram source to validate.',
+          },
+          type: {
+            type: 'string',
+            enum: [
+              'sequence',
+              'flowchart',
+              'state',
+              'er',
+              'class',
+              'gantt',
+              'git-graph',
+              'mindmap',
+              'pie',
+              'auto',
+            ],
+          },
+          format: {
+            type: 'string',
+            enum: ['mermaid', 'plantuml', 'graphviz', 'excalidraw'],
+          },
+        },
+        required: ['source'],
       },
     },
   },

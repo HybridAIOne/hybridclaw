@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { LaunchOptions as CamofoxLaunchOptions } from 'camoufox-js';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
@@ -13,11 +14,13 @@ import {
   buildOptionalAgentPresentation,
   cloneAgentA2AConfig,
   cloneAgentCv,
+  cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
   normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
@@ -29,6 +32,16 @@ import {
   normalizeChannelKind,
   normalizeSkillConfigChannelKind,
 } from '../channels/channel-registry.js';
+import {
+  DISCORD_WEBHOOK_DEFAULT_TARGET,
+  normalizeDiscordWebhookTargetName,
+  normalizeDiscordWebhookUrl,
+} from '../channels/discord-webhook/target.js';
+import {
+  normalizeSlackWebhookTargetName,
+  normalizeSlackWebhookUrl,
+  SLACK_WEBHOOK_DEFAULT_TARGET,
+} from '../channels/slack-webhook/target.js';
 import type {
   MemoryEmbeddingDtype,
   MemoryEmbeddingProviderKind,
@@ -62,8 +75,10 @@ import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
   parseSecretInput,
+  parseSecretRefInput,
   resolveSecretInputUnsafe,
   type SecretInput,
+  type SecretRef,
 } from '../security/secret-refs.js';
 import {
   normalizeSessionResetMode,
@@ -128,9 +143,11 @@ const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
 ].join('\n');
 const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
   discord: '',
+  discord_webhook: '',
   msteams: '',
   signal: '',
   slack: '',
+  slack_webhook: '',
   telegram: '',
   threema: '',
   voice: DEFAULT_VOICE_CHANNEL_INSTRUCTIONS,
@@ -236,6 +253,10 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
   RuntimeWebSearchProvider,
   'auto'
 >;
+export type RuntimeBrowserProviderKind =
+  | 'local'
+  | 'camofox'
+  | 'browser-use-cloud';
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SlackDmPolicy = 'open' | 'allowlist' | 'disabled';
@@ -277,6 +298,74 @@ export interface RuntimeDeploymentConfig {
   mode: RuntimeDeploymentMode;
   public_url: string;
   tunnel: RuntimeDeploymentTunnelConfig;
+}
+
+export interface RuntimeBrowserLocalConfig {
+  profileRoot: string;
+  headed: boolean;
+}
+
+export type RuntimeBrowserCamofoxLaunchOptions = Partial<
+  Pick<
+    CamofoxLaunchOptions,
+    | 'os'
+    | 'block_images'
+    | 'block_webrtc'
+    | 'block_webgl'
+    | 'disable_coop'
+    | 'geoip'
+    | 'humanize'
+    | 'locale'
+    | 'addons'
+    | 'fonts'
+    | 'custom_fonts_only'
+    | 'exclude_addons'
+    | 'screen'
+    | 'window'
+    | 'fingerprint'
+    | 'ff_version'
+    | 'main_world_eval'
+    | 'executable_path'
+    | 'firefox_user_prefs'
+    | 'proxy'
+    | 'enable_cache'
+    | 'args'
+    | 'env'
+    | 'debug'
+    | 'virtual_display'
+    | 'webgl_config'
+  >
+>;
+
+export interface RuntimeBrowserCamofoxConfig {
+  profileRoot: string;
+  headed: boolean;
+  launchOptions: RuntimeBrowserCamofoxLaunchOptions;
+}
+
+export interface RuntimeBrowserUseCloudConfig {
+  apiKeyRef: SecretRef;
+  baseUrl: string;
+  browser: {
+    profileId?: string | null;
+    proxyCountryCode?: string | null;
+    timeoutMinutes?: number;
+    browserScreenWidth?: number;
+    browserScreenHeight?: number;
+    allowResizing?: boolean;
+    enableRecording?: boolean;
+  };
+  pricing: {
+    browserUsdPerMinute?: number;
+    actionUsd?: number;
+  };
+}
+
+export interface RuntimeBrowserConfig {
+  provider: RuntimeBrowserProviderKind;
+  local: RuntimeBrowserLocalConfig;
+  camofox: RuntimeBrowserCamofoxConfig;
+  browserUseCloud: RuntimeBrowserUseCloudConfig;
 }
 
 export interface RuntimeAudioProviderModelConfig {
@@ -484,6 +573,29 @@ export interface RuntimeSlackConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeSlackWebhookTargetConfig {
+  webhookUrl: string;
+  defaultUsername: string;
+  defaultIconEmoji: string;
+  defaultIconUrl: string;
+}
+
+export interface RuntimeSlackWebhookConfig {
+  enabled: boolean;
+  webhooks: Record<string, RuntimeSlackWebhookTargetConfig>;
+}
+
+export interface RuntimeDiscordWebhookTargetConfig {
+  webhookUrl: string;
+  defaultUsername: string;
+  defaultAvatarUrl: string;
+}
+
+export interface RuntimeDiscordWebhookConfig {
+  enabled: boolean;
+  webhooks: Record<string, RuntimeDiscordWebhookTargetConfig>;
+}
+
 export interface RuntimeTelegramConfig {
   enabled: boolean;
   botToken: string;
@@ -560,9 +672,11 @@ export interface RuntimeEmailConfig {
 
 export interface RuntimeChannelInstructionsConfig {
   discord: string;
+  discord_webhook: string;
   msteams: string;
   signal: string;
   slack: string;
+  slack_webhook: string;
   telegram: string;
   threema: string;
   voice: string;
@@ -712,6 +826,16 @@ export interface RuntimeSkillAutonomyConfig {
   rules: RuntimeSkillAutonomyRule[];
 }
 
+export type RuntimeSpeechToTextProvider =
+  | 'auto'
+  | 'openai'
+  | 'deepgram'
+  | 'assemblyai';
+
+export interface RuntimeSpeechToTextSkillConfig {
+  defaultProvider: RuntimeSpeechToTextProvider;
+}
+
 export interface RuntimeSkillCredentialManifest {
   id: string;
   env?: string;
@@ -760,6 +884,7 @@ export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
   deployment: RuntimeDeploymentConfig;
+  browser: RuntimeBrowserConfig;
   agents: AgentsConfig;
   skills: {
     extraDirs: string[];
@@ -767,6 +892,7 @@ export interface RuntimeConfig {
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
     externalDiscovered: string[];
     autonomy: RuntimeSkillAutonomyConfig;
+    speechToText: RuntimeSpeechToTextSkillConfig;
     installed: RuntimeInstalledSkillManifest[];
   };
   tools: {
@@ -804,9 +930,11 @@ export interface RuntimeConfig {
     maxConcurrentPerChannel: number;
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
+  discordWebhook: RuntimeDiscordWebhookConfig;
   msteams: RuntimeMSTeamsConfig;
   signal: RuntimeSignalConfig;
   slack: RuntimeSlackConfig;
+  slackWebhook: RuntimeSlackWebhookConfig;
   telegram: RuntimeTelegramConfig;
   threema: RuntimeThreemaConfig;
   whatsapp: RuntimeWhatsAppConfig;
@@ -899,6 +1027,7 @@ export interface RuntimeConfig {
     session_search: RuntimeAuxiliaryModelPolicyConfig;
     skills_hub: RuntimeAuxiliaryModelPolicyConfig;
     eval_judge: RuntimeAuxiliaryModelPolicyConfig;
+    goal_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
@@ -934,6 +1063,7 @@ export interface RuntimeConfig {
       defaultCount: number;
       cacheTtlMinutes: number;
       searxngBaseUrl: string;
+      searxngBearerTokenRef?: SecretRef;
       tavilySearchDepth: 'basic' | 'advanced';
     };
   };
@@ -1153,6 +1283,27 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       health_check_interval_ms: DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS,
     },
   },
+  browser: {
+    provider: 'local',
+    local: {
+      profileRoot: '',
+      headed: false,
+    },
+    camofox: {
+      profileRoot: '',
+      headed: false,
+      launchOptions: {},
+    },
+    browserUseCloud: {
+      apiKeyRef: {
+        source: 'store',
+        id: 'BROWSER_USE_API_KEY',
+      },
+      baseUrl: '',
+      browser: {},
+      pricing: {},
+    },
+  },
   agents: {
     defaultAgentId: DEFAULT_AGENT_ID,
     defaults: {},
@@ -1166,6 +1317,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     autonomy: {
       defaultLevel: 'confirm-each',
       rules: [],
+    },
+    speechToText: {
+      defaultProvider: 'auto',
     },
     installed: [],
   },
@@ -1311,6 +1465,14 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     textChunkLimit: 12_000,
     replyStyle: 'thread',
     mediaMaxMb: 20,
+  },
+  slackWebhook: {
+    enabled: false,
+    webhooks: {},
+  },
+  discordWebhook: {
+    enabled: false,
+    webhooks: {},
   },
   telegram: {
     enabled: false,
@@ -1549,6 +1711,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     eval_judge: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    goal_judge: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -2113,6 +2280,39 @@ function normalizeSkillLifecycleStatus(
     : 'enabled';
 }
 
+function normalizeSpeechToTextProvider(
+  value: unknown,
+  fallback: RuntimeSpeechToTextProvider,
+): RuntimeSpeechToTextProvider {
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: false,
+  }).toLowerCase();
+  if (
+    normalized === 'openai' ||
+    normalized === 'whisper' ||
+    normalized === 'openai-whisper'
+  ) {
+    return 'openai';
+  }
+  if (normalized === 'deepgram' || normalized === 'assemblyai') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSpeechToTextSkillConfig(
+  value: unknown,
+  fallback: RuntimeSpeechToTextSkillConfig,
+): RuntimeSpeechToTextSkillConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    defaultProvider: normalizeSpeechToTextProvider(
+      raw.defaultProvider ?? raw.default_provider,
+      fallback.defaultProvider,
+    ),
+  };
+}
+
 function normalizeRuntimeSkillCredentialManifests(
   value: unknown,
 ): RuntimeSkillCredentialManifest[] {
@@ -2175,7 +2375,7 @@ function normalizeRuntimeSkillDeclaredCredentialManifests(
     });
     if (
       !kind ||
-      (secretRefSource !== 'env' && secretRefSource !== 'store') ||
+      secretRefSource !== 'store' ||
       !secretRefId ||
       !scope ||
       !howToObtain ||
@@ -2503,6 +2703,13 @@ function normalizeAgentConfig(
   const a2a = Object.hasOwn(value, 'a2a')
     ? normalizeAgentA2AConfig(value.a2a)
     : cloneAgentA2AConfig(fallback?.a2a);
+  const webSearch = Object.hasOwn(value, 'webSearch')
+    ? normalizeAgentWebSearchConfig(
+        value.webSearch,
+        'agents.list[].webSearch',
+        fallback?.webSearch,
+      )
+    : cloneAgentWebSearchConfig(fallback?.webSearch);
   return {
     id,
     ...(name ? { name } : {}),
@@ -2520,6 +2727,7 @@ function normalizeAgentConfig(
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
+    ...(webSearch ? { webSearch } : {}),
   };
 }
 
@@ -3241,6 +3449,185 @@ function normalizeSlackConfig(
   };
 }
 
+function resolveSlackWebhookSecretInput(value: unknown, path: string): unknown {
+  return resolveSecretInputUnsafe(value, {
+    path,
+    reason: `resolve runtime config secret ${path}`,
+    audit: (handle, reason) =>
+      auditConfiguredSecretUnsafeEscape(handle, reason, path),
+  });
+}
+
+function resolveDiscordWebhookSecretInput(
+  value: unknown,
+  path: string,
+): unknown {
+  return resolveSecretInputUnsafe(value, {
+    path,
+    reason: `resolve runtime config secret ${path}`,
+    audit: (handle, reason) =>
+      auditConfiguredSecretUnsafeEscape(handle, reason, path),
+  });
+}
+
+function normalizeDiscordWebhookTargetConfig(
+  value: unknown,
+  fallback: RuntimeDiscordWebhookTargetConfig | undefined,
+  targetName: string,
+): RuntimeDiscordWebhookTargetConfig | null {
+  const raw = isRecord(value) ? value : {};
+  const path = `discordWebhook.webhooks.${targetName}.webhook_url`;
+  const rawWebhookUrl = raw.webhook_url ?? raw.webhookUrl;
+  const resolvedWebhookUrl =
+    rawWebhookUrl === undefined
+      ? fallback?.webhookUrl
+      : resolveDiscordWebhookSecretInput(rawWebhookUrl, path);
+  const webhookUrl = normalizeDiscordWebhookUrl(resolvedWebhookUrl, path);
+
+  return {
+    webhookUrl,
+    defaultUsername: normalizeString(
+      raw.default_username ?? raw.defaultUsername,
+      fallback?.defaultUsername ?? '',
+      { allowEmpty: true },
+    ),
+    defaultAvatarUrl: normalizeString(
+      raw.default_avatar_url ?? raw.defaultAvatarUrl,
+      fallback?.defaultAvatarUrl ?? '',
+      { allowEmpty: true },
+    ),
+  };
+}
+
+function normalizeDiscordWebhookConfig(
+  value: unknown,
+  fallback: RuntimeDiscordWebhookConfig,
+): RuntimeDiscordWebhookConfig {
+  const raw = isRecord(value) ? value : {};
+  const enabled = normalizeBoolean(raw.enabled, fallback.enabled);
+  const rawWebhooks = isRecord(raw.webhooks) ? raw.webhooks : {};
+  const fallbackWebhooks = fallback.webhooks || {};
+  const webhooks: RuntimeDiscordWebhookConfig['webhooks'] = {};
+  const targetNames = new Set([
+    ...Object.keys(fallbackWebhooks),
+    ...Object.keys(rawWebhooks),
+  ]);
+
+  for (const rawName of targetNames) {
+    const targetName = normalizeDiscordWebhookTargetName(rawName);
+    if (!targetName) {
+      if (enabled) {
+        throw new Error(`Invalid Discord webhook target name: ${rawName}`);
+      }
+      continue;
+    }
+    const rawTarget = rawWebhooks[rawName];
+    const fallbackTarget = fallbackWebhooks[targetName];
+    if (rawTarget === undefined && !fallbackTarget) continue;
+    try {
+      const normalized = normalizeDiscordWebhookTargetConfig(
+        rawTarget,
+        fallbackTarget,
+        targetName,
+      );
+      if (normalized) webhooks[targetName] = normalized;
+    } catch (error) {
+      if (enabled || rawTarget !== undefined) throw error;
+    }
+  }
+
+  if (enabled && !webhooks[DISCORD_WEBHOOK_DEFAULT_TARGET]?.webhookUrl) {
+    throw new Error('discordWebhook.webhooks.default.webhook_url is required.');
+  }
+
+  return {
+    enabled,
+    webhooks,
+  };
+}
+
+function normalizeSlackWebhookTargetConfig(
+  value: unknown,
+  fallback: RuntimeSlackWebhookTargetConfig | undefined,
+  targetName: string,
+): RuntimeSlackWebhookTargetConfig | null {
+  const raw = isRecord(value) ? value : {};
+  const path = `slackWebhook.webhooks.${targetName}.webhook_url`;
+  const rawWebhookUrl = raw.webhook_url ?? raw.webhookUrl;
+  const resolvedWebhookUrl =
+    rawWebhookUrl === undefined
+      ? fallback?.webhookUrl
+      : resolveSlackWebhookSecretInput(rawWebhookUrl, path);
+  const webhookUrl = normalizeSlackWebhookUrl(resolvedWebhookUrl, path);
+
+  return {
+    webhookUrl,
+    defaultUsername: normalizeString(
+      raw.default_username ?? raw.defaultUsername,
+      fallback?.defaultUsername ?? '',
+      { allowEmpty: true },
+    ),
+    defaultIconEmoji: normalizeString(
+      raw.default_icon_emoji ?? raw.defaultIconEmoji,
+      fallback?.defaultIconEmoji ?? '',
+      { allowEmpty: true },
+    ),
+    // Kept for legacy/custom Slack webhook integrations that honor icon_url.
+    defaultIconUrl: normalizeString(
+      raw.default_icon_url ?? raw.defaultIconUrl,
+      fallback?.defaultIconUrl ?? '',
+      { allowEmpty: true },
+    ),
+  };
+}
+
+function normalizeSlackWebhookConfig(
+  value: unknown,
+  fallback: RuntimeSlackWebhookConfig,
+): RuntimeSlackWebhookConfig {
+  const raw = isRecord(value) ? value : {};
+  const enabled = normalizeBoolean(raw.enabled, fallback.enabled);
+  const rawWebhooks = isRecord(raw.webhooks) ? raw.webhooks : {};
+  const fallbackWebhooks = fallback.webhooks || {};
+  const webhooks: RuntimeSlackWebhookConfig['webhooks'] = {};
+  const targetNames = new Set([
+    ...Object.keys(fallbackWebhooks),
+    ...Object.keys(rawWebhooks),
+  ]);
+
+  for (const rawName of targetNames) {
+    const targetName = normalizeSlackWebhookTargetName(rawName);
+    if (!targetName) {
+      if (enabled) {
+        throw new Error(`Invalid Slack webhook target name: ${rawName}`);
+      }
+      continue;
+    }
+    const rawTarget = rawWebhooks[rawName];
+    const fallbackTarget = fallbackWebhooks[targetName];
+    if (rawTarget === undefined && !fallbackTarget) continue;
+    try {
+      const normalized = normalizeSlackWebhookTargetConfig(
+        rawTarget,
+        fallbackTarget,
+        targetName,
+      );
+      if (normalized) webhooks[targetName] = normalized;
+    } catch (error) {
+      if (enabled || rawTarget !== undefined) throw error;
+    }
+  }
+
+  if (enabled && !webhooks[SLACK_WEBHOOK_DEFAULT_TARGET]?.webhookUrl) {
+    throw new Error('slackWebhook.webhooks.default.webhook_url is required.');
+  }
+
+  return {
+    enabled,
+    webhooks,
+  };
+}
+
 function normalizeVoiceConfig(
   value: unknown,
   fallback: RuntimeVoiceConfig,
@@ -3317,11 +3704,21 @@ function normalizeChannelInstructionsConfig(
     discord: normalizeString(raw.discord, fallback.discord, {
       allowEmpty: true,
     }),
+    discord_webhook: normalizeString(
+      raw.discord_webhook ?? raw.discordWebhook,
+      fallback.discord_webhook,
+      { allowEmpty: true },
+    ),
     msteams: normalizeString(raw.msteams, fallback.msteams, {
       allowEmpty: true,
     }),
     signal: normalizeString(raw.signal, fallback.signal, { allowEmpty: true }),
     slack: normalizeString(raw.slack, fallback.slack, { allowEmpty: true }),
+    slack_webhook: normalizeString(
+      raw.slack_webhook ?? raw.slackWebhook,
+      fallback.slack_webhook,
+      { allowEmpty: true },
+    ),
     telegram: normalizeString(raw.telegram, fallback.telegram, {
       allowEmpty: true,
     }),
@@ -4376,6 +4773,84 @@ function setSecretInputOnSource(
   vllm.apiKey = value;
 }
 
+function preserveSlackWebhookSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  const sourceSlackWebhook = isRecord(source.slackWebhook)
+    ? source.slackWebhook
+    : isRecord(source.slack_webhook)
+      ? source.slack_webhook
+      : null;
+  const sourceWebhooks =
+    sourceSlackWebhook && isRecord(sourceSlackWebhook.webhooks)
+      ? sourceSlackWebhook.webhooks
+      : null;
+  if (!sourceWebhooks) return;
+
+  const serializableSlackWebhook = isRecord(serializable.slackWebhook)
+    ? serializable.slackWebhook
+    : {};
+  serializable.slackWebhook = serializableSlackWebhook;
+  const serializableWebhooks = isRecord(serializableSlackWebhook.webhooks)
+    ? serializableSlackWebhook.webhooks
+    : {};
+  serializableSlackWebhook.webhooks = serializableWebhooks;
+
+  for (const [rawTargetName, rawConfig] of Object.entries(sourceWebhooks)) {
+    if (!isRecord(rawConfig)) continue;
+    const sourceValue = rawConfig.webhook_url ?? rawConfig.webhookUrl;
+    if (!isSecretRefInput(sourceValue)) continue;
+    const targetName = normalizeSlackWebhookTargetName(rawTargetName);
+    if (!targetName) continue;
+    const targetConfig = isRecord(serializableWebhooks[targetName])
+      ? serializableWebhooks[targetName]
+      : {};
+    serializableWebhooks[targetName] = targetConfig;
+    targetConfig.webhook_url = cloneConfig(sourceValue);
+    delete targetConfig.webhookUrl;
+  }
+}
+
+function preserveDiscordWebhookSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  const sourceDiscordWebhook = isRecord(source.discordWebhook)
+    ? source.discordWebhook
+    : isRecord(source.discord_webhook)
+      ? source.discord_webhook
+      : null;
+  const sourceWebhooks =
+    sourceDiscordWebhook && isRecord(sourceDiscordWebhook.webhooks)
+      ? sourceDiscordWebhook.webhooks
+      : null;
+  if (!sourceWebhooks) return;
+
+  const serializableDiscordWebhook = isRecord(serializable.discordWebhook)
+    ? serializable.discordWebhook
+    : {};
+  serializable.discordWebhook = serializableDiscordWebhook;
+  const serializableWebhooks = isRecord(serializableDiscordWebhook.webhooks)
+    ? serializableDiscordWebhook.webhooks
+    : {};
+  serializableDiscordWebhook.webhooks = serializableWebhooks;
+
+  for (const [rawTargetName, rawConfig] of Object.entries(sourceWebhooks)) {
+    if (!isRecord(rawConfig)) continue;
+    const sourceValue = rawConfig.webhook_url ?? rawConfig.webhookUrl;
+    if (!isSecretRefInput(sourceValue)) continue;
+    const targetName = normalizeDiscordWebhookTargetName(rawTargetName);
+    if (!targetName) continue;
+    const targetConfig = isRecord(serializableWebhooks[targetName])
+      ? serializableWebhooks[targetName]
+      : {};
+    serializableWebhooks[targetName] = targetConfig;
+    targetConfig.webhook_url = cloneConfig(sourceValue);
+    delete targetConfig.webhookUrl;
+  }
+}
+
 function preserveSecretInputs(
   serializable: Record<string, unknown>,
   source: Record<string, unknown>,
@@ -4385,12 +4860,14 @@ function preserveSecretInputs(
     if (!isSecretRefInput(sourceValue)) continue;
     setSecretInputOnSource(serializable, secretPath, cloneConfig(sourceValue));
   }
+  preserveSlackWebhookSecretInputs(serializable, source);
+  preserveDiscordWebhookSecretInputs(serializable, source);
 }
 
 function resolveConfiguredSecretInput(
   value: unknown,
   opts: {
-    path: RuntimeConfigSecretInputPath;
+    path: string;
     required?: boolean;
   },
 ): unknown {
@@ -4414,7 +4891,7 @@ function makeRuntimeConfigSecretAuditRunId(): string {
 function auditConfiguredSecretUnsafeEscape(
   handle: SecretHandle,
   reason: string,
-  path: RuntimeConfigSecretInputPath,
+  path: string,
 ): void {
   const event = {
     skill: null,
@@ -4493,7 +4970,7 @@ function normalizeHttpRequestAuthRuleSecret(
   }
   if (parsed.kind === 'plain') {
     throw new Error(
-      `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\`, \`\${ENV_VAR}\`, or \`{ "source": "google-oauth" }\``,
+      `${path} must use a stored secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`{ "source": "google-oauth" }\``,
     );
   }
   return cloneConfig(parsed.ref);
@@ -4637,6 +5114,579 @@ function normalizeWebSearchFallbackProviders(
     providers.push(provider);
   }
   return providers;
+}
+
+function normalizeBrowserProviderKind(
+  value: unknown,
+  fallback: RuntimeBrowserProviderKind,
+): RuntimeBrowserProviderKind {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'local' ||
+    normalized === 'camofox' ||
+    normalized === 'browser-use-cloud'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeBrowserUseCloudApiKeyRef(
+  value: unknown,
+  fallback: SecretRef,
+): SecretRef {
+  if (value === undefined || value === null || value === '') {
+    return cloneConfig(fallback);
+  }
+  let input = value;
+  if (isRecord(value) && value.source === 'env') {
+    if (typeof value.id !== 'string') {
+      throw new Error(
+        'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
+      );
+    }
+    console.warn(
+      '[runtime-config] migrating browser.browserUseCloud.apiKeyRef legacy env SecretRef to stored SecretRef',
+    );
+    input = { source: 'store', id: value.id };
+  }
+  const parsed = parseSecretInput(input);
+  if (parsed.kind === 'ref') return cloneConfig(parsed.ref);
+  if (parsed.kind === 'invalid') {
+    throw new Error(`browser.browserUseCloud.apiKeyRef ${parsed.reason}.`);
+  }
+  throw new Error(
+    'browser.browserUseCloud.apiKeyRef must use a stored secret reference such as `{ "source": "store", "id": "BROWSER_USE_API_KEY" }`.',
+  );
+}
+
+function normalizeOptionalSecretRef(
+  value: unknown,
+  path: string,
+): SecretRef | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  return parseSecretRefInput(value, path);
+}
+
+const CAMOFOX_MANAGED_LAUNCH_OPTION_KEYS = new Set([
+  'headless',
+  'timeout',
+  'user_data_dir',
+]);
+
+const CAMOFOX_ALLOWED_LAUNCH_OPTION_KEYS = new Set([
+  'os',
+  'block_images',
+  'block_webrtc',
+  'block_webgl',
+  'disable_coop',
+  'geoip',
+  'humanize',
+  'locale',
+  'addons',
+  'fonts',
+  'custom_fonts_only',
+  'exclude_addons',
+  'screen',
+  'window',
+  'fingerprint',
+  'ff_version',
+  'main_world_eval',
+  'executable_path',
+  'firefox_user_prefs',
+  'proxy',
+  'enable_cache',
+  'args',
+  'env',
+  'debug',
+  'virtual_display',
+  'webgl_config',
+]);
+
+function assertCamofoxLaunchOption(
+  condition: boolean,
+  path: string,
+  expected: string,
+): asserts condition {
+  if (!condition) {
+    throw new Error(`${path} must be ${expected}.`);
+  }
+}
+
+function normalizeCamofoxStringList(value: unknown, path: string): string[] {
+  assertCamofoxLaunchOption(Array.isArray(value), path, 'an array of strings');
+  const normalized = value.map((item) => {
+    assertCamofoxLaunchOption(
+      typeof item === 'string' && item.trim().length > 0,
+      path,
+      'an array of non-empty strings',
+    );
+    return item.trim();
+  });
+  return normalized;
+}
+
+function normalizeCamofoxExcludeAddons(
+  value: unknown,
+  path: string,
+): NonNullable<RuntimeBrowserCamofoxLaunchOptions['exclude_addons']> {
+  assertCamofoxLaunchOption(Array.isArray(value), path, 'an array of strings');
+  return value.map((item) => {
+    assertCamofoxLaunchOption(
+      item === 'UBO',
+      path,
+      'an array containing only "UBO"',
+    );
+    return item;
+  });
+}
+
+function normalizeCamofoxOsList(
+  value: unknown,
+  path: string,
+): RuntimeBrowserCamofoxLaunchOptions['os'] {
+  const normalizeOs = (item: unknown): 'windows' | 'macos' | 'linux' => {
+    assertCamofoxLaunchOption(
+      typeof item === 'string',
+      path,
+      '"windows", "macos", "linux", or an array of those values',
+    );
+    const normalized = item.trim().toLowerCase();
+    assertCamofoxLaunchOption(
+      normalized === 'windows' ||
+        normalized === 'macos' ||
+        normalized === 'linux',
+      path,
+      '"windows", "macos", "linux", or an array of those values',
+    );
+    return normalized;
+  };
+
+  if (Array.isArray(value)) {
+    assertCamofoxLaunchOption(value.length > 0, path, 'a non-empty OS array');
+    return value.map((item) => normalizeOs(item));
+  }
+  return normalizeOs(value);
+}
+
+function normalizeCamofoxNumberTuple(
+  value: unknown,
+  path: string,
+): [number, number] {
+  assertCamofoxLaunchOption(
+    Array.isArray(value) && value.length === 2,
+    path,
+    'a two-item number tuple',
+  );
+  const first = value[0];
+  const second = value[1];
+  assertCamofoxLaunchOption(
+    typeof first === 'number' && Number.isFinite(first),
+    path,
+    'a two-item number tuple',
+  );
+  assertCamofoxLaunchOption(
+    typeof second === 'number' && Number.isFinite(second),
+    path,
+    'a two-item number tuple',
+  );
+  return [first, second];
+}
+
+function normalizeCamofoxStringTuple(
+  value: unknown,
+  path: string,
+): [string, string] {
+  assertCamofoxLaunchOption(
+    Array.isArray(value) && value.length === 2,
+    path,
+    'a two-item string tuple',
+  );
+  const first = value[0];
+  const second = value[1];
+  assertCamofoxLaunchOption(
+    typeof first === 'string' && first.trim().length > 0,
+    path,
+    'a two-item non-empty string tuple',
+  );
+  assertCamofoxLaunchOption(
+    typeof second === 'string' && second.trim().length > 0,
+    path,
+    'a two-item non-empty string tuple',
+  );
+  return [first.trim(), second.trim()];
+}
+
+function normalizeCamofoxStringOrStringList(
+  value: unknown,
+  path: string,
+): string | string[] {
+  if (Array.isArray(value)) return normalizeCamofoxStringList(value, path);
+  assertCamofoxLaunchOption(
+    typeof value === 'string' && value.trim().length > 0,
+    path,
+    'a non-empty string or array of strings',
+  );
+  return value.trim();
+}
+
+function normalizeCamofoxEnv(
+  value: unknown,
+  path: string,
+): NonNullable<RuntimeBrowserCamofoxLaunchOptions['env']> {
+  assertCamofoxLaunchOption(isRecord(value), path, 'an object');
+  const normalized: NonNullable<RuntimeBrowserCamofoxLaunchOptions['env']> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    assertCamofoxLaunchOption(
+      key.trim().length > 0,
+      path,
+      'an object with non-empty keys',
+    );
+    assertCamofoxLaunchOption(
+      typeof entry === 'string' ||
+        typeof entry === 'number' ||
+        typeof entry === 'boolean',
+      `${path}.${key}`,
+      'a string, number, or boolean',
+    );
+    normalized[key] = entry;
+  }
+  return normalized;
+}
+
+function normalizeCamofoxProxy(
+  value: unknown,
+  path: string,
+): NonNullable<RuntimeBrowserCamofoxLaunchOptions['proxy']> {
+  if (typeof value === 'string') {
+    assertCamofoxLaunchOption(
+      value.trim().length > 0,
+      path,
+      'a non-empty string or proxy object',
+    );
+    return value.trim();
+  }
+
+  assertCamofoxLaunchOption(
+    isRecord(value),
+    path,
+    'a non-empty string or proxy object',
+  );
+  assertCamofoxLaunchOption(
+    typeof value.server === 'string' && value.server.trim().length > 0,
+    `${path}.server`,
+    'a non-empty string',
+  );
+  const proxy: NonNullable<
+    Exclude<RuntimeBrowserCamofoxLaunchOptions['proxy'], string>
+  > = {
+    server: value.server.trim(),
+  };
+  for (const key of ['bypass', 'username', 'password'] as const) {
+    const entry = value[key];
+    if (entry === undefined) continue;
+    assertCamofoxLaunchOption(
+      typeof entry === 'string',
+      `${path}.${key}`,
+      'a string',
+    );
+    proxy[key] = entry;
+  }
+  return proxy;
+}
+
+function normalizeCamofoxLaunchOptions(
+  value: unknown,
+  fallback: RuntimeBrowserCamofoxLaunchOptions,
+): RuntimeBrowserCamofoxLaunchOptions {
+  if (value === undefined || value === null) return cloneConfig(fallback);
+  assertCamofoxLaunchOption(
+    isRecord(value),
+    'browser.camofox.launchOptions',
+    'an object',
+  );
+
+  const normalized: RuntimeBrowserCamofoxLaunchOptions = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const path = `browser.camofox.launchOptions.${key}`;
+    if (CAMOFOX_MANAGED_LAUNCH_OPTION_KEYS.has(key)) {
+      throw new Error(
+        `${path} is managed by HybridClaw; use browser.camofox.headed or SessionOptions instead.`,
+      );
+    }
+    if (!CAMOFOX_ALLOWED_LAUNCH_OPTION_KEYS.has(key)) {
+      throw new Error(`${path} is not a supported Camofox launch option.`);
+    }
+
+    switch (key) {
+      case 'os':
+        normalized.os = normalizeCamofoxOsList(entry, path);
+        break;
+      case 'geoip':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean' ||
+            (typeof entry === 'string' && entry.trim().length > 0),
+          path,
+          'a boolean or non-empty string',
+        );
+        normalized.geoip = typeof entry === 'string' ? entry.trim() : entry;
+        break;
+      case 'humanize':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean' ||
+            (typeof entry === 'number' && Number.isFinite(entry) && entry >= 0),
+          path,
+          'a boolean or non-negative number',
+        );
+        normalized.humanize = entry;
+        break;
+      case 'locale':
+        normalized.locale = normalizeCamofoxStringOrStringList(entry, path);
+        break;
+      case 'addons':
+        normalized.addons = normalizeCamofoxStringList(entry, path);
+        break;
+      case 'fonts':
+        normalized.fonts = normalizeCamofoxStringList(entry, path);
+        break;
+      case 'args':
+        normalized.args = normalizeCamofoxStringList(entry, path);
+        break;
+      case 'exclude_addons':
+        normalized.exclude_addons = normalizeCamofoxExcludeAddons(entry, path);
+        break;
+      case 'window':
+        normalized.window = normalizeCamofoxNumberTuple(entry, path);
+        break;
+      case 'webgl_config':
+        normalized.webgl_config = normalizeCamofoxStringTuple(entry, path);
+        break;
+      case 'ff_version':
+        assertCamofoxLaunchOption(
+          typeof entry === 'number' && Number.isInteger(entry) && entry > 0,
+          path,
+          'a positive integer',
+        );
+        normalized.ff_version = entry;
+        break;
+      case 'executable_path':
+      case 'virtual_display':
+        assertCamofoxLaunchOption(
+          typeof entry === 'string' && entry.trim().length > 0,
+          path,
+          'a non-empty string',
+        );
+        normalized[key] = entry.trim();
+        break;
+      case 'env':
+        normalized.env = normalizeCamofoxEnv(entry, path);
+        break;
+      case 'screen':
+        assertCamofoxLaunchOption(isRecord(entry), path, 'an object');
+        normalized.screen = cloneConfig(
+          entry,
+        ) as RuntimeBrowserCamofoxLaunchOptions['screen'];
+        break;
+      case 'fingerprint':
+        assertCamofoxLaunchOption(isRecord(entry), path, 'an object');
+        normalized.fingerprint = cloneConfig(
+          entry,
+        ) as RuntimeBrowserCamofoxLaunchOptions['fingerprint'];
+        break;
+      case 'firefox_user_prefs':
+        assertCamofoxLaunchOption(isRecord(entry), path, 'an object');
+        normalized.firefox_user_prefs = cloneConfig(
+          entry,
+        ) as RuntimeBrowserCamofoxLaunchOptions['firefox_user_prefs'];
+        break;
+      case 'proxy':
+        normalized.proxy = normalizeCamofoxProxy(entry, path);
+        break;
+      case 'block_images':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean',
+          path,
+          'a boolean',
+        );
+        normalized.block_images = entry;
+        break;
+      case 'block_webrtc':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean',
+          path,
+          'a boolean',
+        );
+        normalized.block_webrtc = entry;
+        break;
+      case 'block_webgl':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean',
+          path,
+          'a boolean',
+        );
+        normalized.block_webgl = entry;
+        break;
+      case 'disable_coop':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean',
+          path,
+          'a boolean',
+        );
+        normalized.disable_coop = entry;
+        break;
+      case 'custom_fonts_only':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean',
+          path,
+          'a boolean',
+        );
+        normalized.custom_fonts_only = entry;
+        break;
+      case 'main_world_eval':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean',
+          path,
+          'a boolean',
+        );
+        normalized.main_world_eval = entry;
+        break;
+      case 'enable_cache':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean',
+          path,
+          'a boolean',
+        );
+        normalized.enable_cache = entry;
+        break;
+      case 'debug':
+        assertCamofoxLaunchOption(
+          typeof entry === 'boolean',
+          path,
+          'a boolean',
+        );
+        normalized.debug = entry;
+        break;
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeBrowserUseCloudSessionConfig(
+  value: unknown,
+  fallback: RuntimeBrowserUseCloudConfig['browser'],
+): RuntimeBrowserUseCloudConfig['browser'] {
+  const raw = isRecord(value) ? value : {};
+  const profileId = normalizeString(raw.profileId, fallback.profileId ?? '', {
+    allowEmpty: true,
+  });
+  const proxyCountryCode = normalizeString(
+    raw.proxyCountryCode,
+    fallback.proxyCountryCode ?? '',
+    { allowEmpty: true },
+  );
+  const timeoutMinutes = normalizeInteger(raw.timeoutMinutes, 0, {
+    min: 1,
+    max: 240,
+  });
+  const browserScreenWidth = normalizeInteger(raw.browserScreenWidth, 0, {
+    min: 1,
+    max: 10_000,
+  });
+  const browserScreenHeight = normalizeInteger(raw.browserScreenHeight, 0, {
+    min: 1,
+    max: 10_000,
+  });
+  return {
+    ...(profileId ? { profileId } : {}),
+    ...(proxyCountryCode ? { proxyCountryCode } : {}),
+    ...(timeoutMinutes > 0 ? { timeoutMinutes } : {}),
+    ...(browserScreenWidth > 0 ? { browserScreenWidth } : {}),
+    ...(browserScreenHeight > 0 ? { browserScreenHeight } : {}),
+    ...(typeof raw.allowResizing === 'boolean'
+      ? { allowResizing: raw.allowResizing }
+      : typeof fallback.allowResizing === 'boolean'
+        ? { allowResizing: fallback.allowResizing }
+        : {}),
+    ...(typeof raw.enableRecording === 'boolean'
+      ? { enableRecording: raw.enableRecording }
+      : typeof fallback.enableRecording === 'boolean'
+        ? { enableRecording: fallback.enableRecording }
+        : {}),
+  };
+}
+
+function normalizeBrowserUseCloudPricing(
+  value: unknown,
+  fallback: RuntimeBrowserUseCloudConfig['pricing'],
+): RuntimeBrowserUseCloudConfig['pricing'] {
+  const raw = isRecord(value) ? value : {};
+  const browserUsdPerMinute = normalizeNumber(
+    raw.browserUsdPerMinute,
+    fallback.browserUsdPerMinute ?? -1,
+    { min: 0 },
+  );
+  const actionUsd = normalizeNumber(raw.actionUsd, fallback.actionUsd ?? -1, {
+    min: 0,
+  });
+  return {
+    ...(browserUsdPerMinute >= 0 ? { browserUsdPerMinute } : {}),
+    ...(actionUsd >= 0 ? { actionUsd } : {}),
+  };
+}
+
+function normalizeBrowserConfig(
+  value: unknown,
+  fallback: RuntimeBrowserConfig,
+): RuntimeBrowserConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawLocal = isRecord(raw.local) ? raw.local : {};
+  const rawCamofox = isRecord(raw.camofox) ? raw.camofox : {};
+  const rawBrowserUseCloud = isRecord(raw.browserUseCloud)
+    ? raw.browserUseCloud
+    : {};
+  return {
+    provider: normalizeBrowserProviderKind(raw.provider, fallback.provider),
+    local: {
+      profileRoot: normalizeString(
+        rawLocal.profileRoot,
+        fallback.local.profileRoot,
+        { allowEmpty: true },
+      ),
+      headed: normalizeBoolean(rawLocal.headed, fallback.local.headed),
+    },
+    camofox: {
+      profileRoot: normalizeString(
+        rawCamofox.profileRoot,
+        fallback.camofox.profileRoot,
+        { allowEmpty: true },
+      ),
+      headed: normalizeBoolean(rawCamofox.headed, fallback.camofox.headed),
+      launchOptions: normalizeCamofoxLaunchOptions(
+        rawCamofox.launchOptions,
+        fallback.camofox.launchOptions,
+      ),
+    },
+    browserUseCloud: {
+      apiKeyRef: normalizeBrowserUseCloudApiKeyRef(
+        rawBrowserUseCloud.apiKeyRef,
+        fallback.browserUseCloud.apiKeyRef,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawBrowserUseCloud.baseUrl,
+        fallback.browserUseCloud.baseUrl,
+      ),
+      browser: normalizeBrowserUseCloudSessionConfig(
+        rawBrowserUseCloud.browser,
+        fallback.browserUseCloud.browser,
+      ),
+      pricing: normalizeBrowserUseCloudPricing(
+        rawBrowserUseCloud.pricing,
+        fallback.browserUseCloud.pricing,
+      ),
+    },
+  };
 }
 
 function normalizeAudioTranscriptionProvider(
@@ -4858,8 +5908,10 @@ function normalizeRuntimeConfig(
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
   const rawDeployment = isRecord(raw.deployment) ? raw.deployment : {};
+  const rawBrowser = isRecord(raw.browser) ? raw.browser : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
+  const rawSkillsRecord = rawSkills as Record<string, unknown>;
   const rawPlugins = isRecord(raw.plugins) ? raw.plugins : {};
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
@@ -4874,9 +5926,19 @@ function normalizeRuntimeConfig(
     ? raw.channelInstructions
     : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
+  const rawDiscordWebhook = isRecord(raw.discordWebhook)
+    ? raw.discordWebhook
+    : isRecord((raw as Record<string, unknown>).discord_webhook)
+      ? (raw as Record<string, unknown>).discord_webhook
+      : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawSignal = isRecord(raw.signal) ? raw.signal : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
+  const rawSlackWebhook = isRecord(raw.slackWebhook)
+    ? raw.slackWebhook
+    : isRecord((raw as Record<string, unknown>).slack_webhook)
+      ? (raw as Record<string, unknown>).slack_webhook
+      : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawThreema = isRecord(raw.threema) ? raw.threema : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
@@ -4921,6 +5983,9 @@ function normalizeRuntimeConfig(
     : {};
   const rawEvalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.eval_judge)
     ? rawAuxiliaryModels.eval_judge
+    : {};
+  const rawGoalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.goal_judge)
+    ? rawAuxiliaryModels.goal_judge
     : {};
   const rawMcpAuxiliaryModel = isRecord(rawAuxiliaryModels.mcp)
     ? rawAuxiliaryModels.mcp
@@ -5083,6 +6148,10 @@ function normalizeRuntimeConfig(
         isSecretRefInput(rawThreema.secret) && Boolean(rawThreema.enabled),
     },
   );
+  const searxngBearerTokenRef = normalizeOptionalSecretRef(
+    rawWebSearch.searxngBearerTokenRef,
+    'web.search.searxngBearerTokenRef',
+  );
   const healthPort = normalizeInteger(
     rawOps.healthPort,
     defaultOps.healthPort,
@@ -5239,6 +6308,7 @@ function normalizeRuntimeConfig(
       rawDeployment,
       DEFAULT_RUNTIME_CONFIG.deployment,
     ),
+    browser: normalizeBrowserConfig(rawBrowser, DEFAULT_RUNTIME_CONFIG.browser),
     agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
     skills: {
       extraDirs: normalizeStringArray(
@@ -5257,6 +6327,10 @@ function normalizeRuntimeConfig(
       autonomy: normalizeSkillAutonomyConfig(
         rawSkills.autonomy,
         DEFAULT_RUNTIME_CONFIG.skills.autonomy,
+      ),
+      speechToText: normalizeSpeechToTextSkillConfig(
+        rawSkills.speechToText ?? rawSkillsRecord.speech_to_text,
+        DEFAULT_RUNTIME_CONFIG.skills.speechToText,
       ),
       installed: normalizeRuntimeInstalledSkillManifests(rawSkills.installed),
     },
@@ -5481,9 +6555,17 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.discord.guilds,
       ),
     },
+    discordWebhook: normalizeDiscordWebhookConfig(
+      rawDiscordWebhook,
+      DEFAULT_RUNTIME_CONFIG.discordWebhook,
+    ),
     msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
     signal: normalizeSignalConfig(rawSignal, DEFAULT_RUNTIME_CONFIG.signal),
     slack: normalizeSlackConfig(rawSlack, DEFAULT_RUNTIME_CONFIG.slack),
+    slackWebhook: normalizeSlackWebhookConfig(
+      rawSlackWebhook,
+      DEFAULT_RUNTIME_CONFIG.slackWebhook,
+    ),
     telegram: normalizeTelegramConfig(
       rawTelegram,
       DEFAULT_RUNTIME_CONFIG.telegram,
@@ -5876,6 +6958,22 @@ function normalizeRuntimeConfig(
           { min: 0, max: 1_000_000 },
         ),
       },
+      goal_judge: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawGoalJudgeAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.provider,
+        ),
+        model: normalizeString(
+          rawGoalJudgeAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawGoalJudgeAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
       mcp: {
         provider: normalizeAuxiliaryProviderSelection(
           rawMcpAuxiliaryModel.provider,
@@ -6057,6 +7155,7 @@ function normalizeRuntimeConfig(
           DEFAULT_RUNTIME_CONFIG.web.search.searxngBaseUrl,
           { allowEmpty: true },
         ),
+        ...(searxngBearerTokenRef ? { searxngBearerTokenRef } : {}),
         tavilySearchDepth: normalizeTavilySearchDepth(
           rawWebSearch.tavilySearchDepth,
           DEFAULT_RUNTIME_CONFIG.web.search.tavilySearchDepth,
@@ -6541,9 +7640,11 @@ function loadRuntimeConfigFromSources(
   try {
     syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   } catch (err) {
-    console.warn(
-      `[runtime-config] revision sync failed while loading config: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    if (process.env.HYBRIDCLAW_DEBUG_CONFIG_REVISION_SYNC === '1') {
+      console.warn(
+        `[runtime-config] revision sync failed while loading config: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
   currentConfigSource = cloneConfig(diskSource);
@@ -6991,6 +8092,86 @@ export function setRuntimeConfigSecretInput(
 
   const draftSource = cloneConfig(baseSource);
   setSecretInputOnSource(draftSource, secretPath, value);
+  return saveRuntimeConfigSource(draftSource, meta);
+}
+
+export function setRuntimeConfigSlackWebhookSecretInput(
+  targetName: string,
+  value: SecretInput | '',
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const normalizedTarget = normalizeSlackWebhookTargetName(targetName);
+  if (!normalizedTarget) {
+    throw new Error(`Invalid Slack webhook target name: ${targetName}`);
+  }
+
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-slack-webhook-secret-save',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] Slack webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const draftSource = cloneConfig(baseSource);
+  const slackWebhook = isRecord(draftSource.slackWebhook)
+    ? draftSource.slackWebhook
+    : {};
+  draftSource.slackWebhook = slackWebhook;
+  const webhooks = isRecord(slackWebhook.webhooks) ? slackWebhook.webhooks : {};
+  slackWebhook.webhooks = webhooks;
+  const targetConfig = isRecord(webhooks[normalizedTarget])
+    ? webhooks[normalizedTarget]
+    : {};
+  webhooks[normalizedTarget] = targetConfig;
+  targetConfig.webhook_url = value;
+  delete targetConfig.webhookUrl;
+  return saveRuntimeConfigSource(draftSource, meta);
+}
+
+export function setRuntimeConfigDiscordWebhookSecretInput(
+  targetName: string,
+  value: SecretInput | '',
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const normalizedTarget = normalizeDiscordWebhookTargetName(targetName);
+  if (!normalizedTarget) {
+    throw new Error(`Invalid Discord webhook target name: ${targetName}`);
+  }
+
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-discord-webhook-secret-save',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] Discord webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const draftSource = cloneConfig(baseSource);
+  const discordWebhook = isRecord(draftSource.discordWebhook)
+    ? draftSource.discordWebhook
+    : {};
+  draftSource.discordWebhook = discordWebhook;
+  const webhooks = isRecord(discordWebhook.webhooks)
+    ? discordWebhook.webhooks
+    : {};
+  discordWebhook.webhooks = webhooks;
+  const targetConfig = isRecord(webhooks[normalizedTarget])
+    ? webhooks[normalizedTarget]
+    : {};
+  webhooks[normalizedTarget] = targetConfig;
+  targetConfig.webhook_url = value;
+  delete targetConfig.webhookUrl;
   return saveRuntimeConfigSource(draftSource, meta);
 }
 

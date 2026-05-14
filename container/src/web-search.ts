@@ -3,6 +3,20 @@ import type {
   SearchProviderName,
   WebSearchConfig,
 } from '../shared/web-search-config.js';
+import {
+  decodeEntities,
+  dedupeResults,
+  isRecord,
+  normalizeResultUrl,
+  normalizeWhitespace,
+  stripTags,
+} from './search-utils.js';
+import {
+  buildSearxngSearchUrl,
+  normalizeSearxngListParam,
+  parseSearxngSearchResponse,
+  type SearxngTimeRange,
+} from './searxng-client.js';
 
 const DEFAULT_COUNT = 5;
 const MIN_COUNT = 1;
@@ -86,6 +100,9 @@ export interface SearchResult {
   url: string;
   snippet: string;
   age?: string;
+  category?: string;
+  engine?: string;
+  thumbnail?: string;
 }
 
 export type WebSearchRuntimeConfig = WebSearchConfig;
@@ -96,6 +113,8 @@ export interface WebSearchParams {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
+  categories?: string[] | string;
+  engines?: string[] | string;
   provider?: SearchProviderMode;
 }
 
@@ -105,6 +124,8 @@ interface NormalizedSearchParams {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
+  categories?: string;
+  engines?: string;
   provider?: SearchProviderMode;
 }
 
@@ -112,6 +133,18 @@ interface SearchExecutionContext {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
+  categories?: string;
+  engines?: string;
+}
+
+export interface WebSearchGatewayContext {
+  baseUrl?: string;
+  apiToken?: string;
+  sessionId?: string;
+}
+
+interface SearchRuntimeContext {
+  gateway?: WebSearchGatewayContext;
 }
 
 export interface WebSearchExecutionResult {
@@ -159,39 +192,6 @@ function writeCache(
 
 export function clearWebSearchCache(): void {
   cache.clear();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function decodeEntities(value: string): string {
-  return value
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/gi, (_, dec) =>
-      String.fromCharCode(Number.parseInt(dec, 10)),
-    );
-}
-
-function stripTags(value: string): string {
-  return decodeEntities(value.replace(/<[^>]+>/g, ''));
-}
-
-function normalizeWhitespace(value: string): string {
-  return String(value || '')
-    .replace(/\r/g, '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
 }
 
 function readEnv(name: string): string {
@@ -317,6 +317,8 @@ export function normalizeSearchParams(
     freshness: normalizeFreshness(params.freshness),
     country: normalizeCountry(params.country),
     language: normalizeLanguage(params.language),
+    categories: normalizeSearxngListParam(params.categories) || undefined,
+    engines: normalizeSearxngListParam(params.engines) || undefined,
     provider: params.provider
       ? normalizeProviderMode(params.provider)
       : undefined,
@@ -382,6 +384,9 @@ export function getWebSearchConfigFromEnv(
           searxngBaseUrl: String(override.searxngBaseUrl || '').trim(),
         }
       : {}),
+    ...(override?.searxngBearerTokenRef != null
+      ? { searxngBearerTokenRef: override.searxngBearerTokenRef }
+      : {}),
     ...(override?.tavilySearchDepth != null
       ? {
           tavilySearchDepth:
@@ -400,36 +405,6 @@ export function getWebSearchConfigFromEnv(
       ? { tavilyApiKey: String(override.tavilyApiKey || '').trim() }
       : {}),
   };
-}
-
-function validateHttpUrl(value: string): string | null {
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return null;
-    }
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-}
-
-function normalizeResultUrl(value: unknown): string | null {
-  const normalized = String(value || '').trim();
-  if (!normalized) return null;
-  return validateHttpUrl(normalized);
-}
-
-function dedupeResults(results: SearchResult[]): SearchResult[] {
-  const seen = new Set<string>();
-  const deduped: SearchResult[] = [];
-  for (const result of results) {
-    const urlKey = result.url.toLowerCase();
-    if (seen.has(urlKey)) continue;
-    seen.add(urlKey);
-    deduped.push(result);
-  }
-  return deduped;
 }
 
 function normalizeSearchResults(
@@ -584,11 +559,39 @@ function sanitizeProviderError(error: unknown): string {
 function buildCacheKey(
   params: NormalizedSearchParams,
   requestedProvider: SearchProviderMode,
+  config: WebSearchConfig,
 ): string {
   const suffix = [params.country || '', params.language || '']
     .filter(Boolean)
     .join(':');
-  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}${suffix ? `:${suffix}` : ''}`.toLowerCase();
+  const categories = params.categories || '';
+  const engines = params.engines || '';
+  const searxngPartition = buildSearxngCachePartition(config);
+  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}:${categories}:${engines}:${searxngPartition}${suffix ? `:${suffix}` : ''}`.toLowerCase();
+}
+
+function buildSearxngCachePartition(config: WebSearchConfig): string {
+  const includesSearxng =
+    config.provider === 'auto' ||
+    config.provider === 'searxng' ||
+    config.fallbackProviders.includes('searxng');
+  if (!includesSearxng) return '';
+  return stableCacheHash(
+    [
+      config.searxngBaseUrl,
+      config.searxngBearerTokenRef?.source || '',
+      config.searxngBearerTokenRef?.id || '',
+    ].join('\0'),
+  );
+}
+
+function stableCacheHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function mapFreshnessForProvider(
@@ -622,27 +625,30 @@ function buildProviderRequestContext(
   braveLanguage?: string;
   perplexityFreshness?: string;
   tavilyDays?: number;
-  searxngTimeRange?: string;
+  searxngTimeRange?: SearxngTimeRange;
 } {
+  const braveFreshness = mapFreshnessForProvider('brave', context.freshness);
+  const perplexityFreshness = mapFreshnessForProvider(
+    'perplexity',
+    context.freshness,
+  );
+  const tavilyDays = mapFreshnessForProvider('tavily', context.freshness);
+  const searxngTimeRange = mapFreshnessForProvider(
+    'searxng',
+    context.freshness,
+  );
+
   return {
     ...context,
     braveFreshness:
-      typeof mapFreshnessForProvider('brave', context.freshness) === 'string'
-        ? (mapFreshnessForProvider('brave', context.freshness) as string)
-        : undefined,
+      typeof braveFreshness === 'string' ? braveFreshness : undefined,
     braveLanguage: mapLanguageForBrave(context.language),
     perplexityFreshness:
-      typeof mapFreshnessForProvider('perplexity', context.freshness) ===
-      'string'
-        ? (mapFreshnessForProvider('perplexity', context.freshness) as string)
-        : undefined,
-    tavilyDays:
-      typeof mapFreshnessForProvider('tavily', context.freshness) === 'number'
-        ? (mapFreshnessForProvider('tavily', context.freshness) as number)
-        : undefined,
+      typeof perplexityFreshness === 'string' ? perplexityFreshness : undefined,
+    tavilyDays: typeof tavilyDays === 'number' ? tavilyDays : undefined,
     searxngTimeRange:
-      typeof mapFreshnessForProvider('searxng', context.freshness) === 'string'
-        ? (mapFreshnessForProvider('searxng', context.freshness) as string)
+      typeof searxngTimeRange === 'string'
+        ? (searxngTimeRange as SearxngTimeRange)
         : undefined,
   };
 }
@@ -702,21 +708,6 @@ function parseTavilySearchResponse(payload: unknown): SearchResult[] {
         url: entry.url,
         snippet: entry.content ?? entry.snippet ?? entry.description,
         age: entry.published_date,
-      })),
-  );
-}
-
-function parseSearxngSearchResponse(payload: unknown): SearchResult[] {
-  if (!isRecord(payload)) throw new Error('Invalid SearXNG search response');
-  const rawResults = extractArray(payload.results);
-  return normalizeSearchResults(
-    rawResults
-      .filter((entry): entry is Record<string, unknown> => isRecord(entry))
-      .map((entry) => ({
-        title: entry.title,
-        url: entry.url,
-        snippet: entry.content ?? entry.snippet ?? entry.description,
-        age: entry.publishedDate ?? entry.published_date ?? entry.age,
       })),
   );
 }
@@ -958,33 +949,69 @@ function createDuckDuckGoProvider(): SearchProvider {
   };
 }
 
-function buildSearxngSearchUrl(
-  baseUrl: string,
-  query: string,
-  count: number,
-  context: ReturnType<typeof buildProviderRequestContext>,
-): string {
-  const normalizedBase = validateHttpUrl(baseUrl);
-  if (!normalizedBase) throw new Error('SearXNG base URL is invalid');
-  const url = new URL(normalizedBase);
-  if (!url.pathname.endsWith('/search')) {
-    url.pathname = `${url.pathname.replace(/\/+$/, '')}/search`;
+async function fetchViaGatewayBearer(params: {
+  url: string;
+  provider: string;
+  signal: AbortSignal;
+  gateway?: WebSearchGatewayContext;
+  bearerSecretRef: NonNullable<WebSearchConfig['searxngBearerTokenRef']>;
+}): Promise<unknown> {
+  const base = String(params.gateway?.baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!base) {
+    throw new Error(
+      `${params.provider} bearer token requires gateway HTTP proxy`,
+    );
   }
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('q', query);
-  url.searchParams.set('pageno', '1');
-  url.searchParams.set('language', context.language || 'all');
-  url.searchParams.set('safesearch', '0');
-  url.searchParams.set('results', String(count));
-  if (context.searxngTimeRange) {
-    url.searchParams.set('time_range', context.searxngTimeRange);
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const apiToken = String(params.gateway?.apiToken || '').trim();
+  if (apiToken) headers.Authorization = `Bearer ${apiToken}`;
+
+  const response = await fetch(`${base}/api/http/request`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      url: params.url,
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': USER_AGENT,
+      },
+      bearerSecretRef: params.bearerSecretRef,
+      maxResponseBytes: MAX_RESPONSE_BYTES,
+      ...(params.gateway?.sessionId
+        ? { sessionId: params.gateway.sessionId }
+        : {}),
+    }),
+    signal: params.signal,
+  });
+  if (!response.ok) throw buildHttpError(response);
+  const proxyPayload = await readJsonResponse(response, params.provider);
+  if (!isRecord(proxyPayload)) {
+    throw new Error(`${params.provider} gateway proxy returned invalid JSON`);
   }
-  return url.toString();
+  if (proxyPayload.ok === false) {
+    throw new Error(`HTTP ${String(proxyPayload.status || '').trim()}`);
+  }
+  if (proxyPayload.json !== undefined) return proxyPayload.json;
+  if (typeof proxyPayload.body === 'string') {
+    try {
+      return JSON.parse(proxyPayload.body) as unknown;
+    } catch {
+      throw new Error(`${params.provider} returned invalid JSON`);
+    }
+  }
+  throw new Error(`${params.provider} gateway proxy returned no body`);
 }
 
 function createSearxngProvider(
   config: WebSearchConfig,
   context: SearchExecutionContext,
+  runtimeContext: SearchRuntimeContext = {},
 ): SearchProvider {
   const requestContext = buildProviderRequestContext(context);
   return {
@@ -994,21 +1021,33 @@ function createSearxngProvider(
 
       const timeout = createTimeoutSignal(signal, DEFAULT_PROVIDER_TIMEOUT_MS);
       try {
-        const res = await fetch(
-          buildSearxngSearchUrl(
-            config.searxngBaseUrl,
-            query,
-            count,
-            requestContext,
-          ),
-          {
-            headers: {
-              Accept: 'application/json',
-              'User-Agent': USER_AGENT,
-            },
+        const url = buildSearxngSearchUrl({
+          baseUrl: config.searxngBaseUrl,
+          query,
+          language: requestContext.language,
+          count,
+          categories: requestContext.categories,
+          engines: requestContext.engines,
+          timeRange: requestContext.searxngTimeRange,
+        });
+        if (config.searxngBearerTokenRef) {
+          const payload = await fetchViaGatewayBearer({
+            url,
+            provider: 'SearXNG',
             signal: timeout.signal,
+            gateway: runtimeContext.gateway,
+            bearerSecretRef: config.searxngBearerTokenRef,
+          });
+          return parseSearxngSearchResponse(payload);
+        }
+
+        const res = await fetch(url, {
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': USER_AGENT,
           },
-        );
+          signal: timeout.signal,
+        });
         if (!res.ok) throw buildHttpError(res);
         return parseSearxngSearchResponse(
           await readJsonResponse(res, 'SearXNG'),
@@ -1030,6 +1069,7 @@ function createProvider(
   name: SearchProviderName,
   config: WebSearchConfig,
   context: SearchExecutionContext,
+  runtimeContext: SearchRuntimeContext = {},
 ): SearchProvider {
   switch (name) {
     case 'brave':
@@ -1041,7 +1081,7 @@ function createProvider(
     case 'duckduckgo':
       return createDuckDuckGoProvider();
     case 'searxng':
-      return createSearxngProvider(config, context);
+      return createSearxngProvider(config, context, runtimeContext);
   }
 }
 
@@ -1066,6 +1106,7 @@ function isProviderAvailable(
 export function buildProviderChain(
   config: WebSearchConfig,
   context: SearchExecutionContext = {},
+  runtimeContext: SearchRuntimeContext = {},
 ): SearchProvider[] {
   const mode = normalizeProviderMode(config.provider);
   const seen = new Set<SearchProviderName>();
@@ -1089,12 +1130,15 @@ export function buildProviderChain(
   }
 
   add('duckduckgo');
-  return ordered.map((provider) => createProvider(provider, config, context));
+  return ordered.map((provider) =>
+    createProvider(provider, config, context, runtimeContext),
+  );
 }
 
 export async function searchWeb(
   params: WebSearchParams,
   configOverride?: Partial<WebSearchRuntimeConfig>,
+  runtimeContext: SearchRuntimeContext = {},
 ): Promise<WebSearchExecutionResult> {
   const config = getWebSearchConfigFromEnv(configOverride);
   const normalized = normalizeSearchParams(params, config);
@@ -1103,13 +1147,21 @@ export async function searchWeb(
     ...config,
     provider: requestedProvider,
   };
-  const cacheKey = buildCacheKey(normalized, requestedProvider);
+  const cacheKey = buildCacheKey(
+    normalized,
+    requestedProvider,
+    effectiveConfig,
+  );
   const cached = readCache(cacheKey);
   if (cached) return { ...cached, cached: true };
 
   const controller = new AbortController();
   const start = Date.now();
-  const providers = buildProviderChain(effectiveConfig, normalized);
+  const providers = buildProviderChain(
+    effectiveConfig,
+    normalized,
+    runtimeContext,
+  );
   const attemptedProviders: SearchProviderName[] = [];
   const errors: string[] = [];
 
@@ -1157,6 +1209,9 @@ function formatSearchResults(result: WebSearchExecutionResult): string {
     lines.push(`${index + 1}. ${entry.title}`);
     lines.push(entry.url);
     if (entry.age) lines.push(`Age: ${entry.age}`);
+    if (entry.category) lines.push(`Category: ${entry.category}`);
+    if (entry.engine) lines.push(`Engine: ${entry.engine}`);
+    if (entry.thumbnail) lines.push(`Thumbnail: ${entry.thumbnail}`);
     if (entry.snippet) lines.push(entry.snippet);
   }
   return lines.join('\n');
@@ -1165,6 +1220,9 @@ function formatSearchResults(result: WebSearchExecutionResult): string {
 export async function webSearch(
   params: WebSearchParams,
   configOverride?: Partial<WebSearchRuntimeConfig>,
+  runtimeContext: SearchRuntimeContext = {},
 ): Promise<string> {
-  return formatSearchResults(await searchWeb(params, configOverride));
+  return formatSearchResults(
+    await searchWeb(params, configOverride, runtimeContext),
+  );
 }

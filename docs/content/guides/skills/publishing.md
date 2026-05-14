@@ -1,10 +1,130 @@
 ---
 title: Publishing Skills
-description: Excalidraw diagrams, Manim video creation, WordPress publishing, and blog post writing.
+description: Diagram-as-code, Excalidraw diagrams, Manim and avatar video creation, Hermes3000 manuscripts, WordPress publishing, and blog post writing.
 sidebar_position: 8
 ---
 
 # Publishing Skills
+
+## diagram
+
+Create, validate, update, and render diagram-as-code artifacts through the
+native `diagram_create`, `diagram_update`, and `diagram_validate` tools.
+Mermaid is the default format, with PlantUML, Graphviz DOT, and Excalidraw JSON
+available when the diagram shape or user request calls for them.
+
+**Prerequisites** — none for source artifacts and Excalidraw SVG previews.
+Install or configure optional renderers for native exports: `mmdc` for Mermaid,
+`dot` for Graphviz, and `HYBRIDCLAW_PLANTUML_SERVER_URL` for PlantUML.
+Only point the PlantUML setting at a trusted server with appropriate network
+egress controls.
+
+> 💡 **Tips & Tricks**
+>
+> Pick the diagram type before writing Mermaid syntax: sequence, flowchart,
+> state, ER, class, gantt, git-graph, mindmap, or pie.
+>
+> Run validation before rendering when you write or revise source manually.
+>
+> Use Graphviz for topology graphs, PlantUML for UML-heavy teams, and
+> Excalidraw JSON when editability matters more than a static render.
+
+> 🎯 **Try it yourself**
+>
+> `Create a Mermaid sequence diagram for a user request through gateway, container, and tool execution`
+>
+> `Validate this Mermaid flowchart source and fix any syntax errors before rendering it as SVG`
+>
+> `Create a Graphviz deployment topology for gateway, worker, SQLite, and Discord`
+
+---
+
+## image-generation
+
+Generate or edit raster images through the native `image_generate` tool. The
+runtime owns provider auth, provider quirks, artifact persistence, and media
+delivery paths.
+
+**Prerequisites** — configure at least one supported image provider and model
+credential in the runtime environment or encrypted secret store.
+
+> 💡 **Tips & Tricks**
+>
+> Use this skill for deliverable bitmap images. Use Excalidraw when the user
+> needs an editable diagram.
+>
+> Include subject, composition, style, color, aspect ratio, and any exact text
+> that must appear in the image.
+>
+> For edits, reference safe current-turn or workspace media paths rather than
+> remote private URLs.
+
+> 🎯 **Try it yourself**
+>
+> `Generate a 16:9 product launch header image for an AI operations dashboard`
+>
+> `Create a square social image for a webinar about secure AI workflows`
+>
+> `Restyle this uploaded image as a clean editorial illustration`
+
+---
+
+## video-generation
+
+Generate short videos through the native `video_generate` tool. The runtime
+handles provider selection, output persistence, warnings, and artifact delivery.
+
+**Prerequisites** — configure at least one supported video provider and model
+credential in the runtime environment or encrypted secret store.
+
+> 💡 **Tips & Tricks**
+>
+> Use concise cinematic prompts with subject, movement, camera angle, duration,
+> aspect ratio, lighting, and audio direction when the selected provider
+> supports audio.
+>
+> Treat provider warnings as user-relevant when they change duration,
+> resolution, or aspect ratio.
+
+> 🎯 **Try it yourself**
+>
+> `Generate an 8-second product teaser showing a clean admin dashboard coming online`
+>
+> `Create a vertical video background for a launch announcement`
+>
+> `Make a 6-second cinematic clip of a secure server room with warm monitor light`
+
+---
+
+## video.from-script
+
+Render approved avatar, voice, and script briefs into HeyGen MP4 videos with
+async job polling and guarded credit-spend approval.
+
+**Prerequisites** — store `HEYGEN_API_KEY` in HybridClaw encrypted runtime
+secrets. Use the lower-level [`heygen`](./integrations.md#heygen) skill for
+avatar, voice, and asset discovery.
+
+> 💡 **Tips & Tricks**
+>
+> Use this when the script is final and the avatar/voice choices are known. Use
+> `video-generation` for prompt-to-video providers such as Sora or Veo.
+>
+> Prefer `start` plus later `status` polling for long HeyGen renders. Use
+> `render --wait` only when the user wants the agent to stay with the job.
+>
+> Run public marketing, sales, onboarding, or training scripts through
+> `brand-voice` before starting a credit-consuming render.
+
+> 🎯 **Try it yourself**
+>
+> `Plan a 60-second avatar video from this approved onboarding script using avatar avatar_123 and voice voice_123`
+>
+> `Start a HeyGen render for this approved sales follow-up script and return the job id`
+>
+> `Check the status of HeyGen job video_123 and download the MP4 if it is complete`
+
+---
 
 ## manim-video
 
@@ -53,6 +173,38 @@ math explanations, algorithm walkthroughs, and 3Blue1Brown-style explainers.
   `-ql` first to catch issues before high-quality rendering.
 - **Slow renders** — use `-ql` during development. Only render at `-qh` for
   final output.
+
+---
+
+## hermes3000-writing
+
+Plan, draft, revise, and export durable long-form writing projects through the
+Hermes3000 portal API.
+
+**Prerequisites** — store `HERMES3000_EMAIL` and `HERMES3000_PASSWORD` in
+HybridClaw encrypted runtime secrets. The skill captures and reuses
+`HERMES3000_JWT` through gateway secret injection; the JWT is not printed or
+returned to the agent.
+
+> 💡 **Tips & Tricks**
+>
+> Use this for books, long reads, whitepapers, chapter outlines, world-building,
+> consistency memory, and portal-managed exports.
+>
+> Keep author control explicit: confirm premise, audience, language, target
+> length, genre or format, tone, and export format before creating durable
+> portal content.
+>
+> Save accepted chapter drafts and update consistency memory before moving on
+> to the next chapter.
+
+> 🎯 **Try it yourself**
+>
+> `Create a Hermes3000 project plan for a 12-chapter nonfiction book about secure local AI operations`
+>
+> `Draft chapter 1 for the selected Hermes3000 project, then save it and update consistency memory`
+>
+> `Export the selected Hermes3000 manuscript as DOCX after checking chapter consistency`
 
 ---
 

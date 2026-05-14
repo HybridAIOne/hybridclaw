@@ -47,7 +47,7 @@ describe.sequential('board card store', () => {
       .all() as Array<{ name: string }>;
     inspect.close();
 
-    expect(dbModule.DATABASE_SCHEMA_VERSION).toBe(31);
+    expect(dbModule.DATABASE_SCHEMA_VERSION).toBe(32);
     expect(columns.map((column) => column.name)).toEqual(
       expect.arrayContaining([
         'id',

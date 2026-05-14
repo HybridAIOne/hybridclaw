@@ -2,18 +2,239 @@
 
 ## Unreleased
 
+## [0.19.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.2) - 2026-05-14
+
+### Fixed
+
+- **Diagram tool names**: Renamed the advertised diagram runtime tools to
+  `diagram_create`, `diagram_update`, and `diagram_validate` everywhere so
+  OpenAI-compatible providers accept the tool schema instead of rejecting
+  dotted function names.
+
+## [0.19.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.1) - 2026-05-14
+
+### Fixed
+
+- **Release npm signature verification**: The npm publish workflow now uses
+  the repo's signature-audit wrapper so the temporary Baileys release-age
+  bypass is applied consistently before publishing.
+
+## [0.19.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.0) - 2026-05-14
+
+### Added
+
+- **Persistent standing goals**: Added `/goal` as a per-thread completion
+  condition that persists across turns, queues supervised continuations until a
+  judge marks the condition complete, reports goal status/counters, and pauses
+  cleanly for approvals, user interruptions, malformed judge output, or
+  explicit `pause`/`clear` commands. Goal continuations include the current
+  goal step and use scoped TUI/proactive labels so they remain distinct from
+  reminders and ordinary user turns.
+- **Native speech-to-text transcription**: Added the `audio_transcribe` runtime
+  tool plus bundled `speech.transcribe` and `speech.detect-language` skills for
+  provider-agnostic transcription, language detection, diarization, timestamps,
+  transcript artifact persistence, and usage-cost accounting across configured
+  OpenAI, Deepgram, AssemblyAI, and local backends.
+- **Discord Incoming Webhook channel**: Added outbound-only `discord_webhook`
+  delivery for Discord webhook URLs, including default and named targets,
+  encrypted SecretRef storage, CLI/Admin setup, message chunking, doctor/status
+  visibility, and managed POST-only network policy grants.
+- **Diagram-as-code runtime and bundled skill**: Added the `diagram` skill plus
+  native `diagram_create`, `diagram_update`, and `diagram_validate` tools for
+  validated Mermaid-first diagrams, with PlantUML, Graphviz DOT, and Excalidraw
+  JSON adapters, source/rendered artifact persistence, SVG fallbacks, and
+  diagram runtime events.
+- **Slack Incoming Webhook channel**: Added outbound-only `slack_webhook`
+  delivery for Slack Incoming Webhook URLs, including default and named targets,
+  encrypted SecretRef storage, `hybridclaw channel add slack_webhook` setup,
+  admin-console editing, Block Kit text chunking, reachability status, and
+  managed POST-only network policy grants.
+- **Concierge router plugin**: Moved concierge urgency routing into the
+  repo-shipped `concierge-router` middleware plugin, preserving `/concierge`
+  commands while giving routing middleware a plugin-owned pending-state store
+  and authorized inbound webhook path for urgency-button callbacks.
+- **A2A sender instance metadata**: A2A envelopes now carry
+  `sender_instance_id`, derive it from canonical sender IDs for legacy payloads,
+  expose it in audit summaries, and use `(envelope.id, sender_instance_id)` as
+  the idempotency tuple for federated threads.
+- **Model overlay metadata substrate**: Static model metadata can now carry a
+  complete `model_overlay` contract shape and lookup helpers for GPT-5-family
+  matching, preparing the runtime for model-specific behavior overlays without
+  wiring an overlay applier yet.
+- **Prompt-prefix trace metadata**: ATIF/OpenTraces session exports now include
+  dynamic-context hashes and `prompt_prefix` entries alongside system prompt
+  hashes, making prompt-cache behavior auditable per turn.
+
 ### Changed
 
+- **System prompt prefix is byte-stable**: Per-turn dynamic context such as the
+  current date, host, today's memory note, session summary, and retrieval
+  snippets moved out of the system prompt into a post-prefix user context block
+  so provider prefix caches can reuse the static system prompt.
+- **Plugin discovery lists installable plugins**: `hybridclaw plugin list` and
+  `/plugin list` now show installed plugins plus bundled/project-local
+  installable plugins, with `installed` and `available` filters. Bare plugin
+  IDs resolve through bundled and project `plugins/` catalogs, with project
+  plugins taking priority.
+- **Web chat sessions are easier to manage**: The chat sidebar can delete
+  stored browser sessions, and local web clients automatically refresh their
+  token when the gateway rotates the local web token.
+- **TUI rendering handles Markdown tables**: The TUI now renders Markdown table
+  blocks as terminal tables while preserving ordinary assistant text flow.
+
+### Fixed
+
+- **Agents page navigation links**: Corrected broken links on the generated
+  agents page so navigation targets resolve properly.
+- **Auxiliary provider fallback**: Auxiliary calls retry through the configured
+  fallback provider path, including active local-provider preference and clearer
+  fallback logging.
+- **Global package install bootstrap**: Container dependency postinstall now
+  falls back to `npm` when the outer install was invoked by `pnpm`, avoiding
+  broken global package installs caused by forwarding the wrong package-manager
+  executable and lifecycle env.
+- **pnpm install compatibility**: Dependency verification avoids the Baileys
+  libsignal Git dependency path that blocked `pnpm`-initiated installs.
+- **Microsoft Teams optional dependency loading**: Teams Bot Framework support
+  is lazy-loaded so installs that do not use Microsoft Teams are not blocked by
+  that integration path.
+- **Federated A2A duplicate handling**: Threads can now contain the same
+  envelope ID from different sender instances while ambiguous envelope lookups
+  fail fast unless the caller supplies `sender_instance_id`.
+
+## [0.18.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.18.0) - 2026-05-13
+
+### Added
+
+- **GA4 reporting skill**: Bundled `ga4` adds production Google Analytics 4
+  Data API reporting, request planning/review, gateway-injected bearer auth,
+  service-account support, traffic-source, landing-page, time-series, revenue,
+  session, and key-event reports, plus eval scenarios.
+- **Hermes3000 long-form writing skill**: Bundled `hermes3000-writing` can
+  authenticate through the gateway secret rail, manage portal-backed book
+  projects, draft and revise chapters, update consistency memory, and export
+  DOCX/PDF/EPUB/HTML deliverables without exposing JWTs to the agent context.
+- **Video-from-script skill**: Bundled `video.from-script` turns approved
+  avatar, voice, and script briefs into HeyGen MP4 jobs with planning, guarded
+  async render start, status polling, optional download, and credit-spend
+  approval gates.
+- **Firecrawl self-host adapter**: The Firecrawl skill now supports
+  self-hosted Firecrawl origins alongside managed API mode, including optional
+  self-host auth for scrape, crawl, map, and extraction workflows.
+- **Per-agent authenticated SearXNG search**: Agents can bind their own
+  SearXNG base URL and bearer-token SecretRef, with bearer injection routed
+  through the gateway HTTP proxy so tokens stay out of model context.
+- **Reviewed skill unblock controls**: Blocked skills now appear in CLI, web,
+  and gateway skill listings, and local operators can run `skill unblock` or
+  use the Admin Skills page to record a reviewed scanner-bypass marker for an
+  installed copy.
+- **Browser stealth host policy**: Camofox stealth browsing is deny-by-default
+  unless workspace policy explicitly allowlists the target host with
+  `browser.stealth.rules`.
+- **Node version guardrails**: Source checkouts now include `.node-version`,
+  `.nvmrc`, and a `check:node` preflight so local builds and tests fail fast
+  when they are not running on Node.js 22.
+
+### Changed
+
+- **SecretRef handling is store-first**: Runtime SecretRefs now accept the
+  encrypted `store` source for new configuration. Legacy Browser Use Cloud
+  env-backed refs are canonicalized to stored SecretRefs, and malformed legacy
+  refs produce explicit configuration errors.
+- **HybridAI auth diagnostics are clearer**: Provider discovery, health, bot
+  lookup, and doctor output distinguish auth, configuration, and remote service
+  failures more cleanly.
+- **Web chat scrolling respects user position**: The chat UI now sticks to the
+  bottom only when appropriate, preserves pinned scroll position while users
+  read older content, and exposes a jump-to-latest affordance.
+- **Console model-provider typing is narrower**: The chat model switcher no
+  longer shares broader gateway provider types that were not part of the
+  console UI contract.
+- **Trace-judge live CI is less brittle**: Main-branch CI no longer blocks on
+  missing trace-judge live secrets.
+
+### Fixed
+
+- **SearXNG bearer leakage risk**: SearXNG bearer values are no longer exposed
+  through runtime env forwarding; configured SecretRefs are resolved only by
+  the gateway proxy at request time.
+- **Camofox navigation scope**: Stealth browser sessions now enforce both safe
+  navigation schemes and host allowlisting before visiting a URL.
+- **Browser credential fills**: SecretRef-backed browser fills require a
+  resolvable page URL and calling skill name so host, selector, skill, and
+  agent policy can be evaluated.
+
+## [0.17.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.17.0) - 2026-05-12
+
+### Added
+
+- **Native media generation tools**: The container runtime now exposes
+  `image_generate` and `video_generate` with provider adapters, managed output
+  persistence, reference-media validation, usage metering, and bundled
+  `image-generation` / `video-generation` skills. Image generation supports GPT
+  Image, Gemini/Nano Banana, Grok, and FLUX families where configured; video
+  generation supports OpenAI Sora and Google Veo families where configured.
+- **New business and research skills**: Bundled skills now cover Airtable base
+  and record work, FastBill invoicing, Firecrawl scrape/crawl/map/extract
+  workflows, HeyGen avatar video generation and translation, Google Ads
+  campaign operations, and SearXNG-backed `search.web`, `search.news`, and
+  `search.images` workflows.
+- **Threema Gateway channel**: HybridClaw can send outbound Threema Basic-mode
+  text messages with setup docs, CLI configuration, doctor/status visibility,
+  prompt hints, target validation, and delivery tests.
+- **Camofox browser provider**: Browser automation can use a Camofox-backed
+  provider with persistent profile support and the same provider factory path
+  as local Playwright and Browser Use Cloud.
+- **A2A inbound and trust surfaces**: JSON-RPC Agent Card inbound delivery,
+  additional delegation envelope fields, a public-key trust ledger, and an
+  admin A2A trust route extend the federation substrate.
+- **Remote policy authority**: Signed remote policy updates can flow over the
+  federation path with validation, audit records, and targeted tests.
+- **Board card store**: The gateway now has a persisted card-store substrate
+  for future admin work-board and agent-team coordination surfaces.
+- **Trace-judge and anomaly evaluation path**: Skill trace judging gained a
+  subscriber pattern, an offline eval gate, and a behavioral anomaly reranker
+  for tool-call sequences.
+
+### Changed
+
+- **Admin console polish and performance**: Admin pages moved toward a shared
+  `Card` primitive, the Usage rollup gained skeleton and metric loading states,
+  live channel transport status is shown through toasts, the `/` command panel
+  was rebuilt for better keyboard/a11y behavior, and expensive all-session
+  scans/config fetches were removed from hot paths.
+- **Vitest configuration is project-based**: Unit, integration, e2e, and live
+  test configuration now share one project-aware Vitest setup instead of
+  separate config files.
+- **Browser credential handling is narrower**: Browser form fills now route
+  through SecretRef injection gates rather than exposing credential material to
+  the model or broad browser action context.
 - **A2A delegation bearer auth**: Outbound A2A uses signed delegation JWTs as
   the HTTP bearer credential. `bearerTokenRef` remains a required explicit
   opt-in gate for non-loopback peer URLs, but its secret value is not sent on
   the wire.
+- **NPM supply-chain controls are stricter**: Workspace install and release
+  flows now enforce newer npm behavior, harden CI setup, and keep package-lock
+  metadata aligned with the release pipeline.
 
 ### Fixed
 
 - **A2A delegation revocation cleanup**: Expired delegation-token revocation
   records are pruned when new revocations are written, preventing stale
   short-lived token revocations from accumulating indefinitely.
+- **Skill blocking is visible**: Blocked skills are surfaced instead of being
+  hidden behind silent resolution failures.
+- **Media path display-prefix handling**: Host paths that merely share a
+  display prefix are no longer remapped as if they were inside the sandboxed
+  media root.
+- **Context ring source accuracy**: The web chat context ring reads usage from
+  the correct source after session and UI routing changes.
+- **Auxiliary model token limits**: Auxiliary provider calls honor configured
+  max-token limits.
+- **Console IME composition safety**: Chat composer key handling ignores IME
+  composition events so slash/submit shortcuts do not interrupt text entry.
+- **Release publish compatibility**: Release workflows invoke npm 11 on Node
+  22 so npm package promotion uses the expected toolchain.
 
 ## [0.16.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.16.0) - 2026-05-07
 

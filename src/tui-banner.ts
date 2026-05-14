@@ -88,6 +88,7 @@ const SLASH_COMMANDS = [
   '/exit',
   '/export',
   '/fullauto',
+  '/goal',
   '/help',
   '/info',
   '/mcp',

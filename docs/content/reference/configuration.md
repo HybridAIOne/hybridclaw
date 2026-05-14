@@ -99,6 +99,13 @@ saved revision history directly.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
+- `browser.provider` selects the browser automation backend. Supported values
+  include `local`, `camofox`, and `browser-use-cloud`. `browser.local.*` and
+  `browser.camofox.*` configure persistent profile roots and headed mode;
+  `browser.browserUseCloud.*` configures the managed Browser Use Cloud
+  passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef.
+  Camofox stealth mode is deny-by-default per host; allow it from the
+  workspace policy with `browser.stealth.rules`.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
@@ -147,10 +154,16 @@ saved revision history directly.
   an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh
   web sessions when no agent is pinned explicitly
+- `agents.list[].webSearch.searxngBaseUrl` and
+  `agents.list[].webSearch.searxngBearerTokenRef` override the global SearXNG
+  instance and bearer SecretRef for a specific agent
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
-  spoken-style rules such as "no markdown" or "keep replies short"
-- `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
+  spoken-style rules such as "no markdown" or "keep replies short";
+  `channelInstructions.slack_webhook` and
+  `channelInstructions.discord_webhook` apply to outbound-only webhook
+  delivery
+- `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; reviewed scanner bypass markers are created by `hybridclaw skill unblock <name>` or the Admin Skills page for one installed copy; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
 - `plugins.list[]` for plugin overrides and config; use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits
 - `proactive.delegation.model` for pinning delegated subagent work to a dedicated model while the parent turn keeps its own session or agent model; leave it empty to use the parent model
 - `auxiliaryModels.session_title` controls optional AI-generated session
@@ -178,6 +191,18 @@ saved revision history directly.
   controls pacing between split outbound text chunks. HybridClaw Cloud gateway
   images include `signal-cli` on amd64 hosts for admin QR linking; arm64 and
   custom hosts can use an external daemon or sidecar
+- `slackWebhook.*` for outbound-only Slack Incoming Webhook targets. Use
+  `hybridclaw channel add slack_webhook --webhook-url <url>` to store each
+  full webhook URL as an encrypted runtime secret, create or update
+  `slackWebhook.webhooks.<target>.webhook_url`, and add the matching POST-only
+  workspace network policy grant. Named targets are addressed as
+  `slack_webhook:<target>` from the message tool
+- `discordWebhook.*` for outbound-only Discord Incoming Webhook targets. Use
+  `hybridclaw channel add discord_webhook --webhook-url <url>` to store each
+  full webhook URL as an encrypted runtime secret, create or update
+  `discordWebhook.webhooks.<target>.webhook_url`, and add the matching
+  POST-only workspace network policy grant. Named targets are addressed as
+  `discord_webhook:<target>` from the message tool
 - `email.*` for the IMAP/SMTP transport; prefer storing the password as
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
@@ -211,7 +236,19 @@ saved revision history directly.
   encrypted runtime secrets named `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, and
   `TAVILY_API_KEY`; process environment variables with the same names are
   fallback values when no encrypted secret is present
-- `media.audio` for inbound audio transcription backend selection
+- `web.search.provider`, `web.search.fallbackProviders`,
+  `web.search.defaultCount`, `web.search.cacheTtlMinutes`,
+  `web.search.searxngBaseUrl`, `web.search.searxngBearerTokenRef`, and
+  `web.search.tavilySearchDepth` control the built-in web-search provider
+  chain. Set `web.search.searxngBaseUrl` or `SEARXNG_BASE_URL` when using the
+  self-hosted SearXNG provider. Use `web.search.searxngBearerTokenRef` for
+  authenticated SearXNG instances; plaintext bearer tokens are rejected. Agent
+  entries can set `webSearch.searxngBaseUrl` and
+  `webSearch.searxngBearerTokenRef` to bind a tenant-specific SearXNG instance
+  without exposing the bearer token to the agent context.
+- `media.audio` for inbound audio transcription backend selection. Generated
+  image and video artifacts are written through the native media-generation
+  tools when the corresponding provider credentials and models are configured.
 
 Operator-facing controls for `skills.disabled`, `skills.channelDisabled.*`,
 and `adaptiveSkills.*` are covered in
@@ -262,7 +299,8 @@ Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`,
 `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`,
 `VLLM_API_KEY`, `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, `TAVILY_API_KEY`,
-`NGROK_AUTHTOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
+`NGROK_AUTHTOKEN`, `DISCORD_TOKEN`, `DISCORD_WEBHOOK_URL`,
+`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_WEBHOOK_URL`,
 `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`,
 `IMESSAGE_PASSWORD`, `TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`,
 `CLOUDFLARE_TUNNEL_TOKEN`, `CLOUDFLARE_CERT_PEM`,
@@ -306,13 +344,14 @@ credential checks run.
 
 ## Security Notes
 
-- selected secret-bearing config fields support SecretRefs such as
-  `{ "source": "store", "id": "SECRET_NAME" }`,
-  `{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand instead of
-  plaintext values
+- selected secret-bearing config fields support store-backed SecretRefs such as
+  `{ "source": "store", "id": "SECRET_NAME" }` instead of plaintext values;
+  new configuration should not use env-backed SecretRefs
 - current built-in SecretRef surfaces include `ops.webApiToken`,
   `ops.gatewayApiToken`, `email.password`, `imessage.password`,
-  `voice.twilio.authToken`, and `local.backends.vllm.apiKey`
+  `voice.twilio.authToken`, `local.backends.vllm.apiKey`,
+  `browser.browserUseCloud.apiKeyRef`, `web.search.searxngBearerTokenRef`, and
+  per-agent `agents.list[].webSearch.searxngBearerTokenRef`
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain
   text in `config.json`
 - In `host` sandbox mode, the agent can access the user home directory, the

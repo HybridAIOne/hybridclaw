@@ -227,7 +227,7 @@ describe('hybridai discovery', () => {
 
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
-      { err: expect.any(Error) },
+      { error: 'network down' },
       'HybridAI model discovery failed',
     );
   });

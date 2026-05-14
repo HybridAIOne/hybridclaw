@@ -9,7 +9,8 @@
 - `perplexity`: Perplexity Search API via `PERPLEXITY_API_KEY`.
 - `tavily`: Tavily Search API via `TAVILY_API_KEY`.
 - `duckduckgo`: HTML fallback, no API key required.
-- `searxng`: self-hosted SearXNG via `SEARXNG_BASE_URL`.
+- `searxng`: self-hosted SearXNG via `SEARXNG_BASE_URL` or
+  `web.search.searxngBaseUrl`.
 
 ## Configuration
 
@@ -30,6 +31,43 @@ Add the runtime config section below to `~/.hybridclaw/config.json`:
 }
 ```
 
+For authenticated SearXNG, add a store-backed bearer SecretRef:
+
+```json
+{
+  "web": {
+    "search": {
+      "searxngBaseUrl": "https://search.example.com",
+      "searxngBearerTokenRef": {
+        "source": "store",
+        "id": "SEARXNG_BEARER_TOKEN"
+      }
+    }
+  }
+}
+```
+
+Agent-specific SearXNG settings can override the global instance:
+
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "research",
+        "webSearch": {
+          "searxngBaseUrl": "https://search.research.example",
+          "searxngBearerTokenRef": {
+            "source": "store",
+            "id": "RESEARCH_SEARXNG_BEARER_TOKEN"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
 Environment variables:
 
 - `BRAVE_API_KEY`
@@ -44,6 +82,11 @@ Runtime settings are forwarded into the agent container with these derived env v
 - `HYBRIDCLAW_WEB_SEARCH_DEFAULT_COUNT`
 - `HYBRIDCLAW_WEB_SEARCH_CACHE_TTL_MINUTES`
 - `HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH`
+
+SearXNG bearer tokens are not forwarded as env vars. When
+`searxngBearerTokenRef` is configured, the container sends the SecretRef handle
+back through the gateway HTTP proxy and the gateway injects the bearer token at
+request time.
 
 ## Auto Mode
 
@@ -69,6 +112,11 @@ If `provider` is set explicitly, the tool uses that provider first, then `fallba
 ## Notes
 
 - Search responses are cached for 5 minutes by default.
-- API keys are read from environment variables only.
+- Hosted-provider API keys are read from their configured runtime secret or
+  environment variable names.
+- SearXNG bearer tokens must use store SecretRefs and are injected through the
+  gateway HTTP proxy so they do not enter the LLM context.
+- Per-agent SearXNG settings override the global base URL and bearer SecretRef
+  for that agent only.
 - Result URLs are validated before they are returned.
 - Provider errors are aggregated without echoing secrets.

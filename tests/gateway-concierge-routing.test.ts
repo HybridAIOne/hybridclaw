@@ -1,5 +1,4 @@
 import { expect, test } from 'vitest';
-import type { RuntimeConfig } from '../src/config/runtime-config.js';
 import {
   buildConciergeExecutionNotice,
   buildConciergeQuestion,
@@ -10,7 +9,7 @@ import {
   parseConciergeDecision,
   resolveConciergeProfileModel,
   shouldTriggerConcierge,
-} from '../src/gateway/concierge-routing.js';
+} from '../plugins/concierge-router/src/routing.js';
 
 test('shouldTriggerConcierge flags long-form artifact requests', () => {
   expect(
@@ -77,16 +76,12 @@ test('buildConcierge helpers render stable question and resume prompt', () => {
 
 test('resolveConciergeProfileModel reads the configured mapping', () => {
   const config = {
-    routing: {
-      concierge: {
-        profiles: {
-          asap: 'gpt-5',
-          balanced: 'gpt-5-mini',
-          noHurry: 'ollama/qwen3:latest',
-        },
-      },
+    profiles: {
+      asap: 'gpt-5',
+      balanced: 'gpt-5-mini',
+      noHurry: 'ollama/qwen3:latest',
     },
-  } as RuntimeConfig;
+  };
 
   expect(resolveConciergeProfileModel(config, 'asap')).toBe('gpt-5');
   expect(resolveConciergeProfileModel(config, 'balanced')).toBe('gpt-5-mini');

@@ -1,5 +1,5 @@
 {
-  "version": 27,
+  "version": 28,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -15,6 +15,27 @@
       "health_check_interval_ms": 30000
     }
   },
+  "browser": {
+    "provider": "local",
+    "local": {
+      "profileRoot": "",
+      "headed": false
+    },
+    "camofox": {
+      "profileRoot": "",
+      "headed": false,
+      "launchOptions": {}
+    },
+    "browserUseCloud": {
+      "apiKeyRef": {
+        "source": "store",
+        "id": "BROWSER_USE_API_KEY"
+      },
+      "baseUrl": "",
+      "browser": {},
+      "pricing": {}
+    }
+  },
   "skills": {
     "extraDirs": [],
     "disabled": [],
@@ -23,11 +44,15 @@
       "msteams": [],
       "signal": [],
       "slack": [],
+      "slack_webhook": [],
       "telegram": [],
       "threema": [],
       "voice": [],
       "whatsapp": [],
       "email": []
+    },
+    "speechToText": {
+      "defaultProvider": "auto"
     },
     "installed": []
   },
@@ -36,9 +61,11 @@
   },
   "channelInstructions": {
     "discord": "",
+    "discord_webhook": "",
     "msteams": "",
     "signal": "",
     "slack": "",
+    "slack_webhook": "",
     "telegram": "",
     "threema": "",
     "voice": "This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.\nAbsolutely no markdown, bullets, numbered lists, headings, code fences, tables, JSON, or decorative formatting.\nDo not narrate internal reasoning, planning, tool usage, or stage directions. Say only what the caller should hear.\nDo not spell punctuation, formatting marks, or raw URLs unless the caller explicitly asks for exact characters.",
@@ -162,6 +189,14 @@
     "textChunkLimit": 12000,
     "replyStyle": "thread",
     "mediaMaxMb": 20
+  },
+  "slackWebhook": {
+    "enabled": false,
+    "webhooks": {}
+  },
+  "discordWebhook": {
+    "enabled": false,
+    "webhooks": {}
   },
   "telegram": {
     "enabled": false,

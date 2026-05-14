@@ -140,6 +140,7 @@ Interactive slash commands inside TUI:
   /exit
   /export session [sessionId]   /export trace [sessionId|all]
   /fullauto [status|off|on [prompt]|prompt]
+  /goal [condition|status|pause|resume|clear]
   /help
   /info
   /mcp list   /mcp add <name> <json>   /mcp toggle <name>   /mcp remove <name>   /mcp reconnect <name>
@@ -155,7 +156,7 @@ Interactive slash commands inside TUI:
   /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
   /sessions [active|clear-active]
   /show [all|thinking|tools|none]
-  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
+  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|unblock <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
   /stop
   /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
@@ -287,6 +288,10 @@ Commands:
   hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
   hybridclaw channels slack manifest [--format <yaml|json>]
   hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
+  hybridclaw channels discord_webhook setup --webhook-url <https://discord.com/api/webhooks/...> [--target default] [--default-username <name>] [--default-avatar-url <url>]
+  hybridclaw channels slack_webhook setup --webhook-url <https://hooks.slack.com/services/...> [--target default] [--default-username <name>] [--default-icon-emoji <:emoji:>] [--default-icon-url <url>]
+  hybridclaw channel add discord_webhook --webhook-url <https://discord.com/api/webhooks/...> [--target default]
+  hybridclaw channel add slack_webhook --webhook-url <https://hooks.slack.com/services/...> [--target default]
   hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
   hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
   hybridclaw channels threema setup --identity <gateway-id> [--secret <secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
@@ -314,6 +319,8 @@ Notes:
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
   - Slack setup lives under \`hybridclaw auth login slack\` because it needs a bot token plus an app token for Socket Mode.
+  - Discord webhook setup stores each full webhook URL as an encrypted runtime secret and configures outbound-only delivery.
+  - Slack webhook setup stores each full webhook URL as an encrypted runtime secret and configures outbound-only delivery.
   - \`hybridclaw channels slack manifest\` prints a Slack app manifest fragment for HybridClaw slash commands.
   - \`hybridclaw channels slack register-commands\` updates an existing Slack app manifest through Slack's app manifest API.
   - iMessage setup defaults to the local macOS backend unless you pass \`--backend remote\`.
@@ -600,6 +607,7 @@ Commands:
   hybridclaw skill enable <skill-name> [--channel <kind>]
   hybridclaw skill disable <skill-name> [--channel <kind>]
   hybridclaw skill toggle [--channel <kind>]
+  hybridclaw skill unblock <skill-name>
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
@@ -630,6 +638,7 @@ Notes:
   - \`runs\` shows recent execution observations for one skill.
   - \`learn\` stages, applies, rejects, or rolls back skill amendments.
   - \`history\` shows amendment versions for one skill, not execution runs.
+  - \`unblock\` records a scanner bypass marker for a reviewed blocked skill.
   - \`sync\` is a convenience alias for \`import --force\` when you want to refresh an installed skill from the source without changing the source syntax.
   - \`import\` installs a skill from a local directory or .zip file, a packaged community skill with \`official/<skill-name>\`, or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`./my-skill\`, \`/path/to/skill\`, \`~/skills/my-skill\`, \`./my-skill.zip\`, \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
@@ -654,7 +663,7 @@ export function printPluginUsage(): void {
   console.log(`Usage: hybridclaw plugin <command>
 
 Commands:
-  hybridclaw plugin list
+  hybridclaw plugin list [installed|available]
   hybridclaw plugin config <plugin-id> [key] [value|--unset]
   hybridclaw plugin enable <plugin-id>
   hybridclaw plugin disable <plugin-id>
@@ -665,6 +674,7 @@ Commands:
 
 Examples:
   hybridclaw plugin list
+  hybridclaw plugin list available
   hybridclaw plugin config qmd-memory searchMode query
   hybridclaw plugin disable qmd-memory
   hybridclaw plugin enable qmd-memory
@@ -679,8 +689,8 @@ Examples:
 Notes:
   - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
-  - Bare plugin ids resolve to \`./plugins/<plugin-id>\` when that directory exists in the current project.
-  - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
+  - Bare plugin ids resolve to bundled plugins or \`./plugins/<plugin-id>\`; project-local plugins take priority.
+  - \`list\` shows discovered plugin status plus installable bundled/project plugins; use \`installed\` or \`available\` to filter.
   - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
   - \`enable\` and \`disable\` manage the top-level \`plugins.list[].enabled\` override in ${runtimeConfigPath()}.
   - \`install\` validates \`hybridclaw.plugin.yaml\` and can install declared Node.js and pip dependencies, but dependency installation requires approval.

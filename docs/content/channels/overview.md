@@ -18,7 +18,9 @@ If you are still in first-run onboarding mode, start with
 | Channel | Good fit | Primary setup path | Canonical guide |
 | --- | --- | --- | --- |
 | Discord | Private bot DMs, restricted guild commands, slash commands | `hybridclaw channels discord setup ...` | [Discord](./discord.md) |
+| Discord Incoming Webhook | Outbound-only Discord status updates and alerts without a bot token | `hybridclaw channel add discord_webhook ...` | [Discord Incoming Webhook](./discord-webhook.md) |
 | Slack | Workspace app, Socket Mode, optional native Slack slash commands | `hybridclaw auth login slack ...` | [Slack](./slack.md) |
+| Slack Incoming Webhook | Outbound-only Slack status updates and alerts without a bot token | `hybridclaw channel add slack_webhook ...` | [Slack Incoming Webhook](./slack-webhook.md) |
 | Telegram | Fast private DM rollout with BotFather | `hybridclaw channels telegram setup ...` | [Telegram](./telegram.md) |
 | Signal | Private Signal DMs through a signal-cli compatible daemon | `hybridclaw channels signal setup ...` | [Signal](./signal.md) |
 | Threema | Outbound Gateway Basic-mode text delivery | `hybridclaw channels threema setup ...` | [Threema](./threema.md) |
@@ -28,11 +30,13 @@ If you are still in first-run onboarding mode, start with
 | iMessage | Local Mac runtime or remote BlueBubbles relay | `hybridclaw channels imessage setup ...` | [iMessage](./imessage.md) |
 | Microsoft Teams | Entra/Azure bot registration and HTTPS webhook delivery | `hybridclaw auth login msteams ...` | [Microsoft Teams](./msteams.md) |
 
-Slack and Microsoft Teams use `auth login` because they depend on app
-credentials. Most other transports use `channels ... setup` because they save
-channel-specific runtime config, pairing state, or a transport token directly.
-Twilio voice is currently configured from `/admin/channels` or direct config
-edits because it also depends on public webhook and relay URL settings.
+Full Slack and Microsoft Teams use `auth login` because they depend on app
+credentials. Slack Incoming Webhook and Discord Incoming Webhook are
+outbound-only and use `channel add` or `channels <kind> setup` to store
+encrypted webhook URLs. Most other transports use `channels ... setup` because
+they save channel-specific runtime config, pairing state, or a transport token
+directly. Twilio voice is currently configured from `/admin/channels` or direct
+config edits because it also depends on public webhook and relay URL settings.
 
 ## Shared Setup Surfaces
 

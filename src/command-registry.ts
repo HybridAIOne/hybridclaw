@@ -96,6 +96,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'eval',
   'channel',
   'ralph',
+  'goal',
   'mcp',
   'plugin',
   'voice',
@@ -243,6 +244,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     command: '/fullauto [status|off|on [prompt]|prompt]',
     description: 'Enable or inspect session full-auto mode',
   },
+  goal: {
+    command: '/goal [condition|status|pause|resume|clear]',
+    description: 'Set a completion condition and keep working until it is met',
+  },
   help: {
     command: '/help',
     description: 'Show this help',
@@ -267,8 +272,8 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   plugin: {
     command:
-      '/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]',
-    description: 'Manage installed plugins',
+      '/plugin [list [installed|available]|enable|disable|config|install|reinstall|reload|uninstall]',
+    description: 'Manage installed and available plugins',
   },
   ralph: {
     command: '/ralph [info|on|off|set n]',
@@ -288,7 +293,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   skill: {
     command:
-      '/skill config|list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
+      '/skill config|list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|unblock <name>|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
     description:
       'Manage skill config, dependencies, health, runs, amendments, and imports',
   },
@@ -480,12 +485,20 @@ export function mapCanonicalCommandToGatewayArgs(
         ? ['ralph', ...parts.slice(1)]
         : ['ralph', 'info'];
 
+    case 'goal':
+      return parts.length > 1
+        ? ['goal', ...parts.slice(1)]
+        : ['goal', 'status'];
+
     case 'mcp':
       return parts.length > 1 ? ['mcp', ...parts.slice(1)] : ['mcp', 'list'];
 
     case 'plugin': {
       const sub = (parts[1] || '').trim().toLowerCase();
-      if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (!sub || sub === 'list') {
+        const scope = (parts[2] || '').trim().toLowerCase();
+        return scope ? ['plugin', 'list', scope] : ['plugin', 'list'];
+      }
       if (sub === 'enable' || sub === 'disable') {
         const pluginId = (parts[2] || '').trim();
         return pluginId ? ['plugin', sub, pluginId] : ['plugin', sub];
@@ -1530,7 +1543,19 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'subcommand',
           name: 'list',
           description:
-            'List discovered plugins, descriptions, commands, tools, hooks, and load errors',
+            'List installed and available plugins, or filter to one section',
+          options: [
+            {
+              kind: 'string',
+              name: 'scope',
+              description: 'Optional list section',
+              required: false,
+              choices: [
+                { name: 'installed', value: 'installed' },
+                { name: 'available', value: 'available' },
+              ],
+            },
+          ],
         },
         {
           kind: 'subcommand',
@@ -1776,6 +1801,51 @@ function buildSlashCommandCatalogDefinitions(
               required: true,
             },
           ],
+        },
+      ],
+    },
+    {
+      name: 'goal',
+      description:
+        'Set a completion condition and keep working until it is met',
+      tuiMenu: {
+        label: '/goal [condition|status|pause|resume|clear]',
+        insertText: '/goal ',
+      },
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'set',
+          description: 'Set a standing goal and start working on it',
+          options: [
+            {
+              kind: 'string',
+              name: 'text',
+              description:
+                'Completion condition, ideally with a measurable end state',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show standing goal status',
+        },
+        {
+          kind: 'subcommand',
+          name: 'pause',
+          description: 'Pause the standing goal',
+        },
+        {
+          kind: 'subcommand',
+          name: 'resume',
+          description: 'Resume the standing goal',
+        },
+        {
+          kind: 'subcommand',
+          name: 'clear',
+          description: 'Clear the standing goal',
         },
       ],
     },
@@ -2288,6 +2358,25 @@ function buildSlashCommandCatalogDefinitions(
               name: 'channel',
               description:
                 'Optional channel kind to scope the change (e.g. discord, slack)',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'unblock',
+          description:
+            'Allow a reviewed blocked skill by recording a scanner bypass marker',
+          tuiMenu: {
+            label: '/skill unblock <name>',
+            insertText: '/skill unblock ',
+            aliases: ['/skill unblock <name>'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Blocked skill name to unblock',
+              required: true,
             },
           ],
         },
@@ -3027,6 +3116,23 @@ export function parseCanonicalSlashCommandArgs(
       return null;
     }
 
+    case 'goal': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (
+        subcommand === 'status' ||
+        subcommand === 'pause' ||
+        subcommand === 'resume' ||
+        subcommand === 'clear'
+      ) {
+        return ['goal', subcommand];
+      }
+      if (subcommand === 'set') {
+        const text = normalizeStringOption(interaction, 'text', true);
+        return text ? ['goal', 'set', text] : null;
+      }
+      return null;
+    }
+
     case 'mcp': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand === 'list') return ['mcp', 'list'];
@@ -3048,7 +3154,10 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'plugin': {
       const subcommand = normalizeSubcommand(interaction);
-      if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'list') {
+        const scope = normalizeStringOption(interaction, 'scope', false);
+        return scope ? ['plugin', 'list', scope] : ['plugin', 'list'];
+      }
       if (subcommand === 'enable' || subcommand === 'disable') {
         const pluginId = normalizeStringOption(interaction, 'id', true);
         return pluginId ? ['plugin', subcommand, pluginId] : null;

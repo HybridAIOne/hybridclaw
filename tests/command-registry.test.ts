@@ -114,6 +114,42 @@ test('registers plugin as a slash/text command', async () => {
   );
 });
 
+test('registers goal slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('goal')).toBe(true);
+  expect(buildCanonicalSlashCommandDefinitions([])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'goal',
+        options: expect.arrayContaining([
+          expect.objectContaining({ kind: 'subcommand', name: 'set' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'status' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'pause' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'resume' }),
+          expect.objectContaining({ kind: 'subcommand', name: 'clear' }),
+        ]),
+      }),
+    ]),
+  );
+  expect(mapCanonicalCommandToGatewayArgs(['goal', 'ship it'])).toEqual([
+    'goal',
+    'ship it',
+  ]);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'goal',
+      getString: (name) => (name === 'text' ? 'finish the report' : null),
+      getSubcommand: () => 'set',
+    }),
+  ).toEqual(['goal', 'set', 'finish the report']);
+});
+
 test('registers agent install as a canonical and local slash/text command', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,
@@ -505,7 +541,8 @@ test('parses /concierge profile into gateway args', async () => {
 });
 
 test('parses /plugin list into gateway args', async () => {
-  const { parseCanonicalSlashCommandArgs } = await importCommandRegistry();
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
@@ -513,6 +550,16 @@ test('parses /plugin list into gateway args', async () => {
       getSubcommand: () => 'list',
     }),
   ).toEqual(['plugin', 'list']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) => (name === 'scope' ? 'available' : null),
+      getSubcommand: () => 'list',
+    }),
+  ).toEqual(['plugin', 'list', 'available']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['plugin', 'list', 'available']),
+  ).toEqual(['plugin', 'list', 'available']);
 });
 
 test('parses /plugin reload into gateway args', async () => {
