@@ -87,6 +87,19 @@ function useRenderedMarkdown(
   );
 }
 
+function buildPreviewBlob(blob: Blob, mimeType: string): Blob {
+  const normalizedMimeType = mimeType.split(';')[0]?.trim().toLowerCase() || '';
+  if (!normalizedMimeType) return blob;
+  if (
+    normalizedMimeType !== 'application/pdf' &&
+    !normalizedMimeType.startsWith('image/')
+  ) {
+    return blob;
+  }
+  if (blob.type.toLowerCase() === normalizedMimeType) return blob;
+  return new Blob([blob], { type: normalizedMimeType });
+}
+
 function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
   const { artifact, token } = props;
   const previewUrlRef = useRef<string | null>(null);
@@ -113,7 +126,7 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
     void fetchArtifactBlob(token, artifact.path)
       .then((blob) => {
         if (cancelled) return;
-        const objectUrl = URL.createObjectURL(blob);
+        const objectUrl = URL.createObjectURL(buildPreviewBlob(blob, mimeType));
         previewUrlRef.current = objectUrl;
         setPreviewUrl(objectUrl);
       })
