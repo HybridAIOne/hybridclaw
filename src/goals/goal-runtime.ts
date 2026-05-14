@@ -57,15 +57,31 @@ export function isGoalContinuationSource(source: string | undefined): boolean {
   return source === GOAL_CONTINUATION_SOURCE;
 }
 
-export function buildGoalContinuationPrompt(goalText: string): string {
-  return [
+export function buildGoalContinuationPrompt(
+  goalText: string,
+  progress?: { turnsUsed: number; maxTurns: number },
+): string {
+  const lines = [
     '[Continuing toward your standing goal]',
     `Goal: ${goalText}`,
     '',
+  ];
+  if (progress) {
+    const turnsUsed = Math.max(0, Math.floor(progress.turnsUsed));
+    const maxTurns = Math.max(1, Math.floor(progress.maxTurns));
+    lines.push(
+      `Progress: ${turnsUsed} supervised turn(s) have already been used for this goal.`,
+      `This is supervised step ${turnsUsed + 1} of at most ${maxTurns}.`,
+      'Do not repeat completed steps. If the goal is an ordered sequence, produce the next item for this step.',
+      '',
+    );
+  }
+  lines.push(
     'Continue working toward this goal. Take the next concrete step. If you',
     'believe the goal is complete, state so explicitly and stop. If you are',
     'blocked, say so clearly and stop.',
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 export function buildGoalInitialPrompt(goalText: string): string {
