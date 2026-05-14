@@ -43,7 +43,11 @@ test('Hetzner skill manifests declare infrastructure metadata and secret refs', 
 
     expect(raw).toContain(`name: ${skill.name}`);
     expect(raw).toContain('category: infrastructure');
-    expect(raw).toContain('HETZNER_API_TOKEN');
+    if (skill.name === 'hetzner-dns') {
+      expect(raw).toContain('HETZNER_DNS_API_TOKEN');
+    } else {
+      expect(raw).toContain('HETZNER_API_TOKEN');
+    }
     expect(raw).toContain('stakes_tiers:');
     expect(raw).toContain('confirm-each');
     expect(raw).toContain('UsageTotals');
@@ -174,8 +178,8 @@ test('Hetzner DNS helper builds RRset requests and protects deletes', () => {
     'json',
     'http-request',
     'create-rrset',
-    '--zone',
-    'example.com',
+    '--zone-id',
+    'zone123',
     '--name',
     'demo',
     '--type',
@@ -184,8 +188,6 @@ test('Hetzner DNS helper builds RRset requests and protects deletes', () => {
     '300',
     '--record',
     '203.0.113.10',
-    '--comment',
-    'customer demo',
     '--operator-grant',
   ]);
   const deleteWithoutGrant = runHelper('hetzner-dns', 'hetzner_dns.cjs', [
@@ -193,27 +195,30 @@ test('Hetzner DNS helper builds RRset requests and protects deletes', () => {
     'json',
     'http-request',
     'delete-record',
-    '--zone',
-    'example.com',
-    '--name',
-    'demo',
-    '--type',
-    'A',
+    '--record-id',
+    'record123',
   ]);
 
   expect(create.status).toBe(0);
   const payload = JSON.parse(create.stdout);
   expect(payload.httpRequest).toMatchObject({
     method: 'POST',
-    url: 'https://api.hetzner.cloud/v1/zones/example.com/rrsets',
-    bearerSecretName: 'HETZNER_API_TOKEN',
+    url: 'https://dns.hetzner.com/api/v1/records',
+    secretHeaders: [
+      {
+        name: 'Auth-API-Token',
+        secretName: 'HETZNER_DNS_API_TOKEN',
+        prefix: 'none',
+      },
+    ],
     skillName: 'hetzner-dns',
   });
   expect(payload.httpRequest.json).toMatchObject({
+    zone_id: 'zone123',
     name: 'demo',
     type: 'A',
     ttl: 300,
-    records: [{ value: '203.0.113.10', comment: 'customer demo' }],
+    value: '203.0.113.10',
   });
   expect(deleteWithoutGrant.status).not.toBe(0);
   expect(deleteWithoutGrant.stderr).toContain('--operator-grant');
@@ -236,6 +241,20 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
     '--path',
     '/archives',
   ]);
+  const encodedWebdav = runHelper(
+    'hetzner-storage-box',
+    'hetzner_storage_box.cjs',
+    [
+      '--format',
+      'json',
+      'webdav-request',
+      'download-file',
+      '--host',
+      'u00000.your-storagebox.de',
+      '--path',
+      '/archives/q4 invoices#final.txt',
+    ],
+  );
   const deleteWithoutGrant = runHelper(
     'hetzner-storage-box',
     'hetzner_storage_box.cjs',
@@ -298,6 +317,10 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
       },
     ],
   });
+  expect(encodedWebdav.status).toBe(0);
+  expect(JSON.parse(encodedWebdav.stdout).httpRequest.url).toBe(
+    'https://u00000.your-storagebox.de/archives/q4%20invoices%23final.txt',
+  );
   expect(deleteWithoutGrant.status).not.toBe(0);
   expect(deleteWithoutGrant.stderr).toContain('--operator-grant');
   expect(shareWithoutGrant.status).not.toBe(0);

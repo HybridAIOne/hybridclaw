@@ -4,9 +4,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const API_BASE = 'https://api.hetzner.cloud/v1';
+const API_BASE = 'https://dns.hetzner.com/api/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
-const TOKEN_SECRET = 'HETZNER_API_TOKEN';
+const TOKEN_SECRET = 'HETZNER_DNS_API_TOKEN';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
 
 const COST_MEASUREMENT = {
@@ -123,11 +123,6 @@ function normalizeRecordType(raw) {
   return type;
 }
 
-function normalizeRecords(records) {
-  if (records.length === 0) die('At least one --record value is required.');
-  return records.map((value) => ({ value }));
-}
-
 function appendQuery(url, params) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -159,7 +154,13 @@ function buildHttpRequest(operation, { url, method = 'GET', json }) {
       url,
       method,
       timeoutMs: DEFAULT_TIMEOUT_MS,
-      bearerSecretName: TOKEN_SECRET,
+      secretHeaders: [
+        {
+          name: 'Auth-API-Token',
+          secretName: TOKEN_SECRET,
+          prefix: 'none',
+        },
+      ],
       skillName: 'hetzner-dns',
     },
     costMeasurement: COST_MEASUREMENT,
@@ -196,39 +197,51 @@ function buildPlan(text) {
     requiresEscalation: tier !== 'green',
     requiredGrant: tier === 'green' ? null : `approve-hetzner-dns-${operation}`,
     secretPolicy: {
-      bearerSecretName: TOKEN_SECRET,
+      authHeaderSecretName: TOKEN_SECRET,
+      authHeaderName: 'Auth-API-Token',
       modelSeesToken: false,
     },
     costMeasurement: COST_MEASUREMENT,
   };
 }
 
-function rrsetPath(args) {
-  const zone = encodeSegment(popFlag(args, '--zone'), '--zone');
-  const name = encodeSegment(popFlag(args, '--name'), '--name');
-  const type = encodeSegment(normalizeRecordType(popFlag(args, '--type')), '--type');
-  return `${API_BASE}/zones/${zone}/rrsets/${name}/${type}`;
-}
-
-function rrsetPayload(args) {
+function dnsRecordPayload(args) {
+  const zoneId = requireText(
+    popFlag(args, '--zone-id') || popFlag(args, '--zone'),
+    '--zone-id',
+  );
   const type = normalizeRecordType(popFlag(args, '--type'));
   const ttlRaw = popFlag(args, '--ttl', '300');
   const ttl = parseInteger(ttlRaw, '--ttl');
   if (ttl < 60) die('--ttl must be at least 60 seconds.');
+  const records = popRepeatedFlag(args, '--record');
+  if (records.length !== 1) {
+    die('Hetzner DNS API record writes require exactly one --record value.');
+  }
   const payload = {
+    zone_id: zoneId,
     name: requireText(popFlag(args, '--name'), '--name'),
     type,
+    value: records[0],
     ttl,
-    records: normalizeRecords(popRepeatedFlag(args, '--record')),
   };
   const comment = popFlag(args, '--comment');
   if (comment) {
-    payload.records = payload.records.map((record) => ({
-      ...record,
-      comment,
-    }));
+    die('--comment is not supported by the Hetzner DNS API record endpoint.');
   }
   return payload;
+}
+
+function recordId(args) {
+  return encodeSegment(popFlag(args, '--record-id'), '--record-id');
+}
+
+function recordListUrl(args) {
+  return appendQuery(`${API_BASE}/records`, {
+    zone_id: popFlag(args, '--zone-id') || popFlag(args, '--zone'),
+    name: popFlag(args, '--name'),
+    type: popFlag(args, '--type')?.toUpperCase(),
+  });
 }
 
 function commandHttpRequest(args) {
@@ -240,65 +253,52 @@ function commandHttpRequest(args) {
     case 'list-zones': {
       const url = appendQuery(`${API_BASE}/zones`, {
         name: popFlag(args, '--name'),
-        label_selector: popFlag(args, '--label-selector'),
       });
       return buildHttpRequest(operation, { url });
     }
     case 'get-zone': {
-      const zone = encodeSegment(popFlag(args, '--zone'), '--zone');
+      const zone = encodeSegment(
+        popFlag(args, '--zone-id') || popFlag(args, '--zone'),
+        '--zone-id',
+      );
       return buildHttpRequest(operation, { url: `${API_BASE}/zones/${zone}` });
     }
-    case 'list-rrsets': {
-      const zone = encodeSegment(popFlag(args, '--zone'), '--zone');
-      const url = appendQuery(`${API_BASE}/zones/${zone}/rrsets`, {
-        name: popFlag(args, '--name'),
-        type: popFlag(args, '--type')?.toUpperCase(),
-      });
-      return buildHttpRequest(operation, { url });
+    case 'list-rrsets':
+      return buildHttpRequest(operation, { url: recordListUrl(args) });
+    case 'get-rrset': {
+      const id = popFlag(args, '--record-id');
+      if (id) {
+        return buildHttpRequest(operation, {
+          url: `${API_BASE}/records/${encodeSegment(id, '--record-id')}`,
+        });
+      }
+      return buildHttpRequest(operation, { url: recordListUrl(args) });
     }
-    case 'get-rrset':
-      return buildHttpRequest(operation, { url: rrsetPath(args) });
-    case 'create-rrset': {
-      const zone = encodeSegment(popFlag(args, '--zone'), '--zone');
-      return buildHttpRequest(operation, {
-        url: `${API_BASE}/zones/${zone}/rrsets`,
-        method: 'POST',
-        json: rrsetPayload(args),
-      });
-    }
-    case 'update-rrset':
-      return buildHttpRequest(operation, {
-        url: rrsetPath(args),
-        method: 'PUT',
-        json: {
-          ttl: parseInteger(popFlag(args, '--ttl', '300'), '--ttl'),
-          records: normalizeRecords(popRepeatedFlag(args, '--record')),
-        },
-      });
+    case 'create-rrset':
     case 'add-record':
       return buildHttpRequest(operation, {
-        url: `${rrsetPath(args)}/actions/add_records`,
+        url: `${API_BASE}/records`,
         method: 'POST',
-        json: {
-          records: normalizeRecords(popRepeatedFlag(args, '--record')),
-        },
+        json: dnsRecordPayload(args),
+      });
+    case 'update-rrset':
+      return buildHttpRequest(operation, {
+        url: `${API_BASE}/records/${recordId(args)}`,
+        method: 'PUT',
+        json: dnsRecordPayload(args),
       });
     case 'remove-record':
-      return buildHttpRequest(operation, {
-        url: `${rrsetPath(args)}/actions/remove_records`,
-        method: 'POST',
-        json: {
-          records: normalizeRecords(popRepeatedFlag(args, '--record')),
-        },
-      });
     case 'delete-record':
     case 'delete-rrset':
       return buildHttpRequest(operation, {
-        url: rrsetPath(args),
+        url: `${API_BASE}/records/${recordId(args)}`,
         method: 'DELETE',
       });
     case 'delete-zone': {
-      const zone = encodeSegment(popFlag(args, '--zone'), '--zone');
+      const zone = encodeSegment(
+        popFlag(args, '--zone-id') || popFlag(args, '--zone'),
+        '--zone-id',
+      );
       return buildHttpRequest(operation, {
         url: `${API_BASE}/zones/${zone}`,
         method: 'DELETE',
@@ -342,18 +342,18 @@ Usage:
 
 Read operations:
   list-zones [--name example.com]
-  get-zone --zone example.com
-  list-rrsets --zone example.com [--name demo] [--type A]
-  get-rrset --zone example.com --name demo --type A
+  get-zone --zone-id zone-id
+  list-rrsets --zone-id zone-id [--name demo] [--type A]
+  get-rrset --record-id record-id
 
 Write operations require --operator-grant:
-  create-rrset --zone zone --name name --type A --ttl 300 --record value
-  update-rrset --zone zone --name name --type A --ttl 300 --record value
-  add-record --zone zone --name name --type TXT --record value
-  remove-record --zone zone --name name --type TXT --record value
-  delete-record --zone zone --name name --type A
-  delete-rrset --zone zone --name name --type A
-  delete-zone --zone zone
+  create-rrset --zone-id zone-id --name name --type A --ttl 300 --record value
+  update-rrset --record-id record-id --zone-id zone-id --name name --type A --ttl 300 --record value
+  add-record --zone-id zone-id --name name --type TXT --record value
+  remove-record --record-id record-id
+  delete-record --record-id record-id
+  delete-rrset --record-id record-id
+  delete-zone --zone-id zone-id
 `);
 }
 

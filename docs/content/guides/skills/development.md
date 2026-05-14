@@ -252,26 +252,24 @@ SOQL rows with a bundled Python helper. Read-only by default.
 
 Operate Hetzner infrastructure with three bundled skills:
 
-- `hetzner-cloud` — VPS inventory, server types, locations, prices,
-  provisioning, volumes, snapshots, rebuilds, and guarded deletes.
-- `hetzner-dns` — DNS zones and RRsets, including guarded A, AAAA, CNAME, TXT,
-  add/remove/update/delete flows.
-- `hetzner-storage-box` — Storage Box inventory, snapshots, WebDAV file
-  list/download/upload/archive flows, and public URL preparation.
+- `hetzner-cloud` — VPS inventory, server types, locations, prices, provisioning, volumes, snapshots, rebuilds, and guarded deletes.
+- `hetzner-dns` — DNS zones and records, including guarded A, AAAA, CNAME, TXT, add/remove/update/delete flows.
+- `hetzner-storage-box` — Storage Box inventory, snapshots, WebDAV file list/download/upload/archive flows, and public URL preparation.
 
 **Prerequisites**
 
 | Dependency | Purpose | Install |
 |---|---|---|
 | `node` | Required helper runtime | System install |
-| Hetzner API token | Stored secret: `HETZNER_API_TOKEN` | `hybridclaw secret set HETZNER_API_TOKEN "<token>"` |
+| Hetzner Cloud/API token | Stored secret: `HETZNER_API_TOKEN` for Cloud and Storage Box management | `hybridclaw secret set HETZNER_API_TOKEN "<token>"` |
+| Hetzner DNS API token | Stored secret: `HETZNER_DNS_API_TOKEN` for DNS API `Auth-API-Token` injection | `hybridclaw secret set HETZNER_DNS_API_TOKEN "<token>"` |
 | Storage Box WebDAV auth | Optional stored secret for file operations: `HETZNER_STORAGE_BOX_BASIC_AUTH` | Store base64 `username:password` payload |
 
 > 💡 **Tips & Tricks**
 >
-> Use read-only Hetzner API tokens for inventory, DNS inspection, and cost reporting.
+> Use read-only Hetzner API tokens for inventory and cost reporting.
 >
-> Keep DNS writes RRset-oriented: name plus type owns the TTL and record list.
+> Discover DNS record ids before updates and deletes; the DNS API is record-id based.
 >
 > Use Storage Box subaccounts scoped to the archive path for WebDAV writes.
 >
@@ -298,12 +296,9 @@ Operate Hetzner infrastructure with three bundled skills:
 
 **Troubleshooting**
 
-- **Token rejected** — verify the token belongs to the Hetzner Console project
-  containing the Cloud, DNS, or Storage Box resource.
-- **Write refused** — rerun the helper after an exact operator grant and include
-  `--operator-grant`.
-- **WebDAV auth fails** — verify the Storage Box host, subaccount permissions,
-  and `HETZNER_STORAGE_BOX_BASIC_AUTH` encoded payload.
+- **Token rejected** — verify the Cloud/Storage Box token belongs to the Hetzner Console project, or that the DNS token was created in the DNS Console.
+- **Write refused** — rerun the helper after an exact operator grant and include `--operator-grant`.
+- **WebDAV auth fails** — verify the Storage Box host, subaccount permissions, and `HETZNER_STORAGE_BOX_BASIC_AUTH` encoded payload.
 
 ---
 

@@ -17,7 +17,7 @@
   },
   {
     "id": "dns-03",
-    "category": "read-rrset",
+    "category": "read-record",
     "prompt": "List the DNS records for example.com.",
     "expectedOperation": "list-rrsets",
     "expectedTier": "green",
@@ -25,7 +25,7 @@
   },
   {
     "id": "dns-04",
-    "category": "read-rrset",
+    "category": "read-record",
     "prompt": "Check the current A record for demo.example.com.",
     "expectedOperation": "get-rrset",
     "expectedTier": "green",
@@ -50,7 +50,7 @@
   {
     "id": "dns-07",
     "category": "write-record",
-    "prompt": "Add an IPv6 AAAA value to the existing demo RRset.",
+    "prompt": "Add an IPv6 AAAA value to the demo record set.",
     "expectedOperation": "add-record",
     "expectedTier": "amber",
     "costMeasurement": { "system": "UsageTotals" }
@@ -58,7 +58,7 @@
   {
     "id": "dns-08",
     "category": "write-record",
-    "prompt": "Remove the stale TXT verification value from the RRset.",
+    "prompt": "Remove the stale TXT verification value from the DNS record.",
     "expectedOperation": "remove-record",
     "expectedTier": "amber",
     "costMeasurement": { "system": "UsageTotals" }

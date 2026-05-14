@@ -85,10 +85,21 @@ function requireText(value, label) {
 
 function cleanWebdavPath(rawPath) {
   const normalized = requireText(rawPath, '--path').replace(/\\/g, '/');
-  if (normalized.includes('..')) {
+  if (/[\u0000-\u001f\u007f]/.test(normalized)) {
+    die('--path must not contain control characters.');
+  }
+  const segments = normalized.split('/').filter((segment) => segment.length > 0);
+  if (segments.some((segment) => segment === '..')) {
     die('--path must not contain parent directory segments.');
   }
   return `/${normalized.replace(/^\/+/, '')}`;
+}
+
+function encodeWebdavPath(webdavPath) {
+  return webdavPath
+    .split('/')
+    .map((segment, index) => (index === 0 ? '' : encodeURIComponent(segment)))
+    .join('/');
 }
 
 function normalizeHost(rawHost) {
@@ -135,7 +146,7 @@ function buildWebdavRequest(operation, { host, path: webdavPath, method, body })
     operation,
     stakesTier: OPERATION_TIERS[operation],
     httpRequest: {
-      url: `https://${host}${webdavPath}`,
+      url: `https://${host}${encodeWebdavPath(webdavPath)}`,
       method,
       timeoutMs: DEFAULT_TIMEOUT_MS,
       secretHeaders: [
@@ -332,7 +343,7 @@ function commandPublicUrl(args) {
     command: 'public-url',
     operation: 'public-url',
     stakesTier: OPERATION_TIERS['public-url'],
-    url: `https://${host}${webdavPath}`,
+    url: `https://${host}${encodeWebdavPath(webdavPath)}`,
     note:
       'This only constructs a URL for an already public Storage Box path; it does not change permissions.',
     costMeasurement: COST_MEASUREMENT,
@@ -352,7 +363,7 @@ function commandSharePublicLink(args) {
     operation: 'share-public-link',
     stakesTier: OPERATION_TIERS['share-public-link'],
     requiresOperatorAction: !alreadyPublic,
-    publicUrl: `https://${host}${webdavPath}`,
+    publicUrl: `https://${host}${encodeWebdavPath(webdavPath)}`,
     expiresAt: expiresAt || null,
     operatorChecklist: alreadyPublic
       ? []
