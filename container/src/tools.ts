@@ -4598,14 +4598,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Request speaker labels when supported by the selected provider.',
           },
-          min_speakers: {
-            type: 'number',
-            description: 'Optional minimum expected speaker count.',
-          },
-          max_speakers: {
-            type: 'number',
-            description: 'Optional maximum expected speaker count.',
-          },
         },
         required: [],
       },

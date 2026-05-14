@@ -3100,9 +3100,6 @@ export class TrustedAgentApprovalRuntime {
       const rawAudio =
         normalizeText(args.audio) ||
         normalizeText(args.audio_url) ||
-        normalizeText(args.audioUrl) ||
-        normalizeText(args.url) ||
-        normalizeText(args.file) ||
         normalizeText(args.path);
       let hostHints: string[] = [];
       try {

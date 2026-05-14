@@ -8,7 +8,11 @@ import path from 'node:path';
 import { estimateAudioTranscriptionCostUsd } from '../shared/audio-transcription-pricing.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { RuntimeProvider } from './providers/provider-ids.js';
-import { ProviderRequestError } from './providers/shared.js';
+import {
+  isRecord,
+  ProviderRequestError,
+  readStringValue,
+} from './providers/shared.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -63,9 +67,6 @@ interface NormalizedAudioTranscriptionRequest {
   minSpeakers: number | null;
   maxSpeakers: number | null;
   detectLanguageOnly: boolean;
-  chunking: boolean;
-  chunkWindowSec: number;
-  chunkOverlapSec: number;
   warnings: string[];
 }
 
@@ -91,11 +92,18 @@ interface AudioTranscriptionResult {
   words?: TranscriptWord[];
 }
 
+interface CandidateTranscriptionResult {
+  result: AudioTranscriptionResult;
+  warnings: string[];
+}
+
 const OUTPUT_DIR = '.transcripts';
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
 const PROVIDER_API_TIMEOUT_MS = 10 * 60_000;
-const ASSEMBLYAI_POLL_INTERVAL_MS = 1_000;
+const ASSEMBLYAI_INITIAL_POLL_INTERVAL_MS = 1_000;
+const ASSEMBLYAI_MAX_POLL_INTERVAL_MS = 10_000;
+const ASSEMBLYAI_POLL_REQUEST_TIMEOUT_MS = 15_000;
 const ASSEMBLYAI_POLL_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_DEEPGRAM_BASE_URL = 'https://api.deepgram.com/v1';
@@ -106,22 +114,8 @@ const DEFAULT_ASSEMBLYAI_AUDIO_MODEL = 'universal';
 const DEFAULT_CHUNK_WINDOW_SEC = 25 * 60;
 const DEFAULT_CHUNK_OVERLAP_SEC = 10;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function readStringValue(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
 function readNumberValue(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
   return null;
 }
 
@@ -129,8 +123,8 @@ function readBooleanValue(value: unknown): boolean | null {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
   }
   return null;
 }
@@ -290,6 +284,8 @@ async function assertSafeRemoteUrl(rawUrl: string): Promise<URL> {
   if (records.some((record) => isUnsafeIpAddress(record.address))) {
     throw new Error('audio URL resolves to a private network address');
   }
+  // DNS is still resolved separately from fetch; redirect blocking below closes
+  // the common SSRF redirect path, while DNS rebinding needs network isolation.
   return parsed;
 }
 
@@ -348,7 +344,14 @@ async function readLocalAudio(
       `audio path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, or /uploaded-media-cache`,
     );
   }
-  const buffer = fs.readFileSync(resolved);
+  const stat = fs.statSync(resolved);
+  if (stat.size <= 0) throw new Error('audio input is empty');
+  if (stat.size > 512 * 1024 * 1024) {
+    throw new Error(
+      'audio input exceeds max provider upload size (536870912 bytes)',
+    );
+  }
+  const buffer = await fs.promises.readFile(resolved);
   assertAudioSize(buffer, 512 * 1024 * 1024);
   const mimeType = inferAudioMimeType(resolved, mediaHint?.mimeType);
   if (
@@ -430,9 +433,6 @@ async function resolveAudioInput(
   const explicit =
     readStringValue(args.audio) ||
     readStringValue(args.audio_url) ||
-    readStringValue(args.audioUrl) ||
-    readStringValue(args.url) ||
-    readStringValue(args.file) ||
     readStringValue(args.path);
   const mediaHint = explicit
     ? findMediaContextItem(explicit, context.media)
@@ -475,16 +475,11 @@ async function normalizeRequest(
     args.max_speakers ?? args.maxSpeakers,
   );
   if (minSpeakers && maxSpeakers && minSpeakers !== maxSpeakers) {
-    warnings.push(
-      'AssemblyAI accepts one expected speaker count; differing min_speakers and max_speakers will not be sent.',
+    throw new Error(
+      'min_speakers and max_speakers must match; provide a single speaker count for AssemblyAI.',
     );
   }
-  const chunkWindowSec =
-    readPositiveInteger(args.chunk_window_sec ?? args.chunkWindowSec) ||
-    DEFAULT_CHUNK_WINDOW_SEC;
-  const chunkOverlapSec =
-    readPositiveInteger(args.chunk_overlap_sec ?? args.chunkOverlapSec) ||
-    DEFAULT_CHUNK_OVERLAP_SEC;
+  const action = readStringValue(args.action)?.toLowerCase();
   return {
     audio: await resolveAudioInput(args, context),
     language: readStringValue(args.language),
@@ -497,12 +492,7 @@ async function normalizeRequest(
     diarization,
     minSpeakers,
     maxSpeakers,
-    detectLanguageOnly:
-      readStringValue(args.action)?.toLowerCase() === 'detect-language' ||
-      readStringValue(args.action)?.toLowerCase() === 'detect_language',
-    chunking: readBooleanValue(args.chunking ?? args.chunk) ?? true,
-    chunkWindowSec,
-    chunkOverlapSec: Math.min(chunkOverlapSec, Math.max(0, chunkWindowSec - 1)),
+    detectLanguageOnly: action === 'detect-language',
     warnings,
   };
 }
@@ -691,6 +681,14 @@ function normalizeHeaders(
   return normalized;
 }
 
+function bufferAsBodyInit(buffer: Buffer): BodyInit {
+  return buffer as unknown as BodyInit;
+}
+
+function bufferAsBlobPart(buffer: Buffer): BlobPart {
+  return buffer as unknown as BlobPart;
+}
+
 async function fetchWithTimeout(
   input: string | URL,
   init: RequestInit = {},
@@ -746,16 +744,22 @@ function normalizeSegments(value: unknown): TranscriptSegment[] {
       if (!isRecord(entry)) return null;
       const text = readStringValue(entry.text) || '';
       if (!text) return null;
+      const speaker = readStringValue(entry.speaker);
       return {
         start: readNumberValue(entry.start),
         end: readNumberValue(entry.end),
         text,
-        ...(readStringValue(entry.speaker)
-          ? { speaker: readStringValue(entry.speaker) as string }
-          : {}),
+        ...(speaker ? { speaker } : {}),
       };
     })
     .filter((entry): entry is TranscriptSegment => Boolean(entry));
+}
+
+function buildFallbackSegments(
+  text: string | null,
+  durationSec: number | null,
+): TranscriptSegment[] {
+  return text ? [{ start: null, end: durationSec, text }] : [];
 }
 
 function normalizeWords(value: unknown): TranscriptWord[] | undefined {
@@ -765,13 +769,12 @@ function normalizeWords(value: unknown): TranscriptWord[] | undefined {
       if (!isRecord(entry)) return null;
       const word = readStringValue(entry.word) || readStringValue(entry.text);
       if (!word) return null;
+      const speaker = readStringValue(entry.speaker);
       return {
         start: readNumberValue(entry.start),
         end: readNumberValue(entry.end),
         word,
-        ...(readStringValue(entry.speaker)
-          ? { speaker: readStringValue(entry.speaker) as string }
-          : {}),
+        ...(speaker ? { speaker } : {}),
       };
     })
     .filter((entry): entry is TranscriptWord => Boolean(entry));
@@ -794,7 +797,7 @@ async function transcribeWithOpenAi(
   form.set('response_format', 'verbose_json');
   form.set(
     'file',
-    new Blob([new Uint8Array(request.audio.buffer)], {
+    new Blob([bufferAsBlobPart(request.audio.buffer)], {
       type: request.audio.mimeType,
     }),
     request.audio.filename,
@@ -808,32 +811,28 @@ async function transcribeWithOpenAi(
     );
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PROVIDER_API_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${candidate.baseUrl}/audio/transcriptions`, {
+  const response = await fetchWithTimeout(
+    `${candidate.baseUrl}/audio/transcriptions`,
+    {
       method: 'POST',
       headers: {
         ...normalizeHeaders(candidate.requestHeaders),
         Authorization: `Bearer ${candidate.apiKey}`,
       },
       body: form,
-      signal: controller.signal,
-    });
-    const parsed = await parseProviderJson(response, 'OpenAI');
-    if (!isRecord(parsed)) {
-      throw new Error('OpenAI transcription returned an unexpected payload');
-    }
-    return {
-      text: readStringValue(parsed.text) || '',
-      language: readStringValue(parsed.language),
-      durationSec: readNumberValue(parsed.duration),
-      segments: normalizeSegments(parsed.segments),
-      words: normalizeWords(parsed.words),
-    };
-  } finally {
-    clearTimeout(timeout);
+    },
+  );
+  const parsed = await parseProviderJson(response, 'OpenAI');
+  if (!isRecord(parsed)) {
+    throw new Error('OpenAI transcription returned an unexpected payload');
   }
+  return {
+    text: readStringValue(parsed.text) || '',
+    language: readStringValue(parsed.language),
+    durationSec: readNumberValue(parsed.duration),
+    segments: normalizeSegments(parsed.segments),
+    words: normalizeWords(parsed.words),
+  };
 }
 
 function normalizeDeepgramResult(parsed: Record<string, unknown>) {
@@ -868,13 +867,12 @@ function normalizeDeepgramResult(parsed: Record<string, unknown>) {
             if (!isRecord(entry)) return null;
             const text = readStringValue(entry.transcript) || '';
             if (!text) return null;
+            const speaker = formatSpeaker(entry.speaker);
             return {
               start: readNumberValue(entry.start),
               end: readNumberValue(entry.end),
               text,
-              ...(formatSpeaker(entry.speaker)
-                ? { speaker: formatSpeaker(entry.speaker) as string }
-                : {}),
+              ...(speaker ? { speaker } : {}),
             };
           })
           .filter((entry): entry is TranscriptSegment => Boolean(entry))
@@ -894,13 +892,10 @@ function normalizeDeepgramResult(parsed: Record<string, unknown>) {
     segments:
       segments.length > 0
         ? segments
-        : [
-            {
-              start: null,
-              end: readNumberValue(metadata.duration),
-              text: readStringValue(alternative.transcript) || '',
-            },
-          ].filter((segment) => segment.text),
+        : buildFallbackSegments(
+            readStringValue(alternative.transcript),
+            readNumberValue(metadata.duration),
+          ),
     words,
   };
 }
@@ -918,26 +913,19 @@ async function transcribeWithDeepgram(
   if (request.language) url.searchParams.set('language', request.language);
   if (request.diarization) url.searchParams.set('diarize', 'true');
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PROVIDER_API_TIMEOUT_MS);
-  try {
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Token ${candidate.apiKey}`,
-        'Content-Type': request.audio.mimeType,
-      },
-      body: new Uint8Array(request.audio.buffer),
-      signal: controller.signal,
-    });
-    const parsed = await parseProviderJson(response, 'Deepgram');
-    if (!isRecord(parsed)) {
-      throw new Error('Deepgram transcription returned an unexpected payload');
-    }
-    return normalizeDeepgramResult(parsed);
-  } finally {
-    clearTimeout(timeout);
+  const response = await fetchWithTimeout(url.toString(), {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${candidate.apiKey}`,
+      'Content-Type': request.audio.mimeType,
+    },
+    body: bufferAsBodyInit(request.audio.buffer),
+  });
+  const parsed = await parseProviderJson(response, 'Deepgram');
+  if (!isRecord(parsed)) {
+    throw new Error('Deepgram transcription returned an unexpected payload');
   }
+  return normalizeDeepgramResult(parsed);
 }
 
 async function uploadAssemblyAiAudio(
@@ -950,7 +938,7 @@ async function uploadAssemblyAiAudio(
       Authorization: candidate.apiKey,
       'Content-Type': 'application/octet-stream',
     },
-    body: new Uint8Array(request.audio.buffer),
+    body: bufferAsBodyInit(request.audio.buffer),
   });
   const parsed = await parseProviderJson(response, 'AssemblyAI');
   if (!isRecord(parsed)) {
@@ -993,13 +981,12 @@ function normalizeAssemblyAiResult(
       if (!text) return null;
       const startMs = readNumberValue(entry.start);
       const endMs = readNumberValue(entry.end);
+      const speaker = formatSpeaker(entry.speaker);
       return {
         start: startMs == null ? null : startMs / 1000,
         end: endMs == null ? null : endMs / 1000,
         text,
-        ...(formatSpeaker(entry.speaker)
-          ? { speaker: formatSpeaker(entry.speaker) as string }
-          : {}),
+        ...(speaker ? { speaker } : {}),
       };
     })
     .filter((entry): entry is TranscriptSegment => Boolean(entry));
@@ -1015,13 +1002,7 @@ function normalizeAssemblyAiResult(
     segments:
       segments.length > 0
         ? segments
-        : [
-            {
-              start: null,
-              end: durationSec,
-              text: readStringValue(parsed.text) || '',
-            },
-          ].filter((segment) => segment.text),
+        : buildFallbackSegments(readStringValue(parsed.text), durationSec),
     words,
   };
 }
@@ -1071,18 +1052,18 @@ async function transcribeWithAssemblyAi(
   if (!id) throw new Error('AssemblyAI transcript creation did not return id');
 
   const startedAt = Date.now();
+  let pollIntervalMs = ASSEMBLYAI_INITIAL_POLL_INTERVAL_MS;
   for (;;) {
     if (Date.now() - startedAt > ASSEMBLYAI_POLL_TIMEOUT_MS) {
       throw new Error('AssemblyAI transcription timed out');
     }
-    await new Promise((resolve) =>
-      setTimeout(resolve, ASSEMBLYAI_POLL_INTERVAL_MS),
-    );
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     const response = await fetchWithTimeout(
       `${candidate.baseUrl}/v2/transcript/${id}`,
       {
         headers: { Authorization: candidate.apiKey },
       },
+      ASSEMBLYAI_POLL_REQUEST_TIMEOUT_MS,
     );
     const parsed = await parseProviderJson(response, 'AssemblyAI');
     if (!isRecord(parsed)) {
@@ -1097,21 +1078,25 @@ async function transcribeWithAssemblyAi(
         `AssemblyAI transcription failed: ${readStringValue(parsed.error) || 'unknown error'}`,
       );
     }
+    pollIntervalMs = Math.min(
+      ASSEMBLYAI_MAX_POLL_INTERVAL_MS,
+      pollIntervalMs * 2,
+    );
   }
 }
 
-async function transcribeWithCandidate(
+function collectCandidateWarnings(
   candidate: ProviderCandidate,
   request: NormalizedAudioTranscriptionRequest,
-): Promise<AudioTranscriptionResult> {
-  assertAudioSize(request.audio.buffer, candidate.maxAudioBytes);
+): string[] {
+  const warnings: string[] = [];
   if (request.diarization && !candidate.supportsDiarization) {
-    request.warnings.push(
+    warnings.push(
       `${candidate.label} does not support diarization; speaker labels will be omitted.`,
     );
   }
   if (request.timestamps === 'word' && !candidate.supportsWordTimestamps) {
-    request.warnings.push(
+    warnings.push(
       `${candidate.label} does not support word timestamps; segment timestamps will be used.`,
     );
   }
@@ -1120,10 +1105,18 @@ async function transcribeWithCandidate(
     request.detectLanguageOnly &&
     !candidate.supportsLanguageDetection
   ) {
-    request.warnings.push(
+    warnings.push(
       `${candidate.label} does not support language detection; using the provided language hint.`,
     );
   }
+  return warnings;
+}
+
+async function transcribeWithCandidate(
+  candidate: ProviderCandidate,
+  request: NormalizedAudioTranscriptionRequest,
+): Promise<AudioTranscriptionResult> {
+  assertAudioSize(request.audio.buffer, candidate.maxAudioBytes);
   if (candidate.id === 'deepgram')
     return transcribeWithDeepgram(candidate, request);
   if (candidate.id === 'assemblyai')
@@ -1176,18 +1169,23 @@ function probeAudioDurationSec(filePath: string): number {
 
 function createAudioChunks(
   input: AudioInput,
-  request: NormalizedAudioTranscriptionRequest,
+  durationSec: number,
 ): Array<AudioInput & { offsetSec: number }> {
   if (!input.localPath) {
     throw new Error('long remote audio chunking is not supported yet');
   }
-  const durationSec = probeAudioDurationSec(input.localPath);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-stt-'));
   const chunks: Array<AudioInput & { offsetSec: number }> = [];
-  const stepSec = Math.max(1, request.chunkWindowSec - request.chunkOverlapSec);
+  const stepSec = Math.max(
+    1,
+    DEFAULT_CHUNK_WINDOW_SEC - DEFAULT_CHUNK_OVERLAP_SEC,
+  );
   try {
     for (let startSec = 0; startSec < durationSec; startSec += stepSec) {
-      const duration = Math.min(request.chunkWindowSec, durationSec - startSec);
+      const duration = Math.min(
+        DEFAULT_CHUNK_WINDOW_SEC,
+        durationSec - startSec,
+      );
       const chunkPath = path.join(
         tempDir,
         `chunk-${String(chunks.length + 1).padStart(4, '0')}.mp3`,
@@ -1246,14 +1244,6 @@ function offsetWords(
   }));
 }
 
-function normalizeTextForAlignment(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 export function stitchTranscriptionChunks(
   chunks: Array<AudioTranscriptionResult & { offsetSec: number }>,
   overlapSec = DEFAULT_CHUNK_OVERLAP_SEC,
@@ -1267,26 +1257,18 @@ export function stitchTranscriptionChunks(
     const chunkEnd =
       chunk.durationSec == null ? null : chunk.offsetSec + chunk.durationSec;
     if (chunkEnd != null) durationSec = Math.max(durationSec || 0, chunkEnd);
-    const existingTail = segments.at(-1);
     for (const segment of offsetSegments(chunk.segments, chunk.offsetSec)) {
       const duplicate =
-        existingTail &&
+        chunk.offsetSec > 0 &&
         segment.start != null &&
-        existingTail.end != null &&
-        segment.start <= existingTail.end + overlapSec &&
-        normalizeTextForAlignment(segment.text) ===
-          normalizeTextForAlignment(existingTail.text);
+        segment.start < chunk.offsetSec + overlapSec;
       if (!duplicate) segments.push(segment);
     }
     for (const word of offsetWords(chunk.words, chunk.offsetSec) || []) {
-      const previous = words.at(-1);
       const duplicate =
-        previous &&
+        chunk.offsetSec > 0 &&
         word.start != null &&
-        previous.end != null &&
-        word.start <= previous.end + overlapSec &&
-        normalizeTextForAlignment(word.word) ===
-          normalizeTextForAlignment(previous.word);
+        word.start < chunk.offsetSec + overlapSec;
       if (!duplicate) words.push(word);
     }
   }
@@ -1305,41 +1287,54 @@ export function stitchTranscriptionChunks(
 async function transcribePossiblyChunked(
   candidate: ProviderCandidate,
   request: NormalizedAudioTranscriptionRequest,
-): Promise<AudioTranscriptionResult> {
-  let shouldChunk =
-    request.chunking && request.audio.buffer.length > candidate.maxAudioBytes;
-  if (
-    request.chunking &&
-    !shouldChunk &&
-    candidate.id === 'openai' &&
-    request.audio.localPath
-  ) {
+): Promise<CandidateTranscriptionResult> {
+  const warnings = collectCandidateWarnings(candidate, request);
+  let durationSec: number | null = null;
+  let shouldChunk = request.audio.buffer.length > candidate.maxAudioBytes;
+  if (candidate.id === 'openai' && request.audio.localPath) {
     try {
-      shouldChunk =
-        probeAudioDurationSec(request.audio.localPath) > request.chunkWindowSec;
+      durationSec = probeAudioDurationSec(request.audio.localPath);
+      shouldChunk ||= durationSec > DEFAULT_CHUNK_WINDOW_SEC;
     } catch (error) {
-      request.warnings.push(
-        `audio duration probe failed; long-audio chunking was skipped: ${sanitizeProviderError(error)}`,
+      if (shouldChunk) {
+        throw new Error(
+          `audio duration probe failed; cannot chunk oversized audio: ${sanitizeProviderError(error)}`,
+        );
+      }
+      warnings.push(
+        `audio duration probe failed; chunking was skipped: ${sanitizeProviderError(error)}`,
       );
     }
   }
   if (!shouldChunk) {
-    return transcribeWithCandidate(candidate, request);
+    return {
+      result: await transcribeWithCandidate(candidate, request),
+      warnings,
+    };
   }
-  const chunks = createAudioChunks(request.audio, request);
-  const results: Array<AudioTranscriptionResult & { offsetSec: number }> = [];
-  for (const chunk of chunks) {
-    const chunkResult = await transcribeWithCandidate(candidate, {
-      ...request,
-      audio: chunk,
-      chunking: false,
-    });
-    results.push({ ...chunkResult, offsetSec: chunk.offsetSec });
+  if (durationSec == null) {
+    if (!request.audio.localPath) {
+      throw new Error('long remote audio chunking is not supported yet');
+    }
+    durationSec = probeAudioDurationSec(request.audio.localPath);
   }
-  request.warnings.push(
-    `audio was split into ${chunks.length} chunks with ${request.chunkOverlapSec}s overlap.`,
+  const chunks = createAudioChunks(request.audio, durationSec);
+  const results = await Promise.all(
+    chunks.map(async (chunk) => {
+      const chunkResult = await transcribeWithCandidate(candidate, {
+        ...request,
+        audio: chunk,
+      });
+      return { ...chunkResult, offsetSec: chunk.offsetSec };
+    }),
   );
-  return stitchTranscriptionChunks(results, request.chunkOverlapSec);
+  warnings.push(
+    `audio was split into ${chunks.length} chunks with ${DEFAULT_CHUNK_OVERLAP_SEC}s overlap.`,
+  );
+  return {
+    result: stitchTranscriptionChunks(results, DEFAULT_CHUNK_OVERLAP_SEC),
+    warnings,
+  };
 }
 
 function persistTranscript(params: {
@@ -1417,7 +1412,10 @@ export async function runAudioTranscribe(
   const errors: string[] = [];
   for (const candidate of candidates) {
     try {
-      const result = await transcribePossiblyChunked(candidate, request);
+      const { result, warnings } = await transcribePossiblyChunked(
+        candidate,
+        request,
+      );
       const costUsd = estimateCostUsd(result.durationSec, candidate);
       const artifacts = request.detectLanguageOnly
         ? []
@@ -1455,7 +1453,7 @@ export async function runAudioTranscribe(
             cost_usd: costUsd,
             estimated: costUsd != null,
           },
-          warnings: request.warnings,
+          warnings: [...request.warnings, ...warnings],
           attempts,
           source: request.audio.source,
         },

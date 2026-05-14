@@ -370,9 +370,9 @@ describe('audio_transcribe tool', () => {
             audio_url: 'https://cdn.test/audio',
             speaker_labels: true,
             language_detection: true,
+            speakers_expected: 2,
           }),
         );
-        expect(body).not.toHaveProperty('speakers_expected');
         return new Response(JSON.stringify({ id: 'transcript-1' }));
       }
       if (url.endsWith('/v2/transcript/transcript-1')) {
@@ -407,9 +407,10 @@ describe('audio_transcribe tool', () => {
         provider: 'assemblyai',
         diarization: true,
         min_speakers: 2,
-        max_speakers: 4,
+        max_speakers: 2,
       }),
     );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await vi.advanceTimersByTimeAsync(1000);
     const output = await pending;
     const parsed = JSON.parse(output) as {
@@ -417,16 +418,27 @@ describe('audio_transcribe tool', () => {
       text: string;
       duration_sec: number;
       segments: Array<{ speaker?: string }>;
-      warnings: string[];
     };
 
     expect(parsed.provider).toBe('assemblyai');
     expect(parsed.text).toBe('Assembly transcript.');
     expect(parsed.duration_sec).toBe(3);
     expect(parsed.segments[0]?.speaker).toBe('speaker_A');
-    expect(parsed.warnings).toContain(
-      'AssemblyAI accepts one expected speaker count; differing min_speakers and max_speakers will not be sent.',
+  });
+
+  test('rejects conflicting speaker count hints', async () => {
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'audio_transcribe',
+      JSON.stringify({
+        min_speakers: 2,
+        max_speakers: 4,
+      }),
     );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('min_speakers and max_speakers must match');
   });
 
   test('stitches overlapped chunk segments without duplicate boundary text', async () => {

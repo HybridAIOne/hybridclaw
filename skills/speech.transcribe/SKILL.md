@@ -78,9 +78,7 @@ caption, diarize, timestamp, or identify speakers in an audio or video clip.
    AssemblyAI for speaker labels.
 4. Pass `language` only when the user gives a known language. Omit it for
    provider language detection.
-5. Set `diarization: true` when the user asks for speaker labels. Include
-   `min_speakers` or `max_speakers` only when the user supplies a speaker
-   count constraint.
+5. Set `diarization: true` when the user asks for speaker labels.
 6. Set `timestamps` to `word`, `segment`, or `none` based on the request.
 7. Return the structured result fields that matter: transcript text, provider,
    detected language, duration, cost, warnings, and artifact paths.
