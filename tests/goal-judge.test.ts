@@ -63,6 +63,44 @@ test('goal judge treats explicit completion statements as terminal', async () =>
   expect(modelCaller).not.toHaveBeenCalled();
 });
 
+test('goal judge handles intermediate count goals without auxiliary parsing', async () => {
+  const modelCaller = vi.fn();
+  const verdict = await judgeGoalCompletion({
+    sessionId: 'session-count',
+    agentId: 'agent-a',
+    goalText:
+      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
+    assistantResponse: '3',
+    modelCaller,
+  });
+
+  expect(verdict).toEqual({
+    done: false,
+    reason: 'count has reached 3, target is 4',
+    parseFailure: false,
+  });
+  expect(modelCaller).not.toHaveBeenCalled();
+});
+
+test('goal judge does not accept early count completion claims', async () => {
+  const modelCaller = vi.fn();
+  const verdict = await judgeGoalCompletion({
+    sessionId: 'session-count-early',
+    agentId: 'agent-a',
+    goalText:
+      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
+    assistantResponse: '3\n\nGoal complete.',
+    modelCaller,
+  });
+
+  expect(verdict).toEqual({
+    done: false,
+    reason: 'count has reached 3, target is 4',
+    parseFailure: false,
+  });
+  expect(modelCaller).not.toHaveBeenCalled();
+});
+
 test('goal judge retries without structured response format on empty local output', async () => {
   mocks.callAuxiliaryModel
     .mockRejectedValueOnce(new Error('goal_judge returned an empty response.'))
@@ -74,9 +112,8 @@ test('goal judge retries without structured response format on empty local outpu
   const verdict = await judgeGoalCompletion({
     sessionId: 'session-b',
     agentId: 'agent-b',
-    goalText:
-      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
-    assistantResponse: '3',
+    goalText: 'Draft a three-step smoke test checklist for the /goal feature.',
+    assistantResponse: 'I wrote the first checklist item.',
   });
 
   expect(verdict).toEqual({

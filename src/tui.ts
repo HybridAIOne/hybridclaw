@@ -90,7 +90,11 @@ import {
   resolveTuiHistoryFetchLimit,
 } from './tui-history.js';
 import { TuiMultilineInputController } from './tui-input.js';
-import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
+import {
+  proactiveBadgeLabel,
+  proactiveInlineLabel,
+  proactiveSourceSuffix,
+} from './tui-proactive.js';
 import {
   buildTuiExitSummaryLines,
   buildTuiUnavailableExitSummaryLines,
@@ -2865,8 +2869,15 @@ function renderProactiveRegularMessage(
   if (handleDelegateStreamMessage(message)) return true;
 
   const badge = proactiveBadgeLabel(message.source);
+  const inlineLabel = proactiveInlineLabel(message.source);
   const suffix = proactiveSourceSuffix(message.source);
   const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
+  if (inlineLabel) {
+    console.log(
+      `  ${GOLD}${inlineLabel}:${RESET} ${formatTuiOutput(message.text)}${sourceSuffix}`,
+    );
+    return false;
+  }
   if (badge === 'delegate') {
     console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
     return false;

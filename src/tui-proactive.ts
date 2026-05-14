@@ -42,6 +42,13 @@ export function proactiveBadgeLabel(
   return 'proactive';
 }
 
+export function proactiveInlineLabel(
+  source: string | null | undefined,
+): string | null {
+  if (isGoalContinuationSource(source)) return 'Goal';
+  return null;
+}
+
 export function proactiveSourceSuffix(
   source: string | null | undefined,
 ): string {

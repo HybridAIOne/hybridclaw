@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   proactiveBadgeLabel,
+  proactiveInlineLabel,
   proactiveSourceSuffix,
 } from '../src/tui-proactive.js';
 
@@ -31,11 +32,13 @@ test('uses delegate badge for queued delegation proactive messages', () => {
 
 test('uses goal badge for standing goal continuations', () => {
   expect(proactiveBadgeLabel('goal-continuation')).toBe('goal');
+  expect(proactiveInlineLabel('goal-continuation')).toBe('Goal');
   expect(proactiveSourceSuffix('goal-continuation')).toBe('');
 });
 
 test('uses goal badge for queued standing goal continuations', () => {
   expect(proactiveBadgeLabel('goal-continuation:queued')).toBe('goal');
+  expect(proactiveInlineLabel('goal-continuation:queued')).toBe('Goal');
   expect(proactiveSourceSuffix('goal-continuation:queued')).toBe('');
 });
 
@@ -55,6 +58,7 @@ test('uses reminder badge only for scheduled reminders', () => {
 
 test('uses neutral badges for non-reminder proactive sources', () => {
   expect(proactiveBadgeLabel('heartbeat')).toBe('heartbeat');
+  expect(proactiveInlineLabel('heartbeat')).toBeNull();
   expect(proactiveSourceSuffix('heartbeat')).toBe('');
   expect(proactiveBadgeLabel('custom-source')).toBe('proactive');
   expect(proactiveSourceSuffix('custom-source')).toBe('(custom-source)');

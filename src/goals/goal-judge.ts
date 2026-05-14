@@ -117,6 +117,41 @@ function inferExplicitGoalCompletion(
   return null;
 }
 
+function inferCountingGoalProgress(params: {
+  goalText: string;
+  assistantResponse: string;
+}): GoalJudgeResult | null {
+  const goalMatch = /\bcount\s+from\s+(-?\d+)\s+to\s+(-?\d+)\b/i.exec(
+    params.goalText,
+  );
+  if (!goalMatch) return null;
+
+  const start = Number(goalMatch[1]);
+  const target = Number(goalMatch[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(target) || start === target) {
+    return null;
+  }
+
+  const numbers = Array.from(
+    params.assistantResponse.matchAll(/(?<![\w.-])-?\d+(?![\w.-])/g),
+    (match) => Number(match[0]),
+  ).filter((value) => Number.isFinite(value));
+  const latestNumber = numbers.at(-1);
+  if (latestNumber === undefined) return null;
+
+  const isAscending = target > start;
+  const stillInProgress = isAscending
+    ? latestNumber < target
+    : latestNumber > target;
+  if (!stillInProgress) return null;
+
+  return {
+    done: false,
+    reason: `count has reached ${latestNumber}, target is ${target}`,
+    parseFailure: false,
+  };
+}
+
 export function parseGoalJudgeVerdict(content: string): GoalJudgeVerdict {
   const parsed = JSON.parse(content.trim()) as Record<string, unknown>;
   if (typeof parsed.done !== 'boolean') {
@@ -206,6 +241,12 @@ async function callGoalJudgeAuxiliaryModel(
 async function judgeGoalCompletionDirect(
   params: JudgeGoalCompletionParams,
 ): Promise<GoalJudgeResult> {
+  const countingProgress = inferCountingGoalProgress({
+    goalText: params.goalText,
+    assistantResponse: params.assistantResponse,
+  });
+  if (countingProgress) return countingProgress;
+
   const explicitCompletion = inferExplicitGoalCompletion(
     params.assistantResponse,
   );

@@ -76,7 +76,20 @@ afterEach(() => {
 });
 
 test('continuation prompt is a user-turn snapshot and does not replace system prompt', () => {
-  expect(buildGoalInitialPrompt('finish the report')).toBe('finish the report');
+  expect(buildGoalInitialPrompt('finish the report')).toBe(
+    [
+      '[Starting standing goal]',
+      'Goal: finish the report',
+      '',
+      'This is supervised step 1.',
+      'Use this as a fresh goal start; do not infer goal progress from earlier chat.',
+      'If the goal is an ordered sequence, produce only the first item for this step.',
+      '',
+      'Start working toward this goal. Take the first concrete step. If you',
+      'believe the goal is complete, state so explicitly and stop. If you are',
+      'blocked, say so clearly and stop.',
+    ].join('\n'),
+  );
   expect(buildGoalContinuationPrompt('finish the report')).toBe(
     [
       '[Continuing toward your standing goal]',
@@ -102,6 +115,7 @@ test('continuation prompt can carry supervised step progress', () => {
       '',
       'Progress: 2 supervised turn(s) have already been used for this goal.',
       'This is supervised step 3 of at most 20.',
+      'Use this progress snapshot as authoritative; do not infer goal progress from earlier chat.',
       'Do not repeat completed steps. If the goal is an ordered sequence, produce the next item for this step.',
       '',
       'Continue working toward this goal. Take the next concrete step. If you',
