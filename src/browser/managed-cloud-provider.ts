@@ -17,6 +17,8 @@ import {
   loadPlaywrightModule,
   noopSecretAudit,
   normalizeScrollDelta,
+  type PlaywrightContextShape,
+  type PlaywrightPageShape,
   type PlaywrightSecretFillLocator,
   toNavigationOptions,
 } from './playwright-utils.js';
@@ -51,38 +53,7 @@ type ManagedCloudFetch = (
   text(): Promise<string>;
 }>;
 
-type ManagedCloudPage = {
-  evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
-  screenshot(opts?: {
-    fullPage?: boolean;
-    type?: 'png' | 'jpeg';
-  }): Promise<Buffer | Uint8Array>;
-  goto(
-    url: string,
-    opts?: { waitUntil?: NavigateOptions['waitUntil']; timeout?: number },
-  ): Promise<unknown>;
-  goBack(opts?: {
-    waitUntil?: NavigateOptions['waitUntil'];
-    timeout?: number;
-  }): Promise<unknown>;
-  goForward(opts?: {
-    waitUntil?: NavigateOptions['waitUntil'];
-    timeout?: number;
-  }): Promise<unknown>;
-  reload(opts?: {
-    waitUntil?: NavigateOptions['waitUntil'];
-    timeout?: number;
-  }): Promise<unknown>;
-  click(selector: string, opts?: { timeout?: number }): Promise<void>;
-  fill(selector: string, value: string): Promise<void>;
-  url(): string;
-  mouse: {
-    wheel(deltaX: number, deltaY: number): Promise<void>;
-  };
-  waitForSelector(
-    selector: string,
-    opts?: { state?: WaitOptions['state']; timeout?: number },
-  ): Promise<unknown>;
+type ManagedCloudPage = PlaywrightPageShape & {
   locator(selector: string): PlaywrightSecretFillLocator & {
     evaluate<TArg>(
       fn: (element: Element, arg: TArg) => void,
@@ -91,13 +62,8 @@ type ManagedCloudPage = {
   };
 };
 
-type ManagedCloudContext = {
-  pages(): ManagedCloudPage[];
-  newPage(): Promise<ManagedCloudPage>;
-};
-
 type ManagedCloudBrowser = {
-  contexts(): ManagedCloudContext[];
+  contexts(): PlaywrightContextShape<ManagedCloudPage>[];
   close(): Promise<void>;
 };
 
@@ -111,7 +77,6 @@ export type ManagedCloudPlaywrightModule = {
 };
 
 export interface ManagedCloudBrowserPricing {
-  browserUsdPerMinute: number;
   actionUsd: number;
 }
 
@@ -129,14 +94,13 @@ interface ManagedCloudLeaseResponse {
   leaseId: string;
   nodeId: string;
   cdpUrl: string;
-  liveUrl: string | null;
   startedAt: string | null;
   expiresAt: string | null;
   costUsd: number | null;
 }
 
 interface ManagedCloudNavigationResponse {
-  verdict: 'allow' | 'deny' | 'escalate';
+  verdict: 'allow' | 'deny';
   url: string;
   reason: string | null;
   matchedRule: unknown;
@@ -152,7 +116,6 @@ interface ActiveManagedCloudSession {
   lease: ManagedCloudLeaseResponse;
   browser: ManagedCloudBrowser;
   metering: RequiredMeteringContext;
-  startedAtMs: number;
   accruedCostUsd: number;
   runId: string;
 }
@@ -165,26 +128,20 @@ type RequiredMeteringContext = BrowserSessionMeteringContext & {
 
 const DEFAULT_ENDPOINT_URL = 'http://127.0.0.1:8787';
 const DEFAULT_PRICING: ManagedCloudBrowserPricing = {
-  browserUsdPerMinute: 0.001,
   actionUsd: 0,
 };
-const MINIMUM_BILLED_MINUTES = 1;
 
-function normalizeEndpointUrl(endpointUrl?: string): string {
+export function normalizeManagedCloudEndpointUrl(endpointUrl?: string): string {
   return (endpointUrl || DEFAULT_ENDPOINT_URL).replace(/\/+$/u, '');
 }
 
-function estimateLeaseCost(params: {
-  startedAtMs: number;
-  nowMs: number;
-  pricing: ManagedCloudBrowserPricing;
-}): number {
-  const elapsedMs = Math.max(0, params.nowMs - params.startedAtMs);
-  const billedMinutes = Math.max(
-    MINIMUM_BILLED_MINUTES,
-    Math.ceil(elapsedMs / 60_000),
-  );
-  return billedMinutes * params.pricing.browserUsdPerMinute;
+function toRecord(payload: unknown, context: string): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error(
+      `Managed browser ${context} returned a non-object response.`,
+    );
+  }
+  return payload as Record<string, unknown>;
 }
 
 function readOptionalString(
@@ -205,12 +162,7 @@ function readOptionalCost(
 }
 
 function normalizeLeaseResponse(payload: unknown): ManagedCloudLeaseResponse {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error(
-      'Managed browser pool returned a non-object lease response.',
-    );
-  }
-  const record = payload as Record<string, unknown>;
+  const record = toRecord(payload, 'pool lease');
   const leaseId = readOptionalString(record, 'leaseId');
   const nodeId = readOptionalString(record, 'nodeId');
   const cdpUrl = readOptionalString(record, 'cdpUrl');
@@ -229,7 +181,6 @@ function normalizeLeaseResponse(payload: unknown): ManagedCloudLeaseResponse {
     leaseId,
     nodeId,
     cdpUrl: parsed.toString(),
-    liveUrl: readOptionalString(record, 'liveUrl'),
     startedAt: readOptionalString(record, 'startedAt'),
     expiresAt: readOptionalString(record, 'expiresAt'),
     costUsd: readOptionalCost(record, 'costUsd'),
@@ -240,16 +191,11 @@ function normalizeNavigationResponse(
   payload: unknown,
   fallbackUrl: string,
 ): ManagedCloudNavigationResponse {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error(
-      'Managed browser navigation guard returned a non-object response.',
-    );
-  }
-  const record = payload as Record<string, unknown>;
+  const record = toRecord(payload, 'navigation guard');
   const verdict = readOptionalString(record, 'verdict');
-  if (verdict !== 'allow' && verdict !== 'deny' && verdict !== 'escalate') {
+  if (verdict !== 'allow' && verdict !== 'deny') {
     throw new Error(
-      'Managed browser navigation guard response requires verdict allow, deny, or escalate.',
+      'Managed browser navigation guard response requires verdict allow or deny.',
     );
   }
   return {
@@ -295,6 +241,7 @@ class ManagedCloudBrowserSession implements BrowserSession {
     private readonly checkNavigation: (
       url: string,
       action: string,
+      method?: string,
     ) => Promise<ManagedCloudNavigationResponse>,
     private readonly secretAudit?: (
       handle: SecretHandle,
@@ -331,7 +278,7 @@ class ManagedCloudBrowserSession implements BrowserSession {
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
     this.recordAction('navigate');
     const parsed = await assertBrowserNavigationUrl(url);
-    const guard = await this.checkNavigation(parsed.toString(), 'goto');
+    const guard = await this.checkNavigation(parsed.toString(), 'goto', 'GET');
     if (guard.verdict !== 'allow') {
       throw new Error(
         `Managed browser navigation blocked by guard: ${guard.reason || guard.verdict}`,
@@ -343,16 +290,19 @@ class ManagedCloudBrowserSession implements BrowserSession {
   async back(opts?: HistoryNavigationOptions): Promise<void> {
     this.recordAction('back');
     await this.page.goBack(toNavigationOptions(opts));
+    await this.auditHistoryNavigation('back');
   }
 
   async forward(opts?: HistoryNavigationOptions): Promise<void> {
     this.recordAction('forward');
     await this.page.goForward(toNavigationOptions(opts));
+    await this.auditHistoryNavigation('forward');
   }
 
   async reload(opts?: HistoryNavigationOptions): Promise<void> {
     this.recordAction('reload');
     await this.page.reload(toNavigationOptions(opts));
+    await this.auditHistoryNavigation('reload');
   }
 
   async click(selector: string, opts?: ClickOptions): Promise<void> {
@@ -392,6 +342,18 @@ class ManagedCloudBrowserSession implements BrowserSession {
       timeout: opts?.timeoutMs,
     });
   }
+
+  private async auditHistoryNavigation(action: string): Promise<void> {
+    const url = this.page.url();
+    if (!url || url === 'about:blank') return;
+    const parsed = await assertBrowserNavigationUrl(url);
+    const guard = await this.checkNavigation(parsed.toString(), action, 'GET');
+    if (guard.verdict !== 'allow') {
+      throw new Error(
+        `Managed browser history navigation blocked by guard: ${guard.reason || guard.verdict}`,
+      );
+    }
+  }
 }
 
 export class ManagedCloudBrowserProvider implements BrowserProvider {
@@ -401,11 +363,12 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
   >();
   private readonly endpointUrl: string;
   private readonly pricing: ManagedCloudBrowserPricing;
+  private cachedAuthHeaders: Record<string, string> | null = null;
 
   constructor(
     private readonly options: ManagedCloudBrowserProviderOptions = {},
   ) {
-    this.endpointUrl = normalizeEndpointUrl(options.endpointUrl);
+    this.endpointUrl = normalizeManagedCloudEndpointUrl(options.endpointUrl);
     this.pricing = {
       ...DEFAULT_PRICING,
       ...options.pricing,
@@ -444,19 +407,12 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
         metering,
         runId,
         (name) => this.recordActionUsage(metering, name),
-        (url, action) =>
-          this.checkNavigation(lease, metering, runId, url, action),
+        (url, action, method) =>
+          this.checkNavigation(lease, metering, runId, url, action, method),
         this.options.secretAudit,
       );
 
-      const startedAtMs = Date.parse(lease.startedAt || '') || Date.now();
-      const startingCostUsd =
-        lease.costUsd ??
-        estimateLeaseCost({
-          startedAtMs,
-          nowMs: startedAtMs,
-          pricing: this.pricing,
-        });
+      const startingCostUsd = lease.costUsd ?? 0;
       this.recordUsage(metering, {
         model: 'managed-cloud-browser/session',
         costUsd: startingCostUsd,
@@ -471,11 +427,9 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
           tenantId: metering.tenantId,
           leaseId: lease.leaseId,
           poolNodeId: lease.nodeId,
-          sessionUrl: lease.liveUrl,
           startedAt: lease.startedAt,
           expiresAt: lease.expiresAt,
           pricing: {
-            browserUsdPerMinute: this.pricing.browserUsdPerMinute,
             actionUsd: this.pricing.actionUsd,
           },
         },
@@ -484,7 +438,6 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
         lease,
         browser,
         metering,
-        startedAtMs,
         accruedCostUsd: startingCostUsd,
         runId,
       });
@@ -567,6 +520,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
   }
 
   private authHeaders(): Record<string, string> {
+    if (this.cachedAuthHeaders) return this.cachedAuthHeaders;
     if (!this.options.poolTokenRef) return {};
     const ref = hardenSecretRef(this.options.poolTokenRef);
     const handle = resolveSecretHandleInput(ref, {
@@ -581,7 +535,8 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
       prefix: 'Bearer',
       audit: this.options.secretAudit || noopSecretAudit,
     });
-    return { [header.name]: header.value };
+    this.cachedAuthHeaders = { [header.name]: header.value };
+    return this.cachedAuthHeaders;
   }
 
   private async createLease(
@@ -612,6 +567,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     runId: string,
     url: string,
     action: string,
+    method = 'GET',
   ): Promise<ManagedCloudNavigationResponse> {
     const guard = normalizeNavigationResponse(
       await this.requestJson(
@@ -623,7 +579,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
             agentId: metering.agentId,
             sessionId: metering.sessionId,
             url,
-            action,
+            method,
           }),
         },
       ),
@@ -640,6 +596,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
         poolNodeId: lease.nodeId,
         url: guard.url,
         action,
+        method,
         verdict: guard.verdict,
         reason: guard.reason,
         matchedRule: guard.matchedRule,
@@ -695,6 +652,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     metering: RequiredMeteringContext,
     actionName: string,
   ): void {
+    if (this.pricing.actionUsd <= 0) return;
     this.recordUsage(metering, {
       model: `managed-cloud-browser/action:${actionName}`,
       costUsd: this.pricing.actionUsd,
@@ -706,13 +664,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     active: ActiveManagedCloudSession,
     release: ManagedCloudReleaseResponse | null,
   ): void {
-    const sessionCostUsd =
-      release?.costUsd ??
-      estimateLeaseCost({
-        startedAtMs: active.startedAtMs,
-        nowMs: Date.now(),
-        pricing: this.pricing,
-      });
+    const sessionCostUsd = release?.costUsd ?? active.accruedCostUsd;
     const deltaUsd = Math.max(0, sessionCostUsd - active.accruedCostUsd);
     if (deltaUsd <= 0) return;
     this.recordUsage(active.metering, {

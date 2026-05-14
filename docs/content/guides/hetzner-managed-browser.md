@@ -30,6 +30,7 @@ docker compose \
 
 hybridclaw config set browser.provider managed-cloud
 hybridclaw config set browser.managedCloud.endpointUrl http://127.0.0.1:8787
+hybridclaw config set browser.managedCloud.poolTokenRef '{"source":"store","id":"MANAGED_BROWSER_POOL_TOKEN"}'
 hybridclaw browser-pool doctor
 ```
 

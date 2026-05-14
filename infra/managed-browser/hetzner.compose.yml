@@ -8,6 +8,7 @@
 services:
   browser-pool:
     environment:
+      MANAGED_BROWSER_BIND_HOST: 0.0.0.0
       MANAGED_BROWSER_NODE_ID: ${HETZNER_SERVER_NAME:-hetzner-browser-node-1}
     volumes:
       - /srv/hybridclaw/managed-browser/data:/data

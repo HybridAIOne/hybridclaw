@@ -1,4 +1,12 @@
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { withSecretHeader } from '../security/secret-handles.js';
+import {
+  hardenSecretRef,
+  resolveSecretHandleInput,
+  type SecretRef,
+} from '../security/secret-refs.js';
+import { normalizeManagedCloudEndpointUrl } from './managed-cloud-provider.js';
+import { noopSecretAudit } from './playwright-utils.js';
 
 export interface ManagedBrowserPoolDoctorResult {
   ok: boolean;
@@ -12,10 +20,6 @@ type HealthResponse = {
   ok?: unknown;
   nodes?: unknown;
 };
-
-function normalizeEndpointUrl(endpointUrl: string): string {
-  return (endpointUrl || 'http://127.0.0.1:8787').replace(/\/+$/u, '');
-}
 
 function countHealthyNodes(nodes: unknown): {
   nodeCount: number;
@@ -33,13 +37,32 @@ function countHealthyNodes(nodes: unknown): {
   return { nodeCount: nodes.length, healthyNodeCount };
 }
 
+function authHeaders(poolTokenRef?: SecretRef): Record<string, string> {
+  if (!poolTokenRef) return {};
+  const handle = resolveSecretHandleInput(hardenSecretRef(poolTokenRef), {
+    path: 'browser.managedCloud.poolTokenRef',
+    required: true,
+    sinkKind: 'http',
+  });
+  if (!handle) {
+    throw new Error('Managed browser pool token did not resolve.');
+  }
+  const header = withSecretHeader(handle, 'Authorization', {
+    prefix: 'Bearer',
+    audit: noopSecretAudit,
+  });
+  return { [header.name]: header.value };
+}
+
 export async function checkManagedBrowserPoolHealth(
   endpointUrl = getRuntimeConfig().browser.managedCloud.endpointUrl,
 ): Promise<ManagedBrowserPoolDoctorResult> {
-  const normalizedEndpoint = normalizeEndpointUrl(endpointUrl);
+  const config = getRuntimeConfig().browser.managedCloud;
+  const normalizedEndpoint = normalizeManagedCloudEndpointUrl(endpointUrl);
   try {
     const response = await fetch(`${normalizedEndpoint}/health`, {
       method: 'GET',
+      headers: authHeaders(config.poolTokenRef),
       signal: AbortSignal.timeout(10_000),
     });
     const text = await response.text();

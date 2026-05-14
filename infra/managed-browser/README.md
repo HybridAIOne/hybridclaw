@@ -11,6 +11,7 @@ export MANAGED_BROWSER_POOL_TOKEN=replace-with-a-random-token
 docker compose -f infra/managed-browser/docker-compose.yml up --build
 hybridclaw config set browser.provider managed-cloud
 hybridclaw config set browser.managedCloud.endpointUrl http://127.0.0.1:8787
+hybridclaw config set browser.managedCloud.poolTokenRef '{"source":"store","id":"MANAGED_BROWSER_POOL_TOKEN"}'
 hybridclaw browser-pool doctor
 ```
 
@@ -21,20 +22,24 @@ deployment recipe. The Hetzner overlay is
 
 ## API
 
+- `GET /ping` returns a minimal unauthenticated liveness response.
 - `GET /health` returns node and lost-lease state for `browser-pool doctor`.
 - `POST /leases` creates a tenant-bound Chromium lease and returns `leaseId`,
   `nodeId`, and a CDP `cdpUrl`.
 - `POST /leases/:leaseId/navigation` runs the shared navigation guard and emits
-  a `browser.navigation` JSONL event with `allow`, `deny`, or `escalate`.
+  a `browser.navigation` JSONL event with `allow` or `deny`.
 - Chromium workers are launched with an HTTP proxy bound to the guard. For
   HTTPS, the guard evaluates the target host before opening the upstream
   `CONNECT`, so denied hosts are blocked before DNS or TCP egress.
 - `DELETE /leases/:leaseId` releases the worker and records
   `browser.session_ended`.
 
-When `MANAGED_BROWSER_POOL_TOKEN` is set, all non-health API and CDP requests
+When `MANAGED_BROWSER_POOL_TOKEN` is set, all non-ping API and CDP requests
 must include `Authorization: Bearer <token>`. The Compose recipe requires this
 token because it publishes the lease API on a host port.
+
+Standalone `npm run guard` mode reads tenant context from request headers and
+must only be reachable by the browser pool process or another trusted proxy.
 
 If the process restarts with active leases in `MANAGED_BROWSER_STATE_PATH`, they
 are surfaced as `browser.session_lost` events on startup instead of being

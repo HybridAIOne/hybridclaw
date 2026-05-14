@@ -6,6 +6,9 @@ import {
   readNetworkPolicyState,
 } from '../../container/shared/network-policy.js';
 
+const POLICY_CACHE_TTL_MS = 10_000;
+const policyCache = new Map();
+
 export function readTenantPolicyFile(policyPath) {
   let parsed = {};
   try {
@@ -22,6 +25,16 @@ export function readTenantPolicyFile(policyPath) {
   return out;
 }
 
+export function readCachedTenantPolicyFile(policyPath, nowMs = Date.now()) {
+  const cached = policyCache.get(policyPath);
+  if (cached && nowMs - cached.loadedAtMs < POLICY_CACHE_TTL_MS) {
+    return cached.tenants;
+  }
+  const tenants = readTenantPolicyFile(policyPath);
+  policyCache.set(policyPath, { loadedAtMs: nowMs, tenants });
+  return tenants;
+}
+
 export function evaluateTenantNavigation(params) {
   const parsed = new URL(params.url);
   const port =
@@ -30,7 +43,7 @@ export function evaluateTenantNavigation(params) {
         ? 443
         : 80
       : Number.parseInt(parsed.port, 10);
-  const tenants = readTenantPolicyFile(params.policyPath);
+  const tenants = readCachedTenantPolicyFile(params.policyPath);
   const tenantPolicy = tenants.get(params.tenantId) || {
     defaultAction: 'deny',
     rules: [],

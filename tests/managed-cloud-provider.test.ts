@@ -197,7 +197,6 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
     fetch: fetchMock,
     playwright: mock.playwright,
     pricing: {
-      browserUsdPerMinute: 0.001,
       actionUsd: 0.0005,
     },
   });
@@ -243,7 +242,7 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
         agentId: 'agent-managed',
         sessionId: 'session-managed',
         url: 'https://allowed.example/',
-        action: 'goto',
+        method: 'GET',
       }),
     }),
   );

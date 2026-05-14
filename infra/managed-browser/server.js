@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -8,7 +8,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { createGuardProxyServer } from './guard-proxy.js';
-import { evaluateTenantNavigation, readTenantPolicyFile } from './policy.js';
+import {
+  evaluateTenantNavigation,
+  readCachedTenantPolicyFile,
+} from './policy.js';
 import { appendAuditLine, loadLostLeases } from './state.js';
 
 const host = process.env.MANAGED_BROWSER_BIND_HOST || '127.0.0.1';
@@ -93,10 +96,25 @@ function sendJson(res, status, payload) {
   res.end(body);
 }
 
+function isLoopbackHost(candidate) {
+  return (
+    candidate === '127.0.0.1' ||
+    candidate === 'localhost' ||
+    candidate === '::1'
+  );
+}
+
+export function validatePoolAuthConfig(bindHost = host, token = poolToken) {
+  if (!token && !isLoopbackHost(bindHost)) {
+    throw new Error(
+      'MANAGED_BROWSER_POOL_TOKEN is required when MANAGED_BROWSER_BIND_HOST is not loopback.',
+    );
+  }
+}
+
 function timingSafeStringEqual(left, right) {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  if (leftBuffer.length !== rightBuffer.length) return false;
+  const leftBuffer = createHmac('sha256', nodeId).update(left).digest();
+  const rightBuffer = createHmac('sha256', nodeId).update(right).digest();
   return timingSafeEqual(leftBuffer, rightBuffer);
 }
 
@@ -134,20 +152,34 @@ function listen(server, listenHost = '127.0.0.1', listenPort = 0) {
 }
 
 function waitForFile(filePath, timeoutMs) {
-  const started = Date.now();
   return new Promise((resolve, reject) => {
-    const tick = () => {
-      if (fs.existsSync(filePath)) {
-        resolve(fs.readFileSync(filePath, 'utf-8'));
-        return;
-      }
-      if (Date.now() - started >= timeoutMs) {
-        reject(new Error(`Timed out waiting for ${filePath}`));
-        return;
-      }
-      setTimeout(tick, 50);
+    const dir = path.dirname(filePath);
+    let watcher;
+    let timeout;
+    const cleanup = () => {
+      if (timeout) clearTimeout(timeout);
+      watcher?.close();
     };
-    tick();
+    const readIfReady = () => {
+      if (fs.existsSync(filePath)) {
+        cleanup();
+        resolve(fs.readFileSync(filePath, 'utf-8'));
+        return true;
+      }
+      return false;
+    };
+    if (readIfReady()) return;
+    timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out waiting for ${filePath}`));
+    }, timeoutMs);
+    watcher = fs.watch(dir, () => {
+      readIfReady();
+    });
+    watcher.on('error', (error) => {
+      cleanup();
+      reject(error);
+    });
   });
 }
 
@@ -237,6 +269,7 @@ async function createLease(body, publicHost) {
     tenantId,
     agentId,
     sessionId,
+    auditRunId: String(body.auditRunId || '').trim() || null,
     startedAt,
     startedAtMs,
     expiresAt,
@@ -251,6 +284,7 @@ async function createLease(body, publicHost) {
     tenantId,
     agentId,
     sessionId,
+    auditRunId: lease.auditRunId,
     leaseId,
     nodeId,
     startedAt,
@@ -260,7 +294,6 @@ async function createLease(body, publicHost) {
     leaseId,
     nodeId,
     cdpUrl: `ws://${publicHost}/cdp/${encodeURIComponent(leaseId)}`,
-    liveUrl: null,
     startedAt,
     expiresAt,
     costUsd: 0.001,
@@ -270,21 +303,27 @@ async function createLease(body, publicHost) {
 function checkNavigation(lease, body) {
   const url = String(body.url || '').trim();
   if (!url) throw new Error('url is required');
+  const method =
+    String(body.method || '')
+      .trim()
+      .toUpperCase() || 'GET';
   const verdict = evaluateTenantNavigation({
     policyPath,
     tenantId: lease.tenantId,
     agentId: lease.agentId,
     url,
-    method: body.method,
+    method,
   });
   appendAudit({
     type: 'browser.navigation',
     tenantId: lease.tenantId,
     agentId: lease.agentId,
     sessionId: lease.sessionId,
+    auditRunId: lease.auditRunId,
     leaseId: lease.leaseId,
     nodeId,
     url: verdict.url,
+    method,
     verdict: verdict.verdict,
     reason: verdict.reason,
     matchedRule: verdict.matchedRule,
@@ -307,6 +346,7 @@ async function releaseLease(leaseId, reason = 'released') {
     tenantId: lease.tenantId,
     agentId: lease.agentId,
     sessionId: lease.sessionId,
+    auditRunId: lease.auditRunId,
     leaseId,
     nodeId,
     endedAt,
@@ -318,8 +358,15 @@ async function releaseLease(leaseId, reason = 'released') {
 
 async function route(req, res) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'local'}`);
+  if (req.method === 'GET' && url.pathname === '/ping') {
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (!requireAuthorized(req, res)) return;
+
   if (req.method === 'GET' && url.pathname === '/health') {
-    const tenantPolicies = readTenantPolicyFile(policyPath);
+    const tenantPolicies = readCachedTenantPolicyFile(policyPath);
     sendJson(res, 200, {
       ok: true,
       nodeId,
@@ -337,8 +384,6 @@ async function route(req, res) {
     });
     return;
   }
-
-  if (!requireAuthorized(req, res)) return;
 
   if (req.method === 'POST' && url.pathname === '/leases') {
     sendJson(
@@ -426,6 +471,7 @@ export function createManagedBrowserPoolServer() {
 }
 
 export function startManagedBrowserPoolServer() {
+  validatePoolAuthConfig();
   loadState();
   const server = createManagedBrowserPoolServer();
   server.listen(port, host, () => {

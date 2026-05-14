@@ -6,6 +6,8 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 let tempRoot = '';
+const ORIGINAL_POOL_TOKEN = process.env.MANAGED_BROWSER_POOL_TOKEN;
+const ORIGINAL_BIND_HOST = process.env.MANAGED_BROWSER_BIND_HOST;
 
 function makeTempRoot(): string {
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-browser-guard-'));
@@ -79,6 +81,17 @@ function sendConnect(port: number, authority: string): Promise<string> {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  if (ORIGINAL_POOL_TOKEN === undefined) {
+    delete process.env.MANAGED_BROWSER_POOL_TOKEN;
+  } else {
+    process.env.MANAGED_BROWSER_POOL_TOKEN = ORIGINAL_POOL_TOKEN;
+  }
+  if (ORIGINAL_BIND_HOST === undefined) {
+    delete process.env.MANAGED_BROWSER_BIND_HOST;
+  } else {
+    process.env.MANAGED_BROWSER_BIND_HOST = ORIGINAL_BIND_HOST;
+  }
   if (tempRoot) {
     fs.rmSync(tempRoot, { recursive: true, force: true });
     tempRoot = '';
@@ -177,8 +190,11 @@ test('managed browser guard proxy validates CONNECT ports before upstream connec
   expect(invalidPort).toContain('invalid CONNECT port');
 });
 
-test('managed browser pool validates bearer tokens and schedules TTL cleanup', async () => {
+test('managed browser pool validates bearer tokens, bind config, and TTL cleanup', async () => {
   const { isAuthorizedRequest, scheduleLeaseExpiry } = await import(
+    '../infra/managed-browser/server.js'
+  );
+  const { validatePoolAuthConfig } = await import(
     '../infra/managed-browser/server.js'
   );
 
@@ -195,6 +211,10 @@ test('managed browser pool validates bearer tokens and schedules TTL cleanup', a
     ),
   ).toBe(false);
   expect(isAuthorizedRequest({ headers: {} }, 'pool-token')).toBe(false);
+  expect(() => validatePoolAuthConfig('0.0.0.0', '')).toThrow(
+    /MANAGED_BROWSER_POOL_TOKEN/u,
+  );
+  expect(() => validatePoolAuthConfig('127.0.0.1', '')).not.toThrow();
 
   let releaseExpiry: (() => void) | null = null;
   const expired = new Promise<void>((resolve) => {
@@ -211,6 +231,29 @@ test('managed browser pool validates bearer tokens and schedules TTL cleanup', a
   await expired;
 
   expect(release).toHaveBeenCalledWith('lease-expiring', 'expired');
+});
+
+test('managed browser pool keeps ping public and protects health when token is set', async () => {
+  process.env.MANAGED_BROWSER_POOL_TOKEN = 'pool-token';
+  vi.resetModules();
+  const { createManagedBrowserPoolServer } = await import(
+    '../infra/managed-browser/server.js'
+  );
+  const server = createManagedBrowserPoolServer();
+  const port = await listen(server);
+
+  const ping = await fetch(`http://127.0.0.1:${port}/ping`);
+  const unauthenticatedHealth = await fetch(`http://127.0.0.1:${port}/health`);
+  const authenticatedHealth = await fetch(`http://127.0.0.1:${port}/health`, {
+    headers: { Authorization: 'Bearer pool-token' },
+  });
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+
+  expect(ping.status).toBe(200);
+  expect(await ping.json()).toEqual({ ok: true });
+  expect(unauthenticatedHealth.status).toBe(401);
+  expect(authenticatedHealth.status).toBe(200);
+  expect(await authenticatedHealth.json()).toMatchObject({ ok: true });
 });
 
 test('managed browser pool warm restart records lost active leases', async () => {
