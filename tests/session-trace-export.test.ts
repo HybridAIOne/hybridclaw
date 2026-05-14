@@ -64,6 +64,8 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       provider: 'hybridai',
       model: 'gpt-5-nano',
       systemPrompt: 'You are a focused coding assistant.',
+      dynamicContext:
+        '<context>\nDate (UTC): 2026-05-14\nHost: test-host\n</context>',
       promptMessages: 3,
       scheduledTaskCount: 0,
     },
@@ -237,6 +239,10 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
     content: 'I updated the parser test and verified the failure path.',
     model: 'hybridai/gpt-5-nano',
     system_prompt_hash: systemPromptHashes[0],
+    dynamic_context: {
+      role: 'user',
+      content: '<context>\nDate (UTC): 2026-05-14\nHost: test-host\n</context>',
+    },
     call_type: 'main',
     agent_role: 'main',
     token_usage: {
@@ -246,6 +252,20 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       cache_write_tokens: 15,
     },
   });
+  expect(secondStep.dynamic_context_hash).toMatch(/^[a-f0-9]{16}$/);
+  expect(secondStep.prompt_prefix).toEqual([
+    {
+      role: 'system',
+      kind: 'system_prompt',
+      system_prompt_hash: systemPromptHashes[0],
+    },
+    {
+      role: 'user',
+      kind: 'dynamic_context',
+      dynamic_context_hash: secondStep.dynamic_context_hash,
+      content: '<context>\nDate (UTC): 2026-05-14\nHost: test-host\n</context>',
+    },
+  ]);
   expect(secondStep.tool_calls).toEqual([
     {
       tool_call_id: `${runId}:tool:1`,
@@ -298,7 +318,10 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
     storeMessage(session.id, 'user-1', 'alice', 'user', 'Second turn');
     storeMessage(session.id, 'assistant', null, 'assistant', 'Second answer');
 
-    const buildPromptAt = (iso: string, sessionSummary?: string): string => {
+    const buildPromptAt = (
+      iso: string,
+      sessionSummary?: string,
+    ): { systemPrompt: string; dynamicContext: string } => {
       vi.setSystemTime(new Date(iso));
       const { messages } = buildConversationContext({
         agentId: session.agent_id,
@@ -319,11 +342,23 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
           'Expected buildConversationContext to emit a system message.',
         );
       }
-      return String(systemMessage.content || '');
+      const dynamicContextMessage = messages[1];
+      if (
+        dynamicContextMessage?.role !== 'user' ||
+        typeof dynamicContextMessage.content !== 'string'
+      ) {
+        throw new Error(
+          'Expected buildConversationContext to emit a dynamic context message.',
+        );
+      }
+      return {
+        systemPrompt: String(systemMessage.content || ''),
+        dynamicContext: dynamicContextMessage.content,
+      };
     };
 
-    const firstSystemPrompt = buildPromptAt('2026-05-13T12:00:00.000Z');
-    const secondSystemPrompt = buildPromptAt(
+    const firstPrompt = buildPromptAt('2026-05-13T12:00:00.000Z');
+    const secondPrompt = buildPromptAt(
       '2026-05-13T12:01:00.000Z',
       [
         '### Relevant Memory Recall',
@@ -331,9 +366,14 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
         '- [mem:1] User asked for date and local time.',
       ].join('\n'),
     );
-    expect(secondSystemPrompt).toBe(firstSystemPrompt);
+    expect(secondPrompt.systemPrompt).toBe(firstPrompt.systemPrompt);
+    expect(secondPrompt.dynamicContext).not.toBe(firstPrompt.dynamicContext);
+    expect(secondPrompt.dynamicContext).toContain('[mem:1]');
 
-    const recordTurn = (index: number, systemPrompt: string) => {
+    const recordTurn = (
+      index: number,
+      prompt: { systemPrompt: string; dynamicContext: string },
+    ) => {
       const runId = `turn_trace_static_prefix_${index + 1}`;
       recordAuditEvent({
         sessionId: session.id,
@@ -353,7 +393,8 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
           type: 'agent.start',
           provider: 'hybridai',
           model: 'gpt-5-nano',
-          systemPrompt,
+          systemPrompt: prompt.systemPrompt,
+          dynamicContext: prompt.dynamicContext,
           promptMessages: 3,
           scheduledTaskCount: 0,
         },
@@ -431,10 +472,10 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
       return JSON.parse(raw) as Record<string, unknown>;
     };
 
-    recordTurn(0, firstSystemPrompt);
+    recordTurn(0, firstPrompt);
     const firstTrace = await exportTraceRecord(1);
 
-    recordTurn(1, secondSystemPrompt);
+    recordTurn(1, secondPrompt);
     const secondTrace = await exportTraceRecord(2);
 
     const firstSystemPrompts = firstTrace.system_prompts as Record<
@@ -465,6 +506,27 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
     expect(secondAgentStepHashes).toEqual([
       firstSystemPromptHashes[0],
       firstSystemPromptHashes[0],
+    ]);
+    const secondAgentSteps =
+      (secondTrace.steps as Array<Record<string, unknown>>) || [];
+    const secondTurnAgentStep = secondAgentSteps[3] || {};
+    expect(secondTurnAgentStep.dynamic_context).toMatchObject({
+      role: 'user',
+      content: secondPrompt.dynamicContext,
+    });
+    expect(secondTurnAgentStep.dynamic_context_hash).toMatch(/^[a-f0-9]{16}$/);
+    expect(secondTurnAgentStep.prompt_prefix).toEqual([
+      {
+        role: 'system',
+        kind: 'system_prompt',
+        system_prompt_hash: firstSystemPromptHashes[0],
+      },
+      {
+        role: 'user',
+        kind: 'dynamic_context',
+        dynamic_context_hash: secondTurnAgentStep.dynamic_context_hash,
+        content: secondPrompt.dynamicContext,
+      },
     ]);
   } finally {
     vi.useRealTimers();
