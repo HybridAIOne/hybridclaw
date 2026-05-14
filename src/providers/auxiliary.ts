@@ -14,6 +14,7 @@ import {
 import {
   isLocalBackendType,
   isOpenAICompatProviderId,
+  LOCAL_BACKEND_IDS,
   type RuntimeProviderId,
 } from './provider-ids.js';
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
@@ -418,36 +419,58 @@ async function resolveLocalFallbackContext(params: {
   modelHint?: string;
   primaryProvider?: RuntimeProvider;
 }): Promise<AuxiliaryTextCallContext | null> {
-  const candidates = [
-    params.params.fallbackModel?.trim() ?? '',
-    params.modelHint?.trim() ?? '',
-  ].filter((candidate, index, values) => {
-    if (!candidate) return false;
-    return values.indexOf(candidate) === index;
-  });
+  const candidates: Array<{
+    model: string;
+    expectedProvider?: RuntimeProvider;
+  }> = [];
+  const seen = new Set<string>();
+  const pushCandidate = (
+    model: string | undefined,
+    expectedProvider?: RuntimeProvider,
+  ): void => {
+    const trimmed = model?.trim() ?? '';
+    if (!trimmed) return;
+    const explicitProvider = detectRuntimeProviderPrefix(trimmed);
+    if (explicitProvider && !isLocalBackendType(explicitProvider)) return;
+    const provider = explicitProvider || expectedProvider;
+    if (provider && !isLocalBackendType(provider)) return;
+    const normalized =
+      provider && !explicitProvider
+        ? normalizeAuxiliaryProviderModel({ provider, model: trimmed })
+        : trimmed;
+    const key = `${provider || 'auto'}:${normalized}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ model: normalized, expectedProvider: provider });
+  };
+
+  pushCandidate(params.params.fallbackModel);
+  pushCandidate(params.modelHint);
+  for (const provider of LOCAL_BACKEND_IDS) {
+    pushCandidate(resolveDefaultAuxiliaryModelForProvider(provider), provider);
+  }
 
   for (const candidate of candidates) {
-    const provider = detectRuntimeProviderPrefix(candidate);
-    if (!provider || !isLocalBackendType(provider)) continue;
     try {
       const fallback = await resolveContextFromModel({
         task: params.params.task,
-        model: candidate,
+        model: candidate.model,
         agentId: params.params.agentId,
         chatbotId: params.params.fallbackChatbotId,
         enableRag: params.params.fallbackEnableRag ?? false,
         maxTokens:
           normalizeMaxTokens(params.params.maxTokens) ??
           normalizeMaxTokens(params.params.fallbackMaxTokens),
-        expectedProvider: provider,
+        expectedProvider: candidate.expectedProvider,
       });
+      if (!isLocalBackendType(fallback.provider)) continue;
       logger.warn(
         {
           task: params.params.task,
           primaryProvider:
             params.primaryProvider || params.params.provider || 'auto',
-          fallbackProvider: provider,
-          modelHint: candidate,
+          fallbackProvider: fallback.provider,
+          modelHint: candidate.model,
           primaryError: params.primaryError,
         },
         'Auxiliary provider resolution failed; using local model fallback',
