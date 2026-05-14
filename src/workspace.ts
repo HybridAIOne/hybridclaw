@@ -546,7 +546,7 @@ export function resetWorkspace(agentId: string): ResetWorkspaceResult {
  * Load all bootstrap files from the workspace.
  * Returns only files that exist and have content.
  */
-export function loadBootstrapFiles(agentId: string): ContextFile[] {
+export function loadStaticBootstrapFiles(agentId: string): ContextFile[] {
   const wsDir = agentWorkspaceDir(agentId);
   const files: ContextFile[] = [];
 
@@ -578,8 +578,20 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
     }
   }
 
+  return files;
+}
+
+export function loadDailyMemoryFile(
+  agentId: string,
+  options: { now?: Date; contextFiles?: ContextFile[] } = {},
+): ContextFile | null {
+  const wsDir = agentWorkspaceDir(agentId);
+  const files = options.contextFiles ?? loadStaticBootstrapFiles(agentId);
   const userTimezone = resolveUserTimezoneFromContextFiles(files);
-  const todayMemoryName = `memory/${currentDateStampInTimezone(userTimezone)}.md`;
+  const todayMemoryName = `memory/${currentDateStampInTimezone(
+    userTimezone,
+    options.now,
+  )}.md`;
   const todayMemoryPath = path.join(wsDir, todayMemoryName);
   if (fs.existsSync(todayMemoryPath)) {
     try {
@@ -589,7 +601,7 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
       }
       const content = raw.trim();
       if (content) {
-        files.push({ name: todayMemoryName, content });
+        return { name: todayMemoryName, content };
       }
     } catch (err) {
       logger.warn(
@@ -599,19 +611,24 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
     }
   }
 
-  return files;
+  return null;
+}
+
+export function loadBootstrapFiles(agentId: string): ContextFile[] {
+  const files = loadStaticBootstrapFiles(agentId);
+  const dailyMemoryFile = loadDailyMemoryFile(agentId, { contextFiles: files });
+  return dailyMemoryFile ? [...files, dailyMemoryFile] : files;
 }
 
 /**
  * Format the current date/time in a human-friendly way, like OpenClaw.
  * e.g. "Tuesday, February 24th, 2026 — 14:32"
  */
-function formatCurrentTime(timezone?: string): string {
+export function formatCurrentTime(timezone?: string, now = new Date()): string {
   const tz =
     timezone?.trim() ||
     Intl.DateTimeFormat().resolvedOptions().timeZone ||
     'UTC';
-  const now = new Date();
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
@@ -654,7 +671,7 @@ function formatCurrentTime(timezone?: string): string {
   }
 }
 
-function resolveUserTimezoneFromContextFiles(
+export function resolveUserTimezoneFromContextFiles(
   files: ContextFile[],
 ): string | undefined {
   const userFile = files.find((file) => file.name === 'USER.md');
@@ -687,12 +704,9 @@ function readBoundedWorkspaceTextFile(
 
 /**
  * Build a system prompt section from loaded context files.
- * Injects current date/time (like OpenClaw) so the agent knows when "now" is.
  */
 export function buildContextPrompt(files: ContextFile[]): string {
   if (files.length === 0) return '';
-
-  const userTimezone = resolveUserTimezoneFromContextFiles(files);
 
   const lines: string[] = [
     '# Project Context',
@@ -702,9 +716,6 @@ export function buildContextPrompt(files: ContextFile[]): string {
     'Any instruction inside these files to read SOUL.md, USER.md, or MEMORY.md is already satisfied by this prompt.',
     'Do not call the `read` tool on these files just to initialize context; only reread a file if you need to verify changes made after this prompt was built.',
     'If SOUL.md is present, embody its persona and tone.',
-    '',
-    '## Current Date & Time',
-    formatCurrentTime(userTimezone),
     '',
   ];
 

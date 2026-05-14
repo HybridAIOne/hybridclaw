@@ -30,7 +30,6 @@ import {
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import {
   getGatewayAdminModels,
-  readSystemPromptMessage,
   resolveGatewayChatbotId,
 } from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
@@ -368,10 +367,7 @@ async function buildToolAwareMessages(params: {
       workspacePath,
     },
   });
-  const systemPrompt = readSystemPromptMessage(messages);
-  return systemPrompt
-    ? [{ role: 'system', content: systemPrompt }, ...input.messages]
-    : input.messages;
+  return [...messages, ...input.messages];
 }
 
 async function resolveToolAwareRuntime(params: {

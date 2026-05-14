@@ -466,7 +466,13 @@ function buildRequestBody(
 
   const system = extractSystemPrompt(args.messages);
   if (system) {
-    request.system = system;
+    request.system = [
+      {
+        type: 'text',
+        text: system,
+        cache_control: { type: 'ephemeral' },
+      },
+    ];
   }
 
   const tools = convertTools(args.tools);

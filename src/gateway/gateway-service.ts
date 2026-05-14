@@ -696,6 +696,20 @@ export function readSystemPromptMessage(
     : null;
 }
 
+export function readDynamicContextMessage(
+  messages: ChatMessage[],
+): string | null {
+  const dynamicContextMessage = messages.find(
+    (message) =>
+      message.role === 'user' &&
+      typeof message.content === 'string' &&
+      message.content.trimStart().startsWith('<context>'),
+  );
+  if (!dynamicContextMessage) return null;
+  const content = sanitizeRequestLogValue(dynamicContextMessage.content);
+  return typeof content === 'string' && content.trim() ? content : null;
+}
+
 function sanitizeRequestLogToolExecutions(
   toolExecutions: ToolExecution[],
 ): ToolExecution[] {
@@ -6688,6 +6702,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         scheduledTaskCount: 0,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),
+        dynamicContext: readDynamicContextMessage(messages),
       },
     });
 

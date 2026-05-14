@@ -1,3 +1,5 @@
+import os from 'node:os';
+
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   type HistoryOptimizationStats,
@@ -12,6 +14,14 @@ import {
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
 import {
+  formatCurrentTime,
+  loadDailyMemoryFile,
+  loadStaticBootstrapFiles,
+  resolveUserTimezoneFromContextFiles,
+} from '../workspace.js';
+import {
+  buildRetrievedContextPrompt,
+  buildSessionSummaryPrompt,
   buildSystemPromptFromHooks,
   type PromptMode,
   type PromptPartName,
@@ -22,6 +32,74 @@ import { mergeBlockedToolNames } from './tool-policy.js';
 interface HistoryMessage {
   role: string;
   content: ChatMessage['content'];
+}
+
+const HOSTNAME = sanitizeDynamicContextValue(os.hostname());
+
+function sanitizeDynamicContextValue(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+interface DynamicContextMessageOptions {
+  agentId?: string;
+  now?: Date;
+  retrievedContext?: string | null;
+  sessionSummary?: string | null;
+}
+
+export function buildDynamicContextMessage(
+  options: Date | DynamicContextMessageOptions = {},
+): ChatMessage {
+  const now = options instanceof Date ? options : options.now || new Date();
+  const agentId = options instanceof Date ? undefined : options.agentId;
+  const lines = ['<context>', `Date (UTC): ${now.toISOString().slice(0, 10)}`];
+  const dynamicSections: string[] = [];
+  if (!(options instanceof Date)) {
+    dynamicSections.push(
+      buildSessionSummaryPrompt(options.sessionSummary),
+      buildRetrievedContextPrompt(options.retrievedContext),
+    );
+  }
+
+  if (agentId) {
+    const contextFiles = loadStaticBootstrapFiles(agentId);
+    const userTimezone = resolveUserTimezoneFromContextFiles(contextFiles);
+    lines.push(`Current Date & Time: ${formatCurrentTime(userTimezone, now)}`);
+
+    const dailyMemoryFile = loadDailyMemoryFile(agentId, {
+      now,
+      contextFiles,
+    });
+    if (HOSTNAME) {
+      lines.push(`Host: ${HOSTNAME}`);
+    }
+    lines.push('</context>');
+
+    if (dailyMemoryFile) {
+      dynamicSections.push(
+        [
+          `## Daily Memory (${dailyMemoryFile.name})`,
+          '',
+          dailyMemoryFile.content,
+        ].join('\n'),
+      );
+    }
+  } else {
+    if (HOSTNAME) {
+      lines.push(`Host: ${HOSTNAME}`);
+    }
+    lines.push('</context>');
+  }
+
+  return {
+    role: 'user',
+    content: [lines.join('\n'), ...dynamicSections.filter(Boolean)].join(
+      '\n\n',
+    ),
+  };
 }
 
 function resolvePreviousUserContent(history: HistoryMessage[]): string | null {
@@ -87,8 +165,6 @@ export function buildConversationContext(params: {
       : null;
   const systemPrompt = buildSystemPromptFromHooks({
     agentId,
-    sessionSummary,
-    retrievedContext,
     skills,
     explicitSkillInvocation,
     purpose: 'conversation',
@@ -104,6 +180,13 @@ export function buildConversationContext(params: {
   const messages: ChatMessage[] = [];
   if (systemPrompt) {
     messages.push({ role: 'system', content: systemPrompt });
+    messages.push(
+      buildDynamicContextMessage({
+        agentId,
+        retrievedContext,
+        sessionSummary,
+      }),
+    );
   }
 
   const historyMessages = [...history].reverse().map(

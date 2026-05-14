@@ -1,4 +1,3 @@
-import os from 'node:os';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,
@@ -35,7 +34,7 @@ import {
   type Skill,
   type SkillInvocation,
 } from '../skills/skills.js';
-import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
+import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
 import type {
   ExtendedPromptHookName,
   PromptPartName,
@@ -216,10 +215,12 @@ function buildSkillsSection(skillsPrompt: string): string {
 }
 
 function buildBootstrapHook(context: PromptHookContext): string {
-  const contextFiles = loadBootstrapFiles(context.agentId).filter((file) => {
-    const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
-    return part ? isBootstrapPartSelected(part, context) : true;
-  });
+  const contextFiles = loadStaticBootstrapFiles(context.agentId).filter(
+    (file) => {
+      const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
+      return part ? isBootstrapPartSelected(part, context) : true;
+    },
+  );
   const contextPrompt = buildContextPrompt(contextFiles);
   const skillsPrompt = context.explicitSkillInvocation
     ? ''
@@ -595,7 +596,6 @@ function buildRuntimeHook(context: PromptHookContext): string {
     '## Runtime Metadata',
     `HybridClaw version: v${APP_VERSION}`,
     'HybridClaw Documentation: [/docs/](/docs/)',
-    `Date (UTC): ${new Date().toISOString().slice(0, 10)}`,
     modelSentence,
     runtimeInfo.channelId?.trim()
       ? `Channel ID: ${runtimeInfo.channelId.trim()}`
@@ -603,7 +603,6 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Guild ID: ${guildLabel}`,
     `Node: ${process.version}`,
     `OS: ${process.platform} (${process.arch})`,
-    `Host: ${os.hostname()}`,
     `Workspace: ${workspaceLabel}`,
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',

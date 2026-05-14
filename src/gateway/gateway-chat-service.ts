@@ -111,6 +111,7 @@ import {
   normalizeDelegationEffect,
   normalizeMediaContextItems,
   prepareSessionAutoReset,
+  readDynamicContextMessage,
   readSystemPromptMessage,
   recordSuccessfulTurn,
   resolveCanonicalContextScope,
@@ -1281,6 +1282,7 @@ async function handleGatewayMessageInner(
         scheduledTaskCount: scheduledTasks.length,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),
+        dynamicContext: readDynamicContextMessage(messages),
       },
     });
     if (pluginManager) {
