@@ -82,6 +82,7 @@ import {
   type ConciergeProfile,
 } from './concierge-routing.js';
 import { resolveConciergeTurn } from './concierge-session.js';
+import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -1258,6 +1259,11 @@ async function handleGatewayMessageInner(
       explicitSkillName,
       toolExecutions,
       skills,
+    });
+    emitDiagramRuntimeEventsForToolExecutions({
+      sessionId: req.sessionId,
+      runId,
+      toolExecutions,
     });
     emitToolExecutionAuditEvents({
       sessionId: req.sessionId,

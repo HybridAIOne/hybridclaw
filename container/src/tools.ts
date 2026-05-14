@@ -19,7 +19,11 @@ import {
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
 } from './browser-tools.js';
-import { runDiagramTool } from './diagram-create.js';
+import {
+  type DiagramFixupRequest,
+  type DiagramRuntimeOptions,
+  runDiagramTool,
+} from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
@@ -2338,6 +2342,62 @@ async function callTextAuxiliaryTask(params: {
   return response.content;
 }
 
+function stripDiagramFixupFence(content: string): string {
+  const trimmed = content.trim();
+  const match = trimmed.match(/^```[a-zA-Z0-9_-]*\s*\r?\n([\s\S]*?)\r?\n```$/);
+  return (match?.[1] || trimmed).trim();
+}
+
+async function fixDiagramSourceWithAuxiliary(
+  runtimeContext: AuxiliaryRuntimeContext,
+  request: DiagramFixupRequest,
+): Promise<string | null> {
+  try {
+    const fixed = await callTextAuxiliaryTask({
+      runtimeContext,
+      task: 'skills_hub',
+      toolName: 'diagram.fixup',
+      maxTokens: 1600,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You repair diagram-as-code source. Return only complete corrected source, with no prose and no markdown fence.',
+        },
+        {
+          role: 'user',
+          content: JSON.stringify(
+            {
+              action: request.action,
+              attempt: request.attempt,
+              format: request.format,
+              type: request.type,
+              requested_type: request.requestedType,
+              description: request.description,
+              instructions: request.instructions,
+              validation_errors: request.errors,
+              source: request.source,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    });
+    return stripDiagramFixupFence(fixed);
+  } catch {
+    return null;
+  }
+}
+
+function buildDiagramRuntimeOptions(): DiagramRuntimeOptions {
+  const runtimeContext = captureAuxiliaryRuntimeContext();
+  return {
+    fixSource: (request) =>
+      fixDiagramSourceWithAuxiliary(runtimeContext, request),
+  };
+}
+
 function buildSessionSearchContext(
   candidate: SessionSearchCandidate,
   maxChars = SESSION_SEARCH_MAX_LLM_CONTEXT_CHARS,
@@ -3449,9 +3509,14 @@ async function executeToolInternal(
       }
     }
 
+    case 'diagram.create':
     case 'diagram_create': {
       try {
-        return await runDiagramTool('create', args);
+        return await runDiagramTool(
+          'create',
+          args,
+          buildDiagramRuntimeOptions(),
+        );
       } catch (err) {
         return failTool(
           `Error: ${err instanceof Error ? err.message : String(err)}`,
@@ -3459,9 +3524,14 @@ async function executeToolInternal(
       }
     }
 
+    case 'diagram.update':
     case 'diagram_update': {
       try {
-        return await runDiagramTool('update', args);
+        return await runDiagramTool(
+          'update',
+          args,
+          buildDiagramRuntimeOptions(),
+        );
       } catch (err) {
         return failTool(
           `Error: ${err instanceof Error ? err.message : String(err)}`,
@@ -3469,6 +3539,7 @@ async function executeToolInternal(
       }
     }
 
+    case 'diagram.validate':
     case 'diagram_validate': {
       try {
         return await runDiagramTool('validate', args);
@@ -4775,3 +4846,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 ];
+
+const DIAGRAM_TOOL_ALIASES: Record<string, string> = {
+  diagram_create: 'diagram.create',
+  diagram_update: 'diagram.update',
+  diagram_validate: 'diagram.validate',
+};
+
+for (const [legacyName, aliasName] of Object.entries(DIAGRAM_TOOL_ALIASES)) {
+  const tool = TOOL_DEFINITIONS.find(
+    (definition) => definition.function.name === legacyName,
+  );
+  if (!tool) continue;
+  TOOL_DEFINITIONS.push({
+    ...tool,
+    function: {
+      ...tool.function,
+      name: aliasName,
+      description: `${tool.function.description} Alias of ${legacyName}.`,
+    },
+  });
+}

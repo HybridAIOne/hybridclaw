@@ -32,6 +32,7 @@ interface DiagramArtifact {
   mimeType: string;
   sizeBytes: number;
   kind: 'source' | 'rendered';
+  scope: DiagramArtifactScope;
 }
 
 interface DiagramValidation {
@@ -51,9 +52,47 @@ interface NormalizedDiagramRequest {
   warnings: string[];
 }
 
-const OUTPUT_DIR = '.generated-diagrams';
+interface DiagramArtifactScope {
+  type: 'skill';
+  id: 'diagram';
+}
+
+interface DiagramRuntimeEvent {
+  type: 'diagram.rendered' | 'diagram.validation_failed';
+  scope: DiagramArtifactScope;
+  artifact_ref?: string;
+  source_artifact_ref?: string;
+  diagram_type: MermaidDiagramType;
+  requested_type?: DiagramType;
+  format: DiagramFormat;
+  render_to: DiagramRenderTarget;
+  errors?: string[];
+}
+
+export interface DiagramFixupRequest {
+  action: Exclude<DiagramAction, 'validate'>;
+  attempt: number;
+  source: string;
+  errors: string[];
+  type: MermaidDiagramType;
+  requestedType: DiagramType;
+  format: DiagramFormat;
+  description: string;
+  instructions: string;
+}
+
+export interface DiagramRuntimeOptions {
+  fixSource?: (request: DiagramFixupRequest) => Promise<string | null>;
+}
+
+const OUTPUT_DIR = '.generated-diagrams/skills/diagram';
+const DIAGRAM_ARTIFACT_SCOPE: DiagramArtifactScope = {
+  type: 'skill',
+  id: 'diagram',
+};
 const EXTERNAL_RENDER_TIMEOUT_MS = 60_000;
 const PLANTUML_FETCH_TIMEOUT_MS = 15_000;
+const MAX_FIXUP_ATTEMPTS = 2;
 const execFileAsync = promisify(execFile);
 const SOURCE_EXTENSIONS: Record<DiagramFormat, string> = {
   mermaid: '.mmd',
@@ -646,6 +685,10 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
+function escapeSvgAttribute(value: string): string {
+  return escapeHtml(value).replace(/'/g, '&apos;');
+}
+
 function renderSourceSvg(source: string, title: string): Buffer {
   const lines = stripFence(source).split(/\r?\n/).slice(0, 28);
   const lineHeight = 22;
@@ -663,6 +706,91 @@ function renderSourceSvg(source: string, title: string): Buffer {
   <rect x="20" y="20" width="${width - 40}" height="${height - 40}" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
   <text x="32" y="56" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a">${escapeHtml(title)}</text>
   ${text}
+</svg>`,
+    'utf-8',
+  );
+}
+
+function readNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function readElementColor(value: unknown, fallback: string): string {
+  const color = readStringValue(value);
+  return color && color !== 'transparent' ? color : fallback;
+}
+
+function renderExcalidrawSvg(source: string): Buffer {
+  const parsed = JSON.parse(stripFence(source)) as {
+    elements?: Array<Record<string, unknown>>;
+    appState?: Record<string, unknown>;
+  };
+  const elements = Array.isArray(parsed.elements) ? parsed.elements : [];
+  const background = readElementColor(
+    parsed.appState?.viewBackgroundColor,
+    '#ffffff',
+  );
+  const width = Math.max(
+    640,
+    ...elements.map(
+      (element) =>
+        readNumber(element.x, 0) + Math.max(80, readNumber(element.width, 120)),
+    ),
+  );
+  const height = Math.max(
+    360,
+    ...elements.map(
+      (element) =>
+        readNumber(element.y, 0) + Math.max(40, readNumber(element.height, 60)),
+    ),
+  );
+  const renderedElements = elements
+    .map((element) => {
+      const x = readNumber(element.x, 0);
+      const y = readNumber(element.y, 0);
+      const elementWidth = Math.max(1, readNumber(element.width, 120));
+      const elementHeight = Math.max(1, readNumber(element.height, 60));
+      const stroke = readElementColor(element.strokeColor, '#1e1e1e');
+      const fill = readElementColor(element.backgroundColor, 'none');
+      const type = readStringValue(element.type);
+      if (type === 'text') {
+        const text = readStringValue(element.text || element.originalText);
+        const fontSize = readNumber(element.fontSize, 20);
+        return text
+          .split(/\r?\n/)
+          .map(
+            (line, index) =>
+              `<text x="${x}" y="${y + fontSize + index * (fontSize + 6)}" font-family="Virgil, Segoe Print, Comic Sans MS, sans-serif" font-size="${fontSize}" fill="${escapeSvgAttribute(stroke)}">${escapeHtml(line)}</text>`,
+          )
+          .join('\n');
+      }
+      if (type === 'ellipse') {
+        return `<ellipse cx="${x + elementWidth / 2}" cy="${y + elementHeight / 2}" rx="${elementWidth / 2}" ry="${elementHeight / 2}" fill="${escapeSvgAttribute(fill)}" stroke="${escapeSvgAttribute(stroke)}" stroke-width="2"/>`;
+      }
+      if (type === 'diamond') {
+        const points = [
+          `${x + elementWidth / 2},${y}`,
+          `${x + elementWidth},${y + elementHeight / 2}`,
+          `${x + elementWidth / 2},${y + elementHeight}`,
+          `${x},${y + elementHeight / 2}`,
+        ].join(' ');
+        return `<polygon points="${points}" fill="${escapeSvgAttribute(fill)}" stroke="${escapeSvgAttribute(stroke)}" stroke-width="2"/>`;
+      }
+      if (type === 'arrow' || type === 'line') {
+        return `<line x1="${x}" y1="${y}" x2="${x + elementWidth}" y2="${y + elementHeight}" stroke="${escapeSvgAttribute(stroke)}" stroke-width="2" marker-end="${type === 'arrow' ? 'url(#arrowhead)' : ''}"/>`;
+      }
+      return `<rect x="${x}" y="${y}" width="${elementWidth}" height="${elementHeight}" rx="8" fill="${escapeSvgAttribute(fill)}" stroke="${escapeSvgAttribute(stroke)}" stroke-width="2"/>`;
+    })
+    .join('\n');
+  return Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width + 80}" height="${height + 80}" viewBox="-40 -40 ${width + 80} ${height + 80}">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#1e1e1e"/>
+    </marker>
+  </defs>
+  <rect x="-40" y="-40" width="${width + 80}" height="${height + 80}" fill="${escapeSvgAttribute(background)}"/>
+  ${renderedElements}
 </svg>`,
     'utf-8',
   );
@@ -880,12 +1008,7 @@ async function renderDiagram(
   if (request.format === 'plantuml')
     return renderPlantUml(request.source, renderTo);
   if (renderTo === 'svg') {
-    return {
-      data: renderSourceSvg(request.source, 'Excalidraw JSON source'),
-      warnings: [
-        'Excalidraw headless rendering is not configured; emitted source-backed SVG fallback.',
-      ],
-    };
+    return { data: renderExcalidrawSvg(request.source), warnings: [] };
   }
   throw new Error(
     'Excalidraw render_to supports none or svg in the built-in adapter.',
@@ -909,19 +1032,113 @@ function persistBuffer(
     mimeType,
     sizeBytes: buffer.length,
     kind,
+    scope: DIAGRAM_ARTIFACT_SCOPE,
   };
+}
+
+function buildValidationFailedEvent(params: {
+  request: NormalizedDiagramRequest;
+  sourceArtifact?: DiagramArtifact;
+  errors: string[];
+}): DiagramRuntimeEvent {
+  return {
+    type: 'diagram.validation_failed',
+    scope: DIAGRAM_ARTIFACT_SCOPE,
+    ...(params.sourceArtifact
+      ? { source_artifact_ref: params.sourceArtifact.path }
+      : {}),
+    diagram_type: params.request.type,
+    requested_type: params.request.requestedType,
+    format: params.request.format,
+    render_to: params.request.renderTo,
+    errors: params.errors,
+  };
+}
+
+function buildRenderedEvent(params: {
+  request: NormalizedDiagramRequest;
+  sourceArtifact: DiagramArtifact;
+  renderedArtifact: DiagramArtifact;
+}): DiagramRuntimeEvent {
+  return {
+    type: 'diagram.rendered',
+    scope: DIAGRAM_ARTIFACT_SCOPE,
+    artifact_ref: params.renderedArtifact.path,
+    source_artifact_ref: params.sourceArtifact.path,
+    diagram_type: params.request.type,
+    requested_type: params.request.requestedType,
+    format: params.request.format,
+    render_to: params.request.renderTo,
+  };
+}
+
+async function validateWithFixups(
+  initialRequest: NormalizedDiagramRequest,
+  action: Exclude<DiagramAction, 'validate'>,
+  options?: DiagramRuntimeOptions,
+): Promise<{
+  request: NormalizedDiagramRequest;
+  validation: DiagramValidation;
+  fixupAttempts: number;
+}> {
+  let request = initialRequest;
+  let validation = validateDiagramSource(
+    request.source,
+    request.format,
+    request.type,
+  );
+  let fixupAttempts = 0;
+
+  while (!validation.valid && fixupAttempts < MAX_FIXUP_ATTEMPTS) {
+    if (!options?.fixSource) break;
+    const attempt = fixupAttempts + 1;
+    const fixedSource = await options.fixSource({
+      action,
+      attempt,
+      source: request.source,
+      errors: validation.errors,
+      type: request.type,
+      requestedType: request.requestedType,
+      format: request.format,
+      description: request.description,
+      instructions: request.instructions,
+    });
+    fixupAttempts = attempt;
+    if (!fixedSource) break;
+    const source = stripFence(fixedSource);
+    validation = validateDiagramSource(source, request.format, request.type);
+    request = {
+      ...request,
+      source,
+      warnings: [
+        ...request.warnings,
+        `Applied diagram fix-up attempt ${attempt}.`,
+      ],
+    };
+  }
+
+  return { request, validation, fixupAttempts };
 }
 
 export async function runDiagramTool(
   action: DiagramAction,
   args: Record<string, unknown>,
+  options?: DiagramRuntimeOptions,
 ): Promise<string> {
-  const request = normalizeRequest(args, action);
-  const validation = validateDiagramSource(
+  let request = normalizeRequest(args, action);
+  let validation = validateDiagramSource(
     request.source,
     request.format,
     request.type,
   );
+  let fixupAttempts = 0;
+
+  if (action !== 'validate') {
+    const fixed = await validateWithFixups(request, action, options);
+    request = fixed.request;
+    validation = fixed.validation;
+    fixupAttempts = fixed.fixupAttempts;
+  }
 
   if (action === 'validate') {
     return JSON.stringify(
@@ -932,6 +1149,14 @@ export async function runDiagramTool(
         suggested_fix: validation.suggested_fix,
         type: request.type,
         format: request.format,
+        runtime_events: validation.valid
+          ? []
+          : [
+              buildValidationFailedEvent({
+                request,
+                errors: validation.errors,
+              }),
+            ],
       },
       null,
       2,
@@ -957,6 +1182,14 @@ export async function runDiagramTool(
         source_artifact_valid: false,
         type: request.type,
         format: request.format,
+        fixup_attempts: fixupAttempts,
+        runtime_events: [
+          buildValidationFailedEvent({
+            request,
+            sourceArtifact,
+            errors: validation.errors,
+          }),
+        ],
         warnings: [
           ...request.warnings,
           'Source artifact was saved for debugging but did not validate.',
@@ -970,6 +1203,7 @@ export async function runDiagramTool(
   const artifacts: DiagramArtifact[] = [sourceArtifact];
   let renderedArtifact: DiagramArtifact | null = null;
   const renderWarnings: string[] = [];
+  const runtimeEvents: DiagramRuntimeEvent[] = [];
   if (request.renderTo !== 'none') {
     const rendered = await renderDiagram(request);
     renderWarnings.push(...rendered.warnings);
@@ -980,6 +1214,9 @@ export async function runDiagramTool(
       'rendered',
     );
     artifacts.push(renderedArtifact);
+    runtimeEvents.push(
+      buildRenderedEvent({ request, sourceArtifact, renderedArtifact }),
+    );
   }
 
   return JSON.stringify(
@@ -994,6 +1231,8 @@ export async function runDiagramTool(
       format: request.format,
       render_to: request.renderTo,
       artifacts,
+      fixup_attempts: fixupAttempts,
+      runtime_events: runtimeEvents,
       warnings: [...request.warnings, ...renderWarnings],
       usage: { renders: request.renderTo === 'none' ? 0 : 1, llm_tokens: 0 },
       stakes: { f8: 'low', reason: 'operator-controlled file artifact' },

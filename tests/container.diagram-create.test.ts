@@ -8,6 +8,7 @@ const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
 const ORIGINAL_PLANTUML_SERVER_URL = process.env.HYBRIDCLAW_PLANTUML_SERVER_URL;
 const ORIGINAL_LEGACY_PLANTUML_SERVER_URL = process.env.PLANTUML_SERVER_URL;
+const ORIGINAL_PATH = process.env.PATH;
 
 let workspaceRoot = '';
 
@@ -56,6 +57,11 @@ afterEach(() => {
   } else {
     process.env.PLANTUML_SERVER_URL = ORIGINAL_LEGACY_PLANTUML_SERVER_URL;
   }
+  if (ORIGINAL_PATH == null) {
+    delete process.env.PATH;
+  } else {
+    process.env.PATH = ORIGINAL_PATH;
+  }
   vi.unstubAllGlobals();
   vi.resetModules();
   fs.rmSync(workspaceRoot, { recursive: true, force: true });
@@ -100,9 +106,44 @@ describe('diagram tools', () => {
       expect(parsed.valid).toBe(true);
       expect(parsed.type).toBe(type);
       expect(parsed.format).toBe('mermaid');
+      expect(parsed.source_artifact_ref).toContain(
+        '/workspace/.generated-diagrams/skills/diagram/',
+      );
       expect(fs.existsSync(hostPath(parsed.source_artifact_ref))).toBe(true);
       expect(fs.existsSync(hostPath(parsed.rendered_artifact_ref))).toBe(true);
     }
+  });
+
+  test('dotted diagram tool aliases execute and remain schema-visible', async () => {
+    const { executeToolWithMetadata, TOOL_DEFINITIONS } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram.create',
+      JSON.stringify({
+        description: 'request pipeline',
+        type: 'flowchart',
+        format: 'mermaid',
+        render_to: 'none',
+      }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      success: boolean;
+      type: string;
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.success).toBe(true);
+    expect(parsed.type).toBe('flowchart');
+    expect(TOOL_DEFINITIONS.map((tool) => tool.function.name)).toEqual(
+      expect.arrayContaining([
+        'diagram.create',
+        'diagram.update',
+        'diagram.validate',
+        'diagram_create',
+        'diagram_update',
+        'diagram_validate',
+      ]),
+    );
   });
 
   test('auto classification reaches the roadmap fixture threshold', async () => {
@@ -275,6 +316,107 @@ describe('diagram tools', () => {
     );
   });
 
+  test('renders PlantUML SVG through the configured server', async () => {
+    process.env.HYBRIDCLAW_PLANTUML_SERVER_URL = 'https://plantuml.test';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<svg><text>plantuml</text></svg>')),
+    );
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_create',
+      JSON.stringify({
+        description: 'sequence diagram for native PlantUML render',
+        type: 'sequence',
+        format: 'plantuml',
+        render_to: 'svg',
+      }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      rendered_artifact_ref: string;
+      runtime_events: Array<{ type: string }>;
+      warnings: string[];
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.runtime_events).toContainEqual(
+      expect.objectContaining({ type: 'diagram.rendered' }),
+    );
+    expect(
+      fs.readFileSync(hostPath(parsed.rendered_artifact_ref), 'utf-8'),
+    ).toContain('plantuml');
+  });
+
+  test('renders Graphviz SVG through dot when available', async () => {
+    const binDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-dot-bin-'),
+    );
+    const dotPath = path.join(binDir, 'dot');
+    fs.writeFileSync(
+      dotPath,
+      [
+        '#!/usr/bin/env node',
+        "const fs = require('node:fs');",
+        "const out = process.argv[process.argv.indexOf('-o') + 1];",
+        "fs.writeFileSync(out, '<svg><text>graphviz</text></svg>');",
+      ].join('\n'),
+      'utf-8',
+    );
+    fs.chmodSync(dotPath, 0o755);
+    process.env.PATH = `${binDir}${path.delimiter}${ORIGINAL_PATH || ''}`;
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_create',
+      JSON.stringify({
+        description: 'graphviz topology',
+        type: 'flowchart',
+        format: 'graphviz',
+        render_to: 'svg',
+      }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      rendered_artifact_ref: string;
+      warnings: string[];
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.warnings).toEqual([]);
+    expect(
+      fs.readFileSync(hostPath(parsed.rendered_artifact_ref), 'utf-8'),
+    ).toContain('graphviz');
+  });
+
+  test('renders Excalidraw JSON to SVG without a source fallback', async () => {
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_create',
+      JSON.stringify({
+        description: 'editable launch sketch',
+        type: 'flowchart',
+        format: 'excalidraw',
+        render_to: 'svg',
+      }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      rendered_artifact_ref: string;
+      warnings: string[];
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.warnings).toEqual([]);
+    const svg = fs.readFileSync(
+      hostPath(parsed.rendered_artifact_ref),
+      'utf-8',
+    );
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('editable launch sketch');
+    expect(svg).not.toContain('Excalidraw JSON source');
+  });
+
   test('updates an existing diagram artifact while preserving type and format', async () => {
     const { executeToolWithMetadata } = await loadTools();
     const create = await executeToolWithMetadata(
@@ -416,15 +558,73 @@ describe('diagram tools', () => {
       valid: boolean;
       source_artifact_valid: boolean;
       warnings: string[];
+      runtime_events: Array<{ type: string }>;
     };
 
     expect(result.isError).toBe(false);
     expect(parsed.success).toBe(false);
     expect(parsed.valid).toBe(false);
     expect(parsed.source_artifact_valid).toBe(false);
+    expect(parsed.runtime_events).toContainEqual(
+      expect.objectContaining({ type: 'diagram.validation_failed' }),
+    );
     expect(parsed.warnings).toContain(
       'Source artifact was saved for debugging but did not validate.',
     );
+  });
+
+  test('runtime fix-up loop repairs before rendering and caps attempts at two', async () => {
+    const { runDiagramTool } = await loadDiagramModule();
+    let attempts = 0;
+
+    const result = await runDiagramTool(
+      'create',
+      {
+        source: 'flowchart TD\n  A[Start',
+        type: 'flowchart',
+        format: 'mermaid',
+        render_to: 'none',
+      },
+      {
+        fixSource: async () => {
+          attempts += 1;
+          return attempts === 1
+            ? 'flowchart TD\n  A[Start'
+            : 'flowchart TD\n  A[Start] --> B[Done]';
+        },
+      },
+    );
+    const parsed = JSON.parse(result) as {
+      success: boolean;
+      valid: boolean;
+      fixup_attempts: number;
+    };
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.valid).toBe(true);
+    expect(parsed.fixup_attempts).toBe(2);
+
+    const capped = await runDiagramTool(
+      'create',
+      {
+        source: 'flowchart TD\n  A[Start',
+        type: 'flowchart',
+        format: 'mermaid',
+        render_to: 'none',
+      },
+      {
+        fixSource: async () => {
+          return 'flowchart TD\n  A[Start';
+        },
+      },
+    );
+    const cappedParsed = JSON.parse(capped) as {
+      success: boolean;
+      fixup_attempts: number;
+    };
+
+    expect(cappedParsed.success).toBe(false);
+    expect(cappedParsed.fixup_attempts).toBe(2);
   });
 
   test('diagram tool schemas allow source-only create and update calls', async () => {
@@ -438,5 +638,7 @@ describe('diagram tools', () => {
 
     expect(requiredByName.get('diagram_create')).toEqual([]);
     expect(requiredByName.get('diagram_update')).toEqual([]);
+    expect(requiredByName.get('diagram.create')).toEqual([]);
+    expect(requiredByName.get('diagram.update')).toEqual([]);
   });
 });
