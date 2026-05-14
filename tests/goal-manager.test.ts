@@ -191,6 +191,7 @@ test('goal command treats bare text as set', async () => {
   });
 
   expect(result.kind).toBe('plain');
+  expect(result.text).toBe('Standing goal set for this thread (max 20).');
   expect(getThreadGoal('thread-command')?.goalText).toBe('finish the report');
   expect(isGoalInitialPromptScheduled(session.id)).toBe(true);
   clearScheduledGoalContinuation(session.id);
