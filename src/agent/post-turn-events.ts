@@ -22,6 +22,7 @@ export interface PostTurnEvent extends RuntimeEventPayload {
     | 'model'
     | 'enableRag'
     | 'onProactiveMessage'
+    | 'abortSignal'
   >;
   channelType?: string | null;
   result: GatewayChatResult;

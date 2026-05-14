@@ -554,6 +554,7 @@ async function handleGatewayMessageInner(
         model: req.model,
         enableRag: req.enableRag,
         onProactiveMessage: req.onProactiveMessage,
+        abortSignal: req.abortSignal,
       },
       channelType,
       result,

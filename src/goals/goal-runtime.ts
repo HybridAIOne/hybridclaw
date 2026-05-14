@@ -2,6 +2,7 @@ import {
   type PostTurnEvent,
   subscribePostTurnEvents,
 } from '../agent/post-turn-events.js';
+import { hasPendingApproval } from '../gateway/fullauto-runtime.js';
 import type {
   GatewayChatRequest,
   GatewayChatResult,
@@ -35,7 +36,6 @@ export interface GoalContinuationContext {
 const goalContinuationBySession = new Map<
   string,
   {
-    timer: ReturnType<typeof setTimeout> | null;
     initialPrompt: boolean;
     pendingAfterRun: boolean;
     running: boolean;
@@ -96,8 +96,7 @@ export function finishGoalContinuationRun(sessionId: string): void {
   state.running = false;
   if (!state.pendingAfterRun) return;
   state.pendingAfterRun = false;
-  if (state.timer) clearTimeout(state.timer);
-  armGoalContinuationTimer(sessionId, state, 0);
+  runScheduledGoalContinuation(sessionId, state);
 }
 
 export function isGoalContinuationRunning(sessionId: string): boolean {
@@ -118,70 +117,56 @@ export function registerGoalPostTurnSubscriber(): void {
 }
 
 export function clearScheduledGoalContinuation(sessionId: string): void {
-  const state = goalContinuationBySession.get(sessionId);
-  if (!state) return;
-  if (state.timer) clearTimeout(state.timer);
   goalContinuationBySession.delete(sessionId);
 }
 
-function armGoalContinuationTimer(
+function runScheduledGoalContinuation(
   sessionId: string,
   state: {
-    timer: ReturnType<typeof setTimeout> | null;
     initialPrompt: boolean;
     pendingAfterRun: boolean;
     running: boolean;
     context: GoalContinuationContext;
   },
-  delayMs: number,
 ): void {
-  state.timer = setTimeout(() => {
-    state.timer = null;
-    if (goalContinuationBySession.get(sessionId) !== state) return;
-    if (state.running) {
-      state.pendingAfterRun = true;
-      return;
-    }
-    if (!runGoalContinuationHandler) {
-      logger.error(
-        { sessionId },
-        'Goal continuation runner has not been configured',
-      );
-      return;
-    }
-    void runGoalContinuationHandler(sessionId);
-  }, delayMs);
-  if (typeof state.timer.unref === 'function') state.timer.unref();
+  if (goalContinuationBySession.get(sessionId) !== state) return;
+  if (state.running) {
+    state.pendingAfterRun = true;
+    return;
+  }
+  if (!runGoalContinuationHandler) {
+    logger.error(
+      { sessionId },
+      'Goal continuation runner has not been configured',
+    );
+    return;
+  }
+  void runGoalContinuationHandler(sessionId);
 }
 
 export function scheduleGoalContinuation(params: {
   session: Session;
   context: GoalContinuationContext;
-  delayMs?: number;
   initialPrompt?: boolean;
 }): void {
   const threadId = resolveGoalThreadId(params.session);
   const goal = getActiveThreadGoal(threadId);
   if (!goal) return;
-  const delayMs = Math.max(0, Math.floor(params.delayMs ?? 0));
   const existing = goalContinuationBySession.get(params.session.id);
-  if (existing?.timer) clearTimeout(existing.timer);
   if (existing?.running) {
-    existing.timer = null;
     existing.initialPrompt = params.initialPrompt === true;
     existing.pendingAfterRun = true;
     existing.context = params.context;
     return;
   }
   const state = {
-    timer: null as ReturnType<typeof setTimeout> | null,
     initialPrompt: params.initialPrompt === true,
     pendingAfterRun: false,
     running: false,
     context: params.context,
   };
   goalContinuationBySession.set(params.session.id, state);
-  armGoalContinuationTimer(params.session.id, state, delayMs);
+  runScheduledGoalContinuation(params.session.id, state);
 }
 
 export function pauseActiveGoalForSession(params: {
@@ -212,17 +197,13 @@ export function pauseActiveGoalForSession(params: {
 }
 
 export function pauseGoalForAgentBudgetHardStop(session: Session): void {
+  // R5.3 has not shipped a hard-stop emitter yet. Call this from that signal
+  // once it exists so standing goals pause before scheduling another turn.
   pauseActiveGoalForSession({
     session,
     reason: 'agent budget hard-stop',
     verdict: 'agent_budget_hard_stop',
   });
-}
-
-function hasPendingApproval(result: GatewayChatResult): boolean {
-  return (result.toolExecutions || []).some(
-    (execution) => execution.approvalDecision === 'required',
-  );
 }
 
 export async function maybeContinueGoalAfterTurn(params: {
@@ -237,6 +218,7 @@ export async function maybeContinueGoalAfterTurn(params: {
     | 'model'
     | 'enableRag'
     | 'onProactiveMessage'
+    | 'abortSignal'
   >;
   channelType?: string | null;
   result: GatewayChatResult;
@@ -257,6 +239,15 @@ export async function maybeContinueGoalAfterTurn(params: {
       session: params.session,
       reason: 'user-message',
       verdict: 'preempted',
+    });
+    return;
+  }
+
+  if (params.req.abortSignal?.aborted) {
+    pauseActiveGoalForSession({
+      session: params.session,
+      reason: 'user-interrupted',
+      verdict: 'interrupted',
     });
     return;
   }
