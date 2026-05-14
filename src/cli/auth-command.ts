@@ -11,6 +11,17 @@ import {
   parseGoogleScopes,
 } from '../auth/google-auth.js';
 import {
+  clearHubSpotAuth,
+  DEFAULT_HUBSPOT_OAUTH_SCOPES,
+  getHubSpotAuthStatus,
+  HUBSPOT_ACCOUNT_SECRET,
+  HUBSPOT_OAUTH_CLIENT_ID_SECRET,
+  HUBSPOT_OAUTH_CLIENT_SECRET_SECRET,
+  HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET,
+  loginHubSpot,
+  parseHubSpotScopes,
+} from '../auth/hubspot-auth.js';
+import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
@@ -44,6 +55,7 @@ import {
   printAuthUsage,
   printCodexUsage,
   printGoogleUsage,
+  printHubSpotUsage,
   printHuggingFaceUsage,
   printHybridAIUsage,
   printLocalUsage,
@@ -932,6 +944,7 @@ type UnifiedProvider =
   | 'mistral'
   | 'huggingface'
   | 'google'
+  | 'hubspot'
   | 'gemini'
   | 'deepseek'
   | 'xai'
@@ -982,6 +995,9 @@ function normalizeUnifiedProvider(
   if (normalized === 'google' || normalized === 'gog') {
     return 'google';
   }
+  if (normalized === 'hubspot' || normalized === 'hs') {
+    return 'hubspot';
+  }
   // Check data-driven generic providers by id or alias.
   for (const def of GENERIC_PROVIDER_AUTH_DEFS) {
     if (normalized === def.id || def.aliases.includes(normalized)) {
@@ -1024,7 +1040,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -1038,7 +1054,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     const provider = normalizeUnifiedProvider(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
       );
     }
     return {
@@ -1416,6 +1432,219 @@ async function configureGoogleAuth(args: string[]): Promise<void> {
   );
 }
 
+function printHubSpotStatus(): void {
+  const status = getHubSpotAuthStatus();
+  console.log(`Path: ${status.path}`);
+  console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
+  if (status.authenticated) {
+    console.log('Source: runtime-secrets');
+    console.log(`Account: ${status.account || '(not set)'}`);
+    console.log('Refresh token: configured');
+    console.log('Client secret: configured');
+    console.log(`Scopes: ${status.scopes.join(' ')}`);
+    console.log('HTTP auth mode: gateway-minted bearer token');
+  }
+}
+
+function clearHubSpotCredentials(): void {
+  const filePath = clearHubSpotAuth();
+  console.log(`Cleared HubSpot OAuth credentials from ${filePath}.`);
+  console.log('The gateway will no longer mint HubSpot access tokens.');
+}
+
+function parseHubSpotLoginArgs(args: string[]): {
+  account?: string;
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+  scopes?: string;
+  redirectPort?: number;
+} {
+  type HubSpotStringFlagKey =
+    | 'account'
+    | 'clientId'
+    | 'clientSecret'
+    | 'refreshToken'
+    | 'scopes';
+  const parsed: {
+    account?: string;
+    clientId?: string;
+    clientSecret?: string;
+    refreshToken?: string;
+    scopes?: string;
+    redirectPort?: number;
+  } = {};
+  const stringFlags: Array<{
+    key: HubSpotStringFlagKey;
+    name: string;
+    placeholder: string;
+  }> = [
+    { key: 'account', name: '--account', placeholder: '<label-or-email>' },
+    { key: 'clientId', name: '--client-id', placeholder: '<id>' },
+    {
+      key: 'clientSecret',
+      name: '--client-secret',
+      placeholder: '<secret>',
+    },
+    {
+      key: 'refreshToken',
+      name: '--refresh-token',
+      placeholder: '<token>',
+    },
+    { key: 'scopes', name: '--scopes', placeholder: '<scopes>' },
+  ];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    let matchedStringFlag = false;
+    for (const flag of stringFlags) {
+      const parsedFlag = parseValueFlag({
+        arg,
+        args,
+        index,
+        name: flag.name,
+        placeholder: flag.placeholder,
+        allowEmptyEquals: true,
+      });
+      if (!parsedFlag) continue;
+      parsed[flag.key] = parsedFlag.value || undefined;
+      index = parsedFlag.nextIndex;
+      matchedStringFlag = true;
+      break;
+    }
+    if (matchedStringFlag) continue;
+
+    const redirectPortFlag = parseValueFlag({
+      arg,
+      args,
+      index,
+      name: '--redirect-port',
+      placeholder: '<port>',
+      allowEmptyEquals: true,
+    });
+    if (redirectPortFlag) {
+      const port = Number.parseInt(redirectPortFlag.value, 10);
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        throw new Error(
+          'HubSpot OAuth redirect port must be between 1 and 65535.',
+        );
+      }
+      parsed.redirectPort = port;
+      index = redirectPortFlag.nextIndex;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw auth login hubspot --help\`.`,
+    );
+  }
+
+  return parsed;
+}
+
+async function resolveInteractiveHubSpotLogin(params: {
+  account: string;
+  clientId: string;
+  clientSecret: string;
+}): Promise<{
+  account: string;
+  clientId: string;
+  clientSecret: string;
+}> {
+  if (params.clientId && params.clientSecret) {
+    return params;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      'Missing HubSpot OAuth credentials. Pass `--client-id <id>` and `--client-secret <secret>`, or run this command in an interactive terminal.',
+    );
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    const account = await promptWithDefault({
+      rl,
+      question: 'HubSpot account label or email',
+      defaultValue: params.account || undefined,
+    });
+    const clientId = await promptWithDefault({
+      rl,
+      question: 'HubSpot OAuth client id',
+      defaultValue: params.clientId || undefined,
+    });
+    const clientSecret = await promptWithDefault({
+      rl,
+      question: 'HubSpot OAuth client secret',
+      defaultValue: params.clientSecret || undefined,
+      secret: true,
+    });
+    return {
+      account,
+      clientId,
+      clientSecret,
+    };
+  } finally {
+    rl.close();
+  }
+}
+
+async function configureHubSpotAuth(args: string[]): Promise<void> {
+  const parsed = parseHubSpotLoginArgs(args);
+  const resolved = await resolveInteractiveHubSpotLogin({
+    account:
+      parsed.account ||
+      process.env[HUBSPOT_ACCOUNT_SECRET]?.trim() ||
+      readStoredRuntimeSecret(HUBSPOT_ACCOUNT_SECRET) ||
+      '',
+    clientId:
+      parsed.clientId ||
+      process.env[HUBSPOT_OAUTH_CLIENT_ID_SECRET]?.trim() ||
+      readStoredRuntimeSecret(HUBSPOT_OAUTH_CLIENT_ID_SECRET) ||
+      '',
+    clientSecret:
+      parsed.clientSecret ||
+      process.env[HUBSPOT_OAUTH_CLIENT_SECRET_SECRET]?.trim() ||
+      readStoredRuntimeSecret(HUBSPOT_OAUTH_CLIENT_SECRET_SECRET) ||
+      '',
+  });
+  const scopes = parseHubSpotScopes(
+    parsed.scopes ||
+      process.env.HUBSPOT_SCOPES?.trim() ||
+      readStoredRuntimeSecret('HUBSPOT_SCOPES') ||
+      DEFAULT_HUBSPOT_OAUTH_SCOPES.join(' '),
+  );
+  const result = await loginHubSpot({
+    account: resolved.account,
+    clientId: resolved.clientId,
+    clientSecret: resolved.clientSecret,
+    refreshToken:
+      parsed.refreshToken ||
+      process.env[HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET]?.trim() ||
+      undefined,
+    scopes,
+    redirectPort: parsed.redirectPort,
+  });
+
+  console.log(`Saved HubSpot OAuth credentials to ${result.secretsPath}.`);
+  if (result.account) console.log(`Account: ${result.account}`);
+  console.log(`Scopes: ${result.scopes.join(' ')}`);
+  console.log(
+    result.usedProvidedRefreshToken
+      ? 'Stored provided refresh token.'
+      : 'Completed browser authorization and stored refresh token.',
+  );
+  console.log(
+    'The gateway will mint short-lived HubSpot access tokens for http_request calls.',
+  );
+}
+
 function clearGenericProviderCredentials(
   providerLabel: string,
   secretKey: string,
@@ -1657,6 +1886,10 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
   }
   if (provider === 'google') {
     printGoogleUsage();
+    return;
+  }
+  if (provider === 'hubspot') {
+    printHubSpotUsage();
     return;
   }
   if (findGenericProviderDef(provider)) {
@@ -1913,7 +2146,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -1947,6 +2180,10 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   }
   if (parsed.provider === 'google') {
     await configureGoogleAuth(parsed.remaining);
+    return;
+  }
+  if (parsed.provider === 'hubspot') {
+    await configureHubSpotAuth(parsed.remaining);
     return;
   }
   const genericLoginDef = findGenericProviderDef(parsed.provider);
@@ -2117,6 +2354,14 @@ async function dispatchProviderAction(
     clearGoogleCredentials();
     return;
   }
+  if (provider === 'hubspot') {
+    if (action === 'status') {
+      printHubSpotStatus();
+      return;
+    }
+    clearHubSpotCredentials();
+    return;
+  }
   const genericDef = findGenericProviderDef(provider);
   if (genericDef) {
     if (action === 'status') {
@@ -2172,7 +2417,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
     );
   }
   if (parsed.remaining.length > 0) {

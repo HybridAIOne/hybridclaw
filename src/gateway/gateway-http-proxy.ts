@@ -12,6 +12,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
 
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
+import {
+  HUBSPOT_ACCESS_TOKEN_SECRET,
+  resolveHubSpotRuntimeEnv,
+} from '../auth/hubspot-auth.js';
 import type {
   RuntimeConfig,
   RuntimeHttpRequestGoogleOAuthSecretRef,
@@ -353,6 +357,16 @@ function isGoogleApisHost(host?: string): boolean {
   );
 }
 
+function isHubSpotApiHost(host?: string): boolean {
+  const normalized = normalizeSecretString(host).toLowerCase();
+  return (
+    normalized === 'api.hubapi.com' ||
+    normalized.endsWith('.api.hubapi.com') ||
+    normalized === 'api.hubspot.com' ||
+    normalized.endsWith('.api.hubspot.com')
+  );
+}
+
 function isGoogleOAuthHttpAuthRuleSecret(
   value: unknown,
 ): value is RuntimeHttpRequestGoogleOAuthSecretRef {
@@ -401,6 +415,48 @@ async function resolveGoogleOAuthTokenOrThrow(
   return token;
 }
 
+async function resolveHubSpotOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  if (!isHubSpotApiHost(context.host)) {
+    throw new GatewayRequestError(
+      403,
+      `${secretName} can only be injected into HubSpot API requests.`,
+    );
+  }
+
+  const runtimeEnv = await resolveHubSpotRuntimeEnv();
+  const token = normalizeSecretString(runtimeEnv[secretName]);
+  if (!token) {
+    throw new GatewayRequestError(
+      400,
+      `${secretName} is not available. Run \`hybridclaw auth login hubspot\` and start a fresh agent runtime.`,
+    );
+  }
+
+  const auditContext = {
+    sessionId: context.sessionId,
+    skillName: context.skillName,
+    secretSource: 'store' as const,
+    secretId: secretName,
+    sinkKind: 'http' as const,
+    host: context.host,
+    selector: context.selector,
+  };
+  recordSecretResolved(auditContext);
+  recordSecretUnsafeEscaped({
+    ...auditContext,
+    reason: `inject ${secretName} into http sink`,
+  });
+  rememberResolvedSecretForLeakScan({
+    sessionId: normalizeSecretSessionId(context.sessionId),
+    secretId: secretName,
+    value: token,
+  });
+  return token;
+}
+
 async function resolveHttpSecretOrThrow(
   secretName: string,
   context: SecretResolveContext,
@@ -410,6 +466,9 @@ async function resolveHttpSecretOrThrow(
   }
   if (isGoogleWorkspaceRuntimeTokenName(secretName)) {
     return await resolveGoogleOAuthTokenOrThrow(secretName, context);
+  }
+  if (secretName === HUBSPOT_ACCESS_TOKEN_SECRET) {
+    return await resolveHubSpotOAuthTokenOrThrow(secretName, context);
   }
   return resolveStoredSecretForInjection({
     secretName,

@@ -18,6 +18,8 @@ export function printMainUsage(): void {
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, Slack, Telegram, Signal, Threema, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
+  browser-pool
+             Check managed browser pool health
   migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
   skill      List skill dependency installers or run one
@@ -206,9 +208,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack>
-  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack>
+  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -222,6 +224,7 @@ Examples:
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
   hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com
+  hybridclaw auth login hubspot --client-id ... --client-secret ... --account sales@example.com
   hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
@@ -233,6 +236,7 @@ Examples:
   hybridclaw auth status mistral
   hybridclaw auth status huggingface
   hybridclaw auth status google
+  hybridclaw auth status hubspot
   hybridclaw auth status msteams
   hybridclaw auth status slack
   hybridclaw auth logout anthropic
@@ -240,6 +244,7 @@ Examples:
   hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
   hybridclaw auth logout google
+  hybridclaw auth logout hubspot
   hybridclaw auth logout msteams
   hybridclaw auth logout slack
 
@@ -254,6 +259,7 @@ Notes:
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
+  - \`auth login hubspot\` stores the OAuth client secret and refresh token in ${runtimeSecretsPath()} and the gateway mints short-lived access tokens for HubSpot API calls.
   - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
   - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
 }
@@ -279,6 +285,29 @@ Notes:
   - The Google refresh token and client secret are stored in encrypted runtime secrets.
   - Agent containers receive only short-lived Google Workspace access tokens minted by the host.
   - Use a Google OAuth desktop client with an authorized redirect URI matching the printed localhost callback URL.`);
+}
+
+export function printHubSpotUsage(): void {
+  console.log(`Usage: hybridclaw auth login hubspot [options]
+
+Options:
+  --client-id <id>          HubSpot OAuth app client id
+  --client-secret <secret>  HubSpot OAuth app client secret
+  --account <label>         Optional account label or email for status output
+  --scopes <scopes>         Space- or comma-separated OAuth scopes
+  --refresh-token <token>   Store an existing refresh token instead of opening the browser flow
+  --redirect-port <port>    Fixed localhost callback port (optional)
+
+Examples:
+  hybridclaw auth login hubspot --client-id ... --client-secret ... --account sales@example.com
+  hybridclaw auth login hubspot --client-id ... --client-secret ... --refresh-token ...
+  hybridclaw auth status hubspot
+  hybridclaw auth logout hubspot
+
+Notes:
+  - The HubSpot refresh token and client secret are stored in encrypted runtime secrets.
+  - The gateway mints short-lived \`HUBSPOT_ACCESS_TOKEN\` values and injects them only into HubSpot API requests.
+  - Configure the HubSpot app redirect URL to match the printed localhost callback URL.`);
 }
 
 export function printChannelsUsage(): void {
@@ -350,6 +379,17 @@ Notes:
   - Profile data is stored under the HybridClaw data directory (configurable via HYBRIDCLAW_DATA_DIR; default: ~/.hybridclaw/data/browser-profiles/).
   - This directory contains persistent authenticated browser sessions — treat it as sensitive data.
   - Use \`browser reset\` to clear all saved sessions and start fresh.`);
+}
+
+export function printBrowserPoolUsage(): void {
+  console.log(`Usage: hybridclaw browser-pool <command>
+
+Commands:
+  hybridclaw browser-pool doctor          Check managed browser pool health
+
+Notes:
+  - Uses \`browser.managedCloud.endpointUrl\` from runtime config.
+  - The pool health endpoint must report at least one healthy, idle, or leased node.`);
 }
 
 export function printMigrationUsage(): void {
@@ -959,6 +999,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'browser':
       printBrowserUsage();
+      return true;
+    case 'browser-pool':
+      printBrowserPoolUsage();
       return true;
     case 'migrate':
       printMigrationUsage();
