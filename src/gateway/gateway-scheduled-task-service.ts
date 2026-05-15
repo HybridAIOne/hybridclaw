@@ -10,20 +10,16 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { getSessionById, updateSessionAgent } from '../memory/db.js';
 import {
-  deleteSchedulerJob,
-  deleteTask,
-  getAllTasks,
-  getSchedulerJob,
-  getSessionById,
-  listSchedulerJobs,
-  pauseTask,
-  reorderSchedulerJob,
-  resumeTask,
-  updateSchedulerJob,
-  updateSessionAgent,
-  upsertSchedulerJob,
-} from '../memory/db.js';
+  deleteJob,
+  getAllJobs,
+  getJob,
+  reorderJob,
+  setJobEnabled,
+  updateJob,
+  upsertJob,
+} from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import { modelRequiresChatbotId } from '../providers/factory.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
@@ -238,7 +234,7 @@ export function migrateConfigSchedulerJobsToDatabase(): number {
   if (legacyJobs.length === 0) return 0;
 
   for (const job of legacyJobs) {
-    upsertSchedulerJob(job);
+    upsertJob(job);
   }
   updateRuntimeConfig((draft) => {
     draft.scheduler.jobs = [];
@@ -258,7 +254,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
 
   return {
     jobs: [
-      ...listSchedulerJobs().map((job) => {
+      ...getAllJobs({ kind: 'scheduler_job' }).map((job) => {
         const runtime = statuses.get(job.id);
         const session = getSessionById(`scheduler:${job.id}`);
         return {
@@ -296,7 +292,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           taskId: null,
         } satisfies GatewayAdminSchedulerJob;
       }),
-      ...getAllTasks()
+      ...getAllJobs({ kind: 'scheduled_task' })
         .map((task) => {
           const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
           const createdAtMs = parseSchedulerTimestampMs(task.created_at);
@@ -373,8 +369,8 @@ export function upsertGatewayAdminSchedulerJob(input: {
   job: unknown;
 }): GatewayAdminSchedulerResponse {
   const job = parseAdminSchedulerJob(input.job);
-  const previousJob = getSchedulerJob(job.id);
-  upsertSchedulerJob(job);
+  const previousJob = getJob(job.id, { kind: 'scheduler_job' });
+  upsertJob(job);
 
   if (
     previousJob &&
@@ -401,7 +397,7 @@ export function removeGatewayAdminSchedulerJob(
     if (!Number.isFinite(taskId) || taskId <= 0) {
       throw new Error('Expected numeric scheduler `taskId`.');
     }
-    deleteTask(taskId);
+    deleteJob(taskId);
     rearmScheduler();
     return getGatewayAdminScheduler();
   }
@@ -411,7 +407,7 @@ export function removeGatewayAdminSchedulerJob(
     throw new Error('Expected non-empty scheduler `jobId`.');
   }
 
-  deleteSchedulerJob(normalizedJobId);
+  deleteJob(normalizedJobId);
   rearmScheduler();
   return getGatewayAdminScheduler();
 }
@@ -426,11 +422,7 @@ export function setGatewayAdminSchedulerJobPaused(params: {
     if (!Number.isFinite(taskId) || taskId <= 0) {
       throw new Error('Expected numeric scheduler `taskId`.');
     }
-    if (params.paused) {
-      pauseTask(taskId);
-    } else {
-      resumeTask(taskId);
-    }
+    setJobEnabled(taskId, !params.paused);
     rearmScheduler();
     return getGatewayAdminScheduler();
   }
@@ -459,7 +451,7 @@ export function moveGatewayAdminSchedulerJob(params: {
     throw new Error('Expected non-empty scheduler `jobId`.');
   }
   const normalizedBeforeJobId = String(params.beforeJobId || '').trim() || null;
-  const existingJob = getSchedulerJob(normalizedJobId);
+  const existingJob = getJob(normalizedJobId, { kind: 'scheduler_job' });
   if (!existingJob) {
     throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
   }
@@ -471,9 +463,9 @@ export function moveGatewayAdminSchedulerJob(params: {
     } else {
       nextJob.boardStatus = params.boardStatus;
     }
-    updateSchedulerJob(nextJob);
+    updateJob(nextJob);
   }
-  reorderSchedulerJob(normalizedJobId, normalizedBeforeJobId);
+  reorderJob(normalizedJobId, normalizedBeforeJobId);
 
   if (
     params.boardStatus === 'backlog' &&

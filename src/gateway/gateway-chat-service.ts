@@ -46,10 +46,10 @@ import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcri
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
   createFreshSessionInstance,
-  getTasksForSession,
   logAudit,
   storeSemanticMemory,
 } from '../memory/db.js';
+import { getAllJobs } from '../memory/jobs.js';
 import {
   type BuildMemoryPromptResult,
   memoryService,
@@ -1315,7 +1315,10 @@ async function handleGatewayMessageInner(
     | 'processing-agent-output' = 'pre-agent';
 
   try {
-    const scheduledTasks = getTasksForSession(req.sessionId);
+    const scheduledTasks = getAllJobs({
+      kind: 'scheduled_task',
+      sessionId: req.sessionId,
+    });
     let firstTextDeltaMs: number | null = null;
     const onTextDelta = (delta: string): void => {
       if (firstTextDeltaMs == null && delta) {

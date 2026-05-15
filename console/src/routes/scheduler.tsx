@@ -529,7 +529,7 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
   };
 }
 
-function replaceSchedulerJobs(
+function replaceJobs(
   payload: AdminSchedulerResponse,
   token: string,
   queryClient: ReturnType<typeof useQueryClient>,
@@ -1072,7 +1072,7 @@ export function SchedulerPage() {
     mutationFn: (nextDraft: SchedulerDraft) =>
       saveSchedulerJob(auth.token, normalizeDraft(nextDraft)),
     onSuccess: (payload, nextDraft) => {
-      replaceSchedulerJobs(payload, auth.token, queryClient);
+      replaceJobs(payload, auth.token, queryClient);
       setSelectedId(nextDraft.id.trim());
       window.location.href = '/admin/jobs';
     },
@@ -1089,7 +1089,7 @@ export function SchedulerPage() {
       return deleteSchedulerJob(auth.token, selectedJob);
     },
     onSuccess: (payload) => {
-      replaceSchedulerJobs(payload, auth.token, queryClient);
+      replaceJobs(payload, auth.token, queryClient);
       toast.success('Deleted.');
       setSelectedId(null);
       setDraft(createDraft());
@@ -1117,7 +1117,7 @@ export function SchedulerPage() {
           });
     },
     onSuccess: (payload, action) => {
-      replaceSchedulerJobs(payload, auth.token, queryClient);
+      replaceJobs(payload, auth.token, queryClient);
       toast.success(action === 'pause' ? 'Paused.' : 'Resumed.');
       if (!selectedJob) return;
       const refreshed =

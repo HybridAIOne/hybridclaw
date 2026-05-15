@@ -100,8 +100,8 @@ test('legacy backlog-assigned one-shot scheduler jobs move to review after the d
   });
 
   vi.resetModules();
-  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
-    await import('../src/memory/db.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAllJobs, replaceJobs } = await import('../src/memory/jobs.ts');
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
@@ -109,7 +109,7 @@ test('legacy backlog-assigned one-shot scheduler jobs move to review after the d
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
-  replaceSchedulerJobs([]);
+  replaceJobs([]);
   migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async (request: { jobId?: string }) => {
@@ -129,7 +129,9 @@ test('legacy backlog-assigned one-shot scheduler jobs move to review after the d
 
   expect(runner).toHaveBeenCalledTimes(4);
   expect(
-    listSchedulerJobs().find((job) => job.id === 'backlog-retry'),
+    getAllJobs({ kind: 'scheduler_job' }).find(
+      (job) => job.id === 'backlog-retry',
+    ),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -180,8 +182,8 @@ test('one-shot scheduler jobs respect maxRetries before moving failed work into 
   });
 
   vi.resetModules();
-  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
-    await import('../src/memory/db.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAllJobs, replaceJobs } = await import('../src/memory/jobs.ts');
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
@@ -189,7 +191,7 @@ test('one-shot scheduler jobs respect maxRetries before moving failed work into 
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
-  replaceSchedulerJobs([]);
+  replaceJobs([]);
   migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async () => {
@@ -206,7 +208,9 @@ test('one-shot scheduler jobs respect maxRetries before moving failed work into 
 
   expect(runner).toHaveBeenCalledTimes(2);
   expect(
-    listSchedulerJobs().find((job) => job.id === 'release-brief'),
+    getAllJobs({ kind: 'scheduler_job' }).find(
+      (job) => job.id === 'release-brief',
+    ),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -256,8 +260,8 @@ test('backlog-assigned one-shot scheduler jobs complete once and move to review'
   });
 
   vi.resetModules();
-  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
-    await import('../src/memory/db.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAllJobs, replaceJobs } = await import('../src/memory/jobs.ts');
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
@@ -265,7 +269,7 @@ test('backlog-assigned one-shot scheduler jobs complete once and move to review'
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
-  replaceSchedulerJobs([]);
+  replaceJobs([]);
   migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async () => {});
@@ -279,7 +283,9 @@ test('backlog-assigned one-shot scheduler jobs complete once and move to review'
 
   expect(runner).toHaveBeenCalledTimes(1);
   expect(
-    listSchedulerJobs().find((job) => job.id === 'release-notes'),
+    getAllJobs({ kind: 'scheduler_job' }).find(
+      (job) => job.id === 'release-notes',
+    ),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -343,8 +349,8 @@ test('stale successful one-shot jobs reconcile to review without rerunning', asy
   });
 
   vi.resetModules();
-  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
-    await import('../src/memory/db.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAllJobs, replaceJobs } = await import('../src/memory/jobs.ts');
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
@@ -352,7 +358,7 @@ test('stale successful one-shot jobs reconcile to review without rerunning', asy
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
-  replaceSchedulerJobs([]);
+  replaceJobs([]);
   migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async () => {});
@@ -365,7 +371,9 @@ test('stale successful one-shot jobs reconcile to review without rerunning', asy
 
   expect(runner).not.toHaveBeenCalled();
   expect(
-    listSchedulerJobs().find((job) => job.id === 'release-notes'),
+    getAllJobs({ kind: 'scheduler_job' }).find(
+      (job) => job.id === 'release-notes',
+    ),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -428,8 +436,8 @@ test('stale successful one-shot jobs already in review do not rerun', async () =
   });
 
   vi.resetModules();
-  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
-    await import('../src/memory/db.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAllJobs, replaceJobs } = await import('../src/memory/jobs.ts');
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
@@ -437,7 +445,7 @@ test('stale successful one-shot jobs already in review do not rerun', async () =
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
-  replaceSchedulerJobs([]);
+  replaceJobs([]);
   migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async () => {});
@@ -450,7 +458,9 @@ test('stale successful one-shot jobs already in review do not rerun', async () =
 
   expect(runner).not.toHaveBeenCalled();
   expect(
-    listSchedulerJobs().find((job) => job.id === 'release-notes'),
+    getAllJobs({ kind: 'scheduler_job' }).find(
+      (job) => job.id === 'release-notes',
+    ),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -513,14 +523,14 @@ test('getConfigJobState reconciles stale successful one-shot jobs directly', asy
   });
 
   vi.resetModules();
-  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
-    await import('../src/memory/db.ts');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAllJobs, replaceJobs } = await import('../src/memory/jobs.ts');
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
   const { getConfigJobState } = await import('../src/scheduler/scheduler.ts');
   initDatabase({ quiet: true });
-  replaceSchedulerJobs([]);
+  replaceJobs([]);
   migrateConfigSchedulerJobsToDatabase();
 
   expect(getConfigJobState('release-notes')).toMatchObject({
@@ -529,7 +539,9 @@ test('getConfigJobState reconciles stale successful one-shot jobs directly', asy
     nextRunAt: null,
   });
   expect(
-    listSchedulerJobs().find((job) => job.id === 'release-notes'),
+    getAllJobs({ kind: 'scheduler_job' }).find(
+      (job) => job.id === 'release-notes',
+    ),
   ).toMatchObject({
     boardStatus: 'review',
   });

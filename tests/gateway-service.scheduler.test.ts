@@ -35,9 +35,10 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
   process.env.HOME = homeDir;
   vi.resetModules();
 
-  const { initDatabase, createTask, withMemoryDatabase } = await import(
+  const { initDatabase, withMemoryDatabase } = await import(
     '../src/memory/db.ts'
   );
+  const { createJob } = await import('../src/memory/jobs.ts');
   const {
     getGatewayAdminScheduler,
     moveGatewayAdminSchedulerJob,
@@ -49,13 +50,14 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
   initDatabase({ quiet: true });
 
   const runAt = new Date(Date.now() + 6 * 60_000).toISOString();
-  const taskId = createTask(
-    'dm:439508376087560193',
-    '1475079601968648386',
-    '',
-    'Reply exactly with: Drink water',
+  const taskId = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'dm:439508376087560193',
+    channelId: '1475079601968648386',
+    cronExpr: '',
+    prompt: 'Reply exactly with: Drink water',
     runAt,
-  );
+  });
 
   const beforePause = getGatewayAdminScheduler().jobs.find(
     (job) => job.id === `task:${taskId}`,
