@@ -264,6 +264,7 @@ function buildMessageToolPromptLines(
 ): string[] {
   const lines = [
     `Use the \`message\` tool for sending or reading messages on active communication channels: ${formatMessageToolChannelList(activeChannels)}.`,
+    'Do not use `message` for ordinary final replies in the current chat. Use the assistant final response instead, including when returning web chat artifacts. Only call `message` when the user asks to send/read/post on a communication channel.',
   ];
 
   const channelActionLines = describeMessageToolChannelActions(activeChannels);
