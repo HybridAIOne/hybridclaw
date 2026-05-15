@@ -199,13 +199,15 @@ function JobCard(props: {
           </div>
           <p>{item.summary}</p>
           <small>{item.stateLabel}</small>
-          <AgentBudgetChip budget={props.budget} />
-          <span
-            className="jobs-card-pill"
-            style={getAgentPillStyle(item.agentKey)}
-          >
-            {item.agentLabel}
-          </span>
+          <div className="jobs-card-agent-row">
+            <span
+              className="jobs-card-pill"
+              style={getAgentPillStyle(item.agentKey)}
+            >
+              {item.agentLabel}
+            </span>
+            <AgentBudgetChip budget={props.budget} />
+          </div>
         </article>
       </button>
     </div>

@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminSchedulerJob,
@@ -229,10 +235,21 @@ describe('JobsPage', () => {
 
     expect(neutral.getAttribute('data-tone')).toBe('neutral');
     expect(neutral.getAttribute('title')).toBe('79% used');
+    const neutralAgentRow = neutral.closest('.jobs-card-agent-row');
+    expect(neutralAgentRow).not.toBeNull();
+    expect(
+      within(neutralAgentRow as HTMLElement).getByText('Main'),
+    ).toBeTruthy();
     expect(warn.getAttribute('data-tone')).toBe('warn');
     expect(warn.getAttribute('title')).toBe('99% used');
+    const warnAgentRow = warn.closest('.jobs-card-agent-row');
+    expect(warnAgentRow).not.toBeNull();
+    expect(within(warnAgentRow as HTMLElement).getByText('Warn')).toBeTruthy();
     expect(hard.getAttribute('data-tone')).toBe('hard');
     expect(hard.getAttribute('title')).toBe('120% used');
+    const hardAgentRow = hard.closest('.jobs-card-agent-row');
+    expect(hardAgentRow).not.toBeNull();
+    expect(within(hardAgentRow as HTMLElement).getByText('Hard')).toBeTruthy();
     expect(screen.queryByText('$0 / $0')).toBeNull();
   });
 

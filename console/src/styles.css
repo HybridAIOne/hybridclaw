@@ -2174,6 +2174,14 @@ th {
   letter-spacing: 0.04em;
 }
 
+.jobs-card-agent-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
 .jobs-card-pill {
   width: fit-content;
   padding: 5px 8px;
