@@ -779,9 +779,16 @@ export function JobsPage() {
       ).sort((left, right) => left.localeCompare(right)),
     [allItems],
   );
+  const ownerAgentIdsCacheKey = useMemo(
+    () =>
+      [...ownerAgentIds]
+        .sort((left, right) => left.localeCompare(right))
+        .join('\0'),
+    [ownerAgentIds],
+  );
 
   const budgetQuery = useQuery({
-    queryKey: ['board-budget-summaries', auth.token, ownerAgentIds.join('\0')],
+    queryKey: ['board-budget-summaries', auth.token, ownerAgentIdsCacheKey],
     queryFn: () => fetchBoardBudgetSummaries(auth.token, ownerAgentIds),
     enabled: ownerAgentIds.length > 0,
     staleTime: 30_000,

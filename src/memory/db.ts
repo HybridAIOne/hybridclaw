@@ -3740,7 +3740,7 @@ function migrateLegacyTasksToJobsTable(): void {
           ? task.last_status
           : null,
         Math.max(0, Math.floor(task.consecutive_errors || 0)),
-        task.id,
+        0,
         task.created_at,
       );
     }

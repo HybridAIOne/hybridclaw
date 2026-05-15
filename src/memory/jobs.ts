@@ -210,6 +210,28 @@ function listStoredSchedulerJobs(
   ).map(schedulerJobFromRow);
 }
 
+function listStoredScheduledTasks(
+  database: Database.Database,
+  query: GetAllJobsQuery = {},
+): ScheduledTask[] {
+  const whereClauses = ["kind = 'scheduled_task'"];
+  const args: unknown[] = [];
+  if (query.sessionId) {
+    whereClauses.push('session_id = ?');
+    args.push(resolveSessionIdCompat(query.sessionId));
+  }
+  if (query.enabledOnly) {
+    whereClauses.push('enabled = 1');
+  }
+  return queryAll<JobRow>(
+    database,
+    `${rowSelectClause()}
+     WHERE ${whereClauses.join(' AND ')}
+     ORDER BY created_at DESC`,
+    ...args,
+  ).map(scheduledJobFromRow);
+}
+
 export function createJob(input: CreateJobInput): number {
   return withMemoryDatabase((database) => {
     const jobId = nextLegacyJobId(database);
@@ -249,7 +271,7 @@ export function createJob(input: CreateJobInput): number {
           to: input.channelId,
           webhookUrl: '',
         }),
-        jobId,
+        0,
       );
     return jobId;
   });
@@ -297,26 +319,11 @@ export function getAllJobs(query: GetAllJobsQuery = {}): StoredJob[] {
       return listStoredSchedulerJobs(database);
     }
     if (query.kind === 'scheduled_task') {
-      const whereClauses = ["kind = 'scheduled_task'"];
-      const args: unknown[] = [];
-      if (query.sessionId) {
-        whereClauses.push('session_id = ?');
-        args.push(resolveSessionIdCompat(query.sessionId));
-      }
-      if (query.enabledOnly) {
-        whereClauses.push('enabled = 1');
-      }
-      return queryAll<JobRow>(
-        database,
-        `${rowSelectClause()}
-         WHERE ${whereClauses.join(' AND ')}
-         ORDER BY created_at DESC`,
-        ...args,
-      ).map(scheduledJobFromRow);
+      return listStoredScheduledTasks(database, query);
     }
     return [
       ...listStoredSchedulerJobs(database),
-      ...getAllJobs({ kind: 'scheduled_task' }),
+      ...listStoredScheduledTasks(database),
     ];
   });
 }
@@ -369,7 +376,7 @@ export function upsertJob(job: RuntimeSchedulerJob): StoredSchedulerJob {
 }
 
 export function updateJob(job: RuntimeSchedulerJob): StoredSchedulerJob {
-  if (!getJob(job.id)) {
+  if (!getJob(job.id, { kind: 'scheduler_job' })) {
     throw new Error(`Scheduler job \`${job.id}\` was not found.`);
   }
   return upsertJob(job);
