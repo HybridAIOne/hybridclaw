@@ -949,6 +949,29 @@ interface ProcessRequestParams {
   approvedToolCall?: ApprovalPrelude['approvedToolCall'];
 }
 
+function inputRuntimeContext(
+  input: ContainerInput,
+): Pick<
+  ProcessRequestParams,
+  | 'gatewayBaseUrl'
+  | 'gatewayApiToken'
+  | 'configuredDiscordChannels'
+  | 'mcpServers'
+  | 'media'
+  | 'webSearch'
+  | 'providerCredentials'
+> {
+  return {
+    gatewayBaseUrl: input.gatewayBaseUrl,
+    gatewayApiToken: input.gatewayApiToken,
+    configuredDiscordChannels: input.configuredDiscordChannels,
+    mcpServers: input.mcpServers,
+    media: input.media,
+    webSearch: input.webSearch,
+    providerCredentials: input.providerCredentials,
+  };
+}
+
 async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
@@ -2026,13 +2049,7 @@ async function main(): Promise<void> {
       chatbotId: firstInput.chatbotId,
       enableRag: firstInput.enableRag,
       requestHeaders: storedRequestHeaders,
-      gatewayBaseUrl: firstInput.gatewayBaseUrl,
-      gatewayApiToken: firstInput.gatewayApiToken,
-      configuredDiscordChannels: firstInput.configuredDiscordChannels,
-      mcpServers: firstInput.mcpServers,
-      media: firstInput.media,
-      webSearch: firstInput.webSearch,
-      providerCredentials: firstInput.providerCredentials,
+      ...inputRuntimeContext(firstInput),
       tools: resolveTools(firstInput),
       taskModels: firstTaskModels,
       contextGuard: firstInput.contextGuard,
@@ -2074,13 +2091,7 @@ async function main(): Promise<void> {
         chatbotId: firstInput.chatbotId,
         enableRag: firstInput.enableRag,
         requestHeaders: firstInput.requestHeaders,
-        gatewayBaseUrl: firstInput.gatewayBaseUrl,
-        gatewayApiToken: firstInput.gatewayApiToken,
-        configuredDiscordChannels: firstInput.configuredDiscordChannels,
-        mcpServers: firstInput.mcpServers,
-        media: firstInput.media,
-        webSearch: firstInput.webSearch,
-        providerCredentials: firstInput.providerCredentials,
+        ...inputRuntimeContext(firstInput),
         tools: resolveTools(firstInput),
         taskModels: firstTaskModels,
         contextGuard: firstInput.contextGuard,
@@ -2225,13 +2236,7 @@ async function main(): Promise<void> {
       chatbotId: input.chatbotId,
       enableRag: input.enableRag,
       requestHeaders,
-      gatewayBaseUrl: input.gatewayBaseUrl,
-      gatewayApiToken: input.gatewayApiToken,
-      configuredDiscordChannels: input.configuredDiscordChannels,
-      mcpServers: input.mcpServers,
-      media: input.media,
-      webSearch: input.webSearch,
-      providerCredentials: input.providerCredentials,
+      ...inputRuntimeContext(input),
       tools: resolveTools(input),
       taskModels,
       contextGuard: input.contextGuard,
@@ -2272,13 +2277,7 @@ async function main(): Promise<void> {
         chatbotId: input.chatbotId,
         enableRag: input.enableRag,
         requestHeaders,
-        gatewayBaseUrl: input.gatewayBaseUrl,
-        gatewayApiToken: input.gatewayApiToken,
-        configuredDiscordChannels: input.configuredDiscordChannels,
-        mcpServers: input.mcpServers,
-        media: input.media,
-        webSearch: input.webSearch,
-        providerCredentials: input.providerCredentials,
+        ...inputRuntimeContext(input),
         tools: resolveTools(input),
         taskModels,
         contextGuard: input.contextGuard,

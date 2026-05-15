@@ -41,6 +41,7 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
@@ -195,7 +196,7 @@ interface PoolEntry extends WarmRunnerEntry {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
-  codexRuntime?: 'hybridclaw' | 'app-server';
+  codexRuntime?: CodexTurnRuntime;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;

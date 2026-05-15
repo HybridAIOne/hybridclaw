@@ -9,6 +9,8 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import type { CodexMcpContext } from './codex-app-types.js';
+import { readRecord, readString } from './codex-app-utils.js';
 import {
   executeToolWithMetadata,
   setGatewayContext,
@@ -19,27 +21,7 @@ import {
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
-import type { ContainerInput, ToolDefinition } from './types.js';
-
-interface McpContext {
-  provider?: ContainerInput['provider'];
-  providerMethod?: string;
-  baseUrl?: string;
-  apiKey?: string;
-  model?: string;
-  chatbotId?: string;
-  requestHeaders?: Record<string, string>;
-  maxTokens?: number;
-  debugModelResponses?: boolean;
-  gatewayBaseUrl?: string;
-  gatewayApiToken?: string;
-  channelId?: string;
-  configuredDiscordChannels?: string[];
-  taskModels?: ContainerInput['taskModels'];
-  media?: ContainerInput['media'];
-  webSearch?: ContainerInput['webSearch'];
-  providerCredentials?: ContainerInput['providerCredentials'];
-}
+import type { ToolDefinition } from './types.js';
 
 const CALLBACK_TOOL_NAMES = new Set([
   'web_fetch',
@@ -55,6 +37,10 @@ interface McpToolDefinition {
   description: string;
   inputSchema: unknown;
 }
+
+type SkillEntry = NonNullable<ReturnType<typeof readSkillEntry>>;
+
+let skillEntriesCache: SkillEntry[] | null = null;
 
 const CUSTOM_CALLBACK_TOOLS: McpToolDefinition[] = [
   {
@@ -81,16 +67,6 @@ const CUSTOM_CALLBACK_TOOLS: McpToolDefinition[] = [
       },
     },
   },
-  {
-    name: 'tts_status',
-    description:
-      'Explain whether HybridClaw text-to-speech is available through the safe Codex app-server MCP callback surface.',
-    inputSchema: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {},
-    },
-  },
 ];
 
 function isCallbackTool(tool: ToolDefinition): boolean {
@@ -106,7 +82,7 @@ export function isHybridClawCallbackToolName(toolName: string): boolean {
   );
 }
 
-function readContext(): McpContext | null {
+function readContext(): CodexMcpContext | null {
   const contextPath = String(
     process.env.HYBRIDCLAW_CODEX_MCP_CONTEXT_PATH || '',
   ).trim();
@@ -115,7 +91,7 @@ function readContext(): McpContext | null {
   try {
     const fileContext = JSON.parse(
       fs.readFileSync(contextPath, 'utf-8'),
-    ) as McpContext;
+    ) as CodexMcpContext;
     return { ...fileContext, ...secretContext };
   } catch (error) {
     console.error(
@@ -125,7 +101,7 @@ function readContext(): McpContext | null {
   }
 }
 
-function readSecretContext(): McpContext | null {
+function readSecretContext(): CodexMcpContext | null {
   const encoded = String(
     process.env.HYBRIDCLAW_CODEX_MCP_SECRET_CONTEXT_B64 || '',
   ).trim();
@@ -133,7 +109,7 @@ function readSecretContext(): McpContext | null {
   try {
     return JSON.parse(
       Buffer.from(encoded, 'base64').toString('utf-8'),
-    ) as McpContext;
+    ) as CodexMcpContext;
   } catch (error) {
     console.error(
       `[hybridclaw-mcp] failed to read secret context: ${error instanceof Error ? error.message : String(error)}`,
@@ -142,7 +118,7 @@ function readSecretContext(): McpContext | null {
   }
 }
 
-function applyContext(context: McpContext | null): void {
+function applyContext(context: CodexMcpContext | null): void {
   if (!context) return;
   setGatewayContext(
     context.gatewayBaseUrl,
@@ -173,16 +149,6 @@ function buildMcpTool(tool: ToolDefinition): McpToolDefinition {
     description: tool.function.description,
     inputSchema: tool.function.parameters,
   };
-}
-
-function readString(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function readRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function readBoolean(value: unknown): boolean {
@@ -232,12 +198,8 @@ function candidateSkillRoots(): string[] {
   ];
 }
 
-function loadSkillEntries(): Array<{
-  name: string;
-  description: string;
-  location: string;
-  body: string;
-}> {
+function loadSkillEntries(): SkillEntry[] {
+  if (skillEntriesCache) return skillEntriesCache;
   const entries = new Map<
     string,
     NonNullable<ReturnType<typeof readSkillEntry>>
@@ -250,7 +212,8 @@ function loadSkillEntries(): Array<{
       if (entry) entries.set(entry.location, entry);
     }
   }
-  return [...entries.values()];
+  skillEntriesCache = [...entries.values()];
+  return skillEntriesCache;
 }
 
 function handleSkillLookup(args: Record<string, unknown>): string {
@@ -273,13 +236,6 @@ function handleSkillLookup(args: Record<string, unknown>): string {
       ...(includeBody ? { body: skill.body.slice(0, 12_000) } : {}),
     }));
   return JSON.stringify({ skills }, null, 2);
-}
-
-function handleTtsStatus(): string {
-  return [
-    'HybridClaw text-to-speech is not exposed as a Codex app-server MCP callback.',
-    'Voice relay TTS is managed by the gateway and may place or affect live calls, so it is intentionally unavailable from this safe callback surface.',
-  ].join(' ');
 }
 
 export function buildUnavailableCallbackToolResult(toolName: string): {
@@ -335,13 +291,6 @@ async function main(): Promise<void> {
         isError: false,
       };
     }
-    if (toolName === 'tts_status') {
-      return {
-        content: [{ type: 'text', text: handleTtsStatus() }],
-        isError: false,
-      };
-    }
-
     const known = TOOL_DEFINITIONS.some(
       (tool) => tool.function.name === toolName,
     );

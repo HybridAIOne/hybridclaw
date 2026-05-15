@@ -201,6 +201,8 @@ export interface ProviderCredentials {
   assemblyai?: ProviderCredential;
 }
 
+export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
+
 export interface ContainerInput {
   healthCheck?: {
     nonce: string;
@@ -232,7 +234,7 @@ export interface ContainerInput {
   gatewayApiToken?: string;
   browserProvider?: string;
   model: string;
-  codexRuntime?: 'hybridclaw' | 'app-server';
+  codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];

@@ -5,6 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import type { CodexMcpContext } from './codex-app-types.js';
+import {
+  isRecord,
+  readString as readUnknownString,
+} from './codex-app-utils.js';
 import type {
   ChatMessage,
   ContainerInput,
@@ -32,11 +37,10 @@ interface PendingRequest {
 
 interface CodexProjection {
   threadId: string | null;
-  turnId: string | null;
   textDeltas: string[];
   agentMessages: string[];
   toolExecutions: ToolExecution[];
-  toolsUsed: string[];
+  toolsUsed: Set<string>;
   tokenUsage: TokenUsageStats;
   approvalEvents: ToolExecution[];
   pendingApproval: PendingApproval | null;
@@ -74,7 +78,7 @@ const CODEX_REQUEST_TIMEOUT_MS = 30_000;
 const CODEX_APPROVAL_EXPIRES_MS = 10 * 60 * 1000;
 const MCP_SERVER_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 const SENSITIVE_ENV_KEY_RE =
-  /(secret|token|password|passwd|credential|apikey|api_key|auth|bearer|private)/i;
+  /(^|[_-])(secret|token|password|passwd|pass|credential|credentials|apikey|api[-_]?key|auth|bearer|private|key)([_-]|$)|apikey|api_key/i;
 const MCP_SCRIPT_PATH = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   'codex-hybridclaw-mcp.js',
@@ -95,11 +99,8 @@ interface CodexMcpContextPayloads {
   secretContext: Record<string, unknown>;
 }
 
-let pendingCodexApproval: PendingCodexApproval | null = null;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+const pendingCodexApprovals = new Map<string, PendingCodexApproval>();
+let codexCliAvailablePromise: Promise<void> | null = null;
 
 function normalizeCodexModelName(model: string): string {
   const trimmed = String(model || '').trim();
@@ -158,10 +159,10 @@ export function buildCodexTurnText(messages: ChatMessage[]): string {
 
 function buildCodexUserInput(
   messages: ChatMessage[],
+  text = buildCodexTurnText(messages),
 ): Array<Record<string, unknown>> {
   const input: Array<Record<string, unknown>> = [];
   const latest = latestUserMessage(messages);
-  const text = buildCodexTurnText(messages);
   if (text) {
     input.push({ type: 'text', text, text_elements: [] });
   }
@@ -191,7 +192,7 @@ function emptyTokenUsage(): TokenUsageStats {
 }
 
 function readString(record: Record<string, unknown>, key: string): string {
-  return typeof record[key] === 'string' ? record[key] : '';
+  return readUnknownString(record[key]);
 }
 
 function readNumber(
@@ -208,9 +209,11 @@ function appendToolExecution(
   execution: ToolExecution,
 ): void {
   projection.toolExecutions.push(execution);
-  if (!projection.toolsUsed.includes(execution.name)) {
-    projection.toolsUsed.push(execution.name);
-  }
+  projection.toolsUsed.add(execution.name);
+}
+
+function projectionToolsUsed(projection: CodexProjection): string[] {
+  return [...projection.toolsUsed];
 }
 
 function latestUserText(messages: ChatMessage[]): string {
@@ -243,11 +246,13 @@ function parseApprovalDirective(input: string): {
   return null;
 }
 
+type ApprovalDirective = NonNullable<ReturnType<typeof parseApprovalDirective>>;
+
 function isApprovalForPending(
   sessionId: string,
   messages: ChatMessage[],
   pending: PendingCodexApproval | null,
-): boolean {
+): pending is PendingCodexApproval {
   if (!pending) return false;
   if (pending.sessionId !== sessionId) return false;
   const directive = parseApprovalDirective(latestUserText(messages));
@@ -278,10 +283,6 @@ function buildPendingApproval(
     allowAll: false,
     expiresAt: Date.now() + CODEX_APPROVAL_EXPIRES_MS,
   };
-}
-
-function cryptoRandomApprovalId(): string {
-  return randomUUID();
 }
 
 function tomlString(value: string): string {
@@ -359,6 +360,38 @@ export function buildCodexAppServerArgs(
   return args;
 }
 
+function compactRecord(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined),
+  );
+}
+
+function splitWebSearchConfig(webSearch: ContainerInput['webSearch']): {
+  fileWebSearch?: ContainerInput['webSearch'];
+  secretWebSearch?: Partial<NonNullable<ContainerInput['webSearch']>>;
+} {
+  if (!webSearch) return {};
+  const {
+    braveApiKey,
+    perplexityApiKey,
+    tavilyApiKey,
+    searxngBearerTokenRef,
+    ...fileWebSearch
+  } = webSearch;
+  const secretWebSearch = compactRecord({
+    braveApiKey,
+    perplexityApiKey,
+    tavilyApiKey,
+    searxngBearerTokenRef,
+  }) as Partial<NonNullable<ContainerInput['webSearch']>>;
+  return {
+    fileWebSearch,
+    ...(Object.keys(secretWebSearch).length > 0 ? { secretWebSearch } : {}),
+  };
+}
+
 export function buildCodexMcpContextPayloads(
   params: Pick<
     RunCodexAppServerTurnParams,
@@ -381,8 +414,11 @@ export function buildCodexMcpContextPayloads(
     | 'providerCredentials'
   >,
 ): CodexMcpContextPayloads {
+  const { fileWebSearch, secretWebSearch } = splitWebSearchConfig(
+    params.webSearch,
+  );
   return {
-    fileContext: {
+    fileContext: compactRecord({
       provider: params.provider,
       providerMethod: params.providerMethod,
       baseUrl: params.baseUrl,
@@ -394,24 +430,17 @@ export function buildCodexMcpContextPayloads(
       configuredDiscordChannels: params.configuredDiscordChannels,
       taskModels: params.taskModels,
       media: params.media,
-    },
-    secretContext: {
+      webSearch: fileWebSearch,
+    }) satisfies CodexMcpContext,
+    secretContext: compactRecord({
       apiKey: params.apiKey,
       requestHeaders: params.requestHeaders,
       gatewayBaseUrl: params.gatewayBaseUrl,
       gatewayApiToken: params.gatewayApiToken,
-      webSearch: params.webSearch,
+      webSearch: secretWebSearch,
       providerCredentials: params.providerCredentials,
-    },
+    }) satisfies CodexMcpContext,
   };
-}
-
-function compactRecord(
-  record: Record<string, unknown>,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(record).filter(([, value]) => value !== undefined),
-  );
 }
 
 function buildMcpSecretEnv(
@@ -588,7 +617,8 @@ class CodexAppServerClient {
         requestId: JsonRpcId;
       }) => void)
     | null = null;
-  private stderr = '';
+  private readonly stderrChunks: string[] = [];
+  private stderrLength = 0;
   private contextPath: string | null = null;
 
   private readonly child;
@@ -609,20 +639,32 @@ class CodexAppServerClient {
     const lines = readline.createInterface({ input: this.child.stdout });
     lines.on('line', (line) => this.handleLine(line));
     this.child.stderr.on('data', (chunk) => {
-      this.stderr += String(chunk);
-      if (this.stderr.length > 12_000) {
-        this.stderr = this.stderr.slice(-12_000);
-      }
+      this.appendStderr(String(chunk));
     });
     this.child.on('error', (error) => this.rejectAll(error));
     this.child.on('exit', (code, signal) => {
       if (this.projection.completed) return;
+      const stderr = this.stderrText().trim();
       this.rejectAll(
         new Error(
-          `codex app-server exited before turn completion (code=${code ?? 'null'} signal=${signal ?? 'null'}).${this.stderr ? ` stderr: ${this.stderr.trim()}` : ''}`,
+          `codex app-server exited before turn completion (code=${code ?? 'null'} signal=${signal ?? 'null'}).${stderr ? ` stderr: ${stderr}` : ''}`,
         ),
       );
     });
+  }
+
+  private appendStderr(chunk: string): void {
+    if (!chunk) return;
+    this.stderrChunks.push(chunk);
+    this.stderrLength += chunk.length;
+    while (this.stderrLength > 24_000 && this.stderrChunks.length > 1) {
+      this.stderrLength -= this.stderrChunks.shift()?.length ?? 0;
+    }
+  }
+
+  private stderrText(): string {
+    const text = this.stderrChunks.join('');
+    return text.length > 12_000 ? text.slice(-12_000) : text;
   }
 
   request(method: string, params: unknown): Promise<unknown> {
@@ -754,7 +796,7 @@ class CodexAppServerClient {
     params: unknown,
   ): void {
     this.projection.approvalEvents.push(approvalExecution(method, params));
-    const approvalId = cryptoRandomApprovalId();
+    const approvalId = randomUUID();
     this.projection.pendingApproval = buildPendingApproval(
       approvalId,
       method,
@@ -855,11 +897,10 @@ function parseTurnError(error: Record<string, unknown>): string {
 function createProjection(): CodexProjection {
   return {
     threadId: null,
-    turnId: null,
     textDeltas: [],
     agentMessages: [],
     toolExecutions: [],
-    toolsUsed: [],
+    toolsUsed: new Set<string>(),
     tokenUsage: emptyTokenUsage(),
     approvalEvents: [],
     pendingApproval: null,
@@ -868,13 +909,11 @@ function createProjection(): CodexProjection {
   };
 }
 
-export function buildCodexApprovalResponseForDirective(
+function buildCodexApprovalResponse(
   method: string,
-  rawDirective: string,
+  directive: ApprovalDirective,
   params?: unknown,
 ): unknown | null {
-  const directive = parseApprovalDirective(rawDirective);
-  if (!directive) return null;
   if (
     method === 'item/commandExecution/requestApproval' ||
     method === 'item/fileChange/requestApproval'
@@ -916,19 +955,24 @@ export function buildCodexApprovalResponseForDirective(
   };
 }
 
+export function buildCodexApprovalResponseForDirective(
+  method: string,
+  rawDirective: string,
+  params?: unknown,
+): unknown | null {
+  const directive = parseApprovalDirective(rawDirective);
+  return directive
+    ? buildCodexApprovalResponse(method, directive, params)
+    : null;
+}
+
 function respondToCodexApproval(
   pending: PendingCodexApproval,
-  directive: NonNullable<ReturnType<typeof parseApprovalDirective>>,
+  directive: ApprovalDirective,
 ): void {
-  const response = buildCodexApprovalResponseForDirective(
+  const response = buildCodexApprovalResponse(
     pending.method,
-    [
-      directive.kind,
-      directive.requestId,
-      directive.mode ? `for ${directive.mode}` : '',
-    ]
-      .filter(Boolean)
-      .join(' '),
+    directive,
     pending.params,
   );
   pending.projection.approvalEvents.push(
@@ -939,7 +983,7 @@ function respondToCodexApproval(
 
 function outputFromProjection(
   completed: CodexProjection,
-  messages: ChatMessage[],
+  effectiveUserPrompt: string,
 ): ContainerOutput {
   const resultText =
     completed.agentMessages.join('\n\n').trim() ||
@@ -952,31 +996,50 @@ function outputFromProjection(
     return {
       status: 'success',
       result: completed.pendingApproval.prompt,
-      toolsUsed: completed.toolsUsed,
+      toolsUsed: projectionToolsUsed(completed),
       toolExecutions,
       tokenUsage: completed.tokenUsage,
       pendingApproval: completed.pendingApproval,
-      effectiveUserPrompt: buildCodexTurnText(messages),
+      effectiveUserPrompt,
     };
   }
   if (completed.error) {
     return {
       status: 'error',
       result: resultText || null,
-      toolsUsed: completed.toolsUsed,
+      toolsUsed: projectionToolsUsed(completed),
       toolExecutions,
       tokenUsage: completed.tokenUsage,
       error: completed.error,
-      effectiveUserPrompt: buildCodexTurnText(messages),
+      effectiveUserPrompt,
     };
   }
   return {
     status: 'success',
     result: resultText || '',
-    toolsUsed: completed.toolsUsed,
+    toolsUsed: projectionToolsUsed(completed),
     toolExecutions,
     tokenUsage: completed.tokenUsage,
-    effectiveUserPrompt: buildCodexTurnText(messages),
+    effectiveUserPrompt,
+  };
+}
+
+function errorOutputFromProjection(
+  projection: CodexProjection,
+  effectiveUserPrompt: string,
+  error: unknown,
+): ContainerOutput {
+  return {
+    status: 'error',
+    result: null,
+    toolsUsed: projectionToolsUsed(projection),
+    toolExecutions: [
+      ...projection.toolExecutions,
+      ...projection.approvalEvents,
+    ],
+    tokenUsage: projection.tokenUsage,
+    error: error instanceof Error ? error.message : String(error),
+    effectiveUserPrompt,
   };
 }
 
@@ -986,12 +1049,12 @@ export async function resumePendingCodexAppServerApproval(
     'sessionId' | 'messages' | 'streamTextDeltas' | 'onTextDelta'
   >,
 ): Promise<ContainerOutput | null> {
-  const pending = pendingCodexApproval;
+  const effectiveUserPrompt = buildCodexTurnText(params.messages);
+  const pending = pendingCodexApprovals.get(params.sessionId) ?? null;
   if (!isApprovalForPending(params.sessionId, params.messages, pending)) {
     return null;
   }
-  if (!pending) return null;
-  pendingCodexApproval = null;
+  pendingCodexApprovals.delete(params.sessionId);
   const directive = parseApprovalDirective(latestUserText(params.messages));
   if (!directive) return null;
   try {
@@ -1003,7 +1066,7 @@ export async function resumePendingCodexAppServerApproval(
         next.method,
         next.params,
       );
-      pendingCodexApproval = {
+      pendingCodexApprovals.set(pending.sessionId, {
         approvalId: next.approvalId,
         sessionId: pending.sessionId,
         client: pending.client,
@@ -1011,10 +1074,10 @@ export async function resumePendingCodexAppServerApproval(
         requestId: next.requestId,
         method: next.method,
         params: next.params,
-      };
-      return outputFromProjection(pending.projection, params.messages);
+      });
+      return outputFromProjection(pending.projection, effectiveUserPrompt);
     }
-    const output = outputFromProjection(next.projection, params.messages);
+    const output = outputFromProjection(next.projection, effectiveUserPrompt);
     if (params.streamTextDeltas && output.result && params.onTextDelta) {
       params.onTextDelta(output.result);
     }
@@ -1022,22 +1085,15 @@ export async function resumePendingCodexAppServerApproval(
     return output;
   } catch (error) {
     pending.client.close();
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: pending.projection.toolsUsed,
-      toolExecutions: [
-        ...pending.projection.toolExecutions,
-        ...pending.projection.approvalEvents,
-      ],
-      tokenUsage: pending.projection.tokenUsage,
-      error: error instanceof Error ? error.message : String(error),
-      effectiveUserPrompt: buildCodexTurnText(params.messages),
-    };
+    return errorOutputFromProjection(
+      pending.projection,
+      effectiveUserPrompt,
+      error,
+    );
   }
 }
 
-async function ensureCodexCliAvailable(): Promise<void> {
+async function checkCodexCliAvailable(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn('codex', ['--version'], {
       stdio: ['ignore', 'ignore', 'pipe'],
@@ -1071,14 +1127,21 @@ async function ensureCodexCliAvailable(): Promise<void> {
   });
 }
 
+async function ensureCodexCliAvailable(): Promise<void> {
+  codexCliAvailablePromise ??= checkCodexCliAvailable();
+  await codexCliAvailablePromise;
+}
+
 export async function runCodexAppServerTurn(
   params: RunCodexAppServerTurnParams,
 ): Promise<ContainerOutput> {
   await ensureCodexCliAvailable();
-  if (pendingCodexApproval?.sessionId === params.sessionId) {
-    pendingCodexApproval.client.close();
-    pendingCodexApproval = null;
+  const stalePending = pendingCodexApprovals.get(params.sessionId);
+  if (stalePending) {
+    stalePending.client.close();
+    pendingCodexApprovals.delete(params.sessionId);
   }
+  const effectiveUserPrompt = buildCodexTurnText(params.messages);
   const projection = createProjection();
   const client = new CodexAppServerClient(projection, params);
   let keepClientOpen = false;
@@ -1101,6 +1164,7 @@ export async function runCodexAppServerTurn(
       developerInstructions:
         'HybridClaw launched this turn through the optional Codex app-server runtime. If a HybridClaw-only tool is unavailable, say that the app-server bridge cannot service it in this mode.',
       ephemeral: true,
+      // These event streams are load-bearing for projecting Codex state back into HybridClaw transcripts.
       experimentalRawEvents: true,
       persistExtendedHistory: true,
     })) as Record<string, unknown>;
@@ -1124,12 +1188,11 @@ export async function runCodexAppServerTurn(
 
     const turn = (await client.request('turn/start', {
       threadId: projection.threadId,
-      input: buildCodexUserInput(params.messages),
+      input: buildCodexUserInput(params.messages, effectiveUserPrompt),
       cwd: params.cwd || process.cwd(),
       model: normalizeCodexModelName(params.model),
     })) as Record<string, unknown>;
     const turnRecord = isRecord(turn.turn) ? turn.turn : {};
-    projection.turnId = readString(turnRecord, 'id');
     if (readString(turnRecord, 'status') === 'completed') {
       projection.completed = true;
     }
@@ -1143,7 +1206,7 @@ export async function runCodexAppServerTurn(
         next.method,
         next.params,
       );
-      pendingCodexApproval = {
+      pendingCodexApprovals.set(params.sessionId, {
         approvalId: next.approvalId,
         sessionId: params.sessionId,
         client,
@@ -1151,28 +1214,17 @@ export async function runCodexAppServerTurn(
         requestId: next.requestId,
         method: next.method,
         params: next.params,
-      };
+      });
       keepClientOpen = true;
-      return outputFromProjection(projection, params.messages);
+      return outputFromProjection(projection, effectiveUserPrompt);
     }
-    const output = outputFromProjection(next.projection, params.messages);
+    const output = outputFromProjection(next.projection, effectiveUserPrompt);
     if (params.streamTextDeltas && output.result && params.onTextDelta) {
       params.onTextDelta(output.result);
     }
     return output;
   } catch (error) {
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: projection.toolsUsed,
-      toolExecutions: [
-        ...projection.toolExecutions,
-        ...projection.approvalEvents,
-      ],
-      tokenUsage: projection.tokenUsage,
-      error: error instanceof Error ? error.message : String(error),
-      effectiveUserPrompt: buildCodexTurnText(params.messages),
-    };
+    return errorOutputFromProjection(projection, effectiveUserPrompt, error);
   } finally {
     if (!keepClientOpen) client.close();
   }

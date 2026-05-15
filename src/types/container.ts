@@ -1,4 +1,5 @@
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
+import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import type { ChatMessage } from './api.js';
 import type {
   ArtifactMetadata,
@@ -73,7 +74,7 @@ export interface ContainerInput {
   gatewayApiToken?: string;
   browserProvider?: string;
   model: string;
-  codexRuntime?: 'hybridclaw' | 'app-server';
+  codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];

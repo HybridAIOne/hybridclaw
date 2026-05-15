@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   buildCodexApprovalResponseForDirective,
@@ -21,6 +23,119 @@ describe('Codex app-server runtime helpers', () => {
     vi.doUnmock('node:child_process');
     vi.resetModules();
   });
+
+  function makeProjection(): Parameters<typeof projectCodexThreadItem>[0] {
+    return {
+      threadId: null,
+      textDeltas: [],
+      agentMessages: [],
+      toolExecutions: [],
+      toolsUsed: new Set<string>(),
+      tokenUsage: {
+        modelCalls: 1,
+        apiUsageAvailable: false,
+        apiPromptTokens: 0,
+        apiCompletionTokens: 0,
+        apiTotalTokens: 0,
+        apiCacheUsageAvailable: false,
+        apiCacheReadTokens: 0,
+        apiCacheWriteTokens: 0,
+        estimatedPromptTokens: 0,
+        estimatedCompletionTokens: 0,
+        estimatedTotalTokens: 0,
+      },
+      approvalEvents: [],
+      pendingApproval: null,
+      error: null,
+      completed: false,
+    };
+  }
+
+  function createMockChild() {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+      stdin: { write: ReturnType<typeof vi.fn> };
+      kill: ReturnType<typeof vi.fn>;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.stdin = { write: vi.fn() };
+    child.kill = vi.fn(() => {
+      child.emit('exit', null, 'SIGTERM');
+      return true;
+    });
+    return child;
+  }
+
+  function writeJsonLine(
+    child: ReturnType<typeof createMockChild>,
+    value: unknown,
+  ) {
+    child.stdout.write(`${JSON.stringify(value)}\n`);
+  }
+
+  function createCodexSpawnMock() {
+    let appServerIndex = 0;
+    return vi.fn((_command: string, args: string[]) => {
+      const child = createMockChild();
+      if (args[0] === '--version') {
+        queueMicrotask(() => child.emit('exit', 0));
+        return child;
+      }
+
+      const index = appServerIndex;
+      appServerIndex += 1;
+      const approvalRequestId = 900 + index;
+      child.stdin.write = vi.fn((line: string) => {
+        const message = JSON.parse(line) as {
+          id?: number;
+          method?: string;
+          result?: unknown;
+        };
+        if (message.method === 'initialize') {
+          writeJsonLine(child, { id: message.id, result: {} });
+          return true;
+        }
+        if (message.method === 'thread/start') {
+          writeJsonLine(child, {
+            id: message.id,
+            result: { thread: { id: `thread-${index}` } },
+          });
+          return true;
+        }
+        if (message.method === 'turn/start') {
+          writeJsonLine(child, {
+            id: message.id,
+            result: { turn: { id: `turn-${index}`, status: 'in_progress' } },
+          });
+          setTimeout(() => {
+            writeJsonLine(child, {
+              id: approvalRequestId,
+              method: 'item/commandExecution/requestApproval',
+              params: { command: `echo ${index}` },
+            });
+          }, 0);
+          return true;
+        }
+        if (message.id === approvalRequestId && message.result) {
+          writeJsonLine(child, {
+            method: 'item/completed',
+            params: {
+              item: { type: 'agentMessage', text: `approved-${index}` },
+            },
+          });
+          writeJsonLine(child, {
+            method: 'turn/completed',
+            params: { turn: { status: 'completed' } },
+          });
+          return true;
+        }
+        return true;
+      });
+      return child;
+    });
+  }
 
   test('defaults to the existing HybridClaw runtime', () => {
     expect(DEFAULT_RUNTIME_CONFIG.codex.runtime).toBe('hybridclaw');
@@ -65,7 +180,7 @@ describe('Codex app-server runtime helpers', () => {
     expect(names).toContain('image_generate');
     expect(names).toContain('audio_transcribe');
     expect(names).toContain('skill_lookup');
-    expect(names).toContain('tts_status');
+    expect(names).not.toContain('tts_status');
     expect(names).toContain('browser_navigate');
     expect(isHybridClawCallbackToolName('bash')).toBe(false);
 
@@ -170,6 +285,63 @@ describe('Codex app-server runtime helpers', () => {
     });
   });
 
+  test('keeps pending app-server approvals isolated by session', async () => {
+    vi.resetModules();
+    const spawn = createCodexSpawnMock();
+    vi.doMock('node:child_process', () => ({ spawn }));
+    const { resumePendingCodexAppServerApproval, runCodexAppServerTurn } =
+      await import('../container/src/codex-app-server.js');
+    const baseParams = {
+      messages: [{ role: 'user' as const, content: 'run a command' }],
+      model: 'openai-codex/gpt-5.4',
+      cwd: '/workspace',
+      provider: 'openai-codex' as const,
+    };
+
+    const first = await runCodexAppServerTurn({
+      ...baseParams,
+      sessionId: 'session-a',
+    });
+    const second = await runCodexAppServerTurn({
+      ...baseParams,
+      sessionId: 'session-b',
+    });
+
+    expect(first.pendingApproval?.approvalId).toBeTruthy();
+    expect(second.pendingApproval?.approvalId).toBeTruthy();
+    expect(
+      await resumePendingCodexAppServerApproval({
+        sessionId: 'session-c',
+        messages: [{ role: 'user', content: 'approve' }],
+      }),
+    ).toBeNull();
+
+    const resumedFirst = await resumePendingCodexAppServerApproval({
+      sessionId: 'session-a',
+      messages: [
+        {
+          role: 'user',
+          content: `approve ${first.pendingApproval?.approvalId}`,
+        },
+      ],
+    });
+    const resumedSecond = await resumePendingCodexAppServerApproval({
+      sessionId: 'session-b',
+      messages: [
+        {
+          role: 'user',
+          content: `approve ${second.pendingApproval?.approvalId}`,
+        },
+      ],
+    });
+
+    expect(resumedFirst?.result).toBe('approved-0');
+    expect(resumedSecond?.result).toBe('approved-1');
+    expect(
+      spawn.mock.calls.filter(([, args]) => args[0] === '--version'),
+    ).toHaveLength(1);
+  });
+
   test('migrates user MCP servers without embedding sensitive environment values', () => {
     const args = buildCodexAppServerArgs(
       {
@@ -181,6 +353,10 @@ describe('Codex app-server runtime helpers', () => {
           env: {
             SAFE_MODE: '1',
             API_TOKEN: 'secret-token',
+            OPENAI_KEY: 'secret-openai-key',
+            DB_PASS: 'secret-db-pass',
+            SVC_CREDENTIAL: 'secret-service-credential',
+            X_API_SECRET: 'secret-api-secret',
             password: 'secret-password',
           },
         },
@@ -205,6 +381,14 @@ describe('Codex app-server runtime helpers', () => {
     expect(joined).toContain('mcp_servers.remote.url');
     expect(joined).not.toContain('API_TOKEN');
     expect(joined).not.toContain('secret-token');
+    expect(joined).not.toContain('OPENAI_KEY');
+    expect(joined).not.toContain('secret-openai-key');
+    expect(joined).not.toContain('DB_PASS');
+    expect(joined).not.toContain('secret-db-pass');
+    expect(joined).not.toContain('SVC_CREDENTIAL');
+    expect(joined).not.toContain('secret-service-credential');
+    expect(joined).not.toContain('X_API_SECRET');
+    expect(joined).not.toContain('secret-api-secret');
     expect(joined).not.toContain('password');
     expect(joined).not.toContain('secret-password');
     expect(joined).not.toContain('Authorization');
@@ -237,6 +421,8 @@ describe('Codex app-server runtime helpers', () => {
     const secretContext = JSON.stringify(payloads.secretContext);
 
     expect(fileContext).toContain('openai-codex');
+    expect(fileContext).toContain('"provider":"brave"');
+    expect(fileContext).toContain('"defaultCount":5');
     expect(fileContext).not.toContain('secret-api-key');
     expect(fileContext).not.toContain('secret-gateway-token');
     expect(fileContext).not.toContain('Authorization');
@@ -244,34 +430,12 @@ describe('Codex app-server runtime helpers', () => {
     expect(fileContext).not.toContain('secret-provider-key');
     expect(secretContext).toContain('secret-api-key');
     expect(secretContext).toContain('secret-gateway-token');
+    expect(secretContext).toContain('secret-web-key');
+    expect(secretContext).not.toContain('"defaultCount":5');
   });
 
   test('projects Codex command and patch items into HybridClaw tool executions', () => {
-    const projection: Parameters<typeof projectCodexThreadItem>[0] = {
-      threadId: null,
-      turnId: null,
-      textDeltas: [],
-      agentMessages: [],
-      toolExecutions: [],
-      toolsUsed: [],
-      tokenUsage: {
-        modelCalls: 1,
-        apiUsageAvailable: false,
-        apiPromptTokens: 0,
-        apiCompletionTokens: 0,
-        apiTotalTokens: 0,
-        apiCacheUsageAvailable: false,
-        apiCacheReadTokens: 0,
-        apiCacheWriteTokens: 0,
-        estimatedPromptTokens: 0,
-        estimatedCompletionTokens: 0,
-        estimatedTotalTokens: 0,
-      },
-      approvalEvents: [],
-      pendingApproval: null,
-      error: null,
-      completed: false,
-    };
+    const projection = makeProjection();
 
     projectCodexThreadItem(projection, {
       type: 'commandExecution',
@@ -286,7 +450,7 @@ describe('Codex app-server runtime helpers', () => {
       status: 'applied',
     });
 
-    expect(projection.toolsUsed).toEqual(['codex.command', 'codex.patch']);
+    expect([...projection.toolsUsed]).toEqual(['codex.command', 'codex.patch']);
     expect(projection.toolExecutions[0]).toMatchObject({
       name: 'codex.command',
       arguments: 'npm test',
@@ -297,31 +461,7 @@ describe('Codex app-server runtime helpers', () => {
   });
 
   test('projects Codex MCP and dynamic tool items into HybridClaw tool executions', () => {
-    const projection: Parameters<typeof projectCodexThreadItem>[0] = {
-      threadId: null,
-      turnId: null,
-      textDeltas: [],
-      agentMessages: [],
-      toolExecutions: [],
-      toolsUsed: [],
-      tokenUsage: {
-        modelCalls: 1,
-        apiUsageAvailable: false,
-        apiPromptTokens: 0,
-        apiCompletionTokens: 0,
-        apiTotalTokens: 0,
-        apiCacheUsageAvailable: false,
-        apiCacheReadTokens: 0,
-        apiCacheWriteTokens: 0,
-        estimatedPromptTokens: 0,
-        estimatedCompletionTokens: 0,
-        estimatedTotalTokens: 0,
-      },
-      approvalEvents: [],
-      pendingApproval: null,
-      error: null,
-      completed: false,
-    };
+    const projection = makeProjection();
 
     projectCodexThreadItem(projection, {
       type: 'mcpToolCall',
@@ -338,7 +478,7 @@ describe('Codex app-server runtime helpers', () => {
       status: 'completed',
     });
 
-    expect(projection.toolsUsed).toEqual(['codex.mcp', 'codex.tool']);
+    expect([...projection.toolsUsed]).toEqual(['codex.mcp', 'codex.tool']);
     expect(projection.toolExecutions[0]).toMatchObject({
       name: 'codex.mcp',
       isError: false,
@@ -354,31 +494,7 @@ describe('Codex app-server runtime helpers', () => {
   });
 
   test('projects Codex plan and sandbox items into normalized tool executions', () => {
-    const projection: Parameters<typeof projectCodexThreadItem>[0] = {
-      threadId: null,
-      turnId: null,
-      textDeltas: [],
-      agentMessages: [],
-      toolExecutions: [],
-      toolsUsed: [],
-      tokenUsage: {
-        modelCalls: 1,
-        apiUsageAvailable: false,
-        apiPromptTokens: 0,
-        apiCompletionTokens: 0,
-        apiTotalTokens: 0,
-        apiCacheUsageAvailable: false,
-        apiCacheReadTokens: 0,
-        apiCacheWriteTokens: 0,
-        estimatedPromptTokens: 0,
-        estimatedCompletionTokens: 0,
-        estimatedTotalTokens: 0,
-      },
-      approvalEvents: [],
-      pendingApproval: null,
-      error: null,
-      completed: false,
-    };
+    const projection = makeProjection();
 
     projectCodexThreadItem(projection, {
       type: 'planUpdate',
@@ -391,7 +507,7 @@ describe('Codex app-server runtime helpers', () => {
       status: 'active',
     });
 
-    expect(projection.toolsUsed).toEqual(['codex.plan', 'codex.sandbox']);
+    expect([...projection.toolsUsed]).toEqual(['codex.plan', 'codex.sandbox']);
     expect(projection.toolExecutions[0]?.arguments).toContain('inspect');
     expect(projection.toolExecutions[1]?.arguments).toContain(
       'workspace-write',

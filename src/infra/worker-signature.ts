@@ -1,3 +1,4 @@
+import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import type { ProviderCredentials } from '../types/container.js';
 import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
@@ -20,7 +21,7 @@ export interface WorkerSignatureInput {
   agentId: string;
   provider: string | undefined;
   providerMethod?: string;
-  codexRuntime?: 'hybridclaw' | 'app-server';
+  codexRuntime?: CodexTurnRuntime;
   baseUrl: string;
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
