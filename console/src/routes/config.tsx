@@ -188,6 +188,22 @@ export function ConfigPage() {
       } else {
         toast.error('Browser pool did not start', payload.message);
       }
+      if (payload.poolTokenRefId) {
+        const poolTokenRefId = payload.poolTokenRefId;
+        setDraft((current) =>
+          updateBrowserConfig(current, (currentBrowser) => ({
+            ...currentBrowser,
+            managedCloud: {
+              ...currentBrowser.managedCloud,
+              poolTokenRef: {
+                source: 'store',
+                id: poolTokenRefId,
+              },
+            },
+          })),
+        );
+      }
+      void configQuery.refetch();
       void browserPoolHealthQuery.refetch();
     },
     onError: (error) => {

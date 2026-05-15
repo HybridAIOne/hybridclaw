@@ -157,6 +157,7 @@ beforeEach(() => {
     endpointUrl: 'http://127.0.0.1:8787',
     pid: 1234,
     message: 'Managed browser pool healthy: 1/1 nodes available.',
+    poolTokenRefId: 'MANAGED_BROWSER_POOL_TOKEN',
   });
 });
 
@@ -173,6 +174,9 @@ describe('ConfigPage', () => {
     expect(await screen.findByText(/fetch failed/i)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Start Docker pool' }));
     await waitFor(() => expect(startBrowserPoolMock).toHaveBeenCalledTimes(1));
+    expect(
+      await screen.findByDisplayValue('MANAGED_BROWSER_POOL_TOKEN'),
+    ).toBeTruthy();
     fireEvent.change(screen.getByDisplayValue('http://127.0.0.1:8787'), {
       target: { value: 'https://browser.example' },
     });

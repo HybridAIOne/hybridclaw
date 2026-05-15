@@ -806,6 +806,7 @@ export interface AdminBrowserPoolLaunchResponse {
   endpointUrl: string;
   pid: number | null;
   message: string;
+  poolTokenRefId?: string;
   logTail?: string;
 }
 

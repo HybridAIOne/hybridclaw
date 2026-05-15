@@ -1,13 +1,19 @@
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import {
   getRuntimeConfig,
   type RuntimeManagedCloudBrowserConfig,
+  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger } from '../logger.js';
+import {
+  readStoredRuntimeSecret,
+  saveNamedRuntimeSecrets,
+} from '../security/runtime-secrets.js';
 import { resolveSecretInputUnsafe } from '../security/secret-refs.js';
 import { checkManagedBrowserPoolHealth } from './managed-cloud-doctor.js';
 import { normalizeManagedCloudEndpointUrl } from './managed-cloud-provider.js';
@@ -26,6 +32,7 @@ export interface ManagedBrowserPoolLaunchResult {
   endpointUrl: string;
   pid: number | null;
   message: string;
+  poolTokenRefId?: string;
   logTail?: string;
 }
 
@@ -41,6 +48,7 @@ const LOG_TAIL_LIMIT_BYTES = 16 * 1024;
 const HEALTH_WAIT_TIMEOUT_MS = 5_000;
 const HEALTH_WAIT_INTERVAL_MS = 250;
 const COMMAND_TIMEOUT_MS = 120_000;
+const DEFAULT_POOL_TOKEN_REF_ID = 'MANAGED_BROWSER_POOL_TOKEN';
 
 let poolLogTail = '';
 
@@ -84,6 +92,21 @@ function resolveEndpointPort(url: URL): number {
   return port;
 }
 
+function assertLocalDockerEndpoint(endpointUrl: string): void {
+  const parsed = new URL(endpointUrl);
+  if (parsed.protocol !== 'http:') {
+    throw new Error(
+      'Local Docker browser pool launch only supports http:// loopback endpoints.',
+    );
+  }
+  if (!isLoopbackHostname(parsed.hostname)) {
+    throw new Error(
+      'Local Docker browser pool launch is only available for loopback endpoints.',
+    );
+  }
+  resolveEndpointPort(parsed);
+}
+
 function resolvePoolToken(
   config: RuntimeManagedCloudBrowserConfig,
   fallback?: string,
@@ -104,6 +127,26 @@ function resolvePoolToken(
   );
 }
 
+function ensurePoolTokenRef(
+  config: RuntimeManagedCloudBrowserConfig,
+): RuntimeManagedCloudBrowserConfig {
+  if (config.poolTokenRef) return config;
+
+  if (!readStoredRuntimeSecret(DEFAULT_POOL_TOKEN_REF_ID)) {
+    saveNamedRuntimeSecrets({
+      [DEFAULT_POOL_TOKEN_REF_ID]: randomBytes(32).toString('base64url'),
+    });
+  }
+
+  const saved = updateRuntimeConfig((draft) => {
+    draft.browser.managedCloud.poolTokenRef = {
+      source: 'store',
+      id: DEFAULT_POOL_TOKEN_REF_ID,
+    };
+  });
+  return saved.browser.managedCloud;
+}
+
 export function buildManagedBrowserPoolLaunchSpec(
   config: RuntimeManagedCloudBrowserConfig,
   options: {
@@ -113,16 +156,7 @@ export function buildManagedBrowserPoolLaunchSpec(
 ): ManagedBrowserPoolLaunchSpec {
   const endpointUrl = normalizeManagedCloudEndpointUrl(config.endpointUrl);
   const parsed = new URL(endpointUrl);
-  if (parsed.protocol !== 'http:') {
-    throw new Error(
-      'Local Docker browser pool launch only supports http:// loopback endpoints.',
-    );
-  }
-  if (!isLoopbackHostname(parsed.hostname)) {
-    throw new Error(
-      'Local Docker browser pool launch is only available for loopback endpoints.',
-    );
-  }
+  assertLocalDockerEndpoint(endpointUrl);
 
   const installRoot = options.installRoot || resolveInstallPath();
   const composePath = path.join(
@@ -256,6 +290,21 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
     };
   }
 
+  let managedCloudConfig: RuntimeManagedCloudBrowserConfig;
+  try {
+    assertLocalDockerEndpoint(endpointUrl);
+    managedCloudConfig = ensurePoolTokenRef(browserConfig.managedCloud);
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'unsupported',
+      endpointUrl,
+      pid: null,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const poolTokenRefId = managedCloudConfig.poolTokenRef?.id;
+
   const currentHealth = await checkManagedBrowserPoolHealth(endpointUrl);
   if (currentHealth.ok) {
     return {
@@ -264,12 +313,13 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
       endpointUrl: currentHealth.endpointUrl,
       pid: null,
       message: currentHealth.message,
+      ...(poolTokenRefId ? { poolTokenRefId } : {}),
     };
   }
 
   let spec: ManagedBrowserPoolLaunchSpec;
   try {
-    spec = buildManagedBrowserPoolLaunchSpec(browserConfig.managedCloud);
+    spec = buildManagedBrowserPoolLaunchSpec(managedCloudConfig);
   } catch (error) {
     return {
       ok: false,
@@ -289,6 +339,7 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
       endpointUrl: spec.endpointUrl,
       pid: null,
       message: error instanceof Error ? error.message : String(error),
+      ...(poolTokenRefId ? { poolTokenRefId } : {}),
     };
   }
 
@@ -311,6 +362,7 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
       endpointUrl: spec.endpointUrl,
       pid: null,
       message: error instanceof Error ? error.message : String(error),
+      ...(poolTokenRefId ? { poolTokenRefId } : {}),
       logTail: poolLogTail || undefined,
     };
   }
@@ -322,6 +374,7 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
       endpointUrl: spec.endpointUrl,
       pid: null,
       message: `Docker Compose exited with code ${composeResult.exitCode}.`,
+      ...(poolTokenRefId ? { poolTokenRefId } : {}),
       logTail: poolLogTail || undefined,
     };
   }
@@ -344,6 +397,7 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
       endpointUrl: spec.endpointUrl,
       pid: null,
       message: health.message,
+      ...(poolTokenRefId ? { poolTokenRefId } : {}),
       logTail: poolLogTail || undefined,
     };
   }
@@ -354,6 +408,7 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
     endpointUrl: spec.endpointUrl,
     pid: null,
     message: health.message,
+    ...(poolTokenRefId ? { poolTokenRefId } : {}),
     logTail: poolLogTail || undefined,
   };
 }
