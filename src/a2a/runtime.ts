@@ -1,10 +1,12 @@
 import type { EscalationTarget } from '../types/execution.js';
+import { recordA2AMessageAudit } from './audit.js';
 import {
   type A2AEnvelope,
   A2AEnvelopeValidationError,
   validateA2AEnvelope,
 } from './envelope.js';
 import { attachA2AHandoffContext } from './handoff-context.js';
+import { normalizePeerDescriptor } from './peer-descriptor.js';
 import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
 import {
   encodeForRegisteredTransport,
@@ -21,6 +23,7 @@ export interface A2ADeliveryConfirmation {
 
 export interface A2ASendMessageMeta {
   actor?: string;
+  auditRole?: 'sender' | 'receiver';
   peerDescriptor?: unknown;
   transportRegistry?: TransportRegistry;
   sessionId?: string;
@@ -40,9 +43,10 @@ export function sendMessage(
   envelope: unknown,
   meta?: A2ASendMessageMeta,
 ): A2ADeliveryConfirmation {
+  const peerDescriptor = normalizePeerDescriptor(meta?.peerDescriptor);
   const encodedEnvelope = encodeForRegisteredTransport({
     envelope: attachA2AHandoffContext(validateRuntimeEnvelope(envelope)),
-    peerDescriptor: meta?.peerDescriptor,
+    peerDescriptor,
     registry: meta?.transportRegistry,
     sessionId: meta?.sessionId,
     runId: meta?.auditRunId,
@@ -53,6 +57,33 @@ export function sendMessage(
     route: 'a2a.sendMessage',
     source: 'a2a-runtime',
   });
+  const auditBase = {
+    envelope: deliveredEnvelope,
+    sessionId: meta?.sessionId,
+    runId: meta?.auditRunId,
+    actor: meta?.actor,
+    route: 'a2a.sendMessage',
+    source: 'a2a-runtime',
+    transport: peerDescriptor.transport,
+  };
+  if ((meta?.auditRole ?? 'sender') === 'sender') {
+    recordA2AMessageAudit({
+      type: 'a2a.send',
+      ...auditBase,
+    });
+  }
+  if (peerDescriptor.transport === 'internal') {
+    recordA2AMessageAudit({
+      type: 'a2a.deliver',
+      ...auditBase,
+    });
+  }
+  if (deliveredEnvelope.intent === 'handoff') {
+    recordA2AMessageAudit({
+      type: 'a2a.handoff',
+      ...auditBase,
+    });
+  }
   return {
     delivered: true,
     message_id: deliveredEnvelope.id,

@@ -40,6 +40,7 @@ export function acceptA2AInboundEnvelope(
   }
   return sendMessage(envelope, {
     actor: `${meta.source}:${meta.actor}`,
+    auditRole: 'receiver',
     sessionId: meta.sessionId,
     auditRunId: meta.auditRunId,
   });
