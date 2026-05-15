@@ -15,6 +15,7 @@ import {
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { resolveSecretInputUnsafe } from '../security/secret-refs.js';
+import { ensureLocalManagedBrowserTenantPolicyFile } from './managed-browser-tenant-policy.js';
 import { checkManagedBrowserPoolHealth } from './managed-cloud-doctor.js';
 import { normalizeManagedCloudEndpointUrl } from './managed-cloud-provider.js';
 import { noopSecretAudit } from './playwright-utils.js';
@@ -151,6 +152,7 @@ export function buildManagedBrowserPoolLaunchSpec(
   config: RuntimeManagedCloudBrowserConfig,
   options: {
     installRoot?: string;
+    policyPath?: string;
     poolToken?: string;
   } = {},
 ): ManagedBrowserPoolLaunchSpec {
@@ -172,6 +174,9 @@ export function buildManagedBrowserPoolLaunchSpec(
   }
 
   const poolToken = resolvePoolToken(config, options.poolToken);
+  const policyPath =
+    options.policyPath ||
+    ensureLocalManagedBrowserTenantPolicyFile({ installRoot });
   return {
     command: 'docker',
     args: [
@@ -189,6 +194,7 @@ export function buildManagedBrowserPoolLaunchSpec(
       ...process.env,
       MANAGED_BROWSER_PUBLISH_HOST: resolveBindHost(parsed.hostname),
       MANAGED_BROWSER_PORT: String(resolveEndpointPort(parsed)),
+      MANAGED_BROWSER_POLICY_HOST_PATH: policyPath,
       MANAGED_BROWSER_POOL_TOKEN: poolToken,
     },
   };
@@ -306,16 +312,6 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
   const poolTokenRefId = managedCloudConfig.poolTokenRef?.id;
 
   const currentHealth = await checkManagedBrowserPoolHealth(endpointUrl);
-  if (currentHealth.ok) {
-    return {
-      ok: true,
-      status: 'already-running',
-      endpointUrl: currentHealth.endpointUrl,
-      pid: null,
-      message: currentHealth.message,
-      ...(poolTokenRefId ? { poolTokenRefId } : {}),
-    };
-  }
 
   let spec: ManagedBrowserPoolLaunchSpec;
   try {
@@ -393,7 +389,7 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
   if (health.ok) {
     return {
       ok: true,
-      status: 'started',
+      status: currentHealth.ok ? 'already-running' : 'started',
       endpointUrl: spec.endpointUrl,
       pid: null,
       message: health.message,

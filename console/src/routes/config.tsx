@@ -2,7 +2,9 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   fetchBrowserPoolHealth,
+  fetchBrowserPoolPolicy,
   fetchConfig,
+  saveBrowserPoolPolicy,
   saveConfig,
   startBrowserPool,
 } from '../api/client';
@@ -173,12 +175,20 @@ function browserPoolStatusText(
   return `${health.status} - ${health.message}`;
 }
 
+function parseAllowedHostsText(value: string): string[] {
+  return value
+    .split(/[\n,]/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export function ConfigPage() {
   const auth = useAuth();
   const toast = useToast();
   const [rawMode, setRawMode] = useState(false);
   const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [rawJson, setRawJson] = useState('');
+  const [allowedHostsText, setAllowedHostsText] = useState('');
 
   const configQuery = useQuery({
     queryKey: ['config', auth.token],
@@ -222,6 +232,27 @@ export function ConfigPage() {
     refetchInterval: 15_000,
   });
   const browserPoolHealth = browserPoolHealthQuery.data;
+  const browserPoolPolicyQuery = useQuery({
+    queryKey: [
+      'browser-pool-policy',
+      auth.token,
+      draftBrowser.provider,
+      draftBrowser.managedCloud.defaultTenantId,
+    ],
+    queryFn: () =>
+      fetchBrowserPoolPolicy(
+        auth.token,
+        draftBrowser.managedCloud.defaultTenantId,
+      ),
+    enabled: Boolean(
+      draft && !rawMode && draftBrowser.provider === 'managed-cloud',
+    ),
+  });
+  useEffect(() => {
+    const policy = browserPoolPolicyQuery.data;
+    if (!policy?.ok) return;
+    setAllowedHostsText(policy.allowedHosts.join('\n'));
+  }, [browserPoolPolicyQuery.data]);
   const startBrowserPoolMutation = useMutation({
     mutationFn: () => startBrowserPool(auth.token),
     onSuccess: (payload) => {
@@ -250,6 +281,21 @@ export function ConfigPage() {
     },
     onError: (error) => {
       toast.error('Browser pool start failed', getErrorMessage(error));
+    },
+  });
+  const saveBrowserPoolPolicyMutation = useMutation({
+    mutationFn: () =>
+      saveBrowserPoolPolicy(auth.token, {
+        tenantId: draftBrowser.managedCloud.defaultTenantId,
+        allowedHosts: parseAllowedHostsText(allowedHostsText),
+      }),
+    onSuccess: (payload) => {
+      setAllowedHostsText(payload.allowedHosts.join('\n'));
+      toast.success('Browser allowlist saved.', payload.message);
+      void browserPoolPolicyQuery.refetch();
+    },
+    onError: (error) => {
+      toast.error('Browser allowlist save failed', getErrorMessage(error));
     },
   });
 
@@ -708,6 +754,56 @@ export function ConfigPage() {
                         }
                       />
                     </label>
+                    <label className="field textarea-field">
+                      <span>Allowed HTTPS hosts</span>
+                      <textarea
+                        rows={5}
+                        value={allowedHostsText}
+                        placeholder={'hybridclaw.io\nwww.hybridclaw.io'}
+                        disabled={
+                          browserPoolPolicyQuery.isLoading ||
+                          !browser.managedCloud.defaultTenantId.trim()
+                        }
+                        onInput={(event) =>
+                          setAllowedHostsText(event.currentTarget.value)
+                        }
+                        onChange={(event) =>
+                          setAllowedHostsText(event.target.value)
+                        }
+                      />
+                    </label>
+                    <div className="button-row">
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        disabled={
+                          browserPoolPolicyQuery.isFetching ||
+                          !browser.managedCloud.defaultTenantId.trim()
+                        }
+                        onClick={() => void browserPoolPolicyQuery.refetch()}
+                      >
+                        {browserPoolPolicyQuery.isFetching
+                          ? 'Loading hosts...'
+                          : 'Load allowed hosts'}
+                      </button>
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        disabled={
+                          saveBrowserPoolPolicyMutation.isPending ||
+                          !browser.managedCloud.defaultTenantId.trim()
+                        }
+                        onClick={() => saveBrowserPoolPolicyMutation.mutate()}
+                      >
+                        {saveBrowserPoolPolicyMutation.isPending
+                          ? 'Saving hosts...'
+                          : 'Save allowed hosts'}
+                      </button>
+                      <span className="form-hint">
+                        {browserPoolPolicyQuery.data?.message ??
+                          'Set a default tenant id to edit host policy.'}
+                      </span>
+                    </div>
                     <label className="field" htmlFor="managed-cloud-action-usd">
                       <span>Action price USD</span>
                       <DecimalNumberInput

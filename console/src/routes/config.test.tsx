@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminBrowserPoolHealthResponse,
+  AdminBrowserPoolPolicyResponse,
   AdminConfig,
   AdminConfigResponse,
 } from '../api/types';
@@ -12,13 +13,19 @@ import { ConfigPage } from './config';
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchBrowserPoolHealthMock =
   vi.fn<() => Promise<AdminBrowserPoolHealthResponse>>();
+const fetchBrowserPoolPolicyMock =
+  vi.fn<() => Promise<AdminBrowserPoolPolicyResponse>>();
 const saveConfigMock = vi.fn();
+const saveBrowserPoolPolicyMock = vi.fn();
 const startBrowserPoolMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
   fetchBrowserPoolHealth: () => fetchBrowserPoolHealthMock(),
+  fetchBrowserPoolPolicy: () => fetchBrowserPoolPolicyMock(),
   fetchConfig: () => fetchConfigMock(),
+  saveBrowserPoolPolicy: (...args: unknown[]) =>
+    saveBrowserPoolPolicyMock(...args),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   startBrowserPool: (...args: unknown[]) => startBrowserPoolMock(...args),
 }));
@@ -147,6 +154,15 @@ beforeEach(() => {
     message:
       'Managed browser pool health check failed at http://127.0.0.1:8787: fetch failed',
   });
+  fetchBrowserPoolPolicyMock.mockResolvedValue({
+    ok: true,
+    status: 'available',
+    tenantId: 'tenant-a',
+    policyPath: '/tmp/tenants.yaml',
+    allowedHosts: ['example.com'],
+    message:
+      'Editing broad HTTPS allow rules for this managed browser tenant policy.',
+  });
   saveConfigMock.mockResolvedValue({
     path: '/tmp/config.json',
     config,
@@ -158,6 +174,15 @@ beforeEach(() => {
     pid: 1234,
     message: 'Managed browser pool healthy: 1/1 nodes available.',
     poolTokenRefId: 'MANAGED_BROWSER_POOL_TOKEN',
+  });
+  saveBrowserPoolPolicyMock.mockResolvedValue({
+    ok: true,
+    status: 'available',
+    tenantId: 'tenant-a',
+    policyPath: '/tmp/tenants.yaml',
+    allowedHosts: ['hybridclaw.io', 'www.hybridclaw.io'],
+    message:
+      'Editing broad HTTPS allow rules for this managed browser tenant policy.',
   });
 });
 
@@ -186,6 +211,18 @@ describe('ConfigPage', () => {
         target: { value: 'MANAGED_BROWSER_POOL_TOKEN' },
       },
     );
+    fireEvent.change(screen.getByLabelText('Default tenant id'), {
+      target: { value: 'tenant-a' },
+    });
+    await screen.findByDisplayValue('example.com');
+    fireEvent.click(screen.getByRole('button', { name: 'Save allowed hosts' }));
+    await waitFor(() =>
+      expect(saveBrowserPoolPolicyMock).toHaveBeenCalledTimes(1),
+    );
+    expect(saveBrowserPoolPolicyMock).toHaveBeenCalledWith('admin-token', {
+      tenantId: 'tenant-a',
+      allowedHosts: ['example.com'],
+    });
     const actionPriceInput = screen.getByLabelText(
       'Action price USD',
     ) as HTMLInputElement;

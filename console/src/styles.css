@@ -951,6 +951,11 @@ th {
   resize: vertical;
 }
 
+.form-hint {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .toggle-row {
   display: grid;
   grid-template-columns: auto 1fr;

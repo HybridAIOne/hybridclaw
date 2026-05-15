@@ -810,6 +810,15 @@ export interface AdminBrowserPoolLaunchResponse {
   logTail?: string;
 }
 
+export interface AdminBrowserPoolPolicyResponse {
+  ok: boolean;
+  status: 'available' | 'unavailable' | 'disabled';
+  tenantId: string;
+  policyPath: string;
+  allowedHosts: string[];
+  message: string;
+}
+
 export interface SignalLinkResponse {
   status: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
   pairingQrText: string | null;
@@ -1131,6 +1140,20 @@ export interface AdminJobsContextResponse {
   agents: JobAgent[];
   sessions: JobSession[];
   suspendedSessions: AdminSuspendedSession[];
+}
+
+export type AdminBoardBudgetCurrency = 'USD' | 'EUR';
+
+export interface AdminBoardBudgetSummary {
+  agentId: string;
+  used: number;
+  cap: number;
+  currency: AdminBoardBudgetCurrency;
+  percent: number;
+}
+
+export interface AdminBoardBudgetResponse {
+  budgets: AdminBoardBudgetSummary[];
 }
 
 export interface AdminMcpConfig {

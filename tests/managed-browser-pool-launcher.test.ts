@@ -34,7 +34,11 @@ test('buildManagedBrowserPoolLaunchSpec launches the fixed Docker Compose servic
       defaultTenantId: '',
       pricing: {},
     },
-    { installRoot, poolToken: 'pool-token' },
+    {
+      installRoot,
+      policyPath: path.join(installRoot, 'tenants.yaml'),
+      poolToken: 'pool-token',
+    },
   );
 
   expect(spec.command).toBe('docker');
@@ -50,6 +54,9 @@ test('buildManagedBrowserPoolLaunchSpec launches the fixed Docker Compose servic
   expect(spec.cwd).toBe(installRoot);
   expect(spec.env.MANAGED_BROWSER_PUBLISH_HOST).toBe('127.0.0.1');
   expect(spec.env.MANAGED_BROWSER_PORT).toBe('8787');
+  expect(spec.env.MANAGED_BROWSER_POLICY_HOST_PATH).toBe(
+    path.join(installRoot, 'tenants.yaml'),
+  );
   expect(spec.env.MANAGED_BROWSER_POOL_TOKEN).toBe('pool-token');
 });
 

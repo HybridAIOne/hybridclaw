@@ -15,7 +15,7 @@ services:
       - "${MANAGED_BROWSER_PUBLISH_HOST:-127.0.0.1}:${MANAGED_BROWSER_PORT:-8787}:8787"
     volumes:
       - managed-browser-data:/data
-      - ./tenants.example.yaml:/config/tenants.yaml:ro
+      - ${MANAGED_BROWSER_POLICY_HOST_PATH:-./tenants.example.yaml}:/config/tenants.yaml:ro
     restart: unless-stopped
 
 volumes:

@@ -18,7 +18,12 @@ import {
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
+import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
+import {
+  readLocalManagedBrowserTenantPolicy,
+  updateLocalManagedBrowserTenantAllowedHosts,
+} from '../browser/managed-browser-tenant-policy.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
 import type {
   BrowserProvider,
@@ -358,6 +363,54 @@ async function handleApiAdminBrowserPoolStart(
   res: ServerResponse,
 ): Promise<void> {
   sendJson(res, 200, await startLocalManagedBrowserPool());
+}
+
+async function handleApiAdminBrowserPoolPolicy(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const browserConfig = getRuntimeConfig().browser;
+  if (browserConfig.provider !== 'managed-cloud') {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'disabled',
+      tenantId: '',
+      policyPath: '',
+      allowedHosts: [],
+      message: 'Browser provider is not managed-cloud.',
+    });
+    return;
+  }
+
+  const tenantId =
+    url.searchParams.get('tenantId')?.trim() ||
+    browserConfig.managedCloud.defaultTenantId;
+
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, readLocalManagedBrowserTenantPolicy({ tenantId }));
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as {
+    tenantId?: unknown;
+    allowedHosts?: unknown;
+  };
+  if (!Array.isArray(body.allowedHosts)) {
+    sendJson(res, 400, {
+      error: 'Expected array `allowedHosts` in request body.',
+    });
+    return;
+  }
+
+  sendJson(
+    res,
+    200,
+    updateLocalManagedBrowserTenantAllowedHosts({
+      tenantId: String(body.tenantId || tenantId),
+      allowedHosts: body.allowedHosts.map((host) => String(host || '')),
+    }),
+  );
 }
 
 function normalizeGatewayBrowserSessionId(value: unknown): string {
@@ -3075,6 +3128,24 @@ function handleApiAdminJobsContext(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminJobsContext());
 }
 
+function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
+  const values = url.searchParams
+    .getAll('agentId')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
+}
+
+function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
+  sendJson(
+    res,
+    200,
+    getBoardBudgetSummaries({
+      agentIds: parseBoardBudgetAgentIds(url),
+    }),
+  );
+}
+
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
   const channelId = (url.searchParams.get('channelId') || '').trim();
   if (!channelId) {
@@ -4134,7 +4205,7 @@ async function handleApiAdminScheduler(
     const source =
       (url.searchParams.get('source') || '').trim().toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const rawId =
       source === 'task'
         ? (url.searchParams.get('taskId') || '').trim()
@@ -4158,7 +4229,7 @@ async function handleApiAdminScheduler(
         .trim()
         .toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const jobId = String(
       source === 'task' ? body.taskId || '' : body.jobId || '',
     ).trim();
@@ -5559,6 +5630,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (
+            pathname === '/api/admin/browser-pool/policy' &&
+            (method === 'GET' || method === 'PUT')
+          ) {
+            await handleApiAdminBrowserPoolPolicy(req, res, url);
+            return;
+          }
+          if (
             pathname === '/api/admin/slack-webhook-targets' &&
             (method === 'POST' || method === 'PUT')
           ) {
@@ -5678,6 +5756,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {
             handleApiAdminJobsContext(res);
+            return;
+          }
+          if (pathname === '/api/admin/board/budgets' && method === 'GET') {
+            handleApiAdminBoardBudgets(res, url);
             return;
           }
           if (

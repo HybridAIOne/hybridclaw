@@ -11,8 +11,10 @@ import type {
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
+  AdminBoardBudgetResponse,
   AdminBrowserPoolHealthResponse,
   AdminBrowserPoolLaunchResponse,
+  AdminBrowserPoolPolicyResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
@@ -535,6 +537,22 @@ export function fetchJobsContext(
   });
 }
 
+export function fetchBoardBudgetSummaries(
+  token: string,
+  agentIds?: string[],
+): Promise<AdminBoardBudgetResponse> {
+  const params = new URLSearchParams();
+  for (const agentId of agentIds || []) {
+    const normalized = agentId.trim();
+    if (normalized) params.append('agentId', normalized);
+  }
+  const query = params.toString();
+  return requestJson<AdminBoardBudgetResponse>(
+    `/api/admin/board/budgets${query ? `?${query}` : ''}`,
+    { token },
+  );
+}
+
 export async function fetchSessions(token: string): Promise<AdminSession[]> {
   const payload = await requestJson<{ sessions: AdminSession[] }>(
     '/api/admin/sessions',
@@ -686,6 +704,36 @@ export function startBrowserPool(
   );
 }
 
+export function fetchBrowserPoolPolicy(
+  token: string,
+  tenantId: string,
+): Promise<AdminBrowserPoolPolicyResponse> {
+  const params = new URLSearchParams();
+  if (tenantId.trim()) params.set('tenantId', tenantId.trim());
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  return requestJson<AdminBrowserPoolPolicyResponse>(
+    `/api/admin/browser-pool/policy${suffix}`,
+    { token },
+  );
+}
+
+export function saveBrowserPoolPolicy(
+  token: string,
+  payload: {
+    tenantId: string;
+    allowedHosts: string[];
+  },
+): Promise<AdminBrowserPoolPolicyResponse> {
+  return requestJson<AdminBrowserPoolPolicyResponse>(
+    '/api/admin/browser-pool/policy',
+    {
+      method: 'PUT',
+      token,
+      body: payload,
+    },
+  );
+}
+
 export function fetchEmailConfig(token: string): Promise<unknown> {
   return requestJson<unknown>('/api/admin/email-config/fetch', { token });
 }
@@ -832,7 +880,7 @@ export function deleteSchedulerJob(
 export function setSchedulerJobPaused(
   token: string,
   payload:
-    | { source: 'config'; jobId: string; action: 'pause' | 'resume' }
+    | { source: 'job'; jobId: string; action: 'pause' | 'resume' }
     | { source: 'task'; taskId: number; action: 'pause' | 'resume' },
 ): Promise<AdminSchedulerResponse> {
   return requestJson<AdminSchedulerResponse>('/api/admin/scheduler', {
