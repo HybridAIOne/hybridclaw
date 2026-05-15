@@ -201,7 +201,7 @@ describe('AgentsOverviewPage', () => {
     expect(screen.getByText('Session B')).toBeTruthy();
   });
 
-  it('opens a selected session in the chat route', async () => {
+  it('keeps session actions focused on admin inspection', async () => {
     renderAgentsOverviewPage();
 
     await waitFor(() => {
@@ -211,13 +211,19 @@ describe('AgentsOverviewPage', () => {
     const sessionCard = screen.getByText('Session A').closest('article');
     expect(sessionCard).not.toBeNull();
 
+    expect(
+      within(sessionCard as HTMLElement).queryByRole('button', {
+        name: 'Open Chat',
+      }),
+    ).toBeNull();
+
     fireEvent.click(
       within(sessionCard as HTMLElement).getByRole('button', {
-        name: 'Open Chat',
+        name: 'Open Sessions',
       }),
     );
 
-    expect(localStorage.getItem('hybridclaw_session')).toBe('session-a');
-    expect(navigateMock).toHaveBeenCalledWith({ to: '/chat' });
+    expect(localStorage.getItem('hybridclaw_session')).toBeNull();
+    expect(navigateMock).toHaveBeenCalledWith({ to: '/admin/sessions' });
   });
 });

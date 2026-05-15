@@ -454,19 +454,6 @@ export function AgentsOverviewPage() {
 
                     <div className="button-row">
                       <button
-                        className="primary-button"
-                        type="button"
-                        onClick={() => {
-                          localStorage.setItem(
-                            'hybridclaw_session',
-                            session.sessionId,
-                          );
-                          void navigate({ to: '/chat' });
-                        }}
-                      >
-                        Open Chat
-                      </button>
-                      <button
                         className="ghost-button"
                         type="button"
                         onClick={() => void navigate({ to: '/admin/sessions' })}
