@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   formatTuiMarkdownOutput,
+  formatTuiSkillListLines,
   formatTuiTitledCommandBlock,
   formatTuiToolActivityBlock,
   formatTuiToolActivityLine,
@@ -40,6 +41,26 @@ test('mutes disabled and install hint lines in the skill list', () => {
   expect(isMutedSkillListLine('      installs: brew (brew)')).toBe(true);
   expect(isMutedSkillListLine('  apple-music [enabled]')).toBe(false);
   expect(isMutedSkillListLine('Apple:')).toBe(false);
+});
+
+test('keeps wrapped skill install lines muted and aligned', () => {
+  const lines = formatTuiSkillListLines(
+    [
+      'Publishing:',
+      '    installs: manim (uv) — Install Manim Community Edition with uv; ffmpeg (brew) — Install ffmpeg (brew)',
+    ].join('\n'),
+    78,
+  );
+  const installLines = lines.slice(1);
+
+  expect(installLines.length).toBeGreaterThan(1);
+  expect(installLines.every((line) => line.muted)).toBe(true);
+  expect(installLines.map((line) => stripAnsi(line.line))).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/^ {6}installs:/u),
+      expect.stringMatching(/^ {6}.*ffmpeg \(brew\)/u),
+    ]),
+  );
 });
 
 test('identifies only plugin list section headers for accent color', () => {
