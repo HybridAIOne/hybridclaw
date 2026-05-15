@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   emitToolExecutionAuditEvents: vi.fn(),
   estimateTokenCountFromMessages: vi.fn(() => 1),
   estimateTokenCountFromText: vi.fn(() => 1),
-  getTasksForSession: vi.fn(() => []),
+  getAllJobs: vi.fn(() => []),
   isWithinActiveHours: vi.fn(() => true),
   logger: {
     debug: vi.fn(),
@@ -92,8 +92,11 @@ vi.mock('../src/logger.js', () => ({
   logger: mocks.logger,
 }));
 
+vi.mock('../src/memory/jobs.js', () => ({
+  getAllJobs: mocks.getAllJobs,
+}));
+
 vi.mock('../src/memory/db.js', () => ({
-  getTasksForSession: mocks.getTasksForSession,
   resetSessionIfExpired: vi.fn(() => null),
 }));
 

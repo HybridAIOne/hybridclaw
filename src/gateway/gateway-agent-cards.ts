@@ -88,7 +88,7 @@ function buildAgentTask(session: Session, messages: StoredMessage[]): string {
     return 'Periodic heartbeat session using the configured runtime workspace.';
   }
   if (parsedKey?.channelKind === 'scheduler') {
-    return 'Config-backed scheduler job delivering an automated agent turn.';
+    return 'DB-backed scheduler job delivering an automated agent turn.';
   }
   // Keep pre-hierarchical prefixes for rows created before v11 migration or
   // restored from older exports.
@@ -96,7 +96,7 @@ function buildAgentTask(session: Session, messages: StoredMessage[]): string {
     return 'Periodic heartbeat session using the configured runtime workspace.';
   }
   if (session.id.startsWith('scheduler:')) {
-    return 'Config-backed scheduler job delivering an automated agent turn.';
+    return 'DB-backed scheduler job delivering an automated agent turn.';
   }
   if (session.id.startsWith('delegate:')) {
     return 'Delegated sub-agent session spawned for a focused task.';

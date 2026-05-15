@@ -354,7 +354,7 @@ function makeConfigJob(
 ): AdminSchedulerJob {
   return {
     id: 'release-notes',
-    source: 'config',
+    source: 'job',
     name: 'Release Notes',
     description: 'Draft release notes once.',
     agentId: 'main',
