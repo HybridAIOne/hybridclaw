@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import type { RuntimeConfig } from '../src/config/runtime-config.ts';
+import type {
+  RuntimeConfig,
+  RuntimeSchedulerJob,
+} from '../src/config/runtime-config.ts';
 
 const { runResourceHygieneMaintenanceMock } = vi.hoisted(() => ({
   runResourceHygieneMaintenanceMock: vi.fn(async () => ({
@@ -44,20 +47,22 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 
 function writeRuntimeConfig(
   homeDir: string,
-  mutator: (config: RuntimeConfig) => void,
+  mutator: (
+    config: RuntimeConfig & { scheduler: { jobs: RuntimeSchedulerJob[] } },
+  ) => void,
 ): void {
   const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   const config = JSON.parse(
     fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf-8'),
-  ) as RuntimeConfig;
+  ) as RuntimeConfig & { scheduler: { jobs: RuntimeSchedulerJob[] } };
   config.ops.dbPath = path.join(
     homeDir,
     '.hybridclaw',
     'data',
     'hybridclaw.db',
   );
-  config.scheduler.jobs = [];
+  config.scheduler = { jobs: [] };
   mutator(config);
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }

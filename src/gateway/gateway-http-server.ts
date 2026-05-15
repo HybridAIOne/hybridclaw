@@ -18,6 +18,7 @@ import {
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
+import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -2281,6 +2282,24 @@ function handleApiAdminJobsContext(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminJobsContext());
 }
 
+function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
+  const values = url.searchParams
+    .getAll('agentId')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
+}
+
+function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
+  sendJson(
+    res,
+    200,
+    getBoardBudgetSummaries({
+      agentIds: parseBoardBudgetAgentIds(url),
+    }),
+  );
+}
+
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
   const channelId = (url.searchParams.get('channelId') || '').trim();
   if (!channelId) {
@@ -3340,7 +3359,7 @@ async function handleApiAdminScheduler(
     const source =
       (url.searchParams.get('source') || '').trim().toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const rawId =
       source === 'task'
         ? (url.searchParams.get('taskId') || '').trim()
@@ -3364,7 +3383,7 @@ async function handleApiAdminScheduler(
         .trim()
         .toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const jobId = String(
       source === 'task' ? body.taskId || '' : body.jobId || '',
     ).trim();
@@ -4870,6 +4889,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {
             handleApiAdminJobsContext(res);
+            return;
+          }
+          if (pathname === '/api/admin/board/budgets' && method === 'GET') {
+            handleApiAdminBoardBudgets(res, url);
             return;
           }
           if (

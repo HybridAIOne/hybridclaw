@@ -157,6 +157,8 @@ saved revision history directly.
 - `agents.list[].webSearch.searxngBaseUrl` and
   `agents.list[].webSearch.searxngBearerTokenRef` override the global SearXNG
   instance and bearer SecretRef for a specific agent
+- `agents.list[].budget.cap` and `agents.list[].budget.currency` configure the
+  read-only board budget chip for that agent; `currency` accepts `USD` or `EUR`
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short";
