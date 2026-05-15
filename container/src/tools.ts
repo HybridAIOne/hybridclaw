@@ -19,6 +19,7 @@ import {
   setBrowserGatewayContext,
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
+  usesGatewayManagedBrowser,
 } from './browser-tools.js';
 import {
   type DiagramFixupRequest,
@@ -3600,7 +3601,7 @@ async function executeToolInternal(
     case 'browser_network':
     case 'browser_close': {
       const output =
-        name === 'browser_secret_type'
+        name === 'browser_secret_type' && !usesGatewayManagedBrowser()
           ? await executeBrowserSecretType(args)
           : await executeBrowserTool(name, args, currentSessionId || 'default');
       const structured = parseStructuredToolOutput(output);

@@ -80,6 +80,7 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import type { SecretInput } from '../security/secret-refs.js';
 import {
   normalizeRecentChatSearchQuery,
   normalizeRecentChatSessionLimit,
@@ -320,6 +321,7 @@ type ApiAdminPolicyRequestBody = {
 type GatewayBrowserSessionEntry = {
   provider: BrowserProvider;
   session: BrowserSession;
+  skillName: string;
 };
 
 const gatewayBrowserSessions = new Map<string, GatewayBrowserSessionEntry>();
@@ -376,14 +378,59 @@ function gatewayBrowserTextPreviewHint(params: {
   return 'empty_extraction';
 }
 
+function normalizeGatewayBrowserSkillName(value: unknown): string {
+  const normalized = String(value || '').trim();
+  return normalized || 'browser';
+}
+
+function getGatewayBrowserSelector(args: Record<string, unknown>): string {
+  const selector = String(args.selector || '').trim();
+  if (selector) return selector;
+  const ref = String(args.ref || '').trim();
+  if (!ref) return '';
+  if (ref.startsWith('@')) return '';
+  return ref;
+}
+
+function parseGatewayBrowserCoordinate(
+  args: Record<string, unknown>,
+): { x: number; y: number } | null {
+  const ref = String(args.ref || '').trim();
+  const refMatch = ref.match(/^@?viewport-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/i);
+  const rawX = refMatch ? refMatch[1] : args.x;
+  const rawY = refMatch ? refMatch[2] : args.y;
+  if (rawX == null && rawY == null) return null;
+  const x = Number(rawX);
+  const y = Number(rawY);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
+    throw new GatewayRequestError(
+      400,
+      'x and y must be non-negative viewport coordinates.',
+    );
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+function browserRendererFunction<T>(source: string): () => T {
+  return new Function(`return (${source});`) as () => T;
+}
+
+function unsupportedGatewayBrowserTool(toolName: string): never {
+  throw new GatewayRequestError(
+    400,
+    `${toolName} is not supported by the managed-cloud browser provider.`,
+  );
+}
+
 async function getGatewayBrowserSession(
   sessionId: string,
   agentId: string,
-  opts?: { headed?: boolean },
+  opts?: { headed?: boolean; skillName?: string },
 ): Promise<GatewayBrowserSessionEntry> {
   const existing = gatewayBrowserSessions.get(sessionId);
   if (existing) return existing;
   const provider = createBrowserProvider(getRuntimeConfig().browser);
+  const skillName = normalizeGatewayBrowserSkillName(opts?.skillName);
   const session = await provider.launchSession({
     headed: opts?.headed,
     timeoutMs: 60_000,
@@ -391,9 +438,10 @@ async function getGatewayBrowserSession(
       sessionId,
       agentId,
       auditRunId: `gateway_browser_${randomUUID().replace(/-/g, '')}`,
+      skillName,
     },
   });
-  const entry = { provider, session };
+  const entry = { provider, session, skillName };
   gatewayBrowserSessions.set(sessionId, entry);
   return entry;
 }
@@ -483,6 +531,304 @@ async function handleApiBrowserTool(
       imageBase64: Buffer.from(image).toString('base64'),
     });
     return;
+  }
+
+  if (toolName === 'browser_snapshot') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const pageState = await active.session.evaluate(() => {
+      const bodyText = document.body
+        ? String(document.body.innerText || '')
+        : '';
+      const normalized = bodyText
+        .replace(/\r/g, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      const elements = Array.from(
+        document.querySelectorAll(
+          'a,button,input,textarea,select,summary,[role="button"],[role="link"]',
+        ),
+      )
+        .slice(0, 100)
+        .map((element, index) => {
+          const tag = String(element.tagName || '').toLowerCase();
+          const label = String(
+            element.getAttribute('aria-label') ||
+              element.getAttribute('placeholder') ||
+              element.textContent ||
+              element.getAttribute('value') ||
+              '',
+          )
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 160);
+          const id = element.id ? `#${element.id}` : '';
+          const name = element.getAttribute('name') || '';
+          return `@managed-${index + 1} ${tag}${id}${name ? ` [name="${name}"]` : ''}${label ? ` - ${label}` : ''}`;
+        });
+      const snapshot = [
+        `URL: ${String(window.location.href || '')}`,
+        `Title: ${String(document.title || '')}`,
+        '',
+        normalized.slice(0, 12_000),
+        elements.length ? '\nInteractive elements:' : '',
+        ...elements,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      return {
+        url: String(window.location.href || ''),
+        title: String(document.title || ''),
+        snapshot,
+        truncated: normalized.length > 12_000,
+        elementCount: elements.length,
+      };
+    });
+    sendJson(res, 200, {
+      success: true,
+      snapshot: pageState.snapshot,
+      truncated: pageState.truncated === true,
+      element_count: pageState.elementCount || 0,
+      url: pageState.url || '',
+      title: pageState.title || '',
+      mode: String(args.mode || 'default'),
+      frames: [],
+      two_factor_detection: { detected: false, signals: [] },
+    });
+    return;
+  }
+
+  if (toolName === 'browser_click') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const selector = getGatewayBrowserSelector(args);
+    const text = String(args.text || '').trim();
+    const coordinate = parseGatewayBrowserCoordinate(args);
+    if (selector) {
+      await active.session.click(selector, { timeoutMs: 30_000 });
+      sendJson(res, 200, { success: true, selector });
+      return;
+    }
+    if (text) {
+      const clicked = await active.session.evaluate(
+        browserRendererFunction<boolean>(`
+          () => {
+            const needle = ${JSON.stringify(text.toLowerCase())};
+            const candidates = Array.from(document.querySelectorAll('a,button,input,summary,[role="button"],[role="link"],label'));
+            const target = candidates.find((element) => {
+              const value = String(
+                element.getAttribute('aria-label') ||
+                element.getAttribute('value') ||
+                element.textContent ||
+                '',
+              ).replace(/\\s+/g, ' ').trim().toLowerCase();
+              return value === needle || value.includes(needle);
+            });
+            if (!target) return false;
+            if (typeof target.scrollIntoView === 'function') {
+              target.scrollIntoView({ block: 'center', inline: 'center' });
+            }
+            if (typeof target.click === 'function') {
+              target.click();
+              return true;
+            }
+            return false;
+          }
+        `),
+      );
+      if (!clicked) {
+        throw new GatewayRequestError(
+          404,
+          `No managed browser element matched text: ${text}`,
+        );
+      }
+      sendJson(res, 200, { success: true, text });
+      return;
+    }
+    if (coordinate) {
+      const clicked = await active.session.evaluate(
+        browserRendererFunction<boolean>(`
+          () => {
+            const element = document.elementFromPoint(${coordinate.x}, ${coordinate.y});
+            if (!element || typeof element.click !== 'function') return false;
+            element.click();
+            return true;
+          }
+        `),
+      );
+      if (!clicked) {
+        throw new GatewayRequestError(
+          404,
+          `No managed browser element found at ${coordinate.x},${coordinate.y}`,
+        );
+      }
+      sendJson(res, 200, { success: true, x: coordinate.x, y: coordinate.y });
+      return;
+    }
+    throw new GatewayRequestError(
+      400,
+      'browser_click requires selector, text, or x/y coordinates.',
+    );
+  }
+
+  if (toolName === 'browser_type' || toolName === 'browser_secret_type') {
+    const skillName = normalizeGatewayBrowserSkillName(args.skillName);
+    const active = await getGatewayBrowserSession(sessionId, agentId, {
+      skillName,
+    });
+    const selector = getGatewayBrowserSelector(args);
+    if (!selector) {
+      throw new GatewayRequestError(
+        400,
+        `${toolName} requires a CSS selector when using the managed-cloud provider.`,
+      );
+    }
+    const value: SecretInput =
+      toolName === 'browser_secret_type'
+        ? {
+            source: 'store',
+            id: String(args.secretName || '').trim(),
+          }
+        : String(args.text || '');
+    if (
+      toolName === 'browser_secret_type' &&
+      !String(args.secretName || '').trim()
+    ) {
+      throw new GatewayRequestError(
+        400,
+        'browser_secret_type requires secretName.',
+      );
+    }
+    await active.session.fill(selector, value);
+    sendJson(res, 200, {
+      success: true,
+      selector,
+      typed_chars:
+        toolName === 'browser_secret_type' ? 0 : String(args.text || '').length,
+      secret_injected: toolName === 'browser_secret_type',
+    });
+    return;
+  }
+
+  if (toolName === 'browser_scroll') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const direction = String(args.direction || 'down').toLowerCase();
+    if (
+      direction !== 'up' &&
+      direction !== 'down' &&
+      direction !== 'left' &&
+      direction !== 'right'
+    ) {
+      throw new GatewayRequestError(
+        400,
+        'browser_scroll direction must be up, down, left, or right.',
+      );
+    }
+    const rawPixels = Number(args.pixels);
+    const pixels =
+      Number.isFinite(rawPixels) && rawPixels > 0 ? Math.floor(rawPixels) : 800;
+    await active.session.scroll({
+      direction,
+      deltaY: direction === 'up' ? -pixels : direction === 'down' ? pixels : 0,
+      deltaX:
+        direction === 'left' ? -pixels : direction === 'right' ? pixels : 0,
+    });
+    sendJson(res, 200, { success: true, direction, pixels });
+    return;
+  }
+
+  if (toolName === 'browser_back') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    await active.session.back({
+      timeoutMs: 30_000,
+      waitUntil: 'domcontentloaded',
+    });
+    const url = await active.session.evaluate(() =>
+      String(window.location.href || ''),
+    );
+    sendJson(res, 200, { success: true, url });
+    return;
+  }
+
+  if (toolName === 'browser_press') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const key = String(args.key || '').trim();
+    if (!key) throw new GatewayRequestError(400, 'browser_press requires key.');
+    const pressed = await active.session.evaluate(
+      browserRendererFunction<boolean>(`
+        () => {
+          const key = ${JSON.stringify(key)};
+          const target = document.activeElement;
+          if (!target) return false;
+          const eventInit = { key, bubbles: true, cancelable: true };
+          target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+          target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+          return true;
+        }
+      `),
+    );
+    if (!pressed) unsupportedGatewayBrowserTool(toolName);
+    sendJson(res, 200, { success: true, key });
+    return;
+  }
+
+  if (toolName === 'browser_get_images') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const images = await active.session.evaluate(() =>
+      Array.from(document.images)
+        .map((img) => ({
+          src: String(img.currentSrc || img.src || ''),
+          alt: String(img.alt || ''),
+          width: Number(img.naturalWidth || img.width || 0),
+          height: Number(img.naturalHeight || img.height || 0),
+        }))
+        .filter((img) => img.src),
+    );
+    sendJson(res, 200, {
+      success: true,
+      count: images.length,
+      images,
+    });
+    return;
+  }
+
+  if (toolName === 'browser_network') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const filter = String(args.filter || '').trim();
+    const entries = await active.session.evaluate(() =>
+      performance
+        .getEntriesByType('resource')
+        .map((entry) => ({
+          url: String(entry.name || ''),
+          method: 'GET',
+          status: null,
+          type: String(
+            (entry as PerformanceResourceTiming).initiatorType || '',
+          ),
+          startTime: Number(entry.startTime || 0),
+          duration: Number(entry.duration || 0),
+        }))
+        .filter((entry) => entry.url),
+    );
+    const requests = filter
+      ? entries.filter((entry) => entry.url.includes(filter))
+      : entries;
+    sendJson(res, 200, {
+      success: true,
+      requests,
+      count: requests.length,
+      source: 'performance',
+    });
+    return;
+  }
+
+  if (
+    toolName === 'browser_upload' ||
+    toolName === 'browser_pdf' ||
+    toolName === 'browser_console' ||
+    toolName === 'browser_await_two_factor' ||
+    toolName === 'browser_resume_interaction'
+  ) {
+    unsupportedGatewayBrowserTool(toolName);
   }
 
   throw new GatewayRequestError(

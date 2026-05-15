@@ -2163,13 +2163,12 @@ function failure(message: string): string {
   return JSON.stringify({ success: false, error: message }, null, 2);
 }
 
+export function usesGatewayManagedBrowser(): boolean {
+  return gatewayBrowserProvider === 'managed-cloud';
+}
+
 function shouldUseGatewayManagedBrowser(name: string): boolean {
-  return (
-    gatewayBrowserProvider === 'managed-cloud' &&
-    (name === 'browser_navigate' ||
-      name === 'browser_screenshot' ||
-      name === 'browser_close')
-  );
+  return usesGatewayManagedBrowser() && name.startsWith('browser_');
 }
 
 async function callGatewayManagedBrowser(
@@ -2232,6 +2231,22 @@ async function executeGatewayManagedBrowserTool(
     return success({
       path: relativePath,
       image_url: relativePath,
+      full_page: args.fullPage === true,
+    });
+  }
+
+  if (name === 'browser_vision') {
+    const question = String(args.question || '').trim();
+    if (!question) return failure('question is required');
+    const payload = await callGatewayManagedBrowser('browser_screenshot', {
+      fullPage: true,
+    });
+    const imageBase64 = String(payload.imageBase64 || '');
+    if (!imageBase64) return failure('managed browser screenshot was empty');
+    const vision = await callVisionModel(question, imageBase64);
+    return success({
+      model: vision.model,
+      analysis: vision.analysis,
     });
   }
 
