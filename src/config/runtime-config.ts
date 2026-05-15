@@ -13,11 +13,13 @@ import {
   type AgentsConfig,
   buildOptionalAgentPresentation,
   cloneAgentA2AConfig,
+  cloneAgentBudgetConfig,
   cloneAgentCv,
   cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
   normalizeAgentA2AConfig,
+  normalizeAgentBudgetConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentWebSearchConfig,
@@ -70,7 +72,6 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
-import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
@@ -1199,9 +1200,6 @@ export interface RuntimeConfig {
       maxIterations: number;
     };
   };
-  scheduler: {
-    jobs: RuntimeSchedulerJob[];
-  };
 }
 
 export interface RuntimeSkillScopeConfigDraft {
@@ -1913,9 +1911,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxIterations: 0,
     },
   },
-  scheduler: {
-    jobs: [DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB],
-  },
 };
 
 const CONFIG_PATH = path.join(DEFAULT_RUNTIME_HOME_DIR, CONFIG_FILE_NAME);
@@ -1933,6 +1928,8 @@ type RuntimeConfigSecretInputPath = (typeof SECRET_INPUT_PATHS)[number];
 
 let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
 let currentConfigSource: Record<string, unknown> = {};
+let pendingLegacySchedulerJobs: RuntimeSchedulerJob[] = [];
+let pendingLegacySchedulerJobsSeen = false;
 let currentConfigMetadata = {
   containerSandboxModeExplicit: false,
   containerMaxConcurrentExplicit: false,
@@ -2727,6 +2724,9 @@ function normalizeAgentConfig(
         fallback?.webSearch,
       )
     : cloneAgentWebSearchConfig(fallback?.webSearch);
+  const budget = Object.hasOwn(value, 'budget')
+    ? normalizeAgentBudgetConfig(value.budget, fallback?.budget)
+    : cloneAgentBudgetConfig(fallback?.budget);
   return {
     id,
     ...(name ? { name } : {}),
@@ -2745,6 +2745,7 @@ function normalizeAgentConfig(
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
     ...(webSearch ? { webSearch } : {}),
+    ...(budget ? { budget } : {}),
   };
 }
 
@@ -4610,6 +4611,25 @@ function normalizeSchedulerJobList(
   return jobs;
 }
 
+function readLegacySchedulerJobsFromSource(source: Record<string, unknown>): {
+  hasJobs: boolean;
+  jobs: RuntimeSchedulerJob[];
+} {
+  const rawScheduler = isRecord(source.scheduler) ? source.scheduler : {};
+  const hasJobs = hasOwn(rawScheduler, 'jobs');
+  return {
+    hasJobs,
+    jobs: normalizeSchedulerJobList(rawScheduler.jobs, []),
+  };
+}
+
+function rememberLegacySchedulerJobs(source: Record<string, unknown>): void {
+  const legacy = readLegacySchedulerJobsFromSource(source);
+  if (!legacy.hasJobs) return;
+  pendingLegacySchedulerJobs = legacy.jobs;
+  pendingLegacySchedulerJobsSeen = true;
+}
+
 function normalizeLogLevel(value: unknown, fallback: LogLevel): LogLevel {
   const normalized = normalizeString(value, fallback, {
     allowEmpty: false,
@@ -6109,7 +6129,6 @@ function normalizeRuntimeConfig(
     ? rawProactive.autoRetry
     : {};
   const rawRalph = isRecord(rawProactive.ralph) ? rawProactive.ralph : {};
-  const rawScheduler = isRecord(raw.scheduler) ? raw.scheduler : {};
 
   const defaultOps = DEFAULT_RUNTIME_CONFIG.ops;
   const emailEnabled = normalizeBoolean(
@@ -7543,12 +7562,6 @@ function normalizeRuntimeConfig(
         ),
       },
     },
-    scheduler: {
-      jobs: normalizeSchedulerJobList(
-        rawScheduler.jobs,
-        DEFAULT_RUNTIME_CONFIG.scheduler.jobs,
-      ),
-    },
   };
 }
 
@@ -7690,6 +7703,7 @@ function loadRuntimeConfigFromSources(
     }
   }
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
+  rememberLegacySchedulerJobs(diskSource);
   currentConfigSource = cloneConfig(diskSource);
   currentConfigMetadata = {
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
@@ -7877,6 +7891,7 @@ function migrateConfigSchemaOnStartup(): void {
 
   try {
     const parsedRecord = parsed as Record<string, unknown>;
+    rememberLegacySchedulerJobs(parsedRecord);
     const rawContainer = isRecord(parsedRecord.container)
       ? parsedRecord.container
       : {};
@@ -8113,6 +8128,46 @@ export function updateRuntimeConfig(
   const draft = cloneConfig(baseConfig);
   mutator(draft);
   return saveRuntimeConfig(draft, meta);
+}
+
+export function migrateLegacySchedulerJobsFromRuntimeConfig(
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeSchedulerJob[] {
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-scheduler-job-migration',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] scheduler job migration using in-memory config source after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const currentLegacy = readLegacySchedulerJobsFromSource(baseSource);
+  const legacyJobs = currentLegacy.hasJobs
+    ? currentLegacy.jobs
+    : pendingLegacySchedulerJobsSeen
+      ? pendingLegacySchedulerJobs
+      : [];
+  pendingLegacySchedulerJobs = [];
+  pendingLegacySchedulerJobsSeen = false;
+  if (!currentLegacy.hasJobs) return legacyJobs;
+
+  const nextSource = cloneConfig(baseSource);
+  const nextScheduler = isRecord(nextSource.scheduler)
+    ? { ...nextSource.scheduler }
+    : {};
+  delete (nextScheduler as { jobs?: unknown }).jobs;
+  if (Object.keys(nextScheduler).length === 0) {
+    delete (nextSource as { scheduler?: unknown }).scheduler;
+  } else {
+    nextSource.scheduler = nextScheduler;
+  }
+  saveRuntimeConfigSource(nextSource, meta);
+  return legacyJobs;
 }
 
 export function setRuntimeConfigSecretInput(

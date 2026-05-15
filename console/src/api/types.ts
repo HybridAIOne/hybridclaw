@@ -882,7 +882,7 @@ export type AdminSchedulerBoardStatus =
 
 export interface AdminSchedulerJob {
   id: string;
-  source: 'config' | 'task';
+  source: 'job' | 'task';
   name: string;
   description: string | null;
   agentId: string | null;

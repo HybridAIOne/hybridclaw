@@ -31,9 +31,8 @@ test('processSideEffects persists explicit schedule delivery channels', async ()
     rearmScheduler,
   }));
 
-  const { initDatabase, getTasksForSession } = await import(
-    '../src/memory/db.ts'
-  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAllJobs } = await import('../src/memory/jobs.ts');
   const { processSideEffects } = await import('../src/agent/side-effects.ts');
 
   initDatabase({ quiet: true });
@@ -58,7 +57,7 @@ test('processSideEffects persists explicit schedule delivery channels', async ()
     'tui',
   );
 
-  const tasks = getTasksForSession('session-1');
+  const tasks = getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' });
   expect(tasks).toHaveLength(1);
   expect(tasks[0]).toMatchObject({
     session_id: 'session-1',
@@ -79,9 +78,8 @@ test('processSideEffects can ignore schedule side effects', async () => {
     rearmScheduler,
   }));
 
-  const { initDatabase, getTasksForSession } = await import(
-    '../src/memory/db.ts'
-  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAllJobs } = await import('../src/memory/jobs.ts');
   const { processSideEffects } = await import('../src/agent/side-effects.ts');
 
   initDatabase({ quiet: true });
@@ -106,6 +104,8 @@ test('processSideEffects can ignore schedule side effects', async () => {
     { allowSchedules: false },
   );
 
-  expect(getTasksForSession('session-1')).toHaveLength(0);
+  expect(
+    getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' }),
+  ).toHaveLength(0);
   expect(rearmScheduler).not.toHaveBeenCalled();
 });

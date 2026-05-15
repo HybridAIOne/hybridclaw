@@ -195,10 +195,8 @@ import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
   createFreshSessionInstance,
-  createTask,
   deleteMemoryValue,
   deleteSessionData,
-  deleteTask,
   enqueueProactiveMessage,
   getAllSessions,
   getFullAutoSessionCount,
@@ -217,7 +215,6 @@ import {
   getSessionUsageTotalsSince,
   getStatisticsTotals,
   getStructuredAuditForSession,
-  getTasksForSession,
   getUsageTotals,
   listMessageTrendByDay,
   listSemanticMemoriesForSession,
@@ -229,9 +226,7 @@ import {
   listUsageByModel,
   listUsageBySession,
   listUsageDailyBreakdown,
-  pauseTask,
   recordRequestLog,
-  resumeTask,
   setMemoryValue,
   updateSessionAgent,
   updateSessionChatbot,
@@ -239,6 +234,12 @@ import {
   updateSessionRag,
   updateSessionShowMode,
 } from '../memory/db.js';
+import {
+  createJob,
+  deleteJob,
+  getAllJobs,
+  setJobEnabled,
+} from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   ensurePluginManagerInitialized,
@@ -1902,7 +1903,10 @@ function mapAdminSession(session: Session): GatewayAdminSession {
     messageCount: session.message_count,
     summary: session.session_summary,
     compactionCount: session.compaction_count,
-    taskCount: getTasksForSession(session.id).length,
+    taskCount: getAllJobs({
+      kind: 'scheduled_task',
+      sessionId: session.id,
+    }).length,
     createdAt: session.created_at,
     lastActive: session.last_active,
   };
@@ -11021,13 +11025,14 @@ export async function handleGatewayCommand(
                 `\`${runAtRaw}\` is not a valid ISO timestamp.`,
               );
             }
-            const taskId = createTask(
-              session.id,
-              req.channelId,
-              '',
+            const taskId = createJob({
+              kind: 'scheduled_task',
+              sessionId: session.id,
+              channelId: req.channelId,
+              cronExpr: '',
               prompt,
-              parsedDate.toISOString(),
-            );
+              runAt: parsedDate.toISOString(),
+            });
             rearmScheduler();
             return plainCommand(
               `Task #${taskId} created: one-shot at \`${parsedDate.toISOString()}\` — ${prompt}`,
@@ -11044,14 +11049,14 @@ export async function handleGatewayCommand(
                 'Interval must be at least 10000ms.',
               );
             }
-            const taskId = createTask(
-              session.id,
-              req.channelId,
-              '',
+            const taskId = createJob({
+              kind: 'scheduled_task',
+              sessionId: session.id,
+              channelId: req.channelId,
+              cronExpr: '',
               prompt,
-              undefined,
               everyMs,
-            );
+            });
             rearmScheduler();
             return plainCommand(
               `Task #${taskId} created: every \`${everyMs}ms\` — ${prompt}`,
@@ -11074,12 +11079,13 @@ export async function handleGatewayCommand(
               `\`${cronExpr}\` is not a valid cron expression.`,
             );
           }
-          const taskId = createTask(
-            session.id,
-            req.channelId,
+          const taskId = createJob({
+            kind: 'scheduled_task',
+            sessionId: session.id,
+            channelId: req.channelId,
             cronExpr,
             prompt,
-          );
+          });
           rearmScheduler();
           return plainCommand(
             `Task #${taskId} created: cron \`${cronExpr}\` — ${prompt}`,
@@ -11087,7 +11093,10 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'list') {
-          const tasks = getTasksForSession(session.id);
+          const tasks = getAllJobs({
+            kind: 'scheduled_task',
+            sessionId: session.id,
+          });
           if (tasks.length === 0) return plainCommand('No scheduled tasks.');
           const list = tasks
             .map((task) => {
@@ -11113,7 +11122,7 @@ export async function handleGatewayCommand(
           const taskId = parseIntegerArg(req.args, 2);
           if (!taskId)
             return badCommand('Usage', 'Usage: `schedule remove <id>`');
-          deleteTask(taskId);
+          deleteJob(taskId);
           rearmScheduler();
           return plainCommand(`Task #${taskId} removed.`);
         }
@@ -11122,7 +11131,10 @@ export async function handleGatewayCommand(
           const taskId = parseIntegerArg(req.args, 2);
           if (!taskId)
             return badCommand('Usage', 'Usage: `schedule toggle <id>`');
-          const tasks = getTasksForSession(session.id);
+          const tasks = getAllJobs({
+            kind: 'scheduled_task',
+            sessionId: session.id,
+          });
           const task = tasks.find((t) => t.id === taskId);
           if (!task)
             return badCommand(
@@ -11130,9 +11142,9 @@ export async function handleGatewayCommand(
               `Task #${taskId} was not found in this session.`,
             );
           if (task.enabled) {
-            pauseTask(taskId);
+            setJobEnabled(taskId, false);
           } else {
-            resumeTask(taskId);
+            setJobEnabled(taskId, true);
           }
           rearmScheduler();
           return plainCommand(
