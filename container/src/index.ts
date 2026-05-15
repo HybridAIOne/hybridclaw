@@ -5,7 +5,10 @@ import {
   TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
-import { cleanupAllBrowserSessions } from './browser-tools.js';
+import {
+  cleanupAllBrowserSessions,
+  getBrowserProviderLogLabel,
+} from './browser-tools.js';
 import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
@@ -576,7 +579,12 @@ function logToolCallStart(
       : argsJson.length > 100
         ? `${argsJson.slice(0, 99)}…`
         : argsJson;
-  console.error(`[tool] ${toolName}: ${toolPreview}`);
+  console.error(`[tool] ${formatToolNameForLog(toolName)}: ${toolPreview}`);
+}
+
+function formatToolNameForLog(toolName: string): string {
+  if (!toolName.startsWith('browser_')) return toolName;
+  return `${toolName} [browser=${getBrowserProviderLogLabel()}]`;
 }
 
 function appendCompletedToolCall(params: {
@@ -693,7 +701,9 @@ async function executePreparedToolCall(
   }
 
   console.error(
-    `[tool] ${toolName} result (${toolDuration}ms): ${result.slice(0, 100)}`,
+    `[tool] ${formatToolNameForLog(
+      toolName,
+    )} result (${toolDuration}ms): ${result.slice(0, 100)}`,
   );
 
   return {

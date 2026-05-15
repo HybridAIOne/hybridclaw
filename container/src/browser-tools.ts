@@ -2167,6 +2167,10 @@ export function usesGatewayManagedBrowser(): boolean {
   return gatewayBrowserProvider === 'managed-cloud';
 }
 
+export function getBrowserProviderLogLabel(): string {
+  return gatewayBrowserProvider || 'local';
+}
+
 function shouldUseGatewayManagedBrowser(name: string): boolean {
   return usesGatewayManagedBrowser() && name.startsWith('browser_');
 }
