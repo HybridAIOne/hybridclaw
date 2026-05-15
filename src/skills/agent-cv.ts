@@ -577,7 +577,7 @@ function parseNarrations(
   } catch (error) {
     logger.warn(
       { eventCount: events.length, error },
-      'Failed to parse agent CV narration JSON',
+      'Failed to parse or validate agent CV narration JSON',
     );
     throw error;
   }
@@ -634,10 +634,21 @@ async function narrateSkillRuns(input: {
   remainingBudgetUsd: number;
 }): Promise<{ narrations: CvNarration[]; costUsd: number }> {
   const events = input.events;
+  if (input.remainingBudgetUsd <= 0) {
+    logger.warn(
+      {
+        eventCount: events.length,
+        remainingBudgetUsd: input.remainingBudgetUsd,
+      },
+      'Skipping agent CV narration because the daily budget would be exceeded',
+    );
+    throw new Error('Agent CV narration daily budget would be exceeded.');
+  }
+
   const fallbackModel = findCheapestModelMeetingCapabilities({
     jsonMode: true,
   });
-  if (!fallbackModel || input.remainingBudgetUsd <= 0) {
+  if (!fallbackModel) {
     throw new Error('Agent CV narration auxiliary model is unavailable.');
   }
 

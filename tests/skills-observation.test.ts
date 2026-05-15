@@ -1062,7 +1062,7 @@ test('CV narration logs parse failures without deterministic fallback entries', 
       eventCount: 1,
       error: expect.any(SyntaxError),
     }),
-    'Failed to parse agent CV narration JSON',
+    'Failed to parse or validate agent CV narration JSON',
   );
 });
 

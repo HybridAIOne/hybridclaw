@@ -362,8 +362,10 @@ async function resolveRemoteFallbackContext(params: {
   maxTokens?: number;
 }): Promise<AuxiliaryTextCallContext> {
   const errors: string[] = [];
+  const unhealthyProviders: RuntimeProvider[] = [];
   for (const candidate of REMOTE_AUXILIARY_FALLBACKS) {
     if (!(await isFallbackProviderHealthy(candidate.provider))) {
+      unhealthyProviders.push(candidate.provider);
       continue;
     }
     try {
@@ -397,7 +399,12 @@ async function resolveRemoteFallbackContext(params: {
     }
   }
 
-  throw new Error(errors.join('; ') || 'no remote fallback configured');
+  throw new Error(
+    errors.join('; ') ||
+      (unhealthyProviders.length > 0
+        ? `no healthy remote fallback provider available; unhealthy providers: ${unhealthyProviders.join(', ')}`
+        : 'no remote fallback configured'),
+  );
 }
 
 async function resolveRemoteFallbackContexts(params: {
