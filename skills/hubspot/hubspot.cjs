@@ -230,16 +230,20 @@ function runEvalScenarios() {
   for (const scenario of scenarios) {
     categories[scenario.category] = (categories[scenario.category] || 0) + 1;
     const plan = planNaturalLanguage(scenario.input);
-    const hasExpected = plan.actions.some(
-      (action) => action.action === scenario.expectedAction,
+    const expectedActions = Array.isArray(scenario.expectedActions)
+      ? scenario.expectedActions
+      : [scenario.expectedAction];
+    const actualActions = plan.actions.map((action) => action.action);
+    const hasExpected = expectedActions.every((expectedAction) =>
+      actualActions.includes(expectedAction),
     );
     const costOk = scenario.costMeasurement?.system === 'UsageTotals';
     if (!hasExpected || !costOk) {
       failed += 1;
       failures.push({
         id: scenario.id,
-        expectedAction: scenario.expectedAction,
-        actualActions: plan.actions.map((action) => action.action),
+        expectedActions,
+        actualActions,
         costOk,
       });
     }

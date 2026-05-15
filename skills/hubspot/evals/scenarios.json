@@ -200,6 +200,7 @@
     "category": "compound",
     "input": "Move Acme Renewal deal to contractsent and log a note saying \"Contract sent to legal\"",
     "expectedAction": "update-deal-stage",
+    "expectedActions": ["update-deal-stage", "create-note"],
     "costMeasurement": { "system": "UsageTotals" }
   },
   {
@@ -207,6 +208,7 @@
     "category": "compound",
     "input": "Add a note to company Acme saying \"Budget confirmed\" and create a follow-up task",
     "expectedAction": "create-note",
+    "expectedActions": ["create-note", "create-task"],
     "costMeasurement": { "system": "UsageTotals" }
   }
 ]

@@ -545,6 +545,8 @@ test('HubSpot helper eval suite covers 30 scenarios and UsageTotals', () => {
   ) as Array<{
     category?: string;
     costMeasurement?: { system?: string };
+    expectedActions?: string[];
+    id?: string;
   }>;
 
   expect(scenarios).toHaveLength(30);
@@ -569,4 +571,8 @@ test('HubSpot helper eval suite covers 30 scenarios and UsageTotals', () => {
     'write-task': 2,
     compound: 2,
   });
+  expect(
+    scenarios.find((scenario) => scenario.id === 'compound-note-task')
+      ?.expectedActions,
+  ).toEqual(['create-note', 'create-task']);
 });

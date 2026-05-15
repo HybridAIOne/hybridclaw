@@ -101,9 +101,9 @@ contacts, companies, deals, notes, tasks, CRM schema reads, and `oauth`.
    property metadata, lookup, operator confirmation, and write steps.
 5. For writes, confirm the target record and intended field change, then pass
    either the exact `--grant` value or `--operator-grant`.
-5. Use internal HubSpot IDs for write targets. If a name search returns multiple
+6. Use internal HubSpot IDs for write targets. If a name search returns multiple
    records, stop and ask for the exact record ID.
-6. Use internal stage values for `dealstage`, `pipeline`, and
+7. Use internal stage values for `dealstage`, `pipeline`, and
    `lifecyclestage`. Read `/crm/v3/properties/...` first when the internal
    value is unknown.
 
