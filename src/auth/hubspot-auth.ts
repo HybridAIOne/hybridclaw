@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
 
+import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import {
   readStoredRuntimeSecret,
   runtimeSecretsPath,
@@ -16,8 +19,9 @@ export const HUBSPOT_ACCOUNT_SECRET = 'HUBSPOT_ACCOUNT';
 export const HUBSPOT_OAUTH_CLIENT_ID_SECRET = 'HUBSPOT_CLIENT_ID';
 export const HUBSPOT_OAUTH_CLIENT_SECRET_SECRET = 'HUBSPOT_CLIENT_SECRET';
 export const HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET = 'HUBSPOT_REFRESH_TOKEN';
-export const HUBSPOT_OAUTH_SCOPES_SECRET = 'HUBSPOT_SCOPES';
+export const HUBSPOT_OAUTH_SCOPES_ENV = 'HUBSPOT_SCOPES';
 export const HUBSPOT_ACCESS_TOKEN_SECRET = 'HUBSPOT_ACCESS_TOKEN';
+const HUBSPOT_AUTH_METADATA_FILE = 'hubspot-auth.json';
 
 export const DEFAULT_HUBSPOT_OAUTH_SCOPES = [
   'crm.objects.contacts.read',
@@ -57,7 +61,6 @@ export interface HubSpotLoginResult {
   account: string;
   scopes: string[];
   secretsPath: string;
-  usedProvidedRefreshToken: boolean;
 }
 
 interface HubSpotTokenResponse {
@@ -101,14 +104,48 @@ function readSecretOrEnv(name: string): string {
   );
 }
 
+function hubSpotAuthMetadataPath(): string {
+  return path.join(DEFAULT_RUNTIME_HOME_DIR, HUBSPOT_AUTH_METADATA_FILE);
+}
+
+function readStoredHubSpotScopes(): string {
+  const envScopes = String(process.env[HUBSPOT_OAUTH_SCOPES_ENV] || '').trim();
+  if (envScopes) return envScopes;
+  try {
+    const raw = fs.readFileSync(hubSpotAuthMetadataPath(), 'utf-8');
+    const payload = JSON.parse(raw);
+    if (Array.isArray(payload?.scopes)) {
+      return payload.scopes
+        .map((scope: unknown) => String(scope || '').trim())
+        .join(' ');
+    }
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+  return readStoredRuntimeSecret(HUBSPOT_OAUTH_SCOPES_ENV) || '';
+}
+
+function saveHubSpotAuthMetadata(scopes: string[]): void {
+  fs.mkdirSync(DEFAULT_RUNTIME_HOME_DIR, { recursive: true });
+  fs.writeFileSync(
+    hubSpotAuthMetadataPath(),
+    `${JSON.stringify({ scopes }, null, 2)}\n`,
+    'utf-8',
+  );
+}
+
+function clearHubSpotAuthMetadata(): void {
+  fs.rmSync(hubSpotAuthMetadataPath(), { force: true });
+}
+
 export function readStoredHubSpotAuth(): HubSpotStoredAuth | null {
   const account = readSecretOrEnv(HUBSPOT_ACCOUNT_SECRET);
   const clientId = readSecretOrEnv(HUBSPOT_OAUTH_CLIENT_ID_SECRET);
   const clientSecret = readSecretOrEnv(HUBSPOT_OAUTH_CLIENT_SECRET_SECRET);
   const refreshToken = readSecretOrEnv(HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET);
-  const scopes = parseHubSpotScopes(
-    readSecretOrEnv(HUBSPOT_OAUTH_SCOPES_SECRET),
-  );
+  const scopes = parseHubSpotScopes(readStoredHubSpotScopes());
   if (!clientId || !clientSecret || !refreshToken) return null;
   return {
     account,
@@ -316,26 +353,27 @@ export async function loginHubSpot(
     [HUBSPOT_OAUTH_CLIENT_ID_SECRET]: input.clientId,
     [HUBSPOT_OAUTH_CLIENT_SECRET_SECRET]: input.clientSecret,
     [HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET]: refreshToken,
-    [HUBSPOT_OAUTH_SCOPES_SECRET]: scopes.join(' '),
+    [HUBSPOT_OAUTH_SCOPES_ENV]: null,
   });
+  saveHubSpotAuthMetadata(scopes);
   cachedHubSpotAccessToken = null;
 
   return {
     account,
     scopes,
     secretsPath,
-    usedProvidedRefreshToken: Boolean(input.refreshToken?.trim()),
   };
 }
 
 export function clearHubSpotAuth(): string {
   cachedHubSpotAccessToken = null;
+  clearHubSpotAuthMetadata();
   return saveNamedRuntimeSecrets({
     [HUBSPOT_ACCOUNT_SECRET]: null,
     [HUBSPOT_OAUTH_CLIENT_ID_SECRET]: null,
     [HUBSPOT_OAUTH_CLIENT_SECRET_SECRET]: null,
     [HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET]: null,
-    [HUBSPOT_OAUTH_SCOPES_SECRET]: null,
+    [HUBSPOT_OAUTH_SCOPES_ENV]: null,
   });
 }
 
@@ -349,9 +387,7 @@ export function getHubSpotAuthStatus(): {
   return {
     authenticated: Boolean(stored),
     account: stored?.account || readSecretOrEnv(HUBSPOT_ACCOUNT_SECRET),
-    scopes:
-      stored?.scopes ||
-      parseHubSpotScopes(readSecretOrEnv(HUBSPOT_OAUTH_SCOPES_SECRET)),
+    scopes: stored?.scopes || parseHubSpotScopes(readStoredHubSpotScopes()),
     path: runtimeSecretsPath(),
   };
 }
@@ -404,11 +440,6 @@ export async function mintHubSpotAccessToken(): Promise<{
 export async function resolveHubSpotRuntimeEnv(): Promise<
   Record<string, string>
 > {
-  const existingToken = String(process.env.HUBSPOT_ACCESS_TOKEN || '').trim();
-  if (existingToken) {
-    return { HUBSPOT_ACCESS_TOKEN: existingToken };
-  }
-
   const minted = await mintHubSpotAccessToken();
   if (!minted) return {};
   return { HUBSPOT_ACCESS_TOKEN: minted.accessToken };

@@ -8511,6 +8511,7 @@ describe('gateway HTTP server', () => {
       body: {
         url: 'https://api.hubapi.com/crm/v3/objects/deals',
         bearerSecretName: 'HUBSPOT_ACCESS_TOKEN',
+        sessionId: 'hubspot-audit',
       },
     });
     const res = makeResponse();
@@ -8528,6 +8529,25 @@ describe('gateway HTTP server', () => {
     );
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).json).toEqual({ results: [] });
+    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const auditRecords = fs
+      .readFileSync(getAuditWirePath('hubspot-audit'), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    expect(auditRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            type: 'secret.resolved',
+            secretRef: {
+              source: 'hubspot-oauth',
+              id: 'HUBSPOT_ACCESS_TOKEN',
+            },
+          }),
+        }),
+      ]),
+    );
   });
 
   test('blocks HubSpot OAuth runtime bearer tokens for non-HubSpot hosts', async () => {

@@ -68,26 +68,22 @@ test('HubSpot auth stores OAuth refresh token and reports status', async () => {
 
   expect(result).toMatchObject({
     account: 'sales@example.com',
-    usedProvidedRefreshToken: true,
     scopes: ['crm.objects.contacts.read', 'oauth'],
   });
   expect(result.secretsPath).toContain('credentials.json');
+  expect(
+    fs.readFileSync(path.join(homeDir, 'hubspot-auth.json'), 'utf-8'),
+  ).toContain('crm.objects.contacts.read');
 
   expect(getHubSpotAuthStatus()).toMatchObject({
     authenticated: true,
     account: 'sales@example.com',
     scopes: ['crm.objects.contacts.read', 'oauth'],
   });
-});
-
-test('HubSpot runtime env prefers existing access token', async () => {
-  const homeDir = makeTempHome();
-  process.env.HUBSPOT_ACCESS_TOKEN = 'existing-access-token';
-  const { resolveHubSpotRuntimeEnv } = await importFreshHubSpotAuth(homeDir);
-
-  await expect(resolveHubSpotRuntimeEnv()).resolves.toEqual({
-    HUBSPOT_ACCESS_TOKEN: 'existing-access-token',
-  });
+  const { readStoredRuntimeSecret } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  expect(readStoredRuntimeSecret('HUBSPOT_SCOPES')).toBeNull();
 });
 
 test('HubSpot runtime env mints short-lived access token from stored refresh token', async () => {
@@ -127,6 +123,14 @@ test('HubSpot runtime env mints short-lived access token from stored refresh tok
   expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
     'grant_type=refresh_token',
   );
+});
+
+test('HubSpot runtime env ignores static access token env bypass', async () => {
+  const homeDir = makeTempHome();
+  process.env.HUBSPOT_ACCESS_TOKEN = 'existing-access-token';
+  const { resolveHubSpotRuntimeEnv } = await importFreshHubSpotAuth(homeDir);
+
+  await expect(resolveHubSpotRuntimeEnv()).resolves.toEqual({});
 });
 
 test('HubSpot authorize URL includes scopes, redirect URI, and state', async () => {
@@ -180,4 +184,21 @@ test('auth command handles HubSpot login, status, and logout', async () => {
   expect(logs.join('\n')).toContain('Account: sales@example.com');
   expect(logs.join('\n')).toContain('Authenticated: yes');
   expect(logs.join('\n')).toContain('Cleared HubSpot OAuth credentials');
+});
+
+test('help topic prints HubSpot auth usage', async () => {
+  const homeDir = makeTempHome();
+  vi.resetModules();
+  process.env.HYBRIDCLAW_DATA_DIR = homeDir;
+  process.env.HOME = homeDir;
+  const { printHelpTopic } = await import('../src/cli/help.ts');
+  const logs: string[] = [];
+  const logSpy = vi.spyOn(console, 'log').mockImplementation((line = '') => {
+    logs.push(String(line));
+  });
+
+  await expect(printHelpTopic('hubspot')).resolves.toBe(true);
+
+  logSpy.mockRestore();
+  expect(logs.join('\n')).toContain('hybridclaw auth login hubspot');
 });

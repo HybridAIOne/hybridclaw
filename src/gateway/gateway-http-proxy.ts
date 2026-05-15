@@ -373,88 +373,78 @@ function isGoogleOAuthHttpAuthRuleSecret(
   return isGoogleOAuthSecretRef(value);
 }
 
-async function resolveGoogleOAuthTokenOrThrow(
-  secretName: string,
-  context: SecretResolveContext,
-): Promise<string> {
-  if (!isGoogleApisHost(context.host)) {
+async function resolveOAuthTokenOrThrow(params: {
+  secretName: string;
+  context: SecretResolveContext;
+  isAllowedHost: (host?: string) => boolean;
+  allowedHostDescription: string;
+  resolveRuntimeEnv: () => Promise<Record<string, string>>;
+  loginHint: string;
+  secretSource: 'google-oauth' | 'hubspot-oauth';
+}): Promise<string> {
+  if (!params.isAllowedHost(params.context.host)) {
     throw new GatewayRequestError(
       403,
-      `${secretName} can only be injected into googleapis.com requests.`,
+      `${params.secretName} can only be injected into ${params.allowedHostDescription} requests.`,
     );
   }
 
-  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
-  const token = normalizeSecretString(runtimeEnv[secretName]);
+  const runtimeEnv = await params.resolveRuntimeEnv();
+  const token = normalizeSecretString(runtimeEnv[params.secretName]);
   if (!token) {
-    throw new GatewayRequestError(
-      400,
-      `${secretName} is not available. Run \`hybridclaw auth login google\` and start a fresh agent runtime.`,
-    );
+    throw new GatewayRequestError(400, params.loginHint);
   }
 
   const auditContext = {
-    sessionId: context.sessionId,
-    skillName: context.skillName,
-    secretSource: 'google-oauth' as const,
-    secretId: secretName,
+    sessionId: params.context.sessionId,
+    skillName: params.context.skillName,
+    secretSource: params.secretSource,
+    secretId: params.secretName,
     sinkKind: 'http' as const,
-    host: context.host,
-    selector: context.selector,
+    host: params.context.host,
+    selector: params.context.selector,
   };
   recordSecretResolved(auditContext);
   recordSecretUnsafeEscaped({
     ...auditContext,
-    reason: `inject ${secretName} into http sink`,
+    reason: `inject ${params.secretName} into http sink`,
   });
   rememberResolvedSecretForLeakScan({
-    sessionId: normalizeSecretSessionId(context.sessionId),
-    secretId: secretName,
+    sessionId: normalizeSecretSessionId(params.context.sessionId),
+    secretId: params.secretName,
     value: token,
   });
   return token;
+}
+
+async function resolveGoogleOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isGoogleApisHost,
+    allowedHostDescription: 'googleapis.com',
+    resolveRuntimeEnv: resolveGoogleWorkspaceRuntimeEnv,
+    loginHint: `${secretName} is not available. Run \`hybridclaw auth login google\` and start a fresh agent runtime.`,
+    secretSource: 'google-oauth',
+  });
 }
 
 async function resolveHubSpotOAuthTokenOrThrow(
   secretName: string,
   context: SecretResolveContext,
 ): Promise<string> {
-  if (!isHubSpotApiHost(context.host)) {
-    throw new GatewayRequestError(
-      403,
-      `${secretName} can only be injected into HubSpot API requests.`,
-    );
-  }
-
-  const runtimeEnv = await resolveHubSpotRuntimeEnv();
-  const token = normalizeSecretString(runtimeEnv[secretName]);
-  if (!token) {
-    throw new GatewayRequestError(
-      400,
-      `${secretName} is not available. Run \`hybridclaw auth login hubspot\` and start a fresh agent runtime.`,
-    );
-  }
-
-  const auditContext = {
-    sessionId: context.sessionId,
-    skillName: context.skillName,
-    secretSource: 'store' as const,
-    secretId: secretName,
-    sinkKind: 'http' as const,
-    host: context.host,
-    selector: context.selector,
-  };
-  recordSecretResolved(auditContext);
-  recordSecretUnsafeEscaped({
-    ...auditContext,
-    reason: `inject ${secretName} into http sink`,
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isHubSpotApiHost,
+    allowedHostDescription: 'HubSpot API',
+    resolveRuntimeEnv: resolveHubSpotRuntimeEnv,
+    loginHint: `${secretName} is not available. Run \`hybridclaw auth login hubspot\` and start a fresh agent runtime.`,
+    secretSource: 'hubspot-oauth',
   });
-  rememberResolvedSecretForLeakScan({
-    sessionId: normalizeSecretSessionId(context.sessionId),
-    secretId: secretName,
-    value: token,
-  });
-  return token;
 }
 
 async function resolveHttpSecretOrThrow(

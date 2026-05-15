@@ -869,6 +869,7 @@ Topics:
   openrouter  Help for OpenRouter setup/status/logout commands
   mistral     Help for Mistral setup/status/logout commands
   huggingface Help for Hugging Face setup/status/logout commands
+  hubspot     Help for HubSpot OAuth setup/status/logout commands
   whatsapp    Help for WhatsApp setup/reset commands
   skill       Help for skill installer commands
   tool        Help for built-in tool toggles
@@ -983,6 +984,10 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'huggingface':
     case 'hf':
       printHuggingFaceUsage();
+      return true;
+    case 'hubspot':
+    case 'hs':
+      printHubSpotUsage();
       return true;
     case 'browser':
       printBrowserUsage();

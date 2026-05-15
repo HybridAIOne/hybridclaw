@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'vitest';
@@ -238,6 +239,8 @@ test('HubSpot helper emits gateway-minted OAuth read requests', () => {
   const result = runHelper([
     '--format',
     'json',
+    '--max-response-bytes',
+    '2048',
     'http-request',
     'search',
     'deals',
@@ -254,6 +257,7 @@ test('HubSpot helper emits gateway-minted OAuth read requests', () => {
     method: 'POST',
     bearerSecretName: 'HUBSPOT_ACCESS_TOKEN',
     skillName: 'hubspot',
+    maxResponseBytes: 2048,
   });
   expect(payload.httpRequest.json).toMatchObject({
     limit: 10,
@@ -301,6 +305,22 @@ test('HubSpot helper requires explicit grant for write requests', () => {
 });
 
 test('HubSpot helper validates internal stage options from saved metadata', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hubspot-skill-'));
+  const brokenPropertiesPath = path.join(
+    tempDir,
+    'broken-deal-properties.json',
+  );
+  fs.writeFileSync(
+    brokenPropertiesPath,
+    JSON.stringify({
+      results: [
+        {
+          name: 'dealstage',
+          options: [{ label: 'Label only', value: '' }],
+        },
+      ],
+    }),
+  );
   const valid = runHelper([
     '--format',
     'json',
@@ -338,6 +358,17 @@ test('HubSpot helper validates internal stage options from saved metadata', () =
     '--grant',
     'approve-hubspot-deal-stage-update',
   ]);
+  const labelOnly = runHelper([
+    '--format',
+    'json',
+    'validate-option',
+    '--properties-file',
+    brokenPropertiesPath,
+    '--property',
+    'dealstage',
+    '--value',
+    'Label only',
+  ]);
 
   expect(valid.status).toBe(0);
   expect(labelWrite.status).toBe(0);
@@ -353,6 +384,9 @@ test('HubSpot helper validates internal stage options from saved metadata', () =
   expect(invalid.status).not.toBe(0);
   expect(invalid.stderr).toContain('Invalid dealstage value');
   expect(invalid.stderr).toContain('contractsent');
+  expect(labelOnly.status).not.toBe(0);
+  expect(labelOnly.stderr).toContain('missing an internal value');
+  fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
 test('HubSpot helper interprets authentication, authorization, and stage errors', () => {
@@ -383,10 +417,12 @@ test('HubSpot helper interprets authentication, authorization, and stage errors'
     '--body',
     '{"message":"Property dealstage does not exist"}',
   ]);
+  const empty = runHelper(['--format', 'json', 'explain-error']);
 
   expect(auth.status).toBe(0);
   expect(scope.status).toBe(0);
   expect(stage.status).toBe(0);
+  expect(empty.status).not.toBe(0);
   expect(JSON.parse(auth.stdout)).toMatchObject({
     category: 'authentication',
     retryable: false,
@@ -399,6 +435,9 @@ test('HubSpot helper interprets authentication, authorization, and stage errors'
     category: 'deal-stage',
     retryable: false,
   });
+  expect(empty.stderr).toContain(
+    'explain-error requires --file, --body, or a JSON argument',
+  );
 });
 
 test('HubSpot helper builds note and task association payloads', () => {

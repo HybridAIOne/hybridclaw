@@ -18,6 +18,7 @@ import {
   HUBSPOT_OAUTH_CLIENT_ID_SECRET,
   HUBSPOT_OAUTH_CLIENT_SECRET_SECRET,
   HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET,
+  HUBSPOT_OAUTH_SCOPES_ENV,
   loginHubSpot,
   parseHubSpotScopes,
 } from '../auth/hubspot-auth.js';
@@ -1442,6 +1443,7 @@ function printHubSpotStatus(): void {
     console.log('Refresh token: configured');
     console.log('Client secret: configured');
     console.log(`Scopes: ${status.scopes.join(' ')}`);
+    console.log('Scopes source: auth metadata');
     console.log('HTTP auth mode: gateway-minted bearer token');
   }
 }
@@ -1616,8 +1618,8 @@ async function configureHubSpotAuth(args: string[]): Promise<void> {
   });
   const scopes = parseHubSpotScopes(
     parsed.scopes ||
-      process.env.HUBSPOT_SCOPES?.trim() ||
-      readStoredRuntimeSecret('HUBSPOT_SCOPES') ||
+      process.env[HUBSPOT_OAUTH_SCOPES_ENV]?.trim() ||
+      readStoredRuntimeSecret(HUBSPOT_OAUTH_SCOPES_ENV) ||
       DEFAULT_HUBSPOT_OAUTH_SCOPES.join(' '),
   );
   const result = await loginHubSpot({
@@ -1636,7 +1638,8 @@ async function configureHubSpotAuth(args: string[]): Promise<void> {
   if (result.account) console.log(`Account: ${result.account}`);
   console.log(`Scopes: ${result.scopes.join(' ')}`);
   console.log(
-    result.usedProvidedRefreshToken
+    parsed.refreshToken ||
+      process.env[HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET]?.trim()
       ? 'Stored provided refresh token.'
       : 'Completed browser authorization and stored refresh token.',
   );
