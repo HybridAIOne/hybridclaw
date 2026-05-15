@@ -49,6 +49,7 @@ test('buildManagedBrowserPoolLaunchSpec launches the fixed Docker Compose servic
     'up',
     '-d',
     '--build',
+    '--force-recreate',
     'browser-pool',
   ]);
   expect(spec.cwd).toBe(installRoot);

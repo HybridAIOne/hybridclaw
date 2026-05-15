@@ -188,6 +188,7 @@ export function buildManagedBrowserPoolLaunchSpec(
       'up',
       '-d',
       '--build',
+      '--force-recreate',
       'browser-pool',
     ],
     cwd: installRoot,
