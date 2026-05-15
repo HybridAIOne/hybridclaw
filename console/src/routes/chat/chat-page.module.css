@@ -1277,6 +1277,23 @@ aside[data-state="collapsed"] .chatSidebarContent {
   margin-left: auto;
   margin-right: auto;
   width: calc(100% - 48px);
+  animation: errorBannerFadeIn 160ms ease;
+}
+
+.errorBannerExiting {
+  animation: errorBannerFadeOut 200ms ease forwards;
+}
+
+@keyframes errorBannerFadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes errorBannerFadeOut {
+  to {
+    opacity: 0;
+  }
 }
 
 .editArea {
@@ -1390,6 +1407,11 @@ aside[data-state="collapsed"] .chatSidebarContent {
   }
 
   .sessionItemPending {
+    animation: none;
+  }
+
+  .errorBanner,
+  .errorBannerExiting {
     animation: none;
   }
 }
