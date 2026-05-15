@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { useDeferredValue, useEffect, useState } from 'react';
 import {
   deleteAdminEmailMessage,
@@ -311,6 +312,7 @@ function matchesSearch(
 
 export function EmailPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const shellConfig = useAppShellConfig();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -485,9 +487,13 @@ export function EmailPage() {
           title="Email"
           description="Enable the email channel to surface a mailbox view here."
           actions={
-            <a className="ghost-button" href="/admin/channels">
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => void navigate({ to: '/admin/channels' })}
+            >
               Open channel settings
-            </a>
+            </button>
           }
         />
 

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import {
   deleteSchedulerJob,
@@ -1032,6 +1033,7 @@ function SchedulerJobEditor(props: {
 
 export function SchedulerPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(() => {
@@ -1074,7 +1076,7 @@ export function SchedulerPage() {
     onSuccess: (payload, nextDraft) => {
       replaceSchedulerJobs(payload, auth.token, queryClient);
       setSelectedId(nextDraft.id.trim());
-      window.location.href = '/admin/jobs';
+      void navigate({ to: '/admin/jobs' });
     },
     onError: (error) => {
       toast.error('Save failed', getErrorMessage(error));
@@ -1263,7 +1265,7 @@ export function SchedulerPage() {
               }
               setSelectedId(null);
               setDraft(createDraft());
-              window.location.href = '/admin/jobs';
+              void navigate({ to: '/admin/jobs' });
             }}
             onPauseToggle={() =>
               pauseMutation.mutate(

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import {
   type CSSProperties,
   type DragEvent,
@@ -305,14 +306,12 @@ function JobDetailCard(props: {
   onUpdate: (nextJob: AdminSchedulerJob & { source: 'config' }) => void;
 }) {
   const { item } = props;
+  const navigate = useNavigate();
   const sessionId =
     item.kind === 'blocked'
       ? item.suspendedSession.sessionId
       : resolveSchedulerSessionId(item.job);
-  const editHref =
-    item.kind === 'blocked'
-      ? '/admin/approvals'
-      : `/admin/scheduler?jobId=${encodeURIComponent(item.job.id)}`;
+  const editJobId = item.kind === 'job' ? item.job.id : null;
   const outputs = useMemo(() => collectJobOutputs(props.item), [props.item]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<null | 'lane' | 'agent'>(
@@ -358,9 +357,22 @@ function JobDetailCard(props: {
               : props.item.suspendedSession.blockedLabel}
           </h4>
         </div>
-        <a className="ghost-button" href={editHref}>
+        <button
+          className="ghost-button"
+          type="button"
+          onClick={() => {
+            if (editJobId) {
+              void navigate({
+                to: '/admin/scheduler',
+                search: { jobId: editJobId },
+              });
+              return;
+            }
+            void navigate({ to: '/admin/approvals' });
+          }}
+        >
           Edit
-        </a>
+        </button>
       </div>
 
       <div className="jobs-detail-stack">
@@ -569,6 +581,7 @@ function JobDetailCard(props: {
 
 export function JobsPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [search, setSearch] = useState('');
@@ -845,9 +858,13 @@ export function JobsPage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search jobs"
             />
-            <a className="primary-button" href="/admin/scheduler">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void navigate({ to: '/admin/scheduler' })}
+            >
               New Job
-            </a>
+            </button>
           </div>
         }
       />
