@@ -62,7 +62,7 @@ useCleanMocks({
   resetModules: true,
 });
 
-test('legacy backlog-assigned one-shot config jobs move to review after the default retry budget', async () => {
+test('legacy backlog-assigned one-shot scheduler jobs move to review after the default retry budget', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-03-27T08:00:00.000Z'));
 
@@ -100,12 +100,17 @@ test('legacy backlog-assigned one-shot config jobs move to review after the defa
   });
 
   vi.resetModules();
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
+    await import('../src/memory/db.ts');
+  const { migrateConfigSchedulerJobsToDatabase } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
   const { getConfigJobState, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
+  replaceSchedulerJobs([]);
+  migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async (request: { jobId?: string }) => {
     if (request.jobId === 'backlog-retry') {
@@ -124,7 +129,7 @@ test('legacy backlog-assigned one-shot config jobs move to review after the defa
 
   expect(runner).toHaveBeenCalledTimes(4);
   expect(
-    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'backlog-retry'),
+    listSchedulerJobs().find((job) => job.id === 'backlog-retry'),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -136,7 +141,7 @@ test('legacy backlog-assigned one-shot config jobs move to review after the defa
   });
 });
 
-test('one-shot config jobs respect maxRetries before moving failed work into review', async () => {
+test('one-shot scheduler jobs respect maxRetries before moving failed work into review', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-03-27T08:00:00.000Z'));
 
@@ -175,12 +180,17 @@ test('one-shot config jobs respect maxRetries before moving failed work into rev
   });
 
   vi.resetModules();
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
+    await import('../src/memory/db.ts');
+  const { migrateConfigSchedulerJobsToDatabase } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
   const { getConfigJobState, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
+  replaceSchedulerJobs([]);
+  migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async () => {
     throw new Error('expected failure');
@@ -196,7 +206,7 @@ test('one-shot config jobs respect maxRetries before moving failed work into rev
 
   expect(runner).toHaveBeenCalledTimes(2);
   expect(
-    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'release-brief'),
+    listSchedulerJobs().find((job) => job.id === 'release-brief'),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -208,7 +218,7 @@ test('one-shot config jobs respect maxRetries before moving failed work into rev
   });
 });
 
-test('backlog-assigned one-shot config jobs complete once and move to review', async () => {
+test('backlog-assigned one-shot scheduler jobs complete once and move to review', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-04-07T12:00:00.000Z'));
 
@@ -246,12 +256,17 @@ test('backlog-assigned one-shot config jobs complete once and move to review', a
   });
 
   vi.resetModules();
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
+    await import('../src/memory/db.ts');
+  const { migrateConfigSchedulerJobsToDatabase } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
   const { getConfigJobState, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
+  replaceSchedulerJobs([]);
+  migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async () => {});
 
@@ -264,7 +279,7 @@ test('backlog-assigned one-shot config jobs complete once and move to review', a
 
   expect(runner).toHaveBeenCalledTimes(1);
   expect(
-    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'release-notes'),
+    listSchedulerJobs().find((job) => job.id === 'release-notes'),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -328,12 +343,17 @@ test('stale successful one-shot jobs reconcile to review without rerunning', asy
   });
 
   vi.resetModules();
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
+    await import('../src/memory/db.ts');
+  const { migrateConfigSchedulerJobsToDatabase } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
   const { getConfigJobState, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
+  replaceSchedulerJobs([]);
+  migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async () => {});
 
@@ -345,7 +365,7 @@ test('stale successful one-shot jobs reconcile to review without rerunning', asy
 
   expect(runner).not.toHaveBeenCalled();
   expect(
-    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'release-notes'),
+    listSchedulerJobs().find((job) => job.id === 'release-notes'),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -408,12 +428,17 @@ test('stale successful one-shot jobs already in review do not rerun', async () =
   });
 
   vi.resetModules();
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
+    await import('../src/memory/db.ts');
+  const { migrateConfigSchedulerJobsToDatabase } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
   const { getConfigJobState, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
+  replaceSchedulerJobs([]);
+  migrateConfigSchedulerJobsToDatabase();
 
   const runner = vi.fn(async () => {});
 
@@ -425,7 +450,7 @@ test('stale successful one-shot jobs already in review do not rerun', async () =
 
   expect(runner).not.toHaveBeenCalled();
   expect(
-    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'release-notes'),
+    listSchedulerJobs().find((job) => job.id === 'release-notes'),
   ).toMatchObject({
     boardStatus: 'review',
   });
@@ -488,10 +513,15 @@ test('getConfigJobState reconciles stale successful one-shot jobs directly', asy
   });
 
   vi.resetModules();
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { initDatabase, listSchedulerJobs, replaceSchedulerJobs } =
+    await import('../src/memory/db.ts');
+  const { migrateConfigSchedulerJobsToDatabase } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
   const { getConfigJobState } = await import('../src/scheduler/scheduler.ts');
   initDatabase({ quiet: true });
+  replaceSchedulerJobs([]);
+  migrateConfigSchedulerJobsToDatabase();
 
   expect(getConfigJobState('release-notes')).toMatchObject({
     lastStatus: 'success',
@@ -499,7 +529,7 @@ test('getConfigJobState reconciles stale successful one-shot jobs directly', asy
     nextRunAt: null,
   });
   expect(
-    getRuntimeConfig().scheduler.jobs.find((job) => job.id === 'release-notes'),
+    listSchedulerJobs().find((job) => job.id === 'release-notes'),
   ).toMatchObject({
     boardStatus: 'review',
   });

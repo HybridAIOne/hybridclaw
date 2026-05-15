@@ -3359,7 +3359,7 @@ async function handleApiAdminScheduler(
     const source =
       (url.searchParams.get('source') || '').trim().toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const rawId =
       source === 'task'
         ? (url.searchParams.get('taskId') || '').trim()
@@ -3383,7 +3383,7 @@ async function handleApiAdminScheduler(
         .trim()
         .toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const jobId = String(
       source === 'task' ? body.taskId || '' : body.jobId || '',
     ).trim();

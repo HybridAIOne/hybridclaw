@@ -82,7 +82,7 @@ function trimText(raw: string | null | undefined, maxLength: number): string {
 
 function resolveSchedulerSessionId(job: AdminSchedulerJob): string | null {
   if (job.sessionId) return job.sessionId;
-  if (job.source === 'config') return `scheduler:${job.id}`;
+  if (job.source === 'job') return `scheduler:${job.id}`;
   return job.sessionId || null;
 }
 
@@ -122,8 +122,8 @@ function deriveStateLabel(job: AdminSchedulerJob, column: JobColumnId): string {
 
 function isJobPaused(job: AdminSchedulerJob): boolean {
   if (job.source === 'task') return job.disabled;
-  // Config jobs have two distinct flags:
-  // - enabled: persisted config switch
+  // Scheduler jobs have two distinct flags:
+  // - enabled: persisted DB switch
   // - disabled: runtime pause / auto-disable state
   return !job.enabled || job.disabled;
 }
@@ -217,7 +217,7 @@ function replaceSchedulerJob(
   nextJob: AdminSchedulerJob,
 ): AdminSchedulerJob[] {
   return (jobs || []).map((job) =>
-    job.id === nextJob.id && job.source === 'config' ? nextJob : job,
+    job.id === nextJob.id && job.source === 'job' ? nextJob : job,
   );
 }
 
@@ -307,7 +307,7 @@ function JobDetailCard(props: {
   runtime: JobRuntimeEntry[];
   agents: JobAgent[];
   savePending: boolean;
-  onUpdate: (nextJob: AdminSchedulerJob & { source: 'config' }) => void;
+  onUpdate: (nextJob: AdminSchedulerJob & { source: 'job' }) => void;
 }) {
   const { item } = props;
   const sessionId =
@@ -324,17 +324,17 @@ function JobDetailCard(props: {
     null,
   );
   const isEditable =
-    props.item.kind === 'job' && props.item.job.source === 'config';
+    props.item.kind === 'job' && props.item.job.source === 'job';
 
-  function saveConfigUpdate(
-    patch: Partial<AdminSchedulerJob & { source: 'config' }>,
+  function saveJobUpdate(
+    patch: Partial<AdminSchedulerJob & { source: 'job' }>,
   ): void {
     if (props.item.kind !== 'job') return;
     const job = props.item.job;
-    if (job.source !== 'config') return;
+    if (job.source !== 'job') return;
     props.onUpdate({
       ...job,
-      source: 'config',
+      source: 'job',
       ...patch,
     });
     setEditingField(null);
@@ -386,7 +386,7 @@ function JobDetailCard(props: {
                 }
                 onBlur={() => setEditingField(null)}
                 onChange={(event) =>
-                  saveConfigUpdate({
+                  saveJobUpdate({
                     boardStatus: event.target.value as JobColumnId,
                   })
                 }
@@ -419,7 +419,7 @@ function JobDetailCard(props: {
                 }
                 onBlur={() => setEditingField(null)}
                 onChange={(event) =>
-                  saveConfigUpdate({
+                  saveJobUpdate({
                     agentId: event.target.value || null,
                   })
                 }
@@ -451,7 +451,7 @@ function JobDetailCard(props: {
                 ? 'blocked'
                 : props.item.job.source === 'task'
                   ? 'task'
-                  : 'config'}
+                  : 'job'}
             </strong>
           </div>
           <div>
@@ -598,7 +598,7 @@ export function JobsPage() {
   });
 
   const saveJobMutation = useMutation({
-    mutationFn: (job: AdminSchedulerJob & { source: 'config' }) =>
+    mutationFn: (job: AdminSchedulerJob & { source: 'job' }) =>
       saveSchedulerJob(auth.token, job),
     onMutate: async (job) => {
       await queryClient.cancelQueries({
@@ -834,7 +834,7 @@ export function JobsPage() {
     if (
       !draggedItem ||
       draggedItem.kind !== 'job' ||
-      draggedItem.job.source !== 'config'
+      draggedItem.job.source !== 'job'
     )
       return;
     if (beforeJobId === draggedItem.job.id) {
@@ -911,7 +911,7 @@ export function JobsPage() {
                 if (
                   !draggedItem ||
                   draggedItem.kind !== 'job' ||
-                  draggedItem.job.source !== 'config'
+                  draggedItem.job.source !== 'job'
                 )
                   return;
                 event.preventDefault();
@@ -959,7 +959,7 @@ export function JobsPage() {
                         budget={budgetsByAgent.get(item.agentKey) || null}
                         selected={item.key === selectedItem?.key}
                         draggable={
-                          item.kind === 'job' && item.job.source === 'config'
+                          item.kind === 'job' && item.job.source === 'job'
                         }
                         onSelect={() =>
                           setSelectedKey((current) =>
@@ -967,10 +967,7 @@ export function JobsPage() {
                           )
                         }
                         onDragStart={(event) => {
-                          if (
-                            item.kind !== 'job' ||
-                            item.job.source !== 'config'
-                          )
+                          if (item.kind !== 'job' || item.job.source !== 'job')
                             return;
                           event.dataTransfer.effectAllowed = 'move';
                           event.dataTransfer.setData('text/plain', item.key);
@@ -985,13 +982,10 @@ export function JobsPage() {
                           if (
                             !draggedItem ||
                             draggedItem.kind !== 'job' ||
-                            draggedItem.job.source !== 'config'
+                            draggedItem.job.source !== 'job'
                           )
                             return;
-                          if (
-                            item.kind !== 'job' ||
-                            item.job.source !== 'config'
-                          )
+                          if (item.kind !== 'job' || item.job.source !== 'job')
                             return;
                           event.preventDefault();
                           event.stopPropagation();
@@ -1015,10 +1009,7 @@ export function JobsPage() {
                           }
                         }}
                         onDrop={(event) => {
-                          if (
-                            item.kind !== 'job' ||
-                            item.job.source !== 'config'
-                          )
+                          if (item.kind !== 'job' || item.job.source !== 'job')
                             return;
                           event.preventDefault();
                           event.stopPropagation();

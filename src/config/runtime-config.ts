@@ -72,7 +72,6 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
-import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
@@ -1899,7 +1898,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   scheduler: {
-    jobs: [DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB],
+    jobs: [],
   },
 };
 

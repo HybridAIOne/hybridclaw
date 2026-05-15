@@ -11,12 +11,18 @@ import {
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
+  deleteSchedulerJob,
   deleteTask,
   getAllTasks,
+  getSchedulerJob,
   getSessionById,
+  listSchedulerJobs,
   pauseTask,
+  reorderSchedulerJob,
   resumeTask,
+  updateSchedulerJob,
   updateSessionAgent,
+  upsertSchedulerJob,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { modelRequiresChatbotId } from '../providers/factory.js';
@@ -227,8 +233,24 @@ function compareGatewayAdminSchedulerJobs(
   return left.name.localeCompare(right.name);
 }
 
+export function migrateConfigSchedulerJobsToDatabase(): number {
+  const legacyJobs = getRuntimeConfig().scheduler.jobs;
+  if (legacyJobs.length === 0) return 0;
+
+  for (const job of legacyJobs) {
+    upsertSchedulerJob(job);
+  }
+  updateRuntimeConfig((draft) => {
+    draft.scheduler.jobs = [];
+  });
+  logger.info(
+    { migratedJobs: legacyJobs.length },
+    'Migrated config scheduler jobs into SQLite jobs table',
+  );
+  return legacyJobs.length;
+}
+
 export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
-  const runtimeConfig = getRuntimeConfig();
   const statuses = new Map(
     getSchedulerStatus().map((job) => [job.id, job] as const),
   );
@@ -236,12 +258,12 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
 
   return {
     jobs: [
-      ...runtimeConfig.scheduler.jobs.map((job) => {
+      ...listSchedulerJobs().map((job) => {
         const runtime = statuses.get(job.id);
         const session = getSessionById(`scheduler:${job.id}`);
         return {
           id: job.id,
-          source: 'config',
+          source: 'job',
           name:
             (typeof job.name === 'string' && job.name.trim()) ||
             runtime?.name ||
@@ -263,7 +285,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           nextRunAt: runtime?.nextRunAt || null,
           disabled: runtime?.disabled || false,
           consecutiveErrors: runtime?.consecutiveErrors || 0,
-          createdAt: session?.created_at || null,
+          createdAt: session?.created_at || job.createdAt || null,
           sessionId: session?.id || null,
           channelId:
             job.delivery.kind === 'channel'
@@ -351,20 +373,8 @@ export function upsertGatewayAdminSchedulerJob(input: {
   job: unknown;
 }): GatewayAdminSchedulerResponse {
   const job = parseAdminSchedulerJob(input.job);
-  const previousJob =
-    getRuntimeConfig().scheduler.jobs.find((entry) => entry.id === job.id) ||
-    null;
-
-  updateRuntimeConfig((draft) => {
-    const existingIndex = draft.scheduler.jobs.findIndex(
-      (entry) => entry.id === job.id,
-    );
-    if (existingIndex >= 0) {
-      draft.scheduler.jobs[existingIndex] = job;
-      return;
-    }
-    draft.scheduler.jobs.push(job);
-  });
+  const previousJob = getSchedulerJob(job.id);
+  upsertSchedulerJob(job);
 
   if (
     previousJob &&
@@ -384,7 +394,7 @@ export function upsertGatewayAdminSchedulerJob(input: {
 
 export function removeGatewayAdminSchedulerJob(
   jobId: string,
-  source: 'config' | 'task' = 'config',
+  source: 'job' | 'task' | 'config' = 'job',
 ): GatewayAdminSchedulerResponse {
   if (source === 'task') {
     const taskId = Number.parseInt(jobId, 10);
@@ -401,11 +411,7 @@ export function removeGatewayAdminSchedulerJob(
     throw new Error('Expected non-empty scheduler `jobId`.');
   }
 
-  updateRuntimeConfig((draft) => {
-    draft.scheduler.jobs = draft.scheduler.jobs.filter(
-      (job) => job.id !== normalizedJobId,
-    );
-  });
+  deleteSchedulerJob(normalizedJobId);
   rearmScheduler();
   return getGatewayAdminScheduler();
 }
@@ -413,7 +419,7 @@ export function removeGatewayAdminSchedulerJob(
 export function setGatewayAdminSchedulerJobPaused(params: {
   jobId: string;
   paused: boolean;
-  source?: 'config' | 'task';
+  source?: 'job' | 'task' | 'config';
 }): GatewayAdminSchedulerResponse {
   if (params.source === 'task') {
     const taskId = Number.parseInt(params.jobId, 10);
@@ -453,38 +459,21 @@ export function moveGatewayAdminSchedulerJob(params: {
     throw new Error('Expected non-empty scheduler `jobId`.');
   }
   const normalizedBeforeJobId = String(params.beforeJobId || '').trim() || null;
-  const existingJob =
-    getRuntimeConfig().scheduler.jobs.find(
-      (job) => job.id === normalizedJobId,
-    ) || null;
+  const existingJob = getSchedulerJob(normalizedJobId);
   if (!existingJob) {
     throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
   }
 
-  updateRuntimeConfig((draft) => {
-    const fromIndex = draft.scheduler.jobs.findIndex(
-      (job) => job.id === normalizedJobId,
-    );
-    if (fromIndex < 0) return;
-    const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
-    if ('boardStatus' in params) {
-      if (params.boardStatus === null) {
-        delete job.boardStatus;
-      } else {
-        job.boardStatus = params.boardStatus;
-      }
+  if ('boardStatus' in params) {
+    const nextJob = { ...existingJob };
+    if (params.boardStatus === null) {
+      delete nextJob.boardStatus;
+    } else {
+      nextJob.boardStatus = params.boardStatus;
     }
-    let insertIndex = draft.scheduler.jobs.length;
-    if (normalizedBeforeJobId && normalizedBeforeJobId !== normalizedJobId) {
-      const beforeIndex = draft.scheduler.jobs.findIndex(
-        (candidate) => candidate.id === normalizedBeforeJobId,
-      );
-      if (beforeIndex >= 0) {
-        insertIndex = beforeIndex;
-      }
-    }
-    draft.scheduler.jobs.splice(insertIndex, 0, job);
-  });
+    updateSchedulerJob(nextJob);
+  }
+  reorderSchedulerJob(normalizedJobId, normalizedBeforeJobId);
 
   if (
     params.boardStatus === 'backlog' &&

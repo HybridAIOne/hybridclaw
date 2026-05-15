@@ -35,7 +35,9 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
   process.env.HOME = homeDir;
   vi.resetModules();
 
-  const { initDatabase, createTask } = await import('../src/memory/db.ts');
+  const { initDatabase, createTask, withMemoryDatabase } = await import(
+    '../src/memory/db.ts'
+  );
   const {
     getGatewayAdminScheduler,
     moveGatewayAdminSchedulerJob,
@@ -43,9 +45,6 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
     setGatewayAdminSchedulerJobPaused,
     upsertGatewayAdminSchedulerJob,
   } = await import('../src/gateway/gateway-scheduled-task-service.ts');
-  const { updateRuntimeConfig } = await import(
-    '../src/config/runtime-config.ts'
-  );
 
   initDatabase({ quiet: true });
 
@@ -61,6 +60,22 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
   const beforePause = getGatewayAdminScheduler().jobs.find(
     (job) => job.id === `task:${taskId}`,
   );
+  expect(
+    withMemoryDatabase((db) =>
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM jobs WHERE kind = 'scheduled_task' AND legacy_task_id = ?",
+        )
+        .get(taskId),
+    ),
+  ).toMatchObject({ count: 1 });
+  expect(
+    withMemoryDatabase((db) =>
+      db
+        .prepare('SELECT COUNT(*) AS count FROM tasks WHERE id = ?')
+        .get(taskId),
+    ),
+  ).toMatchObject({ count: 0 });
   expect(beforePause).toMatchObject({
     id: `task:${taskId}`,
     source: 'task',
@@ -139,8 +154,8 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
     'Scheduler board status must be `backlog`, `in_progress`, `review`, `done`, or `cancelled`.',
   );
 
-  updateRuntimeConfig((draft) => {
-    draft.scheduler.jobs.push({
+  upsertGatewayAdminSchedulerJob({
+    job: {
       id: 'board-status-job',
       schedule: {
         kind: 'every',
@@ -161,7 +176,7 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
       },
       enabled: true,
       boardStatus: 'review',
-    });
+    },
   });
 
   moveGatewayAdminSchedulerJob({
@@ -190,7 +205,7 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
   });
 });
 
-test('admin scheduler resolves config job session ids through legacy scheduler keys', async () => {
+test('admin scheduler migrates legacy scheduler job session ids through scheduler keys', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -198,10 +213,9 @@ test('admin scheduler resolves config job session ids through legacy scheduler k
   const { initDatabase, getOrCreateSession } = await import(
     '../src/memory/db.ts'
   );
-  const { getGatewayAdminScheduler } = await import(
-    '../src/gateway/gateway-scheduled-task-service.ts'
-  );
-  const { updateRuntimeConfig } = await import(
+  const { getGatewayAdminScheduler, migrateConfigSchedulerJobsToDatabase } =
+    await import('../src/gateway/gateway-scheduled-task-service.ts');
+  const { getRuntimeConfig, updateRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
   );
 
@@ -232,6 +246,8 @@ test('admin scheduler resolves config job session ids through legacy scheduler k
       agentId: 'main',
     });
   });
+  migrateConfigSchedulerJobsToDatabase();
+  expect(getRuntimeConfig().scheduler.jobs).toHaveLength(0);
 
   const session = getOrCreateSession(
     'scheduler:release-notes',
@@ -244,14 +260,14 @@ test('admin scheduler resolves config job session ids through legacy scheduler k
     getGatewayAdminScheduler().jobs.find((job) => job.id === 'release-notes'),
   ).toMatchObject({
     id: 'release-notes',
-    source: 'config',
+    source: 'job',
     createdAt: session.created_at,
     sessionId: session.id,
     channelId: 'tui',
   });
 });
 
-test('admin scheduler saves one-shot config jobs with retry settings', async () => {
+test('admin scheduler saves one-shot scheduler jobs with retry settings', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -292,7 +308,7 @@ test('admin scheduler saves one-shot config jobs with retry settings', async () 
     getGatewayAdminScheduler().jobs.find((job) => job.id === 'release-brief'),
   ).toMatchObject({
     id: 'release-brief',
-    source: 'config',
+    source: 'job',
     boardStatus: 'backlog',
     maxRetries: 2,
     schedule: {

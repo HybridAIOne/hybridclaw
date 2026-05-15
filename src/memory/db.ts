@@ -23,6 +23,7 @@ import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
   getRuntimeConfig,
+  type RuntimeSchedulerJob,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import {
@@ -32,6 +33,7 @@ import {
 } from '../config/runtime-config-revisions.js';
 import { logger } from '../logger.js';
 import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
+import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
 import {
   buildRecentChatSearchMatchQuery,
   MAX_RECENT_CHAT_SESSION_LIMIT,
@@ -137,7 +139,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 33;
+export const DATABASE_SCHEMA_VERSION = 34;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -2440,6 +2442,42 @@ function migrateV33(database: Database.Database): void {
   );
 }
 
+function migrateV34(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('scheduler_job', 'scheduled_task')),
+      legacy_task_id INTEGER UNIQUE,
+      session_id TEXT,
+      channel_id TEXT,
+      name TEXT,
+      description TEXT,
+      agent_id TEXT,
+      board_status TEXT CHECK (board_status IS NULL OR board_status IN ('backlog', 'in_progress', 'review', 'done', 'cancelled')),
+      max_retries INTEGER,
+      schedule TEXT NOT NULL,
+      action TEXT NOT NULL,
+      delivery TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run TEXT,
+      last_status TEXT CHECK (last_status IS NULL OR last_status IN ('success', 'error')),
+      consecutive_errors INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_jobs_kind_sort
+      ON jobs(kind, sort_order, created_at);
+    CREATE INDEX IF NOT EXISTS idx_jobs_legacy_task
+      ON jobs(legacy_task_id);
+    CREATE INDEX IF NOT EXISTS idx_jobs_agent
+      ON jobs(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_jobs_board_status
+      ON jobs(board_status);
+  `);
+  recordMigration(database, 34, 'Persist scheduler jobs in SQLite');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2519,6 +2557,7 @@ function runMigrations(
   if (currentVersion < 33 || budgetSoftWarnEventsNeedMigration(database)) {
     migrateV33(database);
   }
+  if (currentVersion < 34) migrateV34(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2538,6 +2577,8 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000');
   runMigrations(db, opts);
+  migrateLegacyTasksToJobsTable();
+  ensureDefaultSchedulerJobs();
   databaseInitialized = true;
   if (!quiet) logger.info({ path: dbPath }, 'Database initialized');
 }
@@ -3568,6 +3609,169 @@ export interface BudgetSoftWarnMarkerEntry {
 }
 
 export type MonthlySpendUsdByAgent = Map<string, number>;
+
+export interface StoredSchedulerJob extends RuntimeSchedulerJob {
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface SchedulerJobRow {
+  id: string;
+  kind: string;
+  legacy_task_id: number | null;
+  session_id: string | null;
+  channel_id: string | null;
+  name: string | null;
+  description: string | null;
+  agent_id: string | null;
+  board_status: string | null;
+  max_retries: number | null;
+  schedule: string;
+  action: string;
+  delivery: string;
+  enabled: number;
+  last_run: string | null;
+  last_status: string | null;
+  consecutive_errors: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function parseSchedulerJobJson<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function schedulerJobFromRow(row: SchedulerJobRow): StoredSchedulerJob {
+  return {
+    id: row.id,
+    ...(row.name ? { name: row.name } : {}),
+    ...(row.description ? { description: row.description } : {}),
+    ...(row.agent_id ? { agentId: row.agent_id } : {}),
+    ...(row.board_status
+      ? { boardStatus: row.board_status as RuntimeSchedulerJob['boardStatus'] }
+      : {}),
+    ...(row.max_retries != null ? { maxRetries: row.max_retries } : {}),
+    schedule: parseSchedulerJobJson<RuntimeSchedulerJob['schedule']>(
+      row.schedule,
+      { kind: 'cron', at: null, everyMs: null, expr: '', tz: '' },
+    ),
+    action: parseSchedulerJobJson<RuntimeSchedulerJob['action']>(row.action, {
+      kind: 'agent_turn',
+      message: '',
+    }),
+    delivery: parseSchedulerJobJson<RuntimeSchedulerJob['delivery']>(
+      row.delivery,
+      { kind: 'channel', channel: '', to: '', webhookUrl: '' },
+    ),
+    enabled: row.enabled !== 0,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function schedulerJobToDbValues(job: RuntimeSchedulerJob): {
+  name: string | null;
+  description: string | null;
+  agentId: string | null;
+  boardStatus: string | null;
+  maxRetries: number | null;
+  schedule: string;
+  action: string;
+  delivery: string;
+  enabled: number;
+} {
+  return {
+    name: job.name?.trim() || null,
+    description: job.description?.trim() || null,
+    agentId: job.agentId?.trim() || null,
+    boardStatus: job.boardStatus || null,
+    maxRetries:
+      typeof job.maxRetries === 'number' && Number.isFinite(job.maxRetries)
+        ? Math.floor(job.maxRetries)
+        : null,
+    schedule: JSON.stringify(job.schedule),
+    action: JSON.stringify(job.action),
+    delivery: JSON.stringify(job.delivery),
+    enabled: job.enabled ? 1 : 0,
+  };
+}
+
+function ensureDefaultSchedulerJobs(): void {
+  const defaults = [
+    DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB as RuntimeSchedulerJob,
+  ];
+  for (const job of defaults) {
+    if (getSchedulerJob(job.id)) continue;
+    upsertSchedulerJob(job);
+  }
+}
+
+function migrateLegacyTasksToJobsTable(): void {
+  if (!tableExists(db, 'tasks')) return;
+  const legacyTasks = queryAll<ScheduledTask>(
+    db,
+    'SELECT * FROM tasks ORDER BY id ASC',
+  );
+  if (legacyTasks.length === 0) return;
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO jobs
+      (id, kind, legacy_task_id, session_id, channel_id, schedule, action, delivery,
+       enabled, last_run, last_status, consecutive_errors, sort_order, created_at, updated_at)
+     VALUES (?, 'scheduled_task', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+  );
+  const transaction = db.transaction((tasks: ScheduledTask[]) => {
+    for (const task of tasks) {
+      const schedule: RuntimeSchedulerJob['schedule'] = task.run_at
+        ? { kind: 'at', at: task.run_at, everyMs: null, expr: null, tz: '' }
+        : task.every_ms
+          ? {
+              kind: 'every',
+              at: null,
+              everyMs: task.every_ms,
+              expr: null,
+              tz: '',
+            }
+          : {
+              kind: 'cron',
+              at: null,
+              everyMs: null,
+              expr: task.cron_expr || '',
+              tz: '',
+            };
+      insert.run(
+        `task:${task.id}`,
+        task.id,
+        task.session_id,
+        task.channel_id,
+        JSON.stringify(schedule),
+        JSON.stringify({ kind: 'agent_turn', message: task.prompt }),
+        JSON.stringify({
+          kind: 'channel',
+          channel: 'session',
+          to: task.channel_id,
+          webhookUrl: '',
+        }),
+        task.enabled,
+        task.last_run,
+        task.last_status === 'success' || task.last_status === 'error'
+          ? task.last_status
+          : null,
+        Math.max(0, Math.floor(task.consecutive_errors || 0)),
+        task.id,
+        task.created_at,
+      );
+    }
+  });
+  transaction(legacyTasks);
+}
 
 type NormalizedUsageEventRow = {
   id: string;
@@ -5696,6 +5900,9 @@ export function createFreshSessionInstance(
       nextSessionId,
       previousSession.id,
     );
+    db.prepare(
+      "UPDATE jobs SET session_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE kind = 'scheduled_task' AND session_id = ?",
+    ).run(nextSessionId, previousSession.id);
     copySessionKvStore(previousSession.id, nextSessionId);
   });
   rotate();
@@ -6316,9 +6523,15 @@ export function deleteSessionData(sessionId: string): {
     const deletedSemanticMemories = db
       .prepare('DELETE FROM semantic_memories WHERE session_id = ?')
       .run(value).changes;
-    const deletedTasks = db
+    const deletedLegacyTasks = db
       .prepare('DELETE FROM tasks WHERE session_id = ?')
       .run(value).changes;
+    const deletedScheduledTaskJobs = db
+      .prepare(
+        "DELETE FROM jobs WHERE kind = 'scheduled_task' AND session_id = ?",
+      )
+      .run(value).changes;
+    const deletedTasks = deletedLegacyTasks + deletedScheduledTaskJobs;
     const deletedAuditEntries = db
       .prepare('DELETE FROM audit_log WHERE session_id = ?')
       .run(value).changes;
@@ -7762,6 +7975,207 @@ export function markSessionMemoryFlush(sessionId: string): void {
   ).run(resolvedSessionId);
 }
 
+function nextSchedulerJobSortOrder(): number {
+  const row = queryOne<{ next_order: number | null }>(
+    db,
+    "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM jobs WHERE kind = 'scheduler_job'",
+  );
+  return Math.max(0, Math.floor(row?.next_order ?? 0));
+}
+
+export function listSchedulerJobs(): StoredSchedulerJob[] {
+  return queryAll<SchedulerJobRow>(
+    db,
+    `SELECT id, kind, legacy_task_id, session_id, channel_id, name, description,
+            agent_id, board_status, max_retries, schedule, action, delivery,
+            enabled, last_run, last_status, consecutive_errors, sort_order,
+            created_at, updated_at
+     FROM jobs
+     WHERE kind = 'scheduler_job'
+     ORDER BY sort_order ASC, created_at ASC, id ASC`,
+  ).map(schedulerJobFromRow);
+}
+
+export function getSchedulerJob(jobId: string): StoredSchedulerJob | null {
+  const normalizedJobId = jobId.trim();
+  if (!normalizedJobId) return null;
+  const row = queryOne<SchedulerJobRow, [string]>(
+    db,
+    `SELECT id, kind, legacy_task_id, session_id, channel_id, name, description,
+            agent_id, board_status, max_retries, schedule, action, delivery,
+            enabled, last_run, last_status, consecutive_errors, sort_order,
+            created_at, updated_at
+     FROM jobs
+     WHERE kind = 'scheduler_job'
+       AND id = ?`,
+    normalizedJobId,
+  );
+  return row ? schedulerJobFromRow(row) : null;
+}
+
+export function upsertSchedulerJob(
+  job: RuntimeSchedulerJob,
+): StoredSchedulerJob {
+  const jobId = job.id.trim();
+  if (!jobId) throw new Error('Scheduler job requires a non-empty id.');
+  const values = schedulerJobToDbValues({ ...job, id: jobId });
+  const existing = getSchedulerJob(jobId);
+  const sortOrder = existing?.sortOrder ?? nextSchedulerJobSortOrder();
+  db.prepare(
+    `INSERT INTO jobs
+      (id, kind, name, description, agent_id, board_status, max_retries, schedule, action, delivery, enabled, sort_order, created_at, updated_at)
+     VALUES (?, 'scheduler_job', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       description = excluded.description,
+       agent_id = excluded.agent_id,
+       board_status = excluded.board_status,
+       max_retries = excluded.max_retries,
+       schedule = excluded.schedule,
+       action = excluded.action,
+       delivery = excluded.delivery,
+       enabled = excluded.enabled,
+       sort_order = jobs.sort_order,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+  ).run(
+    jobId,
+    values.name,
+    values.description,
+    values.agentId,
+    values.boardStatus,
+    values.maxRetries,
+    values.schedule,
+    values.action,
+    values.delivery,
+    values.enabled,
+    sortOrder,
+  );
+  return getSchedulerJob(jobId) as StoredSchedulerJob;
+}
+
+export function updateSchedulerJob(
+  job: RuntimeSchedulerJob,
+): StoredSchedulerJob {
+  if (!getSchedulerJob(job.id)) {
+    throw new Error(`Scheduler job \`${job.id}\` was not found.`);
+  }
+  return upsertSchedulerJob(job);
+}
+
+export function deleteSchedulerJob(jobId: string): void {
+  const normalizedJobId = jobId.trim();
+  if (!normalizedJobId) return;
+  db.prepare("DELETE FROM jobs WHERE kind = 'scheduler_job' AND id = ?").run(
+    normalizedJobId,
+  );
+}
+
+export function reorderSchedulerJob(
+  jobId: string,
+  beforeJobId?: string | null,
+): void {
+  const normalizedJobId = jobId.trim();
+  if (!normalizedJobId) return;
+  const normalizedBeforeJobId = beforeJobId?.trim() || null;
+  const jobs = listSchedulerJobs();
+  const fromIndex = jobs.findIndex((job) => job.id === normalizedJobId);
+  if (fromIndex < 0) return;
+  const [job] = jobs.splice(fromIndex, 1);
+  let insertIndex = jobs.length;
+  if (normalizedBeforeJobId && normalizedBeforeJobId !== normalizedJobId) {
+    const beforeIndex = jobs.findIndex(
+      (candidate) => candidate.id === normalizedBeforeJobId,
+    );
+    if (beforeIndex >= 0) insertIndex = beforeIndex;
+  }
+  jobs.splice(insertIndex, 0, job);
+
+  const updateOrder = db.prepare(
+    "UPDATE jobs SET sort_order = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE kind = 'scheduler_job' AND id = ?",
+  );
+  const transaction = db.transaction((orderedJobs: StoredSchedulerJob[]) => {
+    for (const [index, orderedJob] of orderedJobs.entries()) {
+      updateOrder.run(index, orderedJob.id);
+    }
+  });
+  transaction(jobs);
+}
+
+export function replaceSchedulerJobs(jobs: RuntimeSchedulerJob[]): void {
+  const transaction = db.transaction((nextJobs: RuntimeSchedulerJob[]) => {
+    db.prepare("DELETE FROM jobs WHERE kind = 'scheduler_job'").run();
+    const insert = db.prepare(
+      `INSERT INTO jobs
+        (id, kind, name, description, agent_id, board_status, max_retries, schedule, action, delivery, enabled, sort_order, created_at, updated_at)
+       VALUES (?, 'scheduler_job', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+    );
+    nextJobs.forEach((job, index) => {
+      const jobId = job.id.trim();
+      if (!jobId) return;
+      const values = schedulerJobToDbValues({ ...job, id: jobId });
+      insert.run(
+        jobId,
+        values.name,
+        values.description,
+        values.agentId,
+        values.boardStatus,
+        values.maxRetries,
+        values.schedule,
+        values.action,
+        values.delivery,
+        values.enabled,
+        index,
+      );
+    });
+  });
+  transaction(jobs);
+}
+
+function nextLegacyTaskId(): number {
+  const row = queryOne<{ next_id: number | null }>(
+    db,
+    "SELECT COALESCE(MAX(legacy_task_id), 0) + 1 AS next_id FROM jobs WHERE kind = 'scheduled_task'",
+  );
+  return Math.max(1, Math.floor(row?.next_id ?? 1));
+}
+
+function scheduledTaskFromJobRow(row: SchedulerJobRow): ScheduledTask {
+  const schedule = parseSchedulerJobJson<RuntimeSchedulerJob['schedule']>(
+    row.schedule,
+    { kind: 'cron', at: null, everyMs: null, expr: '', tz: '' },
+  );
+  const action = parseSchedulerJobJson<RuntimeSchedulerJob['action']>(
+    row.action,
+    { kind: 'agent_turn', message: '' },
+  );
+  return {
+    id: row.legacy_task_id ?? 0,
+    session_id: row.session_id || '',
+    channel_id: row.channel_id || '',
+    cron_expr: schedule.kind === 'cron' ? schedule.expr || '' : '',
+    run_at: schedule.kind === 'at' ? schedule.at : null,
+    every_ms: schedule.kind === 'every' ? schedule.everyMs : null,
+    prompt: action.message,
+    enabled: row.enabled,
+    last_run: row.last_run,
+    last_status:
+      row.last_status === 'success' || row.last_status === 'error'
+        ? row.last_status
+        : null,
+    consecutive_errors: Math.max(0, Math.floor(row.consecutive_errors || 0)),
+    created_at: row.created_at,
+  };
+}
+
+function scheduledTaskSelectClause(): string {
+  return `SELECT id, kind, legacy_task_id, session_id, channel_id, name, description,
+                 agent_id, board_status, max_retries, schedule, action, delivery,
+                 enabled, last_run, last_status, consecutive_errors, sort_order,
+                 created_at, updated_at
+          FROM jobs
+          WHERE kind = 'scheduled_task'`;
+}
+
 export function createTask(
   sessionId: string,
   channelId: string,
@@ -7771,50 +8185,66 @@ export function createTask(
   everyMs?: number,
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  const result = db
-    .prepare(
-      'INSERT INTO tasks (session_id, channel_id, cron_expr, prompt, run_at, every_ms) VALUES (?, ?, ?, ?, ?, ?)',
-    )
-    .run(
-      resolvedSessionId,
-      channelId,
-      cronExpr,
-      prompt,
-      runAt || null,
-      everyMs || null,
-    );
-  return result.lastInsertRowid as number;
+  const taskId = nextLegacyTaskId();
+  const schedule: RuntimeSchedulerJob['schedule'] = runAt
+    ? { kind: 'at', at: runAt, everyMs: null, expr: null, tz: '' }
+    : everyMs
+      ? { kind: 'every', at: null, everyMs, expr: null, tz: '' }
+      : { kind: 'cron', at: null, everyMs: null, expr: cronExpr, tz: '' };
+  db.prepare(
+    `INSERT INTO jobs
+      (id, kind, legacy_task_id, session_id, channel_id, schedule, action, delivery, enabled, sort_order, created_at, updated_at)
+     VALUES (?, 'scheduled_task', ?, ?, ?, ?, ?, ?, 1, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+  ).run(
+    `task:${taskId}`,
+    taskId,
+    resolvedSessionId,
+    channelId,
+    JSON.stringify(schedule),
+    JSON.stringify({ kind: 'agent_turn', message: prompt }),
+    JSON.stringify({
+      kind: 'channel',
+      channel: 'session',
+      to: channelId,
+      webhookUrl: '',
+    }),
+    taskId,
+  );
+  return taskId;
 }
 
 export function getTasksForSession(sessionId: string): ScheduledTask[] {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  return queryAll<ScheduledTask, [string]>(
+  return queryAll<SchedulerJobRow, [string]>(
     db,
-    'SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at DESC',
+    `${scheduledTaskSelectClause()} AND session_id = ? ORDER BY created_at DESC`,
     resolvedSessionId,
-  );
+  ).map(scheduledTaskFromJobRow);
 }
 
 export function getAllTasks(): ScheduledTask[] {
-  return queryAll<ScheduledTask>(
+  return queryAll<SchedulerJobRow>(
     db,
-    'SELECT * FROM tasks ORDER BY created_at DESC',
-  );
+    `${scheduledTaskSelectClause()} ORDER BY created_at DESC`,
+  ).map(scheduledTaskFromJobRow);
 }
 
 export function getAllEnabledTasks(): ScheduledTask[] {
-  return queryAll<ScheduledTask>(db, 'SELECT * FROM tasks WHERE enabled = 1');
+  return queryAll<SchedulerJobRow>(
+    db,
+    `${scheduledTaskSelectClause()} AND enabled = 1`,
+  ).map(scheduledTaskFromJobRow);
 }
 
 export function updateTaskLastRun(taskId: number): void {
   db.prepare(
-    "UPDATE tasks SET last_run = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+    "UPDATE jobs SET last_run = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE kind = 'scheduled_task' AND legacy_task_id = ?",
   ).run(taskId);
 }
 
 export function markTaskSuccess(taskId: number): void {
   db.prepare(
-    'UPDATE tasks SET last_status = ?, consecutive_errors = 0 WHERE id = ?',
+    "UPDATE jobs SET last_status = ?, consecutive_errors = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE kind = 'scheduled_task' AND legacy_task_id = ?",
   ).run('success', taskId);
 }
 
@@ -7824,7 +8254,7 @@ export function markTaskFailure(
 ): { disabled: boolean; consecutiveErrors: number } {
   const row = queryOne<Pick<ScheduledTask, 'consecutive_errors'>, [number]>(
     db,
-    'SELECT consecutive_errors FROM tasks WHERE id = ?',
+    "SELECT consecutive_errors FROM jobs WHERE kind = 'scheduled_task' AND legacy_task_id = ?",
     taskId,
   );
   if (!row) {
@@ -7835,7 +8265,7 @@ export function markTaskFailure(
   const shouldDisable =
     nextCount >= Math.max(1, Math.floor(maxConsecutiveErrors));
   db.prepare(
-    'UPDATE tasks SET last_status = ?, consecutive_errors = ?, enabled = ? WHERE id = ?',
+    "UPDATE jobs SET last_status = ?, consecutive_errors = ?, enabled = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE kind = 'scheduled_task' AND legacy_task_id = ?",
   ).run('error', nextCount, shouldDisable ? 0 : 1, taskId);
   return {
     disabled: shouldDisable,
@@ -7844,10 +8274,9 @@ export function markTaskFailure(
 }
 
 export function toggleTask(taskId: number, enabled: boolean): void {
-  db.prepare('UPDATE tasks SET enabled = ? WHERE id = ?').run(
-    enabled ? 1 : 0,
-    taskId,
-  );
+  db.prepare(
+    "UPDATE jobs SET enabled = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE kind = 'scheduled_task' AND legacy_task_id = ?",
+  ).run(enabled ? 1 : 0, taskId);
 }
 
 export function pauseTask(taskId: number): void {
@@ -7859,7 +8288,9 @@ export function resumeTask(taskId: number): void {
 }
 
 export function deleteTask(taskId: number): void {
-  db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+  db.prepare(
+    "DELETE FROM jobs WHERE kind = 'scheduled_task' AND legacy_task_id = ?",
+  ).run(taskId);
 }
 
 function parseSkillMetricsJson(raw: string | null): SkillHealthMetrics | null {

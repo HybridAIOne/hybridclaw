@@ -79,10 +79,10 @@ type SchedulerTargetControl =
       options: SchedulerTargetOption[];
     };
 
-function isConfigJob(
+function isSchedulerJob(
   job: AdminSchedulerJob | null | undefined,
-): job is AdminSchedulerJob & { source: 'config' } {
-  return job?.source === 'config';
+): job is AdminSchedulerJob & { source: 'job' } {
+  return job?.source === 'job';
 }
 
 function isTaskJob(
@@ -486,7 +486,7 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
 
   return {
     id: draft.id.trim(),
-    source: 'config',
+    source: 'job',
     name: draft.name.trim() || draft.id.trim(),
     description: draft.description.trim() || null,
     agentId: draft.agentId.trim() || null,
@@ -625,7 +625,7 @@ function SchedulerTaskDetail(props: {
 
 function SchedulerJobEditor(props: {
   draft: SchedulerDraft;
-  selectedJob: (AdminSchedulerJob & { source: 'config' }) | null;
+  selectedJob: (AdminSchedulerJob & { source: 'job' }) | null;
   channelOptions: SchedulerChannelOption[];
   targetControl: SchedulerTargetControl;
   savePending: boolean;
@@ -1056,7 +1056,7 @@ export function SchedulerPage() {
 
   const selectedJob =
     schedulerQuery.data?.jobs.find((job) => job.id === selectedId) || null;
-  const selectedConfigJob = isConfigJob(selectedJob) ? selectedJob : null;
+  const selectedConfigJob = isSchedulerJob(selectedJob) ? selectedJob : null;
   const channelOptions = buildSchedulerChannelOptions({
     config: configQuery.data?.config,
     status: auth.gatewayStatus,
@@ -1111,7 +1111,7 @@ export function SchedulerPage() {
             action,
           })
         : setSchedulerJobPaused(auth.token, {
-            source: 'config',
+            source: 'job',
             jobId: selectedJob.id,
             action,
           });
@@ -1127,7 +1127,7 @@ export function SchedulerPage() {
         setDraft(createDraft());
         return;
       }
-      if (isConfigJob(refreshed)) {
+      if (isSchedulerJob(refreshed)) {
         setDraft(createDraft(refreshed));
       }
     },

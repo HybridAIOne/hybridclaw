@@ -472,8 +472,7 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/channels/discord-webhook/runtime.js', () => ({
     hasDiscordWebhookTargets: vi.fn(() =>
       Boolean(
-        state.getConfigSnapshot().discordWebhook?.webhooks?.default
-          ?.webhookUrl,
+        state.getConfigSnapshot().discordWebhook?.webhooks?.default?.webhookUrl,
       ),
     ),
     initDiscordWebhook: state.initDiscordWebhook,
@@ -1104,7 +1103,7 @@ describe('gateway bootstrap', () => {
     });
 
     await state.scheduledTaskRunner?.({
-      source: 'config-job',
+      source: 'scheduler-job',
       jobId: 'release-notes',
       sessionId: 'scheduler:release-notes',
       channelId: 'scheduler',
@@ -1120,7 +1119,7 @@ describe('gateway bootstrap', () => {
       {
         jobId: 'release-notes',
         taskId: undefined,
-        source: 'config-job',
+        source: 'scheduler-job',
         actionKind: 'agent_turn',
         delivery: 'last-channel',
       },

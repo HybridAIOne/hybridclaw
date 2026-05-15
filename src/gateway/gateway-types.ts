@@ -1103,7 +1103,7 @@ export interface GatewayAdminModelsResponse {
 
 export interface GatewayAdminSchedulerJob {
   id: string;
-  source: 'config' | 'task';
+  source: 'job' | 'task';
   name: string;
   description: string | null;
   agentId: string | null;

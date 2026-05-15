@@ -826,7 +826,7 @@ export function deleteSchedulerJob(
 export function setSchedulerJobPaused(
   token: string,
   payload:
-    | { source: 'config'; jobId: string; action: 'pause' | 'resume' }
+    | { source: 'job'; jobId: string; action: 'pause' | 'resume' }
     | { source: 'task'; taskId: number; action: 'pause' | 'resume' },
 ): Promise<AdminSchedulerResponse> {
   return requestJson<AdminSchedulerResponse>('/api/admin/scheduler', {

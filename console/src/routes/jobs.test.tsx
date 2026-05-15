@@ -37,7 +37,7 @@ function makeConfigJob(
 ): AdminSchedulerJob {
   return {
     id: 'release-reminder',
-    source: 'config',
+    source: 'job',
     name: 'Release Reminder',
     description: 'Send the release reminder.',
     agentId: 'main',
