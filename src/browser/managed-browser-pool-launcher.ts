@@ -1,8 +1,7 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { DATA_DIR } from '../config/config.js';
 import {
   getRuntimeConfig,
   type RuntimeManagedCloudBrowserConfig,
@@ -41,8 +40,8 @@ export interface ManagedBrowserPoolLaunchSpec {
 const LOG_TAIL_LIMIT_BYTES = 16 * 1024;
 const HEALTH_WAIT_TIMEOUT_MS = 5_000;
 const HEALTH_WAIT_INTERVAL_MS = 250;
+const COMMAND_TIMEOUT_MS = 120_000;
 
-let poolProcess: ChildProcess | null = null;
 let poolLogTail = '';
 
 function appendLogTail(chunk: Buffer | string): void {
@@ -50,10 +49,6 @@ function appendLogTail(chunk: Buffer | string): void {
   const bytes = Buffer.byteLength(poolLogTail, 'utf-8');
   if (bytes <= LOG_TAIL_LIMIT_BYTES) return;
   poolLogTail = poolLogTail.slice(-LOG_TAIL_LIMIT_BYTES);
-}
-
-function isProcessAlive(child: ChildProcess | null): child is ChildProcess {
-  return Boolean(child && child.exitCode === null && child.signalCode === null);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -89,69 +84,147 @@ function resolveEndpointPort(url: URL): number {
   return port;
 }
 
-function resolvePolicyPath(dataRoot: string): string {
-  const operatorPolicyPath = path.join(dataRoot, 'tenants.yaml');
-  if (fs.existsSync(operatorPolicyPath)) return operatorPolicyPath;
-  return resolveInstallPath('infra', 'managed-browser', 'tenants.example.yaml');
-}
-
 function resolvePoolToken(
   config: RuntimeManagedCloudBrowserConfig,
-): string | undefined {
-  if (!config.poolTokenRef) return undefined;
-  return resolveSecretInputUnsafe(config.poolTokenRef, {
-    path: 'browser.managedCloud.poolTokenRef',
-    required: true,
-    reason: 'launch managed browser pool child process environment',
-    audit: noopSecretAudit,
-  });
+  fallback?: string,
+): string {
+  if (fallback) return fallback;
+  if (!config.poolTokenRef) {
+    throw new Error(
+      'Local Docker browser pool launch requires browser.managedCloud.poolTokenRef.',
+    );
+  }
+  return (
+    resolveSecretInputUnsafe(config.poolTokenRef, {
+      path: 'browser.managedCloud.poolTokenRef',
+      required: true,
+      reason: 'launch managed browser pool Docker Compose environment',
+      audit: noopSecretAudit,
+    }) || ''
+  );
 }
 
 export function buildManagedBrowserPoolLaunchSpec(
   config: RuntimeManagedCloudBrowserConfig,
   options: {
-    dataDir?: string;
     installRoot?: string;
+    poolToken?: string;
   } = {},
 ): ManagedBrowserPoolLaunchSpec {
   const endpointUrl = normalizeManagedCloudEndpointUrl(config.endpointUrl);
   const parsed = new URL(endpointUrl);
   if (parsed.protocol !== 'http:') {
     throw new Error(
-      'Local managed browser pool launch only supports http:// loopback endpoints.',
+      'Local Docker browser pool launch only supports http:// loopback endpoints.',
     );
   }
   if (!isLoopbackHostname(parsed.hostname)) {
     throw new Error(
-      'Local managed browser pool launch is only available for loopback endpoints.',
+      'Local Docker browser pool launch is only available for loopback endpoints.',
     );
   }
 
   const installRoot = options.installRoot || resolveInstallPath();
-  const managedBrowserRoot = path.join(installRoot, 'infra', 'managed-browser');
-  const serverPath = path.join(managedBrowserRoot, 'server.js');
-  if (!fs.existsSync(serverPath)) {
-    throw new Error(`Managed browser pool server is missing: ${serverPath}`);
+  const composePath = path.join(
+    installRoot,
+    'infra',
+    'managed-browser',
+    'docker-compose.yml',
+  );
+  if (!fs.existsSync(composePath)) {
+    throw new Error(
+      `Managed browser pool Compose file is missing: ${composePath}`,
+    );
   }
 
-  const dataRoot = path.join(options.dataDir || DATA_DIR, 'managed-browser');
-  const poolToken = resolvePoolToken(config);
+  const poolToken = resolvePoolToken(config, options.poolToken);
   return {
-    command: process.execPath,
-    args: [serverPath],
-    cwd: managedBrowserRoot,
+    command: 'docker',
+    args: [
+      'compose',
+      '-f',
+      path.relative(installRoot, composePath),
+      'up',
+      '-d',
+      '--build',
+      'browser-pool',
+    ],
+    cwd: installRoot,
     endpointUrl,
     env: {
       ...process.env,
-      MANAGED_BROWSER_BIND_HOST: resolveBindHost(parsed.hostname),
+      MANAGED_BROWSER_PUBLISH_HOST: resolveBindHost(parsed.hostname),
       MANAGED_BROWSER_PORT: String(resolveEndpointPort(parsed)),
-      MANAGED_BROWSER_NODE_ID: 'gateway-managed-browser-node-1',
-      MANAGED_BROWSER_STATE_PATH: path.join(dataRoot, 'leases.json'),
-      MANAGED_BROWSER_AUDIT_PATH: path.join(dataRoot, 'audit.jsonl'),
-      MANAGED_BROWSER_POLICY_PATH: resolvePolicyPath(dataRoot),
-      ...(poolToken ? { MANAGED_BROWSER_POOL_TOKEN: poolToken } : {}),
+      MANAGED_BROWSER_POOL_TOKEN: poolToken,
     },
   };
+}
+
+async function runCommand(
+  command: string,
+  args: string[],
+  options: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    timeoutMs?: number;
+  } = {},
+): Promise<{
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  output: string;
+}> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let output = '';
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      child.kill('SIGTERM');
+    }, options.timeoutMs ?? COMMAND_TIMEOUT_MS);
+    const onOutput = (chunk: Buffer | string) => {
+      output += Buffer.isBuffer(chunk) ? chunk.toString('utf-8') : chunk;
+    };
+    child.stdout?.on('data', onOutput);
+    child.stderr?.on('data', onOutput);
+    child.once('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once('exit', (exitCode, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve({ exitCode, signal, output });
+    });
+  });
+}
+
+async function assertDockerReady(): Promise<void> {
+  try {
+    const info = await runCommand('docker', ['info'], {
+      timeoutMs: 15_000,
+    });
+    if (info.exitCode !== 0) {
+      throw new Error(info.output.trim() || 'docker info failed');
+    }
+    const compose = await runCommand('docker', ['compose', 'version'], {
+      timeoutMs: 15_000,
+    });
+    if (compose.exitCode !== 0) {
+      throw new Error(compose.output.trim() || 'docker compose version failed');
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Docker is not ready to launch the browser pool: ${message}`,
+    );
+  }
 }
 
 async function waitForPoolHealth(
@@ -163,7 +236,6 @@ async function waitForPoolHealth(
     const health = await checkManagedBrowserPoolHealth(endpointUrl);
     message = health.message;
     if (health.ok) return { ok: true, message };
-    if (!isProcessAlive(poolProcess)) break;
     await sleep(HEALTH_WAIT_INTERVAL_MS);
   }
   return { ok: false, message };
@@ -190,19 +262,8 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
       ok: true,
       status: 'already-running',
       endpointUrl: currentHealth.endpointUrl,
-      pid: isProcessAlive(poolProcess) ? (poolProcess.pid ?? null) : null,
+      pid: null,
       message: currentHealth.message,
-    };
-  }
-
-  if (isProcessAlive(poolProcess)) {
-    return {
-      ok: true,
-      status: 'starting',
-      endpointUrl,
-      pid: poolProcess.pid ?? null,
-      message: currentHealth.message,
-      logTail: poolLogTail || undefined,
     };
   }
 
@@ -219,58 +280,60 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
     };
   }
 
-  const statePath = spec.env.MANAGED_BROWSER_STATE_PATH;
-  if (!statePath) {
+  try {
+    await assertDockerReady();
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'unsupported',
+      endpointUrl: spec.endpointUrl,
+      pid: null,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  poolLogTail = '';
+  let composeResult: Awaited<ReturnType<typeof runCommand>>;
+  try {
+    composeResult = await runCommand(spec.command, spec.args, {
+      cwd: spec.cwd,
+      env: spec.env,
+    });
+    appendLogTail(composeResult.output);
+  } catch (error) {
+    logger.error(
+      { error, endpointUrl: spec.endpointUrl },
+      'Managed browser pool Docker Compose launch failed',
+    );
     return {
       ok: false,
       status: 'failed',
       endpointUrl: spec.endpointUrl,
       pid: null,
-      message: 'Managed browser pool state path was not configured.',
+      message: error instanceof Error ? error.message : String(error),
+      logTail: poolLogTail || undefined,
     };
   }
-  fs.mkdirSync(path.dirname(statePath), {
-    recursive: true,
-  });
-  poolLogTail = '';
-  poolProcess = spawn(spec.command, spec.args, {
-    cwd: spec.cwd,
-    env: spec.env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  poolProcess.stdout?.on('data', appendLogTail);
-  poolProcess.stderr?.on('data', appendLogTail);
-  poolProcess.once('exit', (exitCode, signal) => {
-    logger.warn(
-      {
-        exitCode,
-        signal,
-        endpointUrl: spec.endpointUrl,
-        logTail: poolLogTail || undefined,
-      },
-      'Managed browser pool process exited',
-    );
-    poolProcess = null;
-  });
-  poolProcess.once('error', (error) => {
-    logger.error(
-      { error, endpointUrl: spec.endpointUrl },
-      'Managed browser pool process failed',
-    );
-    poolProcess = null;
-  });
+
+  if (composeResult.exitCode !== 0) {
+    return {
+      ok: false,
+      status: 'failed',
+      endpointUrl: spec.endpointUrl,
+      pid: null,
+      message: `Docker Compose exited with code ${composeResult.exitCode}.`,
+      logTail: poolLogTail || undefined,
+    };
+  }
 
   logger.info(
     {
-      pid: poolProcess.pid,
       endpointUrl: spec.endpointUrl,
       cwd: spec.cwd,
       command: spec.command,
       args: spec.args,
-      policyPath: spec.env.MANAGED_BROWSER_POLICY_PATH,
-      statePath: spec.env.MANAGED_BROWSER_STATE_PATH,
     },
-    'Started managed browser pool process from admin backend',
+    'Started managed browser pool Docker Compose service from admin backend',
   );
 
   const health = await waitForPoolHealth(spec.endpointUrl);
@@ -279,17 +342,17 @@ export async function startLocalManagedBrowserPool(): Promise<ManagedBrowserPool
       ok: true,
       status: 'started',
       endpointUrl: spec.endpointUrl,
-      pid: poolProcess?.pid ?? null,
+      pid: null,
       message: health.message,
       logTail: poolLogTail || undefined,
     };
   }
 
   return {
-    ok: isProcessAlive(poolProcess),
-    status: isProcessAlive(poolProcess) ? 'starting' : 'failed',
+    ok: false,
+    status: 'failed',
     endpointUrl: spec.endpointUrl,
-    pid: poolProcess?.pid ?? null,
+    pid: null,
     message: health.message,
     logTail: poolLogTail || undefined,
   };

@@ -588,7 +588,7 @@ export function ConfigPage() {
                         >
                           {startBrowserPoolMutation.isPending
                             ? 'Starting...'
-                            : 'Start local pool'}
+                            : 'Start Docker pool'}
                         </button>
                       </div>
                       {browserPoolHealth?.status === 'offline' ? (

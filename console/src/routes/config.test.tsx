@@ -171,7 +171,7 @@ describe('ConfigPage', () => {
     const provider = await screen.findByDisplayValue('local');
     fireEvent.change(provider, { target: { value: 'managed-cloud' } });
     expect(await screen.findByText(/fetch failed/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Start local pool' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Docker pool' }));
     await waitFor(() => expect(startBrowserPoolMock).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByDisplayValue('http://127.0.0.1:8787'), {
       target: { value: 'https://browser.example' },
