@@ -1,7 +1,7 @@
 /**
  * Scheduler — timer-based, arms for exact next-fire time.
  *
- * Runs both legacy DB-backed tasks and config-backed scheduler.jobs.
+ * Runs SQLite-backed scheduler jobs.
  */
 
 import fs from 'node:fs';
@@ -13,21 +13,22 @@ import { isEmailAddress } from '../channels/email/allowlist.js';
 import { isIMessageHandle } from '../channels/imessage/handle.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
-import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
+import { DATA_DIR } from '../config/config.js';
 import {
   DEFAULT_ONE_SHOT_MAX_RETRIES,
   type RuntimeSchedulerJob,
-  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { runResourceHygieneMaintenance } from '../doctor/resource-hygiene.js';
 import { logger } from '../logger.js';
 import {
-  deleteTask,
-  getAllEnabledTasks,
-  markTaskFailure,
-  markTaskSuccess,
-  updateTaskLastRun,
-} from '../memory/db.js';
+  deleteJob,
+  getAllJobs,
+  getJob,
+  markJobFailure,
+  markJobRunStarted,
+  markJobSuccess,
+  updateJob,
+} from '../memory/jobs.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
 
@@ -55,7 +56,7 @@ export function parseSchedulerTimestampMs(
 }
 
 export interface SchedulerDispatchRequest {
-  source: 'db-task' | 'config-job';
+  source: 'scheduled-task' | 'scheduler-job';
   taskId?: number;
   jobId?: string;
   agentId?: string;
@@ -302,9 +303,7 @@ function setConfigJobBoardStatus(
     onlyIfCurrent?: Exclude<RuntimeSchedulerJob['boardStatus'], undefined>;
   } = {},
 ): RuntimeSchedulerJob | null {
-  const currentJob = getConfigSnapshot().scheduler.jobs.find(
-    (candidate) => candidate.id === jobId,
-  );
+  const currentJob = getJob(jobId, { kind: 'scheduler_job' });
   if (!currentJob) return null;
   if (
     options.onlyIfCurrent &&
@@ -317,7 +316,7 @@ function setConfigJobBoardStatus(
         currentBoardStatus: currentJob.boardStatus ?? null,
         nextBoardStatus: boardStatus,
       },
-      'Skipped config scheduler board status update: current status did not match guard',
+      'Skipped scheduler board status update: current status did not match guard',
     );
     return null;
   }
@@ -327,36 +326,15 @@ function setConfigJobBoardStatus(
     };
   }
 
-  let updatedJob: RuntimeSchedulerJob | null = null;
-  updateRuntimeConfig((draft) => {
-    const job = draft.scheduler.jobs.find(
-      (candidate) => candidate.id === jobId,
-    );
-    if (!job) return;
-    if (options.onlyIfCurrent && job.boardStatus !== options.onlyIfCurrent) {
-      logger.debug(
-        {
-          jobId,
-          expectedBoardStatus: options.onlyIfCurrent,
-          currentBoardStatus: job.boardStatus ?? null,
-          nextBoardStatus: boardStatus,
-        },
-        'Skipped config scheduler board status update after config refresh: current status did not match guard',
-      );
-      return;
-    }
-    job.boardStatus = boardStatus;
-    updatedJob = {
-      ...job,
-    };
+  const updatedJob = updateJob({
+    ...currentJob,
+    boardStatus,
   });
   return updatedJob;
 }
 
 function moveConfigJobToReview(jobId: string): RuntimeSchedulerJob | null {
-  const currentStatus = getConfigSnapshot().scheduler.jobs.find(
-    (candidate) => candidate.id === jobId,
-  )?.boardStatus;
+  const currentStatus = getJob(jobId, { kind: 'scheduler_job' })?.boardStatus;
   if (isTerminalConfigJobBoardStatus(currentStatus)) {
     return null;
   }
@@ -605,9 +583,7 @@ function reconcileSuccessfulOneShotConfigJob(
     return true;
   }
 
-  const currentStatus = getConfigSnapshot().scheduler.jobs.find(
-    (candidate) => candidate.id === job.id,
-  )?.boardStatus;
+  const currentStatus = getJob(job.id, { kind: 'scheduler_job' })?.boardStatus;
   if (
     currentStatus &&
     currentStatus !== 'backlog' &&
@@ -631,8 +607,8 @@ function reconcileSuccessfulOneShotConfigJobs(
 }
 
 function computeNextFireMs(nowMs = Date.now()): number | null {
-  const dbTasks = getAllEnabledTasks();
-  const cfgJobs = getConfigSnapshot().scheduler.jobs;
+  const dbTasks = getAllJobs({ kind: 'scheduled_task', enabledOnly: true });
+  const cfgJobs = getAllJobs({ kind: 'scheduler_job' });
   pruneConfigJobMeta(cfgJobs);
   const reconciledSuccessfulOneShots =
     reconcileSuccessfulOneShotConfigJobs(cfgJobs);
@@ -690,7 +666,7 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
     task.channel_id,
   );
   await taskRunner({
-    source: 'db-task',
+    source: 'scheduled-task',
     taskId: task.id,
     sessionId: task.session_id,
     channelId: task.channel_id,
@@ -726,7 +702,7 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
         )
       : job.action.message;
   await taskRunner({
-    source: 'config-job',
+    source: 'scheduler-job',
     jobId: job.id,
     agentId: job.agentId,
     sessionId: `scheduler:${job.id}`,
@@ -804,8 +780,8 @@ async function tick(): Promise<void> {
   ticking = true;
 
   try {
-    const dbTasks = getAllEnabledTasks();
-    const cfgJobs = getConfigSnapshot().scheduler.jobs;
+    const dbTasks = getAllJobs({ kind: 'scheduled_task', enabledOnly: true });
+    const cfgJobs = getAllJobs({ kind: 'scheduler_job' });
     pruneConfigJobMeta(cfgJobs);
 
     const now = new Date();
@@ -820,14 +796,14 @@ async function tick(): Promise<void> {
               { taskId: task.id, runAt: task.run_at, prompt: task.prompt },
               'One-shot task firing',
             );
-            updateTaskLastRun(task.id);
+            markJobRunStarted(task.id);
             dispatchDbTask(task)
               .then(() => {
-                markTaskSuccess(task.id);
-                deleteTask(task.id);
+                markJobSuccess(task.id);
+                deleteJob(task.id);
               })
               .catch((err) => {
-                const failure = markTaskFailure(
+                const failure = markJobFailure(
                   task.id,
                   MAX_CONSECUTIVE_FAILURES,
                 );
@@ -857,13 +833,13 @@ async function tick(): Promise<void> {
               { taskId: task.id, everyMs: task.every_ms, prompt: task.prompt },
               'Interval task firing',
             );
-            updateTaskLastRun(task.id);
+            markJobRunStarted(task.id);
             dispatchDbTask(task)
               .then(() => {
-                markTaskSuccess(task.id);
+                markJobSuccess(task.id);
               })
               .catch((err) => {
-                const failure = markTaskFailure(
+                const failure = markJobFailure(
                   task.id,
                   MAX_CONSECUTIVE_FAILURES,
                 );
@@ -894,16 +870,13 @@ async function tick(): Promise<void> {
             { taskId: task.id, cron: task.cron_expr, prompt: task.prompt },
             'Cron task firing',
           );
-          updateTaskLastRun(task.id);
+          markJobRunStarted(task.id);
           dispatchDbTask(task)
             .then(() => {
-              markTaskSuccess(task.id);
+              markJobSuccess(task.id);
             })
             .catch((err) => {
-              const failure = markTaskFailure(
-                task.id,
-                MAX_CONSECUTIVE_FAILURES,
-              );
+              const failure = markJobFailure(task.id, MAX_CONSECUTIVE_FAILURES);
               logger.error({ taskId: task.id, err }, 'Cron task failed');
               if (failure.disabled) {
                 logger.warn(
@@ -950,7 +923,7 @@ async function tick(): Promise<void> {
               : setConfigJobBoardStatus(job.id, 'in_progress') || job;
           logger.info(
             { jobId: job.id, jobLabel },
-            'Config one-shot job firing',
+            'Scheduler one-shot job firing',
           );
           dispatchConfigJob(runningJob)
             .then(() => {
@@ -961,7 +934,7 @@ async function tick(): Promise<void> {
               const failure = markRunOnceConfigJobFailure(runningJob);
               logger.error(
                 { jobId: job.id, jobLabel, err },
-                'Config one-shot job failed',
+                'Scheduler one-shot job failed',
               );
               if (failure.exhaustedRetries) {
                 logger.warn(
@@ -970,7 +943,7 @@ async function tick(): Promise<void> {
                     jobLabel,
                     consecutiveErrors: failure.consecutiveErrors,
                   },
-                  'Config one-shot job exhausted retries and moved to review',
+                  'Scheduler one-shot job exhausted retries and moved to review',
                 );
               }
             });
@@ -1024,7 +997,7 @@ async function tick(): Promise<void> {
                     jobLabel,
                     consecutiveErrors: failure.consecutiveErrors,
                   },
-                  'Config one-shot job exhausted retries and moved to review',
+                  'Scheduler one-shot job exhausted retries and moved to review',
                 );
               } else if ('disabled' in failure && failure.disabled) {
                 logger.warn(
@@ -1033,7 +1006,7 @@ async function tick(): Promise<void> {
                     jobLabel,
                     consecutiveErrors: failure.consecutiveErrors,
                   },
-                  'Config scheduler job auto-disabled after repeated failures',
+                  'Scheduler job auto-disabled after repeated failures',
                 );
               }
             });
@@ -1051,7 +1024,7 @@ async function tick(): Promise<void> {
           persistSchedulerState();
           logger.info(
             { jobId: job.id, jobLabel, runAt: job.schedule.at },
-            'Config one-shot job firing',
+            'Scheduler one-shot job firing',
           );
           dispatchConfigJob(job)
             .then(() => {
@@ -1067,7 +1040,7 @@ async function tick(): Promise<void> {
                 : markConfigJobFailure(job);
               logger.error(
                 { jobId: job.id, jobLabel, err },
-                'Config one-shot job failed',
+                'Scheduler one-shot job failed',
               );
               if ('exhaustedRetries' in failure && failure.exhaustedRetries) {
                 logger.warn(
@@ -1076,7 +1049,7 @@ async function tick(): Promise<void> {
                     jobLabel,
                     consecutiveErrors: failure.consecutiveErrors,
                   },
-                  'Config one-shot job exhausted retries and moved to review',
+                  'Scheduler one-shot job exhausted retries and moved to review',
                 );
               } else if ('disabled' in failure && failure.disabled) {
                 logger.warn(
@@ -1085,7 +1058,7 @@ async function tick(): Promise<void> {
                     jobLabel,
                     consecutiveErrors: failure.consecutiveErrors,
                   },
-                  'Config scheduler job auto-disabled after repeated failures',
+                  'Scheduler job auto-disabled after repeated failures',
                 );
               }
             });
@@ -1102,7 +1075,7 @@ async function tick(): Promise<void> {
           persistSchedulerState();
           logger.info(
             { jobId: job.id, jobLabel, everyMs },
-            'Config interval job firing',
+            'Scheduler interval job firing',
           );
           dispatchConfigJob(job)
             .then(() => {
@@ -1112,7 +1085,7 @@ async function tick(): Promise<void> {
               const failure = markConfigJobFailure(job);
               logger.error(
                 { jobId: job.id, jobLabel, err },
-                'Config interval job failed',
+                'Scheduler interval job failed',
               );
               if (failure.disabled) {
                 logger.warn(
@@ -1121,7 +1094,7 @@ async function tick(): Promise<void> {
                     jobLabel,
                     consecutiveErrors: failure.consecutiveErrors,
                   },
-                  'Config scheduler job auto-disabled after repeated failures',
+                  'Scheduler job auto-disabled after repeated failures',
                 );
               }
             });
@@ -1148,7 +1121,7 @@ async function tick(): Promise<void> {
             expr: job.schedule.expr,
             tz: job.schedule.tz,
           },
-          'Config cron job firing',
+          'Scheduler cron job firing',
         );
         dispatchConfigJob(job)
           .then(() => {
@@ -1158,7 +1131,7 @@ async function tick(): Promise<void> {
             const failure = markConfigJobFailure(job);
             logger.error(
               { jobId: job.id, jobLabel, err },
-              'Config cron job failed',
+              'Scheduler cron job failed',
             );
             if (failure.disabled) {
               logger.warn(
@@ -1167,15 +1140,12 @@ async function tick(): Promise<void> {
                   jobLabel,
                   consecutiveErrors: failure.consecutiveErrors,
                 },
-                'Config scheduler job auto-disabled after repeated failures',
+                'Scheduler job auto-disabled after repeated failures',
               );
             }
           });
       } catch (err) {
-        logger.error(
-          { jobId: job.id, jobLabel, err },
-          'Scheduler error for config job',
-        );
+        logger.error({ jobId: job.id, jobLabel, err }, 'Scheduler job error');
       }
     }
   } finally {
@@ -1197,7 +1167,7 @@ function toRuntimeState(meta: ConfigJobMeta): ConfigJobRuntimeState {
 export function getConfigJobState(jobId: string): ConfigJobRuntimeState | null {
   const normalizedJobId = jobId.trim();
   if (!normalizedJobId) return null;
-  const jobs = getConfigSnapshot().scheduler.jobs;
+  const jobs = getAllJobs({ kind: 'scheduler_job' });
   pruneConfigJobMeta(jobs);
   const job = jobs.find((candidate) => candidate.id === normalizedJobId);
   if (!job) return null;
@@ -1210,7 +1180,7 @@ export function getConfigJobState(jobId: string): ConfigJobRuntimeState | null {
 }
 
 export function getSchedulerStatus(): SchedulerStatusJob[] {
-  const jobs = getConfigSnapshot().scheduler.jobs;
+  const jobs = getAllJobs({ kind: 'scheduler_job' });
   pruneConfigJobMeta(jobs);
   const reconciled = reconcileSuccessfulOneShotConfigJobs(jobs);
   const nextRunsChanged = syncConfigJobsNextRunAt(jobs, Date.now());
@@ -1236,7 +1206,7 @@ export function getSchedulerStatus(): SchedulerStatusJob[] {
 export function pauseConfigJob(jobId: string): boolean {
   const normalizedJobId = jobId.trim();
   if (!normalizedJobId) return false;
-  const jobs = getConfigSnapshot().scheduler.jobs;
+  const jobs = getAllJobs({ kind: 'scheduler_job' });
   pruneConfigJobMeta(jobs);
   const job = jobs.find((candidate) => candidate.id === normalizedJobId);
   if (!job) return false;
@@ -1249,7 +1219,7 @@ export function pauseConfigJob(jobId: string): boolean {
 
   logger.info(
     { jobId: normalizedJobId, jobLabel: resolveConfigJobLabel(job) },
-    'Config scheduler job paused',
+    'Scheduler job paused',
   );
   return true;
 }
@@ -1257,7 +1227,7 @@ export function pauseConfigJob(jobId: string): boolean {
 export function resumeConfigJob(jobId: string): boolean {
   const normalizedJobId = jobId.trim();
   if (!normalizedJobId) return false;
-  const jobs = getConfigSnapshot().scheduler.jobs;
+  const jobs = getAllJobs({ kind: 'scheduler_job' });
   pruneConfigJobMeta(jobs);
   const job = jobs.find((candidate) => candidate.id === normalizedJobId);
   if (!job) return false;
@@ -1272,7 +1242,7 @@ export function resumeConfigJob(jobId: string): boolean {
 
   logger.info(
     { jobId: normalizedJobId, jobLabel: resolveConfigJobLabel(job) },
-    'Config scheduler job resumed',
+    'Scheduler job resumed',
   );
   return true;
 }
@@ -1280,7 +1250,7 @@ export function resumeConfigJob(jobId: string): boolean {
 export function resetConfigJobRuntime(jobId: string): boolean {
   const normalizedJobId = jobId.trim();
   if (!normalizedJobId) return false;
-  const jobs = getConfigSnapshot().scheduler.jobs;
+  const jobs = getAllJobs({ kind: 'scheduler_job' });
   pruneConfigJobMeta(jobs);
   const job = jobs.find((candidate) => candidate.id === normalizedJobId);
   if (!job) return false;
@@ -1298,7 +1268,7 @@ export function resetConfigJobRuntime(jobId: string): boolean {
 
   logger.info(
     { jobId: normalizedJobId, jobLabel: resolveConfigJobLabel(job) },
-    'Config scheduler job runtime reset',
+    'Scheduler job runtime reset',
   );
   return true;
 }
@@ -1315,7 +1285,7 @@ export function startScheduler(runner: TaskRunner): void {
 }
 
 /**
- * Re-arm the scheduler timer. Call after creating/deleting tasks or updating config scheduler jobs.
+ * Re-arm the scheduler timer. Call after creating/deleting scheduler jobs.
  */
 export function rearmScheduler(): void {
   if (taskRunner) arm();

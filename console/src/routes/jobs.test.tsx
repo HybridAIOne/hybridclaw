@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminSchedulerJob,
@@ -9,6 +15,7 @@ import type {
 import { ToastProvider } from '../components/toast';
 import { JobsPage } from './jobs';
 
+const fetchBoardBudgetSummariesMock = vi.fn();
 const fetchJobsContextMock = vi.fn();
 const fetchSchedulerMock = vi.fn<() => Promise<AdminSchedulerResponse>>();
 const moveSchedulerJobMock = vi.fn();
@@ -18,6 +25,8 @@ const saveSchedulerJobMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchBoardBudgetSummaries: (...args: unknown[]) =>
+    fetchBoardBudgetSummariesMock(...args),
   fetchJobsContext: (...args: unknown[]) => fetchJobsContextMock(...args),
   fetchScheduler: () => fetchSchedulerMock(),
   moveSchedulerJob: (...args: unknown[]) => moveSchedulerJobMock(...args),
@@ -39,7 +48,7 @@ function makeConfigJob(
 ): AdminSchedulerJob {
   return {
     id: 'release-reminder',
-    source: 'config',
+    source: 'job',
     name: 'Release Reminder',
     description: 'Send the release reminder.',
     agentId: 'main',
@@ -108,6 +117,7 @@ function renderJobsPage(): void {
 describe('JobsPage', () => {
   beforeEach(() => {
     fetchJobsContextMock.mockReset();
+    fetchBoardBudgetSummariesMock.mockReset();
     fetchSchedulerMock.mockReset();
     moveSchedulerJobMock.mockReset();
     navigateMock.mockReset();
@@ -124,6 +134,9 @@ describe('JobsPage', () => {
     });
     fetchSchedulerMock.mockResolvedValue({
       jobs: [makeConfigJob()],
+    });
+    fetchBoardBudgetSummariesMock.mockResolvedValue({
+      budgets: [],
     });
     resumeInteractiveEscalationMock.mockResolvedValue({
       session: {
@@ -157,6 +170,93 @@ describe('JobsPage', () => {
     ).toBeNull();
     expect(screen.queryByText('Created')).toBeNull();
     expect(screen.queryByText('never')).toBeNull();
+  });
+
+  it('renders budget chips with threshold and currency formatting', async () => {
+    fetchSchedulerMock.mockResolvedValue({
+      jobs: [
+        makeConfigJob({
+          id: 'neutral-job',
+          name: 'Neutral Budget',
+          agentId: 'main',
+        }),
+        makeConfigJob({
+          id: 'warn-job',
+          name: 'Warn Budget',
+          agentId: 'agent-warn',
+        }),
+        makeConfigJob({
+          id: 'hard-job',
+          name: 'Hard Budget',
+          agentId: 'agent-hard',
+        }),
+        makeConfigJob({
+          id: 'no-budget-job',
+          name: 'No Budget',
+          agentId: 'agent-no-budget',
+        }),
+      ],
+    });
+    fetchJobsContextMock.mockResolvedValue({
+      agents: [
+        { id: 'main', name: 'Main' },
+        { id: 'agent-warn', name: 'Warn' },
+        { id: 'agent-hard', name: 'Hard' },
+        { id: 'agent-no-budget', name: 'No Budget Agent' },
+      ],
+      sessions: [],
+      suspendedSessions: [],
+    });
+    fetchBoardBudgetSummariesMock.mockResolvedValue({
+      budgets: [
+        {
+          agentId: 'main',
+          used: 3.4,
+          cap: 60,
+          currency: 'USD',
+          percent: 79.5,
+        },
+        {
+          agentId: 'agent-warn',
+          used: 81,
+          cap: 100,
+          currency: 'USD',
+          percent: 99.5,
+        },
+        {
+          agentId: 'agent-hard',
+          used: 12,
+          cap: 10,
+          currency: 'EUR',
+          percent: 120,
+        },
+      ],
+    });
+
+    renderJobsPage();
+
+    const neutral = await screen.findByText('$3.40 / $60');
+    const warn = await screen.findByText('$81 / $100');
+    const hard = await screen.findByText('€12 / €10');
+
+    expect(neutral.getAttribute('data-tone')).toBe('neutral');
+    expect(neutral.getAttribute('title')).toBe('79% used');
+    const neutralAgentRow = neutral.closest('.jobs-card-agent-row');
+    expect(neutralAgentRow).not.toBeNull();
+    expect(
+      within(neutralAgentRow as HTMLElement).getByText('Main'),
+    ).toBeTruthy();
+    expect(warn.getAttribute('data-tone')).toBe('warn');
+    expect(warn.getAttribute('title')).toBe('99% used');
+    const warnAgentRow = warn.closest('.jobs-card-agent-row');
+    expect(warnAgentRow).not.toBeNull();
+    expect(within(warnAgentRow as HTMLElement).getByText('Warn')).toBeTruthy();
+    expect(hard.getAttribute('data-tone')).toBe('hard');
+    expect(hard.getAttribute('title')).toBe('120% used');
+    const hardAgentRow = hard.closest('.jobs-card-agent-row');
+    expect(hardAgentRow).not.toBeNull();
+    expect(within(hardAgentRow as HTMLElement).getByText('Hard')).toBeTruthy();
+    expect(screen.queryByText('$0 / $0')).toBeNull();
   });
 
   it('uses the linked session start time as the created timestamp', async () => {

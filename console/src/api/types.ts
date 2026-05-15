@@ -814,7 +814,7 @@ export type AdminSchedulerBoardStatus =
 
 export interface AdminSchedulerJob {
   id: string;
-  source: 'config' | 'task';
+  source: 'job' | 'task';
   name: string;
   description: string | null;
   agentId: string | null;
@@ -1072,6 +1072,20 @@ export interface AdminJobsContextResponse {
   agents: JobAgent[];
   sessions: JobSession[];
   suspendedSessions: AdminSuspendedSession[];
+}
+
+export type AdminBoardBudgetCurrency = 'USD' | 'EUR';
+
+export interface AdminBoardBudgetSummary {
+  agentId: string;
+  used: number;
+  cap: number;
+  currency: AdminBoardBudgetCurrency;
+  percent: number;
+}
+
+export interface AdminBoardBudgetResponse {
+  budgets: AdminBoardBudgetSummary[];
 }
 
 export interface AdminMcpConfig {

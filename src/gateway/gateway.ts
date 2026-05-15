@@ -152,7 +152,6 @@ import {
 import { localBackendsProbe } from '../providers/local-health.js';
 import { startHeartbeat, stopHeartbeat } from '../scheduler/heartbeat.js';
 import {
-  rearmScheduler,
   type SchedulerDispatchRequest,
   startScheduler,
   stopScheduler,
@@ -197,7 +196,10 @@ import {
   initGatewayService,
   stopGatewayPlugins,
 } from './gateway-plugin-service.js';
-import { runGatewayScheduledTask } from './gateway-scheduled-task-service.js';
+import {
+  migrateConfigSchedulerJobsToDatabase,
+  runGatewayScheduledTask,
+} from './gateway-scheduled-task-service.js';
 import {
   getGatewayStatus,
   handleGatewayCommand,
@@ -532,7 +534,6 @@ function logGatewayStartup(params: {
     codex,
     sandbox,
     observability,
-    scheduler,
     providerHealth,
     localBackends,
     pluginCommands,
@@ -575,10 +576,6 @@ function logGatewayStartup(params: {
     },
     'HybridClaw gateway started',
   );
-
-  if (scheduler?.jobs?.length) {
-    logger.info({ jobs: scheduler.jobs }, 'Gateway scheduler jobs');
-  }
 
   logger.info(
     {
@@ -3211,7 +3208,7 @@ async function runScheduledTask(
   request: SchedulerDispatchRequest,
 ): Promise<void> {
   const sourceLabel =
-    request.source === 'db-task'
+    request.source === 'scheduled-task'
       ? `schedule:${request.taskId ?? 'unknown'}`
       : `schedule-job:${request.jobId ?? 'unknown'}`;
   const resolvedDeliveryChannelId =
@@ -3261,7 +3258,7 @@ async function runScheduledTask(
     request.channelId || resolvedDeliveryChannelId || 'scheduler';
   const taskId = request.taskId ?? -1;
   const runKey =
-    request.source === 'config-job'
+    request.source === 'scheduler-job'
       ? request.sessionId
       : request.taskId != null
         ? `cron:${request.taskId}`
@@ -3411,6 +3408,7 @@ async function main(): Promise<void> {
   logWarmProcessPoolStartup(getConfigSnapshot().container);
   validateGatewayPromptEnvDefaults();
   initDatabase();
+  migrateConfigSchedulerJobsToDatabase();
   listAgents();
   await initGatewayService();
   try {
@@ -3522,15 +3520,6 @@ async function main(): Promise<void> {
         'Config changed, restarting heartbeat',
       );
       startOrRestartHeartbeat();
-    }
-
-    const schedulerChanged =
-      JSON.stringify(next.scheduler) !== JSON.stringify(prev.scheduler);
-    if (schedulerChanged) {
-      logger.info(
-        'Config changed, re-arming scheduler for updated scheduler.jobs',
-      );
-      rearmScheduler();
     }
 
     const memoryChanged =

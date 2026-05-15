@@ -186,7 +186,6 @@ function createGatewayMainTestState(options?: {
       },
       observability: { enabled: false, botId: '', agentId: '' },
       ops: { healthPort: 9090 },
-      scheduler: { jobs: [] as unknown[] },
     },
     currentSession: {
       show_mode: 'all',
@@ -287,6 +286,7 @@ function createGatewayMainTestState(options?: {
     ),
     resumeEnabledFullAutoSessions: vi.fn(() => 0),
     runGatewayScheduledTask: vi.fn(async () => {}),
+    migrateConfigSchedulerJobsToDatabase: vi.fn(() => 0),
     resolveAgentForRequest: vi.fn(() => ({
       agentId: 'agent-resolved',
       model: 'gpt-5-nano',
@@ -472,8 +472,7 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/channels/discord-webhook/runtime.js', () => ({
     hasDiscordWebhookTargets: vi.fn(() =>
       Boolean(
-        state.getConfigSnapshot().discordWebhook?.webhooks?.default
-          ?.webhookUrl,
+        state.getConfigSnapshot().discordWebhook?.webhooks?.default?.webhookUrl,
       ),
     ),
     initDiscordWebhook: state.initDiscordWebhook,
@@ -653,6 +652,8 @@ async function importFreshGatewayMain(options?: {
     validateGatewayPromptEnvDefaults: state.validateGatewayPromptEnvDefaults,
   }));
   vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
+    migrateConfigSchedulerJobsToDatabase:
+      state.migrateConfigSchedulerJobsToDatabase,
     runGatewayScheduledTask: state.runGatewayScheduledTask,
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
@@ -770,6 +771,7 @@ describe('gateway bootstrap', () => {
     const state = await importFreshGatewayMain();
 
     expect(state.initDatabase).toHaveBeenCalledTimes(1);
+    expect(state.migrateConfigSchedulerJobsToDatabase).toHaveBeenCalledTimes(1);
     expect(state.initGatewayService).toHaveBeenCalledTimes(1);
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
     expect(state.startGatewayHttpServer).toHaveBeenCalledTimes(1);
@@ -1104,7 +1106,7 @@ describe('gateway bootstrap', () => {
     });
 
     await state.scheduledTaskRunner?.({
-      source: 'config-job',
+      source: 'scheduler-job',
       jobId: 'release-notes',
       sessionId: 'scheduler:release-notes',
       channelId: 'scheduler',
@@ -1120,7 +1122,7 @@ describe('gateway bootstrap', () => {
       {
         jobId: 'release-notes',
         taskId: undefined,
-        source: 'config-job',
+        source: 'scheduler-job',
         actionKind: 'agent_turn',
         delivery: 'last-channel',
       },
@@ -1197,26 +1199,31 @@ describe('gateway bootstrap', () => {
       state,
       'HybridClaw gateway started',
       expect.not.objectContaining({
-        scheduler: expect.anything(),
         providerHealth: expect.anything(),
         localBackends: expect.anything(),
       }),
     );
-    expectInfoLog(state, 'Gateway scheduler jobs', {
-      jobs: [
-        {
-          id: 'release-notes',
-          name: 'Release Notes',
-          description: null,
-          enabled: true,
-          lastRun: '2026-04-03T13:00:00.003Z',
-          lastStatus: 'success',
-          nextRunAt: '2026-04-03T14:00:00.000Z',
-          disabled: false,
-          consecutiveErrors: 0,
+    expectInfoLog(
+      state,
+      'HybridClaw gateway started',
+      expect.objectContaining({
+        scheduler: {
+          jobs: [
+            expect.objectContaining({
+              id: 'release-notes',
+              name: 'Release Notes',
+              description: null,
+              enabled: true,
+              lastRun: '2026-04-03T13:00:00.003Z',
+              lastStatus: 'success',
+              nextRunAt: '2026-04-03T14:00:00.000Z',
+              disabled: false,
+              consecutiveErrors: 0,
+            }),
+          ],
         },
-      ],
-    });
+      }),
+    );
     expectInfoLog(
       state,
       'Gateway provider health',
@@ -2319,14 +2326,13 @@ describe('gateway bootstrap', () => {
         consolidationLanguage: 'en',
       },
       observability: { enabled: true, botId: 'bot-obs', agentId: 'agent-obs' },
-      scheduler: { jobs: [{ id: 'job-1' }] },
     };
 
     state.currentConfig = nextConfig;
     state.configChangeListener?.(nextConfig, previousConfig);
 
     expect(state.startHeartbeat).toHaveBeenCalledTimes(2);
-    expect(state.rearmScheduler).toHaveBeenCalledTimes(1);
+    expect(state.rearmScheduler).not.toHaveBeenCalled();
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(2);
     expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
