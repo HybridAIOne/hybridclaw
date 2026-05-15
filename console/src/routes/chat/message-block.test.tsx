@@ -103,6 +103,39 @@ describe('MessageBlock artifacts', () => {
     ).toBeNull();
   });
 
+  it('renders artifact-only assistant turns without an empty text bubble', async () => {
+    fetchArtifactBlobMock.mockResolvedValue(
+      new Blob(['image-bytes'], { type: 'image/png' }),
+    );
+
+    const { container } = render(
+      <MessageBlock
+        message={makeMessage(
+          [
+            {
+              path: '/tmp/hybridclaw_io.png',
+              filename: 'hybridclaw_io.png',
+              mimeType: 'image/png',
+            },
+          ],
+          { content: '' },
+        )}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('p')).toBeNull();
+    expect(await screen.findByAltText('hybridclaw_io.png')).toBeTruthy();
+  });
+
   it('preserves SVG preview mime type when artifact downloads are forced attachments', async () => {
     fetchArtifactBlobMock.mockResolvedValue(
       new Blob(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], {

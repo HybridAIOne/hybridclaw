@@ -75,6 +75,7 @@ import {
 } from '../skills/skills-observation.js';
 import type { MediaContextItem } from '../types/container.js';
 import {
+  type ArtifactMetadata,
   normalizeEscalationTarget,
   type PendingApproval,
   type ToolProgressEvent,
@@ -345,6 +346,14 @@ export function validateGatewayPromptEnvDefaults(): void {
     GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
     '--system-prompt',
   );
+}
+
+export function buildEmptyAgentResponseFallback(
+  artifacts?: ArtifactMetadata[],
+): string {
+  const artifactList = Array.isArray(artifacts) ? artifacts : [];
+  if (artifactList.length === 0) return 'No response from agent.';
+  return '';
 }
 
 function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
@@ -1693,7 +1702,9 @@ async function handleGatewayMessageInner(
     }
 
     const rawResultText =
-      delegationAcknowledgement || output.result || 'No response from agent.';
+      delegationAcknowledgement ||
+      output.result ||
+      buildEmptyAgentResponseFallback(output.artifacts);
     const unnormalizedResultText = routingExecutionNotice
       ? `${routingExecutionNotice}${rawResultText}`
       : rawResultText;
