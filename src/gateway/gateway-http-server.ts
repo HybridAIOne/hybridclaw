@@ -18,6 +18,7 @@ import {
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
+import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
 import {
   type DiscordToolActionRequest,
@@ -336,6 +337,12 @@ async function handleApiAdminBrowserPoolHealth(
     ...health,
     status: health.ok ? 'online' : 'offline',
   });
+}
+
+async function handleApiAdminBrowserPoolStart(
+  res: ServerResponse,
+): Promise<void> {
+  sendJson(res, 200, await startLocalManagedBrowserPool());
 }
 
 function normalizeStringListInput(value: unknown): string[] | undefined {
@@ -4780,6 +4787,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             method === 'GET'
           ) {
             await handleApiAdminBrowserPoolHealth(res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/browser-pool/start' &&
+            method === 'POST'
+          ) {
+            await handleApiAdminBrowserPoolStart(res);
             return;
           }
           if (

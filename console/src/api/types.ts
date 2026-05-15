@@ -800,6 +800,15 @@ export interface AdminBrowserPoolHealthResponse {
   message: string;
 }
 
+export interface AdminBrowserPoolLaunchResponse {
+  ok: boolean;
+  status: 'started' | 'starting' | 'already-running' | 'unsupported' | 'failed';
+  endpointUrl: string;
+  pid: number | null;
+  message: string;
+  logTail?: string;
+}
+
 export interface SignalLinkResponse {
   status: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
   pairingQrText: string | null;

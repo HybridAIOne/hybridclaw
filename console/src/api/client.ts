@@ -12,6 +12,7 @@ import type {
   AdminApprovalsResponse,
   AdminAuditResponse,
   AdminBrowserPoolHealthResponse,
+  AdminBrowserPoolLaunchResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
@@ -670,6 +671,18 @@ export function fetchBrowserPoolHealth(
   return requestJson<AdminBrowserPoolHealthResponse>(
     '/api/admin/browser-pool/health',
     { token },
+  );
+}
+
+export function startBrowserPool(
+  token: string,
+): Promise<AdminBrowserPoolLaunchResponse> {
+  return requestJson<AdminBrowserPoolLaunchResponse>(
+    '/api/admin/browser-pool/start',
+    {
+      method: 'POST',
+      token,
+    },
   );
 }
 

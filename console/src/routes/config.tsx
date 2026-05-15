@@ -1,6 +1,11 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { fetchBrowserPoolHealth, fetchConfig, saveConfig } from '../api/client';
+import {
+  fetchBrowserPoolHealth,
+  fetchConfig,
+  saveConfig,
+  startBrowserPool,
+} from '../api/client';
 import type { AdminBrowserPoolHealthResponse, AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
 import {
@@ -175,6 +180,20 @@ export function ConfigPage() {
     refetchInterval: 15_000,
   });
   const browserPoolHealth = browserPoolHealthQuery.data;
+  const startBrowserPoolMutation = useMutation({
+    mutationFn: () => startBrowserPool(auth.token),
+    onSuccess: (payload) => {
+      if (payload.ok) {
+        toast.success('Browser pool start requested.', payload.message);
+      } else {
+        toast.error('Browser pool did not start', payload.message);
+      }
+      void browserPoolHealthQuery.refetch();
+    },
+    onError: (error) => {
+      toast.error('Browser pool start failed', getErrorMessage(error));
+    },
+  });
 
   if (configQuery.isLoading && !draft) {
     return <div className="empty-state">Loading runtime config...</div>;
@@ -561,11 +580,21 @@ export function ConfigPage() {
                             ? 'Checking...'
                             : 'Check now'}
                         </button>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          disabled={startBrowserPoolMutation.isPending}
+                          onClick={() => startBrowserPoolMutation.mutate()}
+                        >
+                          {startBrowserPoolMutation.isPending
+                            ? 'Starting...'
+                            : 'Start local pool'}
+                        </button>
                       </div>
                       {browserPoolHealth?.status === 'offline' ? (
                         <p className="supporting-text">
-                          Start the browser-pool Compose service, then check
-                          again.
+                          Start a local pool here for loopback endpoints, or run
+                          the browser-pool Compose service separately.
                         </p>
                       ) : null}
                     </div>

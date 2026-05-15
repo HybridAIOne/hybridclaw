@@ -13,12 +13,14 @@ const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchBrowserPoolHealthMock =
   vi.fn<() => Promise<AdminBrowserPoolHealthResponse>>();
 const saveConfigMock = vi.fn();
+const startBrowserPoolMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
   fetchBrowserPoolHealth: () => fetchBrowserPoolHealthMock(),
   fetchConfig: () => fetchConfigMock(),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
+  startBrowserPool: (...args: unknown[]) => startBrowserPoolMock(...args),
 }));
 
 vi.mock('../auth', () => ({
@@ -149,6 +151,13 @@ beforeEach(() => {
     path: '/tmp/config.json',
     config,
   });
+  startBrowserPoolMock.mockResolvedValue({
+    ok: true,
+    status: 'started',
+    endpointUrl: 'http://127.0.0.1:8787',
+    pid: 1234,
+    message: 'Managed browser pool healthy: 1/1 nodes available.',
+  });
 });
 
 afterEach(() => {
@@ -162,6 +171,8 @@ describe('ConfigPage', () => {
     const provider = await screen.findByDisplayValue('local');
     fireEvent.change(provider, { target: { value: 'managed-cloud' } });
     expect(await screen.findByText(/fetch failed/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Start local pool' }));
+    await waitFor(() => expect(startBrowserPoolMock).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByDisplayValue('http://127.0.0.1:8787'), {
       target: { value: 'https://browser.example' },
     });
