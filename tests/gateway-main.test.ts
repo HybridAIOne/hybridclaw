@@ -286,6 +286,7 @@ function createGatewayMainTestState(options?: {
     ),
     resumeEnabledFullAutoSessions: vi.fn(() => 0),
     runGatewayScheduledTask: vi.fn(async () => {}),
+    migrateConfigSchedulerJobsToDatabase: vi.fn(() => 0),
     resolveAgentForRequest: vi.fn(() => ({
       agentId: 'agent-resolved',
       model: 'gpt-5-nano',
@@ -651,6 +652,8 @@ async function importFreshGatewayMain(options?: {
     validateGatewayPromptEnvDefaults: state.validateGatewayPromptEnvDefaults,
   }));
   vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
+    migrateConfigSchedulerJobsToDatabase:
+      state.migrateConfigSchedulerJobsToDatabase,
     runGatewayScheduledTask: state.runGatewayScheduledTask,
   }));
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
@@ -768,6 +771,7 @@ describe('gateway bootstrap', () => {
     const state = await importFreshGatewayMain();
 
     expect(state.initDatabase).toHaveBeenCalledTimes(1);
+    expect(state.migrateConfigSchedulerJobsToDatabase).toHaveBeenCalledTimes(1);
     expect(state.initGatewayService).toHaveBeenCalledTimes(1);
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
     expect(state.startGatewayHttpServer).toHaveBeenCalledTimes(1);
@@ -1195,26 +1199,31 @@ describe('gateway bootstrap', () => {
       state,
       'HybridClaw gateway started',
       expect.not.objectContaining({
-        scheduler: expect.anything(),
         providerHealth: expect.anything(),
         localBackends: expect.anything(),
       }),
     );
-    expectInfoLog(state, 'Gateway scheduler jobs', {
-      jobs: [
-        {
-          id: 'release-notes',
-          name: 'Release Notes',
-          description: null,
-          enabled: true,
-          lastRun: '2026-04-03T13:00:00.003Z',
-          lastStatus: 'success',
-          nextRunAt: '2026-04-03T14:00:00.000Z',
-          disabled: false,
-          consecutiveErrors: 0,
+    expectInfoLog(
+      state,
+      'HybridClaw gateway started',
+      expect.objectContaining({
+        scheduler: {
+          jobs: [
+            expect.objectContaining({
+              id: 'release-notes',
+              name: 'Release Notes',
+              description: null,
+              enabled: true,
+              lastRun: '2026-04-03T13:00:00.003Z',
+              lastStatus: 'success',
+              nextRunAt: '2026-04-03T14:00:00.000Z',
+              disabled: false,
+              consecutiveErrors: 0,
+            }),
+          ],
         },
-      ],
-    });
+      }),
+    );
     expectInfoLog(
       state,
       'Gateway provider health',
