@@ -168,7 +168,6 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
           leaseId: 'lease-1',
           nodeId: 'node-a',
           cdpUrl: 'wss://pool.example/lease-1',
-          liveUrl: 'https://pool.example/live/lease-1',
           startedAt: '2026-05-14T10:00:00.000Z',
           expiresAt: '2026-05-14T10:01:00.000Z',
           costUsd: 0.001,
@@ -348,6 +347,73 @@ test('managed cloud browser provider returns guard denials before page navigatio
     tenantId: 'tenant-a',
     url: 'https://tenant-b.example/',
   });
+});
+
+test('managed cloud browser provider audits session loss on CDP disconnect', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'managed-browser-test-master-key';
+  vi.resetModules();
+
+  const { initDatabase, getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.js'
+  );
+  const { ManagedCloudBrowserProvider } = await import(
+    '../src/browser/managed-cloud-provider.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
+
+  const mock = createMockPlaywright();
+  mock.page.screenshot.mockRejectedValueOnce(new Error('Target closed'));
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      jsonResponse({
+        leaseId: 'lease-lost-client',
+        nodeId: 'node-a',
+        cdpUrl: 'wss://pool.example/lease-lost-client',
+      }),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({
+        leaseId: 'lease-lost-client',
+        endedAt: '2026-05-14T10:01:00.000Z',
+        costUsd: 0.001,
+      }),
+    );
+  const provider = new ManagedCloudBrowserProvider({
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+  const session = await provider.launchSession({
+    metering: {
+      sessionId: 'session-lost-client',
+      agentId: 'agent-a',
+      tenantId: 'tenant-a',
+      auditRunId: 'run-lost-client',
+    },
+  });
+
+  await expect(session.screenshot()).rejects.toThrow(/Target closed/u);
+  await provider.closeSession(session);
+
+  const events = getRecentStructuredAuditForSession(
+    'session-lost-client',
+    10,
+  ).map((entry) => JSON.parse(entry.payload));
+  expect(events).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: 'browser.session_lost',
+        provider: 'managed-cloud',
+        tenantId: 'tenant-a',
+        leaseId: 'lease-lost-client',
+        poolNodeId: 'node-a',
+        action: 'screenshot',
+        reason: 'Target closed',
+      }),
+    ]),
+  );
 });
 
 test('managed cloud browser provider rejects unmetered sessions', async () => {

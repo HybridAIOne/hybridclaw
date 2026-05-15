@@ -28,11 +28,23 @@ docker compose \
   -f infra/managed-browser/hetzner.compose.yml \
   up -d --build
 
+# In a separate terminal:
+ssh -N -L 8787:127.0.0.1:8787 root@your-hetzner-host
+
 hybridclaw config set browser.provider managed-cloud
 hybridclaw config set browser.managedCloud.endpointUrl http://127.0.0.1:8787
 hybridclaw config set browser.managedCloud.poolTokenRef '{"source":"store","id":"MANAGED_BROWSER_POOL_TOKEN"}'
 hybridclaw browser-pool doctor
 ```
+
+The overlay intentionally inherits the base host-loopback port publish
+(`MANAGED_BROWSER_PUBLISH_HOST=127.0.0.1`). Use an SSH tunnel, a private
+network, or a TLS-terminating reverse proxy to reach the pool. Do not expose the
+raw `http://` lease API or `ws://` CDP endpoint on the public internet because
+SecretRef-backed field fills and the bearer token traverse the CDP and HTTP
+connections after local policy checks. If you publish the service through a
+reverse proxy, terminate TLS and forward `X-Forwarded-Proto: https` and
+`X-Forwarded-Host` so leases advertise `wss://` CDP URLs.
 
 The tenant file is deny-by-default. Add only the hosts each tenant needs. The
 guard evaluates the tenant policy before opening upstream proxy connections,

@@ -191,12 +191,12 @@ test('managed browser guard proxy validates CONNECT ports before upstream connec
 });
 
 test('managed browser pool validates bearer tokens, bind config, and TTL cleanup', async () => {
-  const { isAuthorizedRequest, scheduleLeaseExpiry } = await import(
-    '../infra/managed-browser/server.js'
-  );
-  const { validatePoolAuthConfig } = await import(
-    '../infra/managed-browser/server.js'
-  );
+  const {
+    buildPublicCdpUrl,
+    isAuthorizedRequest,
+    scheduleLeaseExpiry,
+    validatePoolAuthConfig,
+  } = await import('../infra/managed-browser/server.js');
 
   expect(
     isAuthorizedRequest(
@@ -215,6 +215,20 @@ test('managed browser pool validates bearer tokens, bind config, and TTL cleanup
     /MANAGED_BROWSER_POOL_TOKEN/u,
   );
   expect(() => validatePoolAuthConfig('127.0.0.1', '')).not.toThrow();
+  expect(
+    buildPublicCdpUrl({
+      publicHost: 'browser.example',
+      forwardedProto: 'https',
+      leaseId: 'lease/tls',
+    }),
+  ).toBe('wss://browser.example/cdp/lease%2Ftls');
+  expect(
+    buildPublicCdpUrl({
+      publicHost: '127.0.0.1:8787',
+      forwardedProto: 'http',
+      leaseId: 'lease-local',
+    }),
+  ).toBe('ws://127.0.0.1:8787/cdp/lease-local');
 
   let releaseExpiry: (() => void) | null = null;
   const expired = new Promise<void>((resolve) => {

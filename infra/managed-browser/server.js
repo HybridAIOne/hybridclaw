@@ -30,6 +30,7 @@ const poolToken = process.env.MANAGED_BROWSER_POOL_TOKEN || '';
 
 const leases = new Map();
 const lostLeases = [];
+const maxLostLeases = 1000;
 let stateLoaded = false;
 
 function appendAudit(event) {
@@ -40,6 +41,9 @@ function loadState() {
   if (stateLoaded) return;
   stateLoaded = true;
   lostLeases.push(...loadLostLeases({ statePath, auditPath, nodeId }));
+  if (lostLeases.length > maxLostLeases) {
+    lostLeases.splice(0, lostLeases.length - maxLostLeases);
+  }
 }
 
 function saveState() {
@@ -129,6 +133,32 @@ export function isAuthorizedRequest(req, expectedToken = poolToken) {
     typeof token === 'string' &&
     timingSafeStringEqual(token, expectedToken)
   );
+}
+
+function readSingleHeader(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return typeof raw === 'string' ? raw.split(',')[0]?.trim() || null : null;
+}
+
+export function buildPublicCdpUrl({ publicHost, forwardedProto, leaseId }) {
+  const hostHeader = String(publicHost || '').trim();
+  if (!hostHeader) throw new Error('public CDP host is required');
+  const proto = String(forwardedProto || '')
+    .trim()
+    .toLowerCase();
+  const scheme = proto === 'https' ? 'wss' : 'ws';
+  return `${scheme}://${hostHeader}/cdp/${encodeURIComponent(leaseId)}`;
+}
+
+function buildPublicCdpUrlFromRequest(req, leaseId) {
+  return buildPublicCdpUrl({
+    publicHost:
+      readSingleHeader(req.headers['x-forwarded-host']) ||
+      readSingleHeader(req.headers.host) ||
+      `127.0.0.1:${port}`,
+    forwardedProto: readSingleHeader(req.headers['x-forwarded-proto']) || '',
+    leaseId,
+  });
 }
 
 function requireAuthorized(req, res) {
@@ -247,7 +277,7 @@ async function closeChromiumLease(lease) {
   fs.rmSync(lease.userDataDir, { recursive: true, force: true });
 }
 
-async function createLease(body, publicHost) {
+async function createLease(body, buildCdpUrl) {
   const tenantId = String(body.tenantId || '').trim();
   const agentId = String(body.agentId || '').trim();
   const sessionId = String(body.sessionId || '').trim();
@@ -293,7 +323,7 @@ async function createLease(body, publicHost) {
   return {
     leaseId,
     nodeId,
-    cdpUrl: `ws://${publicHost}/cdp/${encodeURIComponent(leaseId)}`,
+    cdpUrl: buildCdpUrl(leaseId),
     startedAt,
     expiresAt,
     costUsd: 0.001,
@@ -389,9 +419,8 @@ async function route(req, res) {
     sendJson(
       res,
       201,
-      await createLease(
-        await readRequestBody(req),
-        req.headers.host || `127.0.0.1:${port}`,
+      await createLease(await readRequestBody(req), (leaseId) =>
+        buildPublicCdpUrlFromRequest(req, leaseId),
       ),
     );
     return;

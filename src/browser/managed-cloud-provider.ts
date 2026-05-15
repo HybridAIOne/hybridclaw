@@ -232,6 +232,8 @@ async function loadPlaywright(
 }
 
 class ManagedCloudBrowserSession implements BrowserSession {
+  private sessionLostRecorded = false;
+
   constructor(
     private readonly page: ManagedCloudPage,
     private readonly lease: ManagedCloudLeaseResponse,
@@ -250,16 +252,18 @@ class ManagedCloudBrowserSession implements BrowserSession {
   ) {}
 
   async evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T> {
-    this.recordAction('evaluate');
-    return await this.page.evaluate(fn);
+    return await this.runSessionAction('evaluate', () =>
+      this.page.evaluate(fn),
+    );
   }
 
   async screenshot(opts?: ScreenshotOptions): Promise<Buffer> {
-    this.recordAction('screenshot');
-    const bytes = await this.page.screenshot({
-      fullPage: opts?.fullPage,
-      type: opts?.type,
-    });
+    const bytes = await this.runSessionAction('screenshot', () =>
+      this.page.screenshot({
+        fullPage: opts?.fullPage,
+        type: opts?.type,
+      }),
+    );
     recordAuditEvent({
       sessionId: this.metering.sessionId,
       runId: this.runId,
@@ -276,70 +280,113 @@ class ManagedCloudBrowserSession implements BrowserSession {
   }
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
-    this.recordAction('navigate');
-    const parsed = await assertBrowserNavigationUrl(url);
-    const guard = await this.checkNavigation(parsed.toString(), 'goto', 'GET');
-    if (guard.verdict !== 'allow') {
-      throw new Error(
-        `Managed browser navigation blocked by guard: ${guard.reason || guard.verdict}`,
+    await this.runSessionAction('navigate', async () => {
+      const parsed = await assertBrowserNavigationUrl(url);
+      const guard = await this.checkNavigation(
+        parsed.toString(),
+        'goto',
+        'GET',
       );
-    }
-    await this.page.goto(guard.url, toNavigationOptions(opts));
+      if (guard.verdict !== 'allow') {
+        throw new Error(
+          `Managed browser navigation blocked by guard: ${guard.reason || guard.verdict}`,
+        );
+      }
+      await this.page.goto(guard.url, toNavigationOptions(opts));
+    });
   }
 
   async back(opts?: HistoryNavigationOptions): Promise<void> {
-    this.recordAction('back');
-    await this.page.goBack(toNavigationOptions(opts));
-    await this.auditHistoryNavigation('back');
+    await this.runSessionAction('back', async () => {
+      await this.page.goBack(toNavigationOptions(opts));
+      await this.auditHistoryNavigation('back');
+    });
   }
 
   async forward(opts?: HistoryNavigationOptions): Promise<void> {
-    this.recordAction('forward');
-    await this.page.goForward(toNavigationOptions(opts));
-    await this.auditHistoryNavigation('forward');
+    await this.runSessionAction('forward', async () => {
+      await this.page.goForward(toNavigationOptions(opts));
+      await this.auditHistoryNavigation('forward');
+    });
   }
 
   async reload(opts?: HistoryNavigationOptions): Promise<void> {
-    this.recordAction('reload');
-    await this.page.reload(toNavigationOptions(opts));
-    await this.auditHistoryNavigation('reload');
+    await this.runSessionAction('reload', async () => {
+      await this.page.reload(toNavigationOptions(opts));
+      await this.auditHistoryNavigation('reload');
+    });
   }
 
   async click(selector: string, opts?: ClickOptions): Promise<void> {
-    this.recordAction('click');
-    await this.page.click(selector, { timeout: opts?.timeoutMs });
+    await this.runSessionAction('click', () =>
+      this.page.click(selector, { timeout: opts?.timeoutMs }),
+    );
   }
 
   async fill(selector: string, value: SecretInput): Promise<void> {
-    this.recordAction('fill');
-    await fillBrowserField(
-      this.page,
-      selector,
-      value,
-      this.secretAudit,
-      this.metering,
+    await this.runSessionAction('fill', () =>
+      fillBrowserField(
+        this.page,
+        selector,
+        value,
+        this.secretAudit,
+        this.metering,
+      ),
     );
   }
 
   async scroll(opts: ScrollOptions): Promise<void> {
-    this.recordAction('scroll');
-    const delta = normalizeScrollDelta(opts);
-    if (opts.selector) {
-      await this.page
-        .locator(opts.selector)
-        .evaluate((element, scrollDelta) => {
-          element.scrollBy(scrollDelta.deltaX, scrollDelta.deltaY);
-        }, delta);
-      return;
-    }
-    await this.page.mouse.wheel(delta.deltaX, delta.deltaY);
+    await this.runSessionAction('scroll', async () => {
+      const delta = normalizeScrollDelta(opts);
+      if (opts.selector) {
+        await this.page
+          .locator(opts.selector)
+          .evaluate((element, scrollDelta) => {
+            element.scrollBy(scrollDelta.deltaX, scrollDelta.deltaY);
+          }, delta);
+        return;
+      }
+      await this.page.mouse.wheel(delta.deltaX, delta.deltaY);
+    });
   }
 
   async waitForSelector(selector: string, opts?: WaitOptions): Promise<void> {
-    this.recordAction('wait_for_selector');
-    await this.page.waitForSelector(selector, {
-      state: opts?.state,
-      timeout: opts?.timeoutMs,
+    await this.runSessionAction('wait_for_selector', () =>
+      this.page.waitForSelector(selector, {
+        state: opts?.state,
+        timeout: opts?.timeoutMs,
+      }),
+    );
+  }
+
+  private async runSessionAction<T>(
+    action: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    this.recordAction(action);
+    try {
+      return await operation();
+    } catch (error) {
+      this.recordSessionLost(action, error);
+      throw error;
+    }
+  }
+
+  private recordSessionLost(action: string, error: unknown): void {
+    if (this.sessionLostRecorded || !isLikelySessionLostError(error)) return;
+    this.sessionLostRecorded = true;
+    recordAuditEvent({
+      sessionId: this.metering.sessionId,
+      runId: this.runId,
+      event: {
+        type: 'browser.session_lost',
+        provider: 'managed-cloud',
+        tenantId: this.metering.tenantId,
+        leaseId: this.lease.leaseId,
+        poolNodeId: this.lease.nodeId,
+        action,
+        reason: error instanceof Error ? error.message : String(error),
+      },
     });
   }
 
@@ -354,6 +401,13 @@ class ManagedCloudBrowserSession implements BrowserSession {
       );
     }
   }
+}
+
+function isLikelySessionLostError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /(?:target closed|browser has been closed|context.*closed|websocket|socket hang up|econnreset|econnrefused|connection.*closed|cdp)/iu.test(
+    message,
+  );
 }
 
 export class ManagedCloudBrowserProvider implements BrowserProvider {

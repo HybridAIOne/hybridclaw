@@ -4,7 +4,7 @@ services:
       context: ../..
       dockerfile: infra/managed-browser/Dockerfile
     environment:
-      MANAGED_BROWSER_BIND_HOST: ${MANAGED_BROWSER_BIND_HOST:-127.0.0.1}
+      MANAGED_BROWSER_BIND_HOST: ${MANAGED_BROWSER_BIND_HOST:-0.0.0.0}
       MANAGED_BROWSER_PORT: 8787
       MANAGED_BROWSER_NODE_ID: ${MANAGED_BROWSER_NODE_ID:-managed-browser-node-1}
       MANAGED_BROWSER_STATE_PATH: /data/leases.json
@@ -12,7 +12,7 @@ services:
       MANAGED_BROWSER_POLICY_PATH: /config/tenants.yaml
       MANAGED_BROWSER_POOL_TOKEN: ${MANAGED_BROWSER_POOL_TOKEN:?set MANAGED_BROWSER_POOL_TOKEN}
     ports:
-      - "${MANAGED_BROWSER_PORT:-8787}:8787"
+      - "${MANAGED_BROWSER_PUBLISH_HOST:-127.0.0.1}:${MANAGED_BROWSER_PORT:-8787}:8787"
     volumes:
       - managed-browser-data:/data
       - ./tenants.example.yaml:/config/tenants.yaml:ro

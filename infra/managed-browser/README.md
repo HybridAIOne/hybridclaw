@@ -38,6 +38,14 @@ When `MANAGED_BROWSER_POOL_TOKEN` is set, all non-ping API and CDP requests
 must include `Authorization: Bearer <token>`. The Compose recipe requires this
 token because it publishes the lease API on a host port.
 
+The default Compose port publish address is host loopback
+(`MANAGED_BROWSER_PUBLISH_HOST=127.0.0.1`). Keep the pool on loopback or a
+private network unless a TLS reverse proxy terminates HTTPS in front of it.
+SecretRef-backed form fills are typed over the CDP WebSocket after local
+policy checks, so public deployments must not expose raw `http://` or `ws://`
+pool traffic. When a reverse proxy is used, forward `X-Forwarded-Proto: https`
+and `X-Forwarded-Host` so lease responses return `wss://` CDP URLs.
+
 Standalone `npm run guard` mode reads tenant context from request headers and
 must only be reachable by the browser pool process or another trusted proxy.
 
