@@ -99,17 +99,7 @@ saved revision history directly.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
-- `browser.provider` selects the browser automation backend. Supported values
-  include `local`, `camofox`, `browser-use-cloud`, and `mac-cua`.
-  `browser.local.*` and `browser.camofox.*` configure persistent profile roots
-  and headed mode; `browser.browserUseCloud.*` configures the managed Browser
-  Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured
-  SecretRef. `browser.macCua.*` selects the operator-owned macOS browser,
-  driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`).
-  Camofox stealth mode is deny-by-default per host; allow it from the workspace
-  policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before
-  enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS
-  Accessibility and Screen Recording grants.
+- `browser.provider` selects the browser automation backend. Supported values include `local`, `camofox`, `browser-use-cloud`, and `mac-cua`. `browser.local.*` and `browser.camofox.*` configure persistent profile roots and headed mode; `browser.browserUseCloud.*` configures the managed Browser Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef. `browser.macCua.*` selects the operator-owned macOS browser, driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`). Camofox stealth mode is deny-by-default per host; allow it from the workspace policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS Accessibility and Screen Recording grants.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and

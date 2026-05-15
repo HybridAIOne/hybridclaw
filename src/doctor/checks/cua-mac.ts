@@ -19,7 +19,14 @@ export interface CuaMacProbeInput {
 }
 
 function resolvePathBinary(command: string): string | null {
-  if (path.isAbsolute(command)) return fs.existsSync(command) ? command : null;
+  if (path.isAbsolute(command)) {
+    try {
+      fs.accessSync(command, fs.constants.X_OK);
+      return command;
+    } catch {
+      return null;
+    }
+  }
   const result = spawnSync('which', [command], { encoding: 'utf-8' });
   return result.status === 0 && result.stdout.trim()
     ? result.stdout.trim()

@@ -2,11 +2,12 @@ import { Buffer } from 'node:buffer';
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
-import type { SecretRef } from '../security/secret-refs.js';
 import {
-  normalizeScrollDelta,
-  toNavigationOptions,
-} from './playwright-utils.js';
+  assertSecretResolveAllowed,
+  recordSecretResolved,
+} from '../gateway/gateway-secret-injection.js';
+import { hardenSecretRef, type SecretRef } from '../security/secret-refs.js';
+import { normalizeScrollDelta } from './playwright-utils.js';
 import type {
   BrowserEvaluateFunction,
   BrowserProvider,
@@ -175,6 +176,38 @@ function driverPayloadForValue(
     return { text: value };
   }
   return { secretRef: value };
+}
+
+function assertNoUnsupportedNavigationWait(
+  opts?: NavigateOptions | HistoryNavigationOptions,
+): void {
+  if (!opts) return;
+  if (opts.waitUntil || opts.timeoutMs !== undefined) {
+    throw new Error(
+      'MacCuaBrowserProvider does not support waitUntil or timeoutMs navigation waits until the CUA driver exposes a readiness probe.',
+    );
+  }
+}
+
+function resolveUrlHost(url: string | null, selector: string): string {
+  if (!url) {
+    throw new Error(
+      `browser.fill(${selector}) SecretRef requires a resolvable browser URL for host-scoped secret policy evaluation.`,
+    );
+  }
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname) {
+      throw new Error('URL host is empty');
+    }
+    return parsed.hostname;
+  } catch (error) {
+    throw new Error(
+      `browser.fill(${selector}) SecretRef requires a resolvable browser URL for host-scoped secret policy evaluation: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 }
 
 function decodeDriverScreenshot(result: MacCuaScreenshotResult): Buffer {
@@ -424,34 +457,34 @@ class MacCuaBrowserSession implements BrowserSession {
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
     await this.runAction('navigate', async () => {
+      assertNoUnsupportedNavigationWait(opts);
       const parsed = await assertBrowserNavigationUrl(url);
       await this.keyChord('l', ['cmd']);
       await this.driver.typeTextChars(this.sessionId, {
         text: parsed.toString(),
       });
       await this.driver.pressKey(this.sessionId, 'return');
-      await this.waitAfterNavigation(opts);
     });
   }
 
   async back(opts?: HistoryNavigationOptions): Promise<void> {
     await this.runAction('back', async () => {
+      assertNoUnsupportedNavigationWait(opts);
       await this.keyChord('[', ['cmd']);
-      await this.waitAfterNavigation(opts);
     });
   }
 
   async forward(opts?: HistoryNavigationOptions): Promise<void> {
     await this.runAction('forward', async () => {
+      assertNoUnsupportedNavigationWait(opts);
       await this.keyChord(']', ['cmd']);
-      await this.waitAfterNavigation(opts);
     });
   }
 
   async reload(opts?: HistoryNavigationOptions): Promise<void> {
     await this.runAction('reload', async () => {
+      assertNoUnsupportedNavigationWait(opts);
       await this.keyChord('r', ['cmd']);
-      await this.waitAfterNavigation(opts);
     });
   }
 
@@ -466,6 +499,9 @@ class MacCuaBrowserSession implements BrowserSession {
     const target = parseMacCuaTarget(selector);
     const payload = driverPayloadForValue(value);
     await this.runAction('fill', async () => {
+      if ('secretRef' in payload) {
+        await this.assertSecretFillAllowed(selector, payload.secretRef);
+      }
       await this.driver.click(this.sessionId, target);
       await this.driver.typeTextChars(this.sessionId, payload);
       if ('secretRef' in payload) {
@@ -494,16 +530,6 @@ class MacCuaBrowserSession implements BrowserSession {
   private async keyChord(key: string, modifiers: string[]): Promise<void> {
     assertSafeMacCuaKeyChord(key, modifiers);
     await this.driver.keyChord(this.sessionId, { key, modifiers });
-  }
-
-  private async waitAfterNavigation(
-    opts?: NavigateOptions | HistoryNavigationOptions,
-  ): Promise<void> {
-    const normalized = toNavigationOptions(opts);
-    if (!normalized?.timeout) return;
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.min(normalized.timeout || 0, 100)),
-    );
   }
 
   private async runAction<T>(
@@ -579,6 +605,43 @@ class MacCuaBrowserSession implements BrowserSession {
         },
         sinkKind: 'cua',
       },
+    });
+  }
+
+  private async assertSecretFillAllowed(
+    selector: string,
+    ref: SecretRef,
+  ): Promise<void> {
+    const skillName = this.metering?.skillName?.trim();
+    if (!skillName) {
+      throw new Error(
+        `browser.fill(${selector}) SecretRef requires SessionOptions.metering.skillName so secret policy can evaluate the calling skill.`,
+      );
+    }
+    const hardenedRef = hardenSecretRef(ref);
+    const host = resolveUrlHost(
+      await this.driver.getCurrentUrl(this.sessionId),
+      selector,
+    );
+    assertSecretResolveAllowed({
+      sessionId: this.metering?.sessionId,
+      agentId: this.metering?.agentId,
+      skillName,
+      secretSource: hardenedRef.source,
+      secretId: hardenedRef.id,
+      sinkKind: 'dom',
+      host,
+      selector,
+    });
+    recordSecretResolved({
+      sessionId: this.metering?.sessionId,
+      runId: this.metering?.auditRunId,
+      skillName,
+      secretSource: hardenedRef.source,
+      secretId: hardenedRef.id,
+      sinkKind: 'dom',
+      host,
+      selector,
     });
   }
 }

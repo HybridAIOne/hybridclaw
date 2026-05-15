@@ -1,13 +1,48 @@
 import { Buffer } from 'node:buffer';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import { expect, test, vi } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
-import {
-  assertSafeMacCuaKeyChord,
-  MacCuaBrowserProvider,
-  type MacCuaDriver,
-  type MacCuaEnvironmentState,
+import type {
+  MacCuaDriver,
+  MacCuaEnvironmentState,
 } from '../src/browser/mac-cua-provider.js';
+
+const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_MASTER_KEY = process.env.HYBRIDCLAW_MASTER_KEY;
+let tempRoot = '';
+
+function makeTempRoot(): string {
+  tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-mac-cua-'));
+  return tempRoot;
+}
+
+function restoreEnvVar(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
+
+function writeSecretPolicy(root: string, content: string): void {
+  const workspacePath = path.join(root, 'workspace');
+  fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+    content,
+    'utf-8',
+  );
+}
+
+async function saveLoginPasswordSecret(): Promise<void> {
+  const { saveNamedRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.js'
+  );
+  saveNamedRuntimeSecrets({ LOGIN_PASSWORD: 'login-cleartext-secret' });
+}
 
 function createMockDriver(options?: {
   before?: MacCuaEnvironmentState;
@@ -55,7 +90,21 @@ function createMockDriver(options?: {
   };
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.resetModules();
+  if (tempRoot) {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    tempRoot = '';
+  }
+  restoreEnvVar('HOME', ORIGINAL_HOME);
+  restoreEnvVar('HYBRIDCLAW_MASTER_KEY', ORIGINAL_MASTER_KEY);
+});
+
 test('mac-cua provider starts the selected operator browser in background-safe mode', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
   const driver = createMockDriver();
   const audit = vi.fn();
   const provider = new MacCuaBrowserProvider({
@@ -71,10 +120,7 @@ test('mac-cua provider starts the selected operator browser in background-safe m
       auditRunId: 'run-cua',
     },
   });
-  await session.navigate('https://example.com/login', {
-    waitUntil: 'domcontentloaded',
-    timeoutMs: 1,
-  });
+  await session.navigate('https://example.com/login');
   const screenshot = await session.screenshot();
   await provider.closeSession(session);
 
@@ -118,6 +164,9 @@ test('mac-cua provider starts the selected operator browser in background-safe m
 });
 
 test('mac-cua provider prefers AX element refs and only uses coordinate fallback when explicit', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
   const driver = createMockDriver();
   const provider = new MacCuaBrowserProvider({ driver });
   const session = await provider.launchSession({});
@@ -137,7 +186,40 @@ test('mac-cua provider prefers AX element refs and only uses coordinate fallback
   });
 });
 
-test('mac-cua provider passes SecretRef fill payloads without cleartext resolution', async () => {
+test('mac-cua provider authorizes SecretRef fills and forwards refs without cleartext resolution', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'mac-cua-test-master-key';
+  await saveLoginPasswordSecret();
+  writeSecretPolicy(
+    root,
+    [
+      'secret:',
+      '  default: deny',
+      '  rules:',
+      '    - id: allow-login-password-cua-fill',
+      '      action: allow',
+      '      when:',
+      '        predicate: secret_resolve_allowed',
+      '        source: store',
+      '        id: LOGIN_PASSWORD',
+      '        sink: dom',
+      '        skill: login-skill',
+      '        host: "example.com"',
+      '        selector: "@e7"',
+      '',
+    ].join('\n'),
+  );
+  vi.doMock('../src/infra/ipc.js', () => ({
+    agentWorkspaceDir: () => path.join(root, 'workspace'),
+  }));
+  const { initDatabase, getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
   const driver = createMockDriver();
   const audit = vi.fn();
   const provider = new MacCuaBrowserProvider({ driver, audit });
@@ -168,9 +250,19 @@ test('mac-cua provider passes SecretRef fill payloads without cleartext resoluti
       }),
     }),
   );
+  const auditRows = getRecentStructuredAuditForSession(
+    'session-cua-secret',
+    20,
+  );
+  expect(auditRows.some((row) => row.event_type === 'secret.resolved')).toBe(
+    true,
+  );
 });
 
 test('mac-cua provider blocks shell-injection typed payloads before driver input', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
   const driver = createMockDriver();
   const provider = new MacCuaBrowserProvider({ driver });
   const session = await provider.launchSession({});
@@ -183,6 +275,9 @@ test('mac-cua provider blocks shell-injection typed payloads before driver input
 });
 
 test('mac-cua provider rejects background-safe violations', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
   const driver = createMockDriver({
     before: {
       cursorX: 1,
@@ -203,7 +298,28 @@ test('mac-cua provider rejects background-safe violations', async () => {
   await expect(session.click('@e1')).rejects.toThrow(/background-safe/u);
 });
 
-test('mac-cua key chord guard hard-blocks destructive browser shortcuts', () => {
+test('mac-cua provider rejects unsupported navigation waits', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await expect(
+    session.navigate('https://example.com/login', {
+      waitUntil: 'domcontentloaded',
+      timeoutMs: 1,
+    }),
+  ).rejects.toThrow(/does not support waitUntil or timeoutMs/u);
+
+  expect(driver.keyChord).not.toHaveBeenCalled();
+});
+
+test('mac-cua key chord guard hard-blocks destructive browser shortcuts', async () => {
+  const { assertSafeMacCuaKeyChord } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
   expect(() => assertSafeMacCuaKeyChord('q', ['cmd', 'shift'])).toThrow(
     /destructive/u,
   );
