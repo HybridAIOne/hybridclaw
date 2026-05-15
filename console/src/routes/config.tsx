@@ -18,6 +18,84 @@ function cloneConfig<T>(value: T): T {
   return structuredClone(value);
 }
 
+type BrowserConfig = NonNullable<AdminConfig['browser']>;
+type BrowserProvider = BrowserConfig['provider'];
+
+function defaultBrowserConfig(): BrowserConfig {
+  return {
+    provider: 'local',
+    local: {
+      profileDir: '',
+      headed: false,
+    },
+    camofox: {
+      profileDir: '',
+      headed: false,
+    },
+    managedCloud: {
+      endpointUrl: 'http://127.0.0.1:8787',
+      poolTokenRef: undefined,
+      defaultTenantId: '',
+      pricing: {
+        actionUsd: 0,
+      },
+    },
+    browserUseCloud: {
+      apiKeyRef: undefined,
+      projectId: '',
+      profileId: '',
+      region: '',
+      keepAlive: false,
+      pricing: {
+        browserUsdPerMinute: 0,
+        actionUsd: 0,
+      },
+    },
+  };
+}
+
+function browserConfig(config: AdminConfig): BrowserConfig {
+  return {
+    ...defaultBrowserConfig(),
+    ...(config.browser ?? {}),
+    local: {
+      ...defaultBrowserConfig().local,
+      ...(config.browser?.local ?? {}),
+    },
+    camofox: {
+      ...defaultBrowserConfig().camofox,
+      ...(config.browser?.camofox ?? {}),
+    },
+    managedCloud: {
+      ...defaultBrowserConfig().managedCloud,
+      ...(config.browser?.managedCloud ?? {}),
+      pricing: {
+        ...defaultBrowserConfig().managedCloud.pricing,
+        ...(config.browser?.managedCloud?.pricing ?? {}),
+      },
+    },
+    browserUseCloud: {
+      ...defaultBrowserConfig().browserUseCloud,
+      ...(config.browser?.browserUseCloud ?? {}),
+      pricing: {
+        ...defaultBrowserConfig().browserUseCloud.pricing,
+        ...(config.browser?.browserUseCloud?.pricing ?? {}),
+      },
+    },
+  };
+}
+
+function updateBrowserConfig(
+  current: AdminConfig | null,
+  updater: (browser: BrowserConfig) => BrowserConfig,
+): AdminConfig | null {
+  if (!current) return current;
+  return {
+    ...current,
+    browser: updater(browserConfig(current)),
+  };
+}
+
 export function ConfigPage() {
   const auth = useAuth();
   const toast = useToast();
@@ -57,6 +135,10 @@ export function ConfigPage() {
   if (!draft || !configQuery.data) {
     return <div className="empty-state">Runtime config is unavailable.</div>;
   }
+
+  const browser = browserConfig(draft);
+  const managedPoolTokenId = browser.managedCloud.poolTokenRef?.id ?? '';
+  const browserUseApiKeyId = browser.browserUseCloud.apiKeyRef?.id ?? '';
 
   return (
     <div className="page-stack">
@@ -308,6 +390,330 @@ export function ConfigPage() {
                     )
                   }
                 />
+              </section>
+
+              <section className="config-section">
+                <h4>Browser</h4>
+                <label className="field">
+                  <span>Provider</span>
+                  <select
+                    value={browser.provider}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        updateBrowserConfig(current, (currentBrowser) => ({
+                          ...currentBrowser,
+                          provider: event.target.value as BrowserProvider,
+                        })),
+                      )
+                    }
+                  >
+                    <option value="local">local</option>
+                    <option value="camofox">camofox</option>
+                    <option value="managed-cloud">managed-cloud</option>
+                    <option value="browser-use-cloud">browser-use-cloud</option>
+                  </select>
+                </label>
+                {browser.provider === 'local' ? (
+                  <>
+                    <label className="field">
+                      <span>Profile directory</span>
+                      <input
+                        value={browser.local.profileDir}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              local: {
+                                ...currentBrowser.local,
+                                profileDir: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <BooleanField
+                      label="Headed browser"
+                      value={browser.local.headed}
+                      trueLabel="on"
+                      falseLabel="off"
+                      onChange={(headed) =>
+                        setDraft((current) =>
+                          updateBrowserConfig(current, (currentBrowser) => ({
+                            ...currentBrowser,
+                            local: {
+                              ...currentBrowser.local,
+                              headed,
+                            },
+                          })),
+                        )
+                      }
+                    />
+                  </>
+                ) : null}
+                {browser.provider === 'camofox' ? (
+                  <>
+                    <label className="field">
+                      <span>Profile directory</span>
+                      <input
+                        value={browser.camofox.profileDir}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              camofox: {
+                                ...currentBrowser.camofox,
+                                profileDir: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <BooleanField
+                      label="Headed browser"
+                      value={browser.camofox.headed}
+                      trueLabel="on"
+                      falseLabel="off"
+                      onChange={(headed) =>
+                        setDraft((current) =>
+                          updateBrowserConfig(current, (currentBrowser) => ({
+                            ...currentBrowser,
+                            camofox: {
+                              ...currentBrowser.camofox,
+                              headed,
+                            },
+                          })),
+                        )
+                      }
+                    />
+                  </>
+                ) : null}
+                {browser.provider === 'managed-cloud' ? (
+                  <>
+                    <label className="field">
+                      <span>Pool endpoint URL</span>
+                      <input
+                        value={browser.managedCloud.endpointUrl}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              managedCloud: {
+                                ...currentBrowser.managedCloud,
+                                endpointUrl: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Pool token SecretRef id</span>
+                      <input
+                        value={managedPoolTokenId}
+                        placeholder="MANAGED_BROWSER_POOL_TOKEN"
+                        onChange={(event) => {
+                          const id = event.target.value.trim();
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              managedCloud: {
+                                ...currentBrowser.managedCloud,
+                                poolTokenRef: id
+                                  ? {
+                                      source: 'store',
+                                      id,
+                                    }
+                                  : undefined,
+                              },
+                            })),
+                          );
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Default tenant id</span>
+                      <input
+                        value={browser.managedCloud.defaultTenantId}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              managedCloud: {
+                                ...currentBrowser.managedCloud,
+                                defaultTenantId: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Action price USD</span>
+                      <input
+                        inputMode="decimal"
+                        value={String(browser.managedCloud.pricing.actionUsd)}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              managedCloud: {
+                                ...currentBrowser.managedCloud,
+                                pricing: {
+                                  ...currentBrowser.managedCloud.pricing,
+                                  actionUsd: Number(event.target.value) || 0,
+                                },
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                  </>
+                ) : null}
+                {browser.provider === 'browser-use-cloud' ? (
+                  <>
+                    <label className="field">
+                      <span>API key SecretRef id</span>
+                      <input
+                        value={browserUseApiKeyId}
+                        onChange={(event) => {
+                          const id = event.target.value.trim();
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                apiKeyRef: id
+                                  ? {
+                                      source: 'store',
+                                      id,
+                                    }
+                                  : undefined,
+                              },
+                            })),
+                          );
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Project id</span>
+                      <input
+                        value={browser.browserUseCloud.projectId}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                projectId: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Profile id</span>
+                      <input
+                        value={browser.browserUseCloud.profileId}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                profileId: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Region</span>
+                      <input
+                        value={browser.browserUseCloud.region}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                region: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <BooleanField
+                      label="Keep alive"
+                      value={browser.browserUseCloud.keepAlive}
+                      trueLabel="on"
+                      falseLabel="off"
+                      onChange={(keepAlive) =>
+                        setDraft((current) =>
+                          updateBrowserConfig(current, (currentBrowser) => ({
+                            ...currentBrowser,
+                            browserUseCloud: {
+                              ...currentBrowser.browserUseCloud,
+                              keepAlive,
+                            },
+                          })),
+                        )
+                      }
+                    />
+                    <label className="field">
+                      <span>Browser price USD/min</span>
+                      <input
+                        inputMode="decimal"
+                        value={String(
+                          browser.browserUseCloud.pricing.browserUsdPerMinute,
+                        )}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                pricing: {
+                                  ...currentBrowser.browserUseCloud.pricing,
+                                  browserUsdPerMinute:
+                                    Number(event.target.value) || 0,
+                                },
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Action price USD</span>
+                      <input
+                        inputMode="decimal"
+                        value={String(
+                          browser.browserUseCloud.pricing.actionUsd,
+                        )}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                pricing: {
+                                  ...currentBrowser.browserUseCloud.pricing,
+                                  actionUsd: Number(event.target.value) || 0,
+                                },
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                  </>
+                ) : null}
               </section>
             </div>
           )}
