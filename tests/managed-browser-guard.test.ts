@@ -270,6 +270,25 @@ test('managed browser pool keeps ping public and protects health when token is s
   expect(await authenticatedHealth.json()).toMatchObject({ ok: true });
 });
 
+test('managed browser pool waits for a valid DevToolsActivePort file', async () => {
+  const root = makeTempRoot();
+  const devtoolsPath = path.join(root, 'DevToolsActivePort');
+  fs.writeFileSync(devtoolsPath, '', 'utf-8');
+  const { waitForDevToolsActivePort } = await import(
+    '../infra/managed-browser/server.js'
+  );
+
+  const read = waitForDevToolsActivePort(devtoolsPath, 1000);
+  setTimeout(() => {
+    fs.writeFileSync(devtoolsPath, '41235\n/devtools/browser/test\n', 'utf-8');
+  }, 25);
+
+  await expect(read).resolves.toEqual({
+    cdpInternalPort: 41235,
+    cdpInternalPath: '/devtools/browser/test',
+  });
+});
+
 test('managed browser pool warm restart records lost active leases', async () => {
   const root = makeTempRoot();
   const statePath = path.join(root, 'leases.json');

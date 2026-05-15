@@ -32,9 +32,28 @@ const leases = new Map();
 const lostLeases = [];
 const maxLostLeases = 1000;
 let stateLoaded = false;
+let expectedSocketErrorHandlerInstalled = false;
 
 function appendAudit(event) {
   appendAuditLine(auditPath, event);
+}
+
+function isExpectedSocketDisconnect(error) {
+  return error?.code === 'EPIPE' || error?.code === 'ECONNRESET';
+}
+
+function installExpectedSocketErrorHandler() {
+  if (expectedSocketErrorHandlerInstalled) return;
+  expectedSocketErrorHandlerInstalled = true;
+  process.on('uncaughtException', (error) => {
+    if (isExpectedSocketDisconnect(error)) {
+      console.warn(
+        `managed browser pool ignored socket disconnect: ${error.code}`,
+      );
+      return;
+    }
+    throw error;
+  });
 }
 
 function loadState() {
@@ -181,35 +200,47 @@ function listen(server, listenHost = '127.0.0.1', listenPort = 0) {
   });
 }
 
-function waitForFile(filePath, timeoutMs) {
+function parseDevToolsActivePort(raw) {
+  const [debugPort, debugPath] = String(raw || '').split('\n');
+  const cdpInternalPort = Number.parseInt(String(debugPort || '').trim(), 10);
+  if (
+    !Number.isInteger(cdpInternalPort) ||
+    cdpInternalPort < 1 ||
+    cdpInternalPort > 65535
+  ) {
+    return null;
+  }
+  return {
+    cdpInternalPort,
+    cdpInternalPath: String(debugPath || '').trim() || '/',
+  };
+}
+
+export function waitForDevToolsActivePort(filePath, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const dir = path.dirname(filePath);
-    let watcher;
-    let timeout;
-    const cleanup = () => {
-      if (timeout) clearTimeout(timeout);
-      watcher?.close();
-    };
-    const readIfReady = () => {
-      if (fs.existsSync(filePath)) {
-        cleanup();
-        resolve(fs.readFileSync(filePath, 'utf-8'));
-        return true;
+    const deadline = Date.now() + timeoutMs;
+    const poll = () => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const parsed = parseDevToolsActivePort(
+            fs.readFileSync(filePath, 'utf-8'),
+          );
+          if (parsed) {
+            resolve(parsed);
+            return;
+          }
+        }
+      } catch (error) {
+        reject(error);
+        return;
       }
-      return false;
+      if (Date.now() >= deadline) {
+        reject(new Error(`Timed out waiting for a valid ${filePath}`));
+        return;
+      }
+      setTimeout(poll, 25);
     };
-    if (readIfReady()) return;
-    timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error(`Timed out waiting for ${filePath}`));
-    }, timeoutMs);
-    watcher = fs.watch(dir, () => {
-      readIfReady();
-    });
-    watcher.on('error', (error) => {
-      cleanup();
-      reject(error);
-    });
+    poll();
   });
 }
 
@@ -236,11 +267,11 @@ async function launchChromiumLease({ tenantId, agentId }) {
   ]);
   const devtoolsFile = path.join(userDataDir, 'DevToolsActivePort');
   try {
-    const raw = await waitForFile(devtoolsFile, 15_000);
-    const [debugPort, debugPath] = raw.split('\n');
+    const { cdpInternalPort, cdpInternalPath } =
+      await waitForDevToolsActivePort(devtoolsFile, 15_000);
     return {
-      cdpInternalPort: Number.parseInt(debugPort, 10),
-      cdpInternalPath: debugPath || '/',
+      cdpInternalPort,
+      cdpInternalPath,
       chrome,
       guardServer,
       userDataDir,
@@ -386,6 +417,23 @@ async function releaseLease(leaseId, reason = 'released') {
   return { leaseId, endedAt, costUsd };
 }
 
+function forwardSocketData(source, destination, onError) {
+  source.on('data', (chunk) => {
+    if (destination.destroyed || !destination.writable) return;
+    try {
+      const shouldContinue = destination.write(chunk);
+      if (!shouldContinue) {
+        source.pause();
+        destination.once('drain', () => {
+          if (!source.destroyed) source.resume();
+        });
+      }
+    } catch (error) {
+      onError(error);
+    }
+  });
+}
+
 async function route(req, res) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'local'}`);
   if (req.method === 'GET' && url.pathname === '/ping') {
@@ -474,7 +522,12 @@ export function createManagedBrowserPoolServer() {
       return;
     }
     const lease = leases.get(decodeURIComponent(match[1]));
-    if (!lease) {
+    if (
+      !lease ||
+      !Number.isInteger(lease.cdpInternalPort) ||
+      lease.cdpInternalPort < 1 ||
+      lease.cdpInternalPort > 65535
+    ) {
       clientSocket.destroy();
       return;
     }
@@ -484,16 +537,27 @@ export function createManagedBrowserPoolServer() {
         .filter(([key]) => key.toLowerCase() !== 'host')
         .map(([key, value]) => `${key}: ${value}`)
         .join('\r\n');
-      upstream.write(
-        `${req.method} ${lease.cdpInternalPath} HTTP/${req.httpVersion}\r\nHost: 127.0.0.1:${lease.cdpInternalPort}\r\n${headers}\r\n\r\n`,
-      );
-      if (head.length > 0) upstream.write(head);
-      upstream.pipe(clientSocket);
-      clientSocket.pipe(upstream);
+      try {
+        upstream.write(
+          `${req.method} ${lease.cdpInternalPath} HTTP/${req.httpVersion}\r\nHost: 127.0.0.1:${lease.cdpInternalPort}\r\n${headers}\r\n\r\n`,
+        );
+        if (head.length > 0) upstream.write(head);
+      } catch {
+        destroyBoth();
+        return;
+      }
+      forwardSocketData(upstream, clientSocket, destroyBoth);
+      forwardSocketData(clientSocket, upstream, destroyBoth);
     });
-    upstream.on('error', () => {
+
+    const destroyBoth = () => {
+      upstream.destroy();
       clientSocket.destroy();
-    });
+    };
+    upstream.on('error', destroyBoth);
+    clientSocket.on('error', destroyBoth);
+    upstream.on('close', () => clientSocket.destroy());
+    clientSocket.on('close', () => upstream.destroy());
   });
 
   return server;
@@ -501,6 +565,7 @@ export function createManagedBrowserPoolServer() {
 
 export function startManagedBrowserPoolServer() {
   validatePoolAuthConfig();
+  installExpectedSocketErrorHandler();
   loadState();
   const server = createManagedBrowserPoolServer();
   server.listen(port, host, () => {
