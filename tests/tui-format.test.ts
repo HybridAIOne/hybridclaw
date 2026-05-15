@@ -38,6 +38,7 @@ test('formats titled command blocks with the standard left gutter', () => {
 
 test('mutes disabled and install hint lines in the skill list', () => {
   expect(isMutedSkillListLine('  apple-music [disabled]')).toBe(true);
+  expect(isMutedSkillListLine('      ↳ installs: brew (brew)')).toBe(true);
   expect(isMutedSkillListLine('      installs: brew (brew)')).toBe(true);
   expect(isMutedSkillListLine('  apple-music [enabled]')).toBe(false);
   expect(isMutedSkillListLine('Apple:')).toBe(false);
@@ -47,7 +48,7 @@ test('keeps wrapped skill install lines muted and aligned', () => {
   const lines = formatTuiSkillListLines(
     [
       'Publishing:',
-      '    installs: manim (uv) — Install Manim Community Edition with uv; ffmpeg (brew) — Install ffmpeg (brew)',
+      '    ↳ installs: manim (uv) — Install Manim Community Edition with uv; ffmpeg (brew) — Install ffmpeg (brew)',
     ].join('\n'),
     78,
   );
@@ -57,7 +58,7 @@ test('keeps wrapped skill install lines muted and aligned', () => {
   expect(installLines.every((line) => line.muted)).toBe(true);
   expect(installLines.map((line) => stripAnsi(line.line))).toEqual(
     expect.arrayContaining([
-      expect.stringMatching(/^ {6}installs:/u),
+      expect.stringMatching(/^ {6}↳ installs:/u),
       expect.stringMatching(/^ {6}.*ffmpeg \(brew\)/u),
     ]),
   );

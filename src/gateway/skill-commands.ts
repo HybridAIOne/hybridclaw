@@ -77,7 +77,7 @@ function formatSkillInstallLines(
       return `${install.id} (${install.kind})${label}`;
     })
     .join('; ');
-  return [`    installs: ${installSummary}`];
+  return [`    ↳ installs: ${installSummary}`];
 }
 
 function renderSkillCatalogList(catalog: SkillCatalogSummaryEntry[]): {

@@ -1591,7 +1591,7 @@ export function formatTuiTitledCommandBlock(
 }
 
 export function isMutedSkillListLine(line: string): boolean {
-  return /\[disabled\]/i.test(line) || /^\s*installs:/i.test(line);
+  return /\[disabled\]/i.test(line) || /^\s*(?:↳\s*)?installs:/i.test(line);
 }
 
 export function isPluginListHeaderLine(line: string): boolean {
