@@ -899,7 +899,7 @@ test('CV narration cost history is pruned to the retention window', async () => 
   );
 });
 
-test('CV narration falls back without an aux call when the daily budget would be exceeded', async () => {
+test('CV narration skips writing entries when the daily budget would be exceeded', async () => {
   vi.useFakeTimers();
   context = await createAdaptiveSkillsTestContext();
   const { recordSkillExecution } = await import(
@@ -931,10 +931,11 @@ test('CV narration falls back without an aux call when the daily budget would be
   await waitForQueuedAgentCvRefreshes();
 
   expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
-  expect(cv('lena')).toContain(`Completed ${context.skillName}`);
+  expect(cv('lena')).not.toContain(`Completed ${context.skillName}`);
+  expect(cv('lena')).toContain('No completed assignments recorded yet.');
 });
 
-test('CV narration daily budget can be disabled through runtime config', async () => {
+test('CV narration daily budget can disable aux-generated entries through runtime config', async () => {
   vi.useFakeTimers();
   context = await createAdaptiveSkillsTestContext();
   const { recordSkillExecution } = await import(
@@ -965,10 +966,11 @@ test('CV narration daily budget can be disabled through runtime config', async (
   await waitForQueuedAgentCvRefreshes();
 
   expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
-  expect(cv('lena')).toContain(`Completed ${context.skillName}`);
+  expect(cv('lena')).not.toContain(`Completed ${context.skillName}`);
+  expect(cv('lena')).toContain('No completed assignments recorded yet.');
 });
 
-test('CV narration logs and falls back when pricing is unavailable', async () => {
+test('CV narration logs and skips writing entries when pricing is unavailable', async () => {
   vi.useFakeTimers();
   context = await createAdaptiveSkillsTestContext();
   const { logger } = await import('../src/logger.ts');
@@ -1000,7 +1002,8 @@ test('CV narration logs and falls back when pricing is unavailable', async () =>
   await waitForQueuedAgentCvRefreshes();
 
   expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
-  expect(cv('lena')).toContain(`Completed ${context.skillName}`);
+  expect(cv('lena')).not.toContain(`Completed ${context.skillName}`);
+  expect(cv('lena')).toContain('No completed assignments recorded yet.');
   expect(warnSpy).toHaveBeenCalledWith(
     expect.objectContaining({
       eventCount: 1,
@@ -1011,7 +1014,7 @@ test('CV narration logs and falls back when pricing is unavailable', async () =>
   );
 });
 
-test('CV narration logs parse failures before falling back', async () => {
+test('CV narration logs parse failures without deterministic fallback entries', async () => {
   vi.useFakeTimers();
   context = await createAdaptiveSkillsTestContext();
   const { logger } = await import('../src/logger.ts');
@@ -1052,7 +1055,8 @@ test('CV narration logs parse failures before falling back', async () => {
   await waitForQueuedAgentCvRefreshes();
 
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
-  expect(cv('lena')).toContain(`Completed ${context.skillName}`);
+  expect(cv('lena')).not.toContain(`Completed ${context.skillName}`);
+  expect(cv('lena')).toContain('No completed assignments recorded yet.');
   expect(warnSpy).toHaveBeenCalledWith(
     expect.objectContaining({
       eventCount: 1,
