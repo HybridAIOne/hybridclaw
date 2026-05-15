@@ -10,5 +10,6 @@ const ALL_NAV_ITEMS: ReadonlyArray<AdminNavItemSummary> =
 export function resolveCurrentAdminNavItem(
   pathname: string,
 ): AdminNavItemSummary {
+  if (pathname === '/agents') return { to: '/agents', label: 'Agents' };
   return ALL_NAV_ITEMS.find((item) => item.to === pathname) ?? ALL_NAV_ITEMS[0];
 }

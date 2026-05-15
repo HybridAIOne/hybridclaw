@@ -10,6 +10,7 @@ import { A2AInboxPage } from './routes/a2a-inbox';
 import { A2ATrustPage } from './routes/a2a-trust';
 import { AgentsPage } from './routes/agent-scoreboard';
 import { AgentFilesPage } from './routes/agents';
+import { AgentsOverviewPage } from './routes/agents-overview';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
@@ -57,14 +58,30 @@ const rootRoute = createRootRoute({
   component: () => <Outlet />,
 });
 
-const adminLayoutRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  id: '_admin_layout',
-  component: () => (
+function AppShellRouteComponent() {
+  return (
     <AppShell>
       <Outlet />
     </AppShell>
-  ),
+  );
+}
+
+const adminLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: '_admin_layout',
+  component: AppShellRouteComponent,
+});
+
+const agentsOverviewLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: '_agents_layout',
+  component: AppShellRouteComponent,
+});
+
+const agentsOverviewRoute = createRoute({
+  getParentRoute: () => agentsOverviewLayoutRoute,
+  path: '/agents',
+  component: AgentsOverviewPage,
 });
 
 const dashboardRoute = createRoute({
@@ -228,6 +245,7 @@ const routeTree = rootRoute.addChildren([
     pluginsRoute,
     toolsRoute,
   ]),
+  agentsOverviewLayoutRoute.addChildren([agentsOverviewRoute]),
   chatRoute.addChildren([chatSessionRoute]),
 ]);
 

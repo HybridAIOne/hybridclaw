@@ -1014,6 +1014,8 @@ function resolveHybridAILoginUrl(): string | null {
 
 function isConsoleSpaPath(pathname: string): boolean {
   return (
+    pathname === '/agents' ||
+    pathname.startsWith('/agents/') ||
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||

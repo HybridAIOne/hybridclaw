@@ -971,6 +971,12 @@ export interface AgentCard {
   stoppedSessions: number;
   effectiveModels: string[];
   lastActive: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  messageCount: number;
+  toolCalls: number;
+  recentSessionId: string | null;
   status: 'active' | 'idle' | 'stopped' | 'unused';
   monthlySpendUsd: number;
 }
@@ -1038,11 +1044,6 @@ export interface AgentsOverviewResponse {
   agents: AgentCard[];
   sessions: AgentSessionCard[];
 }
-
-export type AgentsOverview = Pick<
-  AgentsOverviewResponse,
-  'agents' | 'sessions'
->;
 
 export interface AgentListItem {
   id: string;
