@@ -18,6 +18,7 @@ import {
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
+import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -312,6 +313,30 @@ type ApiAdminPolicyRequestBody = {
   presetName?: unknown;
   rule?: unknown;
 };
+
+async function handleApiAdminBrowserPoolHealth(
+  res: ServerResponse,
+): Promise<void> {
+  const browserConfig = getRuntimeConfig().browser;
+  if (browserConfig.provider !== 'managed-cloud') {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'disabled',
+      endpointUrl: browserConfig.managedCloud.endpointUrl,
+      nodeCount: 0,
+      healthyNodeCount: 0,
+      message: 'Browser provider is not managed-cloud.',
+    });
+    return;
+  }
+  const health = await checkManagedBrowserPoolHealth(
+    browserConfig.managedCloud.endpointUrl,
+  );
+  sendJson(res, 200, {
+    ...health,
+    status: health.ok ? 'online' : 'offline',
+  });
+}
 
 function normalizeStringListInput(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
@@ -4748,6 +4773,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminConfig(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/browser-pool/health' &&
+            method === 'GET'
+          ) {
+            await handleApiAdminBrowserPoolHealth(res);
             return;
           }
           if (

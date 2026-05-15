@@ -791,6 +791,15 @@ export interface AdminConfigResponse {
   config: AdminConfig;
 }
 
+export interface AdminBrowserPoolHealthResponse {
+  ok: boolean;
+  status: 'online' | 'offline' | 'disabled';
+  endpointUrl: string;
+  nodeCount: number;
+  healthyNodeCount: number;
+  message: string;
+}
+
 export interface SignalLinkResponse {
   status: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
   pairingQrText: string | null;

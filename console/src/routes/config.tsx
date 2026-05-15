@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { fetchConfig, saveConfig } from '../api/client';
-import type { AdminConfig } from '../api/types';
+import { fetchBrowserPoolHealth, fetchConfig, saveConfig } from '../api/client';
+import type { AdminBrowserPoolHealthResponse, AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
 import {
   Card,
@@ -96,6 +96,36 @@ function updateBrowserConfig(
   };
 }
 
+function browserPoolStatusClass(
+  health: AdminBrowserPoolHealthResponse | undefined,
+): string {
+  if (!health) return 'list-status';
+  if (health.status === 'online') return 'list-status list-status-success';
+  if (health.status === 'offline') return 'list-status list-status-danger';
+  return 'list-status list-status-warning';
+}
+
+function browserPoolDotClass(
+  health: AdminBrowserPoolHealthResponse | undefined,
+): string {
+  if (!health) return 'status-dot';
+  if (health.status === 'online') return 'status-dot status-dot-success';
+  if (health.status === 'offline') return 'status-dot status-dot-danger';
+  return 'status-dot status-dot-warning';
+}
+
+function browserPoolStatusText(
+  health: AdminBrowserPoolHealthResponse | undefined,
+  isLoading: boolean,
+): string {
+  if (isLoading) return 'checking';
+  if (!health) return 'not checked';
+  if (health.status === 'online') {
+    return `online - ${health.healthyNodeCount}/${health.nodeCount} nodes healthy`;
+  }
+  return `${health.status} - ${health.message}`;
+}
+
 export function ConfigPage() {
   const auth = useAuth();
   const toast = useToast();
@@ -128,6 +158,24 @@ export function ConfigPage() {
     setRawJson(JSON.stringify(configQuery.data.config, null, 2));
   }, [configQuery.data, draft]);
 
+  const draftBrowser = draft ? browserConfig(draft) : defaultBrowserConfig();
+  const managedPoolTokenId = draftBrowser.managedCloud.poolTokenRef?.id ?? '';
+  const browserUseApiKeyId = draftBrowser.browserUseCloud.apiKeyRef?.id ?? '';
+  const browserPoolHealthQuery = useQuery({
+    queryKey: [
+      'browser-pool-health',
+      auth.token,
+      draftBrowser.provider,
+      draftBrowser.managedCloud.endpointUrl,
+    ],
+    queryFn: () => fetchBrowserPoolHealth(auth.token),
+    enabled: Boolean(
+      draft && !rawMode && draftBrowser.provider === 'managed-cloud',
+    ),
+    refetchInterval: 15_000,
+  });
+  const browserPoolHealth = browserPoolHealthQuery.data;
+
   if (configQuery.isLoading && !draft) {
     return <div className="empty-state">Loading runtime config...</div>;
   }
@@ -136,9 +184,7 @@ export function ConfigPage() {
     return <div className="empty-state">Runtime config is unavailable.</div>;
   }
 
-  const browser = browserConfig(draft);
-  const managedPoolTokenId = browser.managedCloud.poolTokenRef?.id ?? '';
-  const browserUseApiKeyId = browser.browserUseCloud.apiKeyRef?.id ?? '';
+  const browser = draftBrowser;
 
   return (
     <div className="page-stack">
@@ -491,6 +537,38 @@ export function ConfigPage() {
                 ) : null}
                 {browser.provider === 'managed-cloud' ? (
                   <>
+                    <div className="field">
+                      <span>Pool status</span>
+                      <div className="button-row">
+                        <span
+                          className={browserPoolStatusClass(browserPoolHealth)}
+                        >
+                          <span
+                            className={browserPoolDotClass(browserPoolHealth)}
+                          />
+                          {browserPoolStatusText(
+                            browserPoolHealth,
+                            browserPoolHealthQuery.isLoading,
+                          )}
+                        </span>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          disabled={browserPoolHealthQuery.isFetching}
+                          onClick={() => void browserPoolHealthQuery.refetch()}
+                        >
+                          {browserPoolHealthQuery.isFetching
+                            ? 'Checking...'
+                            : 'Check now'}
+                        </button>
+                      </div>
+                      {browserPoolHealth?.status === 'offline' ? (
+                        <p className="supporting-text">
+                          Start the browser-pool Compose service, then check
+                          again.
+                        </p>
+                      ) : null}
+                    </div>
                     <label className="field">
                       <span>Pool endpoint URL</span>
                       <input

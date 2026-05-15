@@ -1,15 +1,22 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdminConfig, AdminConfigResponse } from '../api/types';
+import type {
+  AdminBrowserPoolHealthResponse,
+  AdminConfig,
+  AdminConfigResponse,
+} from '../api/types';
 import { ToastProvider } from '../components/toast';
 import { ConfigPage } from './config';
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
+const fetchBrowserPoolHealthMock =
+  vi.fn<() => Promise<AdminBrowserPoolHealthResponse>>();
 const saveConfigMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchBrowserPoolHealth: () => fetchBrowserPoolHealthMock(),
   fetchConfig: () => fetchConfigMock(),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
 }));
@@ -129,6 +136,15 @@ beforeEach(() => {
     path: '/tmp/config.json',
     config,
   });
+  fetchBrowserPoolHealthMock.mockResolvedValue({
+    ok: false,
+    status: 'offline',
+    endpointUrl: 'http://127.0.0.1:8787',
+    nodeCount: 0,
+    healthyNodeCount: 0,
+    message:
+      'Managed browser pool health check failed at http://127.0.0.1:8787: fetch failed',
+  });
   saveConfigMock.mockResolvedValue({
     path: '/tmp/config.json',
     config,
@@ -145,6 +161,7 @@ describe('ConfigPage', () => {
 
     const provider = await screen.findByDisplayValue('local');
     fireEvent.change(provider, { target: { value: 'managed-cloud' } });
+    expect(await screen.findByText(/fetch failed/i)).toBeTruthy();
     fireEvent.change(screen.getByDisplayValue('http://127.0.0.1:8787'), {
       target: { value: 'https://browser.example' },
     });
