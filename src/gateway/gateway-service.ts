@@ -5668,6 +5668,7 @@ export function getGatewayAdminAudit(params?: {
       query,
       sessionId,
       eventType,
+      eventTypeMatch: 'prefix',
       limit,
     }).map(mapAdminAuditEntry),
   };
