@@ -186,7 +186,14 @@ describe('ConfigPage', () => {
         target: { value: 'MANAGED_BROWSER_POOL_TOKEN' },
       },
     );
-    fireEvent.change(screen.getByDisplayValue('0'), {
+    const actionPriceInput = screen.getByLabelText(
+      'Action price USD',
+    ) as HTMLInputElement;
+    fireEvent.change(actionPriceInput, {
+      target: { value: '0.' },
+    });
+    expect(actionPriceInput.value).toBe('0.');
+    fireEvent.change(actionPriceInput, {
       target: { value: '0.0005' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save config' }));

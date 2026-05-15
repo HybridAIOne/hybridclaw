@@ -26,6 +26,48 @@ function cloneConfig<T>(value: T): T {
 type BrowserConfig = NonNullable<AdminConfig['browser']>;
 type BrowserProvider = BrowserConfig['provider'];
 
+function DecimalNumberInput({
+  id,
+  value,
+  onValueChange,
+}: {
+  id: string;
+  value: number;
+  onValueChange: (value: number) => void;
+}) {
+  const [rawValue, setRawValue] = useState(String(value));
+
+  useEffect(() => {
+    setRawValue(String(value));
+  }, [value]);
+
+  return (
+    <input
+      id={id}
+      inputMode="decimal"
+      value={rawValue}
+      onBlur={() => {
+        const parsed = Number(rawValue);
+        if (!Number.isFinite(parsed)) {
+          setRawValue(String(value));
+        }
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setRawValue(nextValue);
+        if (nextValue.trim() === '') {
+          onValueChange(0);
+          return;
+        }
+        const parsed = Number(nextValue);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          onValueChange(parsed);
+        }
+      }}
+    />
+  );
+}
+
 function defaultBrowserConfig(): BrowserConfig {
   return {
     provider: 'local',
@@ -666,12 +708,12 @@ export function ConfigPage() {
                         }
                       />
                     </label>
-                    <label className="field">
+                    <label className="field" htmlFor="managed-cloud-action-usd">
                       <span>Action price USD</span>
-                      <input
-                        inputMode="decimal"
-                        value={String(browser.managedCloud.pricing.actionUsd)}
-                        onChange={(event) =>
+                      <DecimalNumberInput
+                        id="managed-cloud-action-usd"
+                        value={browser.managedCloud.pricing.actionUsd}
+                        onValueChange={(value) =>
                           setDraft((current) =>
                             updateBrowserConfig(current, (currentBrowser) => ({
                               ...currentBrowser,
@@ -679,7 +721,7 @@ export function ConfigPage() {
                                 ...currentBrowser.managedCloud,
                                 pricing: {
                                   ...currentBrowser.managedCloud.pricing,
-                                  actionUsd: Number(event.target.value) || 0,
+                                  actionUsd: value,
                                 },
                               },
                             })),
@@ -806,14 +848,12 @@ export function ConfigPage() {
                         }
                       />
                     </label>
-                    <label className="field">
+                    <label className="field" htmlFor="browser-use-action-usd">
                       <span>Action price USD</span>
-                      <input
-                        inputMode="decimal"
-                        value={String(
-                          browser.browserUseCloud.pricing.actionUsd,
-                        )}
-                        onChange={(event) =>
+                      <DecimalNumberInput
+                        id="browser-use-action-usd"
+                        value={browser.browserUseCloud.pricing.actionUsd}
+                        onValueChange={(value) =>
                           setDraft((current) =>
                             updateBrowserConfig(current, (currentBrowser) => ({
                               ...currentBrowser,
@@ -821,7 +861,7 @@ export function ConfigPage() {
                                 ...currentBrowser.browserUseCloud,
                                 pricing: {
                                   ...currentBrowser.browserUseCloud.pricing,
-                                  actionUsd: Number(event.target.value) || 0,
+                                  actionUsd: value,
                                 },
                               },
                             })),
