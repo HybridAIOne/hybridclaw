@@ -33,7 +33,7 @@ describe('managed browser tenant policy projection', () => {
       root,
       'main',
       `network:
-  default: deny
+  default: allow
   rules:
     - action: allow
       host: example.com
@@ -68,7 +68,7 @@ describe('managed browser tenant policy projection', () => {
     expect(result).toMatchObject({
       tenantId: 'tenant-a',
       agentIds: ['main', 'writer'],
-      ruleCount: 2,
+      ruleCount: 3,
     });
 
     const projected = YAML.parse(
@@ -89,6 +89,7 @@ describe('managed browser tenant policy projection', () => {
     expect(projected.tenants['tenant-a'].network.rules).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ host: 'example.com', agent: 'main' }),
+        expect.objectContaining({ host: '*', agent: 'main' }),
         expect.objectContaining({
           host: 'docs.hybridclaw.io',
           agent: 'writer',

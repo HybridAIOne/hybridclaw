@@ -132,6 +132,18 @@ function uniqueRules(rules: TenantPolicyRule[]): TenantPolicyRule[] {
   ];
 }
 
+function defaultAllowRule(agentId: string): TenantPolicyRule {
+  return {
+    action: 'allow',
+    host: '*',
+    port: '*',
+    methods: ['*'],
+    paths: ['/**'],
+    agent: agentId,
+    comment: 'Projected from admin approval default allow policy.',
+  };
+}
+
 function managedBrowserTenantId(rawTenantId?: string): string {
   return (
     rawTenantId?.trim() ||
@@ -213,7 +225,10 @@ export function syncLocalManagedBrowserTenantPolicyFromAdminPolicies(
   }
 
   const sharedRules = uniqueRules(
-    [...projectedByAgent.values()].flatMap((policy) => policy.rules),
+    [...projectedByAgent].flatMap(([agentId, policy]) => [
+      ...policy.rules,
+      ...(policy.defaultAction === 'allow' ? [defaultAllowRule(agentId)] : []),
+    ]),
   );
   document.tenants = {};
   document.tenants[tenantId] = {
