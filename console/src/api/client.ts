@@ -12,6 +12,8 @@ import type {
   AdminApprovalsResponse,
   AdminAuditResponse,
   AdminBoardBudgetResponse,
+  AdminBrowserPoolHealthResponse,
+  AdminBrowserPoolLaunchResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
@@ -678,6 +680,27 @@ export function deleteChannel(
 
 export function fetchConfig(token: string): Promise<AdminConfigResponse> {
   return requestJson<AdminConfigResponse>('/api/admin/config', { token });
+}
+
+export function fetchBrowserPoolHealth(
+  token: string,
+): Promise<AdminBrowserPoolHealthResponse> {
+  return requestJson<AdminBrowserPoolHealthResponse>(
+    '/api/admin/browser-pool/health',
+    { token },
+  );
+}
+
+export function startBrowserPool(
+  token: string,
+): Promise<AdminBrowserPoolLaunchResponse> {
+  return requestJson<AdminBrowserPoolLaunchResponse>(
+    '/api/admin/browser-pool/start',
+    {
+      method: 'POST',
+      token,
+    },
+  );
 }
 
 export function fetchEmailConfig(token: string): Promise<unknown> {

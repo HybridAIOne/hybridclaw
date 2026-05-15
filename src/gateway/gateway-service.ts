@@ -75,6 +75,7 @@ import {
 } from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
@@ -5971,6 +5972,17 @@ export function getGatewayAdminApprovals(params?: {
   };
 }
 
+function syncManagedBrowserTenantPolicyProjection(): void {
+  try {
+    syncLocalManagedBrowserTenantPolicyFromAdminPolicies();
+  } catch (error) {
+    logger.warn(
+      { error },
+      'Failed to sync managed browser tenant policy from admin policy',
+    );
+  }
+}
+
 export function saveGatewayAdminPolicyRule(input: {
   agentId?: string;
   index?: number | null;
@@ -5982,6 +5994,7 @@ export function saveGatewayAdminPolicyRule(input: {
       input.index != null
         ? updatePolicyRule(workspacePath, input.index, input.rule)
         : addPolicyRule(workspacePath, input.rule);
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -5998,6 +6011,7 @@ export function deleteGatewayAdminPolicyRule(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = deletePolicyRule(workspacePath, String(input.index)).state;
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6014,6 +6028,7 @@ export function saveGatewayAdminPolicyDefault(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = setPolicyDefault(workspacePath, input.defaultAction);
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6030,6 +6045,7 @@ export function applyGatewayAdminPolicyPreset(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = applyPolicyPreset(workspacePath, input.presetName).state;
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(

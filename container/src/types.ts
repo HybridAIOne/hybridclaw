@@ -206,6 +206,7 @@ export interface ContainerInput {
     nonce: string;
   };
   sessionId: string;
+  agentId?: string;
   messages: ChatMessage[];
   chatbotId: string;
   enableRag: boolean;
@@ -229,6 +230,7 @@ export interface ContainerInput {
   thinkingFormat?: 'qwen';
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
+  browserProvider?: string;
   model: string;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;

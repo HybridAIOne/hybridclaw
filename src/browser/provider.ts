@@ -4,6 +4,12 @@ import type { SecretInput } from '../security/secret-refs.js';
 export interface BrowserProvider {
   launchSession(opts: SessionOptions): Promise<BrowserSession>;
   closeSession(session: BrowserSession): Promise<void>;
+  getCapabilities?(): BrowserProviderCapabilities;
+}
+
+export interface BrowserProviderCapabilities {
+  credentialInjection: 'opaque-handle';
+  waypointEvents: readonly BrowserWaypointEvent[];
 }
 
 export interface SessionOptions {
@@ -21,9 +27,20 @@ export interface SessionOptions {
 export interface BrowserSessionMeteringContext {
   sessionId: string;
   agentId: string;
+  tenantId?: string;
   auditRunId?: string;
   skillName?: string;
 }
+
+export type BrowserWaypointEvent =
+  | 'browser_await_two_factor'
+  | 'browser_resume_interaction';
+
+export const DEFAULT_BROWSER_PROVIDER_CAPABILITIES: BrowserProviderCapabilities =
+  {
+    credentialInjection: 'opaque-handle',
+    waypointEvents: ['browser_await_two_factor', 'browser_resume_interaction'],
+  };
 
 export interface BrowserSession {
   /**
@@ -47,6 +64,15 @@ export interface BrowserSession {
   fill(selector: string, value: SecretInput): Promise<void>;
   scroll(opts: ScrollOptions): Promise<void>;
   waitForSelector(selector: string, opts?: WaitOptions): Promise<void>;
+  upload?(selector: string, files: string[]): Promise<void>;
+  pdf?(opts?: PdfOptions): Promise<Buffer>;
+  consoleMessages?(
+    opts?: ConsoleMessageOptions,
+  ): Promise<BrowserConsoleMessage[]>;
+  waypoint?(
+    event: BrowserWaypointEvent,
+    opts?: BrowserWaypointOptions,
+  ): Promise<void>;
 }
 
 export type BrowserEvaluateFunction<T = unknown> = () => T | Promise<T>;
@@ -55,6 +81,14 @@ export type BrowserAction =
   | { name: 'click'; selector: string; opts?: ClickOptions }
   | { name: 'fill'; selector: string; value: SecretInput }
   | { name: 'scroll'; opts: ScrollOptions }
+  | { name: 'upload'; selector: string; files: string[] }
+  | { name: 'pdf'; opts?: PdfOptions }
+  | { name: 'console_messages'; opts?: ConsoleMessageOptions }
+  | {
+      name: 'waypoint';
+      event: BrowserWaypointEvent;
+      opts?: BrowserWaypointOptions;
+    }
   | { name: 'wait_for_selector'; selector: string; opts?: WaitOptions }
   | { name: 'screenshot'; opts?: ScreenshotOptions }
   | { name: 'evaluate'; fn: BrowserEvaluateFunction }
@@ -87,6 +121,29 @@ export interface WaitOptions {
 export interface ScreenshotOptions {
   fullPage?: boolean;
   type?: 'png' | 'jpeg';
+}
+
+export interface PdfOptions {
+  printBackground?: boolean;
+  format?: string;
+}
+
+export interface BrowserConsoleMessage {
+  level: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface ConsoleMessageOptions {
+  clear?: boolean;
+  limit?: number;
+}
+
+export interface BrowserWaypointOptions {
+  modality?: string;
+  prompt?: string;
+  sessionId?: string;
+  responseKind?: string;
 }
 
 export interface NavigateOptions {

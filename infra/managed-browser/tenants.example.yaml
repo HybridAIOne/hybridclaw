@@ -1,0 +1,21 @@
+tenants:
+  tenant-a:
+    network:
+      default: deny
+      rules:
+        - action: allow
+          host: example.com
+          port: 443
+          methods: ["*"]
+          paths: ["/**"]
+          agent: "*"
+  tenant-b:
+    network:
+      default: deny
+      rules:
+        - action: allow
+          host: tenant-b.example
+          port: 443
+          methods: ["*"]
+          paths: ["/**"]
+          agent: "*"

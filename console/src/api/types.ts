@@ -734,6 +734,46 @@ export interface AdminConfig {
     maxConcurrent: number;
     persistBashState: boolean;
   };
+  browser?: {
+    provider: 'local' | 'camofox' | 'managed-cloud' | 'browser-use-cloud';
+    local: {
+      profileDir: string;
+      headed: boolean;
+    };
+    camofox: {
+      profileDir: string;
+      headed: boolean;
+    };
+    managedCloud: {
+      endpointUrl: string;
+      poolTokenRef:
+        | {
+            source: 'store';
+            id: string;
+          }
+        | undefined;
+      defaultTenantId: string;
+      pricing: {
+        actionUsd: number;
+      };
+    };
+    browserUseCloud: {
+      apiKeyRef:
+        | {
+            source: 'store';
+            id: string;
+          }
+        | undefined;
+      projectId: string;
+      profileId: string;
+      region: string;
+      keepAlive: boolean;
+      pricing: {
+        browserUsdPerMinute: number;
+        actionUsd: number;
+      };
+    };
+  };
   ops: {
     healthHost: string;
     healthPort: number;
@@ -749,6 +789,25 @@ export interface AdminConfig {
 export interface AdminConfigResponse {
   path: string;
   config: AdminConfig;
+}
+
+export interface AdminBrowserPoolHealthResponse {
+  ok: boolean;
+  status: 'online' | 'offline' | 'disabled';
+  endpointUrl: string;
+  nodeCount: number;
+  healthyNodeCount: number;
+  message: string;
+}
+
+export interface AdminBrowserPoolLaunchResponse {
+  ok: boolean;
+  status: 'started' | 'starting' | 'already-running' | 'unsupported' | 'failed';
+  endpointUrl: string;
+  pid: number | null;
+  message: string;
+  poolTokenRefId?: string;
+  logTail?: string;
 }
 
 export interface SignalLinkResponse {

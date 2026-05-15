@@ -148,6 +148,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'Use the `message` tool for sending or reading messages on active communication channels: none.',
   );
   expect(prompt).toContain(
+    'Do not use `message` for ordinary final replies in the current chat.',
+  );
+  expect(prompt).toContain(
     'No active communication channels are registered right now.',
   );
   expect(prompt).toContain(
