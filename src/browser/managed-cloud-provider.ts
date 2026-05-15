@@ -23,14 +23,19 @@ import {
   toNavigationOptions,
 } from './playwright-utils.js';
 import type {
+  BrowserConsoleMessage,
   BrowserEvaluateFunction,
   BrowserProvider,
   BrowserProviderCapabilities,
   BrowserSession,
   BrowserSessionMeteringContext,
+  BrowserWaypointEvent,
+  BrowserWaypointOptions,
   ClickOptions,
+  ConsoleMessageOptions,
   HistoryNavigationOptions,
   NavigateOptions,
+  PdfOptions,
   ScreenshotOptions,
   ScrollOptions,
   SessionOptions,
@@ -233,6 +238,7 @@ async function loadPlaywright(
 
 class ManagedCloudBrowserSession implements BrowserSession {
   private sessionLostRecorded = false;
+  private readonly consoleLog: BrowserConsoleMessage[] = [];
 
   constructor(
     private readonly page: ManagedCloudPage,
@@ -249,7 +255,18 @@ class ManagedCloudBrowserSession implements BrowserSession {
       handle: SecretHandle,
       reason: string,
     ) => void,
-  ) {}
+  ) {
+    this.page.on?.('console', (message) => {
+      this.consoleLog.push({
+        level: message.type(),
+        text: message.text(),
+        timestamp: Date.now(),
+      });
+      if (this.consoleLog.length > 500) {
+        this.consoleLog.splice(0, this.consoleLog.length - 500);
+      }
+    });
+  }
 
   async evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T> {
     return await this.runSessionAction('evaluate', () =>
@@ -357,6 +374,70 @@ class ManagedCloudBrowserSession implements BrowserSession {
         timeout: opts?.timeoutMs,
       }),
     );
+  }
+
+  async upload(selector: string, files: string[]): Promise<void> {
+    await this.runSessionAction('upload', async () => {
+      if (typeof this.page.setInputFiles !== 'function') {
+        throw new Error(
+          'Managed browser CDP page does not support file uploads.',
+        );
+      }
+      await this.page.setInputFiles(selector, files);
+    });
+  }
+
+  async pdf(opts?: PdfOptions): Promise<Buffer> {
+    return await this.runSessionAction('pdf', async () => {
+      if (typeof this.page.pdf !== 'function') {
+        throw new Error(
+          'Managed browser CDP page does not support PDF generation.',
+        );
+      }
+      const bytes = await this.page.pdf({
+        printBackground: opts?.printBackground,
+        format: opts?.format,
+      });
+      return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+    });
+  }
+
+  async consoleMessages(
+    opts?: ConsoleMessageOptions,
+  ): Promise<BrowserConsoleMessage[]> {
+    return await this.runSessionAction('console_messages', async () => {
+      const limit =
+        typeof opts?.limit === 'number' && Number.isFinite(opts.limit)
+          ? Math.max(0, Math.floor(opts.limit))
+          : 200;
+      const messages = this.consoleLog.slice(-limit);
+      if (opts?.clear) this.consoleLog.length = 0;
+      return messages;
+    });
+  }
+
+  async waypoint(
+    event: BrowserWaypointEvent,
+    opts?: BrowserWaypointOptions,
+  ): Promise<void> {
+    await this.runSessionAction(event, async () => {
+      recordAuditEvent({
+        sessionId: this.metering.sessionId,
+        runId: this.runId,
+        event: {
+          type: 'browser.waypoint',
+          provider: 'managed-cloud',
+          tenantId: this.metering.tenantId,
+          leaseId: this.lease.leaseId,
+          poolNodeId: this.lease.nodeId,
+          waypoint: event,
+          modality: opts?.modality || null,
+          prompt: opts?.prompt || null,
+          suspendedSessionId: opts?.sessionId || null,
+          responseKind: opts?.responseKind || null,
+        },
+      });
+    });
   }
 
   private async runSessionAction<T>(

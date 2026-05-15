@@ -20,7 +20,11 @@ import {
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
-import type { BrowserProvider, BrowserSession } from '../browser/provider.js';
+import type {
+  BrowserProvider,
+  BrowserSession,
+  BrowserWaypointEvent,
+} from '../browser/provider.js';
 import { createBrowserProvider } from '../browser/provider-factory.js';
 import {
   type DiscordToolActionRequest,
@@ -422,6 +426,83 @@ function unsupportedGatewayBrowserTool(toolName: string): never {
   );
 }
 
+function sanitizeGatewayUploadName(value: unknown, index: number): string {
+  const basename = path.basename(String(value || '').trim());
+  const sanitized = basename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `${index + 1}-${sanitized || 'upload'}`;
+}
+
+function writeGatewayBrowserUploadFiles(args: Record<string, unknown>): {
+  dir: string;
+  paths: string[];
+} {
+  const payloads = Array.isArray(args.filePayloads) ? args.filePayloads : [];
+  if (payloads.length === 0) {
+    throw new GatewayRequestError(
+      400,
+      'browser_upload requires filePayloads when using managed-cloud.',
+    );
+  }
+  const dir = path.join(
+    DATA_DIR,
+    'tmp',
+    'managed-browser-uploads',
+    randomUUID(),
+  );
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const paths: string[] = [];
+  try {
+    payloads.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new GatewayRequestError(
+          400,
+          'Invalid browser_upload file payload.',
+        );
+      }
+      const record = entry as Record<string, unknown>;
+      const dataBase64 = String(record.dataBase64 || '');
+      if (!dataBase64) {
+        throw new GatewayRequestError(
+          400,
+          'Invalid browser_upload file payload: missing dataBase64.',
+        );
+      }
+      const filePath = path.join(
+        dir,
+        sanitizeGatewayUploadName(record.name, index),
+      );
+      fs.writeFileSync(filePath, Buffer.from(dataBase64, 'base64'), {
+        mode: 0o600,
+      });
+      paths.push(filePath);
+    });
+    return { dir, paths };
+  } catch (error) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function normalizeGatewayBrowserWaypoint(
+  toolName: string,
+): BrowserWaypointEvent {
+  if (
+    toolName === 'browser_await_two_factor' ||
+    toolName === 'browser_resume_interaction'
+  ) {
+    return toolName;
+  }
+  throw new GatewayRequestError(400, `Invalid browser waypoint: ${toolName}`);
+}
+
+function safeGatewayBrowserUrlHost(url: string): string | null {
+  try {
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
 async function getGatewayBrowserSession(
   sessionId: string,
   agentId: string,
@@ -449,6 +530,7 @@ async function getGatewayBrowserSession(
 async function handleApiBrowserTool(
   req: IncomingMessage,
   res: ServerResponse,
+  activeSseResponses: Set<ServerResponse>,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Record<string, unknown>;
   const toolName = String(body.toolName || '').trim();
@@ -821,14 +903,202 @@ async function handleApiBrowserTool(
     return;
   }
 
-  if (
-    toolName === 'browser_upload' ||
-    toolName === 'browser_pdf' ||
-    toolName === 'browser_console' ||
-    toolName === 'browser_await_two_factor' ||
-    toolName === 'browser_resume_interaction'
-  ) {
-    unsupportedGatewayBrowserTool(toolName);
+  if (toolName === 'browser_upload') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (!active.session.upload) unsupportedGatewayBrowserTool(toolName);
+    const selector = getGatewayBrowserSelector(args);
+    if (!selector) {
+      throw new GatewayRequestError(
+        400,
+        'browser_upload requires a CSS selector when using managed-cloud.',
+      );
+    }
+    const upload = writeGatewayBrowserUploadFiles(args);
+    try {
+      await active.session.upload(selector, upload.paths);
+      sendJson(res, 200, {
+        success: true,
+        selector,
+        target: selector,
+        uploaded_count: upload.paths.length,
+      });
+    } finally {
+      fs.rmSync(upload.dir, { recursive: true, force: true });
+    }
+    return;
+  }
+
+  if (toolName === 'browser_pdf') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (!active.session.pdf) unsupportedGatewayBrowserTool(toolName);
+    const pdf = await active.session.pdf({
+      printBackground: args.printBackground !== false,
+      format: typeof args.format === 'string' ? args.format : undefined,
+    });
+    sendJson(res, 200, {
+      success: true,
+      pdfBase64: Buffer.from(pdf).toString('base64'),
+    });
+    return;
+  }
+
+  if (toolName === 'browser_console') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (!active.session.consoleMessages)
+      unsupportedGatewayBrowserTool(toolName);
+    const rawLimit = Number(args.limit);
+    const limit =
+      Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(Math.floor(rawLimit), 500)
+        : 200;
+    const messages = await active.session.consoleMessages({
+      clear: args.clear === true,
+      limit,
+    });
+    sendJson(res, 200, {
+      success: true,
+      messages,
+      count: messages.length,
+      cleared: args.clear === true,
+    });
+    return;
+  }
+
+  if (toolName === 'browser_await_two_factor') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const waypoint = normalizeGatewayBrowserWaypoint(toolName);
+    const modality = parseInteractionModality(args.modality || 'totp');
+    const prompt =
+      normalizeOptionalString(args.prompt) ||
+      `A ${modality} challenge needs operator input.`;
+    const targetChannel = normalizeOptionalString(args.escalationChannel);
+    const targetRecipient = normalizeOptionalString(args.escalationRecipient);
+    const escalationTarget =
+      targetChannel && targetRecipient
+        ? { channel: targetChannel, recipient: targetRecipient }
+        : undefined;
+    const pageState = await active.session.evaluate(() => {
+      const bodyText = document.body
+        ? String(document.body.innerText || '')
+        : '';
+      const selectors = Array.from(
+        document.querySelectorAll(
+          'input[autocomplete="one-time-code"], input[name*="otp" i], input[id*="otp" i], input[name*="code" i], input[id*="code" i]',
+        ),
+      )
+        .slice(0, 10)
+        .map((element) => {
+          const id = element.id ? `#${element.id}` : '';
+          const name = element.getAttribute('name');
+          return id || (name ? `input[name="${name}"]` : 'input');
+        });
+      return {
+        url: String(window.location.href || ''),
+        title: String(document.title || ''),
+        preview: bodyText.replace(/\s+/g, ' ').trim().slice(0, 1000),
+        selectors,
+      };
+    });
+    const image = await active.session.screenshot({
+      fullPage: true,
+      type: 'png',
+    });
+    const screenshotRef = `managed-browser://${sessionId}/two-factor-${randomUUID()}.png`;
+    const session = createSuspendedSession({
+      prompt,
+      userId:
+        normalizeOptionalString(args.userId) ||
+        escalationTarget?.recipient ||
+        'operator',
+      modality,
+      frameSnapshot: {
+        url: pageState.url || 'about:blank',
+        title: pageState.title || '',
+        browserSessionKey: sessionId,
+        screenshotRef,
+      },
+      context: {
+        host: safeGatewayBrowserUrlHost(pageState.url || ''),
+        pageTitle: pageState.title || null,
+        url: pageState.url || 'about:blank',
+        screenshotRef,
+      },
+      agentId,
+      skillId: normalizeOptionalString(args.skillId) || null,
+      escalationTarget,
+      ttlMs:
+        typeof args.ttlMs === 'number' && Number.isFinite(args.ttlMs)
+          ? args.ttlMs
+          : null,
+    });
+    await active.session.waypoint?.(waypoint, {
+      modality,
+      prompt,
+      sessionId: session.sessionId,
+    });
+    emitInteractionNeededEvent({ session });
+    const notification = queueInteractionNotification(session);
+    const payload = { session, notification };
+    broadcastSseEvent(activeSseResponses, 'interaction_needed', payload);
+    sendJson(res, 200, {
+      success: true,
+      parked: true,
+      modality,
+      detected_selectors: pageState.selectors,
+      text_preview: pageState.preview,
+      screenshot: screenshotRef,
+      screenshotBase64: Buffer.from(image).toString('base64'),
+      interaction: payload,
+    });
+    return;
+  }
+
+  if (toolName === 'browser_resume_interaction') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const waypoint = normalizeGatewayBrowserWaypoint(toolName);
+    const suspendedSessionId =
+      normalizeOptionalString(args.sessionId) || sessionId;
+    const response = consumeOperatorReturn(suspendedSessionId);
+    if (!response) {
+      throw new GatewayRequestError(
+        404,
+        'No operator response is available for this suspended session.',
+      );
+    }
+    if (response.kind === 'code') {
+      const selector = getGatewayBrowserSelector(args);
+      if (!selector) {
+        throw new GatewayRequestError(
+          400,
+          'browser_resume_interaction requires selector for code injection with managed-cloud.',
+        );
+      }
+      await active.session.fill(selector, response.value);
+      await active.session.waypoint?.(waypoint, {
+        sessionId: suspendedSessionId,
+        responseKind: response.kind,
+      });
+      sendJson(res, 200, {
+        success: true,
+        resumed: true,
+        response_kind: 'code',
+        code_injected: true,
+        selector,
+      });
+      return;
+    }
+    await active.session.waypoint?.(waypoint, {
+      sessionId: suspendedSessionId,
+      responseKind: response.kind,
+    });
+    sendJson(res, 200, {
+      success: true,
+      resumed: true,
+      response_kind: response.kind,
+      operator_completed_challenge:
+        response.kind === 'approved' || response.kind === 'scanned',
+    });
+    return;
   }
 
   throw new GatewayRequestError(
@@ -5498,7 +5768,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               });
               return;
             }
-            await handleApiBrowserTool(req, res);
+            await handleApiBrowserTool(req, res, activeSseResponses);
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {

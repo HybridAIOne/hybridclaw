@@ -16,12 +16,17 @@ import {
   type SecretRef,
 } from '../security/secret-refs.js';
 import type {
+  BrowserConsoleMessage,
   BrowserEvaluateFunction,
   BrowserSession,
   BrowserSessionMeteringContext,
+  BrowserWaypointEvent,
+  BrowserWaypointOptions,
   ClickOptions,
+  ConsoleMessageOptions,
   HistoryNavigationOptions,
   NavigateOptions,
+  PdfOptions,
   ScreenshotOptions,
   ScrollOptions,
   WaitOptions,
@@ -40,13 +45,22 @@ export type PlaywrightNavigationOptions = {
 export type PlaywrightPageShape = {
   evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
   screenshot(opts?: PlaywrightScreenshotOptions): Promise<Buffer | Uint8Array>;
+  pdf?(opts?: {
+    printBackground?: boolean;
+    format?: string;
+  }): Promise<Buffer | Uint8Array>;
   goto(url: string, opts?: PlaywrightNavigationOptions): Promise<unknown>;
   goBack(opts?: PlaywrightNavigationOptions): Promise<unknown>;
   goForward(opts?: PlaywrightNavigationOptions): Promise<unknown>;
   reload(opts?: PlaywrightNavigationOptions): Promise<unknown>;
   click(selector: string, opts?: { timeout?: number }): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
+  setInputFiles?(selector: string, files: string[]): Promise<void>;
   url(): string;
+  on?(
+    event: 'console',
+    handler: (message: { type(): string; text(): string }) => void,
+  ): void;
   mouse: {
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
@@ -87,6 +101,8 @@ export class PlaywrightBrowserSession<
   TPage extends PlaywrightPageShape = PlaywrightPageShape,
 > implements BrowserSession
 {
+  private readonly consoleLog: BrowserConsoleMessage[] = [];
+
   constructor(
     protected readonly page: TPage,
     private readonly secretAudit?: (
@@ -94,7 +110,18 @@ export class PlaywrightBrowserSession<
       reason: string,
     ) => void,
     private readonly metering?: BrowserSessionMeteringContext,
-  ) {}
+  ) {
+    this.page.on?.('console', (message) => {
+      this.consoleLog.push({
+        level: message.type(),
+        text: message.text(),
+        timestamp: Date.now(),
+      });
+      if (this.consoleLog.length > 500) {
+        this.consoleLog.splice(0, this.consoleLog.length - 500);
+      }
+    });
+  }
 
   async evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T> {
     return await this.page.evaluate(fn);
@@ -158,6 +185,43 @@ export class PlaywrightBrowserSession<
       state: opts?.state,
       timeout: opts?.timeoutMs,
     });
+  }
+
+  async upload(selector: string, files: string[]): Promise<void> {
+    if (typeof this.page.setInputFiles !== 'function') {
+      throw new Error('Browser provider does not support file uploads.');
+    }
+    await this.page.setInputFiles(selector, files);
+  }
+
+  async pdf(opts?: PdfOptions): Promise<Buffer> {
+    if (typeof this.page.pdf !== 'function') {
+      throw new Error('Browser provider does not support PDF generation.');
+    }
+    const bytes = await this.page.pdf({
+      printBackground: opts?.printBackground,
+      format: opts?.format,
+    });
+    return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  }
+
+  async consoleMessages(
+    opts?: ConsoleMessageOptions,
+  ): Promise<BrowserConsoleMessage[]> {
+    const limit =
+      typeof opts?.limit === 'number' && Number.isFinite(opts.limit)
+        ? Math.max(0, Math.floor(opts.limit))
+        : 200;
+    const messages = this.consoleLog.slice(-limit);
+    if (opts?.clear) this.consoleLog.length = 0;
+    return messages;
+  }
+
+  async waypoint(
+    _event: BrowserWaypointEvent,
+    _opts?: BrowserWaypointOptions,
+  ): Promise<void> {
+    // Local browser providers do not emit external waypoint events.
   }
 }
 

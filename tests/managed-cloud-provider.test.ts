@@ -87,18 +87,34 @@ function createMockPlaywright(): {
   page: {
     screenshot: ReturnType<typeof vi.fn>;
     goto: ReturnType<typeof vi.fn>;
+    pdf: ReturnType<typeof vi.fn>;
+    setInputFiles: ReturnType<typeof vi.fn>;
   };
+  emitConsole: (level: string, text: string) => void;
 } {
+  const consoleHandlers: Array<
+    (message: { type(): string; text(): string }) => void
+  > = [];
   const page = {
     evaluate: vi.fn(async (fn: () => unknown) => await fn()),
     screenshot: vi.fn(async () => Buffer.from('managed-png')),
+    pdf: vi.fn(async () => Buffer.from('managed-pdf')),
     goto: vi.fn(async () => undefined),
     goBack: vi.fn(async () => undefined),
     goForward: vi.fn(async () => undefined),
     reload: vi.fn(async () => undefined),
     click: vi.fn(async () => undefined),
     fill: vi.fn(async () => undefined),
+    setInputFiles: vi.fn(async () => undefined),
     url: vi.fn(() => 'https://allowed.example/login'),
+    on: vi.fn(
+      (
+        event: 'console',
+        handler: (message: { type(): string; text(): string }) => void,
+      ) => {
+        if (event === 'console') consoleHandlers.push(handler);
+      },
+    ),
     mouse: { wheel: vi.fn(async () => undefined) },
     waitForSelector: vi.fn(async () => undefined),
     locator: vi.fn(() => ({
@@ -125,6 +141,14 @@ function createMockPlaywright(): {
     connectOverCDP,
     browser,
     page,
+    emitConsole: (level, text) => {
+      for (const handler of consoleHandlers) {
+        handler({
+          type: () => level,
+          text: () => text,
+        });
+      }
+    },
   };
 }
 
@@ -413,6 +437,104 @@ test('managed cloud browser provider audits session loss on CDP disconnect', asy
         reason: 'Target closed',
       }),
     ]),
+  );
+});
+
+test('managed cloud browser provider supports upload, pdf, console, and waypoint actions', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'managed-browser-test-master-key';
+  vi.resetModules();
+
+  const { initDatabase, getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.js'
+  );
+  const { ManagedCloudBrowserProvider } = await import(
+    '../src/browser/managed-cloud-provider.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
+  await saveManagedBrowserSecrets({
+    MANAGED_BROWSER_POOL_TOKEN: 'pool-token',
+  });
+
+  const mock = createMockPlaywright();
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      jsonResponse(
+        {
+          leaseId: 'lease-actions',
+          nodeId: 'node-a',
+          cdpUrl: 'wss://pool.example/lease-actions',
+          startedAt: null,
+          expiresAt: null,
+          costUsd: 0,
+        },
+        201,
+      ),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({
+        leaseId: 'lease-actions',
+        endedAt: null,
+        costUsd: 0,
+      }),
+    );
+
+  const provider = new ManagedCloudBrowserProvider({
+    endpointUrl: 'https://managed-browser.example',
+    poolTokenRef: { source: 'store', id: 'MANAGED_BROWSER_POOL_TOKEN' },
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  const session = await provider.launchSession({
+    timeoutMs: 60_000,
+    metering: {
+      sessionId: 'session-actions',
+      agentId: 'agent-actions',
+      tenantId: 'tenant-a',
+      auditRunId: 'run-actions',
+      skillName: 'managed-login',
+    },
+  });
+
+  mock.emitConsole('log', 'hello from page');
+  await session.upload?.('#file', ['/tmp/example.txt']);
+  const pdf = await session.pdf?.({ printBackground: true, format: 'A4' });
+  const messages = await session.consoleMessages?.({ clear: true });
+  await session.waypoint?.('browser_await_two_factor', {
+    modality: 'totp',
+    prompt: 'Enter code',
+    sessionId: 'suspended-1',
+  });
+  await provider.closeSession(session);
+
+  expect(mock.page.setInputFiles).toHaveBeenCalledWith('#file', [
+    '/tmp/example.txt',
+  ]);
+  expect(mock.page.pdf).toHaveBeenCalledWith({
+    printBackground: true,
+    format: 'A4',
+  });
+  expect(pdf?.toString()).toBe('managed-pdf');
+  expect(messages).toEqual([
+    expect.objectContaining({
+      level: 'log',
+      text: 'hello from page',
+    }),
+  ]);
+
+  const audit = getRecentStructuredAuditForSession('session-actions', 20).map(
+    (entry) => JSON.parse(entry.payload),
+  );
+  expect(audit).toContainEqual(
+    expect.objectContaining({
+      type: 'browser.waypoint',
+      provider: 'managed-cloud',
+      waypoint: 'browser_await_two_factor',
+      suspendedSessionId: 'suspended-1',
+    }),
   );
 });
 

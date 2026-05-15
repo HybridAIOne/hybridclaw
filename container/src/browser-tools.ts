@@ -2250,6 +2250,40 @@ async function executeGatewayManagedBrowserTool(
     });
   }
 
+  if (name === 'browser_pdf') {
+    const outPath = resolveOutputPath(args.path, 'pdf');
+    const payload = await callGatewayManagedBrowser(name, {
+      printBackground: args.printBackground !== false,
+      format: typeof args.format === 'string' ? args.format : undefined,
+    });
+    const pdfBase64 = String(payload.pdfBase64 || '');
+    if (!pdfBase64) return failure('managed browser PDF was empty');
+    fs.writeFileSync(outPath, Buffer.from(pdfBase64, 'base64'));
+    const relativePath = toWorkspaceRelativePath(outPath);
+    if (!relativePath) {
+      return failure('failed to normalize PDF artifact path');
+    }
+    return success({ path: relativePath });
+  }
+
+  if (name === 'browser_upload') {
+    const filePaths = resolveUploadPaths(args);
+    const filePayloads = filePaths.map((filePath) => ({
+      name: path.basename(filePath),
+      dataBase64: fs.readFileSync(filePath).toString('base64'),
+    }));
+    const payload = await callGatewayManagedBrowser(name, {
+      ...args,
+      filePayloads,
+    });
+    return success({
+      target: payload.target || args.selector || args.ref || '',
+      ...(payload.selector ? { selector: payload.selector } : {}),
+      uploaded_count: payload.uploaded_count || filePaths.length,
+      files: filePaths,
+    });
+  }
+
   const payload = await callGatewayManagedBrowser(name, args);
   if (name === 'browser_navigate') {
     return success({
