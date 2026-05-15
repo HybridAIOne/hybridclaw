@@ -67,6 +67,16 @@ const CUSTOM_CALLBACK_TOOLS: McpToolDefinition[] = [
       },
     },
   },
+  {
+    name: 'voice_status',
+    description:
+      'Inspect read-only HybridClaw voice and TTS gateway configuration status. This does not place calls or synthesize speech.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    },
+  },
 ];
 
 function isCallbackTool(tool: ToolDefinition): boolean {
@@ -238,6 +248,67 @@ function handleSkillLookup(args: Record<string, unknown>): string {
   return JSON.stringify({ skills }, null, 2);
 }
 
+function gatewayStatusUrl(context: CodexMcpContext | null): string | null {
+  const baseUrl = String(context?.gatewayBaseUrl || '').trim();
+  if (!baseUrl) return null;
+  try {
+    const url = new URL(baseUrl);
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/api/status`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function handleVoiceStatus(
+  context: CodexMcpContext | null,
+): Promise<string> {
+  const url = gatewayStatusUrl(context);
+  if (!url) {
+    return JSON.stringify(
+      {
+        ok: false,
+        error:
+          'HybridClaw voice status is unavailable because gatewayBaseUrl is not configured.',
+      },
+      null,
+      2,
+    );
+  }
+
+  const headers: Record<string, string> = {};
+  if (context?.gatewayApiToken) {
+    headers.Authorization = `Bearer ${context.gatewayApiToken}`;
+  }
+  const response = await fetch(url, { method: 'GET', headers });
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    return JSON.stringify(
+      {
+        ok: false,
+        status: response.status,
+        error: parsed?.error || rawText || `HTTP ${response.status}`,
+      },
+      null,
+      2,
+    );
+  }
+
+  return JSON.stringify({ ok: true, voice: parsed?.voice ?? null }, null, 2);
+}
+
 export function buildUnavailableCallbackToolResult(toolName: string): {
   content: Array<{ type: 'text'; text: string }>;
   isError: true;
@@ -263,7 +334,8 @@ export function getHybridClawCallbackMcpToolNames(): string[] {
 }
 
 async function main(): Promise<void> {
-  applyContext(readContext());
+  const context = readContext();
+  applyContext(context);
   const tools = [
     ...TOOL_DEFINITIONS.filter(isCallbackTool).map(buildMcpTool),
     ...CUSTOM_CALLBACK_TOOLS,
@@ -288,6 +360,12 @@ async function main(): Promise<void> {
             text: handleSkillLookup(readRecord(request.params.arguments)),
           },
         ],
+        isError: false,
+      };
+    }
+    if (toolName === 'voice_status') {
+      return {
+        content: [{ type: 'text', text: await handleVoiceStatus(context) }],
         isError: false,
       };
     }

@@ -180,6 +180,7 @@ describe('Codex app-server runtime helpers', () => {
     expect(names).toContain('image_generate');
     expect(names).toContain('audio_transcribe');
     expect(names).toContain('skill_lookup');
+    expect(names).toContain('voice_status');
     expect(names).not.toContain('tts_status');
     expect(names).toContain('browser_navigate');
     expect(isHybridClawCallbackToolName('bash')).toBe(false);
