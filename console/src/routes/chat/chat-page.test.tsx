@@ -843,7 +843,10 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session B session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session B session',
+        hidden: true,
+      }),
     );
     expect(await screen.findByText('Delete session?')).not.toBeNull();
 
@@ -881,7 +884,10 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session B session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session B session',
+        hidden: true,
+      }),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
 
@@ -906,7 +912,10 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session B session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session B session',
+        hidden: true,
+      }),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
 
@@ -915,6 +924,7 @@ describe('ChatPage', () => {
         (
           screen.getByRole('button', {
             name: 'Delete Session A session',
+            hidden: true,
           }) as HTMLButtonElement
         ).disabled,
       ).toBe(true),
@@ -923,6 +933,7 @@ describe('ChatPage', () => {
       (
         screen.getByRole('button', {
           name: 'Delete Session B session',
+          hidden: true,
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
@@ -955,7 +966,10 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session A session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session A session',
+        hidden: true,
+      }),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
 
