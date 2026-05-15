@@ -642,7 +642,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
       agentId;
     if (!sessionId || !agentId || !tenantId) {
       throw new Error(
-        'ManagedCloudBrowserProvider requires metering.sessionId, metering.agentId, and a tenantId from metering or browser.managedCloud.defaultTenantId.',
+        'ManagedCloudBrowserProvider requires metering.sessionId and metering.agentId.',
       );
     }
     return {

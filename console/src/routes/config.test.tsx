@@ -186,7 +186,7 @@ describe('ConfigPage', () => {
         target: { value: 'MANAGED_BROWSER_POOL_TOKEN' },
       },
     );
-    fireEvent.change(screen.getByLabelText('Default tenant id'), {
+    fireEvent.change(screen.getByLabelText('Default tenant id (optional)'), {
       target: { value: 'tenant-a' },
     });
     expect(

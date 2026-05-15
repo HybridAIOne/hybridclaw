@@ -106,4 +106,41 @@ describe('managed browser tenant policy projection', () => {
       }),
     ]);
   });
+
+  test('uses the default agent id as the local tenant when tenant id is blank', () => {
+    const root = makeTempRoot();
+    writeAgentPolicy(
+      root,
+      'main',
+      `network:
+  default: allow
+`,
+    );
+
+    const result = syncLocalManagedBrowserTenantPolicyFromAdminPolicies({
+      dataDir: path.join(root, 'data'),
+      tenantId: '',
+      agentIds: ['main'],
+      resolveWorkspacePath: (agentId) => path.join(root, 'workspaces', agentId),
+    });
+
+    expect(result.tenantId).toBe('main');
+    const projected = YAML.parse(
+      fs.readFileSync(result.policyPath, 'utf-8'),
+    ) as {
+      tenants: Record<
+        string,
+        {
+          network: {
+            rules: Array<{ host: string; agent: string }>;
+          };
+        }
+      >;
+    };
+    expect(projected.tenants.main.network.rules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ host: '*', agent: 'main' }),
+      ]),
+    );
+  });
 });

@@ -315,6 +315,68 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
   expect(chain.checkedRecords).toBe(4);
 });
 
+test('managed cloud browser provider falls back to agent id when tenant id is blank', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'managed-browser-test-master-key';
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.js');
+  const { ManagedCloudBrowserProvider } = await import(
+    '../src/browser/managed-cloud-provider.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
+
+  const mock = createMockPlaywright();
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      jsonResponse({
+        leaseId: 'lease-agent',
+        nodeId: 'node-a',
+        cdpUrl: 'wss://pool.example/lease-agent',
+        startedAt: '2026-05-14T10:00:00.000Z',
+        expiresAt: '2026-05-14T10:01:00.000Z',
+        costUsd: 0,
+      }),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({
+        leaseId: 'lease-agent',
+        endedAt: '2026-05-14T10:00:10.000Z',
+        costUsd: 0,
+      }),
+    );
+  const provider = new ManagedCloudBrowserProvider({
+    endpointUrl: 'https://managed-browser.example',
+    defaultTenantId: '   ',
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  const session = await provider.launchSession({
+    metering: {
+      sessionId: 'session-agent-tenant',
+      agentId: 'agent-managed',
+      tenantId: '',
+    },
+  });
+  await provider.closeSession(session);
+
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    1,
+    'https://managed-browser.example/leases',
+    expect.objectContaining({
+      body: JSON.stringify({
+        tenantId: 'agent-managed',
+        agentId: 'agent-managed',
+        sessionId: 'session-agent-tenant',
+        auditRunId: null,
+      }),
+    }),
+  );
+});
+
 test('managed cloud browser provider returns guard denials before page navigation', async () => {
   const root = makeTempRoot();
   process.env.HOME = root;
@@ -550,7 +612,7 @@ test('managed cloud browser provider rejects unmetered sessions', async () => {
   });
 
   await expect(provider.launchSession({})).rejects.toThrow(
-    /requires metering\.sessionId, metering\.agentId/u,
+    /requires metering\.sessionId and metering\.agentId/u,
   );
   expect(fetchMock).not.toHaveBeenCalled();
 });

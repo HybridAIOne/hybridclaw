@@ -691,9 +691,10 @@ export function ConfigPage() {
                       />
                     </label>
                     <label className="field">
-                      <span>Default tenant id</span>
+                      <span>Default tenant id (optional)</span>
                       <input
                         value={browser.managedCloud.defaultTenantId}
+                        placeholder="Uses agent id when blank"
                         onChange={(event) =>
                           setDraft((current) =>
                             updateBrowserConfig(current, (currentBrowser) => ({
