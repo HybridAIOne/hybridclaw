@@ -20,6 +20,8 @@ import {
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
+import type { BrowserProvider, BrowserSession } from '../browser/provider.js';
+import { createBrowserProvider } from '../browser/provider-factory.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -315,6 +317,13 @@ type ApiAdminPolicyRequestBody = {
   rule?: unknown;
 };
 
+type GatewayBrowserSessionEntry = {
+  provider: BrowserProvider;
+  session: BrowserSession;
+};
+
+const gatewayBrowserSessions = new Map<string, GatewayBrowserSessionEntry>();
+
 async function handleApiAdminBrowserPoolHealth(
   res: ServerResponse,
 ): Promise<void> {
@@ -343,6 +352,143 @@ async function handleApiAdminBrowserPoolStart(
   res: ServerResponse,
 ): Promise<void> {
   sendJson(res, 200, await startLocalManagedBrowserPool());
+}
+
+function normalizeGatewayBrowserSessionId(value: unknown): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) throw new GatewayRequestError(400, 'Missing `sessionId`.');
+  return normalized;
+}
+
+function normalizeGatewayBrowserAgentId(value: unknown): string {
+  const normalized = String(value || '').trim();
+  return normalized || DEFAULT_AGENT_ID;
+}
+
+function gatewayBrowserTextPreviewHint(params: {
+  contentLength: number;
+  hasNoscript: boolean;
+  rootShell: boolean;
+}): string {
+  if (params.contentLength > 0) return 'ok';
+  if (params.hasNoscript) return 'javascript_required';
+  if (params.rootShell) return 'spa_shell_only';
+  return 'empty_extraction';
+}
+
+async function getGatewayBrowserSession(
+  sessionId: string,
+  agentId: string,
+  opts?: { headed?: boolean },
+): Promise<GatewayBrowserSessionEntry> {
+  const existing = gatewayBrowserSessions.get(sessionId);
+  if (existing) return existing;
+  const provider = createBrowserProvider(getRuntimeConfig().browser);
+  const session = await provider.launchSession({
+    headed: opts?.headed,
+    timeoutMs: 60_000,
+    metering: {
+      sessionId,
+      agentId,
+      auditRunId: `gateway_browser_${randomUUID().replace(/-/g, '')}`,
+    },
+  });
+  const entry = { provider, session };
+  gatewayBrowserSessions.set(sessionId, entry);
+  return entry;
+}
+
+async function handleApiBrowserTool(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as Record<string, unknown>;
+  const toolName = String(body.toolName || '').trim();
+  const sessionId = normalizeGatewayBrowserSessionId(body.sessionId);
+  const agentId = normalizeGatewayBrowserAgentId(body.agentId);
+  const args =
+    body.args && typeof body.args === 'object' && !Array.isArray(body.args)
+      ? (body.args as Record<string, unknown>)
+      : {};
+
+  if (toolName === 'browser_close') {
+    const active = gatewayBrowserSessions.get(sessionId);
+    if (active) {
+      await active.provider.closeSession(active.session);
+      gatewayBrowserSessions.delete(sessionId);
+    }
+    sendJson(res, 200, { success: true, closed: true });
+    return;
+  }
+
+  if (toolName === 'browser_navigate') {
+    const url = String(args.url || '').trim();
+    if (!url) throw new GatewayRequestError(400, 'Missing `args.url`.');
+    const active = await getGatewayBrowserSession(sessionId, agentId, {
+      headed: args.headed === true || args.headful === true,
+    });
+    await active.session.navigate(url, {
+      timeoutMs: 60_000,
+      waitUntil: 'domcontentloaded',
+    });
+    const pageState = await active.session.evaluate(() => {
+      const bodyText = document.body
+        ? String(document.body.innerText || '')
+        : '';
+      const normalized = bodyText
+        .replace(/\r/g, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      return {
+        url: String(window.location.href || ''),
+        title: String(document.title || ''),
+        preview: normalized.slice(0, 6000),
+        textLength: normalized.length,
+        previewTruncated: normalized.length > 6000,
+        hasNoscript: Boolean(document.querySelector('noscript')),
+        rootShell: Boolean(
+          document.querySelector(
+            'div#root:empty, div#app:empty, div#__next:empty',
+          ),
+        ),
+        readyState: String(document.readyState || ''),
+      };
+    });
+    sendJson(res, 200, {
+      success: true,
+      url: pageState.url || url,
+      title: pageState.title || '',
+      content_text_length: pageState.textLength || 0,
+      ...(pageState.preview ? { content_preview: pageState.preview } : {}),
+      content_preview_truncated: pageState.previewTruncated === true,
+      ready_state: pageState.readyState || '',
+      read_extraction_hint: gatewayBrowserTextPreviewHint({
+        contentLength: pageState.textLength || 0,
+        hasNoscript: pageState.hasNoscript === true,
+        rootShell: pageState.rootShell === true,
+      }),
+    });
+    return;
+  }
+
+  if (toolName === 'browser_screenshot') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const image = await active.session.screenshot({
+      fullPage: args.fullPage === true,
+      type: 'png',
+    });
+    sendJson(res, 200, {
+      success: true,
+      imageBase64: Buffer.from(image).toString('base64'),
+    });
+    return;
+  }
+
+  throw new GatewayRequestError(
+    400,
+    `Unsupported gateway browser tool: ${toolName}`,
+  );
 }
 
 function normalizeStringListInput(value: unknown): string[] | undefined {
@@ -4996,6 +5142,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/http/request' && method === 'POST') {
             await handleApiHttpRequest(req, res);
+            return;
+          }
+          if (pathname === '/api/browser/tool' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiBrowserTool(req, res);
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {

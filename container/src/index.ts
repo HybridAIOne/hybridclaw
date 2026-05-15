@@ -1772,6 +1772,9 @@ async function main(): Promise<void> {
     firstInput.gatewayApiToken,
     firstInput.channelId,
     firstInput.configuredDiscordChannels,
+    firstInput.browserProvider,
+    firstInput.sessionId,
+    firstInput.agentId,
   );
   setWebSearchConfig(firstInput.webSearch);
   setModelContext(
@@ -1945,6 +1948,9 @@ async function main(): Promise<void> {
       input.gatewayApiToken,
       input.channelId,
       input.configuredDiscordChannels,
+      input.browserProvider,
+      input.sessionId,
+      input.agentId,
     );
     setWebSearchConfig(input.webSearch);
     setModelContext(

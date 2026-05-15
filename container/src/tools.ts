@@ -775,10 +775,19 @@ export function setGatewayContext(
   apiToken?: string,
   channelId?: string,
   configuredChannels?: string[],
+  browserProvider?: string,
+  sessionId?: string,
+  agentId?: string,
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
-  setBrowserGatewayContext(gatewayBaseUrl, gatewayApiToken);
+  setBrowserGatewayContext(
+    gatewayBaseUrl,
+    gatewayApiToken,
+    browserProvider,
+    sessionId,
+    agentId,
+  );
   gatewayChannelId = String(channelId || '').trim();
   gatewayConfiguredChannels =
     normalizeConfiguredChannelList(configuredChannels);

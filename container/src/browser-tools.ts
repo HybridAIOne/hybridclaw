@@ -244,14 +244,23 @@ let currentBrowserModelContext: BrowserModelContext = {
 let currentBrowserTaskModels: TaskModelPolicies | undefined;
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
+let gatewayBrowserProvider = '';
+let gatewayBrowserSessionId = '';
+let gatewayBrowserAgentId = '';
 const suspendedSessionByBrowserSession = new Map<string, string>();
 
 export function setBrowserGatewayContext(
   baseUrl?: string,
   apiToken?: string,
+  browserProvider?: string,
+  sessionId?: string,
+  agentId?: string,
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
+  gatewayBrowserProvider = String(browserProvider || '').trim();
+  gatewayBrowserSessionId = String(sessionId || '').trim();
+  gatewayBrowserAgentId = String(agentId || '').trim();
 }
 
 function cloneTaskModelPolicies(
@@ -2154,6 +2163,106 @@ function failure(message: string): string {
   return JSON.stringify({ success: false, error: message }, null, 2);
 }
 
+function shouldUseGatewayManagedBrowser(name: string): boolean {
+  return (
+    gatewayBrowserProvider === 'managed-cloud' &&
+    (name === 'browser_navigate' ||
+      name === 'browser_screenshot' ||
+      name === 'browser_close')
+  );
+}
+
+async function callGatewayManagedBrowser(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (!gatewayBaseUrl || !gatewayApiToken) {
+    throw new Error(
+      'managed-cloud browser provider requires gatewayBaseUrl and gatewayApiToken',
+    );
+  }
+  const response = await fetch(
+    `${gatewayBaseUrl.replace(/\/+$/u, '')}/api/browser/tool`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${gatewayApiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        toolName: name,
+        sessionId: gatewayBrowserSessionId || 'default',
+        agentId: gatewayBrowserAgentId || 'main',
+        args,
+      }),
+      signal: AbortSignal.timeout(90_000),
+    },
+  );
+  const payload = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  if (!response.ok || payload.success === false) {
+    throw new Error(
+      String(
+        payload.error || `gateway browser tool failed: ${response.status}`,
+      ),
+    );
+  }
+  return payload;
+}
+
+async function executeGatewayManagedBrowserTool(
+  name: string,
+  args: Record<string, unknown>,
+  effectiveSessionId: string,
+): Promise<string> {
+  if (name === 'browser_screenshot') {
+    const outPath = resolveOutputPath(args.path, 'png');
+    const payload = await callGatewayManagedBrowser(name, {
+      fullPage: args.fullPage === true,
+    });
+    const imageBase64 = String(payload.imageBase64 || '');
+    if (!imageBase64) return failure('managed browser screenshot was empty');
+    fs.writeFileSync(outPath, Buffer.from(imageBase64, 'base64'));
+    const relativePath = toWorkspaceRelativePath(outPath);
+    if (!relativePath) {
+      return failure('failed to normalize screenshot artifact path');
+    }
+    return success({
+      path: relativePath,
+      image_url: relativePath,
+    });
+  }
+
+  const payload = await callGatewayManagedBrowser(name, args);
+  if (name === 'browser_navigate') {
+    return success({
+      url: payload.url || args.url || '',
+      title: payload.title || '',
+      session_id: effectiveSessionId,
+      content_text_length: payload.content_text_length || 0,
+      ...(typeof payload.content_preview === 'string'
+        ? { content_preview: payload.content_preview }
+        : {}),
+      ...(payload.content_preview_truncated === true
+        ? { content_preview_truncated: true }
+        : {}),
+      ...(typeof payload.ready_state === 'string'
+        ? { ready_state: payload.ready_state }
+        : {}),
+      read_extraction_hint: payload.read_extraction_hint || 'ok',
+      headed: false,
+    });
+  }
+
+  if (name === 'browser_close') {
+    return success({ closed: true });
+  }
+
+  return success(payload);
+}
+
 export async function executeBrowserTool(
   name: string,
   args: Record<string, unknown>,
@@ -2161,6 +2270,13 @@ export async function executeBrowserTool(
 ): Promise<string> {
   try {
     const effectiveSessionId = normalizeSessionKey(sessionId || 'default');
+    if (shouldUseGatewayManagedBrowser(name)) {
+      return await executeGatewayManagedBrowserTool(
+        name,
+        args,
+        effectiveSessionId,
+      );
+    }
     switch (name) {
       case 'browser_navigate': {
         const parsed = await assertBrowserNavigationUrl(args.url);

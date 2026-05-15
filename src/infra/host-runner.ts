@@ -949,6 +949,7 @@ async function runHostProcessInner(
 
   const input: ContainerInput = {
     sessionId,
+    agentId,
     messages,
     chatbotId: modelRuntime.chatbotId,
     enableRag: modelRuntime.enableRag,
@@ -962,6 +963,7 @@ async function runHostProcessInner(
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: GATEWAY_BASE_URL,
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
+    browserProvider: BROWSER_PROVIDER,
     model,
     ralphMaxIterations,
     fullAutoEnabled,
