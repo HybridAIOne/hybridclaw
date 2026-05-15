@@ -93,6 +93,25 @@ test('listStructuredAuditEntries can prefix-match event type for type-ahead filt
     ).toEqual(['usage.batch_flushed']);
   }
 
+  logStructuredAuditEvent({
+    version: '2.0',
+    seq: 3,
+    timestamp: new Date(3000).toISOString(),
+    runId: 'run-3',
+    sessionId: 'session-audit-typeahead',
+    event: { type: 'usage.batchXflushed' },
+    _prevHash: 'prev-3',
+    _hash: 'hash-3',
+  } satisfies WireRecord);
+
+  expect(
+    listStructuredAuditEntries({
+      eventType: 'usage.batch_',
+      eventTypeMatch: 'prefix',
+      limit: 10,
+    }).map((entry) => entry.event_type),
+  ).toEqual(['usage.batch_flushed']);
+
   expect(
     listStructuredAuditEntries({
       eventType: 'usage',
