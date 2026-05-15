@@ -6,6 +6,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { deflateRawSync } from 'node:zlib';
 import {
+  readFiniteNumberOr,
+  readString as readStringValue,
+} from '../shared/primitive-values.js';
+import {
   resolveWorkspacePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
@@ -63,7 +67,6 @@ interface DiagramRuntimeEvent {
   artifact_ref?: string;
   source_artifact_ref?: string;
   diagram_type: MermaidDiagramType;
-  requested_type?: DiagramType;
   format: DiagramFormat;
   render_to: DiagramRenderTarget;
   errors?: string[];
@@ -126,10 +129,6 @@ const MERMAID_HEADERS: Record<MermaidDiagramType, RegExp> = {
   mindmap: /^mindmap\b/i,
   pie: /^pie\b/i,
 };
-
-function readStringValue(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function readSourceValue(args: Record<string, unknown>): string {
   return readStringValue(args.source);
@@ -356,70 +355,8 @@ async function validateMermaid(
       `Expected Mermaid ${type} source to start with the ${type} diagram header.`,
     );
   }
-  const delimiterSource =
-    type === 'er'
-      ? body.replace(/[|o}]\{/g, 'oo').replace(/\}[|o]/g, 'oo')
-      : body;
-  if (!hasBalancedDelimiters(delimiterSource)) {
-    errors.push(
-      'Source has unbalanced brackets, braces, parentheses, or quotes.',
-    );
-  }
 
-  const lines = body
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('%%'));
-  const rest = lines.slice(1).join('\n');
-  if (
-    type === 'sequence' &&
-    !/(?:-{1,2}|={1,2})>>?|participant\b|actor\b/i.test(rest)
-  ) {
-    errors.push(
-      'Sequence diagrams need at least one participant/actor or message arrow.',
-    );
-  }
-  if (type === 'flowchart' && !/(-->|---|==>|-.->|\bo--|\bx--)/.test(rest)) {
-    errors.push('Flowcharts need at least one edge such as A --> B.');
-  }
-  if (type === 'state' && !/-->/.test(rest)) {
-    errors.push('State diagrams need at least one transition using -->.');
-  }
-  if (
-    type === 'er' &&
-    !(/(?:\|\||\}\||\}o|o\{|o\|)--/.test(rest) || /\w+\s*\{/.test(rest))
-  ) {
-    errors.push(
-      'ER diagrams need an entity block or relationship cardinality.',
-    );
-  }
-  if (type === 'class' && !/\bclass\s+\w+|<\|--|--\*|--o/.test(rest)) {
-    errors.push(
-      'Class diagrams need at least one class declaration or relationship.',
-    );
-  }
-  if (
-    type === 'gantt' &&
-    !(/\bdateFormat\b/i.test(rest) && /:\s*\w*,/.test(rest))
-  ) {
-    errors.push('Gantt diagrams need a dateFormat and at least one task line.');
-  }
-  if (
-    type === 'git-graph' &&
-    !/\b(commit|branch|checkout|merge)\b/i.test(rest)
-  ) {
-    errors.push(
-      'Git graphs need at least one commit, branch, checkout, or merge statement.',
-    );
-  }
-  if (type === 'mindmap' && !/\n\s+\S/.test(body)) {
-    errors.push('Mindmaps need indented child nodes below the root.');
-  }
-  if (type === 'pie' && !/"?[^"\n:]+"?\s*:\s*\d+(?:\.\d+)?/.test(rest)) {
-    errors.push('Pie charts need at least one "Label" : number entry.');
-  }
-
-  if (errors.length === 0) {
+  if (body) {
     try {
       const mermaid = await loadMermaidParser();
       await withMermaidDom(async () => {
@@ -808,7 +745,7 @@ function renderSourceSvg(source: string, title: string): Buffer {
 }
 
 function readNumber(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  return readFiniteNumberOr(value, fallback);
 }
 
 function readElementColor(value: unknown, fallback: string): string {
@@ -1168,7 +1105,6 @@ function buildValidationFailedEvent(params: {
       ? { source_artifact_ref: params.sourceArtifact.path }
       : {}),
     diagram_type: params.request.type,
-    requested_type: params.request.requestedType,
     format: params.request.format,
     render_to: params.request.renderTo,
     errors: params.errors,
@@ -1186,7 +1122,6 @@ function buildRenderedEvent(params: {
     artifact_ref: params.renderedArtifact.path,
     source_artifact_ref: params.sourceArtifact.path,
     diagram_type: params.request.type,
-    requested_type: params.request.requestedType,
     format: params.request.format,
     render_to: params.request.renderTo,
   };

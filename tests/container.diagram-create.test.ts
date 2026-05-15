@@ -221,7 +221,9 @@ describe('diagram tools', () => {
     expect(result.isError).toBe(false);
     expect(parsed.success).toBe(true);
     expect(parsed.valid).toBe(false);
-    expect(parsed.errors.join('\n')).toContain('unbalanced');
+    expect(parsed.errors.join('\n')).toContain(
+      'Mermaid parser rejected source',
+    );
     expect(parsed.suggested_fix).toContain('flowchart TD');
   });
 

@@ -112,7 +112,7 @@ If the user only asks to annotate a diagram and exact placement does not matter,
 ## Adapter Notes
 
 - Mermaid and Graphviz use local renderers when available. If a renderer is not installed, SVG requests fall back to source-backed SVG artifacts so the operator still gets an embed-ready file.
-- Mermaid validation uses the bundled Mermaid parser before rendering, so syntax errors are surfaced even when `mmdc` is not installed.
+- Mermaid validation uses the bundled Mermaid parser before rendering, so syntax errors are surfaced even when `mmdc` is not installed. The first validation loads the parser and scoped DOM support; later validations reuse the cached parser.
 - PlantUML rendering uses `HYBRIDCLAW_PLANTUML_SERVER_URL` or `PLANTUML_SERVER_URL` when configured. Without a server, SVG requests fall back to source-backed SVG artifacts. Operators are responsible for pointing this setting only at a trusted PlantUML server with appropriate network egress controls.
 - Excalidraw defaults to `render_to: "none"` because JSON is the editable deliverable. Use `render_to: "svg"` when a static preview is requested; the runtime renders the JSON elements directly to SVG.
 - Local Mermaid and Graphviz renders use short-lived OS temp directories. Normal tool completion removes them; process-level termination such as SIGKILL may leave temporary source copies for the OS temp cleaner.
