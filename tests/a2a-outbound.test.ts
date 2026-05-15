@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
+import fs from 'node:fs';
 import { describe, expect, test, vi } from 'vitest';
 
 import {
@@ -232,6 +233,73 @@ describe('A2A outbound adapter', () => {
     expect(
       requests.find((request) => request.ifNoneMatch === '"card-v1"'),
     ).toBeTruthy();
+  });
+
+  test('uses one default audit session for queued send and delivery events', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const audit = await import('../src/audit/audit-trail.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-a2a-default-audit'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        url: 'http://127.0.0.1:65535/a2a',
+      },
+      transportRegistry: registry,
+    });
+
+    const fetchImpl = vi.fn(
+      async (_url: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'GET') {
+          return Response.json({
+            name: 'Peer',
+            url: 'http://127.0.0.1:65535/a2a',
+            capabilities: [],
+          });
+        }
+        return Response.json({ jsonrpc: '2.0', result: { kind: 'message' } });
+      },
+    );
+
+    await expect(
+      a2a.processA2AOutbox({
+        fetchImpl,
+        now: () => new Date('2030-01-01T00:00:00.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      delivered: 1,
+    });
+
+    const sessionId = 'a2a:thread:thread-a2a';
+    const records = fs
+      .readFileSync(audit.getAuditWirePath(sessionId), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .slice(1)
+      .map((line) => JSON.parse(line));
+    const canonicalEvents = records.filter((record) =>
+      ['a2a.send', 'a2a.deliver'].includes(record.event.type),
+    );
+
+    expect(canonicalEvents.map((record) => record.event.type)).toEqual([
+      'a2a.send',
+      'a2a.deliver',
+    ]);
+    expect(canonicalEvents.map((record) => record.event.transport)).toEqual([
+      'a2a',
+      'a2a',
+    ]);
+    expect(audit.verifyAuditSessionChain(sessionId)).toMatchObject({
+      ok: true,
+      errors: [],
+    });
   });
 
   test('honors delegation token revocations and expiry', async () => {

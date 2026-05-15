@@ -17,6 +17,7 @@ import {
   type SecretRef,
 } from '../security/secret-refs.js';
 import type { EscalationTarget } from '../types/execution.js';
+import { getA2AAuditSessionId, recordA2AMessageAudit } from './audit.js';
 import {
   type A2AEnvelope,
   summarizeA2AEnvelopeForAudit,
@@ -337,12 +338,8 @@ export function enqueueWebhookEnvelope(
   return item;
 }
 
-function webhookSessionId(item: WebhookOutboxItem): string {
-  return `a2a:webhook:${item.envelope.thread_id}`;
-}
-
 function resolveItemSessionId(item: WebhookOutboxItem): string {
-  return item.sessionId || webhookSessionId(item);
+  return item.sessionId ?? getA2AAuditSessionId(item.envelope);
 }
 
 function resolveItemRunId(item: WebhookOutboxItem, prefix: string): string {
@@ -537,6 +534,17 @@ async function deliverWebhookItem(
       lastError: undefined,
     };
     persistOutboxItem(delivered);
+    recordA2AMessageAudit({
+      type: 'a2a.deliver',
+      envelope: delivered.envelope,
+      sessionId: resolveItemSessionId(delivered),
+      runId: resolveItemRunId(delivered, 'a2a-webhook'),
+      route: 'a2a.webhook.delivery',
+      source: 'a2a-webhook',
+      transport: 'webhook',
+      statusCode: response.status,
+      attempts: attemptNumber,
+    });
     recordWebhookAudit(delivered, {
       type: 'a2a.webhook.delivered',
       statusCode: response.status,

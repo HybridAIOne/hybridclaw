@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { describe, expect, test, vi } from 'vitest';
 
 import {
@@ -125,6 +126,66 @@ describe('A2A webhook outbound adapter', () => {
       lastStatusCode: 200,
     });
     expect(receivedHeaders).toHaveLength(1);
+  });
+
+  test('uses one default audit session for queued webhook send and delivery events', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const audit = await import('../src/audit/audit-trail.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const webhook = await import('../src/a2a/webhook-outbound.ts');
+    const secrets = await import('../src/security/runtime-secrets.ts');
+
+    initDatabase({ quiet: true });
+    secrets.saveNamedRuntimeSecrets({ A2A_WEBHOOK_SECRET: 'shared-secret' });
+    const registry = new transport.TransportRegistry();
+    registry.register(
+      new webhook.WebhookOutboundAdapter({ autoProcess: false }),
+    );
+
+    runtime.sendMessage(sampleA2AWebhookEnvelope('msg-webhook-default-audit'), {
+      peerDescriptor: {
+        transport: 'webhook',
+        url: 'https://hooks.example.com/a2a',
+        secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
+      },
+      transportRegistry: registry,
+    });
+
+    await expect(
+      webhook.processWebhookOutbox({
+        fetchImpl: vi.fn(async () => new Response('', { status: 200 })),
+        now: () => new Date('2030-01-01T00:00:00.000Z'),
+        jitterRatio: 0,
+      }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      delivered: 1,
+    });
+
+    const sessionId = 'a2a:thread:thread-webhook';
+    const records = fs
+      .readFileSync(audit.getAuditWirePath(sessionId), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .slice(1)
+      .map((line) => JSON.parse(line));
+    const canonicalEvents = records.filter((record) =>
+      ['a2a.send', 'a2a.deliver'].includes(record.event.type),
+    );
+
+    expect(canonicalEvents.map((record) => record.event.type)).toEqual([
+      'a2a.send',
+      'a2a.deliver',
+    ]);
+    expect(canonicalEvents.map((record) => record.event.transport)).toEqual([
+      'webhook',
+      'webhook',
+    ]);
+    expect(audit.verifyAuditSessionChain(sessionId)).toMatchObject({
+      ok: true,
+      errors: [],
+    });
   });
 
   test('fails and escalates when the webhook secret cannot be resolved', async () => {
