@@ -69,10 +69,6 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
-import {
-  getAnthropicAuthStatus,
-  isAnthropicAuthReadyForMethod,
-} from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
@@ -263,18 +259,12 @@ import {
   removeHttpSecretRouteFromWorkspacePolicy,
   restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
-import {
-  discoverCodexModels,
-  getDiscoveredCodexModelNames,
-} from '../providers/codex-discovery.js';
+import { discoverCodexModels } from '../providers/codex-discovery.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
-import {
-  discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelNames,
-} from '../providers/huggingface-discovery.js';
+import { discoverHuggingFaceModels } from '../providers/huggingface-discovery.js';
 import {
   fetchHybridAIAccountChatbotId,
   fetchHybridAIBots,
@@ -283,7 +273,6 @@ import {
 import { getLocalModelInfo } from '../providers/local-discovery.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import {
@@ -303,11 +292,7 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
-import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
-import {
-  discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelNames,
-} from '../providers/openrouter-discovery.js';
+import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
@@ -521,7 +506,6 @@ import {
   type GatewayCommandResult,
   type GatewayHistorySummary,
   type GatewayModelProviderKey,
-  type GatewayProviderHealthEntry,
   type GatewayRecentChatSession,
   type GatewayStatus,
   renderGatewayCommand,
@@ -536,6 +520,10 @@ import { initializeGoalContinuationRunner } from './goal-continuation-runner.js'
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
+import {
+  buildGatewayProviderHealth,
+  getGatewayAdminProviderStatus,
+} from './provider-status.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
   describeSessionShowMode,
@@ -1700,108 +1688,6 @@ function getAdminChannelDisabledSkills(
       ])
       .sort(([left], [right]) => String(left).localeCompare(String(right))),
   );
-}
-
-function buildGatewayProviderHealth(params: {
-  localBackends: GatewayStatus['localBackends'];
-  codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridaiHealth: GatewayProviderHealthEntry;
-}): NonNullable<GatewayStatus['providerHealth']> {
-  const runtimeConfig = getRuntimeConfig();
-  const anthropicStatus = getAnthropicAuthStatus();
-  const anthropicReady = isAnthropicAuthReadyForMethod(
-    anthropicStatus,
-    runtimeConfig.anthropic.method,
-  );
-  const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: params.hybridaiHealth,
-    codex: {
-      kind: 'remote',
-      reachable: params.codex.authenticated && !params.codex.reloginRequired,
-      ...(params.codex.authenticated && !params.codex.reloginRequired
-        ? {}
-        : {
-            error: params.codex.reloginRequired
-              ? 'Login required'
-              : 'Not authenticated',
-          }),
-      ...(params.codex.reloginRequired ? { loginRequired: true } : {}),
-      modelCount: dedupeStrings(getDiscoveredCodexModelNames()).length,
-      detail:
-        params.codex.authenticated && !params.codex.reloginRequired
-          ? `Authenticated${params.codex.source ? ` via ${params.codex.source}` : ''}`
-          : params.codex.reloginRequired
-            ? 'Login required'
-            : 'Not authenticated',
-    },
-  };
-  if (runtimeConfig.anthropic.enabled || anthropicStatus.authenticated) {
-    providerHealth.anthropic = {
-      kind: 'remote',
-      reachable: anthropicReady,
-      ...(anthropicReady ? {} : { error: 'Not authenticated' }),
-      modelCount: dedupeStrings(runtimeConfig.anthropic.models).length,
-      detail: anthropicReady
-        ? `Authenticated${anthropicStatus.source ? ` via ${anthropicStatus.source}` : ''}`
-        : anthropicStatus.authenticated && anthropicStatus.method
-          ? `Detected ${anthropicStatus.method}, configured ${runtimeConfig.anthropic.method}`
-          : 'Not authenticated',
-    };
-  }
-  const optionalRemoteProviders = [
-    {
-      key: 'openrouter',
-      enabled: runtimeConfig.openrouter.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('openrouter', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredOpenRouterModelNames()).length,
-    },
-    {
-      key: 'mistral',
-      enabled: runtimeConfig.mistral.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('mistral', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredMistralModelNames()).length,
-    },
-    {
-      key: 'huggingface',
-      enabled: runtimeConfig.huggingface.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('huggingface', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredHuggingFaceModelNames()).length,
-    },
-  ] as const;
-
-  for (const provider of optionalRemoteProviders) {
-    if (!provider.enabled) continue;
-    providerHealth[provider.key] = {
-      kind: 'remote',
-      reachable: provider.authenticated,
-      ...(provider.authenticated ? {} : { error: 'Not authenticated' }),
-      modelCount: provider.modelCount,
-      detail: provider.authenticated ? 'Authenticated' : 'Not authenticated',
-    };
-  }
-
-  for (const [name, status] of Object.entries(params.localBackends || {})) {
-    providerHealth[name as keyof typeof providerHealth] = {
-      kind: 'local',
-      reachable: status.reachable,
-      latencyMs: status.latencyMs,
-      ...(status.error ? { error: status.error } : {}),
-      ...(typeof status.modelCount === 'number'
-        ? { modelCount: status.modelCount }
-        : {}),
-      detail: status.reachable
-        ? `${status.latencyMs}ms`
-        : status.error || 'unreachable',
-    };
-  }
-
-  return providerHealth;
 }
 
 async function getGatewayStatusForModelSubcommand(
@@ -5617,41 +5503,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     runtimeConfig.hybridai.defaultModel,
     modelIds,
   );
-  const status = await getGatewayStatus();
-  const providerStatus = Object.fromEntries(
-    Object.entries(status.providerHealth || {}).map(([name, value]) => [
-      name,
-      { ...value },
-    ]),
-  ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
-  const REMOTE_OPENAI_COMPAT_KEYS = [
-    'openrouter',
-    'mistral',
-    'huggingface',
-    'gemini',
-    'deepseek',
-    'xai',
-    'zai',
-    'kimi',
-    'minimax',
-    'dashscope',
-    'xiaomi',
-    'kilo',
-  ] as const;
-  for (const key of REMOTE_OPENAI_COMPAT_KEYS) {
-    if (providerStatus[key]) continue;
-    const diagnostic = diagnoseProviderForModels(key, status.providerHealth);
-    providerStatus[key] = {
-      kind: 'remote',
-      reachable: diagnostic === null,
-      ...(diagnostic
-        ? {
-            error: diagnostic.message,
-            loginRequired: diagnostic.kind === 'unauthorized',
-          }
-        : {}),
-    };
-  }
+  const providerStatus = await getGatewayAdminProviderStatus();
   const modelCountByProvider = new Map<
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
