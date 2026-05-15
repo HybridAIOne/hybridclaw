@@ -607,12 +607,6 @@ export function ConfigPage() {
                             : 'Start Docker pool'}
                         </button>
                       </div>
-                      {browserPoolHealth?.status === 'offline' ? (
-                        <p className="supporting-text">
-                          Start a local pool here for loopback endpoints, or run
-                          the browser-pool Compose service separately.
-                        </p>
-                      ) : null}
                     </div>
                     <label className="field">
                       <span>Pool endpoint URL</span>
