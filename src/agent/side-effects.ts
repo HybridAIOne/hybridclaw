@@ -1,5 +1,5 @@
 import { logger } from '../logger.js';
-import { createTask, deleteTask } from '../memory/db.js';
+import { createJob, deleteJob } from '../memory/jobs.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
 import type { ContainerOutput } from '../types/container.js';
 import type { DelegationSideEffect } from '../types/side-effects.js';
@@ -28,14 +28,15 @@ export function processSideEffects(
       try {
         if (effect.action === 'add') {
           const deliveryChannelId = effect.channelId?.trim() || channelId;
-          const taskId = createTask(
+          const taskId = createJob({
+            kind: 'scheduled_task',
             sessionId,
-            deliveryChannelId,
-            effect.cronExpr || '',
-            effect.prompt,
-            effect.runAt,
-            effect.everyMs,
-          );
+            channelId: deliveryChannelId,
+            cronExpr: effect.cronExpr || '',
+            prompt: effect.prompt,
+            runAt: effect.runAt,
+            everyMs: effect.everyMs,
+          });
           logger.info(
             {
               taskId,
@@ -49,7 +50,7 @@ export function processSideEffects(
           );
           changed = true;
         } else if (effect.action === 'remove') {
-          deleteTask(effect.taskId);
+          deleteJob(effect.taskId);
           logger.info(
             { taskId: effect.taskId, sessionId },
             'Side-effect: removed task',

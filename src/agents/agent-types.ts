@@ -42,6 +42,13 @@ export interface AgentWebSearchConfig {
   searxngBearerTokenRef?: SecretRef;
 }
 
+export type AgentBudgetCurrency = 'USD' | 'EUR';
+
+export interface AgentBudgetConfig {
+  cap: number;
+  currency: AgentBudgetCurrency;
+}
+
 export interface AgentConfig {
   id: string;
   name?: string;
@@ -61,6 +68,7 @@ export interface AgentConfig {
   escalationTarget?: EscalationTarget;
   a2a?: AgentA2AConfig;
   webSearch?: AgentWebSearchConfig;
+  budget?: AgentBudgetConfig;
 }
 
 export interface AgentDefaultsConfig {
@@ -133,6 +141,44 @@ export function cloneAgentWebSearchConfig(
       : {}),
   };
   return Object.keys(clone).length > 0 ? clone : undefined;
+}
+
+export function cloneAgentBudgetConfig(
+  value: AgentBudgetConfig | undefined,
+): AgentBudgetConfig | undefined {
+  return value ? { ...value } : undefined;
+}
+
+export function normalizeAgentBudgetConfig(
+  value: unknown,
+  fallback?: AgentBudgetConfig,
+): AgentBudgetConfig | undefined {
+  if (value === undefined) return cloneAgentBudgetConfig(fallback);
+  if (value === null || value === '') return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return cloneAgentBudgetConfig(fallback);
+  }
+
+  const raw = value as Record<string, unknown>;
+  const capValue = raw.cap ?? raw.monthlyCap;
+  const parsedCap =
+    typeof capValue === 'number'
+      ? capValue
+      : typeof capValue === 'string' && capValue.trim()
+        ? Number.parseFloat(capValue)
+        : fallback?.cap;
+  if (!Number.isFinite(parsedCap) || (parsedCap ?? 0) <= 0) return undefined;
+
+  const rawCurrency =
+    typeof raw.currency === 'string'
+      ? raw.currency.trim().toUpperCase()
+      : fallback?.currency;
+  const currency: AgentBudgetCurrency = rawCurrency === 'EUR' ? 'EUR' : 'USD';
+
+  return {
+    cap: parsedCap as number,
+    currency,
+  };
 }
 
 export function normalizeAgentWebSearchConfig(

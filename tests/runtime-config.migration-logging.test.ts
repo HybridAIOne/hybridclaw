@@ -30,8 +30,11 @@ function writeRuntimeConfig(
     'hybridclaw.db',
   );
   delete config.container.sandboxMode;
-  if (Array.isArray(config.scheduler?.jobs)) {
-    for (const job of config.scheduler.jobs) {
+  const legacyScheduler = (
+    config as unknown as { scheduler?: { jobs?: unknown[] } }
+  ).scheduler;
+  if (Array.isArray(legacyScheduler?.jobs)) {
+    for (const job of legacyScheduler.jobs) {
       if (job?.schedule) {
         if (!Object.hasOwn(job.schedule, 'at')) {
           job.schedule.at = null;

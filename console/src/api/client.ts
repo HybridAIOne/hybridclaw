@@ -11,6 +11,7 @@ import type {
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
+  AdminBoardBudgetResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
@@ -533,6 +534,22 @@ export function fetchJobsContext(
   });
 }
 
+export function fetchBoardBudgetSummaries(
+  token: string,
+  agentIds?: string[],
+): Promise<AdminBoardBudgetResponse> {
+  const params = new URLSearchParams();
+  for (const agentId of agentIds || []) {
+    const normalized = agentId.trim();
+    if (normalized) params.append('agentId', normalized);
+  }
+  const query = params.toString();
+  return requestJson<AdminBoardBudgetResponse>(
+    `/api/admin/board/budgets${query ? `?${query}` : ''}`,
+    { token },
+  );
+}
+
 export async function fetchSessions(token: string): Promise<AdminSession[]> {
   const payload = await requestJson<{ sessions: AdminSession[] }>(
     '/api/admin/sessions',
@@ -809,7 +826,7 @@ export function deleteSchedulerJob(
 export function setSchedulerJobPaused(
   token: string,
   payload:
-    | { source: 'config'; jobId: string; action: 'pause' | 'resume' }
+    | { source: 'job'; jobId: string; action: 'pause' | 'resume' }
     | { source: 'task'; taskId: number; action: 'pause' | 'resume' },
 ): Promise<AdminSchedulerResponse> {
   return requestJson<AdminSchedulerResponse>('/api/admin/scheduler', {
