@@ -25,6 +25,7 @@ function cloneConfig<T>(value: T): T {
 
 type BrowserConfig = NonNullable<AdminConfig['browser']>;
 type BrowserProvider = BrowserConfig['provider'];
+const LOCAL_DOCKER_POOL_TENANT_ID = 'main';
 
 function DecimalNumberInput({
   id,
@@ -101,8 +102,42 @@ function defaultBrowserConfig(): BrowserConfig {
   };
 }
 
-function browserConfig(config: AdminConfig): BrowserConfig {
+function isLoopbackBrowserEndpoint(endpointUrl: string): boolean {
+  try {
+    const parsed = new URL(endpointUrl);
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      parsed.protocol === 'http:' &&
+      (hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function applyLocalDockerPoolTenantDefault(
+  browser: BrowserConfig,
+): BrowserConfig {
+  if (
+    browser.provider !== 'managed-cloud' ||
+    !isLoopbackBrowserEndpoint(browser.managedCloud.endpointUrl) ||
+    browser.managedCloud.defaultTenantId.trim()
+  ) {
+    return browser;
+  }
   return {
+    ...browser,
+    managedCloud: {
+      ...browser.managedCloud,
+      defaultTenantId: LOCAL_DOCKER_POOL_TENANT_ID,
+    },
+  };
+}
+
+function browserConfig(config: AdminConfig): BrowserConfig {
+  return applyLocalDockerPoolTenantDefault({
     ...defaultBrowserConfig(),
     ...(config.browser ?? {}),
     local: {
@@ -129,7 +164,7 @@ function browserConfig(config: AdminConfig): BrowserConfig {
         ...(config.browser?.browserUseCloud?.pricing ?? {}),
       },
     },
-  };
+  });
 }
 
 function updateBrowserConfig(
