@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
@@ -217,39 +218,48 @@ test('admin scheduler migrates legacy scheduler job session ids through schedule
   );
   const { getGatewayAdminScheduler, migrateConfigSchedulerJobsToDatabase } =
     await import('../src/gateway/gateway-scheduled-task-service.ts');
-  const { getRuntimeConfig, updateRuntimeConfig } = await import(
-    '../src/config/runtime-config.ts'
-  );
+  const { runtimeConfigPath } = await import('../src/config/runtime-config.ts');
 
   initDatabase({ quiet: true });
 
-  updateRuntimeConfig((draft) => {
-    draft.scheduler.jobs.push({
-      id: 'release-notes',
-      schedule: {
-        kind: 'at',
-        at: '2026-04-07T20:00:00.000Z',
-        everyMs: null,
-        expr: null,
-        tz: 'UTC',
+  const configPath = runtimeConfigPath();
+  const rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<
+    string,
+    unknown
+  >;
+  rawConfig.scheduler = {
+    jobs: [
+      {
+        id: 'release-notes',
+        schedule: {
+          kind: 'at',
+          at: '2026-04-07T20:00:00.000Z',
+          everyMs: null,
+          expr: null,
+          tz: 'UTC',
+        },
+        action: {
+          kind: 'agent_turn',
+          message: 'Draft release notes',
+        },
+        delivery: {
+          kind: 'channel',
+          channel: 'tui',
+          to: 'tui',
+          webhookUrl: '',
+        },
+        enabled: true,
+        boardStatus: 'review',
+        agentId: 'main',
       },
-      action: {
-        kind: 'agent_turn',
-        message: 'Draft release notes',
-      },
-      delivery: {
-        kind: 'channel',
-        channel: 'tui',
-        to: 'tui',
-        webhookUrl: '',
-      },
-      enabled: true,
-      boardStatus: 'review',
-      agentId: 'main',
-    });
-  });
+    ],
+  };
+  fs.writeFileSync(configPath, `${JSON.stringify(rawConfig, null, 2)}\n`);
   migrateConfigSchedulerJobsToDatabase();
-  expect(getRuntimeConfig().scheduler.jobs).toHaveLength(0);
+  const migratedConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+    scheduler?: { jobs?: unknown[] };
+  };
+  expect(migratedConfig.scheduler?.jobs).toBeUndefined();
 
   const session = getOrCreateSession(
     'scheduler:release-notes',

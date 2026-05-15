@@ -186,7 +186,6 @@ function createGatewayMainTestState(options?: {
       },
       observability: { enabled: false, botId: '', agentId: '' },
       ops: { healthPort: 9090 },
-      scheduler: { jobs: [] as unknown[] },
     },
     currentSession: {
       show_mode: 'all',
@@ -2318,14 +2317,13 @@ describe('gateway bootstrap', () => {
         consolidationLanguage: 'en',
       },
       observability: { enabled: true, botId: 'bot-obs', agentId: 'agent-obs' },
-      scheduler: { jobs: [{ id: 'job-1' }] },
     };
 
     state.currentConfig = nextConfig;
     state.configChangeListener?.(nextConfig, previousConfig);
 
     expect(state.startHeartbeat).toHaveBeenCalledTimes(2);
-    expect(state.rearmScheduler).toHaveBeenCalledTimes(1);
+    expect(state.rearmScheduler).not.toHaveBeenCalled();
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(2);
     expect(state.setTimeout.mock.calls.length).toBeGreaterThanOrEqual(1);
   });

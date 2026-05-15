@@ -632,8 +632,5 @@
     "ralph": {
       "maxIterations": 0
     }
-  },
-  "scheduler": {
-    "jobs": []
   }
 }

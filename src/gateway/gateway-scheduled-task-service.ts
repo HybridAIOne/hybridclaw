@@ -3,11 +3,10 @@ import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from '../config/config.js';
 import {
   DEFAULT_ONE_SHOT_MAX_RETRIES,
-  getRuntimeConfig,
+  migrateLegacySchedulerJobsFromRuntimeConfig,
   parseSchedulerBoardStatus,
-  type RuntimeConfig,
+  type RuntimeSchedulerJob,
   type SchedulerBoardStatus,
-  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { getSessionById, updateSessionAgent } from '../memory/db.js';
@@ -49,14 +48,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isRunOnceScheduleKind(
-  kind: RuntimeConfig['scheduler']['jobs'][number]['schedule']['kind'],
+  kind: RuntimeSchedulerJob['schedule']['kind'],
 ): boolean {
   return kind === 'at' || kind === 'one_shot';
 }
 
-function parseAdminSchedulerJob(
-  value: unknown,
-): RuntimeConfig['scheduler']['jobs'][number] {
+function parseAdminSchedulerJob(value: unknown): RuntimeSchedulerJob {
   if (!isRecord(value)) {
     throw new Error('Expected object `job`.');
   }
@@ -230,15 +227,15 @@ function compareGatewayAdminSchedulerJobs(
 }
 
 export function migrateConfigSchedulerJobsToDatabase(): number {
-  const legacyJobs = getRuntimeConfig().scheduler.jobs;
+  const legacyJobs = migrateLegacySchedulerJobsFromRuntimeConfig({
+    route: 'scheduler-jobs.migrate-config-to-db',
+    source: 'system',
+  });
   if (legacyJobs.length === 0) return 0;
 
   for (const job of legacyJobs) {
     upsertJob(job);
   }
-  updateRuntimeConfig((draft) => {
-    draft.scheduler.jobs = [];
-  });
   logger.info(
     { migratedJobs: legacyJobs.length },
     'Migrated config scheduler jobs into SQLite jobs table',
