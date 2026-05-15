@@ -8,7 +8,7 @@ requires:
 metadata:
   hybridclaw:
     short_description: Generate memes.
-    category: creativity
+    category: media
     tags:
       - creative
       - memes
