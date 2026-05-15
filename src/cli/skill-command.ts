@@ -44,7 +44,9 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
         console.log(`${currentCategory}:`);
       }
       const availability = skill.available
-        ? 'enabled'
+        ? skill.enabled
+          ? 'enabled'
+          : 'disabled'
         : skill.missing.join(', ');
       console.log(`  ${skill.name} [${availability}]`);
       for (const install of skill.installs) {

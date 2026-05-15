@@ -5122,6 +5122,50 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Enabled pdf in global scope.');
   });
 
+  it('prints disabled skills correctly in the local skill list', async () => {
+    vi.resetModules();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.doMock('../src/skills/skills-management.js', () => ({
+      listSkillCatalogEntries: () => [
+        {
+          name: 'enabled-skill',
+          category: 'development',
+          available: true,
+          enabled: true,
+          missing: [],
+          installs: [],
+        },
+        {
+          name: 'disabled-skill',
+          category: 'development',
+          available: true,
+          enabled: false,
+          missing: [],
+          installs: [],
+        },
+        {
+          name: 'missing-bin-skill',
+          category: 'office',
+          available: false,
+          enabled: true,
+          missing: ['bin:node'],
+          installs: [],
+        },
+      ],
+    }));
+
+    const { handleSkillCommand } = await import('../src/cli/skill-command.ts');
+    await handleSkillCommand(['list']);
+
+    expect(logSpy).toHaveBeenCalledWith('development:');
+    expect(logSpy).toHaveBeenCalledWith('  enabled-skill [enabled]');
+    expect(logSpy).toHaveBeenCalledWith('  disabled-skill [disabled]');
+    expect(logSpy).toHaveBeenCalledWith('office:');
+    expect(logSpy).toHaveBeenCalledWith('  missing-bin-skill [bin:node]');
+
+    vi.doUnmock('../src/skills/skills-management.js');
+  });
+
   it('disables a built-in tool globally', async () => {
     const { cli, updateRuntimeConfig } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
