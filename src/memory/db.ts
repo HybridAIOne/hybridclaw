@@ -9112,9 +9112,14 @@ export function getWeeklyAgentAnomalyRollups(
   );
 }
 
+function escapeSqlLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
 function queryStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
   limit?: number;
   maxLimit?: number;
@@ -9136,8 +9141,13 @@ function queryStructuredAuditEntries(params?: {
     values.push(sessionId);
   }
   if (eventType) {
-    clauses.push('event_type = ?');
-    values.push(eventType);
+    if (params?.eventTypeMatch === 'prefix') {
+      clauses.push("event_type LIKE ? ESCAPE '\\'");
+      values.push(`${escapeSqlLikePattern(eventType)}%`);
+    } else {
+      clauses.push('event_type = ?');
+      values.push(eventType);
+    }
   }
   if (query) {
     const like = `%${query}%`;
@@ -9270,12 +9280,14 @@ export function getStructuredAuditForSession(
 export function listStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
   limit?: number;
 }): StructuredAuditEntry[] {
   return queryStructuredAuditEntries({
     sessionId: params?.sessionId,
     eventType: params?.eventType,
+    eventTypeMatch: params?.eventTypeMatch,
     query: params?.query,
     limit: params?.limit ?? 50,
     orderBy: 'id',
