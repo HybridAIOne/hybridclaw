@@ -92,7 +92,8 @@ function buildPreviewBlob(blob: Blob, mimeType: string): Blob {
   if (!normalizedMimeType) return blob;
   if (
     normalizedMimeType !== 'application/pdf' &&
-    !normalizedMimeType.startsWith('image/')
+    !normalizedMimeType.startsWith('image/') &&
+    !normalizedMimeType.startsWith('video/')
   ) {
     return blob;
   }
@@ -108,11 +109,15 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
   const mimeType = (artifact.mimeType ?? '').toLowerCase();
   const artifactName = artifact.filename ?? 'artifact';
   const isImage = mimeType.startsWith('image/');
+  const isVideo =
+    mimeType.startsWith('video/') ||
+    /\.(mp4|m4v|mov|webm)$/i.test(artifact.filename ?? '') ||
+    /\.(mp4|m4v|mov|webm)$/i.test(artifact.path ?? '');
   const isPdf =
     mimeType === 'application/pdf' ||
     /\.pdf$/i.test(artifact.filename ?? '') ||
     /\.pdf$/i.test(artifact.path ?? '');
-  const canPreview = isImage || isPdf;
+  const canPreview = isImage || isVideo || isPdf;
 
   useEffect(() => {
     const previousUrl = previewUrlRef.current;
@@ -206,6 +211,16 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
             title={`${artifactName} preview`}
             sandbox=""
           />
+        </div>
+      ) : null}
+      {isVideo && previewUrl ? (
+        <div className={cx(css.artifactPreview, css.artifactVideoPreview)}>
+          {/* biome-ignore lint/a11y/useMediaCaption: arbitrary user/generated artifacts may not have caption tracks available. */}
+          <video controls preload="metadata" src={previewUrl}>
+            <a href={previewUrl} download={artifactName}>
+              Download {artifactName}
+            </a>
+          </video>
         </div>
       ) : null}
     </div>

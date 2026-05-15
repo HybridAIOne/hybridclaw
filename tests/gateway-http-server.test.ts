@@ -9071,7 +9071,7 @@ describe('gateway HTTP server', () => {
     );
   });
 
-  test('streams outbound http_request responses and aborts once the size limit is exceeded', async () => {
+  test('streams outbound http_request responses and truncates once the size limit is exceeded', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
     }));
@@ -9108,9 +9108,67 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await settle();
 
-    expect(res.statusCode).toBe(413);
+    expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
-      error: 'Outbound response exceeded limit (12 bytes > 10).',
+      ok: true,
+      status: 200,
+      statusText: '',
+      url: '',
+      headers: {
+        'content-type': 'application/octet-stream',
+      },
+      body: 'aaaaaabbbb',
+      bodyTruncated: true,
+      bodyBytes: 12,
+      maxResponseBytes: 10,
+    });
+  });
+
+  test('short-circuits outbound http_request reads when content-length exceeds the size limit', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response('x'.repeat(50), {
+          status: 200,
+          headers: {
+            'content-length': '50',
+            'content-type': 'application/octet-stream',
+          },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+        maxResponseBytes: 10,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      status: 200,
+      statusText: '',
+      url: '',
+      headers: {
+        'content-length': '50',
+        'content-type': 'application/octet-stream',
+      },
+      body: '',
+      bodyTruncated: true,
+      bodyBytes: 50,
+      maxResponseBytes: 10,
     });
   });
 
@@ -9181,6 +9239,42 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['Content-Type']).toBe('image/png');
     expect(res.body).toBe('image payload');
+  });
+
+  test('serves video artifacts inline for web chat previews', async () => {
+    const dataDir = makeTempDataDir();
+    const artifactPath = path.join(
+      dataDir,
+      'agents',
+      'agent-1',
+      'workspace',
+      '.generated-videos',
+      'demo.mp4',
+    );
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, 'video payload', 'utf8');
+
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+    });
+    const req = makeRequest({
+      url: `/api/artifact?path=${encodeURIComponent(artifactPath)}&token=web-token`,
+      remoteAddress: '203.0.113.10',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('video/mp4');
+    expect(res.headers['Content-Disposition']).toContain(
+      'inline; filename="demo.mp4"',
+    );
+    expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
+    expect(res.headers['Content-Security-Policy']).toBeUndefined();
+    expect(res.body).toBe('video payload');
   });
 
   test('returns 503 for uploaded-media-cache artifacts when DATA_DIR is empty', async () => {

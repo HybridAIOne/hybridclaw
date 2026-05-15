@@ -804,7 +804,19 @@ async function resolveTextCallContext(
   );
   if (taskOverride) return taskOverride;
 
-  // 3. Finally fall back to the session model, with OpenRouter as recovery.
+  // 3. Auto-routed auxiliary calls prefer concrete, healthy local candidates
+  // before any remote fallback/session model. The resolver only checks health
+  // after it finds a local model candidate, avoiding unrelated backend probes.
+  const preferredLocal =
+    (
+      await resolveLocalFallbackContexts({
+        params,
+        maxTokens: requestedMaxTokens,
+      })
+    )[0] ?? null;
+  if (preferredLocal) return preferredLocal;
+
+  // 4. Finally fall back to the session model, with OpenRouter as recovery.
   return resolveFallbackModelTextCallContext(params, requestedMaxTokens);
 }
 
