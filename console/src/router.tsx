@@ -72,14 +72,8 @@ const adminLayoutRoute = createRoute({
   component: AppShellRouteComponent,
 });
 
-const agentsOverviewLayoutRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  id: '_agents_layout',
-  component: AppShellRouteComponent,
-});
-
 const agentsOverviewRoute = createRoute({
-  getParentRoute: () => agentsOverviewLayoutRoute,
+  getParentRoute: () => rootRoute,
   path: '/agents',
   component: AgentsOverviewPage,
 });
@@ -245,7 +239,7 @@ const routeTree = rootRoute.addChildren([
     pluginsRoute,
     toolsRoute,
   ]),
-  agentsOverviewLayoutRoute.addChildren([agentsOverviewRoute]),
+  agentsOverviewRoute,
   chatRoute.addChildren([chatSessionRoute]),
 ]);
 

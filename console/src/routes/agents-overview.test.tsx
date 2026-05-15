@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentsOverviewResponse } from '../api/types';
 import { AgentsOverviewPage } from './agents-overview';
@@ -23,7 +24,23 @@ vi.mock('../auth', () => ({
 }));
 
 vi.mock('@tanstack/react-router', () => ({
+  Link: ({
+    to,
+    className,
+    children,
+  }: {
+    to: string;
+    className?: string;
+    children: ReactNode;
+  }) => (
+    <a data-router-link="true" href={to} className={className}>
+      {children}
+    </a>
+  ),
   useNavigate: () => navigateMock,
+  useRouterState: (params: {
+    select: (state: { location: { pathname: string } }) => string;
+  }) => params.select({ location: { pathname: '/agents' } }),
 }));
 
 function makeOverview(): AgentsOverviewResponse {
@@ -178,7 +195,7 @@ describe('AgentsOverviewPage', () => {
     expect(screen.getByText('Session A')).toBeTruthy();
     expect(screen.getByText('Session B')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Stopped' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Stopped/ }));
 
     expect(screen.queryByText('Session A')).toBeNull();
     expect(screen.getByText('Session B')).toBeTruthy();

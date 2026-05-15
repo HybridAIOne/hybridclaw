@@ -4,14 +4,7 @@ import { useMemo, useState } from 'react';
 import { fetchAgentsOverview } from '../api/client';
 import type { AgentCard, AgentSessionCard } from '../api/types';
 import { useAuth } from '../auth';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/card';
-import { BooleanPill, PageHeader } from '../components/ui';
+import { ViewSwitchNav } from '../components/view-switch';
 import {
   formatCompactNumber,
   formatDateTime,
@@ -61,6 +54,47 @@ function channelLabel(session: AgentSessionCard): string {
   return session.channelId || 'unknown';
 }
 
+function statusClassName(
+  value: AgentCard['status'] | AgentSessionCard['status'],
+): string {
+  return `is-${value}`;
+}
+
+function StatusBadge(props: {
+  status: AgentCard['status'] | AgentSessionCard['status'];
+}) {
+  return (
+    <span className={`agents-status-badge ${statusClassName(props.status)}`}>
+      <span className="agents-status-badge-dot" aria-hidden="true" />
+      {statusLabel(props.status)}
+    </span>
+  );
+}
+
+function terminalLineClassName(value: string): string {
+  const lowered = value.toLowerCase();
+  if (value.startsWith('$')) return 'is-command';
+  if (lowered.includes('error') || lowered.includes('failed'))
+    return 'is-error';
+  if (lowered.includes('idle') || lowered.includes('waiting'))
+    return 'is-warning';
+  if (lowered.includes('healthy') || lowered.includes('success'))
+    return 'is-success';
+  return '';
+}
+
+function keyedTerminalLines(sessionId: string, lines: string[]) {
+  const seen = new Map<string, number>();
+  return lines.map((line) => {
+    const count = (seen.get(line) ?? 0) + 1;
+    seen.set(line, count);
+    return {
+      key: `${sessionId}-${count}-${line}`,
+      line,
+    };
+  });
+}
+
 export function AgentsOverviewPage() {
   const auth = useAuth();
   const navigate = useNavigate();
@@ -91,6 +125,12 @@ export function AgentsOverviewPage() {
     totalTokens: 0,
     totalCostUsd: 0,
   };
+  const sessionFilterCounts: Record<SessionFilter, number> = {
+    all: sessionCounts.all,
+    active: sessionCounts.active,
+    idle: sessionCounts.idle,
+    stopped: sessionCounts.stopped,
+  };
 
   function toggleOutput(sessionId: string): void {
     setOpenOutputIds((current) => {
@@ -113,46 +153,50 @@ export function AgentsOverviewPage() {
   }
 
   return (
-    <div className="page-stack">
-      <PageHeader
-        title="Agents"
-        description={
-          overview
-            ? `Last refresh ${formatDateTime(overview.generatedAt)} · uptime ${formatUptime(overview.uptime)}`
-            : 'Workspace dashboard'
-        }
-        actions={
-          <div className="button-row">
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => void agentsQuery.refetch()}
-            >
-              Refresh
-            </button>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => void navigate({ to: '/chat' })}
-            >
-              Open Chat
-            </button>
-          </div>
-        }
-      />
+    <div className="page-stack agents-dashboard">
+      <header className="agents-page-header">
+        <div className="agents-title-row">
+          <h1>Agents</h1>
+          <button
+            className={
+              agentsQuery.isFetching
+                ? 'agents-refresh-chip is-spinning'
+                : 'agents-refresh-chip'
+            }
+            type="button"
+            onClick={() => void agentsQuery.refetch()}
+          >
+            <span className="agents-refresh-spinner" aria-hidden="true" />
+            <span>
+              {overview
+                ? `Last refresh ${formatDateTime(overview.generatedAt)}`
+                : 'Loading agents'}
+            </span>
+          </button>
+          {overview ? (
+            <span className="agents-uptime-chip">
+              uptime {formatUptime(overview.uptime)}
+            </span>
+          ) : null}
+        </div>
+        <ViewSwitchNav />
+      </header>
 
-      <div className="metric-grid">
-        <div className="metric-card">
+      <div className="agents-stats-row">
+        <div className="agents-stat-card">
+          <span className="agents-metric-accent is-green">A</span>
           <span>Agents</span>
           <strong>{overview?.totals.agents.all ?? 0}</strong>
           <small>{overview?.totals.agents.active ?? 0} active</small>
         </div>
-        <div className="metric-card">
+        <div className="agents-stat-card">
+          <span className="agents-metric-accent is-blue">S</span>
           <span>Sessions Live</span>
           <strong>{sessionCounts.running}</strong>
           <small>{sessionCounts.all} total</small>
         </div>
-        <div className="metric-card">
+        <div className="agents-stat-card">
+          <span className="agents-metric-accent is-gold">T</span>
           <span>Tokens Used</span>
           <strong>{formatCompactNumber(sessionCounts.totalTokens)}</strong>
           <small>
@@ -162,7 +206,8 @@ export function AgentsOverviewPage() {
             })}
           </small>
         </div>
-        <div className="metric-card">
+        <div className="agents-stat-card">
+          <span className="agents-metric-accent is-slate">$</span>
           <span>Total Cost</span>
           <strong>{formatUsd(sessionCounts.totalCostUsd)}</strong>
           <small>
@@ -171,38 +216,48 @@ export function AgentsOverviewPage() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Registered Agents</CardTitle>
-          <CardDescription>
-            {(overview?.agents.length || 0).toString()} workspace
-            {(overview?.agents.length || 0) === 1 ? '' : 's'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <section className="agents-dashboard-panel">
+        <div className="agents-section-head">
+          <div>
+            <h2>Registered Agents</h2>
+            <p>
+              {(overview?.agents.length || 0).toString()} workspace
+              {(overview?.agents.length || 0) === 1 ? '' : 's'} aggregated
+              across every bound session.
+            </p>
+          </div>
+        </div>
+
+        <div>
           {!overview?.agents.length ? (
             <div className="empty-state">No agents found.</div>
           ) : (
             <div className="agents-overview-grid">
               {overview.agents.map((agent) => (
-                <article className="agents-overview-card" key={agent.id}>
+                <article
+                  className={`agents-overview-card ${statusClassName(agent.status)}`}
+                  key={agent.id}
+                >
                   <div className="agents-overview-card-header">
                     <div>
                       <h3>{agent.name || agent.id}</h3>
                       <p>{formatSessionSummary(agent)}</p>
+                      {agent.recentSessionId ? (
+                        <div className="agents-tag-row">
+                          <span className="agents-tag">
+                            Recent {agent.recentSessionId}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
-                    <BooleanPill
-                      value={agent.status === 'active'}
-                      trueLabel="active"
-                      falseLabel={statusLabel(agent.status)}
-                    />
+                    <StatusBadge status={agent.status} />
                   </div>
-                  <div className="key-value-grid">
-                    <div>
+                  <div className="agents-meta-grid">
+                    <div className="agents-meta-block">
                       <span>Default Model</span>
                       <strong>{formatAgentModel(agent)}</strong>
                     </div>
-                    <div>
+                    <div className="agents-meta-block">
                       <span>Session Models</span>
                       <strong>
                         {agent.effectiveModels.length
@@ -210,11 +265,11 @@ export function AgentsOverviewPage() {
                           : 'none'}
                       </strong>
                     </div>
-                    <div>
+                    <div className="agents-meta-block">
                       <span>Workspace</span>
                       <strong>{agent.workspacePath}</strong>
                     </div>
-                    <div>
+                    <div className="agents-meta-block">
                       <span>Token I/O</span>
                       <strong>
                         {formatTokenBreakdown({
@@ -223,19 +278,19 @@ export function AgentsOverviewPage() {
                         })}
                       </strong>
                     </div>
-                    <div>
+                    <div className="agents-meta-block">
                       <span>Cost</span>
                       <strong>{formatUsd(agent.costUsd)}</strong>
                     </div>
-                    <div>
+                    <div className="agents-meta-block">
                       <span>Chatbot / RAG</span>
                       <strong>{formatChatbot(agent)}</strong>
                     </div>
-                    <div>
+                    <div className="agents-meta-block">
                       <span>Last Active</span>
                       <strong>{formatDateTime(agent.lastActive)}</strong>
                     </div>
-                    <div>
+                    <div className="agents-meta-block">
                       <span>Messages / Tools</span>
                       <strong>
                         {agent.messageCount} msgs / {agent.toolCalls} calls
@@ -246,28 +301,43 @@ export function AgentsOverviewPage() {
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Sessions</CardTitle>
-          <CardDescription>
-            {visibleSessions.length} visible of {sessionCounts.all}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="button-row agents-filter-row">
+      <section className="agents-dashboard-panel">
+        <div className="agents-section-head">
+          <div>
+            <h2>Sessions</h2>
+            <p>
+              {visibleSessions.length} visible of {sessionCounts.all} persisted
+              per-channel and per-client sessions.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <div
+            className="agents-filter-row"
+            role="tablist"
+            aria-label="Session filters"
+          >
             {SESSION_FILTERS.map((item) => (
               <button
                 className={
-                  filter === item.key ? 'primary-button' : 'ghost-button'
+                  filter === item.key
+                    ? 'agents-filter-pill is-active'
+                    : 'agents-filter-pill'
                 }
                 key={item.key}
                 type="button"
+                role="tab"
+                aria-selected={filter === item.key}
                 onClick={() => setFilter(item.key)}
               >
                 {item.label}
+                <span className="agents-filter-count">
+                  {sessionFilterCounts[item.key]}
+                </span>
               </button>
             ))}
           </div>
@@ -281,18 +351,23 @@ export function AgentsOverviewPage() {
                 const output = session.output.length
                   ? session.output
                   : ['No recent activity captured for this session yet.'];
+                const outputLines = keyedTerminalLines(session.id, output);
                 return (
-                  <article className="agents-session-card" key={session.id}>
+                  <article
+                    className={`agents-session-card ${statusClassName(session.status)}`}
+                    key={session.id}
+                  >
                     <div className="agents-overview-card-header">
                       <div>
                         <h3>{session.name}</h3>
                         <p>{session.task}</p>
+                        {session.fullAutoEnabled ? (
+                          <span className="agents-fullauto-badge">
+                            Full auto
+                          </span>
+                        ) : null}
                       </div>
-                      <BooleanPill
-                        value={session.status === 'active'}
-                        trueLabel="active"
-                        falseLabel={session.status}
-                      />
+                      <StatusBadge status={session.status} />
                     </div>
 
                     {(session.lastQuestion || session.lastAnswer) && (
@@ -312,28 +387,28 @@ export function AgentsOverviewPage() {
                       </div>
                     )}
 
-                    <div className="key-value-grid">
-                      <div>
+                    <div className="agents-meta-grid">
+                      <div className="agents-meta-block">
                         <span>Model</span>
                         <strong>{session.model}</strong>
                       </div>
-                      <div>
+                      <div className="agents-meta-block">
                         <span>Agent</span>
                         <strong>{session.agentId}</strong>
                       </div>
-                      <div>
+                      <div className="agents-meta-block">
                         <span>Session ID</span>
                         <strong>{session.sessionId}</strong>
                       </div>
-                      <div>
+                      <div className="agents-meta-block">
                         <span>Channel</span>
                         <strong>{channelLabel(session)}</strong>
                       </div>
-                      <div>
+                      <div className="agents-meta-block">
                         <span>Runtime</span>
                         <strong>{session.runtimeMinutes}m</strong>
                       </div>
-                      <div>
+                      <div className="agents-meta-block">
                         <span>Token I/O</span>
                         <strong>
                           {formatTokenBreakdown({
@@ -342,11 +417,11 @@ export function AgentsOverviewPage() {
                           })}
                         </strong>
                       </div>
-                      <div>
+                      <div className="agents-meta-block">
                         <span>Cost</span>
                         <strong>{formatUsd(session.costUsd)}</strong>
                       </div>
-                      <div>
+                      <div className="agents-meta-block">
                         <span>Last Active</span>
                         <strong>
                           {formatRelativeTime(session.lastActive)}
@@ -355,9 +430,26 @@ export function AgentsOverviewPage() {
                     </div>
 
                     {isOpen ? (
-                      <pre className="agents-session-output">
-                        {output.join('\n')}
-                      </pre>
+                      <div className="agents-terminal">
+                        <div className="agents-terminal-top">
+                          <span className="agents-terminal-dot is-red" />
+                          <span className="agents-terminal-dot is-yellow" />
+                          <span className="agents-terminal-dot is-green" />
+                          <span className="agents-terminal-label">
+                            {session.previewTitle}
+                          </span>
+                        </div>
+                        <div className="agents-session-output">
+                          {outputLines.map(({ key, line }) => (
+                            <span
+                              className={`agents-terminal-line ${terminalLineClassName(line)}`}
+                              key={key}
+                            >
+                              {line}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     ) : null}
 
                     <div className="button-row">
@@ -394,8 +486,8 @@ export function AgentsOverviewPage() {
               })}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 }
