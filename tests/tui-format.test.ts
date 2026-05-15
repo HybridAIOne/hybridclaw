@@ -38,7 +38,7 @@ test('formats titled command blocks with the standard left gutter', () => {
 test('mutes disabled and install hint lines in the skill list', () => {
   expect(isMutedSkillListLine('  apple-music [disabled]')).toBe(true);
   expect(isMutedSkillListLine('      installs: brew (brew)')).toBe(true);
-  expect(isMutedSkillListLine('  apple-music [available]')).toBe(false);
+  expect(isMutedSkillListLine('  apple-music [enabled]')).toBe(false);
   expect(isMutedSkillListLine('Apple:')).toBe(false);
 });
 
