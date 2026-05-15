@@ -1,16 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import YAML from 'yaml';
-import { DATA_DIR } from '../config/config.js';
-import { resolveInstallPath } from '../infra/install-root.js';
 
-export interface ManagedBrowserTenantPolicy {
-  ok: boolean;
-  status: 'available' | 'unavailable';
+import YAML from 'yaml';
+
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { DATA_DIR } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
+import { readPolicyState } from '../policy/policy-store.js';
+
+export interface ManagedBrowserTenantPolicySyncResult {
   tenantId: string;
   policyPath: string;
-  allowedHosts: string[];
-  message: string;
+  agentIds: string[];
+  ruleCount: number;
 }
 
 type TenantPolicyDocument = {
@@ -31,7 +34,12 @@ type TenantPolicyRule = {
   methods?: string[];
   paths?: string[];
   agent?: string;
-  [key: string]: unknown;
+  comment?: string;
+};
+
+type ProjectedAgentPolicy = {
+  defaultAction: string;
+  rules: TenantPolicyRule[];
 };
 
 export function resolveLocalManagedBrowserTenantPolicyPath(
@@ -40,26 +48,13 @@ export function resolveLocalManagedBrowserTenantPolicyPath(
   return path.join(dataDir, 'managed-browser', 'tenants.yaml');
 }
 
-function resolveExampleTenantPolicyPath(installRoot = resolveInstallPath()) {
-  return path.join(
-    installRoot,
-    'infra',
-    'managed-browser',
-    'tenants.example.yaml',
-  );
-}
-
 export function ensureLocalManagedBrowserTenantPolicyFile(
-  params: { dataDir?: string; installRoot?: string } = {},
+  params: { dataDir?: string } = {},
 ): string {
   const policyPath = resolveLocalManagedBrowserTenantPolicyPath(params.dataDir);
   if (fs.existsSync(policyPath)) return policyPath;
   fs.mkdirSync(path.dirname(policyPath), { recursive: true, mode: 0o700 });
-  const examplePath = resolveExampleTenantPolicyPath(params.installRoot);
-  const initialContent = fs.existsSync(examplePath)
-    ? fs.readFileSync(examplePath, 'utf-8')
-    : YAML.stringify({ tenants: {} });
-  fs.writeFileSync(policyPath, initialContent, {
+  fs.writeFileSync(policyPath, YAML.stringify({ tenants: {} }), {
     encoding: 'utf-8',
     mode: 0o600,
   });
@@ -71,11 +66,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function readPolicyDocument(policyPath: string): TenantPolicyDocument {
-  if (!fs.existsSync(policyPath)) {
-    throw new Error(
-      `Managed browser tenant policy file is missing: ${policyPath}`,
-    );
-  }
+  if (!fs.existsSync(policyPath)) return { tenants: {} };
   const parsed = YAML.parse(fs.readFileSync(policyPath, 'utf-8'));
   if (!isRecord(parsed)) return { tenants: {} };
   const tenants = isRecord(parsed.tenants) ? parsed.tenants : {};
@@ -90,140 +81,166 @@ function readPolicyDocument(policyPath: string): TenantPolicyDocument {
   };
 }
 
-function isBroadHttpsAllowRule(rule: TenantPolicyRule): boolean {
-  const action = String(rule.action || '').toLowerCase();
-  const port = String(rule.port ?? '');
-  const methods = Array.isArray(rule.methods) ? rule.methods : [];
-  const paths = Array.isArray(rule.paths) ? rule.paths : [];
-  const agent = String(rule.agent || '*');
-  return (
-    action === 'allow' &&
-    port === '443' &&
-    (methods.length === 0 || methods.includes('*')) &&
-    (paths.length === 0 || paths.includes('/**')) &&
-    agent === '*'
-  );
-}
-
-function normalizeAllowedHost(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  let host = trimmed;
-  if (/^https?:\/\//iu.test(trimmed)) {
-    const parsed = new URL(trimmed);
-    host = parsed.hostname;
-  } else {
-    host = trimmed.split('/')[0] || '';
-    if (host.includes(':') && !host.startsWith('[')) {
-      host = host.split(':')[0] || '';
-    }
-    if (host.startsWith('[') && host.includes(']')) {
-      host = host.slice(1, host.indexOf(']'));
-    }
-  }
-  const normalized = host.toLowerCase().replace(/\.$/, '');
-  if (
-    !normalized ||
-    normalized.includes('@') ||
-    normalized.includes(' ') ||
-    normalized.includes('\\')
-  ) {
-    throw new Error(`Invalid managed browser allowed host: ${value}`);
-  }
-  return normalized;
-}
-
-export function normalizeManagedBrowserAllowedHosts(
-  hosts: readonly string[],
-): string[] {
-  return [
-    ...new Set(
-      hosts
-        .flatMap((host) => String(host || '').split(/[\n,]/u))
-        .map((host) => normalizeAllowedHost(host))
-        .filter(Boolean),
-    ),
-  ].sort((a, b) => a.localeCompare(b));
-}
-
-export function readLocalManagedBrowserTenantPolicy(params: {
-  tenantId: string;
-  dataDir?: string;
-  installRoot?: string;
-}): ManagedBrowserTenantPolicy {
-  const tenantId = params.tenantId.trim();
-  const policyPath = ensureLocalManagedBrowserTenantPolicyFile(params);
-  if (!tenantId) {
-    return {
-      ok: false,
-      status: 'unavailable',
-      tenantId,
-      policyPath,
-      allowedHosts: [],
-      message: 'Set browser.managedCloud.defaultTenantId to edit host policy.',
-    };
-  }
-  const document = readPolicyDocument(policyPath);
-  const tenant = document.tenants?.[tenantId];
-  const rules = Array.isArray(tenant?.network?.rules)
-    ? tenant.network.rules
-    : [];
+function normalizeTenantPolicyRule(rule: TenantPolicyRule): TenantPolicyRule {
   return {
-    ok: true,
-    status: 'available',
-    tenantId,
-    policyPath,
-    allowedHosts: normalizeManagedBrowserAllowedHosts(
-      rules
-        .filter(isBroadHttpsAllowRule)
-        .map((rule) => String(rule.host || '')),
-    ),
-    message:
-      'Editing broad HTTPS allow rules for this managed browser tenant policy.',
+    action: String(rule.action || 'allow')
+      .trim()
+      .toLowerCase(),
+    host: String(rule.host || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\.$/, ''),
+    port: rule.port ?? '*',
+    methods:
+      Array.isArray(rule.methods) && rule.methods.length > 0
+        ? rule.methods
+            .map((method) => String(method || '').trim())
+            .filter(Boolean)
+        : ['*'],
+    paths:
+      Array.isArray(rule.paths) && rule.paths.length > 0
+        ? rule.paths.map((entry) => String(entry || '').trim()).filter(Boolean)
+        : ['/**'],
+    agent:
+      String(rule.agent || '*')
+        .trim()
+        .toLowerCase() || '*',
+    ...(rule.comment ? { comment: String(rule.comment) } : {}),
   };
 }
 
-export function updateLocalManagedBrowserTenantAllowedHosts(params: {
-  tenantId: string;
-  allowedHosts: readonly string[];
-  dataDir?: string;
-  installRoot?: string;
-}): ManagedBrowserTenantPolicy {
-  const tenantId = params.tenantId.trim();
-  const policyPath = ensureLocalManagedBrowserTenantPolicyFile(params);
-  if (!tenantId) {
-    throw new Error(
-      'Set browser.managedCloud.defaultTenantId before editing host policy.',
-    );
-  }
-  const allowedHosts = normalizeManagedBrowserAllowedHosts(params.allowedHosts);
-  const document = readPolicyDocument(policyPath);
-  document.tenants ??= {};
-  const tenant = document.tenants[tenantId] ?? {};
-  tenant.network ??= {};
-  tenant.network.default ??= 'deny';
-  const currentRules = Array.isArray(tenant.network.rules)
-    ? tenant.network.rules
-    : [];
-  tenant.network.rules = [
-    ...currentRules.filter((rule) => !isBroadHttpsAllowRule(rule)),
-    ...allowedHosts.map((host) => ({
-      action: 'allow',
-      host,
-      port: 443,
-      methods: ['*'],
-      paths: ['/**'],
-      agent: '*',
-    })),
+function ruleKey(rule: TenantPolicyRule): string {
+  const normalized = normalizeTenantPolicyRule(rule);
+  return JSON.stringify({
+    action: normalized.action,
+    host: normalized.host,
+    port: normalized.port,
+    methods: normalized.methods,
+    paths: normalized.paths,
+    agent: normalized.agent,
+  });
+}
+
+function uniqueRules(rules: TenantPolicyRule[]): TenantPolicyRule[] {
+  return [
+    ...new Map(
+      rules
+        .map((rule) => normalizeTenantPolicyRule(rule))
+        .filter((rule) => rule.host)
+        .map((rule) => [ruleKey(rule), rule] as const),
+    ).values(),
   ];
-  document.tenants[tenantId] = tenant;
+}
+
+function managedBrowserTenantId(rawTenantId?: string): string {
+  return (
+    rawTenantId?.trim() ||
+    getRuntimeConfig().browser.managedCloud.defaultTenantId.trim() ||
+    DEFAULT_AGENT_ID
+  );
+}
+
+function managedBrowserPolicyAgentIds(): string[] {
+  return [
+    ...new Set([
+      DEFAULT_AGENT_ID,
+      ...(getRuntimeConfig().agents?.list ?? []).map((agent) =>
+        agent.id.trim(),
+      ),
+    ]),
+  ].filter(Boolean);
+}
+
+function projectAgentPolicy(
+  agentId: string,
+  resolveWorkspacePath: (agentId: string) => string,
+): ProjectedAgentPolicy {
+  const state = readPolicyState(resolveWorkspacePath(agentId));
+  return {
+    defaultAction: state.defaultAction,
+    rules: uniqueRules(
+      state.rules.map((rule) => ({
+        action: rule.action,
+        host: rule.host,
+        port: rule.port,
+        methods: rule.methods,
+        paths: rule.paths,
+        agent: rule.agent === '*' ? agentId : rule.agent,
+        ...(rule.comment ? { comment: rule.comment } : {}),
+      })),
+    ),
+  };
+}
+
+export function syncLocalManagedBrowserTenantPolicyFromAdminPolicies(
+  params: {
+    tenantId?: string;
+    agentIds?: string[];
+    dataDir?: string;
+    resolveWorkspacePath?: (agentId: string) => string;
+  } = {},
+): ManagedBrowserTenantPolicySyncResult {
+  const tenantId = managedBrowserTenantId(params.tenantId);
+  const agentIds = [
+    ...new Set(
+      (params.agentIds?.length
+        ? params.agentIds
+        : managedBrowserPolicyAgentIds()
+      )
+        .map((agentId) => agentId.trim())
+        .filter(Boolean),
+    ),
+  ];
+  const resolveWorkspacePath = params.resolveWorkspacePath ?? agentWorkspaceDir;
+  const policyPath = ensureLocalManagedBrowserTenantPolicyFile({
+    dataDir: params.dataDir,
+  });
+  const document = readPolicyDocument(policyPath);
+  const projectedByAgent = new Map<string, ProjectedAgentPolicy>();
+
+  for (const agentId of agentIds) {
+    try {
+      projectedByAgent.set(
+        agentId,
+        projectAgentPolicy(agentId, resolveWorkspacePath),
+      );
+    } catch {
+      projectedByAgent.set(agentId, {
+        defaultAction: 'deny',
+        rules: [],
+      });
+    }
+  }
+
+  const sharedRules = uniqueRules(
+    [...projectedByAgent.values()].flatMap((policy) => policy.rules),
+  );
+  document.tenants = {};
+  document.tenants[tenantId] = {
+    network: {
+      default: 'deny',
+      rules: sharedRules,
+    },
+  };
+
+  for (const [agentId, policy] of projectedByAgent) {
+    if (agentId === tenantId) continue;
+    document.tenants[agentId] = {
+      network: {
+        default: policy.defaultAction,
+        rules: policy.rules,
+      },
+    };
+  }
+
   fs.writeFileSync(policyPath, YAML.stringify(document), {
     encoding: 'utf-8',
     mode: 0o600,
   });
-  return readLocalManagedBrowserTenantPolicy({
+  return {
     tenantId,
-    dataDir: params.dataDir,
-    installRoot: params.installRoot,
-  });
+    policyPath,
+    agentIds,
+    ruleCount: sharedRules.length,
+  };
 }

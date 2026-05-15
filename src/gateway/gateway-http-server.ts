@@ -20,10 +20,6 @@ import {
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
-import {
-  readLocalManagedBrowserTenantPolicy,
-  updateLocalManagedBrowserTenantAllowedHosts,
-} from '../browser/managed-browser-tenant-policy.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
 import type {
   BrowserProvider,
@@ -363,54 +359,6 @@ async function handleApiAdminBrowserPoolStart(
   res: ServerResponse,
 ): Promise<void> {
   sendJson(res, 200, await startLocalManagedBrowserPool());
-}
-
-async function handleApiAdminBrowserPoolPolicy(
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-): Promise<void> {
-  const browserConfig = getRuntimeConfig().browser;
-  if (browserConfig.provider !== 'managed-cloud') {
-    sendJson(res, 200, {
-      ok: false,
-      status: 'disabled',
-      tenantId: '',
-      policyPath: '',
-      allowedHosts: [],
-      message: 'Browser provider is not managed-cloud.',
-    });
-    return;
-  }
-
-  const tenantId =
-    url.searchParams.get('tenantId')?.trim() ||
-    browserConfig.managedCloud.defaultTenantId;
-
-  if ((req.method || 'GET') === 'GET') {
-    sendJson(res, 200, readLocalManagedBrowserTenantPolicy({ tenantId }));
-    return;
-  }
-
-  const body = (await readJsonBody(req)) as {
-    tenantId?: unknown;
-    allowedHosts?: unknown;
-  };
-  if (!Array.isArray(body.allowedHosts)) {
-    sendJson(res, 400, {
-      error: 'Expected array `allowedHosts` in request body.',
-    });
-    return;
-  }
-
-  sendJson(
-    res,
-    200,
-    updateLocalManagedBrowserTenantAllowedHosts({
-      tenantId: String(body.tenantId || tenantId),
-      allowedHosts: body.allowedHosts.map((host) => String(host || '')),
-    }),
-  );
 }
 
 function normalizeGatewayBrowserSessionId(value: unknown): string {
@@ -5627,13 +5575,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             method === 'POST'
           ) {
             await handleApiAdminBrowserPoolStart(res);
-            return;
-          }
-          if (
-            pathname === '/api/admin/browser-pool/policy' &&
-            (method === 'GET' || method === 'PUT')
-          ) {
-            await handleApiAdminBrowserPoolPolicy(req, res, url);
             return;
           }
           if (

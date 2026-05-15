@@ -14,7 +14,6 @@ import type {
   AdminBoardBudgetResponse,
   AdminBrowserPoolHealthResponse,
   AdminBrowserPoolLaunchResponse,
-  AdminBrowserPoolPolicyResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
@@ -700,36 +699,6 @@ export function startBrowserPool(
     {
       method: 'POST',
       token,
-    },
-  );
-}
-
-export function fetchBrowserPoolPolicy(
-  token: string,
-  tenantId: string,
-): Promise<AdminBrowserPoolPolicyResponse> {
-  const params = new URLSearchParams();
-  if (tenantId.trim()) params.set('tenantId', tenantId.trim());
-  const suffix = params.toString() ? `?${params.toString()}` : '';
-  return requestJson<AdminBrowserPoolPolicyResponse>(
-    `/api/admin/browser-pool/policy${suffix}`,
-    { token },
-  );
-}
-
-export function saveBrowserPoolPolicy(
-  token: string,
-  payload: {
-    tenantId: string;
-    allowedHosts: string[];
-  },
-): Promise<AdminBrowserPoolPolicyResponse> {
-  return requestJson<AdminBrowserPoolPolicyResponse>(
-    '/api/admin/browser-pool/policy',
-    {
-      method: 'PUT',
-      token,
-      body: payload,
     },
   );
 }

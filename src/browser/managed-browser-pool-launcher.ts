@@ -15,7 +15,7 @@ import {
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { resolveSecretInputUnsafe } from '../security/secret-refs.js';
-import { ensureLocalManagedBrowserTenantPolicyFile } from './managed-browser-tenant-policy.js';
+import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from './managed-browser-tenant-policy.js';
 import { checkManagedBrowserPoolHealth } from './managed-cloud-doctor.js';
 import { normalizeManagedCloudEndpointUrl } from './managed-cloud-provider.js';
 import { noopSecretAudit } from './playwright-utils.js';
@@ -176,7 +176,9 @@ export function buildManagedBrowserPoolLaunchSpec(
   const poolToken = resolvePoolToken(config, options.poolToken);
   const policyPath =
     options.policyPath ||
-    ensureLocalManagedBrowserTenantPolicyFile({ installRoot });
+    syncLocalManagedBrowserTenantPolicyFromAdminPolicies({
+      tenantId: config.defaultTenantId,
+    }).policyPath;
   return {
     command: 'docker',
     args: [

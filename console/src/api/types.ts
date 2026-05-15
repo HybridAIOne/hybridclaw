@@ -810,15 +810,6 @@ export interface AdminBrowserPoolLaunchResponse {
   logTail?: string;
 }
 
-export interface AdminBrowserPoolPolicyResponse {
-  ok: boolean;
-  status: 'available' | 'unavailable' | 'disabled';
-  tenantId: string;
-  policyPath: string;
-  allowedHosts: string[];
-  message: string;
-}
-
 export interface SignalLinkResponse {
   status: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
   pairingQrText: string | null;
