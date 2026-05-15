@@ -1074,6 +1074,35 @@ export interface AdminJobsContextResponse {
   suspendedSessions: AdminSuspendedSession[];
 }
 
+export type AdminBoardCardColumn =
+  | 'triage'
+  | 'todo'
+  | 'in_progress'
+  | 'in_review'
+  | 'done';
+
+export type AdminBoardCardOwner =
+  | { userId: string; agentId?: never }
+  | { agentId: string; userId?: never };
+
+export interface AdminBoardCard {
+  id: string;
+  title: string;
+  body: string;
+  owner: AdminBoardCardOwner;
+  column: AdminBoardCardColumn;
+  status: string;
+  source: string;
+  parent: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface AdminBoardCardsResponse {
+  cards: AdminBoardCard[];
+}
+
 export type AdminBoardBudgetCurrency = 'USD' | 'EUR';
 
 export interface AdminBoardBudgetSummary {

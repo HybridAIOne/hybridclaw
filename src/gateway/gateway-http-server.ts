@@ -19,6 +19,7 @@ import {
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
+import { listCards } from '../board/card-store.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -2298,6 +2299,10 @@ function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
       agentIds: parseBoardBudgetAgentIds(url),
     }),
   );
+}
+
+function handleApiAdminBoardCards(res: ServerResponse): void {
+  sendJson(res, 200, { cards: listCards() });
 }
 
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
@@ -4889,6 +4894,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {
             handleApiAdminJobsContext(res);
+            return;
+          }
+          if (pathname === '/api/admin/board/cards' && method === 'GET') {
+            handleApiAdminBoardCards(res);
             return;
           }
           if (pathname === '/api/admin/board/budgets' && method === 'GET') {

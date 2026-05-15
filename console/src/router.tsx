@@ -12,6 +12,7 @@ import { AgentsPage } from './routes/agent-scoreboard';
 import { AgentFilesPage } from './routes/agents';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
+import { BoardPage } from './routes/board';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
 import { DashboardPage } from './routes/dashboard';
@@ -163,6 +164,12 @@ const jobsRoute = createRoute({
   component: JobsPage,
 });
 
+const boardRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/board',
+  component: BoardPage,
+});
+
 const mcpRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/mcp',
@@ -222,6 +229,7 @@ const routeTree = rootRoute.addChildren([
     modelsRoute,
     schedulerRoute,
     jobsRoute,
+    boardRoute,
     mcpRoute,
     auditRoute,
     skillsRoute,

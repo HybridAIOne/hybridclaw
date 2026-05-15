@@ -12,6 +12,7 @@ import type {
   AdminApprovalsResponse,
   AdminAuditResponse,
   AdminBoardBudgetResponse,
+  AdminBoardCardsResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
@@ -548,6 +549,14 @@ export function fetchBoardBudgetSummaries(
     `/api/admin/board/budgets${query ? `?${query}` : ''}`,
     { token },
   );
+}
+
+export function fetchBoardCards(
+  token: string,
+): Promise<AdminBoardCardsResponse> {
+  return requestJson<AdminBoardCardsResponse>('/api/admin/board/cards', {
+    token,
+  });
 }
 
 export async function fetchSessions(token: string): Promise<AdminSession[]> {

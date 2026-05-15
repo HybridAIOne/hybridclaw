@@ -45,6 +45,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/a2a-trust', label: 'A2A Trust', icon: Policy },
       { to: '/admin/audit', label: 'Audit', icon: Audit },
       { to: '/admin/jobs', label: 'Jobs', icon: Jobs },
+      { to: '/admin/board', label: 'Board', icon: Jobs },
     ],
   },
   {

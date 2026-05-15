@@ -1574,6 +1574,21 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
+  const listCards = vi.fn(() => [
+    {
+      id: 'card-main',
+      title: 'Main card',
+      body: 'Review the launch brief.',
+      owner: { agentId: 'main' },
+      column: 'in_review',
+      status: 'open',
+      source: 'manual',
+      parent: null,
+      createdAt: '2026-05-14T12:00:00.000Z',
+      updatedAt: '2026-05-14T12:00:00.000Z',
+      deletedAt: null,
+    },
+  ]);
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
@@ -1677,6 +1692,9 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/board/budget-chip.js', () => ({
     getBoardBudgetSummaries,
+  }));
+  vi.doMock('../src/board/card-store.js', () => ({
+    listCards,
   }));
   vi.doMock('../src/agent/executor.js', () => ({
     stopSessionExecution,
@@ -1853,6 +1871,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
     getBoardBudgetSummaries,
+    listCards,
     getGatewayAdminTools,
     startTerminalSession,
     stopTerminalSession,
@@ -5661,6 +5680,37 @@ describe('gateway HTTP server', () => {
           cap: 60,
           currency: 'USD',
           percent: 5.666,
+        },
+      ],
+    });
+  });
+
+  test('returns board cards for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/board/cards',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.listCards).toHaveBeenCalledWith();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      cards: [
+        {
+          id: 'card-main',
+          title: 'Main card',
+          body: 'Review the launch brief.',
+          owner: { agentId: 'main' },
+          column: 'in_review',
+          status: 'open',
+          source: 'manual',
+          parent: null,
+          createdAt: '2026-05-14T12:00:00.000Z',
+          updatedAt: '2026-05-14T12:00:00.000Z',
+          deletedAt: null,
         },
       ],
     });
