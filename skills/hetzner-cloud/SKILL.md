@@ -79,6 +79,9 @@ inspection, cost estimates, and snapshot lifecycle work.
 6. Never paste, print, or inspect `HETZNER_API_TOKEN`; the gateway injects it
    server-side with `bearerSecretName: "HETZNER_API_TOKEN"`.
 
+See [references/operator-setup.md](references/operator-setup.md) for operator
+setup, token scope, autonomy defaults, and cost-reporting expectations.
+
 ## Command Contract
 
 Run the helper:
@@ -130,8 +133,8 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-se
 ## Working Rules
 
 - Treat `delete-server`, `delete-vps`, `delete-snapshot`,
-  `destroy-snapshot`, `delete-volume`, and `restore-snapshot` as red-risk actions. Stop unless the operator grants the
-  exact target id.
+  `destroy-snapshot`, `delete-volume`, and `restore-snapshot` as red-risk
+  actions. Stop unless the operator grants the exact target id.
 - Use read-only tokens for inventory and cost reporting. Ask for read-write
   tokens only for the requested mutation window.
 - For demo servers, include owner/project and TTL labels before provisioning.

@@ -65,6 +65,9 @@ record management through the Hetzner DNS API.
 6. Never paste, print, or inspect `HETZNER_DNS_API_TOKEN`; the gateway injects
    it server-side as `Auth-API-Token`.
 
+See [references/operator-setup.md](references/operator-setup.md) for DNS token
+setup, scope, autonomy defaults, and record-id handling.
+
 ## Command Contract
 
 ```bash

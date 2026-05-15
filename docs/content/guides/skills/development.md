@@ -265,6 +265,17 @@ Operate Hetzner infrastructure with three bundled skills:
 | Hetzner DNS API token | Stored secret: `HETZNER_DNS_API_TOKEN` for DNS API `Auth-API-Token` injection | `hybridclaw secret set HETZNER_DNS_API_TOKEN "<token>"` |
 | Storage Box WebDAV auth | Optional stored secret for file operations: `HETZNER_STORAGE_BOX_BASIC_AUTH` | Store base64 `username:password` payload |
 
+`HETZNER_API_TOKEN` is intentionally limited to Hetzner Console APIs. DNS and
+WebDAV use separate secrets because Hetzner exposes those surfaces through
+different auth contracts; HybridClaw still injects every secret server-side, so
+the model never sees raw tokens or passwords.
+
+Per-skill operator setup references:
+
+- [Hetzner Cloud operator setup](../../../../skills/hetzner-cloud/references/operator-setup.md)
+- [Hetzner DNS operator setup](../../../../skills/hetzner-dns/references/operator-setup.md)
+- [Hetzner Storage Box operator setup](../../../../skills/hetzner-storage-box/references/operator-setup.md)
+
 > 💡 **Tips & Tricks**
 >
 > Use read-only Hetzner API tokens for inventory and cost reporting.

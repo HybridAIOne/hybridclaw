@@ -51,6 +51,14 @@ test('Hetzner skill manifests declare infrastructure metadata and secret refs', 
     expect(raw).toContain('stakes_tiers:');
     expect(raw).toContain('confirm-each');
     expect(raw).toContain('UsageTotals');
+    expect(raw).toContain('references/operator-setup.md');
+
+    const operatorSetup = fs.readFileSync(
+      path.join(skillRoot, skill.name, 'references', 'operator-setup.md'),
+      'utf-8',
+    );
+    expect(operatorSetup).toContain('Recommended Autonomy');
+    expect(operatorSetup).toContain('confirm-each');
   }
 
   const storage = fs.readFileSync(
@@ -58,6 +66,7 @@ test('Hetzner skill manifests declare infrastructure metadata and secret refs', 
     'utf-8',
   );
   expect(storage).toContain('HETZNER_STORAGE_BOX_BASIC_AUTH');
+  expect(storage).toContain('HETZNER_DNS_API_TOKEN');
   expect(storage).toContain('WebDAV file operations');
 });
 
@@ -199,7 +208,9 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     json: { network: 555, ip: '10.0.0.12' },
   });
   expect(dashPrefixedDescription.status).toBe(0);
-  expect(JSON.parse(dashPrefixedDescription.stdout).httpRequest.json).toMatchObject({
+  expect(
+    JSON.parse(dashPrefixedDescription.stdout).httpRequest.json,
+  ).toMatchObject({
     description: '--pre-deploy',
   });
   expect(unknownOperation.status).not.toBe(0);

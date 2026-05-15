@@ -86,6 +86,10 @@ API management calls use `HETZNER_API_TOKEN`:
 hybridclaw secret set HETZNER_API_TOKEN "<hetzner-console-api-token>"
 ```
 
+`HETZNER_API_TOKEN` is the Hetzner Console token for Cloud and Storage Box
+management APIs. DNS uses its own `HETZNER_DNS_API_TOKEN` because Hetzner DNS is
+served by a separate DNS API and `Auth-API-Token` header.
+
 WebDAV file operations use a Basic-auth secret containing only the base64
 encoded `username:password` payload:
 
