@@ -23,6 +23,7 @@ export interface A2ADeliveryConfirmation {
 
 export interface A2ASendMessageMeta {
   actor?: string;
+  auditRole?: 'sender' | 'receiver';
   peerDescriptor?: unknown;
   transportRegistry?: TransportRegistry;
   sessionId?: string;
@@ -65,10 +66,12 @@ export function sendMessage(
     source: 'a2a-runtime',
     transport: peerDescriptor.transport,
   };
-  recordA2AMessageAudit({
-    type: 'a2a.send',
-    ...auditBase,
-  });
+  if ((meta?.auditRole ?? 'sender') === 'sender') {
+    recordA2AMessageAudit({
+      type: 'a2a.send',
+      ...auditBase,
+    });
+  }
   if (peerDescriptor.transport === 'internal') {
     recordA2AMessageAudit({
       type: 'a2a.deliver',

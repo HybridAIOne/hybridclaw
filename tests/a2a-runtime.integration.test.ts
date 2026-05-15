@@ -198,6 +198,70 @@ describe('A2A runtime API', () => {
     });
   });
 
+  test('inbound handoffs audit receive without a local send event', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const audit = await import('../src/audit/audit-trail.ts');
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const inbound = await import('../src/a2a/inbound-pipeline.ts');
+
+    initDatabase({ quiet: true });
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [
+        { id: 'main', owner: 'team', role: 'lead' },
+        { id: 'stub-b', owner: 'team', role: 'recipient' },
+      ];
+    });
+
+    inbound.acceptA2AInboundEnvelope(
+      {
+        id: 'msg-inbound-audit',
+        sender_agent_id: 'remote@team@peer-instance',
+        recipient_agent_id: 'stub-b',
+        thread_id: 'thread-inbound-audit',
+        intent: 'handoff',
+        content: 'Remote peer is handing this off.',
+        created_at: '2026-05-01T10:00:00.000Z',
+      },
+      {
+        actor: 'trusted-peer',
+        source: 'a2a',
+        sessionId: 'session-a2a-inbound-audit',
+        auditRunId: 'run-a2a-inbound-audit',
+      },
+    );
+
+    const records = fs
+      .readFileSync(
+        audit.getAuditWirePath('session-a2a-inbound-audit'),
+        'utf-8',
+      )
+      .split('\n')
+      .filter(Boolean)
+      .slice(1)
+      .map((line) => JSON.parse(line));
+
+    expect(records.map((record) => record.event.type)).toEqual([
+      'a2a.deliver',
+      'a2a.handoff',
+    ]);
+    expect(records[0].event.actor).toBe('a2a:trusted-peer');
+    expect(records[0].event.envelope).toEqual(
+      expect.objectContaining({
+        messageId: 'msg-inbound-audit',
+        senderAgentId: 'remote@team@peer-instance',
+        recipientAgentId: 'stub-b@team@local-dev',
+      }),
+    );
+    expect(
+      audit.verifyAuditSessionChain('session-a2a-inbound-audit'),
+    ).toMatchObject({
+      ok: true,
+      checkedRecords: 2,
+      errors: [],
+      lastSeq: 2,
+    });
+  });
+
   test('does not audit outbound queued transport sends as delivered', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const audit = await import('../src/audit/audit-trail.ts');
