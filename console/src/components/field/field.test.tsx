@@ -1,12 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { Input } from '../input';
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-} from './index';
+import { Field, FieldDescription, FieldError, FieldLabel } from './index';
 
 describe('Field', () => {
   it('wires FieldLabel htmlFor to the inner control id', () => {
@@ -81,9 +76,9 @@ describe('Field', () => {
       </Field>,
     );
 
-    expect(
-      (screen.getByTestId('control') as HTMLInputElement).disabled,
-    ).toBe(true);
+    expect((screen.getByTestId('control') as HTMLInputElement).disabled).toBe(
+      true,
+    );
   });
 
   it('renders FieldError with role=alert when content is present', () => {
