@@ -899,6 +899,7 @@ function tuiCharacterWidth(symbol: string): number {
       (code >= 0xfe30 && code <= 0xfe6f) ||
       (code >= 0xff00 && code <= 0xff60) ||
       (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x2600 && code <= 0x27bf) ||
       (code >= 0x1f300 && code <= 0x1faff) ||
       (code >= 0x20000 && code <= 0x3fffd))
   ) {
