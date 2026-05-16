@@ -11,6 +11,9 @@ import type {
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
+  AdminBoardBudgetResponse,
+  AdminBrowserPoolHealthResponse,
+  AdminBrowserPoolLaunchResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
@@ -533,6 +536,22 @@ export function fetchJobsContext(
   });
 }
 
+export function fetchBoardBudgetSummaries(
+  token: string,
+  agentIds?: string[],
+): Promise<AdminBoardBudgetResponse> {
+  const params = new URLSearchParams();
+  for (const agentId of agentIds || []) {
+    const normalized = agentId.trim();
+    if (normalized) params.append('agentId', normalized);
+  }
+  const query = params.toString();
+  return requestJson<AdminBoardBudgetResponse>(
+    `/api/admin/board/budgets${query ? `?${query}` : ''}`,
+    { token },
+  );
+}
+
 export async function fetchSessions(token: string): Promise<AdminSession[]> {
   const payload = await requestJson<{ sessions: AdminSession[] }>(
     '/api/admin/sessions',
@@ -661,6 +680,27 @@ export function deleteChannel(
 
 export function fetchConfig(token: string): Promise<AdminConfigResponse> {
   return requestJson<AdminConfigResponse>('/api/admin/config', { token });
+}
+
+export function fetchBrowserPoolHealth(
+  token: string,
+): Promise<AdminBrowserPoolHealthResponse> {
+  return requestJson<AdminBrowserPoolHealthResponse>(
+    '/api/admin/browser-pool/health',
+    { token },
+  );
+}
+
+export function startBrowserPool(
+  token: string,
+): Promise<AdminBrowserPoolLaunchResponse> {
+  return requestJson<AdminBrowserPoolLaunchResponse>(
+    '/api/admin/browser-pool/start',
+    {
+      method: 'POST',
+      token,
+    },
+  );
 }
 
 export function fetchEmailConfig(token: string): Promise<unknown> {
@@ -809,7 +849,7 @@ export function deleteSchedulerJob(
 export function setSchedulerJobPaused(
   token: string,
   payload:
-    | { source: 'config'; jobId: string; action: 'pause' | 'resume' }
+    | { source: 'job'; jobId: string; action: 'pause' | 'resume' }
     | { source: 'task'; taskId: number; action: 'pause' | 'resume' },
 ): Promise<AdminSchedulerResponse> {
   return requestJson<AdminSchedulerResponse>('/api/admin/scheduler', {

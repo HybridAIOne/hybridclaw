@@ -59,3 +59,63 @@ test('getStructuredAuditForSession caps large sessions and warns once', async ()
   expect(logOutput).toContain('10000');
   expect(logOutput).toContain('10001');
 });
+
+test('listStructuredAuditEntries can prefix-match event type for type-ahead filters', async () => {
+  setupHome();
+
+  const { initDatabase, listStructuredAuditEntries, logStructuredAuditEvent } =
+    await import('../src/memory/db.ts');
+
+  initDatabase({ quiet: true });
+  for (const [index, type] of [
+    'usage.batch_flushed',
+    'tool.result',
+  ].entries()) {
+    logStructuredAuditEvent({
+      version: '2.0',
+      seq: index + 1,
+      timestamp: new Date((index + 1) * 1000).toISOString(),
+      runId: `run-${index + 1}`,
+      sessionId: 'session-audit-typeahead',
+      event: { type },
+      _prevHash: `prev-${index + 1}`,
+      _hash: `hash-${index + 1}`,
+    } satisfies WireRecord);
+  }
+
+  for (const eventType of ['u', 'usa', 'usage']) {
+    expect(
+      listStructuredAuditEntries({
+        eventType,
+        eventTypeMatch: 'prefix',
+        limit: 10,
+      }).map((entry) => entry.event_type),
+    ).toEqual(['usage.batch_flushed']);
+  }
+
+  logStructuredAuditEvent({
+    version: '2.0',
+    seq: 3,
+    timestamp: new Date(3000).toISOString(),
+    runId: 'run-3',
+    sessionId: 'session-audit-typeahead',
+    event: { type: 'usage.batchXflushed' },
+    _prevHash: 'prev-3',
+    _hash: 'hash-3',
+  } satisfies WireRecord);
+
+  expect(
+    listStructuredAuditEntries({
+      eventType: 'usage.batch_',
+      eventTypeMatch: 'prefix',
+      limit: 10,
+    }).map((entry) => entry.event_type),
+  ).toEqual(['usage.batch_flushed']);
+
+  expect(
+    listStructuredAuditEntries({
+      eventType: 'usage',
+      limit: 10,
+    }),
+  ).toEqual([]);
+});

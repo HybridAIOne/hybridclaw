@@ -892,6 +892,19 @@ aside[data-state="collapsed"] .chatSidebarContent {
   background: #fff;
 }
 
+.artifactVideoPreview {
+  width: min(720px, 100%);
+  background: #000;
+}
+
+.artifactVideoPreview video {
+  display: block;
+  width: 100%;
+  max-height: min(65vh, 560px);
+  border-radius: var(--radius-sm);
+  background: #000;
+}
+
 .thinking {
   display: flex;
   align-items: center;
@@ -1277,6 +1290,23 @@ aside[data-state="collapsed"] .chatSidebarContent {
   margin-left: auto;
   margin-right: auto;
   width: calc(100% - 48px);
+  animation: errorBannerFadeIn 160ms ease;
+}
+
+.errorBannerExiting {
+  animation: errorBannerFadeOut 200ms ease forwards;
+}
+
+@keyframes errorBannerFadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes errorBannerFadeOut {
+  to {
+    opacity: 0;
+  }
 }
 
 .editArea {
@@ -1390,6 +1420,11 @@ aside[data-state="collapsed"] .chatSidebarContent {
   }
 
   .sessionItemPending {
+    animation: none;
+  }
+
+  .errorBanner,
+  .errorBannerExiting {
     animation: none;
   }
 }

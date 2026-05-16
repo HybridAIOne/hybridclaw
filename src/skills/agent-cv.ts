@@ -11,10 +11,7 @@ import {
   findCheapestModelMeetingCapabilities,
   getModelCatalogMetadata,
 } from '../providers/model-catalog.js';
-import {
-  isAuxiliaryTaskDisabled,
-  normalizeAuxiliaryProviderModel,
-} from '../providers/task-routing.js';
+import { normalizeAuxiliaryProviderModel } from '../providers/task-routing.js';
 import {
   type ConfidentialPlaceholderMap,
   createPlaceholderMap,
@@ -35,7 +32,7 @@ const AGENT_CV_STATE_SCHEMA_VERSION = 1;
 const CV_STATE_FILE = '.CV.state.json';
 const MAX_NARRATION_SOURCE_CHARS = 1_200;
 const DEFAULT_CV_NARRATION_MAX_TOKENS = 1_200;
-const DEFAULT_CV_NARRATION_TIMEOUT_MS = 20_000;
+const DEFAULT_CV_NARRATION_TIMEOUT_MS = 45_000;
 const APPROX_CHARS_PER_TOKEN = 4;
 
 interface AgentCvEntry {
@@ -528,17 +525,9 @@ function narrationSourceForEvent(
   ) as Record<string, unknown>;
 }
 
-function fallbackNarration(event: SkillRunEvent): CvNarration {
-  return {
-    run_id: event.run_id,
-    title: `Completed ${event.skill_id}`,
-    description: `Completed ${event.skill_id} in ${formatDurationMs(event.latency_ms)}.`,
-  };
-}
-
-function normalizeNarrationText(value: unknown, fallback: string): string {
+function normalizeNarrationText(value: unknown): string | null {
   const normalized = typeof value === 'string' ? value.trim() : '';
-  return limitText(normalized.replace(/\s+/g, ' '), 500) || fallback;
+  return limitText(normalized.replace(/\s+/g, ' '), 500) || null;
 }
 
 function stripJsonFence(value: string): string {
@@ -558,31 +547,39 @@ function parseNarrations(
       : isRecord(parsed) && Array.isArray(parsed.entries)
         ? parsed.entries
         : [];
-    const fallbackByRunId = new Map(
-      events.map((event) => [event.run_id, fallbackNarration(event)]),
-    );
-    return rows
+    const expectedRunIds = new Set(events.map((event) => event.run_id));
+    const narrations = rows
       .map((row) => {
         if (!isRecord(row)) return null;
         const runId = typeof row.run_id === 'string' ? row.run_id.trim() : '';
-        const fallback = fallbackByRunId.get(runId);
-        if (!runId || !fallback) return null;
+        if (!runId || !expectedRunIds.has(runId)) return null;
+        const title = normalizeNarrationText(row.title);
+        const description = normalizeNarrationText(row.description);
+        if (!title || !description) return null;
         return {
           run_id: runId,
-          title: normalizeNarrationText(row.title, fallback.title),
-          description: normalizeNarrationText(
-            row.description,
-            fallback.description,
-          ),
+          title,
+          description,
         };
       })
       .filter((entry): entry is CvNarration => Boolean(entry));
+
+    const narratedRunIds = new Set(narrations.map((entry) => entry.run_id));
+    const missingRunIds = events
+      .map((event) => event.run_id)
+      .filter((runId) => !narratedRunIds.has(runId));
+    if (missingRunIds.length > 0) {
+      throw new Error(
+        `Agent CV narration omitted ${missingRunIds.length} run(s): ${missingRunIds.join(', ')}`,
+      );
+    }
+    return narrations;
   } catch (error) {
     logger.warn(
       { eventCount: events.length, error },
-      'Failed to parse agent CV narration JSON',
+      'Failed to parse or validate agent CV narration JSON',
     );
-    return [];
+    throw error;
   }
 }
 
@@ -637,14 +634,22 @@ async function narrateSkillRuns(input: {
   remainingBudgetUsd: number;
 }): Promise<{ narrations: CvNarration[]; costUsd: number }> {
   const events = input.events;
+  if (input.remainingBudgetUsd <= 0) {
+    logger.warn(
+      {
+        eventCount: events.length,
+        remainingBudgetUsd: input.remainingBudgetUsd,
+      },
+      'Skipping agent CV narration because the daily budget would be exceeded',
+    );
+    throw new Error('Agent CV narration daily budget would be exceeded.');
+  }
+
   const fallbackModel = findCheapestModelMeetingCapabilities({
     jsonMode: true,
   });
-  if (!fallbackModel || input.remainingBudgetUsd <= 0) {
-    return { narrations: events.map(fallbackNarration), costUsd: 0 };
-  }
-  if (isAuxiliaryTaskDisabled('cv_narration')) {
-    return { narrations: events.map(fallbackNarration), costUsd: 0 };
+  if (!fallbackModel) {
+    throw new Error('Agent CV narration auxiliary model is unavailable.');
   }
 
   const sources = events.map(narrationSourceForEvent);
@@ -675,7 +680,9 @@ async function narrateSkillRuns(input: {
       },
       'Skipping agent CV narration because model pricing is unavailable',
     );
-    return { narrations: events.map(fallbackNarration), costUsd: 0 };
+    throw new Error(
+      `Agent CV narration pricing is unavailable for model ${budgetModel}.`,
+    );
   }
   if (estimatedCostUsd > input.remainingBudgetUsd) {
     logger.warn(
@@ -687,36 +694,24 @@ async function narrateSkillRuns(input: {
       },
       'Skipping agent CV narration because the daily budget would be exceeded',
     );
-    return { narrations: events.map(fallbackNarration), costUsd: 0 };
+    throw new Error('Agent CV narration daily budget would be exceeded.');
   }
 
-  try {
-    const result = await callAuxiliaryModel({
-      task: 'cv_narration',
-      fallbackModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      maxTokens: DEFAULT_CV_NARRATION_MAX_TOKENS,
-      temperature: 0,
-      timeoutMs: DEFAULT_CV_NARRATION_TIMEOUT_MS,
-    });
-    const parsed = parseNarrations(result.content, events);
-    const parsedByRunId = new Map(parsed.map((entry) => [entry.run_id, entry]));
-    return {
-      narrations: events.map(
-        (event) => parsedByRunId.get(event.run_id) || fallbackNarration(event),
-      ),
-      costUsd: normalizeUsageCostUsd(result.usage?.costUsd) ?? estimatedCostUsd,
-    };
-  } catch (error) {
-    logger.warn(
-      { eventCount: events.length, error },
-      'Failed to narrate agent CV entries',
-    );
-    return { narrations: events.map(fallbackNarration), costUsd: 0 };
-  }
+  const result = await callAuxiliaryModel({
+    task: 'cv_narration',
+    fallbackModel,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    maxTokens: DEFAULT_CV_NARRATION_MAX_TOKENS,
+    temperature: 0,
+    timeoutMs: DEFAULT_CV_NARRATION_TIMEOUT_MS,
+  });
+  return {
+    narrations: parseNarrations(result.content, events),
+    costUsd: normalizeUsageCostUsd(result.usage?.costUsd) ?? estimatedCostUsd,
+  };
 }
 
 function buildEntriesFromNarrations(
@@ -727,8 +722,10 @@ function buildEntriesFromNarrations(
     narrations.map((narration) => [narration.run_id, narration]),
   );
   return events.map((event) => {
-    const narration =
-      narrationByRunId.get(event.run_id) || fallbackNarration(event);
+    const narration = narrationByRunId.get(event.run_id);
+    if (!narration) {
+      throw new Error(`Missing agent CV narration for run ${event.run_id}.`);
+    }
     return {
       run_id: event.run_id,
       session_id: event.session_id,
@@ -821,17 +818,27 @@ async function refreshAgentCvFromEvents(input: {
   const now = new Date();
   const budgetDay = cvNarrationBudgetDay(now);
   const spentToday = state.narration_cost_usd_by_day[budgetDay] || 0;
-  const narrationResult =
-    events.length > 0
-      ? await narrateSkillRuns({
-          events,
-          remainingBudgetUsd: Math.max(
-            0,
-            getRuntimeConfig().adaptiveSkills.cv.narrationDailyBudgetUsd -
-              spentToday,
-          ),
-        })
-      : { narrations: [], costUsd: 0 };
+  let narrationResult: { narrations: CvNarration[]; costUsd: number };
+  if (events.length > 0) {
+    try {
+      narrationResult = await narrateSkillRuns({
+        events,
+        remainingBudgetUsd: Math.max(
+          0,
+          getRuntimeConfig().adaptiveSkills.cv.narrationDailyBudgetUsd -
+            spentToday,
+        ),
+      });
+    } catch (error) {
+      logger.warn(
+        { eventCount: events.length, error },
+        'Failed to narrate agent CV entries',
+      );
+      return;
+    }
+  } else {
+    narrationResult = { narrations: [], costUsd: 0 };
+  }
   const nextState: AgentCvState = {
     ...state,
     updated_at: now.toISOString(),

@@ -69,12 +69,9 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
-import {
-  getAnthropicAuthStatus,
-  isAnthropicAuthReadyForMethod,
-} from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
@@ -195,10 +192,8 @@ import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
   createFreshSessionInstance,
-  createTask,
   deleteMemoryValue,
   deleteSessionData,
-  deleteTask,
   enqueueProactiveMessage,
   getAllSessions,
   getFullAutoSessionCount,
@@ -217,7 +212,6 @@ import {
   getSessionUsageTotalsSince,
   getStatisticsTotals,
   getStructuredAuditForSession,
-  getTasksForSession,
   getUsageTotals,
   listMessageTrendByDay,
   listSemanticMemoriesForSession,
@@ -229,9 +223,7 @@ import {
   listUsageByModel,
   listUsageBySession,
   listUsageDailyBreakdown,
-  pauseTask,
   recordRequestLog,
-  resumeTask,
   setMemoryValue,
   updateSessionAgent,
   updateSessionChatbot,
@@ -239,6 +231,12 @@ import {
   updateSessionRag,
   updateSessionShowMode,
 } from '../memory/db.js';
+import {
+  createJob,
+  deleteJob,
+  getAllJobs,
+  setJobEnabled,
+} from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   ensurePluginManagerInitialized,
@@ -263,18 +261,12 @@ import {
   removeHttpSecretRouteFromWorkspacePolicy,
   restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
-import {
-  discoverCodexModels,
-  getDiscoveredCodexModelNames,
-} from '../providers/codex-discovery.js';
+import { discoverCodexModels } from '../providers/codex-discovery.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
-import {
-  discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelNames,
-} from '../providers/huggingface-discovery.js';
+import { discoverHuggingFaceModels } from '../providers/huggingface-discovery.js';
 import {
   fetchHybridAIAccountChatbotId,
   fetchHybridAIBots,
@@ -283,7 +275,6 @@ import {
 import { getLocalModelInfo } from '../providers/local-discovery.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import {
@@ -303,11 +294,7 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
-import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
-import {
-  discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelNames,
-} from '../providers/openrouter-discovery.js';
+import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
@@ -521,7 +508,6 @@ import {
   type GatewayCommandResult,
   type GatewayHistorySummary,
   type GatewayModelProviderKey,
-  type GatewayProviderHealthEntry,
   type GatewayRecentChatSession,
   type GatewayStatus,
   renderGatewayCommand,
@@ -536,6 +522,10 @@ import { initializeGoalContinuationRunner } from './goal-continuation-runner.js'
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
+import {
+  buildGatewayProviderHealth,
+  getGatewayAdminProviderStatus,
+} from './provider-status.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
   describeSessionShowMode,
@@ -1702,108 +1692,6 @@ function getAdminChannelDisabledSkills(
   );
 }
 
-function buildGatewayProviderHealth(params: {
-  localBackends: GatewayStatus['localBackends'];
-  codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridaiHealth: GatewayProviderHealthEntry;
-}): NonNullable<GatewayStatus['providerHealth']> {
-  const runtimeConfig = getRuntimeConfig();
-  const anthropicStatus = getAnthropicAuthStatus();
-  const anthropicReady = isAnthropicAuthReadyForMethod(
-    anthropicStatus,
-    runtimeConfig.anthropic.method,
-  );
-  const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: params.hybridaiHealth,
-    codex: {
-      kind: 'remote',
-      reachable: params.codex.authenticated && !params.codex.reloginRequired,
-      ...(params.codex.authenticated && !params.codex.reloginRequired
-        ? {}
-        : {
-            error: params.codex.reloginRequired
-              ? 'Login required'
-              : 'Not authenticated',
-          }),
-      ...(params.codex.reloginRequired ? { loginRequired: true } : {}),
-      modelCount: dedupeStrings(getDiscoveredCodexModelNames()).length,
-      detail:
-        params.codex.authenticated && !params.codex.reloginRequired
-          ? `Authenticated${params.codex.source ? ` via ${params.codex.source}` : ''}`
-          : params.codex.reloginRequired
-            ? 'Login required'
-            : 'Not authenticated',
-    },
-  };
-  if (runtimeConfig.anthropic.enabled || anthropicStatus.authenticated) {
-    providerHealth.anthropic = {
-      kind: 'remote',
-      reachable: anthropicReady,
-      ...(anthropicReady ? {} : { error: 'Not authenticated' }),
-      modelCount: dedupeStrings(runtimeConfig.anthropic.models).length,
-      detail: anthropicReady
-        ? `Authenticated${anthropicStatus.source ? ` via ${anthropicStatus.source}` : ''}`
-        : anthropicStatus.authenticated && anthropicStatus.method
-          ? `Detected ${anthropicStatus.method}, configured ${runtimeConfig.anthropic.method}`
-          : 'Not authenticated',
-    };
-  }
-  const optionalRemoteProviders = [
-    {
-      key: 'openrouter',
-      enabled: runtimeConfig.openrouter.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('openrouter', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredOpenRouterModelNames()).length,
-    },
-    {
-      key: 'mistral',
-      enabled: runtimeConfig.mistral.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('mistral', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredMistralModelNames()).length,
-    },
-    {
-      key: 'huggingface',
-      enabled: runtimeConfig.huggingface.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('huggingface', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredHuggingFaceModelNames()).length,
-    },
-  ] as const;
-
-  for (const provider of optionalRemoteProviders) {
-    if (!provider.enabled) continue;
-    providerHealth[provider.key] = {
-      kind: 'remote',
-      reachable: provider.authenticated,
-      ...(provider.authenticated ? {} : { error: 'Not authenticated' }),
-      modelCount: provider.modelCount,
-      detail: provider.authenticated ? 'Authenticated' : 'Not authenticated',
-    };
-  }
-
-  for (const [name, status] of Object.entries(params.localBackends || {})) {
-    providerHealth[name as keyof typeof providerHealth] = {
-      kind: 'local',
-      reachable: status.reachable,
-      latencyMs: status.latencyMs,
-      ...(status.error ? { error: status.error } : {}),
-      ...(typeof status.modelCount === 'number'
-        ? { modelCount: status.modelCount }
-        : {}),
-      detail: status.reachable
-        ? `${status.latencyMs}ms`
-        : status.error || 'unreachable',
-    };
-  }
-
-  return providerHealth;
-}
-
 async function getGatewayStatusForModelSubcommand(
   subcommand: string | undefined,
 ): Promise<GatewayStatus> {
@@ -1902,7 +1790,10 @@ function mapAdminSession(session: Session): GatewayAdminSession {
     messageCount: session.message_count,
     summary: session.session_summary,
     compactionCount: session.compaction_count,
-    taskCount: getTasksForSession(session.id).length,
+    taskCount: getAllJobs({
+      kind: 'scheduled_task',
+      sessionId: session.id,
+    }).length,
     createdAt: session.created_at,
     lastActive: session.last_active,
   };
@@ -5617,41 +5508,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     runtimeConfig.hybridai.defaultModel,
     modelIds,
   );
-  const status = await getGatewayStatus();
-  const providerStatus = Object.fromEntries(
-    Object.entries(status.providerHealth || {}).map(([name, value]) => [
-      name,
-      { ...value },
-    ]),
-  ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
-  const REMOTE_OPENAI_COMPAT_KEYS = [
-    'openrouter',
-    'mistral',
-    'huggingface',
-    'gemini',
-    'deepseek',
-    'xai',
-    'zai',
-    'kimi',
-    'minimax',
-    'dashscope',
-    'xiaomi',
-    'kilo',
-  ] as const;
-  for (const key of REMOTE_OPENAI_COMPAT_KEYS) {
-    if (providerStatus[key]) continue;
-    const diagnostic = diagnoseProviderForModels(key, status.providerHealth);
-    providerStatus[key] = {
-      kind: 'remote',
-      reachable: diagnostic === null,
-      ...(diagnostic
-        ? {
-            error: diagnostic.message,
-            loginRequired: diagnostic.kind === 'unauthorized',
-          }
-        : {}),
-    };
-  }
+  const providerStatus = await getGatewayAdminProviderStatus();
   const modelCountByProvider = new Map<
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
@@ -5812,6 +5669,7 @@ export function getGatewayAdminAudit(params?: {
       query,
       sessionId,
       eventType,
+      eventTypeMatch: 'prefix',
       limit,
     }).map(mapAdminAuditEntry),
   };
@@ -5966,6 +5824,17 @@ export function getGatewayAdminApprovals(params?: {
   };
 }
 
+function syncManagedBrowserTenantPolicyProjection(): void {
+  try {
+    syncLocalManagedBrowserTenantPolicyFromAdminPolicies();
+  } catch (error) {
+    logger.warn(
+      { error },
+      'Failed to sync managed browser tenant policy from admin policy',
+    );
+  }
+}
+
 export function saveGatewayAdminPolicyRule(input: {
   agentId?: string;
   index?: number | null;
@@ -5977,6 +5846,7 @@ export function saveGatewayAdminPolicyRule(input: {
       input.index != null
         ? updatePolicyRule(workspacePath, input.index, input.rule)
         : addPolicyRule(workspacePath, input.rule);
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -5993,6 +5863,7 @@ export function deleteGatewayAdminPolicyRule(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = deletePolicyRule(workspacePath, String(input.index)).state;
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6009,6 +5880,7 @@ export function saveGatewayAdminPolicyDefault(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = setPolicyDefault(workspacePath, input.defaultAction);
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6025,6 +5897,7 @@ export function applyGatewayAdminPolicyPreset(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = applyPolicyPreset(workspacePath, input.presetName).state;
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -11021,13 +10894,14 @@ export async function handleGatewayCommand(
                 `\`${runAtRaw}\` is not a valid ISO timestamp.`,
               );
             }
-            const taskId = createTask(
-              session.id,
-              req.channelId,
-              '',
+            const taskId = createJob({
+              kind: 'scheduled_task',
+              sessionId: session.id,
+              channelId: req.channelId,
+              cronExpr: '',
               prompt,
-              parsedDate.toISOString(),
-            );
+              runAt: parsedDate.toISOString(),
+            });
             rearmScheduler();
             return plainCommand(
               `Task #${taskId} created: one-shot at \`${parsedDate.toISOString()}\` — ${prompt}`,
@@ -11044,14 +10918,14 @@ export async function handleGatewayCommand(
                 'Interval must be at least 10000ms.',
               );
             }
-            const taskId = createTask(
-              session.id,
-              req.channelId,
-              '',
+            const taskId = createJob({
+              kind: 'scheduled_task',
+              sessionId: session.id,
+              channelId: req.channelId,
+              cronExpr: '',
               prompt,
-              undefined,
               everyMs,
-            );
+            });
             rearmScheduler();
             return plainCommand(
               `Task #${taskId} created: every \`${everyMs}ms\` — ${prompt}`,
@@ -11074,12 +10948,13 @@ export async function handleGatewayCommand(
               `\`${cronExpr}\` is not a valid cron expression.`,
             );
           }
-          const taskId = createTask(
-            session.id,
-            req.channelId,
+          const taskId = createJob({
+            kind: 'scheduled_task',
+            sessionId: session.id,
+            channelId: req.channelId,
             cronExpr,
             prompt,
-          );
+          });
           rearmScheduler();
           return plainCommand(
             `Task #${taskId} created: cron \`${cronExpr}\` — ${prompt}`,
@@ -11087,7 +10962,10 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'list') {
-          const tasks = getTasksForSession(session.id);
+          const tasks = getAllJobs({
+            kind: 'scheduled_task',
+            sessionId: session.id,
+          });
           if (tasks.length === 0) return plainCommand('No scheduled tasks.');
           const list = tasks
             .map((task) => {
@@ -11113,7 +10991,7 @@ export async function handleGatewayCommand(
           const taskId = parseIntegerArg(req.args, 2);
           if (!taskId)
             return badCommand('Usage', 'Usage: `schedule remove <id>`');
-          deleteTask(taskId);
+          deleteJob(taskId);
           rearmScheduler();
           return plainCommand(`Task #${taskId} removed.`);
         }
@@ -11122,7 +11000,10 @@ export async function handleGatewayCommand(
           const taskId = parseIntegerArg(req.args, 2);
           if (!taskId)
             return badCommand('Usage', 'Usage: `schedule toggle <id>`');
-          const tasks = getTasksForSession(session.id);
+          const tasks = getAllJobs({
+            kind: 'scheduled_task',
+            sessionId: session.id,
+          });
           const task = tasks.find((t) => t.id === taskId);
           if (!task)
             return badCommand(
@@ -11130,9 +11011,9 @@ export async function handleGatewayCommand(
               `Task #${taskId} was not found in this session.`,
             );
           if (task.enabled) {
-            pauseTask(taskId);
+            setJobEnabled(taskId, false);
           } else {
-            resumeTask(taskId);
+            setJobEnabled(taskId, true);
           }
           rearmScheduler();
           return plainCommand(

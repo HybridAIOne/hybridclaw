@@ -3,21 +3,22 @@ import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { HYBRIDAI_CHATBOT_ID, HYBRIDAI_MODEL } from '../config/config.js';
 import {
   DEFAULT_ONE_SHOT_MAX_RETRIES,
-  getRuntimeConfig,
+  migrateLegacySchedulerJobsFromRuntimeConfig,
   parseSchedulerBoardStatus,
-  type RuntimeConfig,
+  type RuntimeSchedulerJob,
   type SchedulerBoardStatus,
-  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { getSessionById, updateSessionAgent } from '../memory/db.js';
 import {
-  deleteTask,
-  getAllTasks,
-  getSessionById,
-  pauseTask,
-  resumeTask,
-  updateSessionAgent,
-} from '../memory/db.js';
+  deleteJob,
+  getAllJobs,
+  getJob,
+  reorderJob,
+  setJobEnabled,
+  updateJob,
+  upsertJob,
+} from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import { modelRequiresChatbotId } from '../providers/factory.js';
 import { runIsolatedScheduledTask } from '../scheduler/scheduled-task-runner.js';
@@ -47,14 +48,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isRunOnceScheduleKind(
-  kind: RuntimeConfig['scheduler']['jobs'][number]['schedule']['kind'],
+  kind: RuntimeSchedulerJob['schedule']['kind'],
 ): boolean {
   return kind === 'at' || kind === 'one_shot';
 }
 
-function parseAdminSchedulerJob(
-  value: unknown,
-): RuntimeConfig['scheduler']['jobs'][number] {
+function parseAdminSchedulerJob(value: unknown): RuntimeSchedulerJob {
   if (!isRecord(value)) {
     throw new Error('Expected object `job`.');
   }
@@ -227,8 +226,24 @@ function compareGatewayAdminSchedulerJobs(
   return left.name.localeCompare(right.name);
 }
 
+export function migrateConfigSchedulerJobsToDatabase(): number {
+  const legacyJobs = migrateLegacySchedulerJobsFromRuntimeConfig({
+    route: 'scheduler-jobs.migrate-config-to-db',
+    source: 'system',
+  });
+  if (legacyJobs.length === 0) return 0;
+
+  for (const job of legacyJobs) {
+    upsertJob(job);
+  }
+  logger.info(
+    { migratedJobs: legacyJobs.length },
+    'Migrated config scheduler jobs into SQLite jobs table',
+  );
+  return legacyJobs.length;
+}
+
 export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
-  const runtimeConfig = getRuntimeConfig();
   const statuses = new Map(
     getSchedulerStatus().map((job) => [job.id, job] as const),
   );
@@ -236,12 +251,12 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
 
   return {
     jobs: [
-      ...runtimeConfig.scheduler.jobs.map((job) => {
+      ...getAllJobs({ kind: 'scheduler_job' }).map((job) => {
         const runtime = statuses.get(job.id);
         const session = getSessionById(`scheduler:${job.id}`);
         return {
           id: job.id,
-          source: 'config',
+          source: 'job',
           name:
             (typeof job.name === 'string' && job.name.trim()) ||
             runtime?.name ||
@@ -263,7 +278,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           nextRunAt: runtime?.nextRunAt || null,
           disabled: runtime?.disabled || false,
           consecutiveErrors: runtime?.consecutiveErrors || 0,
-          createdAt: session?.created_at || null,
+          createdAt: session?.created_at || job.createdAt || null,
           sessionId: session?.id || null,
           channelId:
             job.delivery.kind === 'channel'
@@ -274,7 +289,7 @@ export function getGatewayAdminScheduler(): GatewayAdminSchedulerResponse {
           taskId: null,
         } satisfies GatewayAdminSchedulerJob;
       }),
-      ...getAllTasks()
+      ...getAllJobs({ kind: 'scheduled_task' })
         .map((task) => {
           const normalizedPrompt = task.prompt.replace(/\s+/g, ' ').trim();
           const createdAtMs = parseSchedulerTimestampMs(task.created_at);
@@ -351,20 +366,8 @@ export function upsertGatewayAdminSchedulerJob(input: {
   job: unknown;
 }): GatewayAdminSchedulerResponse {
   const job = parseAdminSchedulerJob(input.job);
-  const previousJob =
-    getRuntimeConfig().scheduler.jobs.find((entry) => entry.id === job.id) ||
-    null;
-
-  updateRuntimeConfig((draft) => {
-    const existingIndex = draft.scheduler.jobs.findIndex(
-      (entry) => entry.id === job.id,
-    );
-    if (existingIndex >= 0) {
-      draft.scheduler.jobs[existingIndex] = job;
-      return;
-    }
-    draft.scheduler.jobs.push(job);
-  });
+  const previousJob = getJob(job.id, { kind: 'scheduler_job' });
+  upsertJob(job);
 
   if (
     previousJob &&
@@ -384,14 +387,14 @@ export function upsertGatewayAdminSchedulerJob(input: {
 
 export function removeGatewayAdminSchedulerJob(
   jobId: string,
-  source: 'config' | 'task' = 'config',
+  source: 'job' | 'task' | 'config' = 'job',
 ): GatewayAdminSchedulerResponse {
   if (source === 'task') {
     const taskId = Number.parseInt(jobId, 10);
     if (!Number.isFinite(taskId) || taskId <= 0) {
       throw new Error('Expected numeric scheduler `taskId`.');
     }
-    deleteTask(taskId);
+    deleteJob(taskId);
     rearmScheduler();
     return getGatewayAdminScheduler();
   }
@@ -401,11 +404,7 @@ export function removeGatewayAdminSchedulerJob(
     throw new Error('Expected non-empty scheduler `jobId`.');
   }
 
-  updateRuntimeConfig((draft) => {
-    draft.scheduler.jobs = draft.scheduler.jobs.filter(
-      (job) => job.id !== normalizedJobId,
-    );
-  });
+  deleteJob(normalizedJobId);
   rearmScheduler();
   return getGatewayAdminScheduler();
 }
@@ -413,18 +412,14 @@ export function removeGatewayAdminSchedulerJob(
 export function setGatewayAdminSchedulerJobPaused(params: {
   jobId: string;
   paused: boolean;
-  source?: 'config' | 'task';
+  source?: 'job' | 'task' | 'config';
 }): GatewayAdminSchedulerResponse {
   if (params.source === 'task') {
     const taskId = Number.parseInt(params.jobId, 10);
     if (!Number.isFinite(taskId) || taskId <= 0) {
       throw new Error('Expected numeric scheduler `taskId`.');
     }
-    if (params.paused) {
-      pauseTask(taskId);
-    } else {
-      resumeTask(taskId);
-    }
+    setJobEnabled(taskId, !params.paused);
     rearmScheduler();
     return getGatewayAdminScheduler();
   }
@@ -453,38 +448,21 @@ export function moveGatewayAdminSchedulerJob(params: {
     throw new Error('Expected non-empty scheduler `jobId`.');
   }
   const normalizedBeforeJobId = String(params.beforeJobId || '').trim() || null;
-  const existingJob =
-    getRuntimeConfig().scheduler.jobs.find(
-      (job) => job.id === normalizedJobId,
-    ) || null;
+  const existingJob = getJob(normalizedJobId, { kind: 'scheduler_job' });
   if (!existingJob) {
     throw new Error(`Scheduler job \`${normalizedJobId}\` was not found.`);
   }
 
-  updateRuntimeConfig((draft) => {
-    const fromIndex = draft.scheduler.jobs.findIndex(
-      (job) => job.id === normalizedJobId,
-    );
-    if (fromIndex < 0) return;
-    const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
-    if ('boardStatus' in params) {
-      if (params.boardStatus === null) {
-        delete job.boardStatus;
-      } else {
-        job.boardStatus = params.boardStatus;
-      }
+  if ('boardStatus' in params) {
+    const nextJob = { ...existingJob };
+    if (params.boardStatus === null) {
+      delete nextJob.boardStatus;
+    } else {
+      nextJob.boardStatus = params.boardStatus;
     }
-    let insertIndex = draft.scheduler.jobs.length;
-    if (normalizedBeforeJobId && normalizedBeforeJobId !== normalizedJobId) {
-      const beforeIndex = draft.scheduler.jobs.findIndex(
-        (candidate) => candidate.id === normalizedBeforeJobId,
-      );
-      if (beforeIndex >= 0) {
-        insertIndex = beforeIndex;
-      }
-    }
-    draft.scheduler.jobs.splice(insertIndex, 0, job);
-  });
+    updateJob(nextJob);
+  }
+  reorderJob(normalizedJobId, normalizedBeforeJobId);
 
   if (
     params.boardStatus === 'backlog' &&

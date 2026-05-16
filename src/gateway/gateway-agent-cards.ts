@@ -88,7 +88,7 @@ function buildAgentTask(session: Session, messages: StoredMessage[]): string {
     return 'Periodic heartbeat session using the configured runtime workspace.';
   }
   if (parsedKey?.channelKind === 'scheduler') {
-    return 'Config-backed scheduler job delivering an automated agent turn.';
+    return 'DB-backed scheduler job delivering an automated agent turn.';
   }
   // Keep pre-hierarchical prefixes for rows created before v11 migration or
   // restored from older exports.
@@ -96,7 +96,7 @@ function buildAgentTask(session: Session, messages: StoredMessage[]): string {
     return 'Periodic heartbeat session using the configured runtime workspace.';
   }
   if (session.id.startsWith('scheduler:')) {
-    return 'Config-backed scheduler job delivering an automated agent turn.';
+    return 'DB-backed scheduler job delivering an automated agent turn.';
   }
   if (session.id.startsWith('delegate:')) {
     return 'Delegated sub-agent session spawned for a focused task.';
@@ -303,7 +303,7 @@ function getAgentWatcherLabel(
   return 'runtime detached';
 }
 
-function logUnsupportedConversationPreview(
+function logNonChatConversationPreview(
   sessionId: string,
   messages: StoredMessage[],
   conversation: {
@@ -314,7 +314,7 @@ function logUnsupportedConversationPreview(
   if (conversation.lastQuestion || conversation.lastAnswer) return;
   if (messages.length === 0) return;
 
-  const unsupportedRoles = Array.from(
+  const nonChatRoles = Array.from(
     new Set(
       messages
         .filter((message) => String(message.content || '').trim().length > 0)
@@ -322,15 +322,15 @@ function logUnsupportedConversationPreview(
         .filter((role) => role !== 'user' && role !== 'assistant'),
     ),
   );
-  if (unsupportedRoles.length === 0) return;
+  if (nonChatRoles.length === 0) return;
 
   logger.debug(
     {
       sessionId,
-      unsupportedRoles,
+      nonChatRoles,
       messageCount: messages.length,
     },
-    'Session conversation preview omitted unsupported message roles',
+    'Session conversation preview omitted non-chat message roles',
   );
 }
 
@@ -358,7 +358,7 @@ export function mapSessionCard(params: {
   const messages = getRecentMessages(session.id, 12);
   const preview = buildAgentPreview(session, messages);
   const conversation = buildSessionConversationPreview(messages);
-  logUnsupportedConversationPreview(session.id, messages, conversation);
+  logNonChatConversationPreview(session.id, messages, conversation);
 
   return {
     id: session.id,

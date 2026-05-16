@@ -49,7 +49,7 @@ test('normalizes goal continuation output spacing', () => {
   );
 });
 
-test('suppresses reminder chrome for scheduler config job outputs', () => {
+test('suppresses reminder chrome for scheduler job outputs', () => {
   expect(proactiveBadgeLabel('schedule-job:release-brief')).toBeNull();
   expect(proactiveSourceSuffix('schedule-job:release-brief')).toBe('');
 });

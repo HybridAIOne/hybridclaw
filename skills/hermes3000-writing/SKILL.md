@@ -15,7 +15,7 @@ credentials:
     how_to_obtain: "Store HERMES3000_EMAIL and HERMES3000_PASSWORD in HybridClaw runtime secrets, then run the bundled auth.login helper so the gateway captures the login JWT into HERMES3000_JWT without exposing it to the agent."
 metadata:
   hybridclaw:
-    category: writing
+    category: productivity
     short_description: "Hermes3000 portal workflow for long-form writing."
     tags:
       - hermes3000
