@@ -100,12 +100,15 @@ saved revision history directly.
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
 - `browser.provider` selects the browser automation backend. Supported values
-  include `local`, `camofox`, and `browser-use-cloud`. `browser.local.*` and
-  `browser.camofox.*` configure persistent profile roots and headed mode;
-  `browser.browserUseCloud.*` configures the managed Browser Use Cloud
-  passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef.
-  Camofox stealth mode is deny-by-default per host; allow it from the
-  workspace policy with `browser.stealth.rules`.
+  include `local`, `camofox`, `managed-cloud`, and `browser-use-cloud`.
+  `browser.local.*` and `browser.camofox.*` configure persistent profile roots
+  and headed mode; `browser.managedCloud.*` points at an operator-run
+  HybridClaw browser pool with navigation-guard enforcement and optional
+  `poolTokenRef` bearer authentication; and
+  `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and
+  reads `BROWSER_USE_API_KEY` through the configured SecretRef. Camofox stealth
+  mode is deny-by-default per host; allow it from the workspace policy with
+  `browser.stealth.rules`.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and

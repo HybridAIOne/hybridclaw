@@ -19,7 +19,7 @@ The roadmap is anchored in the [HybridClaw manifesto — *The AI Coworker Who's 
 
 | # | Feature | Description | Priority | Status |
 |---|---------|-------------|----------|--------|
-| 21 | **Business skills and connectors** | Production skills and connector work. See **R21 Production Skills** below for sub-issue rows. *Principle I — the skills are the product.* | P0 | 🟡 13/103 |
+| 21 | **Business skills and connectors** | Production skills and connector work. See **R21 Production Skills** below for sub-issue rows. *Principle I — the skills are the product.* | P0 | 🟡 13/104 |
 | 1 | **Agent-to-agent messaging** | First-class primitive for agents to message, hand off, escalate, federate across instances, and speak multiple transport formats. See **R1 Messaging Work** below for sub-issue rows. *Principle VI.* | P0 | 🟡 7/14 |
 | 2 | **Workflow engine — autonomous-by-default with high-stakes escalation** | Declarative YAML workflows. Sequential runner; escalation gates only on high-stakes steps. Return-for-revision rewinds. Built on top of #1. See **R2 Workflow Work** below for sub-issue rows. *Principles II + VI.* | P0 | 🔄 #461 |
 | 3 | **Agent scoreboard + auto-`CV.md`** | Per-skill score data model populated from the skill-run event bus. Auto-rendered CV per agent; admin scoreboard; "best at X" recommendation API. See **R3 Scoreboard Work** below for the follow-up row. *Principle IV.* | P0 | ✅ (5/5; follow-up R3.7 ✅ #618; #616, #619 still open) |
@@ -322,6 +322,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.99 | Skill | Diagram skill — operator-facing wrapper over the R21.98 `diagram_create` tool. Schema-aware Mermaid (sequence / flowchart / state / ER / class / gantt / git-graph), validation pass before render, embed-ready artifacts, multi-format extension (PlantUML, Graphviz, ExcalidrawJSON) as catalog providers. Composes with **R47** scoped knowledge (rendered diagrams land in agent/skill-scoped artifact store), **F8** stakes (low — output is a file the operator chooses to share). | ✅ shipped via #1006 (2026-05-14) |
 | R21.100 | Integration | **Content-tools R5 / R47 / R48 wiring.** Image, speech-to-text, and diagram tools now ship through the per-tool-module shape, but follow-up integration remains: (a) complete **R5** per-agent budget enforcement for all generated-media/tool costs; (b) **R47** scoped-knowledge artifact storage (generated media lands in agent/skill-scoped store, not global); (c) **R48** credential-lifecycle auto-grants beyond declared skill credentials; (d) F8 stakes refinement for public-output content tools such as image generation and future TTS. | ⬜ #1000 |
 | R21.101 | Provider | **Content-tool multi-provider extension** — catalog-provider pattern for per-provider adapters, F5 capability-matrix entries, fallback chain on auth/quota errors, and per-provider cost units for R21.100 budget integration. Image providers shipped under R21.68; speech-to-text providers shipped under R21.69/R21.96; diagram adapters shipped under R21.99. Remaining extensions land separately for TTS and later provider additions. | 🟡 #1003 (image/STT/diagram provider paths shipped; TTS provider path open) |
+| R21.102 | Skill | Miro skill (board discovery, item reads for summarization/planning, sticky/text/shape/connector/frame writes, board snapshot artifacts, OAuth/token-backed credentials, and preview/approval before high-impact board writes) | ⬜ #1040 |
 
 ## R1 Messaging Work
 
@@ -456,7 +457,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 |----|------|------|--------|
 | R30.1 | Browser substrate | `BrowserProvider` interface and action vocabulary | ✅ #749 via PR #761 |
 | R30.2 | Local provider | Local Playwright provider using persistent browser context | ✅ #750 via PR #783 |
-| R30.3 | Managed provider | Managed-cloud browser provider with shared navigation guard | ⬜ [#1024](https://github.com/HybridAIOne/hybridclaw/issues/1024) |
+| R30.3 | Managed provider | Managed-cloud browser provider with shared navigation guard | ✅ [#1024](https://github.com/HybridAIOne/hybridclaw/issues/1024) |
 | R30.4 | Passthrough provider | Browser-use cloud passthrough with metering and audit URLs | ✅ #752 via PR #792 |
 | R30.5 | Sessions | Browser profile persistence and container mount integration | ⬜ To be filed |
 | R30.6 | Credentials | F13 keystroke-injection wiring for browser fills | ✅ #754 via PR #902 |

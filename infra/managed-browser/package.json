@@ -1,0 +1,14 @@
+{
+  "name": "@hybridaione/hybridclaw-managed-browser",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "guard": "node guard-proxy.js"
+  },
+  "dependencies": {
+    "playwright": "1.58.2",
+    "yaml": "2.8.3"
+  }
+}

@@ -24,6 +24,7 @@ const videoFromScript = require('../skills/video.from-script/video-from-script.c
 const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
 const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
+const ORIGINAL_HEYGEN_ASSET_CACHE_DIR = process.env.HEYGEN_ASSET_CACHE_DIR;
 
 let workspaceRoot = '';
 
@@ -39,6 +40,10 @@ beforeEach(() => {
   );
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
+  process.env.HEYGEN_ASSET_CACHE_DIR = path.join(
+    workspaceRoot,
+    '.heygen-cache',
+  );
 });
 
 afterEach(() => {
@@ -52,6 +57,11 @@ afterEach(() => {
   } else {
     process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT =
       ORIGINAL_WORKSPACE_DISPLAY_ROOT;
+  }
+  if (ORIGINAL_HEYGEN_ASSET_CACHE_DIR == null) {
+    delete process.env.HEYGEN_ASSET_CACHE_DIR;
+  } else {
+    process.env.HEYGEN_ASSET_CACHE_DIR = ORIGINAL_HEYGEN_ASSET_CACHE_DIR;
   }
   fs.rmSync(workspaceRoot, { recursive: true, force: true });
   vi.restoreAllMocks();
@@ -130,15 +140,15 @@ test('video.from-script enforces avatar source exclusivity and accepts dash-pref
     '--format',
     'json',
     'start',
-      '--avatar-id',
-      'avatar_123',
-      '--image-asset-id',
-      'asset_123',
-      '--voice-id',
-      'voice_123',
-      '--script',
-      'Approved script',
-      '--operator-grant',
+    '--avatar-id',
+    'avatar_123',
+    '--image-asset-id',
+    'asset_123',
+    '--voice-id',
+    'voice_123',
+    '--script',
+    'Approved script',
+    '--operator-grant',
   ]);
 
   const payload = videoFromScript.buildStartRequest([
@@ -156,6 +166,24 @@ test('video.from-script enforces avatar source exclusivity and accepts dash-pref
     'Provide exactly one of --avatar-id, --image-url, or --image-asset-id.',
   );
   expect(payload.httpRequest.json.script).toBe('-- Approved script opening');
+});
+
+test('video.from-script forwards HeyGen cache validation escape hatch', () => {
+  const payload = videoFromScript.buildStartRequest([
+    '--avatar-id',
+    'private_avatar',
+    '--voice-id',
+    'private_voice',
+    '--script',
+    'Approved script',
+    '--operator-grant',
+    '--skip-cache-validation',
+  ]);
+
+  expect(payload.httpRequest.json).toMatchObject({
+    avatar_id: 'private_avatar',
+    voice_id: 'private_voice',
+  });
 });
 
 test('video.from-script start returns async job id through gateway secret injection', async () => {
@@ -265,6 +293,14 @@ test('video.from-script status downloads completed MP4 artifacts', async () => {
       mimeType: 'video/mp4',
       bytes: videoBytes.length,
     },
+    artifacts: [
+      {
+        path: '/workspace/.generated-videos/avatar-video.mp4',
+        filename: 'avatar-video.mp4',
+        mimeType: 'video/mp4',
+        bytes: videoBytes.length,
+      },
+    ],
   });
   expect(
     fs.readFileSync(
@@ -317,7 +353,9 @@ test('video.from-script download requires HTTPS and enforces size while streamin
     }),
   ).rejects.toThrow('exceeds max size');
   expect(
-    fs.existsSync(path.join(workspaceRoot, '.generated-videos', 'oversized.mp4')),
+    fs.existsSync(
+      path.join(workspaceRoot, '.generated-videos', 'oversized.mp4'),
+    ),
   ).toBe(false);
 });
 
@@ -430,6 +468,11 @@ test('video.from-script render waits with bounded polling and downloads on compl
     artifact: {
       path: '/workspace/.generated-videos/rendered.mp4',
     },
+    artifacts: [
+      {
+        path: '/workspace/.generated-videos/rendered.mp4',
+      },
+    ],
   });
   expect(statusCalls).toBe(2);
 });

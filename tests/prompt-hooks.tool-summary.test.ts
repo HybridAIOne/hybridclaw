@@ -148,19 +148,37 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'Use the `message` tool for sending or reading messages on active communication channels: none.',
   );
   expect(prompt).toContain(
+    'Do not use `message` for ordinary final replies in the current chat.',
+  );
+  expect(prompt).toContain(
     'No active communication channels are registered right now.',
   );
   expect(prompt).toContain(
-    'When the user asks you to create or generate a file and return/upload/post it, include the file immediately in the final delivery. Do not ask a follow-up question offering to upload it later.',
+    'When the user asks you to create or generate a file and return or upload it in the current chat, include the file immediately in the final response. Do not ask a follow-up question offering to upload it later.',
   );
   expect(prompt).toContain(
-    'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, or images, assume the created asset should be attached in the final reply unless the user explicitly says not to send the file.',
+    'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, images, or videos, assume the created asset should be returned in the final reply unless the user explicitly says not to send the file.',
   );
   expect(prompt).toContain(
-    'For final user-visible deliverables such as PDFs, images, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
+    'For final user-visible deliverables such as PDFs, images, videos, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
   );
   expect(prompt).toContain(
-    'If you created or updated the requested deliverable successfully, prefer posting the asset immediately over replying with a path plus "if you want, I can upload it."',
+    'In web chat, return deliverables through the assistant final response; do not call `message` to deliver files or explain that the web channel cannot deliver files via `message`.',
+  );
+  expect(prompt).toContain(
+    'In web chat, image, PDF, and video artifacts can be previewed in the final response. For generated images and videos, return the image/MP4 as an artifact card from tool output `artifacts[]`; never provide only a host-local workspace path because browser users cannot open it directly.',
+  );
+  expect(prompt).toContain(
+    'Do not hand-write `/api/artifact` links from relative paths such as `.generated-images/...` or `.generated-videos/...`.',
+  );
+  expect(prompt).toContain(
+    'When the user asks to post, show, embed, attach, or send an already-generated image/video in the current web chat, rerun the artifact-producing helper or status/download command so the final response includes `artifacts[]`.',
+  );
+  expect(prompt).toContain(
+    'Never say that web chat cannot embed, display, render, deliver, or support generated images/videos.',
+  );
+  expect(prompt).toContain(
+    'If you created or updated the requested deliverable successfully, attach the asset in the final response instead of replying with a path plus "if you want, I can upload it."',
   );
   expect(prompt).toContain(
     'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop.',

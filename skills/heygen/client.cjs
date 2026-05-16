@@ -75,6 +75,127 @@ function firstString(...candidates) {
   return candidates.find((candidate) => typeof candidate === 'string') ?? null;
 }
 
+function firstValue(record, keys) {
+  return keys
+    .map((key) => record[key])
+    .find((value) => value !== undefined && value !== null && value !== '');
+}
+
+function compactString(value, maxLength = 160) {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > maxLength
+    ? `${trimmed.slice(0, maxLength - 3)}...`
+    : trimmed;
+}
+
+function extractItemArray(json, kind) {
+  const preferredKeys =
+    kind === 'voice'
+      ? ['voices', 'voice_list', 'voiceList']
+      : ['avatars', 'avatar_list', 'avatarList'];
+  const records = [
+    json,
+    json && typeof json === 'object' && !Array.isArray(json) ? json.data : null,
+  ].filter(
+    (value) => value && typeof value === 'object' && !Array.isArray(value),
+  );
+
+  for (const record of records) {
+    for (const key of preferredKeys) {
+      const candidate = record[key];
+      if (Array.isArray(candidate)) return candidate;
+    }
+  }
+
+  for (const record of records) {
+    const candidate = Object.values(record).find(
+      (value) =>
+        Array.isArray(value) &&
+        value.some((item) => item && typeof item === 'object'),
+    );
+    if (candidate) return candidate;
+  }
+
+  return [];
+}
+
+function summarizeItem(item, kind) {
+  const id = firstValue(item, [
+    `${kind}_id`,
+    `${kind}Id`,
+    'id',
+    'asset_id',
+    'assetId',
+  ]);
+  const previewUrl = firstValue(item, [
+    'preview_url',
+    'previewUrl',
+    'sample_url',
+    'sampleUrl',
+    'audio_url',
+    'audioUrl',
+  ]);
+  const thumbnailUrl = firstValue(item, [
+    'thumbnail_url',
+    'thumbnailUrl',
+    'image_url',
+    'imageUrl',
+    'preview_image_url',
+    'previewImageUrl',
+  ]);
+  const summary = {
+    id: compactString(String(id || ''), 120),
+    name: compactString(
+      firstValue(item, [
+        'name',
+        `${kind}_name`,
+        `${kind}Name`,
+        'display_name',
+        'displayName',
+      ]),
+    ),
+    gender: compactString(firstValue(item, ['gender'])),
+    language: compactString(
+      firstValue(item, ['language', 'language_code', 'languageCode', 'locale']),
+    ),
+    accent: compactString(firstValue(item, ['accent'])),
+    style: compactString(firstValue(item, ['style', 'type', 'category'])),
+    previewUrl: compactString(previewUrl, 240),
+    thumbnailUrl: compactString(thumbnailUrl, 240),
+  };
+  return Object.fromEntries(
+    Object.entries(summary).filter(([, value]) => value !== undefined),
+  );
+}
+
+function extractHeyGenAssetSummaries(json, { kind } = {}) {
+  return extractItemArray(json, kind)
+    .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => summarizeItem(item, kind));
+}
+
+function summarizeHeyGenAssets(normalized, { kind, limit = 20 } = {}) {
+  const items = extractHeyGenAssetSummaries(normalized?.json, { kind });
+  const safeLimit = Number(limit);
+  if (!Number.isInteger(safeLimit) || safeLimit <= 0) {
+    throw new Error('limit must be a positive integer.');
+  }
+  return {
+    ok: normalized.ok,
+    status: normalized.status,
+    url: normalized.url,
+    kind,
+    count: items.length,
+    returned: Math.min(items.length, safeLimit),
+    bodyBytes: normalized.bodyBytes,
+    maxResponseBytes: normalized.maxResponseBytes,
+    bodyTruncated: normalized.bodyTruncated,
+    items: items.slice(0, safeLimit),
+  };
+}
+
 function normalizeHeyGenPayload(wrapper) {
   const body = typeof wrapper.body === 'string' ? wrapper.body : '';
   const json =
@@ -99,6 +220,13 @@ function normalizeHeyGenPayload(wrapper) {
         ? wrapper.headers
         : {},
     body,
+    bodyTruncated: Boolean(wrapper.bodyTruncated),
+    bodyBytes:
+      typeof wrapper.bodyBytes === 'number' ? wrapper.bodyBytes : undefined,
+    maxResponseBytes:
+      typeof wrapper.maxResponseBytes === 'number'
+        ? wrapper.maxResponseBytes
+        : undefined,
     json,
     videoId: firstString(record.video_id, record.id),
     videoTranslateId: firstString(record.video_translate_id, record.id),
@@ -221,6 +349,17 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
             body: text,
           });
         }
+        if (wrapper.bodyTruncated) {
+          throw new HeyGenApiError(
+            `HeyGen response was truncated by the gateway at ${wrapper.maxResponseBytes || 'the configured'} bytes. Use a larger maxResponseBytes value or a summary-mode helper command.`,
+            {
+              code: 'HEYGEN_RESPONSE_TRUNCATED',
+              status: Number(wrapper.status || response.status || 0),
+              retryable: false,
+              body: typeof wrapper.body === 'string' ? wrapper.body : text,
+            },
+          );
+        }
         const normalized = normalizeHeyGenPayload(wrapper);
         if (wrapper.ok === false) {
           const retryAfter = extractHeader(normalized.headers, 'retry-after');
@@ -253,6 +392,8 @@ module.exports = {
   HeyGenApiError,
   classifyHeyGenResponse,
   executeHeyGenGatewayRequest,
+  extractHeyGenAssetSummaries,
   normalizeHeyGenPayload,
   parseRetryAfterMs,
+  summarizeHeyGenAssets,
 };

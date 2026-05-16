@@ -6,11 +6,16 @@ import {
   type LocalBrowserPlaywrightModule,
   LocalBrowserProvider,
 } from './local-provider.js';
+import {
+  ManagedCloudBrowserProvider,
+  type ManagedCloudPlaywrightModule,
+} from './managed-cloud-provider.js';
 import type { BrowserProvider } from './provider.js';
 
 export interface BrowserProviderFactoryDeps {
   localPlaywright?: LocalBrowserPlaywrightModule;
   camofox?: CamofoxModule;
+  managedCloudPlaywright?: ManagedCloudPlaywrightModule;
   secretAudit?: (handle: SecretHandle, reason: string) => void;
 }
 
@@ -33,6 +38,15 @@ export function createBrowserProvider(
         baseUrl: config.browserUseCloud.baseUrl || undefined,
         browser: config.browserUseCloud.browser,
         pricing: config.browserUseCloud.pricing,
+        secretAudit: deps.secretAudit,
+      });
+    case 'managed-cloud':
+      return new ManagedCloudBrowserProvider({
+        endpointUrl: config.managedCloud.endpointUrl || undefined,
+        poolTokenRef: config.managedCloud.poolTokenRef,
+        defaultTenantId: config.managedCloud.defaultTenantId || undefined,
+        pricing: config.managedCloud.pricing,
+        playwright: deps.managedCloudPlaywright,
         secretAudit: deps.secretAudit,
       });
     default:

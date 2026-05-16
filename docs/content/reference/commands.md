@@ -44,6 +44,7 @@ hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 hybridclaw browser login [--url <url>]
 hybridclaw browser status
 hybridclaw browser reset
+hybridclaw browser-pool doctor
 hybridclaw gateway concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
 hybridclaw update [status|--check] [--yes]
 hybridclaw help

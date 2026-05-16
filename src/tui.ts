@@ -1560,6 +1560,26 @@ function formatTuiOutput(text: string): string {
   return formatTuiMarkdownOutput(text, terminalColumns(), '  ');
 }
 
+export function formatTuiSkillListLines(
+  text: string,
+  columns: number,
+): Array<{ line: string; muted: boolean }> {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .flatMap((rawLine) => {
+      const leadingWhitespace = rawLine.match(/^\s*/u)?.[0] || '';
+      const content = rawLine.slice(leadingWhitespace.length);
+      const muted = isMutedSkillListLine(rawLine);
+      return wrapTuiBlock(content, columns, `  ${leadingWhitespace}`)
+        .split('\n')
+        .map((line) => ({
+          line: formatInlineMarkdownForTui(line),
+          muted,
+        }));
+    });
+}
+
 export function formatTuiTitledCommandBlock(
   title: string,
   text: string,
@@ -1571,7 +1591,11 @@ export function formatTuiTitledCommandBlock(
 }
 
 export function isMutedSkillListLine(line: string): boolean {
-  return /\[disabled\]/i.test(line) || /^\s*installs:/i.test(line);
+  return /\[disabled\]/i.test(line) || isSkillInstallHintLine(line);
+}
+
+function isSkillInstallHintLine(line: string): boolean {
+  return /^\s*(?:↳\s*)?installs:/u.test(line);
 }
 
 export function isPluginListHeaderLine(line: string): boolean {
@@ -1597,8 +1621,11 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.title === 'Skills') {
     clearTuiSlashMenu();
     console.log();
-    for (const line of formatTuiOutput(rendered).split('\n')) {
-      const color = isMutedSkillListLine(line) ? MUTED : GOLD;
+    for (const { line, muted } of formatTuiSkillListLines(
+      rendered,
+      terminalColumns(),
+    )) {
+      const color = muted ? MUTED : GOLD;
       console.log(`${color}${line}${RESET}`);
     }
     console.log();

@@ -4,6 +4,11 @@ description: Generate or edit raster images with the native image_generate tool.
 metadata:
   hybridclaw:
     category: media
+    tags:
+      - image
+      - generation
+      - media
+      - raster
 user-invocable: true
 ---
 

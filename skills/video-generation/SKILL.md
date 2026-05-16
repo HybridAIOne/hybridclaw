@@ -4,6 +4,12 @@ description: Generate videos with the native video_generate tool.
 metadata:
   hybridclaw:
     category: media
+    tags:
+      - video
+      - generation
+      - media
+      - sora
+      - veo
 user-invocable: true
 ---
 
