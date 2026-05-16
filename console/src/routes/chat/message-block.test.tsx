@@ -209,6 +209,46 @@ describe('MessageBlock artifacts', () => {
     ).toBeNull();
   });
 
+  it('renders video previews from authenticated blob URLs', async () => {
+    fetchArtifactBlobMock.mockResolvedValue(
+      new Blob(['video-bytes'], { type: 'application/octet-stream' }),
+    );
+
+    const { container } = render(
+      <MessageBlock
+        message={makeMessage([
+          {
+            path: '/tmp/demo.mp4',
+            filename: 'demo.mp4',
+            mimeType: 'video/mp4',
+          },
+        ])}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        container.querySelector('video[src="blob:artifact"]'),
+      ).toBeTruthy();
+    });
+    const [previewBlob] = vi.mocked(URL.createObjectURL).mock.calls[0] ?? [];
+    expect(previewBlob).toBeInstanceOf(Blob);
+    expect((previewBlob as Blob).type).toBe('video/mp4');
+    expect(fetchArtifactBlobMock).toHaveBeenCalledWith(
+      'test-token',
+      '/tmp/demo.mp4',
+    );
+  });
+
   it('renders assistant avatars through the authenticated blob helper', async () => {
     fetchAgentAvatarBlobMock.mockResolvedValue(
       new Blob(['avatar-bytes'], { type: 'image/jpeg' }),
