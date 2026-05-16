@@ -75,25 +75,28 @@ inspection, cost estimates, and snapshot lifecycle work.
 3. Treat `hetzner_cloud.cjs` as the API wrapper. Do not handcraft Hetzner Cloud
    API URLs, JSON bodies, tiers, or secret refs from memory.
 4. For prompt/user testing, stop after `plan` or after helper `http-request`
-   payload generation. Do not call the built-in `http_request` tool.
-5. For real user requests that need live Hetzner API data, each API call is a
-   two-tool sequence: run this helper once with `bash`, then pass the
-   helper-emitted `httpRequest` object unchanged to `http_request`. The
-   `bearerSecretName: "HETZNER_API_TOKEN"` field is the secret reference; do not
-   rewrite it into `secretHeaders`, preflight it, inspect it, or ask the model
-   for the token.
-6. If a live `http_request` call returns 401 or 403, stop after that first
+   payload generation. Do not call helper `run` or the built-in `http_request`
+   tool.
+5. For real user requests that need live Hetzner API data, use helper `run`.
+   The helper constructs the request, sends it through the HybridClaw gateway,
+   and the gateway injects `bearerSecretName: "HETZNER_API_TOKEN"` server-side.
+   Do not rewrite that secret reference into `secretHeaders`, preflight it,
+   inspect it, or ask the model for the token.
+6. Use `http-request` only when you need to inspect the generated gateway
+   payload or when the active runtime cannot give the helper gateway access.
+7. If a live helper `run` or `http_request` call returns 401 or 403, stop after
+   that first
    failure. Do not retry, do not fan out to more endpoints, and ask the operator
    to set or verify `HETZNER_API_TOKEN`.
-7. Require an explicit operator grant before any changing action, including
+8. Require an explicit operator grant before any changing action, including
    delete, upgrade, downgrade, buy/create, restore, attach, detach, snapshot,
    network, or volume mutation. Pass `--operator-grant` only after that grant.
-8. Use `--project acme` for project-scoped inventory and provisioning. The
+9. Use `--project acme` for project-scoped inventory and provisioning. The
    helper converts it to `project=acme` label selectors or labels where the
    Hetzner API supports them.
-9. Never paste, print, or inspect `HETZNER_API_TOKEN`; the gateway injects it
+10. Never paste, print, or inspect `HETZNER_API_TOKEN`; the gateway injects it
    server-side with `bearerSecretName: "HETZNER_API_TOKEN"`.
-10. Do not repeat the same read call unless the previous result was ambiguous or
+11. Do not repeat the same read call unless the previous result was ambiguous or
     stale. For a named resize, one `list-servers --project <project> --name
     <name>` call is enough to resolve the server id.
 
@@ -114,41 +117,47 @@ Plan a request without contacting Hetzner:
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json plan "Create a demo VPS in Falkenstein until Monday"
 ```
 
-Build read requests:
+Run live read requests:
 
 ```bash
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-servers --project acme
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-server-types
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-locations
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-prices --project acme
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-volumes --project acme
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-networks --project acme
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-servers --project acme
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-server-types
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-locations
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-prices --project acme
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-volumes --project acme
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-networks --project acme
 ```
 
-Build guarded write requests:
+Run guarded live write requests:
 
 ```bash
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request create-server \
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run create-server \
   --name acme-demo --server-type cax11 --image ubuntu-24.04 --location fsn1 \
   --project acme --label ttl=2026-05-18 --operator-grant
 
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request create-snapshot \
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run create-snapshot \
   --project acme --server-id 123456 --description "pre-deploy" --operator-grant
 
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request restore-snapshot \
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run restore-snapshot \
   --server-id 123456 --snapshot-id 987654 --operator-grant
 
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request attach-network \
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run attach-network \
   --server-id 123456 --network-id 555 --ip 10.0.0.12 --operator-grant
 
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request attach-volume \
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run attach-volume \
   --server-id 123456 --volume-id 777 --automount --operator-grant
 
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request downgrade-server \
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run downgrade-server \
   --server-id 123456 --server-type cpx32 --operator-grant
 
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-server \
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json run delete-server \
   --server-id 123456 --operator-grant
+```
+
+Build a dry-run gateway payload without calling Hetzner:
+
+```bash
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-servers --project acme
 ```
 
 Resize/change type contract:
@@ -156,7 +165,7 @@ Resize/change type contract:
 1. If the user named a server instead of giving an id, resolve it once:
 
    ```bash
-   node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-servers \
+   node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-servers \
      --project datalion --name bastion
    ```
 
@@ -165,11 +174,12 @@ Resize/change type contract:
 3. Build the request with the helper:
 
    ```bash
-   node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request downgrade-server \
+   node skills/hetzner-cloud/hetzner_cloud.cjs --format json run downgrade-server \
      --server-id 123456 --server-type cpx32 --operator-grant
    ```
 
-4. Pass the emitted `httpRequest` object unchanged to `http_request`.
+4. Inspect the helper `run` response. Do not also call `http_request` for the
+   same request.
 
 The `change_type` payload is `json.server_type` plus `json.upgrade_disk`.
 Never send `json.type`, never omit `upgrade_disk`, and never rewrite

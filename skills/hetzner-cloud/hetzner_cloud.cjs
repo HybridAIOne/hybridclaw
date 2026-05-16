@@ -13,23 +13,24 @@ const {
   popFlag,
   popRepeatedFlag,
   requireGrant,
-  runMain,
   validateOperation,
 } = require('./hetzner-shared.cjs');
 
 const API_BASE = 'https://api.hetzner.cloud/v1';
+const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const DEFAULT_TIMEOUT_MS = 30_000;
+const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
 const TOKEN_SECRET = 'HETZNER_API_TOKEN';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
 const LIVE_EXECUTION = {
   mode: 'live-hetzner-api',
   requiresConfiguredSecrets: [TOKEN_SECRET],
   dryRunSafe:
-    'For prompt/user testing, stop after producing this payload; do not call http_request.',
+    'For prompt/user testing, use http-request and stop after producing this payload; do not call run or http_request.',
   approvalPolicy:
     'Changing actions that delete, upgrade, downgrade, buy, create, restore, attach, detach, snapshot, or modify resources require an explicit operator approval before --operator-grant may be used.',
   callPolicy:
-    'Use this CJS helper as the API wrapper. For real user requests that need live Hetzner data, pass the emitted httpRequest object unchanged to http_request and let the gateway inject the token server-side.',
+    'Use this CJS helper as the API wrapper. For real user requests that need live Hetzner data, use the run command so the helper calls the gateway and the gateway injects the token server-side.',
   secretRefPolicy:
     'Do not preflight, inspect, print, or ask the model for HETZNER_API_TOKEN. The bearerSecretName field is the credential reference.',
   requestShape:
@@ -139,6 +140,82 @@ function buildHttpRequest(operation, { url, method = 'GET', json }) {
   };
   if (json !== undefined) payload.httpRequest.json = json;
   return payload;
+}
+
+function resolveGatewayUrl(raw) {
+  const value =
+    String(raw || '').trim() ||
+    String(process.env.HYBRIDCLAW_GATEWAY_URL || '').trim() ||
+    String(process.env.GATEWAY_BASE_URL || '').trim() ||
+    DEFAULT_GATEWAY_URL;
+  const normalized = value.replace(/\/+$/u, '');
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    die('--gateway-url must be an absolute http or https URL.');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    die('--gateway-url must use http or https.');
+  }
+  return normalized;
+}
+
+function resolveGatewayToken(raw) {
+  return (
+    String(raw || '').trim() ||
+    String(process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim() ||
+    String(process.env.GATEWAY_API_TOKEN || '').trim() ||
+    String(process.env.WEB_API_TOKEN || '').trim()
+  );
+}
+
+async function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
+  const url = `${gatewayUrl}/api/http/request`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(httpRequest),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    die(
+      `Cannot reach HybridClaw gateway at ${url}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      1,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const text = await response.text();
+  let envelope;
+  try {
+    envelope = text ? JSON.parse(text) : {};
+  } catch {
+    die(`Gateway returned non-JSON response: ${text.slice(0, 500)}`, 1);
+  }
+  if (!response.ok) {
+    die(
+      `Gateway request failed with HTTP ${response.status}: ${text.slice(
+        0,
+        500,
+      )}`,
+      1,
+    );
+  }
+  return envelope;
 }
 
 function buildPlan(text) {
@@ -567,8 +644,63 @@ function commandHttpRequest(args) {
   return payload;
 }
 
+async function commandRun(args) {
+  const gatewayUrl = resolveGatewayUrl(popFlag(args, '--gateway-url'));
+  const gatewayToken = resolveGatewayToken(popFlag(args, '--gateway-token'));
+  const requestPayload = commandHttpRequest(args);
+  const response = await gatewayRequest(requestPayload.httpRequest, {
+    gatewayUrl,
+    gatewayToken,
+  });
+
+  return {
+    command: 'run',
+    operation: requestPayload.operation,
+    stakesTier: requestPayload.stakesTier,
+    response,
+    costMeasurement: COST_MEASUREMENT,
+    liveExecution: requestPayload.liveExecution,
+  };
+}
+
 function commandEvalScenarios() {
   return buildEvalScenarios(EVAL_SCENARIOS_PATH);
+}
+
+function printOutput(payload, format) {
+  if (format === 'json') {
+    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    return;
+  }
+  if (format === 'text') {
+    process.stdout.write(`${JSON.stringify(payload)}\n`);
+    return;
+  }
+  die('--format must be json or text.');
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.length === 0) {
+    showHelp();
+    return;
+  }
+
+  const format = popFlag(args, '--format', 'text');
+  const command = args.shift();
+  let payload;
+  if (command === 'plan') {
+    payload = buildPlan(args.join(' '));
+  } else if (command === 'http-request') {
+    payload = commandHttpRequest(args);
+  } else if (command === 'run') {
+    payload = await commandRun(args);
+  } else if (command === 'eval-scenarios') {
+    payload = commandEvalScenarios();
+  } else {
+    die(`Unknown command: ${command}`);
+  }
+  printOutput(payload, format);
 }
 
 function showHelp() {
@@ -576,8 +708,15 @@ function showHelp() {
 
 Usage:
   node skills/hetzner-cloud/hetzner_cloud.cjs [--format json] plan <request>
+  node skills/hetzner-cloud/hetzner_cloud.cjs [--format json] run <operation> [flags]
   node skills/hetzner-cloud/hetzner_cloud.cjs [--format json] http-request <operation> [flags]
   node skills/hetzner-cloud/hetzner_cloud.cjs [--format json] eval-scenarios
+
+Live execution:
+  run sends the helper-built request through the HybridClaw gateway at /api/http/request.
+  It uses HYBRIDCLAW_GATEWAY_URL or GATEWAY_BASE_URL, default ${DEFAULT_GATEWAY_URL}.
+  It uses HYBRIDCLAW_GATEWAY_TOKEN, GATEWAY_API_TOKEN, or WEB_API_TOKEN if set.
+  Use http-request only for dry-run payload inspection or runtimes without helper gateway access.
 
 Read operations:
   list-servers [--project name] [--label-selector key=value] [--name name]
@@ -610,18 +749,14 @@ Write operations require --operator-grant:
   delete-volume --volume-id id
 
 Change type flow:
-  1. downgrade-server --server-id id --server-type cpx32 --operator-grant
+  1. run downgrade-server --server-id id --server-type cpx32 --operator-grant
   2. Optional: list-server-types --name cpx32 first when you need to verify price/disk.
   The emitted change_type request uses json.server_type and json.upgrade_disk.
   Do not send json.type or hand-built secretHeaders.
 `);
 }
 
-runMain({
-  showHelp,
-  buildPlan,
-  handlers: {
-    'http-request': commandHttpRequest,
-    'eval-scenarios': commandEvalScenarios,
-  },
+void main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
 });

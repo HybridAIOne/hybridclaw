@@ -1,5 +1,6 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -32,6 +33,31 @@ function helperPath(skillName: string, helper: string) {
 function runHelper(skillName: string, helper: string, args: string[]) {
   return spawnSync('node', [helperPath(skillName, helper), ...args], {
     encoding: 'utf-8',
+  });
+}
+
+function runHelperAsync(
+  skillName: string,
+  helper: string,
+  args: string[],
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn('node', [helperPath(skillName, helper), ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf-8');
+    child.stderr.setEncoding('utf-8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.on('close', (status) => {
+      resolve({ status, stdout, stderr });
+    });
   });
 }
 
@@ -298,13 +324,13 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
   expect(JSON.parse(read.stdout).liveExecution).toMatchObject({
     approvalPolicy: expect.stringContaining('upgrade, downgrade, buy'),
     callPolicy: expect.stringContaining('CJS helper as the API wrapper'),
-    dryRunSafe: expect.stringContaining('do not call http_request'),
+    dryRunSafe: expect.stringContaining('do not call run or http_request'),
     requestShape: expect.stringContaining('Do not handcraft'),
     secretRefPolicy: expect.stringContaining('bearerSecretName'),
     unauthorizedPolicy: expect.stringContaining('stop after the first failure'),
   });
   expect(JSON.parse(read.stdout).liveExecution.callPolicy).toContain(
-    'http_request',
+    'run command',
   );
   expect(JSON.parse(read.stdout).liveExecution.callPolicy).not.toContain(
     'confirms',
@@ -392,6 +418,77 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
   expect(unknownOperation.stderr).not.toContain('--operator-grant');
   expect(unknownArg.status).not.toBe(0);
   expect(unknownArg.stderr).toContain('Unexpected arguments: --typo-flag');
+});
+
+test('Hetzner Cloud helper run executes requests through the gateway', async () => {
+  let receivedBody: Record<string, unknown> | null = null;
+  let receivedAuthorization = '';
+  const server = http.createServer((req, res) => {
+    receivedAuthorization = String(req.headers.authorization || '');
+    let raw = '';
+    req.setEncoding('utf-8');
+    req.on('data', (chunk) => {
+      raw += chunk;
+    });
+    req.on('end', () => {
+      receivedBody = raw ? JSON.parse(raw) : null;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: { servers: [] },
+        }),
+      );
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected TCP test server address.');
+    }
+    const result = await runHelperAsync('hetzner-cloud', 'hetzner_cloud.cjs', [
+      '--format',
+      'json',
+      'run',
+      'list-servers',
+      '--project',
+      'datalion',
+      '--name',
+      'bastion',
+      '--gateway-url',
+      `http://127.0.0.1:${address.port}`,
+      '--gateway-token',
+      'gateway-token',
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(receivedAuthorization).toBe('Bearer gateway-token');
+    expect(receivedBody).toMatchObject({
+      url: 'https://api.hetzner.cloud/v1/servers?label_selector=project%3Ddatalion&name=bastion',
+      method: 'GET',
+      bearerSecretName: 'HETZNER_API_TOKEN',
+      skillName: 'hetzner-cloud',
+    });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      command: 'run',
+      operation: 'list-servers',
+      response: {
+        ok: true,
+        status: 200,
+        json: { servers: [] },
+      },
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
 });
 
 test('Hetzner DNS helper builds RRset requests and protects deletes', () => {
