@@ -1,0 +1,199 @@
+/* ---- FieldSet & FieldLegend ---- */
+
+.fieldSet {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  display: block;
+  width: 100%;
+  margin: 0 0 16px 0;
+  padding: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.legend[data-variant="legend"] {
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+}
+
+.legend[data-variant="label"] {
+  font-size: 0.875rem;
+}
+
+/* ---- FieldGroup ---- */
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  container-type: inline-size;
+  container-name: field-group;
+}
+
+/* ---- Field ---- */
+
+.field {
+  display: flex;
+  width: 100%;
+  gap: 12px;
+  /* Stay content-height inside grid/flex parents that would otherwise stretch
+     us vertically (e.g. .config-section cells inside .config-grid rows). */
+  align-self: start;
+}
+
+.field[data-invalid] {
+  color: var(--destructive);
+}
+
+.field[data-disabled] {
+  opacity: 0.6;
+}
+
+.orientationVertical {
+  flex-direction: column;
+}
+
+.orientationVertical > * {
+  width: 100%;
+}
+
+.orientationHorizontal {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  /* Stay content-width so small controls (switch/checkbox) sit right next to
+     their label instead of being shoved to the far edge of the form. */
+  width: fit-content;
+  max-width: 100%;
+}
+
+.orientationHorizontal > [data-slot="field-content"] {
+  flex: 1 1 auto;
+  align-items: flex-start;
+}
+
+.orientationResponsive {
+  flex-direction: column;
+}
+
+.orientationResponsive > * {
+  width: 100%;
+}
+
+@container field-group (min-width: 480px) {
+  .orientationResponsive {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    width: fit-content;
+  }
+
+  .orientationResponsive > * {
+    width: auto;
+  }
+}
+
+/* ---- FieldContent ---- */
+
+.content {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+/* ---- FieldLabel & FieldTitle ---- */
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.field[data-invalid] .label {
+  color: var(--destructive);
+}
+
+.title {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+/* ---- FieldDescription ---- */
+
+.description {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.description > a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.description > a:hover {
+  color: var(--primary);
+}
+
+/* ---- FieldError ---- */
+
+.error {
+  color: var(--destructive);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.errorList {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ---- FieldSeparator ---- */
+
+.separator {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  margin: -4px 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.separatorLine {
+  position: absolute;
+  inset: 50% 0 auto 0;
+  height: 1px;
+  background: var(--line);
+}
+
+.separator[data-content] .separatorLabel {
+  position: relative;
+  display: inline-block;
+  padding: 0 8px;
+  background: var(--background);
+}

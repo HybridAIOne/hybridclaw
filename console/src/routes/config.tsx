@@ -1,21 +1,55 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { fetchConfig, saveConfig } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/card';
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '../components/field';
+import { Input } from '../components/input';
+import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
-import { BooleanField, PageHeader } from '../components/ui';
+import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
+import styles from './config.module.css';
 
 function cloneConfig<T>(value: T): T {
   return structuredClone(value);
+}
+
+function serialize(config: AdminConfig): string {
+  return JSON.stringify(config, null, 2);
+}
+
+type AdminConfigSections = {
+  ops: AdminConfig['ops'];
+  security: AdminConfig['security'];
+  hybridai: AdminConfig['hybridai'];
+  container: AdminConfig['container'];
+};
+
+function updateSection<K extends keyof AdminConfigSections>(
+  setDraft: Dispatch<SetStateAction<AdminConfig | null>>,
+  section: K,
+  updates: Partial<AdminConfigSections[K]>,
+) {
+  setDraft((current) => {
+    if (!current) return current;
+    return { ...current, [section]: { ...current[section], ...updates } };
+  });
 }
 
 export function ConfigPage() {
@@ -24,6 +58,7 @@ export function ConfigPage() {
   const [rawMode, setRawMode] = useState(false);
   const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [rawJson, setRawJson] = useState('');
+  const [jsonError, setJsonError] = useState<string | null>(null);
 
   const configQuery = useQuery({
     queryKey: ['config', auth.token],
@@ -36,7 +71,8 @@ export function ConfigPage() {
     },
     onSuccess: (payload) => {
       setDraft(cloneConfig(payload.config));
-      setRawJson(JSON.stringify(payload.config, null, 2));
+      setRawJson(serialize(payload.config));
+      setJsonError(null);
       toast.success('Runtime config saved.');
     },
     onError: (error) => {
@@ -47,8 +83,19 @@ export function ConfigPage() {
   useEffect(() => {
     if (!configQuery.data || draft) return;
     setDraft(cloneConfig(configQuery.data.config));
-    setRawJson(JSON.stringify(configQuery.data.config, null, 2));
+    setRawJson(serialize(configQuery.data.config));
   }, [configQuery.data, draft]);
+
+  const savedSerialized = useMemo(
+    () => (configQuery.data ? serialize(configQuery.data.config) : ''),
+    [configQuery.data],
+  );
+
+  const isDirty = useMemo(() => {
+    if (!configQuery.data || !draft) return false;
+    if (rawMode) return rawJson !== savedSerialized;
+    return serialize(draft) !== savedSerialized;
+  }, [configQuery.data, draft, rawMode, rawJson, savedSerialized]);
 
   if (configQuery.isLoading && !draft) {
     return <div className="empty-state">Loading runtime config...</div>;
@@ -58,272 +105,220 @@ export function ConfigPage() {
     return <div className="empty-state">Runtime config is unavailable.</div>;
   }
 
+  const toggleRawMode = () => {
+    if (rawMode) {
+      try {
+        const parsed = JSON.parse(rawJson) as AdminConfig;
+        setDraft(parsed);
+        setJsonError(null);
+        setRawMode(false);
+      } catch (error) {
+        setJsonError(getErrorMessage(error));
+      }
+      return;
+    }
+    setRawJson(serialize(draft));
+    setJsonError(null);
+    setRawMode(true);
+  };
+
+  const discard = () => {
+    if (!configQuery.data) return;
+    setDraft(cloneConfig(configQuery.data.config));
+    setRawJson(serialize(configQuery.data.config));
+    setJsonError(null);
+  };
+
+  const save = () => {
+    if (rawMode) {
+      try {
+        const parsed = JSON.parse(rawJson) as AdminConfig;
+        setDraft(parsed);
+        setJsonError(null);
+        saveMutation.mutate(parsed);
+      } catch (error) {
+        setJsonError(getErrorMessage(error));
+      }
+      return;
+    }
+    saveMutation.mutate(draft);
+  };
+
   return (
-    <div className="page-stack">
+    <div className={styles.page}>
       <PageHeader
         title="Config"
+        description={configQuery.data.path}
         actions={
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => {
-              const nextMode = !rawMode;
-              setRawMode(nextMode);
-              if (nextMode) {
-                setRawJson(JSON.stringify(draft, null, 2));
-              }
-            }}
-          >
-            {rawMode ? 'Back to forms' : 'Raw JSON'}
-          </button>
+          <>
+            {isDirty ? (
+              <>
+                <span className={styles.status}>
+                  <span className={styles.statusDot} aria-hidden="true" />
+                  Unsaved changes
+                </span>
+                <Button variant="ghost" onClick={discard}>
+                  Discard
+                </Button>
+              </>
+            ) : (
+              <span className={styles.status}>Saved</span>
+            )}
+            <Button variant="ghost" onClick={toggleRawMode}>
+              {rawMode ? 'Edit as form' : 'Edit as JSON'}
+            </Button>
+            {isDirty || saveMutation.isPending ? (
+              <Button
+                loading={saveMutation.isPending}
+                disabled={saveMutation.isPending}
+                onClick={save}
+              >
+                {saveMutation.isPending ? 'Saving…' : 'Save changes'}
+              </Button>
+            ) : null}
+          </>
         }
       />
 
-      <Card variant="muted">
-        <CardHeader>
-          <CardTitle>Runtime config</CardTitle>
-          <CardDescription>{configQuery.data.path}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {rawMode ? (
-            <div className="stack-form">
-              <label className="field textarea-field">
-                <span>config.json</span>
-                <textarea
-                  className="code-editor"
-                  rows={24}
-                  value={rawJson}
-                  onChange={(event) => setRawJson(event.target.value)}
-                />
-              </label>
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  type="button"
-                  onClick={() => {
-                    try {
-                      const parsed = JSON.parse(rawJson) as AdminConfig;
-                      setDraft(parsed);
-                      saveMutation.mutate(parsed);
-                    } catch (error) {
-                      toast.error('Invalid JSON', getErrorMessage(error));
-                    }
-                  }}
-                >
-                  Save JSON
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="config-grid">
-              <section className="config-section">
-                <h4>Operations</h4>
-                <label className="field">
-                  <span>Health host</span>
-                  <input
+      <div className={styles.content}>
+        {rawMode ? (
+          <Field invalid={Boolean(jsonError)}>
+            <FieldLabel>config.json</FieldLabel>
+            <Textarea
+              className="code-editor"
+              rows={24}
+              value={rawJson}
+              onChange={(event) => {
+                setRawJson(event.target.value);
+                if (jsonError) setJsonError(null);
+              }}
+            />
+            {jsonError ? <FieldError>{jsonError}</FieldError> : null}
+          </Field>
+        ) : (
+          <>
+            <FieldSet>
+              <FieldLegend>Operations</FieldLegend>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>Health host</FieldLabel>
+                  <Input
                     value={draft.ops.healthHost}
                     onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              ops: {
-                                ...current.ops,
-                                healthHost: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
+                      updateSection(setDraft, 'ops', {
+                        healthHost: event.target.value,
+                      })
                     }
                   />
-                </label>
-                <label className="field">
-                  <span>Health port</span>
-                  <input
+                </Field>
+                <Field>
+                  <FieldLabel>Health port</FieldLabel>
+                  <Input
                     value={String(draft.ops.healthPort)}
                     onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              ops: {
-                                ...current.ops,
-                                healthPort:
-                                  Number.parseInt(event.target.value, 10) || 0,
-                              },
-                            }
-                          : current,
-                      )
+                      updateSection(setDraft, 'ops', {
+                        healthPort:
+                          Number.parseInt(event.target.value, 10) || 0,
+                      })
                     }
                   />
-                </label>
-                <label className="field">
-                  <span>Log level</span>
-                  <input
+                </Field>
+                <Field>
+                  <FieldLabel>Log level</FieldLabel>
+                  <Input
                     value={draft.ops.logLevel}
                     onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              ops: {
-                                ...current.ops,
-                                logLevel: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
+                      updateSection(setDraft, 'ops', {
+                        logLevel: event.target.value,
+                      })
                     }
                   />
-                </label>
-              </section>
+                </Field>
+              </FieldGroup>
+            </FieldSet>
 
-              <section className="config-section">
-                <h4>Security</h4>
-                <BooleanField
-                  label="Confidential leak guard"
-                  value={draft.security?.confidentialRedactionEnabled ?? false}
-                  trueLabel="on"
-                  falseLabel="off"
-                  onChange={(confidentialRedactionEnabled) =>
-                    setDraft((current) => {
-                      if (!current) return current;
-                      const security = current.security ?? {
-                        trustModelAccepted: false,
-                        trustModelAcceptedAt: '',
-                        trustModelVersion: '',
-                        trustModelAcceptedBy: '',
-                        confidentialRedactionEnabled: false,
-                      };
-                      return {
-                        ...current,
-                        security: {
-                          ...security,
-                          confidentialRedactionEnabled,
-                        },
-                      };
-                    })
-                  }
-                />
-              </section>
+            <FieldSet>
+              <FieldLegend>Security</FieldLegend>
+              <FieldGroup>
+                <Field orientation="horizontal">
+                  <FieldLabel>Confidential leak guard</FieldLabel>
+                  <Switch
+                    checked={draft.security.confidentialRedactionEnabled}
+                    onCheckedChange={(confidentialRedactionEnabled) =>
+                      updateSection(setDraft, 'security', {
+                        confidentialRedactionEnabled,
+                      })
+                    }
+                  />
+                </Field>
+              </FieldGroup>
+            </FieldSet>
 
-              <section className="config-section">
-                <h4>HybridAI</h4>
-                <label className="field">
-                  <span>Base URL</span>
-                  <input
+            <FieldSet>
+              <FieldLegend>HybridAI</FieldLegend>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>Base URL</FieldLabel>
+                  <Input
                     value={draft.hybridai.baseUrl}
                     onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              hybridai: {
-                                ...current.hybridai,
-                                baseUrl: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
+                      updateSection(setDraft, 'hybridai', {
+                        baseUrl: event.target.value,
+                      })
                     }
                   />
-                </label>
-                <label className="field">
-                  <span>Default model</span>
-                  <input
+                </Field>
+                <Field>
+                  <FieldLabel>Default model</FieldLabel>
+                  <Input
                     value={draft.hybridai.defaultModel}
                     onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              hybridai: {
-                                ...current.hybridai,
-                                defaultModel: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
+                      updateSection(setDraft, 'hybridai', {
+                        defaultModel: event.target.value,
+                      })
                     }
                   />
-                </label>
-                <BooleanField
-                  label="RAG default"
-                  value={draft.hybridai.enableRag}
-                  trueLabel="on"
-                  falseLabel="off"
-                  onChange={(enableRag) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            hybridai: {
-                              ...current.hybridai,
-                              enableRag,
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </section>
+                </Field>
+                <Field orientation="horizontal">
+                  <FieldLabel>RAG default</FieldLabel>
+                  <Switch
+                    checked={draft.hybridai.enableRag}
+                    onCheckedChange={(enableRag) =>
+                      updateSection(setDraft, 'hybridai', { enableRag })
+                    }
+                  />
+                </Field>
+              </FieldGroup>
+            </FieldSet>
 
-              <section className="config-section">
-                <h4>Container</h4>
-                <label className="field">
-                  <span>Memory</span>
-                  <input
+            <FieldSet>
+              <FieldLegend>Container</FieldLegend>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>Memory</FieldLabel>
+                  <Input
                     value={draft.container.memory}
                     onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              container: {
-                                ...current.container,
-                                memory: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
+                      updateSection(setDraft, 'container', {
+                        memory: event.target.value,
+                      })
                     }
                   />
-                </label>
-                <BooleanField
-                  label="Persistent bash state"
-                  value={draft.container.persistBashState}
-                  trueLabel="on"
-                  falseLabel="off"
-                  onChange={(persistBashState) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            container: {
-                              ...current.container,
-                              persistBashState,
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </section>
-            </div>
-          )}
-
-          <div className="button-row">
-            <button
-              className="primary-button"
-              type="button"
-              disabled={saveMutation.isPending}
-              onClick={() => saveMutation.mutate(draft)}
-            >
-              {saveMutation.isPending ? 'Saving...' : 'Save config'}
-            </button>
-          </div>
-        </CardContent>
-      </Card>
+                </Field>
+                <Field orientation="horizontal">
+                  <FieldLabel>Persistent bash state</FieldLabel>
+                  <Switch
+                    checked={draft.container.persistBashState}
+                    onCheckedChange={(persistBashState) =>
+                      updateSection(setDraft, 'container', { persistBashState })
+                    }
+                  />
+                </Field>
+              </FieldGroup>
+            </FieldSet>
+          </>
+        )}
+      </div>
     </div>
   );
 }

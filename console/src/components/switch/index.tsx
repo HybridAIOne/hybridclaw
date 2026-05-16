@@ -1,0 +1,75 @@
+import type { ButtonHTMLAttributes, MouseEvent } from 'react';
+import { cx } from '../../lib/cx';
+import { useFieldControlProps } from '../field/context';
+import styles from './switch.module.css';
+
+export type SwitchSize = 'default' | 'sm';
+
+export type SwitchProps = Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  'onChange' | 'value' | 'type'
+> & {
+  checked: boolean;
+  onCheckedChange?: (checked: boolean) => void;
+  size?: SwitchSize;
+  name?: string;
+  value?: string;
+};
+
+const sizeClass: Record<SwitchSize, string> = {
+  default: styles.sizeDefault,
+  sm: styles.sizeSm,
+};
+
+export function Switch({
+  checked,
+  onCheckedChange,
+  disabled,
+  size = 'default',
+  className,
+  onClick,
+  name,
+  value,
+  ...rest
+}: SwitchProps) {
+  const props = useFieldControlProps({ disabled, ...rest });
+  const state = checked ? 'checked' : 'unchecked';
+  const isDisabled = props.disabled;
+
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (isDisabled) return;
+    onClick?.(event);
+    if (event.defaultPrevented) return;
+    onCheckedChange?.(!checked);
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        data-slot="switch"
+        data-state={state}
+        data-size={size}
+        className={cx(styles.root, sizeClass[size], className)}
+        onClick={handleClick}
+        {...props}
+      >
+        <span
+          aria-hidden="true"
+          data-slot="switch-thumb"
+          data-state={state}
+          className={styles.thumb}
+        />
+      </button>
+      {name ? (
+        <input
+          type="hidden"
+          name={name}
+          value={checked ? (value ?? 'on') : ''}
+        />
+      ) : null}
+    </>
+  );
+}
