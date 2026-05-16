@@ -43,6 +43,20 @@ Skill roots include:
   `metadata.hybridclaw.manifest:` and declares `id`, `version`,
   `capabilities`, `required_credentials`, and `supported_channels`
 
+## API Helper Scripts
+
+API-backed skills should expose deterministic `*.cjs` helper scripts as the
+model-facing API wrapper. Keep the external-service details in the script:
+endpoint selection, HTTP methods, payload shape, URL encoding, write-tier
+classification, and secret references such as `bearerSecretName` or
+`secretHeaders`.
+
+Prefer small CLI subcommands that match model workflows, for example `plan`,
+`http-request`, `eval-scenarios`, and read-only discovery commands. Commands
+that prepare live calls should emit gateway-ready JSON so the model can pass the
+returned request object unchanged to `http_request`. Avoid requiring the model
+to reconstruct URLs, headers, request bodies, or secret names from prose.
+
 ## Invocation Paths
 
 - `/skill <name> [input]`

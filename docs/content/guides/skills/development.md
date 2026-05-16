@@ -382,6 +382,10 @@ docs, and reliable init/validate/package/publish workflows.
 >
 > Keep SKILL.md concise — the model already knows general concepts; only include what is unique to your skill.
 >
+> For API-backed skills, provide a `*.cjs` CLI wrapper that owns endpoints,
+> payloads, tiers, and secret refs, then emits gateway-ready JSON the model can
+> pass through unchanged.
+>
 > Use `quick_validate.py` to check your skill before publishing.
 
 > 🎯 **Try it yourself**
