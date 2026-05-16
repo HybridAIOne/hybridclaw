@@ -43,7 +43,7 @@
   width: 100%;
   gap: 12px;
   /* Stay content-height inside grid/flex parents that would otherwise stretch
-     us vertically (e.g. .config-section cells inside .config-grid rows). */
+     us vertically. */
   align-self: start;
 }
 

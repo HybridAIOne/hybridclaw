@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, MouseEvent } from 'react';
 import { cx } from '../../lib/cx';
-import { useFieldControlProps } from '../field/context';
+import { useFieldControlProps } from '../field';
 import { Check, Minus } from '../icons';
 import styles from './checkbox.module.css';
 

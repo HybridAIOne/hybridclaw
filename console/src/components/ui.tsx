@@ -213,6 +213,7 @@ export function BooleanPill(props: {
   );
 }
 
+/** @deprecated Use `Switch` from `components/switch` instead. */
 export function BooleanToggle(props: {
   value: boolean;
   onChange: (value: boolean) => void;
@@ -248,6 +249,7 @@ export function BooleanToggle(props: {
   );
 }
 
+/** @deprecated Use `Field` + `Switch` from `components/field` and `components/switch` instead. */
 export function BooleanField(props: {
   label: string;
   value: boolean;

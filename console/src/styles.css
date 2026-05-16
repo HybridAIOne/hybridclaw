@@ -484,11 +484,6 @@ code {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.config-grid {
-  row-gap: 40px;
-  column-gap: 48px;
-}
-
 .metric-card {
   padding: 10px 12px;
   border-radius: var(--radius-md);
@@ -1086,7 +1081,6 @@ th {
   padding: 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
-  align-content: start;
 }
 
 .primary-button,

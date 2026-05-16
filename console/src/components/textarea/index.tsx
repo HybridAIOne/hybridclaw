@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { cx } from '../../lib/cx';
-import { useFieldControlProps } from '../field/context';
+import { useFieldControlProps } from '../field';
 import styles from './textarea.module.css';
 
 export type TextareaProps = ComponentProps<'textarea'> & {

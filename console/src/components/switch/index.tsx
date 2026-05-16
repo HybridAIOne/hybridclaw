@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, MouseEvent } from 'react';
 import { cx } from '../../lib/cx';
-import { useFieldControlProps } from '../field/context';
+import { useFieldControlProps } from '../field';
 import styles from './switch.module.css';
 
 export type SwitchSize = 'default' | 'sm';
@@ -14,6 +14,7 @@ export type SwitchProps = Omit<
   size?: SwitchSize;
   name?: string;
   value?: string;
+  required?: boolean;
 };
 
 const sizeClass: Record<SwitchSize, string> = {
@@ -29,7 +30,8 @@ export function Switch({
   className,
   onClick,
   name,
-  value,
+  value = 'on',
+  required,
   ...rest
 }: SwitchProps) {
   const props = useFieldControlProps({ disabled, ...rest });
@@ -49,6 +51,7 @@ export function Switch({
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-required={required || undefined}
         data-slot="switch"
         data-state={state}
         data-size={size}
@@ -63,12 +66,8 @@ export function Switch({
           className={styles.thumb}
         />
       </button>
-      {name ? (
-        <input
-          type="hidden"
-          name={name}
-          value={checked ? (value ?? 'on') : ''}
-        />
+      {name && checked ? (
+        <input type="hidden" name={name} value={value} />
       ) : null}
     </>
   );
