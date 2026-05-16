@@ -121,6 +121,7 @@ describe('JobsPage', () => {
     fetchSchedulerMock.mockReset();
     moveSchedulerJobMock.mockReset();
     navigateMock.mockReset();
+    navigateMock.mockResolvedValue(undefined);
     resumeInteractiveEscalationMock.mockReset();
     saveSchedulerJobMock.mockReset();
     useAuthMock.mockReset();

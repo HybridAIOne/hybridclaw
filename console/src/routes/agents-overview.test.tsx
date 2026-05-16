@@ -178,6 +178,7 @@ describe('AgentsOverviewPage', () => {
   beforeEach(() => {
     fetchAgentsOverviewMock.mockReset();
     navigateMock.mockReset();
+    navigateMock.mockResolvedValue(undefined);
     useAuthMock.mockReset();
     localStorage.clear();
     useAuthMock.mockReturnValue({ token: 'test-token' });
@@ -219,11 +220,14 @@ describe('AgentsOverviewPage', () => {
 
     fireEvent.click(
       within(sessionCard as HTMLElement).getByRole('button', {
-        name: 'Open Sessions',
+        name: 'Open Session',
       }),
     );
 
     expect(localStorage.getItem('hybridclaw_session')).toBeNull();
-    expect(navigateMock).toHaveBeenCalledWith({ to: '/admin/sessions' });
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/admin/sessions',
+      search: { sessionId: 'session-a' },
+    });
   });
 });

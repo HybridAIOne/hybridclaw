@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { fetchAgentsOverview } from '../api/client';
 import type { AgentCard, AgentSessionCard } from '../api/types';
 import { useAuth } from '../auth';
@@ -13,6 +13,7 @@ import {
   formatUptime,
   formatUsd,
 } from '../lib/format';
+import { logNavigationError } from '../lib/navigation';
 
 type SessionFilter = 'all' | AgentSessionCard['status'];
 
@@ -25,11 +26,6 @@ const SESSION_FILTERS: ReadonlyArray<{
   { key: 'idle', label: 'Idle' },
   { key: 'stopped', label: 'Stopped' },
 ];
-
-function statusLabel(value: AgentCard['status'] | AgentSessionCard['status']) {
-  if (value === 'unused') return 'unused';
-  return value;
-}
 
 function formatAgentModel(agent: AgentCard): string {
   return agent.model || 'Inherited default';
@@ -66,7 +62,7 @@ function StatusBadge(props: {
   return (
     <span className={`agents-status-badge ${statusClassName(props.status)}`}>
       <span className="agents-status-badge-dot" aria-hidden="true" />
-      {statusLabel(props.status)}
+      {props.status}
     </span>
   );
 }
@@ -95,6 +91,49 @@ function keyedTerminalLines(sessionId: string, lines: string[]) {
   });
 }
 
+type SessionTerminalProps = {
+  sessionId: string;
+  title: string;
+  output: string[];
+};
+
+function SessionTerminalComponent(props: SessionTerminalProps) {
+  const outputLines = useMemo(
+    () => keyedTerminalLines(props.sessionId, props.output),
+    [props.sessionId, props.output],
+  );
+
+  return (
+    <div className="agents-terminal">
+      <div className="agents-terminal-top">
+        <span className="agents-terminal-dot is-red" />
+        <span className="agents-terminal-dot is-yellow" />
+        <span className="agents-terminal-dot is-green" />
+        <span className="agents-terminal-label">{props.title}</span>
+      </div>
+      <div className="agents-session-output">
+        {outputLines.map(({ key, line }) => (
+          <span
+            className={`agents-terminal-line ${terminalLineClassName(line)}`}
+            key={key}
+          >
+            {line}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const SessionTerminal = memo(
+  SessionTerminalComponent,
+  (previous, next) =>
+    previous.sessionId === next.sessionId &&
+    previous.title === next.title &&
+    previous.output.length === next.output.length &&
+    previous.output.every((line, index) => line === next.output[index]),
+);
+
 export function AgentsOverviewPage() {
   const auth = useAuth();
   const navigate = useNavigate();
@@ -113,24 +152,6 @@ export function AgentsOverviewPage() {
     if (filter === 'all') return sessions;
     return sessions.filter((session) => session.status === filter);
   }, [filter, overview?.sessions]);
-
-  const sessionCounts = overview?.totals.sessions || {
-    all: overview?.sessions.length || 0,
-    active: 0,
-    idle: 0,
-    stopped: 0,
-    running: 0,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalTokens: 0,
-    totalCostUsd: 0,
-  };
-  const sessionFilterCounts: Record<SessionFilter, number> = {
-    all: sessionCounts.all,
-    active: sessionCounts.active,
-    idle: sessionCounts.idle,
-    stopped: sessionCounts.stopped,
-  };
 
   function toggleOutput(sessionId: string): void {
     setOpenOutputIds((current) => {
@@ -151,6 +172,18 @@ export function AgentsOverviewPage() {
   if (agentsQuery.isError && !overview) {
     return <div className="empty-state error">Agent overview unavailable.</div>;
   }
+
+  if (!overview) {
+    return <div className="empty-state">Agent overview unavailable.</div>;
+  }
+
+  const sessionCounts = overview.totals.sessions;
+  const sessionFilterCounts: Record<SessionFilter, number> = {
+    all: sessionCounts.all,
+    active: sessionCounts.active,
+    idle: sessionCounts.idle,
+    stopped: sessionCounts.stopped,
+  };
 
   return (
     <div className="page-stack agents-dashboard">
@@ -186,8 +219,8 @@ export function AgentsOverviewPage() {
         <div className="agents-stat-card">
           <span className="agents-metric-accent is-green">A</span>
           <span>Agents</span>
-          <strong>{overview?.totals.agents.all ?? 0}</strong>
-          <small>{overview?.totals.agents.active ?? 0} active</small>
+          <strong>{overview.totals.agents.all}</strong>
+          <small>{overview.totals.agents.active} active</small>
         </div>
         <div className="agents-stat-card">
           <span className="agents-metric-accent is-blue">S</span>
@@ -211,7 +244,7 @@ export function AgentsOverviewPage() {
           <span>Total Cost</span>
           <strong>{formatUsd(sessionCounts.totalCostUsd)}</strong>
           <small>
-            Ralph {overview?.ralph.enabled ? 'enabled' : 'disabled'}
+            Ralph {overview.ralph?.enabled ? 'enabled' : 'disabled'}
           </small>
         </div>
       </div>
@@ -221,15 +254,15 @@ export function AgentsOverviewPage() {
           <div>
             <h2>Registered Agents</h2>
             <p>
-              {(overview?.agents.length || 0).toString()} workspace
-              {(overview?.agents.length || 0) === 1 ? '' : 's'} aggregated
-              across every bound session.
+              {overview.agents.length.toString()} workspace
+              {overview.agents.length === 1 ? '' : 's'} aggregated across every
+              bound session.
             </p>
           </div>
         </div>
 
         <div>
-          {!overview?.agents.length ? (
+          {!overview.agents.length ? (
             <div className="empty-state">No agents found.</div>
           ) : (
             <div className="agents-overview-grid">
@@ -351,7 +384,6 @@ export function AgentsOverviewPage() {
                 const output = session.output.length
                   ? session.output
                   : ['No recent activity captured for this session yet.'];
-                const outputLines = keyedTerminalLines(session.id, output);
                 return (
                   <article
                     className={`agents-session-card ${statusClassName(session.status)}`}
@@ -430,35 +462,25 @@ export function AgentsOverviewPage() {
                     </div>
 
                     {isOpen ? (
-                      <div className="agents-terminal">
-                        <div className="agents-terminal-top">
-                          <span className="agents-terminal-dot is-red" />
-                          <span className="agents-terminal-dot is-yellow" />
-                          <span className="agents-terminal-dot is-green" />
-                          <span className="agents-terminal-label">
-                            {session.previewTitle}
-                          </span>
-                        </div>
-                        <div className="agents-session-output">
-                          {outputLines.map(({ key, line }) => (
-                            <span
-                              className={`agents-terminal-line ${terminalLineClassName(line)}`}
-                              key={key}
-                            >
-                              {line}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+                      <SessionTerminal
+                        sessionId={session.id}
+                        title={session.previewTitle}
+                        output={output}
+                      />
                     ) : null}
 
                     <div className="button-row">
                       <button
                         className="ghost-button"
                         type="button"
-                        onClick={() => void navigate({ to: '/admin/sessions' })}
+                        onClick={() => {
+                          void navigate({
+                            to: '/admin/sessions',
+                            search: { sessionId: session.id },
+                          }).catch(logNavigationError);
+                        }}
                       >
-                        Open Sessions
+                        Open Session
                       </button>
                       <button
                         className="ghost-button"

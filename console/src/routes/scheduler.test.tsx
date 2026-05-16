@@ -38,6 +38,10 @@ vi.mock('../auth', () => ({
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => navigateMock,
+  useSearch: () => ({
+    jobId:
+      new URLSearchParams(window.location.search).get('jobId') || undefined,
+  }),
 }));
 
 function makeStatus(overrides: Partial<GatewayStatus> = {}): GatewayStatus {
@@ -421,6 +425,7 @@ describe('SchedulerPage', () => {
     deleteSchedulerJobMock.mockReset();
     setSchedulerJobPausedMock.mockReset();
     navigateMock.mockReset();
+    navigateMock.mockResolvedValue(undefined);
     useAuthMock.mockReset();
     fetchConfigMock.mockResolvedValue({
       path: '/tmp/config.json',

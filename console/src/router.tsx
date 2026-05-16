@@ -54,6 +54,10 @@ function ChatRouteComponent() {
   );
 }
 
+function optionalStringSearchValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
 });
@@ -135,6 +139,9 @@ const gatewayRoute = createRoute({
 const sessionsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/sessions',
+  validateSearch: (search: Record<string, unknown>) => ({
+    sessionId: optionalStringSearchValue(search.sessionId),
+  }),
   component: SessionsPage,
 });
 
@@ -165,6 +172,9 @@ const modelsRoute = createRoute({
 const schedulerRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/scheduler',
+  validateSearch: (search: Record<string, unknown>) => ({
+    jobId: optionalStringSearchValue(search.jobId),
+  }),
   component: SchedulerPage,
 });
 

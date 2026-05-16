@@ -29,6 +29,7 @@ import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
+import { logNavigationError } from '../lib/navigation';
 
 type JobColumnId = 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
 
@@ -84,7 +85,7 @@ function trimText(raw: string | null | undefined, maxLength: number): string {
 function resolveSchedulerSessionId(job: AdminSchedulerJob): string | null {
   if (job.sessionId) return job.sessionId;
   if (job.source === 'job') return `scheduler:${job.id}`;
-  return job.sessionId || null;
+  return null;
 }
 
 function deriveColumn(
@@ -165,6 +166,10 @@ function JobCard(props: {
   onDrop: (event: DragEvent<HTMLButtonElement>) => void;
 }) {
   const { item } = props;
+  const agentPillStyle = useMemo(
+    () => getAgentPillStyle(item.agentKey),
+    [item.agentKey],
+  );
 
   return (
     <div
@@ -201,10 +206,7 @@ function JobCard(props: {
           <p>{item.summary}</p>
           <small>{item.stateLabel}</small>
           <div className="jobs-card-agent-row">
-            <span
-              className="jobs-card-pill"
-              style={getAgentPillStyle(item.agentKey)}
-            >
+            <span className="jobs-card-pill" style={agentPillStyle}>
               {item.agentLabel}
             </span>
             <AgentBudgetChip budget={props.budget} />
@@ -372,10 +374,10 @@ function JobDetailCard(props: {
               void navigate({
                 to: '/admin/scheduler',
                 search: { jobId: editJobId },
-              });
+              }).catch(logNavigationError);
               return;
             }
-            void navigate({ to: '/admin/approvals' });
+            void navigate({ to: '/admin/approvals' }).catch(logNavigationError);
           }}
         >
           Edit
@@ -902,7 +904,12 @@ export function JobsPage() {
             <button
               className="primary-button"
               type="button"
-              onClick={() => void navigate({ to: '/admin/scheduler' })}
+              onClick={() => {
+                void navigate({
+                  to: '/admin/scheduler',
+                  search: { jobId: undefined },
+                }).catch(logNavigationError);
+              }}
             >
               New Job
             </button>

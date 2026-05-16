@@ -116,6 +116,7 @@ describe('EmailPage', () => {
     fetchAdminEmailMessageMock.mockReset();
     deleteAdminEmailMessageMock.mockReset();
     navigateMock.mockReset();
+    navigateMock.mockResolvedValue(undefined);
     useAuthMock.mockReset();
     useAppShellConfigMock.mockReset();
     useAuthMock.mockReturnValue({ token: 'test-token' });

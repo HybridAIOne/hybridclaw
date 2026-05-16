@@ -18,6 +18,7 @@ import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
+import { logNavigationError } from '../lib/navigation';
 
 const MAILBOX_MESSAGE_LIMIT = 40;
 const MAILBOX_THREAD_PREVIEW_MAX_LENGTH = 72;
@@ -490,7 +491,11 @@ export function EmailPage() {
             <button
               className="ghost-button"
               type="button"
-              onClick={() => void navigate({ to: '/admin/channels' })}
+              onClick={() => {
+                void navigate({ to: '/admin/channels' }).catch(
+                  logNavigationError,
+                );
+              }}
             >
               Open channel settings
             </button>

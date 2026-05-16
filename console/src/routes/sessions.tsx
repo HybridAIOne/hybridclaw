@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { useDeferredValue, useEffect, useRef, useState } from 'react';
 import { deleteSession, fetchSessions } from '../api/client';
 import { useAuth } from '../auth';
 import {
@@ -22,13 +23,20 @@ import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
+import { logNavigationError } from '../lib/navigation';
 
 export function SessionsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const navigate = useNavigate();
+  const sessionsSearch = useSearch({ strict: false }) as { sessionId?: string };
+  const requestedSessionId = sessionsSearch.sessionId?.trim() || null;
+  const lastRequestedSessionId = useRef(requestedSessionId);
   const [search, setSearch] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => requestedSessionId,
+  );
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const deferredSearch = useDeferredValue(search);
 
@@ -48,6 +56,11 @@ export function SessionsPage() {
       );
       if (selectedId === sessionId) {
         setSelectedId(null);
+        void navigate({
+          to: '/admin/sessions',
+          replace: true,
+          search: { sessionId: undefined },
+        }).catch(logNavigationError);
       }
     },
     onError: (error) => {
@@ -78,6 +91,23 @@ export function SessionsPage() {
       setSelectedId(selectedSession.id);
     }
   }, [selectedId, selectedSession]);
+
+  useEffect(() => {
+    if (requestedSessionId === lastRequestedSessionId.current) return;
+    lastRequestedSessionId.current = requestedSessionId;
+    if (requestedSessionId && requestedSessionId !== selectedId) {
+      setSelectedId(requestedSessionId);
+    }
+  }, [requestedSessionId, selectedId]);
+
+  function selectSession(sessionId: string): void {
+    setSelectedId(sessionId);
+    void navigate({
+      to: '/admin/sessions',
+      replace: true,
+      search: { sessionId },
+    }).catch(logNavigationError);
+  }
 
   return (
     <div className="page-stack">
@@ -117,7 +147,7 @@ export function SessionsPage() {
                         : 'selectable-row'
                     }
                     type="button"
-                    onClick={() => setSelectedId(session.id)}
+                    onClick={() => selectSession(session.id)}
                   >
                     <div className="session-row-main">
                       <strong>{session.id}</strong>
