@@ -76,8 +76,9 @@ inspection, cost estimates, and snapshot lifecycle work.
    API URLs, JSON bodies, tiers, or secret refs from memory.
 4. For prompt/user testing, stop after `plan` or after helper `http-request`
    payload generation. Do not call the built-in `http_request` tool.
-5. For real user requests that need live Hetzner reads, pass the helper-emitted
-   `httpRequest` object unchanged to `http_request`. The
+5. For real user requests that need live Hetzner API data, each API call is a
+   two-tool sequence: run this helper once with `bash`, then pass the
+   helper-emitted `httpRequest` object unchanged to `http_request`. The
    `bearerSecretName: "HETZNER_API_TOKEN"` field is the secret reference; do not
    rewrite it into `secretHeaders`, preflight it, inspect it, or ask the model
    for the token.
@@ -92,6 +93,9 @@ inspection, cost estimates, and snapshot lifecycle work.
    Hetzner API supports them.
 9. Never paste, print, or inspect `HETZNER_API_TOKEN`; the gateway injects it
    server-side with `bearerSecretName: "HETZNER_API_TOKEN"`.
+10. Do not repeat the same read call unless the previous result was ambiguous or
+    stale. For a named resize, one `list-servers --project <project> --name
+    <name>` call is enough to resolve the server id.
 
 See [references/operator-setup.md](references/operator-setup.md) for operator
 setup, token scope, autonomy defaults, and cost-reporting expectations.
@@ -131,8 +135,6 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request create-se
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request create-snapshot \
   --project acme --server-id 123456 --description "pre-deploy" --operator-grant
 
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-server-types --name cpx32
-
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request restore-snapshot \
   --server-id 123456 --snapshot-id 987654 --operator-grant
 
@@ -151,18 +153,29 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-se
 
 Resize/change type contract:
 
-1. Build the request with the helper:
+1. If the user named a server instead of giving an id, resolve it once:
+
+   ```bash
+   node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-servers \
+     --project datalion --name bastion
+   ```
+
+2. Ask for explicit approval for the exact server id and target type.
+
+3. Build the request with the helper:
 
    ```bash
    node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request downgrade-server \
      --server-id 123456 --server-type cpx32 --operator-grant
    ```
 
-2. Pass the emitted `httpRequest` object unchanged to `http_request`.
+4. Pass the emitted `httpRequest` object unchanged to `http_request`.
 
 The `change_type` payload is `json.server_type` plus `json.upgrade_disk`.
 Never send `json.type`, never omit `upgrade_disk`, and never rewrite
 `bearerSecretName: "HETZNER_API_TOKEN"` into `secretHeaders`.
+Do not call `list-server-types` before a simple resize unless the user asks for
+price or disk validation; Hetzner accepts `cpx32` directly in `server_type`.
 
 ## Working Rules
 
