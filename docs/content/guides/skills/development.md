@@ -285,6 +285,8 @@ Per-skill operator setup references:
 > Use Storage Box subaccounts scoped to the archive path for WebDAV writes.
 >
 > All helpers emit gateway-backed `http_request` payloads; secrets are injected server-side and are never printed.
+>
+> Treat the CJS helpers as the API wrappers: they choose endpoints, methods, payloads, tiers, URL encoding, and secret refs. For prompt/user testing, stop after `plan` or helper payload generation. For real user requests that need live Hetzner data, pass the emitted `httpRequest` object unchanged to live `http_request` and let the gateway resolve `bearerSecretName` or `secretHeaders`. If one live call returns 401 or 403, stop immediately and ask the operator to verify the secret; do not retry or continue across more Hetzner endpoints.
 
 > 🎯 **Try it yourself**
 >

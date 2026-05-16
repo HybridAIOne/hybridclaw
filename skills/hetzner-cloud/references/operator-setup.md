@@ -21,6 +21,14 @@ The helper emits `bearerSecretName: "HETZNER_API_TOKEN"` so HybridClaw injects
 the bearer token server-side. Do not paste the token into chat, logs, helper
 arguments, eval fixtures, or documentation examples.
 
+Use `hetzner_cloud.cjs` as the Cloud API wrapper; it owns endpoints, methods,
+payloads, tiers, and the `bearerSecretName` secret reference. For prompt/user
+testing, use `plan` or helper `http-request` commands only. For real user
+requests that need live Hetzner data, execute the emitted payload with the
+built-in `http_request` tool unchanged and let the gateway resolve
+`bearerSecretName`. If a live call returns 401 or 403, stop after the first
+failure and ask the operator to verify `HETZNER_API_TOKEN`.
+
 ## Recommended Autonomy
 
 - Inventory, pricing, server-type, location, image, volume, and network reads:

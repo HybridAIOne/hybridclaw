@@ -21,6 +21,14 @@ contract.
 Do not paste the DNS token into chat, logs, helper arguments, eval fixtures, or
 documentation examples.
 
+Use `hetzner_dns.cjs` as the DNS API wrapper; it owns endpoints, methods,
+payloads, tiers, and the `Auth-API-Token` secret header. For prompt/user
+testing, use `plan` or helper `http-request` commands only. For real user
+requests that need live Hetzner DNS data, execute the emitted payload with the
+built-in `http_request` tool unchanged and let the gateway resolve the
+`Auth-API-Token` secret header. If a live call returns 401 or 403, stop after
+the first failure and ask the operator to verify `HETZNER_DNS_API_TOKEN`.
+
 ## Recommended Autonomy
 
 - Zone and record reads: allow read-only autonomy for trusted operators.

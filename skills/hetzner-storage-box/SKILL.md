@@ -71,11 +71,21 @@ plus WebDAV file reads and guarded uploads/archives.
    and metadata.
 2. Use WebDAV reads (`list-files`, `download-file`) for file inspection.
 3. Use `plan` before any management, file write, or public-link request.
-4. Use the helper to produce `http_request` payloads; pass only the emitted
-   `httpRequest` object to the built-in `http_request` tool.
-5. Require explicit operator grant before creating boxes, changing settings,
+4. Treat `hetzner_storage_box.cjs` as the API/WebDAV wrapper. Do not handcraft
+   Hetzner Storage Box API URLs, WebDAV URLs, JSON bodies, tiers, or secret refs
+   from memory.
+5. For prompt/user testing, stop after `plan` or after helper payload
+   generation. Do not call the built-in `http_request` tool.
+6. For real user requests that need live Storage Box API or WebDAV reads, pass
+   the helper-emitted `httpRequest` object unchanged to `http_request`. The
+   `bearerSecretName` or `secretHeaders` field is the secret reference; do not
+   rewrite it, preflight it, inspect it, or ask the model for the secret.
+7. If a live `http_request` call returns 401 or 403, stop after that first
+   failure. Do not retry, do not fan out to more endpoints or paths, and ask the
+   operator to set or verify the relevant secret.
+8. Require explicit operator grant before creating boxes, changing settings,
    snapshots, uploads, archives, directory creation, public sharing, or deletes.
-6. Never paste, print, or inspect `HETZNER_API_TOKEN` or Storage Box passwords.
+9. Never paste, print, or inspect `HETZNER_API_TOKEN` or Storage Box passwords.
    The gateway injects API bearer tokens and WebDAV Basic auth server-side.
 
 ## Secret Setup

@@ -69,14 +69,24 @@ inspection, cost estimates, and snapshot lifecycle work.
 1. Start read-only: list servers, locations, server types, images, prices,
    volumes, and networks.
 2. Use `plan` for natural-language requests before building any write request.
-3. Use the helper to produce `http_request` payloads; pass only the emitted
-   `httpRequest` object to the built-in `http_request` tool.
-4. Require an explicit operator grant before any create, restore,
+3. Treat `hetzner_cloud.cjs` as the API wrapper. Do not handcraft Hetzner Cloud
+   API URLs, JSON bodies, tiers, or secret refs from memory.
+4. For prompt/user testing, stop after `plan` or after helper `http-request`
+   payload generation. Do not call the built-in `http_request` tool.
+5. For real user requests that need live Hetzner reads, pass the helper-emitted
+   `httpRequest` object unchanged to `http_request`. The
+   `bearerSecretName: "HETZNER_API_TOKEN"` field is the secret reference; do not
+   rewrite it into `secretHeaders`, preflight it, inspect it, or ask the model
+   for the token.
+6. If a live `http_request` call returns 401 or 403, stop after that first
+   failure. Do not retry, do not fan out to more endpoints, and ask the operator
+   to set or verify `HETZNER_API_TOKEN`.
+7. Require an explicit operator grant before any create, restore,
    attach, detach, snapshot, network, volume, or delete request. Pass
    `--operator-grant` only after that grant.
-5. Prefer labels for project ownership (`project=acme`, `env=demo`) and include
+8. Prefer labels for project ownership (`project=acme`, `env=demo`) and include
    them in cost and cleanup reads.
-6. Never paste, print, or inspect `HETZNER_API_TOKEN`; the gateway injects it
+9. Never paste, print, or inspect `HETZNER_API_TOKEN`; the gateway injects it
    server-side with `bearerSecretName: "HETZNER_API_TOKEN"`.
 
 See [references/operator-setup.md](references/operator-setup.md) for operator

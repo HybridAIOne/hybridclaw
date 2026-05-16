@@ -21,6 +21,34 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const TOKEN_SECRET = 'HETZNER_API_TOKEN';
 const WEBDAV_AUTH_SECRET = 'HETZNER_STORAGE_BOX_BASIC_AUTH';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
+const API_LIVE_EXECUTION = {
+  mode: 'live-hetzner-storage-box-api',
+  requiresConfiguredSecrets: [TOKEN_SECRET],
+  dryRunSafe:
+    'For prompt/user testing, stop after producing this payload; do not call http_request.',
+  callPolicy:
+    'Use this CJS helper as the API wrapper. For real user requests that need live Storage Box management data, pass the emitted httpRequest object unchanged to http_request and let the gateway inject the token server-side.',
+  secretRefPolicy:
+    'Do not preflight, inspect, print, or ask the model for HETZNER_API_TOKEN. The bearerSecretName field is the credential reference.',
+  requestShape:
+    'Do not handcraft Storage Box management API calls. The helper owns the endpoint, method, payload, tier, and bearerSecretName.',
+  unauthorizedPolicy:
+    'If a live call returns 401 or 403, stop after the first failure. Do not retry or call additional Hetzner endpoints; ask the operator to set or verify HETZNER_API_TOKEN.',
+};
+const WEBDAV_LIVE_EXECUTION = {
+  mode: 'live-hetzner-storage-box-webdav',
+  requiresConfiguredSecrets: [WEBDAV_AUTH_SECRET],
+  dryRunSafe:
+    'For prompt/user testing, stop after producing this payload; do not call http_request.',
+  callPolicy:
+    'Use this CJS helper as the WebDAV API wrapper. For real user requests that need live WebDAV file access, pass the emitted httpRequest object unchanged to http_request and let the gateway inject Basic auth server-side.',
+  secretRefPolicy:
+    'Do not preflight, inspect, print, or ask the model for HETZNER_STORAGE_BOX_BASIC_AUTH. The secretHeaders entry is the credential reference.',
+  requestShape:
+    'Do not handcraft Storage Box WebDAV calls. The helper owns the URL encoding, method, payload, tier, and Authorization secret header.',
+  unauthorizedPolicy:
+    'If a live call returns 401 or 403, stop after the first failure. Do not retry or call additional WebDAV paths; ask the operator to set or verify HETZNER_STORAGE_BOX_BASIC_AUTH.',
+};
 
 const OPERATION_TIERS = {
   'list-storage-boxes': 'green',
@@ -105,6 +133,7 @@ function buildApiRequest(operation, { url, method = 'GET', json }) {
       skillName: 'hetzner-storage-box',
     },
     costMeasurement: COST_MEASUREMENT,
+    liveExecution: API_LIVE_EXECUTION,
   };
   if (json !== undefined) payload.httpRequest.json = json;
   return payload;
@@ -132,6 +161,7 @@ function buildWebdavRequest(
       skillName: 'hetzner-storage-box',
     },
     costMeasurement: COST_MEASUREMENT,
+    liveExecution: WEBDAV_LIVE_EXECUTION,
   };
   if (body !== undefined) payload.httpRequest.body = body;
   if (operation === 'list-files') {

@@ -21,6 +21,20 @@ const API_BASE = 'https://api.hetzner.cloud/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const TOKEN_SECRET = 'HETZNER_API_TOKEN';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
+const LIVE_EXECUTION = {
+  mode: 'live-hetzner-api',
+  requiresConfiguredSecrets: [TOKEN_SECRET],
+  dryRunSafe:
+    'For prompt/user testing, stop after producing this payload; do not call http_request.',
+  callPolicy:
+    'Use this CJS helper as the API wrapper. For real user requests that need live Hetzner data, pass the emitted httpRequest object unchanged to http_request and let the gateway inject the token server-side.',
+  secretRefPolicy:
+    'Do not preflight, inspect, print, or ask the model for HETZNER_API_TOKEN. The bearerSecretName field is the credential reference.',
+  requestShape:
+    'Do not handcraft Hetzner API calls. The helper owns the endpoint, method, payload, tier, and bearerSecretName.',
+  unauthorizedPolicy:
+    'If a live call returns 401 or 403, stop after the first failure. Do not retry or call additional Hetzner endpoints; ask the operator to set or verify HETZNER_API_TOKEN.',
+};
 
 const OPERATION_TIERS = {
   'list-servers': 'green',
@@ -79,6 +93,7 @@ function buildHttpRequest(operation, { url, method = 'GET', json }) {
       skillName: 'hetzner-cloud',
     },
     costMeasurement: COST_MEASUREMENT,
+    liveExecution: LIVE_EXECUTION,
   };
   if (json !== undefined) payload.httpRequest.json = json;
   return payload;

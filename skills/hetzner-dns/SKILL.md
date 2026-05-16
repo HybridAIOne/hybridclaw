@@ -58,11 +58,20 @@ record management through the Hetzner DNS API.
    ids before update or delete requests.
 3. Use `plan` before mutations so the operator can see the tier and required
    grant.
-4. Use the helper to produce `http_request` payloads; pass only the emitted
-   `httpRequest` object to the built-in `http_request` tool.
-5. Require explicit operator grant before creating, updating, adding, removing,
+4. Treat `hetzner_dns.cjs` as the API wrapper. Do not handcraft Hetzner DNS API
+   URLs, JSON bodies, tiers, or secret refs from memory.
+5. For prompt/user testing, stop after `plan` or after helper `http-request`
+   payload generation. Do not call the built-in `http_request` tool.
+6. For real user requests that need live Hetzner DNS reads, pass the
+   helper-emitted `httpRequest` object unchanged to `http_request`. The
+   `secretHeaders` entry for `Auth-API-Token` is the secret reference; do not
+   preflight it, inspect it, or ask the model for the token.
+7. If a live `http_request` call returns 401 or 403, stop after that first
+   failure. Do not retry, do not fan out to more endpoints, and ask the operator
+   to set or verify `HETZNER_DNS_API_TOKEN`.
+8. Require explicit operator grant before creating, updating, adding, removing,
    or deleting records. Pass `--operator-grant` only after that grant.
-6. Never paste, print, or inspect `HETZNER_DNS_API_TOKEN`; the gateway injects
+9. Never paste, print, or inspect `HETZNER_DNS_API_TOKEN`; the gateway injects
    it server-side as `Auth-API-Token`.
 
 See [references/operator-setup.md](references/operator-setup.md) for DNS token

@@ -207,6 +207,19 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     bearerSecretName: 'HETZNER_API_TOKEN',
     skillName: 'hetzner-cloud',
   });
+  expect(JSON.parse(read.stdout).liveExecution).toMatchObject({
+    callPolicy: expect.stringContaining('CJS helper as the API wrapper'),
+    dryRunSafe: expect.stringContaining('do not call http_request'),
+    requestShape: expect.stringContaining('Do not handcraft'),
+    secretRefPolicy: expect.stringContaining('bearerSecretName'),
+    unauthorizedPolicy: expect.stringContaining('stop after the first failure'),
+  });
+  expect(JSON.parse(read.stdout).liveExecution.callPolicy).toContain(
+    'http_request',
+  );
+  expect(JSON.parse(read.stdout).liveExecution.callPolicy).not.toContain(
+    'confirms',
+  );
   expect(JSON.parse(read.stdout).httpRequest.url).toContain(
     'https://api.hetzner.cloud/v1/servers?',
   );
@@ -309,6 +322,15 @@ test('Hetzner DNS helper builds RRset requests and protects deletes', () => {
     ],
     skillName: 'hetzner-dns',
   });
+  expect(payload.liveExecution).toMatchObject({
+    requiresConfiguredSecrets: ['HETZNER_DNS_API_TOKEN'],
+    callPolicy: expect.stringContaining('CJS helper as the API wrapper'),
+    requestShape: expect.stringContaining('Do not handcraft'),
+    secretRefPolicy: expect.stringContaining('secretHeaders'),
+    unauthorizedPolicy: expect.stringContaining('stop after the first failure'),
+  });
+  expect(payload.liveExecution.callPolicy).toContain('http_request');
+  expect(payload.liveExecution.callPolicy).not.toContain('confirms');
   expect(payload.httpRequest.json).toMatchObject({
     zone_id: 'zone123',
     name: 'demo',
@@ -451,6 +473,16 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
     url: 'https://api.hetzner.com/v1/storage_boxes',
     bearerSecretName: 'HETZNER_API_TOKEN',
   });
+  expect(JSON.parse(api.stdout).liveExecution).toMatchObject({
+    requiresConfiguredSecrets: ['HETZNER_API_TOKEN'],
+    callPolicy: expect.stringContaining('CJS helper as the API wrapper'),
+    requestShape: expect.stringContaining('Do not handcraft'),
+    secretRefPolicy: expect.stringContaining('bearerSecretName'),
+    unauthorizedPolicy: expect.stringContaining('stop after the first failure'),
+  });
+  expect(JSON.parse(api.stdout).liveExecution.callPolicy).not.toContain(
+    'confirms',
+  );
   expect(webdav.status).toBe(0);
   expect(JSON.parse(webdav.stdout).httpRequest).toMatchObject({
     method: 'PROPFIND',
@@ -463,6 +495,16 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
       },
     ],
   });
+  expect(JSON.parse(webdav.stdout).liveExecution).toMatchObject({
+    requiresConfiguredSecrets: ['HETZNER_STORAGE_BOX_BASIC_AUTH'],
+    callPolicy: expect.stringContaining('CJS helper as the WebDAV API wrapper'),
+    requestShape: expect.stringContaining('Do not handcraft'),
+    secretRefPolicy: expect.stringContaining('secretHeaders'),
+    unauthorizedPolicy: expect.stringContaining('stop after the first failure'),
+  });
+  expect(JSON.parse(webdav.stdout).liveExecution.callPolicy).not.toContain(
+    'confirms',
+  );
   expect(encodedWebdav.status).toBe(0);
   expect(JSON.parse(encodedWebdav.stdout).httpRequest.url).toBe(
     'https://u00000.your-storagebox.de/archives/q4%20invoices%23final.txt',

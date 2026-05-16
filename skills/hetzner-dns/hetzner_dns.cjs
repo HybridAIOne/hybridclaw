@@ -21,6 +21,20 @@ const API_BASE = 'https://dns.hetzner.com/api/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const TOKEN_SECRET = 'HETZNER_DNS_API_TOKEN';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
+const LIVE_EXECUTION = {
+  mode: 'live-hetzner-dns-api',
+  requiresConfiguredSecrets: [TOKEN_SECRET],
+  dryRunSafe:
+    'For prompt/user testing, stop after producing this payload; do not call http_request.',
+  callPolicy:
+    'Use this CJS helper as the API wrapper. For real user requests that need live Hetzner DNS data, pass the emitted httpRequest object unchanged to http_request and let the gateway inject the token server-side.',
+  secretRefPolicy:
+    'Do not preflight, inspect, print, or ask the model for HETZNER_DNS_API_TOKEN. The secretHeaders entry is the credential reference.',
+  requestShape:
+    'Do not handcraft Hetzner DNS API calls. The helper owns the endpoint, method, payload, tier, and Auth-API-Token secret header.',
+  unauthorizedPolicy:
+    'If a live call returns 401 or 403, stop after the first failure. Do not retry or call additional Hetzner DNS endpoints; ask the operator to set or verify HETZNER_DNS_API_TOKEN.',
+};
 
 const OPERATION_TIERS = {
   'list-zones': 'green',
@@ -87,6 +101,7 @@ function buildHttpRequest(operation, { url, method = 'GET', json }) {
       skillName: 'hetzner-dns',
     },
     costMeasurement: COST_MEASUREMENT,
+    liveExecution: LIVE_EXECUTION,
   };
   if (json !== undefined) payload.httpRequest.json = json;
   return payload;

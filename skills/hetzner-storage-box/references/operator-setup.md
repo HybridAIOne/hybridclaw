@@ -30,6 +30,15 @@ The helper emits `secretHeaders` so HybridClaw injects
 encoded secret into chat, logs, or command lines beyond the one-time local
 secret setup.
 
+Use `hetzner_storage_box.cjs` as the API/WebDAV wrapper; it owns endpoints, URL
+encoding, methods, payloads, tiers, and secret refs. For prompt/user testing,
+use `plan`, `public-url`, or helper payload-generation commands only. For real
+user requests that need live Storage Box data, execute emitted API or WebDAV
+payloads with the built-in `http_request` tool unchanged and let the gateway
+resolve the secret reference. If a live call returns 401 or 403, stop after the
+first failure and ask the operator to verify `HETZNER_API_TOKEN` or
+`HETZNER_STORAGE_BOX_BASIC_AUTH`.
+
 ## Recommended Autonomy
 
 - Inventory and file reads: allow read-only autonomy for trusted operators.
