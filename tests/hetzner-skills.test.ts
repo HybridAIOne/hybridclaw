@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'vitest';
@@ -78,6 +79,38 @@ test('Hetzner helpers expose expected commands', () => {
     for (const expected of skill.expectedHelp) {
       expect(result.stdout).toContain(expected);
     }
+  }
+});
+
+test('Hetzner helpers run when copied as standalone skill packages', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hetzner-skills-'));
+  try {
+    for (const skill of skills) {
+      const packagedSkillDir = path.join(tempRoot, skill.name);
+      fs.cpSync(path.join(skillRoot, skill.name), packagedSkillDir, {
+        recursive: true,
+      });
+
+      const result = spawnSync(
+        'node',
+        [
+          path.join(packagedSkillDir, skill.helper),
+          '--format',
+          'json',
+          'plan',
+          'list resources',
+        ],
+        { encoding: 'utf-8' },
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        command: 'plan',
+        costMeasurement: { system: 'UsageTotals' },
+      });
+    }
+  } finally {
+    fs.rmSync(tempRoot, { force: true, recursive: true });
   }
 });
 

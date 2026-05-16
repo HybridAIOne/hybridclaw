@@ -14,7 +14,7 @@ const {
   requireText,
   runMain,
   validateOperation,
-} = require('../hetzner-shared.cjs');
+} = require('./hetzner-shared.cjs');
 
 const API_BASE = 'https://api.hetzner.com/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
