@@ -111,6 +111,13 @@ function parseLabelsWithProject(values, project) {
   return parseLabels(normalizedValues);
 }
 
+function parseOptionalInteger(value, flagName) {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  return parseInteger(normalized, flagName);
+}
+
 function buildHttpRequest(operation, { url, method = 'GET', json }) {
   const payload = {
     command: 'http-request',
@@ -260,11 +267,15 @@ function commandHttpRequest(args) {
       });
       break;
     }
-    case 'list-server-types':
+    case 'list-server-types': {
+      const url = appendQuery(`${API_BASE}/server_types`, {
+        name: popFlag(args, '--name'),
+      });
       payload = buildHttpRequest(operation, {
-        url: `${API_BASE}/server_types`,
+        url,
       });
       break;
+    }
     case 'list-locations':
       payload = buildHttpRequest(operation, { url: `${API_BASE}/locations` });
       break;
@@ -490,9 +501,18 @@ function commandHttpRequest(args) {
         popFlag(args, '--server-id'),
         '--server-id',
       );
-      const serverType = popFlag(args, '--server-type');
+      const serverTypeIdFlag = popFlag(args, '--server-type-id');
+      const serverTypeName = popFlag(args, '--server-type');
+      const serverType =
+        parseOptionalInteger(serverTypeIdFlag, '--server-type-id') ??
+        parseOptionalInteger(serverTypeName, '--server-type');
       if (!serverType) {
-        die(`${operation} requires --server-type.`);
+        if (serverTypeName) {
+          die(
+            `${operation} requires a numeric --server-type-id for change_type. Run list-server-types --name ${serverTypeName} first, then rerun with the returned id.`,
+          );
+        }
+        die(`${operation} requires --server-type-id.`);
       }
       const upgradeDisk = popBoolean(args, '--upgrade-disk');
       payload = buildHttpRequest(operation, {
@@ -559,7 +579,7 @@ Usage:
 Read operations:
   list-servers [--project name] [--label-selector key=value] [--name name]
   get-server --server-id id
-  list-server-types
+  list-server-types [--name name]
   list-locations
   list-images [--project name] [--type system|snapshot|backup] [--label-selector key=value]
   list-prices [--project name]
@@ -577,9 +597,9 @@ Write operations require --operator-grant:
   detach-volume --volume-id id
   attach-network --server-id id --network-id id [--ip 10.0.0.2]
   detach-network --server-id id --network-id id
-  change-server-type --server-id id --server-type cpx32 [--upgrade-disk]
-  upgrade-server --server-id id --server-type cpx32 [--upgrade-disk]
-  downgrade-server --server-id id --server-type cpx32
+  change-server-type --server-id id --server-type-id id [--upgrade-disk]
+  upgrade-server --server-id id --server-type-id id [--upgrade-disk]
+  downgrade-server --server-id id --server-type-id id
   delete-server --server-id id
   delete-vps --server-id id
   delete-snapshot --image-id id

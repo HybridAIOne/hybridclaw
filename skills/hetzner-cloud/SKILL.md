@@ -131,6 +131,8 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request create-se
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request create-snapshot \
   --project acme --server-id 123456 --description "pre-deploy" --operator-grant
 
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-server-types --name cpx32
+
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request restore-snapshot \
   --server-id 123456 --snapshot-id 987654 --operator-grant
 
@@ -141,7 +143,7 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request attach-vo
   --server-id 123456 --volume-id 777 --automount --operator-grant
 
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request downgrade-server \
-  --server-id 123456 --server-type cpx32 --operator-grant
+  --server-id 123456 --server-type-id <id-from-list-server-types> --operator-grant
 
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-server \
   --server-id 123456 --operator-grant
@@ -156,6 +158,13 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-se
   `upgrade-server`, and `downgrade-server` as changing cost or capacity actions.
   Ask for explicit approval before building a live request with
   `--operator-grant`.
+- For `change-server-type`, `upgrade-server`, and `downgrade-server`, resolve
+  the target type first with `list-server-types --name <type>` and pass the
+  returned numeric id as `--server-type-id`. Hetzner's own CLI resolves names
+  before calling `change_type`; do the same instead of sending names directly.
+- Keep disk size by default for type changes. Use `--upgrade-disk` only when
+  the operator explicitly asks to expand the primary disk, because expanded
+  disks cannot later be downgraded.
 - Use read-only tokens for inventory and cost reporting. Ask for read-write
   tokens only for the requested mutation window.
 - For demo servers, include owner/project and TTL labels before provisioning.
