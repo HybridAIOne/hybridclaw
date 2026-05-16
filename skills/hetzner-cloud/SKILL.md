@@ -17,7 +17,7 @@ credentials:
 metadata:
   hybridclaw:
     category: infrastructure
-    short_description: "Hetzner Cloud VPS inventory, provisioning, snapshots, and guarded deletes."
+    short_description: "Hetzner Cloud VPS inventory, provisioning, resizing, snapshots, and guarded deletes."
     tags:
       - hetzner
       - cloud
@@ -44,6 +44,9 @@ metadata:
         - detach-volume
         - attach-network
         - detach-network
+        - change-server-type
+        - upgrade-server
+        - downgrade-server
       red:
         - restore-snapshot
         - delete-server
@@ -81,9 +84,9 @@ inspection, cost estimates, and snapshot lifecycle work.
 6. If a live `http_request` call returns 401 or 403, stop after that first
    failure. Do not retry, do not fan out to more endpoints, and ask the operator
    to set or verify `HETZNER_API_TOKEN`.
-7. Require an explicit operator grant before any create, restore,
-   attach, detach, snapshot, network, volume, or delete request. Pass
-   `--operator-grant` only after that grant.
+7. Require an explicit operator grant before any changing action, including
+   delete, upgrade, downgrade, buy/create, restore, attach, detach, snapshot,
+   network, or volume mutation. Pass `--operator-grant` only after that grant.
 8. Use `--project acme` for project-scoped inventory and provisioning. The
    helper converts it to `project=acme` label selectors or labels where the
    Hetzner API supports them.
@@ -137,6 +140,9 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request attach-ne
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request attach-volume \
   --server-id 123456 --volume-id 777 --automount --operator-grant
 
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request downgrade-server \
+  --server-id 123456 --server-type cpx32 --operator-grant
+
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-server \
   --server-id 123456 --operator-grant
 ```
@@ -146,6 +152,10 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-se
 - Treat `delete-server`, `delete-vps`, `delete-snapshot`,
   `destroy-snapshot`, `delete-volume`, and `restore-snapshot` as red-risk
   actions. Stop unless the operator grants the exact target id.
+- Treat `create-server`, `create-volume`, `change-server-type`,
+  `upgrade-server`, and `downgrade-server` as changing cost or capacity actions.
+  Ask for explicit approval before building a live request with
+  `--operator-grant`.
 - Use read-only tokens for inventory and cost reporting. Ask for read-write
   tokens only for the requested mutation window.
 - For demo servers, include owner/project and TTL labels before provisioning.

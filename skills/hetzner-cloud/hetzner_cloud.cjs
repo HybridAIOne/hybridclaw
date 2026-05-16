@@ -26,6 +26,8 @@ const LIVE_EXECUTION = {
   requiresConfiguredSecrets: [TOKEN_SECRET],
   dryRunSafe:
     'For prompt/user testing, stop after producing this payload; do not call http_request.',
+  approvalPolicy:
+    'Changing actions that delete, upgrade, downgrade, buy, create, restore, attach, detach, snapshot, or modify resources require an explicit operator approval before --operator-grant may be used.',
   callPolicy:
     'Use this CJS helper as the API wrapper. For real user requests that need live Hetzner data, pass the emitted httpRequest object unchanged to http_request and let the gateway inject the token server-side.',
   secretRefPolicy:
@@ -54,6 +56,9 @@ const OPERATION_TIERS = {
   'detach-volume': 'amber',
   'attach-network': 'amber',
   'detach-network': 'amber',
+  'change-server-type': 'amber',
+  'upgrade-server': 'amber',
+  'downgrade-server': 'amber',
   'restore-snapshot': 'red',
   'delete-server': 'red',
   'delete-vps': 'red',
@@ -174,8 +179,16 @@ function buildPlan(text) {
     /\b(detach|unmount)\b/.test(normalized)
   ) {
     operation = 'detach-volume';
+  } else if (/\b(upgrade|downgrade|change type|resize)\b/.test(normalized)) {
+    operation = normalized.includes('upgrade')
+      ? 'upgrade-server'
+      : normalized.includes('downgrade')
+        ? 'downgrade-server'
+        : 'change-server-type';
   } else if (
-    /\b(create|spin up|provision|launch|new vps|sandbox)\b/.test(normalized)
+    /\b(create|spin up|provision|launch|new vps|sandbox|buy|purchase)\b/.test(
+      normalized,
+    )
   ) {
     operation = 'create-server';
   } else if (
@@ -470,6 +483,28 @@ function commandHttpRequest(args) {
       });
       break;
     }
+    case 'change-server-type':
+    case 'upgrade-server':
+    case 'downgrade-server': {
+      const serverId = parseInteger(
+        popFlag(args, '--server-id'),
+        '--server-id',
+      );
+      const serverType = popFlag(args, '--server-type');
+      if (!serverType) {
+        die(`${operation} requires --server-type.`);
+      }
+      const upgradeDisk = popBoolean(args, '--upgrade-disk');
+      payload = buildHttpRequest(operation, {
+        url: `${API_BASE}/servers/${serverId}/actions/change_type`,
+        method: 'POST',
+        json: {
+          server_type: serverType,
+          upgrade_disk: upgradeDisk,
+        },
+      });
+      break;
+    }
     case 'delete-server':
     case 'delete-vps': {
       const serverId = parseInteger(
@@ -542,6 +577,9 @@ Write operations require --operator-grant:
   detach-volume --volume-id id
   attach-network --server-id id --network-id id [--ip 10.0.0.2]
   detach-network --server-id id --network-id id
+  change-server-type --server-id id --server-type cpx32 [--upgrade-disk]
+  upgrade-server --server-id id --server-type cpx32 [--upgrade-disk]
+  downgrade-server --server-id id --server-type cpx32
   delete-server --server-id id
   delete-vps --server-id id
   delete-snapshot --image-id id

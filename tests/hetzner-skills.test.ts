@@ -200,6 +200,43 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     '10.0.0.12',
     '--operator-grant',
   ]);
+  const downgradeWithoutGrant = runHelper(
+    'hetzner-cloud',
+    'hetzner_cloud.cjs',
+    [
+      '--format',
+      'json',
+      'http-request',
+      'downgrade-server',
+      '--server-id',
+      '123456',
+      '--server-type',
+      'cpx32',
+    ],
+  );
+  const downgradeWithGrant = runHelper('hetzner-cloud', 'hetzner_cloud.cjs', [
+    '--format',
+    'json',
+    'http-request',
+    'downgrade-server',
+    '--server-id',
+    '123456',
+    '--server-type',
+    'cpx32',
+    '--operator-grant',
+  ]);
+  const upgradeWithGrant = runHelper('hetzner-cloud', 'hetzner_cloud.cjs', [
+    '--format',
+    'json',
+    'http-request',
+    'upgrade-server',
+    '--server-id',
+    '123456',
+    '--server-type',
+    'cpx42',
+    '--upgrade-disk',
+    '--operator-grant',
+  ]);
   const dashPrefixedDescription = runHelper(
     'hetzner-cloud',
     'hetzner_cloud.cjs',
@@ -236,6 +273,7 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     skillName: 'hetzner-cloud',
   });
   expect(JSON.parse(read.stdout).liveExecution).toMatchObject({
+    approvalPolicy: expect.stringContaining('upgrade, downgrade, buy'),
     callPolicy: expect.stringContaining('CJS helper as the API wrapper'),
     dryRunSafe: expect.stringContaining('do not call http_request'),
     requestShape: expect.stringContaining('Do not handcraft'),
@@ -292,6 +330,24 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     method: 'POST',
     url: 'https://api.hetzner.cloud/v1/servers/123456/actions/attach_to_network',
     json: { network: 555, ip: '10.0.0.12' },
+  });
+  expect(downgradeWithoutGrant.status).not.toBe(0);
+  expect(downgradeWithoutGrant.stderr).toContain('--operator-grant');
+  expect(downgradeWithGrant.status).toBe(0);
+  expect(JSON.parse(downgradeWithGrant.stdout)).toMatchObject({
+    operation: 'downgrade-server',
+    stakesTier: 'amber',
+    httpRequest: {
+      method: 'POST',
+      url: 'https://api.hetzner.cloud/v1/servers/123456/actions/change_type',
+      json: { server_type: 'cpx32', upgrade_disk: false },
+    },
+  });
+  expect(upgradeWithGrant.status).toBe(0);
+  expect(JSON.parse(upgradeWithGrant.stdout).httpRequest).toMatchObject({
+    method: 'POST',
+    url: 'https://api.hetzner.cloud/v1/servers/123456/actions/change_type',
+    json: { server_type: 'cpx42', upgrade_disk: true },
   });
   expect(dashPrefixedDescription.status).toBe(0);
   expect(
@@ -582,6 +638,12 @@ test('Hetzner plan classifiers route representative prompts', () => {
       skill: skills[0],
       prompt: 'Spin up a sandboxed VPS in Falkenstein for Friday demo.',
       operation: 'create-server',
+      tier: 'amber',
+    },
+    {
+      skill: skills[0],
+      prompt: 'Downgrade the bastion VPS to CPX32.',
+      operation: 'downgrade-server',
       tier: 'amber',
     },
     {
