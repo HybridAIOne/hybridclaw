@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { getHiddenInput } from '../test-utils';
 import { Checkbox, type CheckedState } from './index';
 
 describe('Checkbox', () => {
@@ -62,16 +63,15 @@ describe('Checkbox', () => {
     const { rerender, container } = render(
       <Checkbox checked={false} name="agreed" />,
     );
-    const queryHidden = () =>
-      container.querySelector(
-        'input[type="hidden"]',
-      ) as HTMLInputElement | null;
+    expect(getHiddenInput(container)).toBeNull();
 
-    expect(queryHidden()?.value).toBe('');
+    rerender(<Checkbox checked="indeterminate" name="agreed" />);
+    expect(getHiddenInput(container)).toBeNull();
 
     rerender(<Checkbox checked={true} name="agreed" value="yes" />);
-    expect(queryHidden()?.name).toBe('agreed');
-    expect(queryHidden()?.value).toBe('yes');
+    const hidden = getHiddenInput(container);
+    expect(hidden?.name).toBe('agreed');
+    expect(hidden?.value).toBe('yes');
   });
 
   it('sets aria-required only when required is true', () => {

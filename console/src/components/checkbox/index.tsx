@@ -69,12 +69,8 @@ export function Checkbox({
           {IndicatorIcon ? <IndicatorIcon className={styles.icon} /> : null}
         </span>
       </button>
-      {name ? (
-        <input
-          type="hidden"
-          name={name}
-          value={checked === true ? value : ''}
-        />
+      {name && checked === true ? (
+        <input type="hidden" name={name} value={value} />
       ) : null}
     </>
   );

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { getHiddenInput } from '../test-utils';
 import { Switch } from './index';
 
 describe('Switch', () => {
@@ -54,12 +55,10 @@ describe('Switch', () => {
     const { rerender, container } = render(
       <Switch checked={false} name="enabled" />,
     );
-    expect(container.querySelector('input[type="hidden"]')).toBeNull();
+    expect(getHiddenInput(container)).toBeNull();
 
     rerender(<Switch checked={true} name="enabled" />);
-    const hidden = container.querySelector(
-      'input[type="hidden"]',
-    ) as HTMLInputElement | null;
+    const hidden = getHiddenInput(container);
     expect(hidden).not.toBeNull();
     expect(hidden?.name).toBe('enabled');
     expect(hidden?.value).toBe('on');
@@ -69,10 +68,7 @@ describe('Switch', () => {
     const { container } = render(
       <Switch checked={true} name="rag" value="enabled" />,
     );
-    const hidden = container.querySelector(
-      'input[type="hidden"]',
-    ) as HTMLInputElement | null;
-    expect(hidden?.value).toBe('enabled');
+    expect(getHiddenInput(container)?.value).toBe('enabled');
   });
 
   it('sets aria-required only when required is true', () => {
