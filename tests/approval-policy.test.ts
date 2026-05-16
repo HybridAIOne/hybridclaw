@@ -1606,6 +1606,46 @@ approval:
     expect(evaluation.actionKey).toBe('network:hybridai.one');
   });
 
+  test('Hetzner API writes require explicit approval even when network is allowed', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const readEvaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.hetzner.cloud/v1/server_types?name=cpx32',
+        method: 'GET',
+        bearerSecretName: 'HETZNER_API_TOKEN',
+        skillName: 'hetzner-cloud',
+      }),
+      latestUserPrompt: 'Check the cpx32 server type',
+    });
+    const writeEvaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.hetzner.cloud/v1/servers/4907527/actions/change_type',
+        method: 'POST',
+        bearerSecretName: 'HETZNER_API_TOKEN',
+        skillName: 'hetzner-cloud',
+        json: { server_type: 45, upgrade_disk: false },
+      }),
+      latestUserPrompt: 'Downgrade bastion to cpx32',
+    });
+
+    expect(readEvaluation.decision).toBe('implicit');
+    expect(writeEvaluation.tier).toBe('red');
+    expect(writeEvaluation.decision).toBe('required');
+    expect(writeEvaluation.escalationRoute).toBe('approval_request');
+    expect(writeEvaluation.requestId).toBeTruthy();
+    expect(writeEvaluation.actionKey).toBe(
+      'network:api.hetzner.cloud:POST:/v1/servers/4907527/actions/change_type',
+    );
+    expect(writeEvaluation.reason).toBe(
+      'Hetzner API write requests require explicit operator approval',
+    );
+  });
+
   test('stealth browser activation is denied unless host policy allows it', () => {
     vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
     const runtime = new TrustedAgentApprovalRuntime(

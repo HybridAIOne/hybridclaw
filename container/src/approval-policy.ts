@@ -958,6 +958,22 @@ function inferBashHttpMethod(command: string): string {
   return 'GET';
 }
 
+function normalizeHttpMethod(value: unknown): string {
+  const normalized = String(value || 'GET')
+    .trim()
+    .toUpperCase();
+  return normalized || 'GET';
+}
+
+function isReadOnlyHttpMethod(method: string): boolean {
+  return ['GET', 'HEAD', 'OPTIONS'].includes(normalizeHttpMethod(method));
+}
+
+function isHetznerApiHost(host: string): boolean {
+  const normalized = normalizeText(host).toLowerCase();
+  return normalized === 'api.hetzner.cloud' || normalized === 'api.hetzner.com';
+}
+
 function extractAbsolutePaths(input: string): string[] {
   const paths = new Set<string>();
   for (const match of input.matchAll(ABS_PATH_RE)) {
@@ -2626,6 +2642,29 @@ export class TrustedAgentApprovalRuntime {
         params.targets.map((target) => normalizeHostScope(target.host)),
       ),
     ];
+    const hetznerWriteTarget = params.targets.find(
+      (target) =>
+        isHetznerApiHost(target.host) && !isReadOnlyHttpMethod(target.method),
+    );
+    if (hetznerWriteTarget) {
+      const hostScope = normalizeText(hetznerWriteTarget.host).toLowerCase();
+      const method = normalizeHttpMethod(hetznerWriteTarget.method);
+      return {
+        tier: 'red',
+        actionKey: `network:${hostScope}:${method}:${hetznerWriteTarget.path}`,
+        intent: `modify Hetzner resources via ${hostScope}`,
+        consequenceIfDenied:
+          'I will leave Hetzner resources unchanged and continue with read-only inspection only.',
+        reason: 'Hetzner API write requests require explicit operator approval',
+        commandPreview: params.commandPreview,
+        pathHints: [],
+        hostHints,
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: true,
+        explicitApprovalRequired: true,
+      };
+    }
     let matchedAllowRule = false;
 
     for (const target of params.targets) {
@@ -3018,7 +3057,7 @@ export class TrustedAgentApprovalRuntime {
             ...target,
             method:
               lowerTool === 'http_request'
-                ? String(args.method || 'GET')
+                ? normalizeHttpMethod(args.method)
                 : 'GET',
           },
         ],
