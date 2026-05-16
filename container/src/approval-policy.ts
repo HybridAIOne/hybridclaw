@@ -169,6 +169,7 @@ export interface PendingApproval {
   fingerprint: string;
   actionKey: string;
   toolName: string;
+  argsJson: string;
   intent: string;
   consequenceIfDenied: string;
   reason: string;
@@ -182,6 +183,10 @@ export interface PendingApproval {
 export interface ApprovalPrelude {
   immediateMessage?: string;
   replayPrompt?: string;
+  approvedToolCall?: {
+    toolName: string;
+    argsJson: string;
+  };
   approvalMode?: ApprovalMode;
   approvedRequestId?: string;
 }
@@ -1366,6 +1371,7 @@ function parsePersistedPendingApproval(value: unknown): PendingApproval | null {
     typeof record.actionKey === 'string' ? record.actionKey.trim() : '';
   const toolName =
     typeof record.toolName === 'string' ? record.toolName.trim() : '';
+  const argsJson = typeof record.argsJson === 'string' ? record.argsJson : '';
   const intent = typeof record.intent === 'string' ? record.intent.trim() : '';
   const consequenceIfDenied =
     typeof record.consequenceIfDenied === 'string'
@@ -1402,6 +1408,7 @@ function parsePersistedPendingApproval(value: unknown): PendingApproval | null {
     fingerprint,
     actionKey,
     toolName,
+    argsJson,
     intent,
     consequenceIfDenied,
     reason,
@@ -1911,6 +1918,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       fingerprint: requireFingerprint(context),
       actionKey: classified.actionKey,
       toolName: context.params.toolName,
+      argsJson: context.params.argsJson,
       intent: classified.intent,
       consequenceIfDenied: classified.consequenceIfDenied,
       reason: classified.reason,
@@ -2456,6 +2464,14 @@ export class TrustedAgentApprovalRuntime {
     );
     return {
       replayPrompt: replayPrompt || undefined,
+      ...(target.argsJson
+        ? {
+            approvedToolCall: {
+              toolName: target.toolName,
+              argsJson: target.argsJson,
+            },
+          }
+        : {}),
       approvalMode: mode,
       approvedRequestId: target.id,
       immediateMessage: replayPrompt

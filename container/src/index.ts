@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
 import {
+  type ApprovalPrelude,
   type ToolApprovalEvaluation,
   TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
@@ -933,6 +934,7 @@ interface ProcessRequestParams {
   effectiveUserPromptOverride?: string;
   ralphMaxIterationsOverride?: number | null;
   escalationTarget?: EscalationTarget;
+  approvedToolCall?: ApprovalPrelude['approvedToolCall'];
 }
 
 async function processRequest(
@@ -963,6 +965,7 @@ async function processRequest(
     effectiveUserPromptOverride,
     ralphMaxIterationsOverride,
     escalationTarget,
+    approvedToolCall,
   } = params;
   const processStartedAt = Date.now();
   console.error('[hybridclaw-agent] agent request start');
@@ -1049,6 +1052,110 @@ async function processRequest(
     }
     return evaluation;
   };
+
+  if (approvedToolCall) {
+    const approval = await resolveToolApproval({
+      toolName: approvedToolCall.toolName,
+      argsJson: approvedToolCall.argsJson,
+    });
+    if (approval.decision === 'required') {
+      const prompt = approvalRuntime.formatApprovalRequest(approval);
+      return {
+        status: 'success',
+        result: prompt,
+        toolsUsed: [approvedToolCall.toolName],
+        toolExecutions: [
+          {
+            name: approvedToolCall.toolName,
+            arguments: approvedToolCall.argsJson,
+            result: prompt,
+            durationMs: 0,
+            isError: false,
+            blocked: true,
+            blockedReason: approval.reason,
+            approvalTier: approval.tier,
+            approvalBaseTier: approval.baseTier,
+            autonomyLevel: approval.autonomyLevel,
+            stakes: approval.stakes,
+            stakesScore: approval.stakesScore,
+            anomaly: approval.anomaly,
+            escalationRoute: approval.escalationRoute,
+            escalationTarget: approval.escalationTarget,
+            approvalDecision: approval.decision,
+            approvalActionKey: approval.actionKey,
+            approvalIntent: approval.intent,
+            approvalReason: approval.reason,
+            approvalRequestId: approval.requestId,
+            approvalExpiresAt: approval.expiresAtMs,
+          },
+        ],
+        pendingApproval: approval.requestId
+          ? {
+              approvalId: approval.requestId,
+              prompt,
+              intent: approval.intent,
+              reason: approval.reason,
+              allowSession: !approval.pinned,
+              allowAgent: !approval.pinned,
+              allowAll: !approval.pinned,
+              expiresAt:
+                typeof approval.expiresAtMs === 'number' &&
+                Number.isFinite(approval.expiresAtMs)
+                  ? approval.expiresAtMs
+                  : null,
+              ...(approval.escalationTarget
+                ? { escalationTarget: approval.escalationTarget }
+                : {}),
+            }
+          : undefined,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        effectiveUserPrompt,
+      };
+    }
+    if (approval.decision === 'denied') {
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [approvedToolCall.toolName],
+        toolExecutions: [],
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        error: `Approved action was denied by policy: ${approval.reason}`,
+        effectiveUserPrompt,
+      };
+    }
+
+    const approvedCall: ToolCall = {
+      id: `approved_${approval.requestId || Date.now()}`,
+      type: 'function',
+      function: {
+        name: approvedToolCall.toolName,
+        arguments: approvedToolCall.argsJson,
+      },
+    };
+    logToolCallStart(
+      approvedToolCall.toolName,
+      approvedToolCall.argsJson,
+      approval,
+    );
+    history.push({
+      role: 'assistant',
+      content: null,
+      tool_calls: [approvedCall],
+    });
+    const completed = await executePreparedToolCall(
+      { call: approvedCall, approval },
+      toolCallHistory,
+    );
+    appendCompletedToolCall({
+      completed,
+      toolsUsed,
+      toolExecutions,
+      history,
+      toolCallHistory,
+      artifacts,
+      artifactPaths,
+    });
+  }
 
   while (stalledTurns < maxStalledTurns) {
     const guardResult = applyContextGuard({
@@ -1814,6 +1921,7 @@ async function main(): Promise<void> {
   });
   const firstPrelude = approvalRuntime.handleApprovalResponse(firstMessages);
   const firstPromptOverride = firstPrelude?.replayPrompt;
+  const firstApprovedToolCall = firstPrelude?.approvedToolCall;
   const firstPreparedMessages = firstPromptOverride
     ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
     : firstMessages;
@@ -1859,6 +1967,7 @@ async function main(): Promise<void> {
       effectiveUserPromptOverride: firstPromptOverride,
       ralphMaxIterationsOverride: firstInput.ralphMaxIterations,
       escalationTarget: firstInput.escalationTarget,
+      approvedToolCall: firstApprovedToolCall,
     });
     if (
       firstMessagesForRequest !== firstInput.messages &&
@@ -1899,6 +2008,7 @@ async function main(): Promise<void> {
         effectiveUserPromptOverride: firstPromptOverride,
         ralphMaxIterationsOverride: firstInput.ralphMaxIterations,
         escalationTarget: firstInput.escalationTarget,
+        approvedToolCall: firstApprovedToolCall,
       });
     }
   }
@@ -1994,6 +2104,7 @@ async function main(): Promise<void> {
     });
     const prelude = approvalRuntime.handleApprovalResponse(preparedMessages);
     const promptOverride = prelude?.replayPrompt;
+    const approvedToolCall = prelude?.approvedToolCall;
     const messagesForRequest = promptOverride
       ? replaceLatestUserPrompt(preparedMessages, promptOverride)
       : preparedMessages;
@@ -2039,6 +2150,7 @@ async function main(): Promise<void> {
       effectiveUserPromptOverride: promptOverride,
       ralphMaxIterationsOverride: input.ralphMaxIterations,
       escalationTarget: input.escalationTarget,
+      approvedToolCall,
     });
     if (
       messagesForRequestWithSkillCache !== input.messages &&
@@ -2077,6 +2189,7 @@ async function main(): Promise<void> {
         effectiveUserPromptOverride: promptOverride,
         ralphMaxIterationsOverride: input.ralphMaxIterations,
         escalationTarget: input.escalationTarget,
+        approvedToolCall,
       });
     }
 
