@@ -80,6 +80,32 @@ function parseLabels(values) {
   return labels;
 }
 
+function readProjectFlag(args) {
+  const project = popFlag(args, '--project');
+  if (!project) return null;
+  const normalized = project.trim();
+  if (!normalized) die('--project requires a value.');
+  return normalized;
+}
+
+function mergeProjectLabelSelector(labelSelector, project) {
+  if (!project) return labelSelector;
+  if (!labelSelector) return `project=${project}`;
+  if (/(^|,)project(?:[!<>=]|$)/.test(labelSelector)) return labelSelector;
+  return `project=${project},${labelSelector}`;
+}
+
+function parseLabelsWithProject(values, project) {
+  const normalizedValues = [...values];
+  if (
+    project &&
+    !normalizedValues.some((value) => String(value).startsWith('project='))
+  ) {
+    normalizedValues.push(`project=${project}`);
+  }
+  return parseLabels(normalizedValues);
+}
+
 function buildHttpRequest(operation, { url, method = 'GET', json }) {
   const payload = {
     command: 'http-request',
@@ -195,12 +221,16 @@ function commandHttpRequest(args) {
   if (!operation) die('http-request requires an operation.');
   validateOperation(operation, HTTP_OPERATIONS, 'Hetzner Cloud');
   requireGrant(args, operation, OPERATION_TIERS, 'Hetzner Cloud');
+  const project = readProjectFlag(args);
 
   let payload;
   switch (operation) {
     case 'list-servers': {
       const url = appendQuery(`${API_BASE}/servers`, {
-        label_selector: popFlag(args, '--label-selector'),
+        label_selector: mergeProjectLabelSelector(
+          popFlag(args, '--label-selector'),
+          project,
+        ),
         name: popFlag(args, '--name'),
         sort: popFlag(args, '--sort'),
       });
@@ -228,7 +258,10 @@ function commandHttpRequest(args) {
     case 'list-images': {
       const url = appendQuery(`${API_BASE}/images`, {
         type: popFlag(args, '--type'),
-        label_selector: popFlag(args, '--label-selector'),
+        label_selector: mergeProjectLabelSelector(
+          popFlag(args, '--label-selector'),
+          project,
+        ),
       });
       payload = buildHttpRequest(operation, { url });
       break;
@@ -238,7 +271,10 @@ function commandHttpRequest(args) {
       break;
     case 'list-volumes': {
       const url = appendQuery(`${API_BASE}/volumes`, {
-        label_selector: popFlag(args, '--label-selector'),
+        label_selector: mergeProjectLabelSelector(
+          popFlag(args, '--label-selector'),
+          project,
+        ),
         name: popFlag(args, '--name'),
         sort: popFlag(args, '--sort'),
       });
@@ -257,7 +293,10 @@ function commandHttpRequest(args) {
     }
     case 'list-networks': {
       const url = appendQuery(`${API_BASE}/networks`, {
-        label_selector: popFlag(args, '--label-selector'),
+        label_selector: mergeProjectLabelSelector(
+          popFlag(args, '--label-selector'),
+          project,
+        ),
         name: popFlag(args, '--name'),
         sort: popFlag(args, '--sort'),
       });
@@ -285,7 +324,10 @@ function commandHttpRequest(args) {
         name,
         server_type: serverType,
         image,
-        labels: parseLabels(popRepeatedFlag(args, '--label')),
+        labels: parseLabelsWithProject(
+          popRepeatedFlag(args, '--label'),
+          project,
+        ),
       };
       const location = popFlag(args, '--location');
       const datacenter = popFlag(args, '--datacenter');
@@ -318,7 +360,10 @@ function commandHttpRequest(args) {
         json: {
           type: 'snapshot',
           description,
-          labels: parseLabels(popRepeatedFlag(args, '--label')),
+          labels: parseLabelsWithProject(
+            popRepeatedFlag(args, '--label'),
+            project,
+          ),
         },
       });
       break;
@@ -330,7 +375,10 @@ function commandHttpRequest(args) {
       const json = {
         name,
         size,
-        labels: parseLabels(popRepeatedFlag(args, '--label')),
+        labels: parseLabelsWithProject(
+          popRepeatedFlag(args, '--label'),
+          project,
+        ),
       };
       const location = popFlag(args, '--location');
       const server = popFlag(args, '--server-id');
@@ -474,21 +522,21 @@ Usage:
   node skills/hetzner-cloud/hetzner_cloud.cjs [--format json] eval-scenarios
 
 Read operations:
-  list-servers [--label-selector key=value] [--name name]
+  list-servers [--project name] [--label-selector key=value] [--name name]
   get-server --server-id id
   list-server-types
   list-locations
-  list-images [--type system|snapshot|backup] [--label-selector key=value]
-  list-prices
-  list-volumes [--label-selector key=value] [--name name]
+  list-images [--project name] [--type system|snapshot|backup] [--label-selector key=value]
+  list-prices [--project name]
+  list-volumes [--project name] [--label-selector key=value] [--name name]
   get-volume --volume-id id
-  list-networks [--label-selector key=value] [--name name]
+  list-networks [--project name] [--label-selector key=value] [--name name]
   get-network --network-id id
 
 Write operations require --operator-grant:
-  create-server --name name --server-type type --image image [--location fsn1] [--label key=value]
-  create-volume --name name --size-gb 10 [--location fsn1] [--server-id id] [--label key=value]
-  create-snapshot --server-id id [--description text] [--label key=value]
+  create-server --project name --name name --server-type type --image image [--location fsn1] [--label key=value]
+  create-volume --project name --name name --size-gb 10 [--location fsn1] [--server-id id] [--label key=value]
+  create-snapshot --project name --server-id id [--description text] [--label key=value]
   restore-snapshot --server-id id --snapshot-id id
   attach-volume --volume-id id --server-id id [--automount]
   detach-volume --volume-id id

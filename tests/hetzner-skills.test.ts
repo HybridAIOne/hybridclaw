@@ -123,6 +123,34 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     '--label-selector',
     'project=acme',
   ]);
+  const projectRead = runHelper('hetzner-cloud', 'hetzner_cloud.cjs', [
+    '--format',
+    'json',
+    'http-request',
+    'list-servers',
+    '--project',
+    'datalion',
+  ]);
+  const projectPriceRead = runHelper('hetzner-cloud', 'hetzner_cloud.cjs', [
+    '--format',
+    'json',
+    'http-request',
+    'list-prices',
+    '--project',
+    'datalion',
+  ]);
+  const projectServerTypesRead = runHelper(
+    'hetzner-cloud',
+    'hetzner_cloud.cjs',
+    [
+      '--format',
+      'json',
+      'http-request',
+      'list-server-types',
+      '--project',
+      'datalion',
+    ],
+  );
   const writeWithoutGrant = runHelper('hetzner-cloud', 'hetzner_cloud.cjs', [
     '--format',
     'json',
@@ -144,8 +172,8 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     'ubuntu-24.04',
     '--location',
     'fsn1',
-    '--label',
-    'project=acme',
+    '--project',
+    'acme',
     '--operator-grant',
   ]);
   const restoreSnapshot = runHelper('hetzner-cloud', 'hetzner_cloud.cjs', [
@@ -222,6 +250,18 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
   );
   expect(JSON.parse(read.stdout).httpRequest.url).toContain(
     'https://api.hetzner.cloud/v1/servers?',
+  );
+  expect(projectRead.status).toBe(0);
+  expect(JSON.parse(projectRead.stdout).httpRequest.url).toContain(
+    'label_selector=project%3Ddatalion',
+  );
+  expect(projectPriceRead.status).toBe(0);
+  expect(JSON.parse(projectPriceRead.stdout).httpRequest.url).toBe(
+    'https://api.hetzner.cloud/v1/pricing',
+  );
+  expect(projectServerTypesRead.status).toBe(0);
+  expect(JSON.parse(projectServerTypesRead.stdout).httpRequest.url).toBe(
+    'https://api.hetzner.cloud/v1/server_types',
   );
   expect(writeWithoutGrant.status).not.toBe(0);
   expect(writeWithoutGrant.stderr).toContain('--operator-grant');

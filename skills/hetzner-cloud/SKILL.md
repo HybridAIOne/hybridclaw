@@ -84,8 +84,9 @@ inspection, cost estimates, and snapshot lifecycle work.
 7. Require an explicit operator grant before any create, restore,
    attach, detach, snapshot, network, volume, or delete request. Pass
    `--operator-grant` only after that grant.
-8. Prefer labels for project ownership (`project=acme`, `env=demo`) and include
-   them in cost and cleanup reads.
+8. Use `--project acme` for project-scoped inventory and provisioning. The
+   helper converts it to `project=acme` label selectors or labels where the
+   Hetzner API supports them.
 9. Never paste, print, or inspect `HETZNER_API_TOKEN`; the gateway injects it
    server-side with `bearerSecretName: "HETZNER_API_TOKEN"`.
 
@@ -109,12 +110,12 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json plan "Create a demo VP
 Build read requests:
 
 ```bash
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-servers --label-selector project=acme
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-servers --project acme
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-server-types
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-locations
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-prices
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-volumes --label-selector project=acme
-node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-networks --label-selector project=acme
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-prices --project acme
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-volumes --project acme
+node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-networks --project acme
 ```
 
 Build guarded write requests:
@@ -122,10 +123,10 @@ Build guarded write requests:
 ```bash
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request create-server \
   --name acme-demo --server-type cax11 --image ubuntu-24.04 --location fsn1 \
-  --label project=acme --label ttl=2026-05-18 --operator-grant
+  --project acme --label ttl=2026-05-18 --operator-grant
 
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request create-snapshot \
-  --server-id 123456 --description "pre-deploy" --label project=acme --operator-grant
+  --project acme --server-id 123456 --description "pre-deploy" --operator-grant
 
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request restore-snapshot \
   --server-id 123456 --snapshot-id 987654 --operator-grant
