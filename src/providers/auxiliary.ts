@@ -5,6 +5,8 @@ import {
   parseServerSentEventBlock,
 } from '../../container/shared/server-sent-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import type { GatewayModelProviderKey } from '../gateway/model-provider-keys.js';
+import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import {
@@ -17,7 +19,6 @@ import {
   resolveModelProvider,
   resolveModelRuntimeCredentials,
 } from './factory.js';
-import { localBackendsProbe } from './local-health.js';
 import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -60,6 +61,7 @@ const REMOTE_AUXILIARY_FALLBACKS: Array<{
     model: 'anthropic/claude-haiku-4-5',
   },
 ];
+const FALLBACK_PROVIDER_STATUS_TTL_MS = 30_000;
 
 interface AuxiliaryTextCallContext {
   provider: RuntimeProvider;
@@ -132,6 +134,11 @@ interface AuxiliaryTextResponse {
   content: string;
   usage?: AuxiliaryModelUsage;
 }
+
+let fallbackProviderStatusCache: {
+  at: number;
+  promise: ReturnType<typeof getGatewayAdminProviderStatus>;
+} | null = null;
 
 function normalizeTemperature(value: number | undefined): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
@@ -355,7 +362,12 @@ async function resolveRemoteFallbackContext(params: {
   maxTokens?: number;
 }): Promise<AuxiliaryTextCallContext> {
   const errors: string[] = [];
+  const unhealthyProviders: RuntimeProvider[] = [];
   for (const candidate of REMOTE_AUXILIARY_FALLBACKS) {
+    if (!(await isFallbackProviderHealthy(candidate.provider))) {
+      unhealthyProviders.push(candidate.provider);
+      continue;
+    }
     try {
       const fallback = await resolveContextFromModel({
         task: params.params.task,
@@ -387,7 +399,66 @@ async function resolveRemoteFallbackContext(params: {
     }
   }
 
-  throw new Error(errors.join('; ') || 'no remote fallback configured');
+  throw new Error(
+    errors.join('; ') ||
+      (unhealthyProviders.length > 0
+        ? `no healthy remote fallback provider available; unhealthy providers: ${unhealthyProviders.join(', ')}`
+        : 'no remote fallback configured'),
+  );
+}
+
+async function resolveRemoteFallbackContexts(params: {
+  params: AuxiliaryModelCallParams;
+  maxTokens?: number;
+}): Promise<AuxiliaryTextCallContext[]> {
+  const contexts: AuxiliaryTextCallContext[] = [];
+  for (const candidate of REMOTE_AUXILIARY_FALLBACKS) {
+    if (!(await isFallbackProviderHealthy(candidate.provider))) {
+      continue;
+    }
+    try {
+      contexts.push(
+        await resolveContextFromModel({
+          task: params.params.task,
+          model: candidate.model,
+          agentId: params.params.agentId,
+          enableRag: false,
+          maxTokens:
+            normalizeMaxTokens(params.maxTokens) ??
+            normalizeMaxTokens(params.params.maxTokens) ??
+            normalizeMaxTokens(params.params.fallbackMaxTokens),
+          expectedProvider: candidate.provider,
+        }),
+      );
+    } catch {
+      // Keep collecting configured remote candidates.
+    }
+  }
+  return contexts;
+}
+
+function providerStatusKey(provider: RuntimeProvider): GatewayModelProviderKey {
+  return provider === 'openai-codex' ? 'codex' : provider;
+}
+
+async function getFallbackProviderStatus() {
+  const now = Date.now();
+  if (
+    fallbackProviderStatusCache &&
+    now - fallbackProviderStatusCache.at < FALLBACK_PROVIDER_STATUS_TTL_MS
+  ) {
+    return fallbackProviderStatusCache.promise;
+  }
+  const promise = getGatewayAdminProviderStatus();
+  fallbackProviderStatusCache = { at: now, promise };
+  return promise;
+}
+
+async function isFallbackProviderHealthy(
+  provider: RuntimeProvider,
+): Promise<boolean> {
+  const status = await getFallbackProviderStatus();
+  return status[providerStatusKey(provider)]?.reachable === true;
 }
 
 async function withAuxiliaryFallbackChain(
@@ -423,6 +494,10 @@ async function withAuxiliaryFallbackChain(
       `${errorMessage(primaryError)} Remote fallback also failed: ${errorMessage(fallbackError)}`,
     );
   }
+}
+
+function auxiliaryContextKey(context: AuxiliaryTextCallContext): string {
+  return `${context.provider}:${context.baseUrl}:${context.model}`;
 }
 
 function resolveLocalProviderForModel(
@@ -461,14 +536,6 @@ function resolveLocalFallbackProviderOrder(params: {
     pushProvider(provider);
   }
   return providers;
-}
-
-async function isLocalFallbackProviderActive(
-  provider: RuntimeProvider,
-): Promise<boolean> {
-  if (!isLocalBackendType(provider)) return false;
-  const health = await localBackendsProbe.get();
-  return health.get(provider)?.reachable === true;
 }
 
 async function resolveLocalFallbackContext(params: {
@@ -518,7 +585,7 @@ async function resolveLocalFallbackContext(params: {
       if (
         providerHint &&
         isLocalBackendType(providerHint) &&
-        !(await isLocalFallbackProviderActive(providerHint))
+        !(await isFallbackProviderHealthy(providerHint))
       ) {
         continue;
       }
@@ -535,7 +602,7 @@ async function resolveLocalFallbackContext(params: {
         expectedProvider: candidate.expectedProvider,
       });
       if (!isLocalBackendType(fallback.provider)) continue;
-      if (!(await isLocalFallbackProviderActive(fallback.provider))) continue;
+      if (!(await isFallbackProviderHealthy(fallback.provider))) continue;
       logger.debug(
         {
           task: params.params.task,
@@ -554,6 +621,95 @@ async function resolveLocalFallbackContext(params: {
     }
   }
   return null;
+}
+
+async function resolveLocalFallbackContexts(params: {
+  params: AuxiliaryModelCallParams;
+  modelHint?: string;
+  maxTokens?: number;
+}): Promise<AuxiliaryTextCallContext[]> {
+  const candidates: Array<{
+    model: string;
+    expectedProvider?: RuntimeProvider;
+  }> = [];
+  const seen = new Set<string>();
+  const pushCandidate = (
+    model: string | undefined,
+    expectedProvider?: RuntimeProvider,
+  ): void => {
+    const trimmed = model?.trim() ?? '';
+    if (!trimmed) return;
+    const explicitProvider = detectRuntimeProviderPrefix(trimmed);
+    if (explicitProvider && !isLocalBackendType(explicitProvider)) return;
+    const provider = explicitProvider || expectedProvider;
+    if (provider && !isLocalBackendType(provider)) return;
+    const normalized =
+      provider && !explicitProvider
+        ? normalizeAuxiliaryProviderModel({ provider, model: trimmed })
+        : trimmed;
+    const key = `${provider || 'auto'}:${normalized}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ model: normalized, expectedProvider: provider });
+  };
+
+  pushCandidate(params.params.fallbackModel);
+  pushCandidate(params.modelHint);
+  for (const provider of resolveLocalFallbackProviderOrder(params)) {
+    pushCandidate(resolveDefaultAuxiliaryModelForProvider(provider), provider);
+  }
+
+  const contexts: AuxiliaryTextCallContext[] = [];
+  for (const candidate of candidates) {
+    try {
+      const providerHint =
+        candidate.expectedProvider ??
+        detectRuntimeProviderPrefix(candidate.model);
+      if (
+        providerHint &&
+        isLocalBackendType(providerHint) &&
+        !(await isFallbackProviderHealthy(providerHint))
+      ) {
+        continue;
+      }
+      const fallback = await resolveContextFromModel({
+        task: params.params.task,
+        model: candidate.model,
+        agentId: params.params.agentId,
+        chatbotId: params.params.fallbackChatbotId,
+        enableRag: params.params.fallbackEnableRag ?? false,
+        maxTokens:
+          normalizeMaxTokens(params.maxTokens) ??
+          normalizeMaxTokens(params.params.maxTokens) ??
+          normalizeMaxTokens(params.params.fallbackMaxTokens),
+        expectedProvider: candidate.expectedProvider,
+      });
+      if (!isLocalBackendType(fallback.provider)) continue;
+      if (!(await isFallbackProviderHealthy(fallback.provider))) continue;
+      contexts.push(fallback);
+    } catch {
+      // Keep collecting configured local candidates before remote fallback.
+    }
+  }
+  return contexts;
+}
+
+async function resolveAuxiliaryFallbackContexts(params: {
+  params: AuxiliaryModelCallParams;
+  modelHint?: string;
+  maxTokens?: number;
+}): Promise<AuxiliaryTextCallContext[]> {
+  const contexts = [
+    ...(await resolveLocalFallbackContexts(params)),
+    ...(await resolveRemoteFallbackContexts(params)),
+  ];
+  const seen = new Set<string>();
+  return contexts.filter((context) => {
+    const key = auxiliaryContextKey(context);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function resolveExplicitTextCallContextWithFallback(
@@ -1274,23 +1430,61 @@ async function callAuxiliaryTextProviderWithFallback(
     if (params.provider && params.provider !== 'auto') {
       throw error;
     }
-    const fallbackContext = await withAuxiliaryFallbackChain(
+    const attempted = new Set([auxiliaryContextKey(context)]);
+    const fallbackErrors: string[] = [];
+    for (const fallbackContext of await resolveAuxiliaryFallbackContexts({
       params,
-      error,
-      context.model,
-      context.provider,
-      'Auxiliary provider call failed; using remote fallback',
-      'Auxiliary provider call failed; using local model fallback',
-      context.maxTokens,
+      modelHint: context.model,
+      maxTokens: context.maxTokens,
+    })) {
+      const key = auxiliaryContextKey(fallbackContext);
+      if (attempted.has(key)) continue;
+      attempted.add(key);
+      const log = isLocalBackendType(fallbackContext.provider)
+        ? logger.debug.bind(logger)
+        : logger.warn.bind(logger);
+      log(
+        {
+          task: params.task,
+          primaryProvider: context.provider,
+          fallbackProvider: fallbackContext.provider,
+          modelHint: fallbackContext.model,
+          primaryModelHint: context.model,
+          primaryError: error,
+        },
+        isLocalBackendType(fallbackContext.provider)
+          ? 'Auxiliary provider call failed; using local model fallback'
+          : 'Auxiliary provider call failed; using remote fallback',
+      );
+      try {
+        return {
+          context: fallbackContext,
+          response: await callAuxiliaryTextProvider(
+            fallbackContext,
+            messages,
+            options,
+          ),
+        };
+      } catch (fallbackError) {
+        fallbackErrors.push(
+          `${fallbackContext.provider}/${fallbackContext.model}: ${errorMessage(fallbackError)}`,
+        );
+        logger.warn(
+          {
+            task: params.task,
+            fallbackProvider: fallbackContext.provider,
+            modelHint: fallbackContext.model,
+            error: fallbackError,
+          },
+          'Auxiliary fallback provider call failed; trying next fallback',
+        );
+      }
+    }
+    throw new Error(
+      `${errorMessage(error)} Fallback chain failed: ${
+        fallbackErrors.join('; ') || 'no fallback provider available'
+      }`,
     );
-    return {
-      context: fallbackContext,
-      response: await callAuxiliaryTextProvider(
-        fallbackContext,
-        messages,
-        options,
-      ),
-    };
   }
 }
 

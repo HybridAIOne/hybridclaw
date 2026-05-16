@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test } from 'vitest';
-import { validateGatewayPromptEnvDefaults } from '../src/gateway/gateway-chat-service.js';
+import {
+  buildEmptyAgentResponseFallback,
+  validateGatewayPromptEnvDefaults,
+} from '../src/gateway/gateway-chat-service.js';
 import {
   GATEWAY_SYSTEM_PROMPT_MODE_ENV,
   GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
@@ -49,5 +52,23 @@ describe('gateway prompt env defaults', () => {
     expect(() => validateGatewayPromptEnvDefaults()).toThrow(
       /Invalid value for HYBRIDCLAW_SYSTEM_PROMPT_PARTS: Unknown prompt part/,
     );
+  });
+});
+
+describe('empty agent response fallback', () => {
+  test('allows empty assistant text when artifacts are attached', () => {
+    expect(
+      buildEmptyAgentResponseFallback([
+        {
+          path: '/tmp/hybridclaw_io.png',
+          filename: 'hybridclaw_io.png',
+          mimeType: 'image/png',
+        },
+      ]),
+    ).toBe('');
+  });
+
+  test('keeps the legacy fallback when there are no artifacts', () => {
+    expect(buildEmptyAgentResponseFallback()).toBe('No response from agent.');
   });
 });

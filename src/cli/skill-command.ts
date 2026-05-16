@@ -44,12 +44,14 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
         console.log(`${currentCategory}:`);
       }
       const availability = skill.available
-        ? 'available'
+        ? skill.enabled
+          ? 'enabled'
+          : 'disabled'
         : skill.missing.join(', ');
       console.log(`  ${skill.name} [${availability}]`);
       for (const install of skill.installs) {
         const label = install.label ? ` — ${install.label}` : '';
-        console.log(`    ${install.id} (${install.kind})${label}`);
+        console.log(`    ↳ installs: ${install.id} (${install.kind})${label}`);
       }
     }
     return;

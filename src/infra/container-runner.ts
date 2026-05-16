@@ -1092,6 +1092,7 @@ async function runContainerInner(
 
   const input: ContainerInput = {
     sessionId,
+    agentId,
     messages,
     chatbotId: modelRuntime.chatbotId,
     enableRag: modelRuntime.enableRag,
@@ -1105,6 +1106,7 @@ async function runContainerInner(
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
+    browserProvider: BROWSER_PROVIDER,
     model,
     ralphMaxIterations,
     fullAutoEnabled,

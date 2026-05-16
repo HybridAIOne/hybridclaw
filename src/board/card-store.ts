@@ -551,6 +551,22 @@ export function listCards(filter: ListCardsFilter = {}): Card[] {
   });
 }
 
+export function listActiveCardAgentOwnerIds(): string[] {
+  return withMemoryDatabase((database) =>
+    database
+      .prepare<[], { owner_id: string }>(
+        `SELECT DISTINCT owner_id
+         FROM board_cards
+         WHERE deleted_at IS NULL
+           AND owner_type = 'agent'
+           AND "column" <> 'done'
+         ORDER BY owner_id ASC`,
+      )
+      .all()
+      .map((row) => row.owner_id),
+  );
+}
+
 export function updateCard(
   id: string,
   patch: UpdateCardPatch,

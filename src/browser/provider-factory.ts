@@ -10,12 +10,17 @@ import {
   MacCuaBrowserProvider,
   type MacCuaDriver,
 } from './mac-cua-provider.js';
+import {
+  ManagedCloudBrowserProvider,
+  type ManagedCloudPlaywrightModule,
+} from './managed-cloud-provider.js';
 import type { BrowserProvider } from './provider.js';
 
 export interface BrowserProviderFactoryDeps {
   localPlaywright?: LocalBrowserPlaywrightModule;
   camofox?: CamofoxModule;
   macCuaDriver?: MacCuaDriver;
+  managedCloudPlaywright?: ManagedCloudPlaywrightModule;
   secretAudit?: (handle: SecretHandle, reason: string) => void;
 }
 
@@ -47,6 +52,15 @@ export function createBrowserProvider(
         driverArgs: config.macCua.driverArgs,
         screenshotMode: config.macCua.screenshotMode,
         driver: deps.macCuaDriver,
+      });
+    case 'managed-cloud':
+      return new ManagedCloudBrowserProvider({
+        endpointUrl: config.managedCloud.endpointUrl || undefined,
+        poolTokenRef: config.managedCloud.poolTokenRef,
+        defaultTenantId: config.managedCloud.defaultTenantId || undefined,
+        pricing: config.managedCloud.pricing,
+        playwright: deps.managedCloudPlaywright,
+        secretAudit: deps.secretAudit,
       });
     default:
       return new LocalBrowserProvider({

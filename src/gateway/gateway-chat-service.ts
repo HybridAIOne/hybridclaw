@@ -46,10 +46,10 @@ import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcri
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
   createFreshSessionInstance,
-  getTasksForSession,
   logAudit,
   storeSemanticMemory,
 } from '../memory/db.js';
+import { getAllJobs } from '../memory/jobs.js';
 import {
   type BuildMemoryPromptResult,
   memoryService,
@@ -75,6 +75,7 @@ import {
 } from '../skills/skills-observation.js';
 import type { MediaContextItem } from '../types/container.js';
 import {
+  type ArtifactMetadata,
   normalizeEscalationTarget,
   type PendingApproval,
   type ToolProgressEvent,
@@ -345,6 +346,14 @@ export function validateGatewayPromptEnvDefaults(): void {
     GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
     '--system-prompt',
   );
+}
+
+export function buildEmptyAgentResponseFallback(
+  artifacts?: ArtifactMetadata[],
+): string {
+  const artifactList = Array.isArray(artifacts) ? artifacts : [];
+  if (artifactList.length === 0) return 'No response from agent.';
+  return '';
 }
 
 function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
@@ -1315,7 +1324,10 @@ async function handleGatewayMessageInner(
     | 'processing-agent-output' = 'pre-agent';
 
   try {
-    const scheduledTasks = getTasksForSession(req.sessionId);
+    const scheduledTasks = getAllJobs({
+      kind: 'scheduled_task',
+      sessionId: req.sessionId,
+    });
     let firstTextDeltaMs: number | null = null;
     const onTextDelta = (delta: string): void => {
       if (firstTextDeltaMs == null && delta) {
@@ -1690,7 +1702,9 @@ async function handleGatewayMessageInner(
     }
 
     const rawResultText =
-      delegationAcknowledgement || output.result || 'No response from agent.';
+      delegationAcknowledgement ||
+      output.result ||
+      buildEmptyAgentResponseFallback(output.artifacts);
     const unnormalizedResultText = routingExecutionNotice
       ? `${routingExecutionNotice}${rawResultText}`
       : rawResultText;

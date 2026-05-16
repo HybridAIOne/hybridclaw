@@ -244,14 +244,23 @@ let currentBrowserModelContext: BrowserModelContext = {
 let currentBrowserTaskModels: TaskModelPolicies | undefined;
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
+let gatewayBrowserProvider = '';
+let gatewayBrowserSessionId = '';
+let gatewayBrowserAgentId = '';
 const suspendedSessionByBrowserSession = new Map<string, string>();
 
 export function setBrowserGatewayContext(
   baseUrl?: string,
   apiToken?: string,
+  browserProvider?: string,
+  sessionId?: string,
+  agentId?: string,
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
+  gatewayBrowserProvider = String(browserProvider || '').trim();
+  gatewayBrowserSessionId = String(sessionId || '').trim();
+  gatewayBrowserAgentId = String(agentId || '').trim();
 }
 
 function cloneTaskModelPolicies(
@@ -2154,6 +2163,159 @@ function failure(message: string): string {
   return JSON.stringify({ success: false, error: message }, null, 2);
 }
 
+export function usesGatewayManagedBrowser(): boolean {
+  return gatewayBrowserProvider === 'managed-cloud';
+}
+
+export function getBrowserProviderLogLabel(): string {
+  return gatewayBrowserProvider || 'local';
+}
+
+function shouldUseGatewayManagedBrowser(name: string): boolean {
+  return usesGatewayManagedBrowser() && name.startsWith('browser_');
+}
+
+async function callGatewayManagedBrowser(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (!gatewayBaseUrl || !gatewayApiToken) {
+    throw new Error(
+      'managed-cloud browser provider requires gatewayBaseUrl and gatewayApiToken',
+    );
+  }
+  const response = await fetch(
+    `${gatewayBaseUrl.replace(/\/+$/u, '')}/api/browser/tool`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${gatewayApiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        toolName: name,
+        sessionId: gatewayBrowserSessionId || 'default',
+        agentId: gatewayBrowserAgentId || 'main',
+        args,
+      }),
+      signal: AbortSignal.timeout(90_000),
+    },
+  );
+  const payload = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  if (!response.ok || payload.success === false) {
+    throw new Error(
+      String(
+        payload.error || `gateway browser tool failed: ${response.status}`,
+      ),
+    );
+  }
+  return payload;
+}
+
+async function executeGatewayManagedBrowserTool(
+  name: string,
+  args: Record<string, unknown>,
+  effectiveSessionId: string,
+): Promise<string> {
+  if (name === 'browser_screenshot') {
+    const outPath = resolveOutputPath(args.path, 'png');
+    const payload = await callGatewayManagedBrowser(name, {
+      fullPage: args.fullPage === true,
+    });
+    const imageBase64 = String(payload.imageBase64 || '');
+    if (!imageBase64) return failure('managed browser screenshot was empty');
+    fs.writeFileSync(outPath, Buffer.from(imageBase64, 'base64'));
+    const relativePath = toWorkspaceRelativePath(outPath);
+    if (!relativePath) {
+      return failure('failed to normalize screenshot artifact path');
+    }
+    return success({
+      path: relativePath,
+      image_url: relativePath,
+      full_page: args.fullPage === true,
+    });
+  }
+
+  if (name === 'browser_vision') {
+    const question = String(args.question || '').trim();
+    if (!question) return failure('question is required');
+    const payload = await callGatewayManagedBrowser('browser_screenshot', {
+      fullPage: true,
+    });
+    const imageBase64 = String(payload.imageBase64 || '');
+    if (!imageBase64) return failure('managed browser screenshot was empty');
+    const vision = await callVisionModel(question, imageBase64);
+    return success({
+      model: vision.model,
+      analysis: vision.analysis,
+    });
+  }
+
+  if (name === 'browser_pdf') {
+    const outPath = resolveOutputPath(args.path, 'pdf');
+    const payload = await callGatewayManagedBrowser(name, {
+      printBackground: args.printBackground !== false,
+      format: typeof args.format === 'string' ? args.format : undefined,
+    });
+    const pdfBase64 = String(payload.pdfBase64 || '');
+    if (!pdfBase64) return failure('managed browser PDF was empty');
+    fs.writeFileSync(outPath, Buffer.from(pdfBase64, 'base64'));
+    const relativePath = toWorkspaceRelativePath(outPath);
+    if (!relativePath) {
+      return failure('failed to normalize PDF artifact path');
+    }
+    return success({ path: relativePath });
+  }
+
+  if (name === 'browser_upload') {
+    const filePaths = resolveUploadPaths(args);
+    const filePayloads = filePaths.map((filePath) => ({
+      name: path.basename(filePath),
+      dataBase64: fs.readFileSync(filePath).toString('base64'),
+    }));
+    const payload = await callGatewayManagedBrowser(name, {
+      ...args,
+      filePayloads,
+    });
+    return success({
+      target: payload.target || args.selector || args.ref || '',
+      ...(payload.selector ? { selector: payload.selector } : {}),
+      uploaded_count: payload.uploaded_count || filePaths.length,
+      files: filePaths,
+    });
+  }
+
+  const payload = await callGatewayManagedBrowser(name, args);
+  if (name === 'browser_navigate') {
+    return success({
+      url: payload.url || args.url || '',
+      title: payload.title || '',
+      session_id: effectiveSessionId,
+      content_text_length: payload.content_text_length || 0,
+      ...(typeof payload.content_preview === 'string'
+        ? { content_preview: payload.content_preview }
+        : {}),
+      ...(payload.content_preview_truncated === true
+        ? { content_preview_truncated: true }
+        : {}),
+      ...(typeof payload.ready_state === 'string'
+        ? { ready_state: payload.ready_state }
+        : {}),
+      read_extraction_hint: payload.read_extraction_hint || 'ok',
+      headed: false,
+    });
+  }
+
+  if (name === 'browser_close') {
+    return success({ closed: true });
+  }
+
+  return success(payload);
+}
+
 export async function executeBrowserTool(
   name: string,
   args: Record<string, unknown>,
@@ -2161,6 +2323,13 @@ export async function executeBrowserTool(
 ): Promise<string> {
   try {
     const effectiveSessionId = normalizeSessionKey(sessionId || 'default');
+    if (shouldUseGatewayManagedBrowser(name)) {
+      return await executeGatewayManagedBrowserTool(
+        name,
+        args,
+        effectiveSessionId,
+      );
+    }
     switch (name) {
       case 'browser_navigate': {
         const parsed = await assertBrowserNavigationUrl(args.url);

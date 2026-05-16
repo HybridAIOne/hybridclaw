@@ -7,6 +7,11 @@ metadata:
   hybridclaw:
     category: development
     short_description: "Create and update skills."
+    tags:
+      - skills
+      - authoring
+      - development
+      - packaging
 ---
 # Skill Creator
 
