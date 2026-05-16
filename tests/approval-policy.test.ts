@@ -1624,6 +1624,16 @@ approval:
       }),
       latestUserPrompt: 'Check the cpx32 server type',
     });
+    const malformedWriteEvaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.hetzner.cloud/v1/servers/4907527/actions/change_type',
+        method: 'POST',
+        json: { type: 'cpx32' },
+        secretHeaders: [{ name: 'Authorization', secretName: 'anything' }],
+      }),
+      latestUserPrompt: 'Downgrade bastion to cpx32',
+    });
     const writeArgsJson = JSON.stringify({
       url: 'https://api.hetzner.cloud/v1/servers/4907527/actions/change_type',
       method: 'POST',
@@ -1638,6 +1648,10 @@ approval:
     });
 
     expect(readEvaluation.decision).toBe('implicit');
+    expect(malformedWriteEvaluation.tier).toBe('red');
+    expect(malformedWriteEvaluation.decision).toBe('denied');
+    expect(malformedWriteEvaluation.escalationRoute).toBe('policy_denial');
+    expect(malformedWriteEvaluation.reason).toContain('json.server_type');
     expect(writeEvaluation.tier).toBe('red');
     expect(writeEvaluation.decision).toBe('required');
     expect(writeEvaluation.escalationRoute).toBe('approval_request');

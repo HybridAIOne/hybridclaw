@@ -149,6 +149,27 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-se
   --server-id 123456 --operator-grant
 ```
 
+Resize/change type contract:
+
+1. Resolve the target type:
+
+   ```bash
+   node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-server-types --name cpx32
+   ```
+
+2. Use the returned numeric type id:
+
+   ```bash
+   node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request downgrade-server \
+     --server-id 123456 --server-type-id 45 --operator-grant
+   ```
+
+3. Pass the emitted `httpRequest` object unchanged to `http_request`.
+
+The `change_type` payload is `json.server_type` plus `json.upgrade_disk`.
+Never send `json.type`, never omit `upgrade_disk`, and never rewrite
+`bearerSecretName: "HETZNER_API_TOKEN"` into `secretHeaders`.
+
 ## Working Rules
 
 - Treat `delete-server`, `delete-vps`, `delete-snapshot`,

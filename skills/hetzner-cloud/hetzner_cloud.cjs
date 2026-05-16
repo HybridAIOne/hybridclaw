@@ -605,6 +605,12 @@ Write operations require --operator-grant:
   delete-snapshot --image-id id
   destroy-snapshot --image-id id
   delete-volume --volume-id id
+
+Change type flow:
+  1. list-server-types --name cpx32
+  2. downgrade-server --server-id id --server-type-id <numeric id> --operator-grant
+  The emitted change_type request uses json.server_type and json.upgrade_disk.
+  Do not send json.type or hand-built secretHeaders.
 `);
 }
 

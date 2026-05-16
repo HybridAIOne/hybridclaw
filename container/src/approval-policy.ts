@@ -979,6 +979,39 @@ function isHetznerApiHost(host: string): boolean {
   return normalized === 'api.hetzner.cloud' || normalized === 'api.hetzner.com';
 }
 
+function isHetznerCloudChangeTypeTarget(target: {
+  host: string;
+  path: string;
+  method: string;
+}): boolean {
+  return (
+    normalizeText(target.host).toLowerCase() === 'api.hetzner.cloud' &&
+    normalizeHttpMethod(target.method) === 'POST' &&
+    /^\/v1\/servers\/\d+\/actions\/change_type$/u.test(
+      normalizeText(target.path),
+    )
+  );
+}
+
+function invalidHetznerCloudChangeTypeReason(
+  args: Record<string, unknown> | undefined,
+): string | null {
+  const json = asRecord(args?.json);
+  if ('type' in json && !('server_type' in json)) {
+    return 'Malformed Hetzner change_type payload: use json.server_type, not json.type. Build the request with skills/hetzner-cloud/hetzner_cloud.cjs.';
+  }
+  if (!('server_type' in json)) {
+    return 'Malformed Hetzner change_type payload: missing json.server_type. Build the request with skills/hetzner-cloud/hetzner_cloud.cjs.';
+  }
+  if (typeof json.upgrade_disk !== 'boolean') {
+    return 'Malformed Hetzner change_type payload: json.upgrade_disk must be an explicit boolean. Use false to keep disk size during downgrades.';
+  }
+  if (normalizeText(args?.bearerSecretName) !== 'HETZNER_API_TOKEN') {
+    return 'Malformed Hetzner change_type request: use bearerSecretName "HETZNER_API_TOKEN" from the helper output instead of hand-built secret headers.';
+  }
+  return null;
+}
+
 function extractAbsolutePaths(input: string): string[] {
   const paths = new Set<string>();
   for (const match of input.matchAll(ABS_PATH_RE)) {
@@ -2648,6 +2681,7 @@ export class TrustedAgentApprovalRuntime {
       path: string;
       method: string;
     }>;
+    args?: Record<string, unknown>;
     intent: string;
     consequenceIfDenied: string;
     commandPreview: string;
@@ -2665,6 +2699,29 @@ export class TrustedAgentApprovalRuntime {
     if (hetznerWriteTarget) {
       const hostScope = normalizeText(hetznerWriteTarget.host).toLowerCase();
       const method = normalizeHttpMethod(hetznerWriteTarget.method);
+      const invalidChangeTypeReason = isHetznerCloudChangeTypeTarget(
+        hetznerWriteTarget,
+      )
+        ? invalidHetznerCloudChangeTypeReason(params.args)
+        : null;
+      if (invalidChangeTypeReason) {
+        return {
+          tier: 'red',
+          actionKey: `network:${hostScope}:${method}:${hetznerWriteTarget.path}`,
+          intent: `modify Hetzner resources via ${hostScope}`,
+          consequenceIfDenied:
+            'I will leave Hetzner resources unchanged and rebuild the request through the Hetzner Cloud helper.',
+          reason: invalidChangeTypeReason,
+          commandPreview: params.commandPreview,
+          pathHints: [],
+          hostHints,
+          writeIntent: true,
+          promotableRed: false,
+          stickyYellow: true,
+          hardDeny: true,
+          explicitApprovalRequired: true,
+        };
+      }
       return {
         tier: 'red',
         actionKey: `network:${hostScope}:${method}:${hetznerWriteTarget.path}`,
@@ -3077,6 +3134,7 @@ export class TrustedAgentApprovalRuntime {
                 : 'GET',
           },
         ],
+        args,
         intent: `access ${normalizeHostScope(target.host)}`,
         consequenceIfDenied:
           'I will avoid contacting that host and use existing local context only.',
