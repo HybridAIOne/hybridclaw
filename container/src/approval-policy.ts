@@ -1004,7 +1004,7 @@ function invalidHetznerCloudChangeTypeReason(
     return 'Malformed Hetzner change_type payload: missing json.server_type. Build the request with skills/hetzner-cloud/hetzner_cloud.cjs.';
   }
   if (typeof json.upgrade_disk !== 'boolean') {
-    return 'Malformed Hetzner change_type payload: json.upgrade_disk must be an explicit boolean. Use false to keep disk size during downgrades.';
+    return 'Malformed Hetzner change_type payload: json.upgrade_disk must be an explicit boolean. Build the request with skills/hetzner-cloud/hetzner_cloud.cjs; it emits false by default to keep disk size during downgrades.';
   }
   if (normalizeText(args?.bearerSecretName) !== 'HETZNER_API_TOKEN') {
     return 'Malformed Hetzner change_type request: use bearerSecretName "HETZNER_API_TOKEN" from the helper output instead of hand-built secret headers.';

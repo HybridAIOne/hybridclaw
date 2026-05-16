@@ -111,11 +111,15 @@ function parseLabelsWithProject(values, project) {
   return parseLabels(normalizedValues);
 }
 
-function parseOptionalInteger(value, flagName) {
+function parseServerTypeReference(value, flagName) {
   if (value === undefined || value === null) return null;
   const normalized = String(value).trim();
-  if (!/^\d+$/.test(normalized)) return null;
-  return parseInteger(normalized, flagName);
+  if (!normalized) die(`${flagName} requires a value.`);
+  if (/^\d+$/.test(normalized)) return parseInteger(normalized, flagName);
+  if (!/^[a-z][a-z0-9._-]{0,63}$/i.test(normalized)) {
+    die(`${flagName} must be a Hetzner server type id or name.`);
+  }
+  return normalized;
 }
 
 function buildHttpRequest(operation, { url, method = 'GET', json }) {
@@ -503,16 +507,15 @@ function commandHttpRequest(args) {
       );
       const serverTypeIdFlag = popFlag(args, '--server-type-id');
       const serverTypeName = popFlag(args, '--server-type');
-      const serverType =
-        parseOptionalInteger(serverTypeIdFlag, '--server-type-id') ??
-        parseOptionalInteger(serverTypeName, '--server-type');
+      if (serverTypeIdFlag && serverTypeName) {
+        die('Use either --server-type-id or --server-type, not both.');
+      }
+      const serverType = parseServerTypeReference(
+        serverTypeIdFlag ?? serverTypeName,
+        serverTypeIdFlag ? '--server-type-id' : '--server-type',
+      );
       if (!serverType) {
-        if (serverTypeName) {
-          die(
-            `${operation} requires a numeric --server-type-id for change_type. Run list-server-types --name ${serverTypeName} first, then rerun with the returned id.`,
-          );
-        }
-        die(`${operation} requires --server-type-id.`);
+        die(`${operation} requires --server-type or --server-type-id.`);
       }
       const upgradeDisk = popBoolean(args, '--upgrade-disk');
       payload = buildHttpRequest(operation, {
@@ -597,9 +600,9 @@ Write operations require --operator-grant:
   detach-volume --volume-id id
   attach-network --server-id id --network-id id [--ip 10.0.0.2]
   detach-network --server-id id --network-id id
-  change-server-type --server-id id --server-type-id id [--upgrade-disk]
-  upgrade-server --server-id id --server-type-id id [--upgrade-disk]
-  downgrade-server --server-id id --server-type-id id
+  change-server-type --server-id id (--server-type name|--server-type-id id) [--upgrade-disk]
+  upgrade-server --server-id id (--server-type name|--server-type-id id) [--upgrade-disk]
+  downgrade-server --server-id id (--server-type name|--server-type-id id)
   delete-server --server-id id
   delete-vps --server-id id
   delete-snapshot --image-id id
@@ -607,8 +610,8 @@ Write operations require --operator-grant:
   delete-volume --volume-id id
 
 Change type flow:
-  1. list-server-types --name cpx32
-  2. downgrade-server --server-id id --server-type-id <numeric id> --operator-grant
+  1. downgrade-server --server-id id --server-type cpx32 --operator-grant
+  2. Optional: list-server-types --name cpx32 first when you need to verify price/disk.
   The emitted change_type request uses json.server_type and json.upgrade_disk.
   Do not send json.type or hand-built secretHeaders.
 `);

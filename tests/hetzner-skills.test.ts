@@ -229,8 +229,8 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     'downgrade-server',
     '--server-id',
     '123456',
-    '--server-type-id',
-    '45',
+    '--server-type',
+    'cpx32',
     '--operator-grant',
   ]);
   const upgradeWithGrant = runHelper('hetzner-cloud', 'hetzner_cloud.cjs', [
@@ -367,7 +367,7 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     httpRequest: {
       method: 'POST',
       url: 'https://api.hetzner.cloud/v1/servers/123456/actions/change_type',
-      json: { server_type: 45, upgrade_disk: false },
+      json: { server_type: 'cpx32', upgrade_disk: false },
     },
   });
   expect(upgradeWithGrant.status).toBe(0);
@@ -376,8 +376,11 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     url: 'https://api.hetzner.cloud/v1/servers/123456/actions/change_type',
     json: { server_type: 47, upgrade_disk: true },
   });
-  expect(namedDowngradeWithGrant.status).not.toBe(0);
-  expect(namedDowngradeWithGrant.stderr).toContain('--server-type-id');
+  expect(namedDowngradeWithGrant.status).toBe(0);
+  expect(JSON.parse(namedDowngradeWithGrant.stdout).httpRequest.json).toEqual({
+    server_type: 'cpx32',
+    upgrade_disk: false,
+  });
   expect(dashPrefixedDescription.status).toBe(0);
   expect(
     JSON.parse(dashPrefixedDescription.stdout).httpRequest.json,

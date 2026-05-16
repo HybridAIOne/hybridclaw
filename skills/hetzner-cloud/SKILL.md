@@ -143,7 +143,7 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request attach-vo
   --server-id 123456 --volume-id 777 --automount --operator-grant
 
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request downgrade-server \
-  --server-id 123456 --server-type-id <id-from-list-server-types> --operator-grant
+  --server-id 123456 --server-type cpx32 --operator-grant
 
 node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-server \
   --server-id 123456 --operator-grant
@@ -151,20 +151,14 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-se
 
 Resize/change type contract:
 
-1. Resolve the target type:
-
-   ```bash
-   node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request list-server-types --name cpx32
-   ```
-
-2. Use the returned numeric type id:
+1. Build the request with the helper:
 
    ```bash
    node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request downgrade-server \
-     --server-id 123456 --server-type-id 45 --operator-grant
+     --server-id 123456 --server-type cpx32 --operator-grant
    ```
 
-3. Pass the emitted `httpRequest` object unchanged to `http_request`.
+2. Pass the emitted `httpRequest` object unchanged to `http_request`.
 
 The `change_type` payload is `json.server_type` plus `json.upgrade_disk`.
 Never send `json.type`, never omit `upgrade_disk`, and never rewrite
@@ -179,10 +173,10 @@ Never send `json.type`, never omit `upgrade_disk`, and never rewrite
   `upgrade-server`, and `downgrade-server` as changing cost or capacity actions.
   Ask for explicit approval before building a live request with
   `--operator-grant`.
-- For `change-server-type`, `upgrade-server`, and `downgrade-server`, resolve
-  the target type first with `list-server-types --name <type>` and pass the
-  returned numeric id as `--server-type-id`. Hetzner's own CLI resolves names
-  before calling `change_type`; do the same instead of sending names directly.
+- For `change-server-type`, `upgrade-server`, and `downgrade-server`, pass the
+  target plan as `--server-type <name>` or `--server-type-id <id>` to the helper.
+  The Hetzner `change_type` API accepts either an id or a name in `server_type`;
+  never send the old `type` field.
 - Keep disk size by default for type changes. Use `--upgrade-disk` only when
   the operator explicitly asks to expand the primary disk, because expanded
   disks cannot later be downgraded.
