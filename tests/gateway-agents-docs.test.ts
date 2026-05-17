@@ -93,4 +93,16 @@ describe('docs/agents.html contract', () => {
       expect(referencesField(field)).toBe(true);
     }
   });
+
+  test('keeps local web-surface navigation on the token-ready path', () => {
+    expect(docsHtml).toContain(
+      "const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';",
+    );
+    expect(docsHtml).toContain('function navigateLocalWebSurface(path)');
+    expect(docsHtml).toContain(
+      "document.addEventListener('click', handleLocalWebSurfaceClick);",
+    );
+    expect(docsHtml).not.toContain("window.location.assign('/chat')");
+    expect(docsHtml).not.toContain("window.location.assign('/admin");
+  });
 });

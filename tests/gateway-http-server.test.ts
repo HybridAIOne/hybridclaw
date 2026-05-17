@@ -2034,21 +2034,24 @@ describe('gateway HTTP server', () => {
 
   test('serves console index after local WEB_API_TOKEN bootstrap marker', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
-    const req = makeRequest({
-      url: '/admin?__hybridclaw_token_bootstrapped=1',
-      headers: { host: 'localhost:9090' },
-      noAuth: true,
-    });
-    const res = makeResponse();
 
-    state.handler(req as never, res as never);
+    for (const pathname of ['/admin', '/agents']) {
+      const req = makeRequest({
+        url: `${pathname}?__hybridclaw_token_bootstrapped=1`,
+        headers: { host: 'localhost:9090' },
+        noAuth: true,
+      });
+      const res = makeResponse();
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toBe('<h1>Admin</h1>');
-    expect(res.body).not.toContain('web-token');
+      state.handler(req as never, res as never);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toBe('<h1>Admin</h1>');
+      expect(res.body).not.toContain('web-token');
+    }
   });
 
-  test('does not bootstrap WEB_API_TOKEN for non-SPA local web pages', async () => {
+  test('bootstraps WEB_API_TOKEN into localStorage for loopback agents SPA', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
       url: '/agents',
@@ -2060,9 +2063,12 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toBe('<h1>Agents</h1>');
-    expect(res.body).not.toContain('web-token');
-    expect(res.body).not.toContain('__hybridclaw_token_bootstrapped');
+    expect(res.body).toContain(
+      'localStorage.setItem(\'hybridclaw_token\',"web-token")',
+    );
+    expect(res.body).toContain(
+      'window.location.replace("/agents?__hybridclaw_token_bootstrapped=1")',
+    );
   });
 
   test('does not bootstrap WEB_API_TOKEN for non-loopback request hosts', async () => {
@@ -3643,7 +3649,7 @@ describe('gateway HTTP server', () => {
     );
     const state = await importFreshHealth({ authSecret });
     const req = makeRequest({
-      url: '/agents',
+      url: '/agents.html',
       headers: {
         cookie: `hybridclaw_session=${sessionToken}`,
       },

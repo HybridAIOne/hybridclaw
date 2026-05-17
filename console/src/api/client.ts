@@ -49,7 +49,6 @@ import type {
   AdminTunnelStatus,
   AgentListItem,
   AgentListResponse,
-  AgentsOverview,
   AgentsOverviewResponse,
   DeleteSessionResult,
   GatewayStatus,
@@ -417,7 +416,9 @@ export function adminTerminalSocketUrl(
   return url.toString();
 }
 
-export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
+export function fetchAgentsOverview(
+  token: string,
+): Promise<AgentsOverviewResponse> {
   return requestJson<AgentsOverviewResponse>('/api/agents', { token });
 }
 
