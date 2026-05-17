@@ -345,6 +345,20 @@ function makeRequest(params: {
   });
 }
 
+function makeSessionCookie(
+  secret: string,
+  payload: Record<string, unknown>,
+): string {
+  return `hybridclaw_session=${signAuthPayload(
+    {
+      typ: 'session',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      ...payload,
+    },
+    secret,
+  )}`;
+}
+
 function makeResponse() {
   const headers: Record<string, string | string[]> = {};
   const resolveHeaderKey = (name: string): string => {
@@ -706,6 +720,36 @@ async function importFreshHealth(options?: {
       topModels: [],
     },
   }));
+  const getGatewayAdminSecrets = vi.fn(
+    (params?: { canListSecret?: (name: string) => boolean }) => {
+      const secrets = [
+        {
+          name: 'SET_SECRET',
+          state: 'set' as const,
+          created_at: '2026-05-17T10:00:00.000Z',
+          last_rotated_at: '2026-05-17T10:00:00.000Z',
+          fingerprint: {
+            length: 12,
+            sha256_prefix: '0123456789ab',
+          },
+          references: [],
+        },
+        {
+          name: 'OTHER_SECRET',
+          state: 'unset' as const,
+          created_at: null,
+          last_rotated_at: null,
+          fingerprint: null,
+          references: [],
+        },
+      ].filter((entry) => params?.canListSecret?.(entry.name) ?? true);
+      return {
+        secrets,
+        total: 2,
+        filtered: 2 - secrets.length,
+      };
+    },
+  );
   const reconnectTunnelStatus = {
     provider: 'ngrok',
     publicUrl: 'https://next-public.example.test',
@@ -1745,6 +1789,9 @@ async function importFreshHealth(options?: {
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
   }));
+  vi.doMock('../src/gateway/gateway-admin-secrets.js', () => ({
+    getGatewayAdminSecrets,
+  }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
   }));
@@ -1824,6 +1871,7 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     forkSessionBranch,
     getGatewayAdminOverview,
+    getGatewayAdminSecrets,
     getGatewayAdminStatistics,
     reconnectTunnelStatus,
     reconnectGatewayAdminTunnel,
@@ -4657,6 +4705,120 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toMatchObject({
       configPath: '/tmp/config.json',
       status: { status: 'ok', sessions: 2 },
+    });
+  });
+
+  test('returns admin secret metadata without cleartext values', async () => {
+    const authSecret = 'secret-list-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/secrets',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          actor: 'admin-user',
+          actions: ['secret.list_metadata'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).toHaveBeenCalledWith({
+      canListSecret: expect.any(Function),
+      audit: {
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      secrets: [
+        {
+          name: 'SET_SECRET',
+          state: 'set',
+          created_at: '2026-05-17T10:00:00.000Z',
+          last_rotated_at: '2026-05-17T10:00:00.000Z',
+          fingerprint: {
+            length: 12,
+            sha256_prefix: '0123456789ab',
+          },
+          references: [],
+        },
+        {
+          name: 'OTHER_SECRET',
+          state: 'unset',
+          created_at: null,
+          last_rotated_at: null,
+          fingerprint: null,
+          references: [],
+        },
+      ],
+      total: 2,
+      filtered: 0,
+    });
+    expect(res.body).not.toContain('super-secret');
+  });
+
+  test('rejects admin secret metadata requests without list permission', async () => {
+    const authSecret = 'secret-list-deny-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/secrets',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          actor: 'audit-user',
+          actions: ['audit.read'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden' });
+    expect(res.body).not.toContain('SET_SECRET');
+    expect(res.body).not.toContain('OTHER_SECRET');
+  });
+
+  test('applies admin secret metadata predicate filters', async () => {
+    const authSecret = 'secret-list-filter-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/secrets',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          actions: ['secret.list_metadata'],
+          secretListPatterns: ['SET_*'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      secrets: [
+        {
+          name: 'SET_SECRET',
+          state: 'set',
+          created_at: '2026-05-17T10:00:00.000Z',
+          last_rotated_at: '2026-05-17T10:00:00.000Z',
+          fingerprint: {
+            length: 12,
+            sha256_prefix: '0123456789ab',
+          },
+          references: [],
+        },
+      ],
+      total: 2,
+      filtered: 1,
     });
   });
 

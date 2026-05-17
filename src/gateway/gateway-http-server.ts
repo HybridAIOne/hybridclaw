@@ -130,6 +130,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
+import { getGatewayAdminSecrets } from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
@@ -266,6 +267,7 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
+const ADMIN_SECRET_LIST_METADATA_ACTION = 'secret.list_metadata';
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -1642,6 +1644,148 @@ function hasApiTokenValue(token: string): boolean {
   if (!trimmed) return false;
   if (WEB_API_TOKEN && trimmed === WEB_API_TOKEN) return true;
   return Boolean(GATEWAY_API_TOKEN) && trimmed === GATEWAY_API_TOKEN;
+}
+
+function matchesAdminSecretPattern(name: string, pattern: string): boolean {
+  if (pattern === '*') return true;
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`, 'i').test(name);
+}
+
+function collectStringValues(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectStringValues(entry));
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[,\s]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function readRecordProperty(
+  record: Record<string, unknown>,
+  keys: string[],
+): unknown {
+  for (const key of keys) {
+    if (Object.hasOwn(record, key)) {
+      return record[key];
+    }
+  }
+  return undefined;
+}
+
+function collectAdminSessionActions(
+  payload: Record<string, unknown> | null,
+): Set<string> {
+  if (!payload) return new Set();
+  const rbac =
+    payload.rbac !== null &&
+    typeof payload.rbac === 'object' &&
+    !Array.isArray(payload.rbac)
+      ? (payload.rbac as Record<string, unknown>)
+      : {};
+  return new Set([
+    ...collectStringValues(
+      readRecordProperty(payload, [
+        'actions',
+        'permissions',
+        'scopes',
+        'scope',
+      ]),
+    ),
+    ...collectStringValues(
+      readRecordProperty(rbac, ['actions', 'permissions', 'scopes', 'scope']),
+    ),
+  ]);
+}
+
+function collectAdminSecretListPatterns(
+  payload: Record<string, unknown> | null,
+): string[] {
+  if (!payload) return [];
+  const rbac =
+    payload.rbac !== null &&
+    typeof payload.rbac === 'object' &&
+    !Array.isArray(payload.rbac)
+      ? (payload.rbac as Record<string, unknown>)
+      : {};
+  return [
+    ...collectStringValues(
+      readRecordProperty(payload, [
+        'secretListPatterns',
+        'secret_list_patterns',
+        'secretNamePatterns',
+        'secret_name_patterns',
+      ]),
+    ),
+    ...collectStringValues(
+      readRecordProperty(rbac, [
+        'secretListPatterns',
+        'secret_list_patterns',
+        'secretNamePatterns',
+        'secret_name_patterns',
+      ]),
+    ),
+  ];
+}
+
+function resolveAdminSessionActor(
+  payload: Record<string, unknown> | null,
+): string | null {
+  if (!payload) return null;
+  const value = readRecordProperty(payload, [
+    'actor',
+    'sub',
+    'email',
+    'userId',
+    'user_id',
+    'username',
+  ]);
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function resolveAdminSecretsMetadataAccess(req: IncomingMessage): {
+  allowed: boolean;
+  actor: string | null;
+  canListSecret: (name: string) => boolean;
+} {
+  const payload = getSessionAuthPayload(req);
+  const actions = collectAdminSessionActions(payload);
+  if (
+    ![...actions].some(
+      (action) =>
+        action === '*' ||
+        action === 'secret.*' ||
+        action === ADMIN_SECRET_LIST_METADATA_ACTION,
+    )
+  ) {
+    return {
+      allowed: false,
+      actor: resolveAdminSessionActor(payload),
+      canListSecret: () => false,
+    };
+  }
+
+  const patterns = collectAdminSecretListPatterns(payload);
+  if (patterns.length === 0) {
+    return {
+      allowed: true,
+      actor: resolveAdminSessionActor(payload),
+      canListSecret: () => true,
+    };
+  }
+
+  return {
+    allowed: true,
+    actor: resolveAdminSessionActor(payload),
+    canListSecret: (name) =>
+      patterns.some((pattern) => matchesAdminSecretPattern(name, pattern)),
+  };
 }
 
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
@@ -3169,6 +3313,34 @@ function handleApiConfigReload(res: ServerResponse): void {
 
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
+}
+
+function handleApiAdminSecrets(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  if ((req.method || 'GET') !== 'GET') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  const access = resolveAdminSecretsMetadataAccess(req);
+  if (!access.allowed) {
+    sendJson(res, 403, { error: 'Forbidden' });
+    return;
+  }
+
+  sendJson(
+    res,
+    200,
+    getGatewayAdminSecrets({
+      canListSecret: access.canListSecret,
+      audit: {
+        actor: access.actor,
+        sourceIp: req.socket.remoteAddress || null,
+      },
+    }),
+  );
 }
 
 async function handleApiAdminTunnelReconnect(
@@ -5485,6 +5657,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
             await handleApiAdminOverview(res);
+            return;
+          }
+          if (pathname === '/api/admin/secrets') {
+            handleApiAdminSecrets(req, res);
             return;
           }
           if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {
