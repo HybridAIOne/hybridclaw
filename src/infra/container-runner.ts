@@ -16,6 +16,7 @@ import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-a
 import {
   ADDITIONAL_MOUNTS,
   BROWSER_PROVIDER,
+  CODEX_RUNTIME,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
@@ -52,6 +53,7 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
@@ -145,6 +147,7 @@ interface PoolEntry extends WarmRunnerEntry {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
+  codexRuntime?: CodexTurnRuntime;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
@@ -1089,6 +1092,10 @@ async function runContainerInner(
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
+  const existingEntry = pool.get(sessionId);
+  const selectedCodexRuntime =
+    modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
+  const codexRuntime = existingEntry?.codexRuntime || selectedCodexRuntime;
 
   const input: ContainerInput = {
     sessionId,
@@ -1108,6 +1115,7 @@ async function runContainerInner(
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
     model,
+    codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
@@ -1159,6 +1167,7 @@ async function runContainerInner(
     agentId,
     provider: input.provider,
     providerMethod: input.providerMethod,
+    codexRuntime: input.codexRuntime,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
@@ -1170,7 +1179,6 @@ async function runContainerInner(
     bashProxy: params.bashProxy,
   });
 
-  const existingEntry = pool.get(sessionId);
   if (existingEntry && existingEntry.workerSignature !== workerSignature) {
     logger.info(
       {
@@ -1221,6 +1229,7 @@ async function runContainerInner(
   ensureSessionDirs(entry.ipcSessionId);
   const activity = createActivityTracker();
   entry.workerSignature = workerSignature;
+  entry.codexRuntime = input.codexRuntime;
   entry.onTextDelta = onTextDelta;
   entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;

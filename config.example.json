@@ -1,5 +1,5 @@
 {
-  "version": 28,
+  "version": 29,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -309,7 +309,8 @@
     "models": ["gpt-4.1-mini", "gpt-5-nano", "gpt-5"]
   },
   "codex": {
-    "baseUrl": "https://chatgpt.com/backend-api/codex"
+    "baseUrl": "https://chatgpt.com/backend-api/codex",
+    "turnRuntime": "hybridclaw"
   },
   "anthropic": {
     "enabled": false,
