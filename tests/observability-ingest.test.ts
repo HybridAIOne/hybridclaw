@@ -16,6 +16,73 @@ const { setupHome } = setupGatewayTest({
   },
 });
 
+const OBSERVABILITY_TOKEN_KEY =
+  'https://hybridai.one/api/v1/agent-observability/ingest-token:ensure|bot-observability';
+
+async function configureObservabilityFixture(): Promise<void> {
+  const { getRuntimeConfig, saveRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const runtimeConfig = getRuntimeConfig();
+  saveRuntimeConfig({
+    ...runtimeConfig,
+    hybridai: {
+      ...runtimeConfig.hybridai,
+      defaultChatbotId: 'bot-default',
+    },
+    observability: {
+      ...runtimeConfig.observability,
+      enabled: true,
+      botId: 'bot-observability',
+      agentId: 'agent-observability',
+      flushIntervalMs: 60_000,
+      batchMaxEvents: 10,
+    },
+  });
+}
+
+async function seedCachedObservabilityToken(
+  token: string,
+  updatedAt: string,
+): Promise<void> {
+  const { setObservabilityIngestToken, withMemoryDatabase } = await import(
+    '../src/memory/db.ts'
+  );
+  setObservabilityIngestToken(OBSERVABILITY_TOKEN_KEY, token);
+  withMemoryDatabase((database) => {
+    database
+      .prepare(
+        `UPDATE observability_ingest_tokens
+         SET updated_at = ?
+         WHERE token_key = ?`,
+      )
+      .run(updatedAt, OBSERVABILITY_TOKEN_KEY);
+  });
+}
+
+async function recordObservabilityBotSetEvent(
+  sessionId: string,
+  runId: string,
+): Promise<void> {
+  const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  recordAuditEvent({
+    sessionId,
+    runId,
+    event: {
+      type: 'bot.set',
+      source: 'command',
+      requestedBot: 'Research Bot',
+      previousBotId: null,
+      resolvedBotId: 'bot-research',
+      changed: true,
+      previousModel: 'gpt-5-nano',
+      syncedModel: 'gpt-4o-mini',
+      userId: 'user-1',
+      username: 'alice',
+    },
+  });
+}
+
 test('observability ingest forwards bot.set audit events to HybridAI', async () => {
   setupHome({ HYBRIDAI_API_KEY: 'test-key' });
 
@@ -140,6 +207,274 @@ test('observability ingest forwards bot.set audit events to HybridAI', async () 
       username: 'alice',
     },
   });
+});
+
+test('observability ingest proactively rotates stale cached tokens', async () => {
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+
+  const { getRuntimeConfig, saveRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const runtimeConfig = getRuntimeConfig();
+  saveRuntimeConfig({
+    ...runtimeConfig,
+    hybridai: {
+      ...runtimeConfig.hybridai,
+      defaultChatbotId: 'bot-default',
+    },
+    observability: {
+      ...runtimeConfig.observability,
+      enabled: true,
+      botId: 'bot-observability',
+      agentId: 'agent-observability',
+      flushIntervalMs: 60_000,
+      batchMaxEvents: 10,
+    },
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.endsWith('/api/v1/agent-observability/ingest-token:ensure')) {
+        const bodyText =
+          typeof init?.body === 'string' ? init.body : String(init?.body ?? '');
+        expect(JSON.parse(bodyText)).toMatchObject({
+          bot_id: 'bot-observability',
+          rotate: true,
+        });
+        return new Response(
+          JSON.stringify({
+            success: true,
+            rotated: true,
+            token: 'fresh-ingest-token',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/api/v1/agent-observability/events:batch')) {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer fresh-ingest-token',
+        });
+        return new Response(
+          JSON.stringify({
+            status: 'ok',
+            inserted_events: 1,
+            duplicate_events: 0,
+            broken_chain_events: 0,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  const { initDatabase, setObservabilityIngestToken, withMemoryDatabase } =
+    await import('../src/memory/db.ts');
+  const { startObservabilityIngest, stopObservabilityIngest } = await import(
+    '../src/audit/observability-ingest.ts'
+  );
+
+  initDatabase({ quiet: true });
+  setObservabilityIngestToken(
+    'https://hybridai.one/api/v1/agent-observability/ingest-token:ensure|bot-observability',
+    'stale-ingest-token',
+  );
+  withMemoryDatabase((database) => {
+    database
+      .prepare(
+        `UPDATE observability_ingest_tokens
+         SET updated_at = '2000-01-01 00:00:00'
+         WHERE token_key = ?`,
+      )
+      .run(
+        'https://hybridai.one/api/v1/agent-observability/ingest-token:ensure|bot-observability',
+      );
+  });
+  recordAuditEvent({
+    sessionId: 'session-observability-stale-token',
+    runId: 'run-observability-stale-token',
+    event: {
+      type: 'bot.set',
+      source: 'command',
+      requestedBot: 'Research Bot',
+      previousBotId: null,
+      resolvedBotId: 'bot-research',
+      changed: true,
+      previousModel: 'gpt-5-nano',
+      syncedModel: 'gpt-4o-mini',
+      userId: 'user-1',
+      username: 'alice',
+    },
+  });
+
+  startObservabilityIngest();
+
+  await vi.waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  stopObservabilityIngest();
+
+  expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+    '/api/v1/agent-observability/ingest-token:ensure',
+  );
+  expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+    '/api/v1/agent-observability/events:batch',
+  );
+});
+
+test('observability ingest treats future cached token timestamps as stale', async () => {
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+  await configureObservabilityFixture();
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.endsWith('/api/v1/agent-observability/ingest-token:ensure')) {
+        const bodyText =
+          typeof init?.body === 'string' ? init.body : String(init?.body ?? '');
+        expect(JSON.parse(bodyText)).toMatchObject({
+          bot_id: 'bot-observability',
+          rotate: true,
+        });
+        return new Response(
+          JSON.stringify({
+            success: true,
+            rotated: true,
+            token: 'fresh-ingest-token',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/api/v1/agent-observability/events:batch')) {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer fresh-ingest-token',
+        });
+        return new Response(
+          JSON.stringify({
+            status: 'ok',
+            inserted_events: 1,
+            duplicate_events: 0,
+            broken_chain_events: 0,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { startObservabilityIngest, stopObservabilityIngest } = await import(
+    '../src/audit/observability-ingest.ts'
+  );
+
+  initDatabase({ quiet: true });
+  await seedCachedObservabilityToken(
+    'future-ingest-token',
+    '2999-01-01 00:00:00',
+  );
+  await recordObservabilityBotSetEvent(
+    'session-observability-future-token',
+    'run-observability-future-token',
+  );
+
+  startObservabilityIngest();
+
+  await vi.waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  stopObservabilityIngest();
+
+  expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+    '/api/v1/agent-observability/ingest-token:ensure',
+  );
+  expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+    '/api/v1/agent-observability/events:batch',
+  );
+});
+
+test('observability ingest falls back to cached token when proactive rotate fails', async () => {
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+  await configureObservabilityFixture();
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.endsWith('/api/v1/agent-observability/ingest-token:ensure')) {
+        return new Response(JSON.stringify({ message: 'temporarily down' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.endsWith('/api/v1/agent-observability/events:batch')) {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer cached-ingest-token',
+        });
+        return new Response(
+          JSON.stringify({
+            status: 'ok',
+            inserted_events: 1,
+            duplicate_events: 0,
+            broken_chain_events: 0,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { startObservabilityIngest, stopObservabilityIngest } = await import(
+    '../src/audit/observability-ingest.ts'
+  );
+
+  initDatabase({ quiet: true });
+  await seedCachedObservabilityToken(
+    'cached-ingest-token',
+    '2000-01-01 00:00:00',
+  );
+  await recordObservabilityBotSetEvent(
+    'session-observability-rotate-fallback',
+    'run-observability-rotate-fallback',
+  );
+
+  startObservabilityIngest();
+
+  await vi.waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  stopObservabilityIngest();
+
+  expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+    '/api/v1/agent-observability/ingest-token:ensure',
+  );
+  expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+    '/api/v1/agent-observability/events:batch',
+  );
 });
 
 test('observability ingest restart dispatches a new startup flush without waiting for an older push result', async () => {

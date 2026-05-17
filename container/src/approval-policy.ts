@@ -169,6 +169,7 @@ export interface PendingApproval {
   fingerprint: string;
   actionKey: string;
   toolName: string;
+  argsJson: string;
   intent: string;
   consequenceIfDenied: string;
   reason: string;
@@ -182,6 +183,10 @@ export interface PendingApproval {
 export interface ApprovalPrelude {
   immediateMessage?: string;
   replayPrompt?: string;
+  approvedToolCall?: {
+    toolName: string;
+    argsJson: string;
+  };
   approvalMode?: ApprovalMode;
   approvedRequestId?: string;
 }
@@ -346,6 +351,8 @@ const IMPLICIT_DELAY_BROWSER_INPUT_TOOLS = new Set([
 ]);
 const NO_IMPLICIT_DELAY_TOOLS = new Set([
   'audio_transcribe',
+  'diagram_create',
+  'diagram_update',
   'image_generate',
   'video_generate',
 ]);
@@ -958,6 +965,117 @@ function inferBashHttpMethod(command: string): string {
   return 'GET';
 }
 
+function normalizeHttpMethod(value: unknown): string {
+  const normalized = String(value || 'GET')
+    .trim()
+    .toUpperCase();
+  return normalized || 'GET';
+}
+
+function isReadOnlyHttpMethod(method: string): boolean {
+  return ['GET', 'HEAD', 'OPTIONS'].includes(normalizeHttpMethod(method));
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => normalizeText(item)).filter(Boolean);
+}
+
+function isExpectedJsonFieldType(
+  value: unknown,
+  expectedType: string,
+): boolean {
+  switch (expectedType) {
+    case 'array':
+      return Array.isArray(value);
+    case 'boolean':
+    case 'number':
+    case 'string':
+      return typeof value === expectedType && value !== null;
+    case 'object':
+      return (
+        typeof value === 'object' && value !== null && !Array.isArray(value)
+      );
+    default:
+      return true;
+  }
+}
+
+function invalidSkillRequestContractReason(
+  args: Record<string, unknown> | undefined,
+): string | null {
+  const contract = asRecord(args?.skillRequestContract);
+  if (Object.keys(contract).length === 0) return null;
+
+  const contractName =
+    normalizeText(contract.name) ||
+    normalizeText(contract.id) ||
+    'skill request';
+  const remediation = normalizeText(contract.remediation);
+  const failure = (message: string): string =>
+    `${contractName} contract violation: ${message}${
+      remediation ? ` ${remediation}` : ''
+    }`;
+
+  const requiredBearerSecretName = normalizeText(
+    contract.requireBearerSecretName,
+  );
+  if (
+    requiredBearerSecretName &&
+    normalizeText(args?.bearerSecretName) !== requiredBearerSecretName
+  ) {
+    return failure(
+      `use bearerSecretName "${requiredBearerSecretName}" from the helper output.`,
+    );
+  }
+
+  if (
+    contract.forbidSecretHeaders === true &&
+    Array.isArray(args?.secretHeaders) &&
+    args.secretHeaders.length > 0
+  ) {
+    return failure('do not send secretHeaders.');
+  }
+
+  const json = asRecord(args?.json);
+  for (const field of stringList(contract.forbidJsonFields)) {
+    if (field in json) return failure(`do not send json.${field}.`);
+  }
+  for (const field of stringList(contract.requireJsonFields)) {
+    if (!(field in json)) return failure(`missing json.${field}.`);
+  }
+
+  const requiredJsonFieldTypes = asRecord(contract.requireJsonFieldTypes);
+  for (const [field, expectedTypeValue] of Object.entries(
+    requiredJsonFieldTypes,
+  )) {
+    const expectedType = normalizeText(expectedTypeValue).toLowerCase();
+    if (!expectedType || !(field in json)) continue;
+    if (!isExpectedJsonFieldType(json[field], expectedType)) {
+      return failure(`json.${field} must be ${expectedType}.`);
+    }
+  }
+
+  return null;
+}
+
+function skillManagedWriteApprovalReason(
+  args: Record<string, unknown> | undefined,
+  method: string,
+): string | null {
+  if (isReadOnlyHttpMethod(method)) return null;
+  const skillName = normalizeText(args?.skillName || args?.skill);
+  if (!skillName) return null;
+  const stakesTier = normalizeText(args?.stakesTier).toLowerCase();
+  if (stakesTier === 'red' || stakesTier === 'amber') {
+    return `${skillName} ${stakesTier} API write requests require explicit operator approval`;
+  }
+  if (args?.explicitApprovalRequired === true) {
+    return `${skillName} API write requests require explicit operator approval`;
+  }
+  return null;
+}
+
 function extractAbsolutePaths(input: string): string[] {
   const paths = new Set<string>();
   for (const match of input.matchAll(ABS_PATH_RE)) {
@@ -1350,6 +1468,7 @@ function parsePersistedPendingApproval(value: unknown): PendingApproval | null {
     typeof record.actionKey === 'string' ? record.actionKey.trim() : '';
   const toolName =
     typeof record.toolName === 'string' ? record.toolName.trim() : '';
+  const argsJson = typeof record.argsJson === 'string' ? record.argsJson : '';
   const intent = typeof record.intent === 'string' ? record.intent.trim() : '';
   const consequenceIfDenied =
     typeof record.consequenceIfDenied === 'string'
@@ -1386,6 +1505,7 @@ function parsePersistedPendingApproval(value: unknown): PendingApproval | null {
     fingerprint,
     actionKey,
     toolName,
+    argsJson,
     intent,
     consequenceIfDenied,
     reason,
@@ -1895,6 +2015,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       fingerprint: requireFingerprint(context),
       actionKey: classified.actionKey,
       toolName: context.params.toolName,
+      argsJson: context.params.argsJson,
       intent: classified.intent,
       consequenceIfDenied: classified.consequenceIfDenied,
       reason: classified.reason,
@@ -2440,6 +2561,14 @@ export class TrustedAgentApprovalRuntime {
     );
     return {
       replayPrompt: replayPrompt || undefined,
+      ...(target.argsJson
+        ? {
+            approvedToolCall: {
+              toolName: target.toolName,
+              argsJson: target.argsJson,
+            },
+          }
+        : {}),
       approvalMode: mode,
       approvedRequestId: target.id,
       immediateMessage: replayPrompt
@@ -2616,6 +2745,7 @@ export class TrustedAgentApprovalRuntime {
       path: string;
       method: string;
     }>;
+    args?: Record<string, unknown>;
     intent: string;
     consequenceIfDenied: string;
     commandPreview: string;
@@ -2626,6 +2756,64 @@ export class TrustedAgentApprovalRuntime {
         params.targets.map((target) => normalizeHostScope(target.host)),
       ),
     ];
+    const invalidSkillRequestContract = invalidSkillRequestContractReason(
+      params.args,
+    );
+    if (invalidSkillRequestContract) {
+      const target = params.targets[0];
+      const hostScope = normalizeText(
+        target?.host || primaryHost,
+      ).toLowerCase();
+      const method = normalizeHttpMethod(target?.method);
+      const pathScope = normalizeText(target?.path);
+      return {
+        tier: 'red',
+        actionKey: `network:${hostScope}:${method}${
+          pathScope ? `:${pathScope}` : ''
+        }`,
+        intent: `send a skill-managed API request to ${hostScope}`,
+        consequenceIfDenied:
+          'I will leave external resources unchanged and rebuild the request through the skill helper.',
+        reason: invalidSkillRequestContract,
+        commandPreview: params.commandPreview,
+        pathHints: [],
+        hostHints,
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: true,
+        hardDeny: true,
+        explicitApprovalRequired: true,
+      };
+    }
+    const skillManagedWriteTarget = params.targets.find((target) =>
+      skillManagedWriteApprovalReason(params.args, target.method),
+    );
+    if (skillManagedWriteTarget) {
+      const hostScope = normalizeText(
+        skillManagedWriteTarget.host,
+      ).toLowerCase();
+      const method = normalizeHttpMethod(skillManagedWriteTarget.method);
+      return {
+        tier: 'red',
+        actionKey: `network:${hostScope}:${method}:${skillManagedWriteTarget.path}`,
+        intent: `modify external resources via ${hostScope}`,
+        consequenceIfDenied:
+          'I will leave external resources unchanged and continue with read-only inspection only.',
+        reason:
+          skillManagedWriteApprovalReason(
+            params.args,
+            skillManagedWriteTarget.method,
+          ) ||
+          'Skill-managed API write requests require explicit operator approval',
+        commandPreview: params.commandPreview,
+        pathHints: [],
+        hostHints,
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: true,
+        explicitApprovalRequired: true,
+      };
+    }
     let matchedAllowRule = false;
 
     for (const target of params.targets) {
@@ -3018,10 +3206,11 @@ export class TrustedAgentApprovalRuntime {
             ...target,
             method:
               lowerTool === 'http_request'
-                ? String(args.method || 'GET')
+                ? normalizeHttpMethod(args.method)
                 : 'GET',
           },
         ],
+        args,
         intent: `access ${normalizeHostScope(target.host)}`,
         consequenceIfDenied:
           'I will avoid contacting that host and use existing local context only.',
@@ -3153,6 +3342,47 @@ export class TrustedAgentApprovalRuntime {
           'video generation may call a configured external provider and writes generated media into the workspace',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: [],
+        hostHints: [],
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: true,
+      };
+    }
+
+    if (lowerTool === 'diagram_validate') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'validate diagram source',
+        consequenceIfDenied: 'I will continue without validating the diagram.',
+        reason: 'diagram validation is local, read-only syntax checking',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (lowerTool === 'diagram_create' || lowerTool === 'diagram_update') {
+      return {
+        tier: 'yellow',
+        actionKey: lowerTool,
+        intent:
+          lowerTool === 'diagram_update'
+            ? 'update diagram artifacts'
+            : 'create diagram artifacts',
+        consequenceIfDenied:
+          lowerTool === 'diagram_update'
+            ? 'I will continue without updating the diagram.'
+            : 'I will continue without creating the diagram.',
+        reason:
+          'diagram rendering writes source/rendered artifacts locally and may call a configured PlantUML server for PlantUML renders',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: normalizeText(args.artifact_ref)
+          ? [normalizeText(args.artifact_ref)]
+          : [],
         hostHints: [],
         writeIntent: true,
         promotableRed: false,

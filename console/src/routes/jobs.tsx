@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import {
   type CSSProperties,
   type DragEvent,
@@ -28,6 +29,7 @@ import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
+import { logNavigationError } from '../lib/navigation';
 
 type JobColumnId = 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
 
@@ -83,7 +85,7 @@ function trimText(raw: string | null | undefined, maxLength: number): string {
 function resolveSchedulerSessionId(job: AdminSchedulerJob): string | null {
   if (job.sessionId) return job.sessionId;
   if (job.source === 'job') return `scheduler:${job.id}`;
-  return job.sessionId || null;
+  return null;
 }
 
 function deriveColumn(
@@ -164,6 +166,10 @@ function JobCard(props: {
   onDrop: (event: DragEvent<HTMLButtonElement>) => void;
 }) {
   const { item } = props;
+  const agentPillStyle = useMemo(
+    () => getAgentPillStyle(item.agentKey),
+    [item.agentKey],
+  );
 
   return (
     <div
@@ -200,10 +206,7 @@ function JobCard(props: {
           <p>{item.summary}</p>
           <small>{item.stateLabel}</small>
           <div className="jobs-card-agent-row">
-            <span
-              className="jobs-card-pill"
-              style={getAgentPillStyle(item.agentKey)}
-            >
+            <span className="jobs-card-pill" style={agentPillStyle}>
               {item.agentLabel}
             </span>
             <AgentBudgetChip budget={props.budget} />
@@ -312,14 +315,12 @@ function JobDetailCard(props: {
   onUpdate: (nextJob: AdminSchedulerJob & { source: 'job' }) => void;
 }) {
   const { item } = props;
+  const navigate = useNavigate();
   const sessionId =
     item.kind === 'blocked'
       ? item.suspendedSession.sessionId
       : resolveSchedulerSessionId(item.job);
-  const editHref =
-    item.kind === 'blocked'
-      ? '/admin/approvals'
-      : `/admin/scheduler?jobId=${encodeURIComponent(item.job.id)}`;
+  const editJobId = item.kind === 'job' ? item.job.id : null;
   const outputs = useMemo(() => collectJobOutputs(props.item), [props.item]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<null | 'lane' | 'agent'>(
@@ -365,9 +366,22 @@ function JobDetailCard(props: {
               : props.item.suspendedSession.blockedLabel}
           </h4>
         </div>
-        <a className="ghost-button" href={editHref}>
+        <button
+          className="ghost-button"
+          type="button"
+          onClick={() => {
+            if (editJobId) {
+              void navigate({
+                to: '/admin/scheduler',
+                search: { jobId: editJobId },
+              }).catch(logNavigationError);
+              return;
+            }
+            void navigate({ to: '/admin/approvals' }).catch(logNavigationError);
+          }}
+        >
           Edit
-        </a>
+        </button>
       </div>
 
       <div className="jobs-detail-stack">
@@ -576,6 +590,7 @@ function JobDetailCard(props: {
 
 export function JobsPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [search, setSearch] = useState('');
@@ -886,9 +901,18 @@ export function JobsPage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search jobs"
             />
-            <a className="primary-button" href="/admin/scheduler">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                void navigate({
+                  to: '/admin/scheduler',
+                  search: { jobId: undefined },
+                }).catch(logNavigationError);
+              }}
+            >
               New Job
-            </a>
+            </button>
           </div>
         }
       />

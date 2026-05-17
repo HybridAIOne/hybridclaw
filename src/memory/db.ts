@@ -9389,17 +9389,32 @@ export function setObservabilityOffset(
   `).run(normalized, boundedLastEventId);
 }
 
-export function getObservabilityIngestToken(tokenKey: string): string | null {
+export interface ObservabilityIngestTokenRecord {
+  token: string;
+  updatedAt: string;
+}
+
+export function getObservabilityIngestTokenRecord(
+  tokenKey: string,
+): ObservabilityIngestTokenRecord | null {
   const normalized = tokenKey.trim();
   if (!normalized) return null;
-  const row = queryOne<{ token: string }, [string]>(
+  const row = queryOne<{ token: string; updated_at: string }, [string]>(
     db,
-    'SELECT token FROM observability_ingest_tokens WHERE token_key = ?',
+    'SELECT token, updated_at FROM observability_ingest_tokens WHERE token_key = ?',
     normalized,
   );
   if (!row || typeof row.token !== 'string') return null;
   const token = row.token.trim();
-  return token || null;
+  if (!token) return null;
+  return {
+    token,
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : '',
+  };
+}
+
+export function getObservabilityIngestToken(tokenKey: string): string | null {
+  return getObservabilityIngestTokenRecord(tokenKey)?.token ?? null;
 }
 
 export function setObservabilityIngestToken(

@@ -150,10 +150,10 @@ test('does not write deterministic CV entries when auxiliary narration fails', a
   expect(fs.existsSync(cvPathForAgent('main'))).toBe(false);
   expect(mocks.logger.warn).toHaveBeenCalledWith(
     expect.objectContaining({
-      agentId: 'main',
+      eventCount: 1,
       error: expect.any(DOMException),
     }),
-    'Failed to refresh agent CV',
+    'Failed to narrate agent CV entries',
   );
 });
 
@@ -182,4 +182,10 @@ test('writes only auxiliary-narrated CV entries', async () => {
   expect(cv).toContain('Handled Demo Skill');
   expect(cv).toContain('Used the demo skill and completed the requested work.');
   expect(cv).not.toContain('Completed demo-skill in 1.2s.');
+  expect(mocks.callAuxiliaryModel).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'cv_narration',
+      timeoutMs: 45_000,
+    }),
+  );
 });

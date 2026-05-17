@@ -131,6 +131,8 @@ const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const BOLD_OFF = '\x1b[22m';
 const JELLYFISH = '🪼';
+const SAVE_CURSOR = '\x1b7';
+const RESTORE_CURSOR = '\x1b8';
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
 const TUI_EXIT_CONFIRM_WINDOW_MS = 5000;
@@ -897,6 +899,7 @@ function tuiCharacterWidth(symbol: string): number {
       (code >= 0xfe30 && code <= 0xfe6f) ||
       (code >= 0xff00 && code <= 0xff60) ||
       (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x2600 && code <= 0x27bf) ||
       (code >= 0x1f300 && code <= 0x1faff) ||
       (code >= 0x20000 && code <= 0x3fffd))
   ) {
@@ -1762,6 +1765,7 @@ function spinner(): {
   let cursorHidden = false;
   const toolEntries: SpinnerToolEntry[] = [];
   let hasVisibleText = false;
+  let visibleTextCursorSaved = false;
   let visibleTextState = createTuiStreamFormatState();
   let visibleTextRows = 0;
   let thinkingPreviewRows = 0;
@@ -1855,15 +1859,20 @@ function spinner(): {
   const clearVisibleText = () => {
     if (!hasVisibleText) return;
     if (process.stdout.isTTY) {
-      const rows = Math.max(1, visibleTextRows);
-      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
-      for (let row = 0; row < rows; row += 1) {
-        clearLine();
-        if (row < rows - 1) process.stdout.write('\n');
+      if (visibleTextCursorSaved) {
+        process.stdout.write(`${RESTORE_CURSOR}\x1b[0J`);
+      } else {
+        const rows = Math.max(1, visibleTextRows);
+        if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
+        for (let row = 0; row < rows; row += 1) {
+          clearLine();
+          if (row < rows - 1) process.stdout.write('\n');
+        }
+        if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
       }
-      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
     }
     hasVisibleText = false;
+    visibleTextCursorSaved = false;
     visibleTextState = createTuiStreamFormatState();
     visibleTextRows = 0;
     if (!stopped && showActivityPreview && thinkingPreviewRows === 0) {
@@ -1969,6 +1978,10 @@ function spinner(): {
       if (!hasVisibleText) {
         clearTools();
         clearLine();
+        if (process.stdout.isTTY) {
+          process.stdout.write(SAVE_CURSOR);
+          visibleTextCursorSaved = true;
+        }
       }
       const formatted = formatTuiStreamDelta(
         delta,
@@ -1992,6 +2005,10 @@ function spinner(): {
       if (!hasVisibleText) {
         clearTools();
         clearLine();
+        if (process.stdout.isTTY) {
+          process.stdout.write(SAVE_CURSOR);
+          visibleTextCursorSaved = true;
+        }
         hasVisibleText = true;
       }
       visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);

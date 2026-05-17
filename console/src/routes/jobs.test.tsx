@@ -19,6 +19,7 @@ const fetchBoardBudgetSummariesMock = vi.fn();
 const fetchJobsContextMock = vi.fn();
 const fetchSchedulerMock = vi.fn<() => Promise<AdminSchedulerResponse>>();
 const moveSchedulerJobMock = vi.fn();
+const navigateMock = vi.fn();
 const resumeInteractiveEscalationMock = vi.fn();
 const saveSchedulerJobMock = vi.fn();
 const useAuthMock = vi.fn();
@@ -36,6 +37,10 @@ vi.mock('../api/client', () => ({
 
 vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
+}));
+
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => navigateMock,
 }));
 
 function makeConfigJob(
@@ -115,6 +120,8 @@ describe('JobsPage', () => {
     fetchBoardBudgetSummariesMock.mockReset();
     fetchSchedulerMock.mockReset();
     moveSchedulerJobMock.mockReset();
+    navigateMock.mockReset();
+    navigateMock.mockResolvedValue(undefined);
     resumeInteractiveEscalationMock.mockReset();
     saveSchedulerJobMock.mockReset();
     useAuthMock.mockReset();
@@ -284,6 +291,22 @@ describe('JobsPage', () => {
       expect(screen.getByText('Created')).toBeTruthy();
     });
     expect(screen.queryByText('never')).toBeNull();
+  });
+
+  it('opens the scheduler editor with SPA navigation', async () => {
+    renderJobsPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Release Reminder')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Release Reminder'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/admin/scheduler',
+      search: { jobId: 'release-reminder' },
+    });
   });
 
   it('shows blocked sessions on the board and resumes them from the detail pane', async () => {

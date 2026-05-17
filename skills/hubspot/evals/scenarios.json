@@ -1,0 +1,214 @@
+[
+  {
+    "id": "read-contact-email",
+    "category": "read-contact",
+    "input": "Find the HubSpot contact for jane@example.com",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-contact-name",
+    "category": "read-contact",
+    "input": "Look up contact Jane Rivera",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-contact-company",
+    "category": "read-contact",
+    "input": "Show contacts at Acme",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-contact-phone",
+    "category": "read-contact",
+    "input": "Get the contact record for Lee Chen",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-contact-lifecycle",
+    "category": "read-contact",
+    "input": "Read the lifecycle stage for contact Priya Shah",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-company-name",
+    "category": "read-company",
+    "input": "Find company Acme GmbH in HubSpot",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-company-domain",
+    "category": "read-company",
+    "input": "Look up the company with domain example.com",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-company-industry",
+    "category": "read-company",
+    "input": "Show the company profile for Northwind",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-company-lifecycle",
+    "category": "read-company",
+    "input": "Read the lifecycle stage for company Globex",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-company-account-alias",
+    "category": "read-company",
+    "input": "Get the account record for Initech",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-deal-name",
+    "category": "read-deal",
+    "input": "Find the Acme Renewal deal",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-deal-amount",
+    "category": "read-deal",
+    "input": "Show the deal amount for BigCo Expansion",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-deal-stage",
+    "category": "read-deal",
+    "input": "Read the current deal stage for Q3 Renewal",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-deal-close-date",
+    "category": "read-deal",
+    "input": "Get the close date for the Contoso opportunity",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "read-deal-owner",
+    "category": "read-deal",
+    "input": "Look up the HubSpot owner on the MegaCorp deal",
+    "expectedAction": "search-records",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "deal-stage-contract",
+    "category": "write-deal-stage",
+    "input": "Move Acme Renewal deal to contractsent",
+    "expectedAction": "update-deal-stage",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "deal-stage-closed-won",
+    "category": "write-deal-stage",
+    "input": "Update BigCo opportunity stage to closedwon",
+    "expectedAction": "update-deal-stage",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "deal-stage-presentation",
+    "category": "write-deal-stage",
+    "input": "Set the Q3 Renewal deal stage to presentationscheduled",
+    "expectedAction": "update-deal-stage",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "deal-stage-decision-maker",
+    "category": "write-deal-stage",
+    "input": "Change the deal stage for Northwind Expansion to decisionmakerboughtin",
+    "expectedAction": "update-deal-stage",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "deal-stage-closed-lost",
+    "category": "write-deal-stage",
+    "input": "Move the Contoso deal to closedlost",
+    "expectedAction": "update-deal-stage",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lifecycle-contact-mql",
+    "category": "write-lifecycle",
+    "input": "Update Jane Rivera contact lifecycle stage to marketingqualifiedlead",
+    "expectedAction": "update-lifecycle-stage",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lifecycle-company-customer",
+    "category": "write-lifecycle",
+    "input": "Set company Acme lifecycle to customer",
+    "expectedAction": "update-lifecycle-stage",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lifecycle-deal-opportunity",
+    "category": "write-lifecycle",
+    "input": "Change the deal lifecycle stage to opportunity",
+    "expectedAction": "update-lifecycle-stage",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "note-deal",
+    "category": "write-note",
+    "input": "Log a note on the Acme Renewal deal saying \"Legal review started\"",
+    "expectedAction": "create-note",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "note-contact",
+    "category": "write-note",
+    "input": "Add a note to contact Jane Rivera: \"Asked for security docs\"",
+    "expectedAction": "create-note",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "note-company",
+    "category": "write-note",
+    "input": "Create a timeline note on company Globex with \"Procurement call complete\"",
+    "expectedAction": "create-note",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "task-contact",
+    "category": "write-task",
+    "input": "Create a task for contact Lee Chen: \"Send pricing\"",
+    "expectedAction": "create-task",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "task-deal",
+    "category": "write-task",
+    "input": "Add follow-up task on the BigCo deal for next week",
+    "expectedAction": "create-task",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "compound-stage-note",
+    "category": "compound",
+    "input": "Move Acme Renewal deal to contractsent and log a note saying \"Contract sent to legal\"",
+    "expectedAction": "update-deal-stage",
+    "expectedActions": ["update-deal-stage", "create-note"],
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "compound-note-task",
+    "category": "compound",
+    "input": "Add a note to company Acme saying \"Budget confirmed\" and create a follow-up task",
+    "expectedAction": "create-note",
+    "expectedActions": ["create-note", "create-task"],
+    "costMeasurement": { "system": "UsageTotals" }
+  }
+]

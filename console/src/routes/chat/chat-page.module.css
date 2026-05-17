@@ -892,6 +892,19 @@ aside[data-state="collapsed"] .chatSidebarContent {
   background: #fff;
 }
 
+.artifactVideoPreview {
+  width: min(720px, 100%);
+  background: #000;
+}
+
+.artifactVideoPreview video {
+  display: block;
+  width: 100%;
+  max-height: min(65vh, 560px);
+  border-radius: var(--radius-sm);
+  background: #000;
+}
+
 .thinking {
   display: flex;
   align-items: center;

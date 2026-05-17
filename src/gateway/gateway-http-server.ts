@@ -226,7 +226,10 @@ import type {
   GatewayChatResult,
   GatewayCommandRequest,
 } from './gateway-types.js';
-import { resolveWorkspaceRelativePath } from './gateway-utils.js';
+import {
+  extensionToMimeType,
+  resolveWorkspaceRelativePath,
+} from './gateway-utils.js';
 import {
   consumeOperatorReturn,
   createSuspendedSession,
@@ -272,6 +275,9 @@ const SITE_MIME_TYPES: Record<string, string> = {
   '.js': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
+  '.m4v': extensionToMimeType('.m4v'),
+  '.mov': extensionToMimeType('.mov'),
+  '.mp4': extensionToMimeType('.mp4'),
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
@@ -289,10 +295,14 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
+  '.m4v': extensionToMimeType('.m4v'),
+  '.mov': extensionToMimeType('.mov'),
+  '.mp4': extensionToMimeType('.mp4'),
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.webm': extensionToMimeType('.webm'),
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
@@ -1808,6 +1818,8 @@ function resolveHybridAILoginUrl(): string | null {
 
 function isConsoleSpaPath(pathname: string): boolean {
   return (
+    pathname === '/agents' ||
+    pathname.startsWith('/agents/') ||
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||

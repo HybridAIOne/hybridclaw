@@ -17,6 +17,7 @@ coverage/
 data/
 .hybridclaw/
 .worktrees/
+.heygen-cache/
 
 # Environment / secrets
 .env

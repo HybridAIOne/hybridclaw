@@ -1840,6 +1840,80 @@ test('host auxiliary caller skips inactive local fallback candidates', async () 
   expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
 });
 
+test('host auxiliary caller prefers healthy local auto routing before remote fallback models', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn((provider: string) =>
+    provider === 'vllm' ? 'vllm/Qwen/Qwen3.6-27B-FP8' : undefined,
+  );
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      expect(model).toBe('vllm/Qwen/Qwen3.6-27B-FP8');
+      return {
+        provider: 'vllm' as const,
+        apiKey: '',
+        baseUrl: 'http://127.0.0.1:8000/v1',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: true,
+        contextWindow: 128_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    activeLocalBackends: { vllm: true },
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('http://127.0.0.1:8000/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('Qwen/Qwen3.6-27B-FP8');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Narrated through local vLLM first.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'cv_narration',
+    agentId: 'main',
+    fallbackModel: 'openrouter/anthropic/claude-sonnet-4',
+    maxTokens: 1_200,
+    messages: [{ role: 'user', content: 'Write one CV entry.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    content: 'Narrated through local vLLM first.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
+});
+
 test('host auxiliary caller prefers local model fallback when task resolution fails', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'anthropic/claude-3-7-sonnet',
