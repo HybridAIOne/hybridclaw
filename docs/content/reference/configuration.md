@@ -123,6 +123,11 @@ saved revision history directly.
 - `hybridai.maxTokens` for the default completion output budget; the shipped
   default is `4096`; you can change it live with
   `hybridclaw config set hybridai.maxTokens <n>`
+- `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
+  Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
+  standard HybridClaw tool loop or `app-server` for the native Codex app-server
+  turn loop on `openai-codex/*` models. `codex.runtime` is accepted as a
+  compatibility alias; new config should use `codex.turnRuntime`.
 - `HYBRIDAI_FALLBACK_CHAIN` accepts a JSON array of fallback entries with
   `model`, optional `baseUrl`, `keyEnv`, `chatbotId`, and `agentId`. Gateway
   model calls use the chain for auth and rate-limit failures, then cool down
