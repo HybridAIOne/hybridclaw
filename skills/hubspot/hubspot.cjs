@@ -4,6 +4,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
+const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
+const DEFAULT_TIMEOUT_MS = 30_000;
+const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
 const {
   ACTIVITY_ASSOCIATION_TYPE_IDS,
   WRITE_GRANTS,
@@ -28,6 +31,7 @@ Commands:
   workflow <request>                     Build ordered lookup/validation/API steps
   validate-option                        Validate a HubSpot property option from saved JSON
   explain-error                          Interpret a saved HubSpot/http_request error
+  run <http-request command>             Send a helper-built request through the gateway
   http-request list <object>             Build a list records request
   http-request search <object>           Build a CRM search request
   http-request get <object> <id>         Build a get-by-id request
@@ -99,6 +103,96 @@ function parseMaxResponseBytes(raw) {
     throw new Error('--max-response-bytes must be a positive integer.');
   }
   return value;
+}
+
+function popFlag(args, name, defaultValue = '') {
+  const index = args.findIndex(
+    (arg) => arg === name || arg.startsWith(`${name}=`),
+  );
+  if (index === -1) return defaultValue;
+  const arg = args.splice(index, 1)[0];
+  if (arg.includes('=')) return arg.slice(name.length + 1);
+  const value = args.splice(index, 1)[0];
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`Missing value for ${name}.`);
+  }
+  return value;
+}
+
+function resolveGatewayUrl(raw) {
+  const value =
+    String(raw || '').trim() ||
+    String(process.env.HYBRIDCLAW_GATEWAY_URL || '').trim() ||
+    String(process.env.GATEWAY_BASE_URL || '').trim() ||
+    DEFAULT_GATEWAY_URL;
+  const normalized = value.replace(/\/+$/u, '');
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error('--gateway-url must be an absolute http or https URL.');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('--gateway-url must use http or https.');
+  }
+  return normalized;
+}
+
+function resolveGatewayToken(raw) {
+  return (
+    String(raw || '').trim() ||
+    String(process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim() ||
+    String(process.env.GATEWAY_API_TOKEN || '').trim() ||
+    String(process.env.WEB_API_TOKEN || '').trim()
+  );
+}
+
+async function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
+  const url = `${gatewayUrl}/api/http/request`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(httpRequest),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    throw new Error(
+      `Cannot reach HybridClaw gateway at ${url}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const text = await response.text();
+  let envelope;
+  try {
+    envelope = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(
+      `Gateway returned non-JSON response: ${text.slice(0, 500)}`,
+    );
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Gateway request failed with HTTP ${response.status}: ${text.slice(
+        0,
+        500,
+      )}`,
+    );
+  }
+  return envelope;
 }
 
 function buildValidateOptionCommand(args) {
@@ -174,6 +268,32 @@ function explainErrorPayload(payload) {
     operatorMessage,
     retryable: category === 'rate-limit' || (status !== null && status >= 500),
     costMeasurement: usageTotalsMeasurement(),
+  };
+}
+
+function interpretedHubSpotResponse(response) {
+  if (response?.ok !== false) return null;
+  return explainErrorPayload(response);
+}
+
+async function buildRunCommand(args, options = {}) {
+  const gatewayUrl = resolveGatewayUrl(popFlag(args, '--gateway-url'));
+  const gatewayToken = resolveGatewayToken(popFlag(args, '--gateway-token'));
+  const requestPayload = buildHttpRequestCommand(args, options);
+  const response = await gatewayRequest(requestPayload.httpRequest, {
+    gatewayUrl,
+    gatewayToken,
+  });
+  const interpretedError = interpretedHubSpotResponse(response);
+
+  return {
+    command: 'run',
+    operation: requestPayload.command,
+    stakesTier: requestPayload.stakesTier,
+    response,
+    ...(interpretedError ? { interpretedError } : {}),
+    costMeasurement: usageTotalsMeasurement(),
+    liveExecution: requestPayload.liveExecution,
   };
 }
 
@@ -262,7 +382,7 @@ function renderText(payload) {
   return JSON.stringify(payload, null, 2);
 }
 
-function main() {
+async function main() {
   try {
     const global = parseGlobalArgs(process.argv.slice(2));
     if (global.help || global.args.length === 0) {
@@ -283,6 +403,10 @@ function main() {
       payload = buildValidateOptionCommand(args);
     } else if (command === 'explain-error') {
       payload = buildExplainErrorCommand(args);
+    } else if (command === 'run') {
+      payload = await buildRunCommand(args, {
+        maxResponseBytes: global.maxResponseBytes,
+      });
     } else if (command === 'http-request') {
       payload = buildHttpRequestCommand(args, {
         maxResponseBytes: global.maxResponseBytes,
@@ -311,6 +435,7 @@ module.exports = {
   ACTIVITY_ASSOCIATION_TYPE_IDS,
   WRITE_GRANTS,
   buildWorkflow,
+  buildRunCommand,
   buildHttpRequestCommand,
   explainErrorPayload,
   planNaturalLanguage,

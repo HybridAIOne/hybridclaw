@@ -49,6 +49,7 @@ test('HubSpot helper --help exits cleanly', () => {
   expect(result.stdout).toContain('workflow');
   expect(result.stdout).toContain('validate-option');
   expect(result.stdout).toContain('explain-error');
+  expect(result.stdout).toContain('run <http-request command>');
   expect(result.stdout).toContain('update-deal-stage');
   expect(result.stdout).toContain('update-lifecycle-stage');
   expect(result.stdout).toContain('create-note');
@@ -428,6 +429,9 @@ test('HubSpot helper interprets authentication, authorization, and stage errors'
     operatorMessage: expect.stringContaining('Do not infer token age'),
     retryable: false,
   });
+  expect(JSON.parse(auth.stdout).operatorMessage).not.toMatch(
+    /1970|20,590|way back|expired way back|refresh the token/i,
+  );
   expect(JSON.parse(scope.stdout)).toMatchObject({
     category: 'authorization',
     operatorMessage: expect.stringContaining('Stop after this failed call'),
@@ -463,6 +467,70 @@ test('HubSpot helper emits live execution auth failure policy', () => {
       ),
     },
   });
+});
+
+test('HubSpot helper run routes through gateway and interprets auth failures', async () => {
+  const helper = (await import('../skills/hubspot/hubspot.cjs')) as {
+    buildRunCommand: (
+      args: string[],
+      options?: { maxResponseBytes?: number },
+    ) => Promise<{
+      command: string;
+      operation: string;
+      interpretedError?: {
+        category: string;
+        operatorMessage: string;
+      };
+    }>;
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(body).toMatchObject({
+      bearerSecretName: 'HUBSPOT_ACCESS_TOKEN',
+      skillName: 'hubspot',
+    });
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        status: 401,
+        json: {
+          message: 'The OAuth token used to make this call expired 0 ms ago.',
+        },
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const payload = await helper.buildRunCommand([
+      '--gateway-url',
+      'http://127.0.0.1:9090',
+      'search',
+      'contacts',
+      '--query',
+      'stephan@example.com',
+    ]);
+    expect(payload).toMatchObject({
+      command: 'run',
+      operation: 'search',
+      interpretedError: {
+        category: 'authentication',
+        operatorMessage: expect.stringContaining('Do not infer token age'),
+      },
+    });
+    expect(payload.interpretedError?.operatorMessage).not.toMatch(
+      /1970|20,590|way back|expired way back|refresh the token/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('HubSpot helper builds note and task association payloads', () => {

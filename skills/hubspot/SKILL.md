@@ -114,17 +114,21 @@ covers contacts, companies, deals, notes, tasks, CRM schema reads, and `oauth`.
    node skills/hubspot/hubspot.cjs ...
    ```
 3. Pass only the emitted `httpRequest` object to the built-in `http_request`
-   tool for live API calls.
-4. For natural-language writes, run `workflow` first. It emits ordered
+   tool when dry-running or when the helper cannot reach the gateway. For live
+   HubSpot reads and writes, use the helper `run` command so the CJS script owns
+   request construction, gateway submission, and auth-error handling.
+4. Never handcraft HubSpot `http_request` calls from memory. The helper owns
+   endpoint selection, method, payload, secret refs, and auth-error handling.
+5. For natural-language writes, run `workflow` first. It emits ordered
    property metadata, lookup, operator confirmation, and write steps.
-5. For writes, confirm the target record and intended field change, then pass
+6. For writes, confirm the target record and intended field change, then pass
    either the exact `--grant` value or `--operator-grant`.
-6. Use internal HubSpot IDs for write targets. If a name search returns multiple
+7. Use internal HubSpot IDs for write targets. If a name search returns multiple
    records, stop and ask for the exact record ID.
-7. Use internal stage values for `dealstage`, `pipeline`, and
+8. Use internal stage values for `dealstage`, `pipeline`, and
    `lifecyclestage`. Read `/crm/v3/properties/...` first when the internal
    value is unknown.
-8. If a live HubSpot call returns 401 or 403, stop after that first failure. Do
+9. If a live HubSpot call returns 401 or 403, stop after that first failure. Do
    not retry, do not call more HubSpot endpoints, and do not guess from dates or
    epoch timestamps. Tell the operator to verify or replace
    `HUBSPOT_ACCESS_TOKEN`. For private apps, they should reveal/copy the current
@@ -156,20 +160,20 @@ node skills/hubspot/hubspot.cjs --format json workflow \
   --grant approve-hubspot-deal-stage-update
 ```
 
-List records:
+Run live read requests:
+
+```bash
+node skills/hubspot/hubspot.cjs --format json run search contacts --query jane@example.com
+node skills/hubspot/hubspot.cjs --format json run search companies --query acme
+node skills/hubspot/hubspot.cjs --format json run search deals --query renewal
+```
+
+Build dry-run request payloads without calling HubSpot:
 
 ```bash
 node skills/hubspot/hubspot.cjs --format json http-request list contacts --limit 25
 node skills/hubspot/hubspot.cjs --format json http-request list companies --property name --property domain
 node skills/hubspot/hubspot.cjs --format json http-request list deals --properties dealname,dealstage,pipeline,amount
-```
-
-Search records:
-
-```bash
-node skills/hubspot/hubspot.cjs --format json http-request search contacts --query jane@example.com
-node skills/hubspot/hubspot.cjs --format json http-request search companies --query acme
-node skills/hubspot/hubspot.cjs --format json http-request search deals --query renewal
 ```
 
 Read a record or properties:

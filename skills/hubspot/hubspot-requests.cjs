@@ -59,7 +59,7 @@ const LIVE_EXECUTION = {
   dryRunSafe:
     'For prompt/user testing, stop after plan, workflow, or http-request payload generation; do not call http_request.',
   callPolicy:
-    'For real user requests that need live HubSpot data, pass the emitted httpRequest object unchanged to http_request and let the gateway inject the token server-side.',
+    'For real user requests that need live HubSpot data, use the helper run command so the CJS script builds the request and submits it through the gateway.',
   secretRefPolicy:
     'Do not preflight, inspect, print, or ask the model for HUBSPOT_ACCESS_TOKEN. The bearerSecretName field is the credential reference.',
   requestShape:
