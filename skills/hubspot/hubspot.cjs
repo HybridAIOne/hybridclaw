@@ -138,7 +138,7 @@ function explainErrorPayload(payload) {
   ) {
     category = 'authentication';
     operatorMessage =
-      'HubSpot rejected the OAuth token. Re-run `hybridclaw auth login hubspot` or check that the refresh token is still valid.';
+      'HubSpot rejected the access token. Check the stored private app token, or re-run `hybridclaw auth login hubspot` for OAuth credentials.';
   } else if (
     status === 403 ||
     text.includes('scope') ||
@@ -146,7 +146,7 @@ function explainErrorPayload(payload) {
   ) {
     category = 'authorization';
     operatorMessage =
-      'HubSpot blocked the request. Check OAuth scopes, app installation, and object permissions.';
+      'HubSpot blocked the request. Check private app scopes, OAuth scopes, app installation, and object permissions.';
   } else if (status === 404 || text.includes('not found')) {
     category = 'not-found';
     operatorMessage =

@@ -14,7 +14,7 @@ import net from 'node:net';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import {
   HUBSPOT_ACCESS_TOKEN_SECRET,
-  resolveHubSpotRuntimeEnv,
+  resolveHubSpotAccessToken,
 } from '../auth/hubspot-auth.js';
 import type {
   RuntimeConfig,
@@ -399,9 +399,11 @@ async function resolveOAuthTokenOrThrow(params: {
   context: SecretResolveContext;
   isAllowedHost: (host?: string) => boolean;
   allowedHostDescription: string;
-  resolveRuntimeEnv: () => Promise<Record<string, string>>;
+  resolveToken: () => Promise<{
+    accessToken: string;
+    source: 'store' | 'google-oauth' | 'hubspot-oauth';
+  } | null>;
   loginHint: string;
-  secretSource: 'google-oauth' | 'hubspot-oauth';
 }): Promise<string> {
   if (!params.isAllowedHost(params.context.host)) {
     throw new GatewayRequestError(
@@ -410,8 +412,11 @@ async function resolveOAuthTokenOrThrow(params: {
     );
   }
 
-  const runtimeEnv = await params.resolveRuntimeEnv();
-  const token = normalizeSecretString(runtimeEnv[params.secretName]);
+  const resolved = await params.resolveToken();
+  if (!resolved?.accessToken) {
+    throw new GatewayRequestError(400, params.loginHint);
+  }
+  const token = normalizeSecretString(resolved.accessToken);
   if (!token) {
     throw new GatewayRequestError(400, params.loginHint);
   }
@@ -419,7 +424,7 @@ async function resolveOAuthTokenOrThrow(params: {
   const auditContext = {
     sessionId: params.context.sessionId,
     skillName: params.context.skillName,
-    secretSource: params.secretSource,
+    secretSource: resolved.source,
     secretId: params.secretName,
     sinkKind: 'http' as const,
     host: params.context.host,
@@ -447,9 +452,17 @@ async function resolveGoogleOAuthTokenOrThrow(
     context,
     isAllowedHost: isGoogleApisHost,
     allowedHostDescription: 'googleapis.com',
-    resolveRuntimeEnv: resolveGoogleWorkspaceRuntimeEnv,
+    resolveToken: async () => {
+      const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
+      const accessToken = normalizeSecretString(runtimeEnv[secretName]);
+      return accessToken
+        ? {
+            accessToken,
+            source: 'google-oauth',
+          }
+        : null;
+    },
     loginHint: `${secretName} is not available. Run \`hybridclaw auth login google\` and start a fresh agent runtime.`,
-    secretSource: 'google-oauth',
   });
 }
 
@@ -462,9 +475,8 @@ async function resolveHubSpotOAuthTokenOrThrow(
     context,
     isAllowedHost: isHubSpotApiHost,
     allowedHostDescription: 'HubSpot API',
-    resolveRuntimeEnv: resolveHubSpotRuntimeEnv,
-    loginHint: `${secretName} is not available. Run \`hybridclaw auth login hubspot\` and start a fresh agent runtime.`,
-    secretSource: 'hubspot-oauth',
+    resolveToken: resolveHubSpotAccessToken,
+    loginHint: `${secretName} is not available. Store a HubSpot private app access token with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
   });
 }
 

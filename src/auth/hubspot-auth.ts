@@ -63,6 +63,13 @@ export interface HubSpotLoginResult {
   secretsPath: string;
 }
 
+export interface HubSpotAccessTokenLoginResult {
+  account: string;
+  secretsPath: string;
+}
+
+export type HubSpotRuntimeTokenSource = 'store' | 'hubspot-oauth';
+
 interface HubSpotTokenResponse {
   access_token?: unknown;
   refresh_token?: unknown;
@@ -365,11 +372,37 @@ export async function loginHubSpot(
   };
 }
 
+export function loginHubSpotAccessToken(input: {
+  accessToken: string;
+  account?: string;
+}): HubSpotAccessTokenLoginResult {
+  const accessToken = input.accessToken.trim();
+  if (!accessToken) {
+    throw new Error('HubSpot private app access token is required.');
+  }
+  const account = input.account?.trim() || '';
+  cachedHubSpotAccessToken = null;
+  clearHubSpotAuthMetadata();
+  const secretsPath = saveNamedRuntimeSecrets({
+    [HUBSPOT_ACCOUNT_SECRET]: account,
+    [HUBSPOT_ACCESS_TOKEN_SECRET]: accessToken,
+    [HUBSPOT_OAUTH_CLIENT_ID_SECRET]: null,
+    [HUBSPOT_OAUTH_CLIENT_SECRET_SECRET]: null,
+    [HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET]: null,
+    [HUBSPOT_OAUTH_SCOPES_ENV]: null,
+  });
+  return {
+    account,
+    secretsPath,
+  };
+}
+
 export function clearHubSpotAuth(): string {
   cachedHubSpotAccessToken = null;
   clearHubSpotAuthMetadata();
   return saveNamedRuntimeSecrets({
     [HUBSPOT_ACCOUNT_SECRET]: null,
+    [HUBSPOT_ACCESS_TOKEN_SECRET]: null,
     [HUBSPOT_OAUTH_CLIENT_ID_SECRET]: null,
     [HUBSPOT_OAUTH_CLIENT_SECRET_SECRET]: null,
     [HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET]: null,
@@ -380,13 +413,16 @@ export function clearHubSpotAuth(): string {
 export function getHubSpotAuthStatus(): {
   authenticated: boolean;
   account: string;
+  authMode: 'private-app-token' | 'oauth' | 'none';
   scopes: string[];
   path: string;
 } {
   const stored = readStoredHubSpotAuth();
+  const accessToken = readSecretOrEnv(HUBSPOT_ACCESS_TOKEN_SECRET);
   return {
-    authenticated: Boolean(stored),
+    authenticated: Boolean(accessToken || stored),
     account: stored?.account || readSecretOrEnv(HUBSPOT_ACCOUNT_SECRET),
+    authMode: accessToken ? 'private-app-token' : stored ? 'oauth' : 'none',
     scopes: stored?.scopes || parseHubSpotScopes(readStoredHubSpotScopes()),
     path: runtimeSecretsPath(),
   };
@@ -437,10 +473,29 @@ export async function mintHubSpotAccessToken(): Promise<{
   return { accessToken, expiresIn };
 }
 
+export async function resolveHubSpotAccessToken(): Promise<{
+  accessToken: string;
+  source: HubSpotRuntimeTokenSource;
+} | null> {
+  const storedAccessToken = readSecretOrEnv(HUBSPOT_ACCESS_TOKEN_SECRET);
+  if (storedAccessToken) {
+    return {
+      accessToken: storedAccessToken,
+      source: 'store',
+    };
+  }
+  const minted = await mintHubSpotAccessToken();
+  if (!minted) return null;
+  return {
+    accessToken: minted.accessToken,
+    source: 'hubspot-oauth',
+  };
+}
+
 export async function resolveHubSpotRuntimeEnv(): Promise<
   Record<string, string>
 > {
-  const minted = await mintHubSpotAccessToken();
-  if (!minted) return {};
-  return { HUBSPOT_ACCESS_TOKEN: minted.accessToken };
+  const resolved = await resolveHubSpotAccessToken();
+  if (!resolved) return {};
+  return { HUBSPOT_ACCESS_TOKEN: resolved.accessToken };
 }

@@ -125,12 +125,57 @@ test('HubSpot runtime env mints short-lived access token from stored refresh tok
   );
 });
 
-test('HubSpot runtime env ignores static access token env bypass', async () => {
+test('HubSpot runtime env uses stored private app access token', async () => {
   const homeDir = makeTempHome();
-  process.env.HUBSPOT_ACCESS_TOKEN = 'existing-access-token';
-  const { resolveHubSpotRuntimeEnv } = await importFreshHubSpotAuth(homeDir);
+  const {
+    getHubSpotAuthStatus,
+    resolveHubSpotAccessToken,
+    resolveHubSpotRuntimeEnv,
+  } = await importFreshHubSpotAuth(homeDir);
+  const { saveNamedRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  saveNamedRuntimeSecrets({
+    HUBSPOT_ACCESS_TOKEN: 'private-app-access-token',
+  });
 
-  await expect(resolveHubSpotRuntimeEnv()).resolves.toEqual({});
+  expect(getHubSpotAuthStatus()).toMatchObject({
+    authenticated: true,
+    authMode: 'private-app-token',
+  });
+  await expect(resolveHubSpotAccessToken()).resolves.toEqual({
+    accessToken: 'private-app-access-token',
+    source: 'store',
+  });
+  await expect(resolveHubSpotRuntimeEnv()).resolves.toEqual({
+    HUBSPOT_ACCESS_TOKEN: 'private-app-access-token',
+  });
+});
+
+test('auth command handles HubSpot private app access token login', async () => {
+  const homeDir = makeTempHome();
+  const { handleAuthCommand } = await importFreshAuthCommand(homeDir);
+  const logs: string[] = [];
+  const logSpy = vi.spyOn(console, 'log').mockImplementation((line = '') => {
+    logs.push(String(line));
+  });
+
+  await handleAuthCommand([
+    'login',
+    'hubspot',
+    '--access-token',
+    'private-app-access-token',
+    '--account',
+    'sales@example.com',
+  ]);
+  await handleAuthCommand(['status', 'hubspot']);
+  await handleAuthCommand(['logout', 'hubspot']);
+
+  logSpy.mockRestore();
+  expect(logs.join('\n')).toContain('Saved HubSpot private app access token');
+  expect(logs.join('\n')).toContain('Account: sales@example.com');
+  expect(logs.join('\n')).toContain('Private app access token: configured');
+  expect(logs.join('\n')).toContain('Cleared HubSpot credentials');
 });
 
 test('HubSpot authorize URL includes scopes, redirect URI, and state', async () => {
@@ -183,7 +228,7 @@ test('auth command handles HubSpot login, status, and logout', async () => {
   expect(logs.join('\n')).toContain('Saved HubSpot OAuth credentials');
   expect(logs.join('\n')).toContain('Account: sales@example.com');
   expect(logs.join('\n')).toContain('Authenticated: yes');
-  expect(logs.join('\n')).toContain('Cleared HubSpot OAuth credentials');
+  expect(logs.join('\n')).toContain('Cleared HubSpot credentials');
 });
 
 test('help topic prints HubSpot auth usage', async () => {

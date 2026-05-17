@@ -1,6 +1,6 @@
 ---
 name: hubspot
-description: "Read HubSpot contacts, companies, and deals; update deal stages and lifecycle stages; log notes and tasks through gateway-minted OAuth tokens."
+description: "Read HubSpot contacts, companies, and deals; update deal stages and lifecycle stages; log notes and tasks through gateway-managed bearer tokens."
 user-invocable: true
 requires:
   bins:
@@ -15,6 +15,7 @@ metadata:
       - contacts
       - companies
       - deals
+      - private-app-token
       - oauth
     stakes_tiers:
       green:
@@ -37,8 +38,8 @@ metadata:
 
 # HubSpot
 
-Use this skill for HubSpot CRM work when the operator has connected a HubSpot
-OAuth app to HybridClaw.
+Use this skill for HubSpot CRM work when the operator has connected HubSpot to
+HybridClaw with a private app access token or OAuth credentials.
 
 ## Scope
 
@@ -59,19 +60,25 @@ OAuth app to HybridClaw.
 
 ## Credential Rules
 
-HubSpot uses OAuth. Store the HubSpot client secret and refresh token in
-HybridClaw encrypted runtime secrets; never paste tokens into a prompt.
+For normal single-account HubSpot use, create a HubSpot private app access
+token and store it as `HUBSPOT_ACCESS_TOKEN` in HybridClaw encrypted runtime
+secrets. Never paste tokens into a prompt.
 
 Recommended setup:
 
 ```bash
+hybridclaw secret set HUBSPOT_ACCESS_TOKEN
+```
+
+Equivalent setup when passing the token explicitly:
+
+```bash
 hybridclaw auth login hubspot \
-  --client-id "<hubspot-oauth-client-id>" \
-  --client-secret "<hubspot-oauth-client-secret>" \
+  --access-token "<hubspot-private-app-access-token>" \
   --account sales@example.com
 ```
 
-For non-browser setup with an existing refresh token:
+OAuth client credentials are also supported for public app installations:
 
 ```bash
 hybridclaw auth login hubspot \
@@ -80,12 +87,14 @@ hybridclaw auth login hubspot \
   --refresh-token "<refresh-token>"
 ```
 
-The gateway stores `HUBSPOT_CLIENT_SECRET` and `HUBSPOT_REFRESH_TOKEN`, mints a
-short-lived access token on demand, and injects it only when an `http_request`
-uses `bearerSecretName: "HUBSPOT_ACCESS_TOKEN"` against HubSpot API hosts.
+The gateway injects `HUBSPOT_ACCESS_TOKEN` only when an `http_request` uses
+`bearerSecretName: "HUBSPOT_ACCESS_TOKEN"` against HubSpot API hosts. With OAuth
+credentials, the gateway mints the access token from `HUBSPOT_CLIENT_SECRET` and
+`HUBSPOT_REFRESH_TOKEN`; with private app setup, the stored private app token is
+used directly.
 
-Required OAuth scopes depend on the task. The default login scope set covers:
-contacts, companies, deals, notes, tasks, CRM schema reads, and `oauth`.
+Required HubSpot scopes depend on the task. The default OAuth login scope set
+covers contacts, companies, deals, notes, tasks, CRM schema reads, and `oauth`.
 
 ## Default Workflow
 
@@ -223,7 +232,7 @@ node skills/hubspot/hubspot.cjs --format json explain-error \
 
 - Use `http_request`; do not use `curl` for HubSpot API calls when
   `http_request` is available.
-- Never print, store in files, or include real HubSpot OAuth tokens in tool
+- Never print, store in files, or include real HubSpot access tokens in tool
   arguments or prose.
 - Treat writes as amber operations and require exact operator grant in the
   current task.

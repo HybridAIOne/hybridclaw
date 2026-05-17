@@ -14,12 +14,14 @@ import {
   clearHubSpotAuth,
   DEFAULT_HUBSPOT_OAUTH_SCOPES,
   getHubSpotAuthStatus,
+  HUBSPOT_ACCESS_TOKEN_SECRET,
   HUBSPOT_ACCOUNT_SECRET,
   HUBSPOT_OAUTH_CLIENT_ID_SECRET,
   HUBSPOT_OAUTH_CLIENT_SECRET_SECRET,
   HUBSPOT_OAUTH_REFRESH_TOKEN_SECRET,
   HUBSPOT_OAUTH_SCOPES_ENV,
   loginHubSpot,
+  loginHubSpotAccessToken,
   parseHubSpotScopes,
 } from '../auth/hubspot-auth.js';
 import {
@@ -1440,24 +1442,30 @@ function printHubSpotStatus(): void {
   if (status.authenticated) {
     console.log('Source: runtime-secrets');
     console.log(`Account: ${status.account || '(not set)'}`);
-    console.log('Refresh token: configured');
-    console.log('Client secret: configured');
-    console.log(`Scopes: ${status.scopes.join(' ')}`);
-    console.log('Scopes source: auth metadata');
-    console.log('HTTP auth mode: gateway-minted bearer token');
+    if (status.authMode === 'private-app-token') {
+      console.log('Private app access token: configured');
+      console.log('HTTP auth mode: stored HubSpot bearer token');
+    } else {
+      console.log('Refresh token: configured');
+      console.log('Client secret: configured');
+      console.log(`Scopes: ${status.scopes.join(' ')}`);
+      console.log('Scopes source: auth metadata');
+      console.log('HTTP auth mode: gateway-minted bearer token');
+    }
   }
 }
 
 function clearHubSpotCredentials(): void {
   const filePath = clearHubSpotAuth();
-  console.log(`Cleared HubSpot OAuth credentials from ${filePath}.`);
-  console.log('The gateway will no longer mint HubSpot access tokens.');
+  console.log(`Cleared HubSpot credentials from ${filePath}.`);
+  console.log('The gateway will no longer inject HubSpot access tokens.');
 }
 
 function parseHubSpotLoginArgs(args: string[]): {
   account?: string;
   clientId?: string;
   clientSecret?: string;
+  accessToken?: string;
   refreshToken?: string;
   scopes?: string;
   redirectPort?: number;
@@ -1466,12 +1474,14 @@ function parseHubSpotLoginArgs(args: string[]): {
     | 'account'
     | 'clientId'
     | 'clientSecret'
+    | 'accessToken'
     | 'refreshToken'
     | 'scopes';
   const parsed: {
     account?: string;
     clientId?: string;
     clientSecret?: string;
+    accessToken?: string;
     refreshToken?: string;
     scopes?: string;
     redirectPort?: number;
@@ -1487,6 +1497,11 @@ function parseHubSpotLoginArgs(args: string[]): {
       key: 'clientSecret',
       name: '--client-secret',
       placeholder: '<secret>',
+    },
+    {
+      key: 'accessToken',
+      name: '--access-token',
+      placeholder: '<token>',
     },
     {
       key: 'refreshToken',
@@ -1561,7 +1576,7 @@ async function resolveInteractiveHubSpotLogin(params: {
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error(
-      'Missing HubSpot OAuth credentials. Pass `--client-id <id>` and `--client-secret <secret>`, or run this command in an interactive terminal.',
+      'Missing HubSpot credentials. Pass `--access-token <token>` for a private app token, pass `--client-id <id>` and `--client-secret <secret>` for OAuth, or run this command in an interactive terminal.',
     );
   }
 
@@ -1599,6 +1614,32 @@ async function resolveInteractiveHubSpotLogin(params: {
 
 async function configureHubSpotAuth(args: string[]): Promise<void> {
   const parsed = parseHubSpotLoginArgs(args);
+  const hasOAuthArgs = Boolean(
+    parsed.clientId || parsed.clientSecret || parsed.refreshToken,
+  );
+  const accessToken =
+    parsed.accessToken ||
+    (!hasOAuthArgs ? process.env[HUBSPOT_ACCESS_TOKEN_SECRET]?.trim() : '') ||
+    undefined;
+  if (accessToken) {
+    const result = loginHubSpotAccessToken({
+      account:
+        parsed.account ||
+        process.env[HUBSPOT_ACCOUNT_SECRET]?.trim() ||
+        readStoredRuntimeSecret(HUBSPOT_ACCOUNT_SECRET) ||
+        '',
+      accessToken,
+    });
+    console.log(
+      `Saved HubSpot private app access token to ${result.secretsPath}.`,
+    );
+    if (result.account) console.log(`Account: ${result.account}`);
+    console.log(
+      'The gateway will inject HUBSPOT_ACCESS_TOKEN only into HubSpot API requests.',
+    );
+    return;
+  }
+
   const resolved = await resolveInteractiveHubSpotLogin({
     account:
       parsed.account ||
