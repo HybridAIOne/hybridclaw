@@ -184,6 +184,8 @@ Resize/change type contract:
 The `change_type` payload is `json.server_type` plus `json.upgrade_disk`.
 Never send `json.type`, never omit `upgrade_disk`, and never rewrite
 `bearerSecretName: "HETZNER_API_TOKEN"` into `secretHeaders`.
+The helper emits generic `skillRequestContract` metadata for this operation;
+pass it through unchanged so the gateway can validate the helper-built request.
 Do not call `list-server-types` before a simple resize unless the user asks for
 price or disk validation; Hetzner accepts `cpx32` directly in `server_type`.
 

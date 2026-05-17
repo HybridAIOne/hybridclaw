@@ -123,7 +123,10 @@ function parseServerTypeReference(value, flagName) {
   return normalized;
 }
 
-function buildHttpRequest(operation, { url, method = 'GET', json }) {
+function buildHttpRequest(
+  operation,
+  { url, method = 'GET', json, skillRequestContract },
+) {
   const payload = {
     command: 'http-request',
     operation,
@@ -134,11 +137,15 @@ function buildHttpRequest(operation, { url, method = 'GET', json }) {
       timeoutMs: DEFAULT_TIMEOUT_MS,
       bearerSecretName: TOKEN_SECRET,
       skillName: 'hetzner-cloud',
+      stakesTier: OPERATION_TIERS[operation],
     },
     costMeasurement: COST_MEASUREMENT,
     liveExecution: LIVE_EXECUTION,
   };
   if (json !== undefined) payload.httpRequest.json = json;
+  if (skillRequestContract !== undefined) {
+    payload.httpRequest.skillRequestContract = skillRequestContract;
+  }
   return payload;
 }
 
@@ -601,6 +608,17 @@ function commandHttpRequest(args) {
         json: {
           server_type: serverType,
           upgrade_disk: upgradeDisk,
+        },
+        skillRequestContract: {
+          version: 1,
+          name: 'hetzner-cloud.change-type',
+          requireBearerSecretName: TOKEN_SECRET,
+          forbidSecretHeaders: true,
+          requireJsonFields: ['server_type', 'upgrade_disk'],
+          forbidJsonFields: ['type'],
+          requireJsonFieldTypes: { upgrade_disk: 'boolean' },
+          remediation:
+            'Build the request with skills/hetzner-cloud/hetzner_cloud.cjs and pass the emitted httpRequest unchanged.',
         },
       });
       break;

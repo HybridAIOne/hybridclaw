@@ -320,6 +320,7 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     method: 'GET',
     bearerSecretName: 'HETZNER_API_TOKEN',
     skillName: 'hetzner-cloud',
+    stakesTier: 'green',
   });
   expect(JSON.parse(read.stdout).liveExecution).toMatchObject({
     approvalPolicy: expect.stringContaining('upgrade, downgrade, buy'),
@@ -360,6 +361,7 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
   expect(JSON.parse(writeWithGrant.stdout).httpRequest).toMatchObject({
     method: 'POST',
     url: 'https://api.hetzner.cloud/v1/servers',
+    stakesTier: 'amber',
     json: {
       name: 'acme-demo',
       server_type: 'cax11',
@@ -375,6 +377,7 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     httpRequest: {
       method: 'POST',
       url: 'https://api.hetzner.cloud/v1/servers/123456/actions/rebuild',
+      stakesTier: 'red',
       json: { image: 987654 },
     },
   });
@@ -393,7 +396,17 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     httpRequest: {
       method: 'POST',
       url: 'https://api.hetzner.cloud/v1/servers/123456/actions/change_type',
+      stakesTier: 'amber',
       json: { server_type: 'cpx32', upgrade_disk: false },
+      skillRequestContract: {
+        version: 1,
+        name: 'hetzner-cloud.change-type',
+        requireBearerSecretName: 'HETZNER_API_TOKEN',
+        forbidSecretHeaders: true,
+        requireJsonFields: ['server_type', 'upgrade_disk'],
+        forbidJsonFields: ['type'],
+        requireJsonFieldTypes: { upgrade_disk: 'boolean' },
+      },
     },
   });
   expect(upgradeWithGrant.status).toBe(0);
@@ -538,6 +551,7 @@ test('Hetzner DNS helper builds RRset requests and protects deletes', () => {
   expect(payload.httpRequest).toMatchObject({
     method: 'POST',
     url: 'https://dns.hetzner.com/api/v1/records',
+    stakesTier: 'amber',
     secretHeaders: [
       {
         name: 'Auth-API-Token',
@@ -697,6 +711,7 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
     method: 'GET',
     url: 'https://api.hetzner.com/v1/storage_boxes',
     bearerSecretName: 'HETZNER_API_TOKEN',
+    stakesTier: 'green',
   });
   expect(JSON.parse(api.stdout).liveExecution).toMatchObject({
     requiresConfiguredSecrets: ['HETZNER_API_TOKEN'],
@@ -712,6 +727,7 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
   expect(JSON.parse(webdav.stdout).httpRequest).toMatchObject({
     method: 'PROPFIND',
     url: 'https://u00000.your-storagebox.de/archives',
+    stakesTier: 'green',
     secretHeaders: [
       {
         name: 'Authorization',

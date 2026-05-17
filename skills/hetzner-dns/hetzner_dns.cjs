@@ -99,6 +99,7 @@ function buildHttpRequest(operation, { url, method = 'GET', json }) {
         },
       ],
       skillName: 'hetzner-dns',
+      stakesTier: OPERATION_TIERS[operation],
     },
     costMeasurement: COST_MEASUREMENT,
     liveExecution: LIVE_EXECUTION,

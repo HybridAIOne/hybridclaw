@@ -386,6 +386,10 @@ docs, and reliable init/validate/package/publish workflows.
 > payloads, tiers, and secret refs, then emits gateway-ready JSON the model can
 > pass through unchanged.
 >
+> If a request shape is safety-critical, include generic
+> `skillRequestContract` metadata in the emitted request instead of adding
+> provider-specific checks to gateway or container core.
+>
 > Use `quick_validate.py` to check your skill before publishing.
 
 > 🎯 **Try it yourself**

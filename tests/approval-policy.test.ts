@@ -1609,7 +1609,7 @@ approval:
     expect(evaluation.actionKey).toBe('network:hybridai.one');
   });
 
-  test('Hetzner API writes require explicit approval even when network is allowed', () => {
+  test('skill-managed API writes require explicit approval and enforce request contracts', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
@@ -1621,6 +1621,7 @@ approval:
         method: 'GET',
         bearerSecretName: 'HETZNER_API_TOKEN',
         skillName: 'hetzner-cloud',
+        stakesTier: 'green',
       }),
       latestUserPrompt: 'Check the cpx32 server type',
     });
@@ -1629,8 +1630,21 @@ approval:
       argsJson: JSON.stringify({
         url: 'https://api.hetzner.cloud/v1/servers/4907527/actions/change_type',
         method: 'POST',
-        json: { type: 'cpx32' },
-        secretHeaders: [{ name: 'Authorization', secretName: 'anything' }],
+        bearerSecretName: 'HETZNER_API_TOKEN',
+        skillName: 'hetzner-cloud',
+        stakesTier: 'amber',
+        json: { type: 'cpx32', upgrade_disk: false },
+        skillRequestContract: {
+          version: 1,
+          name: 'hetzner-cloud.change-type',
+          requireBearerSecretName: 'HETZNER_API_TOKEN',
+          forbidSecretHeaders: true,
+          requireJsonFields: ['server_type', 'upgrade_disk'],
+          forbidJsonFields: ['type'],
+          requireJsonFieldTypes: { upgrade_disk: 'boolean' },
+          remediation:
+            'Build the request with skills/hetzner-cloud/hetzner_cloud.cjs.',
+        },
       }),
       latestUserPrompt: 'Downgrade bastion to cpx32',
     });
@@ -1639,7 +1653,19 @@ approval:
       method: 'POST',
       bearerSecretName: 'HETZNER_API_TOKEN',
       skillName: 'hetzner-cloud',
+      stakesTier: 'amber',
       json: { server_type: 45, upgrade_disk: false },
+      skillRequestContract: {
+        version: 1,
+        name: 'hetzner-cloud.change-type',
+        requireBearerSecretName: 'HETZNER_API_TOKEN',
+        forbidSecretHeaders: true,
+        requireJsonFields: ['server_type', 'upgrade_disk'],
+        forbidJsonFields: ['type'],
+        requireJsonFieldTypes: { upgrade_disk: 'boolean' },
+        remediation:
+          'Build the request with skills/hetzner-cloud/hetzner_cloud.cjs.',
+      },
     });
     const writeEvaluation = runtime.evaluateToolCall({
       toolName: 'http_request',
@@ -1651,7 +1677,10 @@ approval:
     expect(malformedWriteEvaluation.tier).toBe('red');
     expect(malformedWriteEvaluation.decision).toBe('denied');
     expect(malformedWriteEvaluation.escalationRoute).toBe('policy_denial');
-    expect(malformedWriteEvaluation.reason).toContain('json.server_type');
+    expect(malformedWriteEvaluation.reason).toContain(
+      'hetzner-cloud.change-type contract violation',
+    );
+    expect(malformedWriteEvaluation.reason).toContain('json.type');
     expect(writeEvaluation.tier).toBe('red');
     expect(writeEvaluation.decision).toBe('required');
     expect(writeEvaluation.escalationRoute).toBe('approval_request');
@@ -1660,7 +1689,7 @@ approval:
       'network:api.hetzner.cloud:POST:/v1/servers/4907527/actions/change_type',
     );
     expect(writeEvaluation.reason).toBe(
-      'Hetzner API write requests require explicit operator approval',
+      'hetzner-cloud amber API write requests require explicit operator approval',
     );
 
     const prelude = runtime.handleApprovalResponse([

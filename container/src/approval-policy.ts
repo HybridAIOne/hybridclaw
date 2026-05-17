@@ -974,40 +974,102 @@ function isReadOnlyHttpMethod(method: string): boolean {
   return ['GET', 'HEAD', 'OPTIONS'].includes(normalizeHttpMethod(method));
 }
 
-function isHetznerApiHost(host: string): boolean {
-  const normalized = normalizeText(host).toLowerCase();
-  return normalized === 'api.hetzner.cloud' || normalized === 'api.hetzner.com';
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => normalizeText(item)).filter(Boolean);
 }
 
-function isHetznerCloudChangeTypeTarget(target: {
-  host: string;
-  path: string;
-  method: string;
-}): boolean {
-  return (
-    normalizeText(target.host).toLowerCase() === 'api.hetzner.cloud' &&
-    normalizeHttpMethod(target.method) === 'POST' &&
-    /^\/v1\/servers\/\d+\/actions\/change_type$/u.test(
-      normalizeText(target.path),
-    )
-  );
+function isExpectedJsonFieldType(
+  value: unknown,
+  expectedType: string,
+): boolean {
+  switch (expectedType) {
+    case 'array':
+      return Array.isArray(value);
+    case 'boolean':
+    case 'number':
+    case 'string':
+      return typeof value === expectedType && value !== null;
+    case 'object':
+      return (
+        typeof value === 'object' && value !== null && !Array.isArray(value)
+      );
+    default:
+      return true;
+  }
 }
 
-function invalidHetznerCloudChangeTypeReason(
+function invalidSkillRequestContractReason(
   args: Record<string, unknown> | undefined,
 ): string | null {
+  const contract = asRecord(args?.skillRequestContract);
+  if (Object.keys(contract).length === 0) return null;
+
+  const contractName =
+    normalizeText(contract.name) ||
+    normalizeText(contract.id) ||
+    'skill request';
+  const remediation = normalizeText(contract.remediation);
+  const failure = (message: string): string =>
+    `${contractName} contract violation: ${message}${
+      remediation ? ` ${remediation}` : ''
+    }`;
+
+  const requiredBearerSecretName = normalizeText(
+    contract.requireBearerSecretName,
+  );
+  if (
+    requiredBearerSecretName &&
+    normalizeText(args?.bearerSecretName) !== requiredBearerSecretName
+  ) {
+    return failure(
+      `use bearerSecretName "${requiredBearerSecretName}" from the helper output.`,
+    );
+  }
+
+  if (
+    contract.forbidSecretHeaders === true &&
+    Array.isArray(args?.secretHeaders) &&
+    args.secretHeaders.length > 0
+  ) {
+    return failure('do not send secretHeaders.');
+  }
+
   const json = asRecord(args?.json);
-  if ('type' in json && !('server_type' in json)) {
-    return 'Malformed Hetzner change_type payload: use json.server_type, not json.type. Build the request with skills/hetzner-cloud/hetzner_cloud.cjs.';
+  for (const field of stringList(contract.forbidJsonFields)) {
+    if (field in json) return failure(`do not send json.${field}.`);
   }
-  if (!('server_type' in json)) {
-    return 'Malformed Hetzner change_type payload: missing json.server_type. Build the request with skills/hetzner-cloud/hetzner_cloud.cjs.';
+  for (const field of stringList(contract.requireJsonFields)) {
+    if (!(field in json)) return failure(`missing json.${field}.`);
   }
-  if (typeof json.upgrade_disk !== 'boolean') {
-    return 'Malformed Hetzner change_type payload: json.upgrade_disk must be an explicit boolean. Build the request with skills/hetzner-cloud/hetzner_cloud.cjs; it emits false by default to keep disk size during downgrades.';
+
+  const requiredJsonFieldTypes = asRecord(contract.requireJsonFieldTypes);
+  for (const [field, expectedTypeValue] of Object.entries(
+    requiredJsonFieldTypes,
+  )) {
+    const expectedType = normalizeText(expectedTypeValue).toLowerCase();
+    if (!expectedType || !(field in json)) continue;
+    if (!isExpectedJsonFieldType(json[field], expectedType)) {
+      return failure(`json.${field} must be ${expectedType}.`);
+    }
   }
-  if (normalizeText(args?.bearerSecretName) !== 'HETZNER_API_TOKEN') {
-    return 'Malformed Hetzner change_type request: use bearerSecretName "HETZNER_API_TOKEN" from the helper output instead of hand-built secret headers.';
+
+  return null;
+}
+
+function skillManagedWriteApprovalReason(
+  args: Record<string, unknown> | undefined,
+  method: string,
+): string | null {
+  if (isReadOnlyHttpMethod(method)) return null;
+  const skillName = normalizeText(args?.skillName || args?.skill);
+  if (!skillName) return null;
+  const stakesTier = normalizeText(args?.stakesTier).toLowerCase();
+  if (stakesTier === 'red' || stakesTier === 'amber') {
+    return `${skillName} ${stakesTier} API write requests require explicit operator approval`;
+  }
+  if (args?.explicitApprovalRequired === true) {
+    return `${skillName} API write requests require explicit operator approval`;
   }
   return null;
 }
@@ -2692,43 +2754,55 @@ export class TrustedAgentApprovalRuntime {
         params.targets.map((target) => normalizeHostScope(target.host)),
       ),
     ];
-    const hetznerWriteTarget = params.targets.find(
-      (target) =>
-        isHetznerApiHost(target.host) && !isReadOnlyHttpMethod(target.method),
+    const invalidSkillRequestContract = invalidSkillRequestContractReason(
+      params.args,
     );
-    if (hetznerWriteTarget) {
-      const hostScope = normalizeText(hetznerWriteTarget.host).toLowerCase();
-      const method = normalizeHttpMethod(hetznerWriteTarget.method);
-      const invalidChangeTypeReason = isHetznerCloudChangeTypeTarget(
-        hetznerWriteTarget,
-      )
-        ? invalidHetznerCloudChangeTypeReason(params.args)
-        : null;
-      if (invalidChangeTypeReason) {
-        return {
-          tier: 'red',
-          actionKey: `network:${hostScope}:${method}:${hetznerWriteTarget.path}`,
-          intent: `modify Hetzner resources via ${hostScope}`,
-          consequenceIfDenied:
-            'I will leave Hetzner resources unchanged and rebuild the request through the Hetzner Cloud helper.',
-          reason: invalidChangeTypeReason,
-          commandPreview: params.commandPreview,
-          pathHints: [],
-          hostHints,
-          writeIntent: true,
-          promotableRed: false,
-          stickyYellow: true,
-          hardDeny: true,
-          explicitApprovalRequired: true,
-        };
-      }
+    if (invalidSkillRequestContract) {
+      const target = params.targets[0];
+      const hostScope = normalizeText(
+        target?.host || primaryHost,
+      ).toLowerCase();
+      const method = normalizeHttpMethod(target?.method);
+      const pathScope = normalizeText(target?.path);
       return {
         tier: 'red',
-        actionKey: `network:${hostScope}:${method}:${hetznerWriteTarget.path}`,
-        intent: `modify Hetzner resources via ${hostScope}`,
+        actionKey: `network:${hostScope}:${method}${
+          pathScope ? `:${pathScope}` : ''
+        }`,
+        intent: `send a skill-managed API request to ${hostScope}`,
         consequenceIfDenied:
-          'I will leave Hetzner resources unchanged and continue with read-only inspection only.',
-        reason: 'Hetzner API write requests require explicit operator approval',
+          'I will leave external resources unchanged and rebuild the request through the skill helper.',
+        reason: invalidSkillRequestContract,
+        commandPreview: params.commandPreview,
+        pathHints: [],
+        hostHints,
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: true,
+        hardDeny: true,
+        explicitApprovalRequired: true,
+      };
+    }
+    const skillManagedWriteTarget = params.targets.find((target) =>
+      skillManagedWriteApprovalReason(params.args, target.method),
+    );
+    if (skillManagedWriteTarget) {
+      const hostScope = normalizeText(
+        skillManagedWriteTarget.host,
+      ).toLowerCase();
+      const method = normalizeHttpMethod(skillManagedWriteTarget.method);
+      return {
+        tier: 'red',
+        actionKey: `network:${hostScope}:${method}:${skillManagedWriteTarget.path}`,
+        intent: `modify external resources via ${hostScope}`,
+        consequenceIfDenied:
+          'I will leave external resources unchanged and continue with read-only inspection only.',
+        reason:
+          skillManagedWriteApprovalReason(
+            params.args,
+            skillManagedWriteTarget.method,
+          ) ||
+          'Skill-managed API write requests require explicit operator approval',
         commandPreview: params.commandPreview,
         pathHints: [],
         hostHints,
