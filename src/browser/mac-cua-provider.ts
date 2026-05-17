@@ -50,6 +50,13 @@ export type MacCuaTarget =
   | { kind: 'point'; x: number; y: number }
   | { kind: 'query'; query: string };
 
+export interface MacCuaResolvedTarget {
+  target: MacCuaTarget;
+  pixelFallback?: {
+    reason: string;
+  };
+}
+
 export interface MacCuaScreenshotResult {
   dataBase64: string;
   mimeType?: string;
@@ -89,6 +96,10 @@ export interface MacCuaDriver {
     target: MacCuaTarget,
     opts?: WaitOptions,
   ): Promise<void>;
+  resolveTarget(
+    sessionId: string,
+    target: MacCuaTarget,
+  ): Promise<MacCuaResolvedTarget>;
   getAddressBarValue(sessionId: string): Promise<string | null>;
   getCurrentUrl(sessionId: string): Promise<string | null>;
   detectTwoFactorWaypoint?(
@@ -122,7 +133,7 @@ type ActiveMacCuaSession = {
 const SHELL_INJECTION_PATTERNS = [
   /\b(?:curl|wget)\b[\s\S]{0,240}\|\s*(?:bash|sh)\b/iu,
   /\bsudo\s+rm\s+-rf\b/iu,
-  /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*;\s*\}\s*;/u,
+  /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&?\s*;?\s*\}\s*;/u,
 ];
 
 const DESTRUCTIVE_KEY_CHORDS = new Set([
@@ -186,6 +197,56 @@ function parseMacCuaTarget(selector: string): MacCuaTarget {
   }
 
   return { kind: 'query', query: raw };
+}
+
+function readMacCuaTarget(value: unknown): MacCuaTarget | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.kind === 'ax' && typeof record.elementIndex === 'number') {
+    return {
+      kind: 'ax',
+      elementIndex: record.elementIndex,
+      ...(typeof record.windowId === 'string' ||
+      typeof record.windowId === 'number'
+        ? { windowId: record.windowId }
+        : {}),
+    };
+  }
+  if (
+    record.kind === 'point' &&
+    typeof record.x === 'number' &&
+    typeof record.y === 'number'
+  ) {
+    return { kind: 'point', x: record.x, y: record.y };
+  }
+  if (record.kind === 'query' && typeof record.query === 'string') {
+    return { kind: 'query', query: record.query };
+  }
+  return null;
+}
+
+function normalizeResolvedTarget(
+  value: unknown,
+  fallback: MacCuaTarget,
+): MacCuaResolvedTarget {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { target: fallback };
+  }
+  const record = value as Record<string, unknown>;
+  const target = readMacCuaTarget(record.target) || readMacCuaTarget(value);
+  if (!target) return { target: fallback };
+  const pixelFallback =
+    record.pixelFallback &&
+    typeof record.pixelFallback === 'object' &&
+    !Array.isArray(record.pixelFallback)
+      ? (record.pixelFallback as Record<string, unknown>)
+      : null;
+  return {
+    target,
+    ...(pixelFallback && typeof pixelFallback.reason === 'string'
+      ? { pixelFallback: { reason: pixelFallback.reason } }
+      : {}),
+  };
 }
 
 function driverPayloadForText(value: string): { text: string } {
@@ -361,6 +422,17 @@ class StdioMacCuaDriver implements MacCuaDriver {
     opts?: WaitOptions,
   ): Promise<void> {
     await this.call('ax.wait_for_element', { sessionId, target, opts });
+  }
+
+  async resolveTarget(
+    sessionId: string,
+    target: MacCuaTarget,
+  ): Promise<MacCuaResolvedTarget> {
+    const result = await this.call('ax.resolve_target', {
+      sessionId,
+      target,
+    });
+    return normalizeResolvedTarget(result, target);
   }
 
   async getAddressBarValue(sessionId: string): Promise<string | null> {
@@ -561,24 +633,34 @@ class MacCuaBrowserSession implements BrowserSession {
   }
 
   async click(selector: string, _opts?: ClickOptions): Promise<void> {
-    const target = parseMacCuaTarget(selector);
+    const requestedTarget = parseMacCuaTarget(selector);
     await this.runAction('click', async () => {
+      const target = await this.resolveActionTarget(
+        'click',
+        selector,
+        requestedTarget,
+      );
       await this.driver.click(this.sessionId, target);
     });
   }
 
   async fill(selector: string, value: string | SecretRef): Promise<void> {
-    const target = parseMacCuaTarget(selector);
-    const payload =
-      typeof value === 'string'
-        ? driverPayloadForText(value)
-        : (() => {
-            const hardened = hardenSecretRef(value);
-            return {
-              secretRef: { source: hardened.source, id: hardened.id },
-            };
-          })();
+    const requestedTarget = parseMacCuaTarget(selector);
     await this.runAction('fill', async () => {
+      const payload =
+        typeof value === 'string'
+          ? driverPayloadForText(value)
+          : (() => {
+              const hardened = hardenSecretRef(value);
+              return {
+                secretRef: { source: hardened.source, id: hardened.id },
+              };
+            })();
+      const target = await this.resolveActionTarget(
+        'fill',
+        selector,
+        requestedTarget,
+      );
       if ('secretRef' in payload) {
         await this.assertSecretFillAllowed(selector, payload.secretRef);
       }
@@ -593,16 +675,28 @@ class MacCuaBrowserSession implements BrowserSession {
   async scroll(opts: ScrollOptions): Promise<void> {
     const delta = normalizeScrollDelta(opts);
     await this.runAction('scroll', async () => {
+      const target = opts.selector
+        ? await this.resolveActionTarget(
+            'scroll',
+            opts.selector,
+            parseMacCuaTarget(opts.selector),
+          )
+        : undefined;
       await this.driver.scroll(this.sessionId, {
-        ...(opts.selector ? { target: parseMacCuaTarget(opts.selector) } : {}),
+        ...(target ? { target } : {}),
         ...delta,
       });
     });
   }
 
   async waitForSelector(selector: string, opts?: WaitOptions): Promise<void> {
-    const target = parseMacCuaTarget(selector);
+    const requestedTarget = parseMacCuaTarget(selector);
     await this.runAction('wait_for_selector', async () => {
+      const target = await this.resolveActionTarget(
+        'wait_for_selector',
+        selector,
+        requestedTarget,
+      );
       await this.driver.waitForElement(this.sessionId, target, opts);
     });
   }
@@ -623,6 +717,31 @@ class MacCuaBrowserSession implements BrowserSession {
   private async keyChord(key: string, modifiers: string[]): Promise<void> {
     assertSafeMacCuaKeyChord(key, modifiers);
     await this.driver.keyChord(this.sessionId, { key, modifiers });
+  }
+
+  private async resolveActionTarget(
+    action: string,
+    selector: string,
+    requestedTarget: MacCuaTarget,
+  ): Promise<MacCuaTarget> {
+    if (requestedTarget.kind === 'point') {
+      throw new Error(
+        'mac-cua pixel targeting is only allowed as an AX-resolution fallback.',
+      );
+    }
+    const resolved = await this.driver.resolveTarget(
+      this.sessionId,
+      requestedTarget,
+    );
+    if (resolved.pixelFallback || resolved.target.kind === 'point') {
+      this.recordPixelFallback(
+        action,
+        selector,
+        resolved.target,
+        resolved.pixelFallback?.reason || 'missing_ax_bounds',
+      );
+    }
+    return resolved.target;
   }
 
   private async runAction<T>(
@@ -727,6 +846,29 @@ class MacCuaBrowserSession implements BrowserSession {
               signals: detection.signals || [],
             }
           : {}),
+      },
+    });
+  }
+
+  private recordPixelFallback(
+    action: string,
+    selector: string,
+    target: MacCuaTarget,
+    reason: string,
+  ): void {
+    if (!this.metering?.sessionId) return;
+    this.audit({
+      sessionId: this.metering.sessionId,
+      runId: this.runId,
+      event: {
+        type: 'browser.pixel_fallback',
+        provider: 'mac-cua',
+        browser: this.browserName,
+        bundleId: this.bundleId,
+        action,
+        selector,
+        reason,
+        target,
       },
     });
   }

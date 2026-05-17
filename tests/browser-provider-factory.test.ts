@@ -187,6 +187,7 @@ test('browser provider factory can select mac-cua', async () => {
       dataBase64: Buffer.from('factory-cua').toString('base64'),
     })),
     waitForElement: vi.fn(async () => undefined),
+    resolveTarget: vi.fn(async (_sessionId, target) => ({ target })),
     getAddressBarValue: vi.fn(async () => 'https://example.com/'),
     getCurrentUrl: vi.fn(async () => 'https://example.com/'),
     getEnvironmentState: vi.fn(async () => ({
