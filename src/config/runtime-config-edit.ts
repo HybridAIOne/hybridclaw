@@ -49,7 +49,7 @@ export function setRuntimeConfigValueAtPath(
   if (
     segments.length === 2 &&
     segments[0] === 'codex' &&
-    segments[1] === 'runtime' &&
+    (segments[1] === 'runtime' || segments[1] === 'turnRuntime') &&
     normalizeCodexTurnRuntime(value) === 'app-server'
   ) {
     assertCodexAppServerRuntimeAvailable();
@@ -72,6 +72,15 @@ export function setRuntimeConfigValueAtPath(
     throw new Error(`Config key \`${keyPath}\` was not found.`);
   }
   current[leaf] = value;
+  if (
+    segments.length === 2 &&
+    segments[0] === 'codex' &&
+    (segments[1] === 'runtime' || segments[1] === 'turnRuntime')
+  ) {
+    const normalized = normalizeCodexTurnRuntime(value);
+    current.runtime = normalized;
+    current.turnRuntime = normalized;
+  }
 }
 
 export function assertCodexAppServerRuntimeAvailable(): void {

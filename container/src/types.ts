@@ -396,6 +396,7 @@ export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  codexRuntime?: CodexTurnRuntime;
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;

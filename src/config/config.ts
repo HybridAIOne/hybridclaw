@@ -1043,7 +1043,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
-  CODEX_RUNTIME = config.codex.runtime;
+  CODEX_RUNTIME = config.codex.turnRuntime;
   ANTHROPIC_ENABLED = config.anthropic.enabled;
   ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
   ANTHROPIC_METHOD = config.anthropic.method;

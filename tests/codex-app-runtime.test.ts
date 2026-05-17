@@ -139,6 +139,7 @@ describe('Codex app-server runtime helpers', () => {
 
   test('defaults to the existing HybridClaw runtime', () => {
     expect(DEFAULT_RUNTIME_CONFIG.codex.runtime).toBe('hybridclaw');
+    expect(DEFAULT_RUNTIME_CONFIG.codex.turnRuntime).toBe('hybridclaw');
     expect(normalizeCodexTurnRuntime('app-server')).toBe('app-server');
     expect(normalizeCodexTurnRuntime('unknown')).toBe('hybridclaw');
   });
@@ -243,6 +244,32 @@ describe('Codex app-server runtime helpers', () => {
 
     setRuntimeConfigValueAtPath(config, 'codex.runtime', 'APP-SERVER');
 
+    expect(config.codex.runtime).toBe('app-server');
+    expect(config.codex.turnRuntime).toBe('app-server');
+    expect(spawnSync).toHaveBeenCalledWith('codex', ['--version'], {
+      encoding: 'utf-8',
+    });
+    expect(spawnSync).toHaveBeenCalledWith('codex', ['app-server', '--help'], {
+      encoding: 'utf-8',
+    });
+  });
+
+  test('validates app-server turnRuntime alias when editing config', async () => {
+    vi.resetModules();
+    const spawnSync = vi.fn().mockReturnValue({ status: 0, stderr: '' });
+    vi.doMock('node:child_process', () => ({ spawnSync }));
+    const { setRuntimeConfigValueAtPath } = await import(
+      '../src/config/runtime-config-edit.js'
+    );
+    const { DEFAULT_RUNTIME_CONFIG } = await import(
+      '../src/config/runtime-config.js'
+    );
+    const config = structuredClone(DEFAULT_RUNTIME_CONFIG);
+
+    setRuntimeConfigValueAtPath(config, 'codex.turnRuntime', 'APP-SERVER');
+
+    expect(config.codex.runtime).toBe('app-server');
+    expect(config.codex.turnRuntime).toBe('app-server');
     expect(spawnSync).toHaveBeenCalledWith('codex', ['--version'], {
       encoding: 'utf-8',
     });

@@ -1050,6 +1050,7 @@ async function processRequest(
       onTextDelta: emitStreamDelta,
     });
     if (resumed) {
+      resumed.codexRuntime = 'app-server';
       await emitRuntimeEvent({
         event: 'turn_end',
         status: resumed.status,
@@ -1082,6 +1083,7 @@ async function processRequest(
       streamTextDeltas,
       onTextDelta: emitStreamDelta,
     });
+    output.codexRuntime = 'app-server';
     await emitRuntimeEvent({
       event: 'turn_end',
       status: output.status,
@@ -1893,6 +1895,7 @@ async function processRequest(
     toolsUsed: [...new Set(toolsUsed)],
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,
+    codexRuntime,
     tokenUsage: finalizeTokenUsage(tokenUsage),
     effectiveUserPrompt,
   };

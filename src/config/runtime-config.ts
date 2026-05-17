@@ -966,6 +966,7 @@ export interface RuntimeConfig {
   codex: {
     baseUrl: string;
     runtime: CodexTurnRuntime;
+    turnRuntime: CodexTurnRuntime;
     models: string[];
   };
   anthropic: {
@@ -1600,6 +1601,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
     runtime: 'hybridclaw',
+    turnRuntime: 'hybridclaw',
     models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   anthropic: {
@@ -2929,6 +2931,13 @@ export function normalizeCodexTurnRuntime(value: unknown): CodexTurnRuntime {
     .trim()
     .toLowerCase();
   return normalized === 'app-server' ? 'app-server' : 'hybridclaw';
+}
+
+function normalizeCodexTurnRuntimeConfig(rawCodex: Record<string, unknown>) {
+  if (Object.hasOwn(rawCodex, 'turnRuntime')) {
+    return normalizeCodexTurnRuntime(rawCodex.turnRuntime);
+  }
+  return normalizeCodexTurnRuntime(rawCodex.runtime);
 }
 
 function normalizePathForCompare(value: string): string {
@@ -6693,7 +6702,8 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
-      runtime: normalizeCodexTurnRuntime(rawCodex.runtime),
+      runtime: normalizeCodexTurnRuntimeConfig(rawCodex),
+      turnRuntime: normalizeCodexTurnRuntimeConfig(rawCodex),
       models: codexModelList,
     },
     anthropic: {
@@ -7619,6 +7629,7 @@ function buildSerializableConfig(
     : null;
   if (serializableCodex) {
     delete (serializableCodex as { models?: string[] }).models;
+    delete (serializableCodex as { runtime?: string }).runtime;
   }
   const serializableContainer = isRecord(serializable.container)
     ? serializable.container

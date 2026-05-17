@@ -73,7 +73,7 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
-import type { MediaContextItem } from '../types/container.js';
+import type { ContainerOutput, MediaContextItem } from '../types/container.js';
 import {
   type ArtifactMetadata,
   normalizeEscalationTarget,
@@ -147,6 +147,16 @@ import {
 } from './show-mode.js';
 
 const MAX_HISTORY_MESSAGES = 40;
+
+function resolveTurnRuntimeAuditLabel(
+  model: string,
+  output: Pick<ContainerOutput, 'codexRuntime'> | undefined,
+): 'codex' | 'hybridclaw' {
+  return resolveModelProvider(model) === 'openai-codex' &&
+    output?.codexRuntime === 'app-server'
+    ? 'codex'
+    : 'hybridclaw';
+}
 
 function parseToolResultObject(result: string): Record<string, unknown> | null {
   try {
@@ -1629,6 +1639,8 @@ async function handleGatewayMessageInner(
         type: 'model.usage',
         provider,
         model,
+        runtime: resolveTurnRuntimeAuditLabel(model, output),
+        codexRuntime: output.codexRuntime || null,
         durationMs: Date.now() - startedAt,
         toolCallCount: toolExecutions.length,
         ...usagePayload,

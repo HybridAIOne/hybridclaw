@@ -310,7 +310,7 @@
   },
   "codex": {
     "baseUrl": "https://chatgpt.com/backend-api/codex",
-    "runtime": "hybridclaw"
+    "turnRuntime": "hybridclaw"
   },
   "anthropic": {
     "enabled": false,
