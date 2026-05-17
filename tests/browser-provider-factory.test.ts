@@ -189,6 +189,12 @@ test('browser provider factory can select mac-cua', async () => {
     waitForElement: vi.fn(async () => undefined),
     getAddressBarValue: vi.fn(async () => 'https://example.com/'),
     getCurrentUrl: vi.fn(async () => 'https://example.com/'),
+    getEnvironmentState: vi.fn(async () => ({
+      cursorX: 0,
+      cursorY: 0,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    })),
   };
   const provider = createBrowserProvider(
     makeBrowserConfig({

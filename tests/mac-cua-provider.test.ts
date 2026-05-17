@@ -419,5 +419,7 @@ test('mac-cua key chord guard hard-blocks destructive browser shortcuts', async 
   expect(() => assertSafeMacCuaKeyChord('q', ['cmd', 'shift'])).toThrow(
     /destructive/u,
   );
+  expect(() => assertSafeMacCuaKeyChord('q', ['cmd'])).toThrow(/destructive/u);
+  expect(() => assertSafeMacCuaKeyChord('w', ['cmd'])).toThrow(/destructive/u);
   expect(() => assertSafeMacCuaKeyChord('[', ['cmd'])).not.toThrow();
 });

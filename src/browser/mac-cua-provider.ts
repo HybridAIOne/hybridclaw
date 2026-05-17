@@ -94,7 +94,7 @@ export interface MacCuaDriver {
   detectTwoFactorWaypoint?(
     sessionId: string,
   ): Promise<{ detected: boolean; signals?: string[] }>;
-  getEnvironmentState?(): Promise<MacCuaEnvironmentState>;
+  getEnvironmentState(): Promise<MacCuaEnvironmentState>;
 }
 
 export interface MacCuaProviderOptions {
@@ -126,8 +126,11 @@ const SHELL_INJECTION_PATTERNS = [
 ];
 
 const DESTRUCTIVE_KEY_CHORDS = new Set([
+  'cmd+q',
+  'cmd+w',
   'cmd+shift+q',
   'cmd+shift+delete',
+  'ctrl+w',
   'cmd+ctrl+q',
   'cmd+option+shift+q',
 ]);
@@ -236,10 +239,9 @@ function decodeDriverScreenshot(result: MacCuaScreenshotResult): Buffer {
 
 function defaultDriverCommand(): { command: string; args: string[] } {
   const configured = process.env.HYBRIDAI_CUA_DRIVER_BIN?.trim();
-  const version = process.env.HYBRIDAI_CUA_DRIVER_VERSION?.trim();
   return {
     command: configured || 'cua-driver',
-    args: version ? ['--version', version] : [],
+    args: [],
   };
 }
 
@@ -266,7 +268,6 @@ class StdioMacCuaDriver implements MacCuaDriver {
     bundleId: string;
     backgroundSafe: true;
   }): Promise<{ sessionId: string; windowId?: string | number }> {
-    await this.ensureStarted();
     const result = await this.call('browser.start', params);
     if (!result || typeof result !== 'object') {
       throw new Error('mac-cua driver returned an invalid start response.');
@@ -628,10 +629,10 @@ class MacCuaBrowserSession implements BrowserSession {
     action: string,
     run: () => Promise<T>,
   ): Promise<T> {
-    const before = await this.driver.getEnvironmentState?.();
+    const before = await this.driver.getEnvironmentState();
     try {
       const result = await run();
-      const after = await this.driver.getEnvironmentState?.();
+      const after = await this.driver.getEnvironmentState();
       this.assertBackgroundSafe(before, after);
       await this.recordDetectedTwoFactor(action);
       this.recordAction(action, 'ok');
@@ -823,6 +824,9 @@ export class MacCuaBrowserProvider implements BrowserProvider {
     if (options.driver) {
       this.driver = options.driver;
     } else {
+      if (process.platform !== 'darwin') {
+        throw new Error('MacCuaBrowserProvider is only supported on macOS.');
+      }
       const fallback = defaultDriverCommand();
       this.driver = new StdioMacCuaDriver(
         options.driverCommand || fallback.command,
