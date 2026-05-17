@@ -977,6 +977,36 @@ test('status command includes the current session agent', async () => {
   );
 });
 
+test('status command labels Codex app-server turn runtime separately from sandbox', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openai-codex/gpt-5.5';
+    config.codex.turnRuntime = 'app-server';
+  });
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-codex-runtime',
+    guildId: null,
+    channelId: 'channel-status-codex-runtime',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('Model: openai-codex/gpt-5.5');
+  expect(result.text).toContain('Runtime: codex · Sandbox:');
+});
+
 test('status command includes active sandbox session ids when present', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
