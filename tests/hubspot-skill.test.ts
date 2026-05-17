@@ -425,10 +425,12 @@ test('HubSpot helper interprets authentication, authorization, and stage errors'
   expect(empty.status).not.toBe(0);
   expect(JSON.parse(auth.stdout)).toMatchObject({
     category: 'authentication',
+    operatorMessage: expect.stringContaining('Do not infer token age'),
     retryable: false,
   });
   expect(JSON.parse(scope.stdout)).toMatchObject({
     category: 'authorization',
+    operatorMessage: expect.stringContaining('Stop after this failed call'),
     retryable: false,
   });
   expect(JSON.parse(stage.stdout)).toMatchObject({
@@ -438,6 +440,29 @@ test('HubSpot helper interprets authentication, authorization, and stage errors'
   expect(empty.stderr).toContain(
     'explain-error requires --file, --body, or a JSON argument',
   );
+});
+
+test('HubSpot helper emits live execution auth failure policy', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'search',
+    'contacts',
+    '--query',
+    'stephan@example.com',
+  ]);
+
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    liveExecution: {
+      requiresConfiguredSecrets: ['HUBSPOT_ACCESS_TOKEN'],
+      secretRefPolicy: expect.stringContaining('Do not preflight'),
+      unauthorizedPolicy: expect.stringContaining(
+        'stop after the first failure',
+      ),
+    },
+  });
 });
 
 test('HubSpot helper builds note and task association payloads', () => {

@@ -127,6 +127,7 @@ test('HubSpot runtime env mints short-lived access token from stored refresh tok
 
 test('HubSpot runtime env uses stored private app access token', async () => {
   const homeDir = makeTempHome();
+  process.env.HUBSPOT_ACCESS_TOKEN = 'old-env-access-token';
   const {
     getHubSpotAuthStatus,
     resolveHubSpotAccessToken,
@@ -142,6 +143,7 @@ test('HubSpot runtime env uses stored private app access token', async () => {
   expect(getHubSpotAuthStatus()).toMatchObject({
     authenticated: true,
     authMode: 'private-app-token',
+    accessTokenSource: 'runtime-secrets',
   });
   await expect(resolveHubSpotAccessToken()).resolves.toEqual({
     accessToken: 'private-app-access-token',

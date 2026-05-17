@@ -53,6 +53,21 @@ const WRITE_GRANTS = {
   'create-task': 'approve-hubspot-task-create',
 };
 
+const LIVE_EXECUTION = {
+  mode: 'live-hubspot-api',
+  requiresConfiguredSecrets: [DEFAULT_ACCESS_TOKEN_SECRET],
+  dryRunSafe:
+    'For prompt/user testing, stop after plan, workflow, or http-request payload generation; do not call http_request.',
+  callPolicy:
+    'For real user requests that need live HubSpot data, pass the emitted httpRequest object unchanged to http_request and let the gateway inject the token server-side.',
+  secretRefPolicy:
+    'Do not preflight, inspect, print, or ask the model for HUBSPOT_ACCESS_TOKEN. The bearerSecretName field is the credential reference.',
+  requestShape:
+    'Do not handcraft HubSpot API calls. The helper owns endpoint selection, method, payload, tier, and bearerSecretName.',
+  unauthorizedPolicy:
+    'If a live call returns 401 or 403, stop after the first failure. Do not retry or call additional HubSpot endpoints; ask the operator to set or verify HUBSPOT_ACCESS_TOKEN. For private apps, rotate or reveal-copy the current private app access token in HubSpot and store that exact value.',
+};
+
 function usageTotalsMeasurement() {
   return {
     system: 'UsageTotals',
@@ -193,6 +208,7 @@ function wrap(command, httpRequest, extra = {}) {
     command,
     httpRequest,
     costMeasurement: usageTotalsMeasurement(),
+    liveExecution: LIVE_EXECUTION,
     ...extra,
   };
 }

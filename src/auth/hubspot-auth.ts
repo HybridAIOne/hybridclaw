@@ -111,6 +111,14 @@ function readSecretOrEnv(name: string): string {
   );
 }
 
+function readStoredSecretOrEnv(name: string): string {
+  return (
+    readStoredRuntimeSecret(name) ||
+    String(process.env[name] || '').trim() ||
+    ''
+  );
+}
+
 function hubSpotAuthMetadataPath(): string {
   return path.join(DEFAULT_RUNTIME_HOME_DIR, HUBSPOT_AUTH_METADATA_FILE);
 }
@@ -414,15 +422,27 @@ export function getHubSpotAuthStatus(): {
   authenticated: boolean;
   account: string;
   authMode: 'private-app-token' | 'oauth' | 'none';
+  accessTokenSource: 'runtime-secrets' | 'env' | null;
   scopes: string[];
   path: string;
 } {
   const stored = readStoredHubSpotAuth();
-  const accessToken = readSecretOrEnv(HUBSPOT_ACCESS_TOKEN_SECRET);
+  const storedAccessToken = readStoredRuntimeSecret(
+    HUBSPOT_ACCESS_TOKEN_SECRET,
+  );
+  const envAccessToken = String(
+    process.env[HUBSPOT_ACCESS_TOKEN_SECRET] || '',
+  ).trim();
+  const accessToken = storedAccessToken || envAccessToken;
   return {
     authenticated: Boolean(accessToken || stored),
     account: stored?.account || readSecretOrEnv(HUBSPOT_ACCOUNT_SECRET),
     authMode: accessToken ? 'private-app-token' : stored ? 'oauth' : 'none',
+    accessTokenSource: storedAccessToken
+      ? 'runtime-secrets'
+      : envAccessToken
+        ? 'env'
+        : null,
     scopes: stored?.scopes || parseHubSpotScopes(readStoredHubSpotScopes()),
     path: runtimeSecretsPath(),
   };
@@ -477,7 +497,7 @@ export async function resolveHubSpotAccessToken(): Promise<{
   accessToken: string;
   source: HubSpotRuntimeTokenSource;
 } | null> {
-  const storedAccessToken = readSecretOrEnv(HUBSPOT_ACCESS_TOKEN_SECRET);
+  const storedAccessToken = readStoredSecretOrEnv(HUBSPOT_ACCESS_TOKEN_SECRET);
   if (storedAccessToken) {
     return {
       accessToken: storedAccessToken,

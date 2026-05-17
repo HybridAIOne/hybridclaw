@@ -5,6 +5,15 @@ user-invocable: true
 requires:
   bins:
     - node
+credentials:
+  - id: hubspot-access-token
+    kind: bearer
+    required: true
+    secret_ref:
+      source: store
+      id: HUBSPOT_ACCESS_TOKEN
+    scope: "api.hubapi.com and api.hubspot.com"
+    how_to_obtain: "Create or open a HubSpot private app, reveal/copy the access token from the Auth tab, and store it as HUBSPOT_ACCESS_TOKEN. If HubSpot reports the token is expired, revoked, or invalid, rotate the private app token or copy the current revealed token again; do not use a HubSpot developer token."
 metadata:
   hybridclaw:
     category: business
@@ -115,6 +124,12 @@ covers contacts, companies, deals, notes, tasks, CRM schema reads, and `oauth`.
 7. Use internal stage values for `dealstage`, `pipeline`, and
    `lifecyclestage`. Read `/crm/v3/properties/...` first when the internal
    value is unknown.
+8. If a live HubSpot call returns 401 or 403, stop after that first failure. Do
+   not retry, do not call more HubSpot endpoints, and do not guess from dates or
+   epoch timestamps. Tell the operator to verify or replace
+   `HUBSPOT_ACCESS_TOKEN`. For private apps, they should reveal/copy the current
+   access token from the HubSpot private app Auth tab, or rotate the token if
+   HubSpot says it was revoked, expired, exposed, or invalid.
 
 ## Command Contract
 
@@ -234,6 +249,10 @@ node skills/hubspot/hubspot.cjs --format json explain-error \
   `http_request` is available.
 - Never print, store in files, or include real HubSpot access tokens in tool
   arguments or prose.
+- Never infer that a HubSpot token is a "default", "stale", or "1970" value from
+  API timestamps. HubSpot private app tokens are opaque; report only that the
+  stored `HUBSPOT_ACCESS_TOKEN` was rejected and needs verification or
+  replacement.
 - Treat writes as amber operations and require exact operator grant in the
   current task.
 - Use exact HubSpot record IDs for writes.

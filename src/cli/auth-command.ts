@@ -1444,6 +1444,9 @@ function printHubSpotStatus(): void {
     console.log(`Account: ${status.account || '(not set)'}`);
     if (status.authMode === 'private-app-token') {
       console.log('Private app access token: configured');
+      console.log(
+        `Access token source: ${status.accessTokenSource || '(unknown)'}`,
+      );
       console.log('HTTP auth mode: stored HubSpot bearer token');
     } else {
       console.log('Refresh token: configured');
