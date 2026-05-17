@@ -26,6 +26,11 @@
       "headed": false,
       "launchOptions": {}
     },
+    "managedCloud": {
+      "endpointUrl": "http://127.0.0.1:8787",
+      "defaultTenantId": "",
+      "pricing": {}
+    },
     "browserUseCloud": {
       "apiKeyRef": {
         "source": "store",
@@ -632,55 +637,5 @@
     "ralph": {
       "maxIterations": 0
     }
-  },
-  "scheduler": {
-    "jobs": [
-      {
-        "id": "resource-hygiene",
-        "name": "Resource Hygiene",
-        "description": "Runs conservative doctor-based resource hygiene twice daily and auto-applies only safe cleanup.",
-        "schedule": {
-          "kind": "every",
-          "at": null,
-          "everyMs": 43200000,
-          "expr": null,
-          "tz": "UTC"
-        },
-        "action": {
-          "kind": "system_event",
-          "message": "resource_hygiene_maintenance"
-        },
-        "delivery": {
-          "kind": "last-channel",
-          "channel": "",
-          "to": "",
-          "webhookUrl": ""
-        },
-        "enabled": true
-      },
-      {
-        "id": "morning-standup",
-        "name": "Daily Standup Report",
-        "description": "Runs standup summary every weekday at 9am.",
-        "schedule": {
-          "kind": "cron",
-          "at": null,
-          "everyMs": null,
-          "expr": "0 9 * * 1-5",
-          "tz": "America/New_York"
-        },
-        "action": {
-          "kind": "agent_turn",
-          "message": "Post a brief morning standup update for the team."
-        },
-        "delivery": {
-          "kind": "channel",
-          "channel": "discord",
-          "to": "123456789012345678",
-          "webhookUrl": ""
-        },
-        "enabled": false
-      }
-    ]
   }
 }

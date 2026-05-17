@@ -92,7 +92,8 @@ function buildPreviewBlob(blob: Blob, mimeType: string): Blob {
   if (!normalizedMimeType) return blob;
   if (
     normalizedMimeType !== 'application/pdf' &&
-    !normalizedMimeType.startsWith('image/')
+    !normalizedMimeType.startsWith('image/') &&
+    !normalizedMimeType.startsWith('video/')
   ) {
     return blob;
   }
@@ -108,11 +109,15 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
   const mimeType = (artifact.mimeType ?? '').toLowerCase();
   const artifactName = artifact.filename ?? 'artifact';
   const isImage = mimeType.startsWith('image/');
+  const isVideo =
+    mimeType.startsWith('video/') ||
+    /\.(mp4|m4v|mov|webm)$/i.test(artifact.filename ?? '') ||
+    /\.(mp4|m4v|mov|webm)$/i.test(artifact.path ?? '');
   const isPdf =
     mimeType === 'application/pdf' ||
     /\.pdf$/i.test(artifact.filename ?? '') ||
     /\.pdf$/i.test(artifact.path ?? '');
-  const canPreview = isImage || isPdf;
+  const canPreview = isImage || isVideo || isPdf;
 
   useEffect(() => {
     const previousUrl = previewUrlRef.current;
@@ -140,7 +145,7 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
       previewUrlRef.current = null;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [artifact.path, canPreview, token]);
+  }, [artifact.path, canPreview, mimeType, token]);
 
   const downloadLabel = downloading ? 'Downloading…' : 'Download';
   const handleDownload = async () => {
@@ -206,6 +211,16 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
             title={`${artifactName} preview`}
             sandbox=""
           />
+        </div>
+      ) : null}
+      {isVideo && previewUrl ? (
+        <div className={cx(css.artifactPreview, css.artifactVideoPreview)}>
+          {/* biome-ignore lint/a11y/useMediaCaption: arbitrary user/generated artifacts may not have caption tracks available. */}
+          <video controls preload="metadata" src={previewUrl}>
+            <a href={previewUrl} download={artifactName}>
+              Download {artifactName}
+            </a>
+          </video>
         </div>
       ) : null}
     </div>
@@ -319,6 +334,11 @@ export const MessageBlock = memo(function MessageBlock(props: {
   const isUser = msg.role === 'user';
   const isAssistant = msg.role === 'assistant';
   const isApproval = msg.role === 'approval' || Boolean(msg.pendingApproval);
+  const shouldRenderBubble =
+    isUser ||
+    msg.content.trim().length > 0 ||
+    artifactEntries.length === 0 ||
+    isApproval;
 
   const blockClass = cx(
     css.messageBlock,
@@ -349,52 +369,54 @@ export const MessageBlock = memo(function MessageBlock(props: {
         </div>
       ) : null}
 
-      <div className={bubbleClass}>
-        {isAssistant || isApproval ? (
-          <div
-            className={css.markdownContent}
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
-            dangerouslySetInnerHTML={{ __html: renderedHtml }}
-          />
-        ) : (
-          msg.content
-        )}
+      {shouldRenderBubble ? (
+        <div className={bubbleClass}>
+          {isAssistant || isApproval ? (
+            <div
+              className={css.markdownContent}
+              // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
+              dangerouslySetInnerHTML={{ __html: renderedHtml }}
+            />
+          ) : (
+            msg.content
+          )}
 
-        {isApproval && msg.pendingApproval ? (
-          <div className={css.approvalActions}>
-            {APPROVAL_BUTTONS.map((btn) => (
+          {isApproval && msg.pendingApproval ? (
+            <div className={css.approvalActions}>
+              {APPROVAL_BUTTONS.map((btn) => (
+                <Button
+                  key={btn.action}
+                  variant="outline"
+                  size="sm"
+                  className={css.approvalAllow}
+                  disabled={props.approvalBusy}
+                  onClick={() =>
+                    props.onApprovalAction(
+                      btn.action,
+                      msg.pendingApproval?.approvalId ?? '',
+                    )
+                  }
+                >
+                  {btn.label}
+                </Button>
+              ))}
               <Button
-                key={btn.action}
-                variant="outline"
+                variant="danger"
                 size="sm"
-                className={css.approvalAllow}
                 disabled={props.approvalBusy}
                 onClick={() =>
                   props.onApprovalAction(
-                    btn.action,
+                    'deny',
                     msg.pendingApproval?.approvalId ?? '',
                   )
                 }
               >
-                {btn.label}
+                Deny
               </Button>
-            ))}
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={props.approvalBusy}
-              onClick={() =>
-                props.onApprovalAction(
-                  'deny',
-                  msg.pendingApproval?.approvalId ?? '',
-                )
-              }
-            >
-              Deny
-            </Button>
-          </div>
-        ) : null}
-      </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {artifactEntries.map(({ artifact, key }) => (
         <ArtifactCard key={key} artifact={artifact} token={token} />

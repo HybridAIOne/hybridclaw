@@ -4,7 +4,7 @@ description: Use Sokosumi with API-key auth, direct agent hires, coworker tasks,
 user-invocable: true
 metadata:
   hybridclaw:
-    category: agents
+    category: business
     short_description: "Sokosumi API workflow."
     tags:
       - sokosumi

@@ -11,6 +11,7 @@ import { makeLazyApi, normalizeArgs } from './cli/common.js';
 import {
   isHelpRequest,
   printAuditUsage,
+  printBrowserPoolUsage,
   printBrowserUsage,
   printDeprecatedProviderAliasWarning,
   printDoctorUsage,
@@ -1488,6 +1489,26 @@ async function handleBrowserCommand(args: string[]): Promise<void> {
   );
 }
 
+async function handleBrowserPoolCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printBrowserPoolUsage();
+    return;
+  }
+  const sub = normalized[0].toLowerCase();
+  if (sub !== 'doctor') {
+    throw new Error(`Unknown browser-pool subcommand: ${sub}. Use \`doctor\`.`);
+  }
+  const { checkManagedBrowserPoolHealth } = await import(
+    './browser/managed-cloud-doctor.js'
+  );
+  const result = await checkManagedBrowserPoolHealth();
+  console.log(result.message);
+  console.log(`Endpoint: ${result.endpointUrl}`);
+  console.log(`Nodes: ${result.healthyNodeCount}/${result.nodeCount}`);
+  if (!result.ok) process.exitCode = 1;
+}
+
 async function handleHybridAICommand(args: string[]): Promise<void> {
   const cliAuth = await import('./cli/auth-command.js');
   await cliAuth.handleHybridAICommand(args);
@@ -1670,6 +1691,9 @@ export async function main(
       break;
     case 'browser':
       await handleBrowserCommand(subargs);
+      break;
+    case 'browser-pool':
+      await handleBrowserPoolCommand(subargs);
       break;
     case 'migrate':
       await handleMigrateCommand(subargs);

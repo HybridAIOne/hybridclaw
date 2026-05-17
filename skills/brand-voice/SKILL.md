@@ -5,6 +5,11 @@ metadata:
   hybridclaw:
     category: communication
     short_description: "Stay on-brand before the guard intervenes."
+    tags:
+      - brand-voice
+      - communication
+      - middleware
+      - tone
     middleware:
       post_receive: true
 ---

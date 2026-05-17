@@ -5,6 +5,15 @@ user-invocable: true
 requires:
   bins:
     - node
+credentials:
+  - id: airtable-pat
+    kind: bearer
+    required: true
+    secret_ref:
+      source: store
+      id: AIRTABLE_PAT
+    scope: "api.airtable.com/v0"
+    how_to_obtain: "Create an Airtable Personal Access Token or OAuth bearer token with the needed scopes, then store it with `hybridclaw secret set AIRTABLE_PAT \"<token>\"`."
 metadata:
   hybridclaw:
     category: productivity

@@ -72,6 +72,14 @@ function makeBrowserConfig(
       ...DEFAULT_RUNTIME_CONFIG.browser.camofox,
       ...patch.camofox,
     },
+    managedCloud: {
+      ...DEFAULT_RUNTIME_CONFIG.browser.managedCloud,
+      ...patch.managedCloud,
+      pricing: {
+        ...DEFAULT_RUNTIME_CONFIG.browser.managedCloud.pricing,
+        ...patch.managedCloud?.pricing,
+      },
+    },
     browserUseCloud: {
       ...DEFAULT_RUNTIME_CONFIG.browser.browserUseCloud,
       ...patch.browserUseCloud,
@@ -151,6 +159,23 @@ test('browser provider factory can select browser-use cloud', async () => {
   const provider = createBrowserProvider(
     makeBrowserConfig({
       provider: 'browser-use-cloud',
+    }),
+  );
+
+  await expect(
+    provider.launchSession({ profileDirHint: '/tmp/browser-profiles' }),
+  ).rejects.toThrow(/does not accept local profileDirHint/u);
+});
+
+test('browser provider factory can select managed cloud', async () => {
+  const provider = createBrowserProvider(
+    makeBrowserConfig({
+      provider: 'managed-cloud',
+      managedCloud: {
+        endpointUrl: 'https://managed-browser.example',
+        defaultTenantId: 'tenant-a',
+        pricing: {},
+      },
     }),
   );
 

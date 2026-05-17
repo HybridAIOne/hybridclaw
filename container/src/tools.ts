@@ -19,6 +19,7 @@ import {
   setBrowserGatewayContext,
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
+  usesGatewayManagedBrowser,
 } from './browser-tools.js';
 import {
   type DiagramFixupRequest,
@@ -775,10 +776,19 @@ export function setGatewayContext(
   apiToken?: string,
   channelId?: string,
   configuredChannels?: string[],
+  browserProvider?: string,
+  sessionId?: string,
+  agentId?: string,
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
-  setBrowserGatewayContext(gatewayBaseUrl, gatewayApiToken);
+  setBrowserGatewayContext(
+    gatewayBaseUrl,
+    gatewayApiToken,
+    browserProvider,
+    sessionId,
+    agentId,
+  );
   gatewayChannelId = String(channelId || '').trim();
   gatewayConfiguredChannels =
     normalizeConfiguredChannelList(configuredChannels);
@@ -3591,7 +3601,7 @@ async function executeToolInternal(
     case 'browser_network':
     case 'browser_close': {
       const output =
-        name === 'browser_secret_type'
+        name === 'browser_secret_type' && !usesGatewayManagedBrowser()
           ? await executeBrowserSecretType(args)
           : await executeBrowserTool(name, args, currentSessionId || 'default');
       const structured = parseStructuredToolOutput(output);

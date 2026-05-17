@@ -145,7 +145,7 @@ test('skill list groups skills by category in concise gateway command output', a
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Skills');
-  expect(result.text).toContain('Apple:\n  apple-music [available]');
+  expect(result.text).toContain('Apple:\n  apple-music [enabled]');
   expect(result.text).toContain('Memory:\n  obsidian* [disabled]');
   expect(result.text).toContain('Office:\n  pdf [bin:node]');
   expect(result.text).toContain('Uncategorized:\n  Agents* [disabled]');
@@ -292,7 +292,7 @@ Use Himalaya for terminal-native email workflows.
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.text).toContain('  himalaya [available]');
+  expect(result.text).toContain('  himalaya [enabled]');
 });
 
 test('skill inspect command reports observed skill health', async () => {
