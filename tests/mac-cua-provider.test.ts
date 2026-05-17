@@ -58,7 +58,9 @@ function createMockDriver(options?: {
   scroll: ReturnType<typeof vi.fn>;
   screenshot: ReturnType<typeof vi.fn>;
   waitForElement: ReturnType<typeof vi.fn>;
+  getAddressBarValue: ReturnType<typeof vi.fn>;
   getCurrentUrl: ReturnType<typeof vi.fn>;
+  detectTwoFactorWaypoint: ReturnType<typeof vi.fn>;
   getEnvironmentState: ReturnType<typeof vi.fn>;
 } {
   const stableState: MacCuaEnvironmentState = {
@@ -85,7 +87,9 @@ function createMockDriver(options?: {
       mimeType: 'image/png',
     })),
     waitForElement: vi.fn(async () => undefined),
+    getAddressBarValue: vi.fn(async () => 'https://example.com/login'),
     getCurrentUrl: vi.fn(async () => 'https://example.com/'),
+    detectTwoFactorWaypoint: vi.fn(async () => ({ detected: false })),
     getEnvironmentState: vi.fn(async () => states.shift() || states[0]),
   };
 }
@@ -136,6 +140,7 @@ test('mac-cua provider starts the selected operator browser in background-safe m
     text: 'https://example.com/login',
   });
   expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
+  expect(driver.getAddressBarValue).toHaveBeenCalledWith('cua-session-1');
   expect(driver.screenshot).toHaveBeenCalledWith('cua-session-1', {
     mode: 'som',
   });
@@ -155,9 +160,25 @@ test('mac-cua provider starts the selected operator browser in background-safe m
   expect(audit).toHaveBeenCalledWith(
     expect.objectContaining({
       event: expect.objectContaining({
-        type: 'browser.cua.action',
+        type: 'browser.action',
         action: 'navigate',
         status: 'ok',
+      }),
+    }),
+  );
+  expect(audit).toHaveBeenCalledWith(
+    expect.objectContaining({
+      event: expect.objectContaining({
+        type: 'browser.screenshot_taken',
+        provider: 'mac-cua',
+      }),
+    }),
+  );
+  expect(audit).toHaveBeenCalledWith(
+    expect.objectContaining({
+      event: expect.objectContaining({
+        type: 'browser.session_ended',
+        provider: 'mac-cua',
       }),
     }),
   );
@@ -245,7 +266,7 @@ test('mac-cua provider authorizes SecretRef fills and forwards refs without clea
     expect.objectContaining({
       event: expect.objectContaining({
         type: 'browser.credential_filled',
-        sinkKind: 'cua',
+        sinkKind: 'dom',
         secretRef: { source: 'store', id: 'LOGIN_PASSWORD' },
       }),
     }),
@@ -314,6 +335,81 @@ test('mac-cua provider rejects unsupported navigation waits', async () => {
   ).rejects.toThrow(/does not support waitUntil or timeoutMs/u);
 
   expect(driver.keyChord).not.toHaveBeenCalled();
+});
+
+test('mac-cua provider blocks navigation when address-bar AX value is not allowed', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.getAddressBarValue.mockResolvedValueOnce('file:///etc/passwd');
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await expect(session.navigate('https://example.com/login')).rejects.toThrow(
+    /Unsupported URL protocol/u,
+  );
+
+  expect(driver.pressKey).not.toHaveBeenCalled();
+});
+
+test('mac-cua provider emits F14 waypoint events from AX two-factor detection and explicit resume', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
+    detected: true,
+    signals: ['one-time-code'],
+  });
+  const audit = vi.fn();
+  const provider = new MacCuaBrowserProvider({ driver, audit });
+  const session = await provider.launchSession({
+    metering: {
+      sessionId: 'session-cua-2fa',
+      agentId: 'agent-cua',
+      auditRunId: 'run-cua-2fa',
+    },
+  });
+
+  await session.click('@e9');
+  await session.waypoint?.('browser_resume_interaction', {
+    responseKind: 'code',
+  });
+
+  expect(audit).toHaveBeenCalledWith(
+    expect.objectContaining({
+      event: expect.objectContaining({
+        type: 'browser.waypoint',
+        waypoint: 'browser_await_two_factor',
+        modality: 'mac-cua-ax',
+        detectedAfterAction: 'click',
+        signals: ['one-time-code'],
+      }),
+    }),
+  );
+  expect(audit).toHaveBeenCalledWith(
+    expect.objectContaining({
+      event: expect.objectContaining({
+        type: 'browser.waypoint',
+        waypoint: 'browser_resume_interaction',
+        responseKind: 'code',
+      }),
+    }),
+  );
+});
+
+test('mac-cua provider advertises F13 and F14 parity only after readiness passes', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const readyProvider = new MacCuaBrowserProvider({
+    driver: createMockDriver(),
+  });
+  expect(readyProvider.getCapabilities()).toEqual({
+    credentialInjection: 'opaque-handle',
+    waypointEvents: ['browser_await_two_factor', 'browser_resume_interaction'],
+  });
 });
 
 test('mac-cua key chord guard hard-blocks destructive browser shortcuts', async () => {
