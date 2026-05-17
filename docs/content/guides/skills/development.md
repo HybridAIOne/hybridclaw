@@ -383,8 +383,9 @@ docs, and reliable init/validate/package/publish workflows.
 > Keep SKILL.md concise — the model already knows general concepts; only include what is unique to your skill.
 >
 > For API-backed skills, provide a `*.cjs` CLI wrapper that owns endpoints,
-> payloads, tiers, and secret refs, then emits gateway-ready JSON the model can
-> pass through unchanged.
+> payloads, tiers, and secret refs. Prefer a `run` subcommand for live gateway
+> execution, and keep `http-request` as the dry-run path that emits
+> gateway-ready JSON the model can inspect or pass through unchanged.
 >
 > If a request shape is safety-critical, include generic
 > `skillRequestContract` metadata in the emitted request instead of adding

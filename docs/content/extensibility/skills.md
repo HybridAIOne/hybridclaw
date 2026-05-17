@@ -52,10 +52,16 @@ classification, and secret references such as `bearerSecretName` or
 `secretHeaders`.
 
 Prefer small CLI subcommands that match model workflows, for example `plan`,
-`http-request`, `eval-scenarios`, and read-only discovery commands. Commands
-that prepare live calls should emit gateway-ready JSON so the model can pass the
-returned request object unchanged to `http_request`. Avoid requiring the model
-to reconstruct URLs, headers, request bodies, or secret names from prose.
+`run`, `http-request`, `eval-scenarios`, and read-only discovery commands. For
+live calls, provide a `run <operation>` path that sends the helper-built request
+through the HybridClaw gateway so the script remains the single owner of
+endpoint selection, payload construction, approval metadata, and secret refs.
+
+Keep `http-request <operation>` as the dry-run and compatibility path: it should
+emit gateway-ready JSON so the model can inspect the request or pass the
+returned request object unchanged to `http_request` when direct gateway
+execution is unavailable. Avoid requiring the model to reconstruct URLs,
+headers, request bodies, or secret names from prose.
 
 ## Invocation Paths
 
