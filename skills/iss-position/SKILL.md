@@ -5,6 +5,11 @@ metadata:
   hybridclaw:
     category: misc
     short_description: "Current ISS position."
+    tags:
+      - iss
+      - space
+      - location
+      - api
 ---
 # ISS Position
 

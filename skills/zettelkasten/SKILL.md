@@ -5,6 +5,11 @@ metadata:
   hybridclaw:
     category: memory
     short_description: Luhmann Zettelkasten.
+    tags:
+      - zettelkasten
+      - notes
+      - memory
+      - knowledge-base
 ---
 
 # Zettelkasten

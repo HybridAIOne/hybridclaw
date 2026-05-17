@@ -1,0 +1,84 @@
+[
+  {
+    "id": "cloud-01",
+    "category": "read-inventory",
+    "prompt": "List all VPSes for project acme and estimate their current monthly cost.",
+    "expectedOperation": "list-servers",
+    "secondaryOperations": ["list-prices"],
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "cloud-02",
+    "category": "read-inventory",
+    "prompt": "Show available server types before I choose a demo machine.",
+    "expectedOperation": "list-server-types",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "cloud-03",
+    "category": "read-inventory",
+    "prompt": "Which Hetzner locations can I use for this sandbox?",
+    "expectedOperation": "list-locations",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "cloud-04",
+    "category": "read-network",
+    "prompt": "List private networks for project demo before configuring the server.",
+    "expectedOperation": "list-networks",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "cloud-05",
+    "category": "write-provision",
+    "prompt": "Spin up a sandboxed VPS in Falkenstein for Friday's demo.",
+    "expectedOperation": "create-server",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "cloud-06",
+    "category": "write-snapshot",
+    "prompt": "Snapshot production before the deploy.",
+    "expectedOperation": "create-snapshot",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "cloud-07",
+    "category": "write-rollback",
+    "prompt": "Restore this failed server from the pre-deploy snapshot.",
+    "expectedOperation": "restore-snapshot",
+    "expectedTier": "red",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "cloud-08",
+    "category": "write-storage",
+    "prompt": "Attach the existing data volume to the customer demo VPS and connect it to the private project network.",
+    "expectedOperation": "attach-volume",
+    "secondaryOperations": ["attach-network"],
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "cloud-09",
+    "category": "write-cleanup",
+    "prompt": "Tear down the demo VPS on Monday morning.",
+    "expectedOperation": "delete-vps",
+    "expectedTier": "red",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "cloud-10",
+    "category": "write-cleanup",
+    "prompt": "Delete the temporary snapshot after rollback is complete.",
+    "expectedOperation": "destroy-snapshot",
+    "expectedTier": "red",
+    "costMeasurement": { "system": "UsageTotals" }
+  }
+]

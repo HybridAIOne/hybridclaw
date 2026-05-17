@@ -1,0 +1,82 @@
+[
+  {
+    "id": "storage-01",
+    "category": "read-inventory",
+    "prompt": "List Storage Boxes in this Hetzner project.",
+    "expectedOperation": "list-storage-boxes",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "storage-02",
+    "category": "read-inventory",
+    "prompt": "Show details for Storage Box 123456.",
+    "expectedOperation": "get-storage-box",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "storage-03",
+    "category": "read-snapshot",
+    "prompt": "List snapshots before I archive invoices.",
+    "expectedOperation": "list-snapshots",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "storage-04",
+    "category": "read-files",
+    "prompt": "List files in the archive folder.",
+    "expectedOperation": "list-files",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "storage-05",
+    "category": "read-files",
+    "prompt": "Download the Q4 invoice manifest.",
+    "expectedOperation": "download-file",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "storage-06",
+    "category": "write-management",
+    "prompt": "Create a Storage Box snapshot before the archive job.",
+    "expectedOperation": "create-snapshot",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "storage-07",
+    "category": "write-files",
+    "prompt": "Archive the Q4 invoices to the Storage Box.",
+    "expectedOperation": "archive-text",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "storage-08",
+    "category": "share",
+    "prompt": "Share the archived invoice bundle via public link.",
+    "expectedOperation": "share-public-link",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "storage-09",
+    "category": "write-delete",
+    "prompt": "Delete the stale archive path after retention expires.",
+    "expectedOperation": "delete-path",
+    "expectedTier": "red",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "storage-10",
+    "category": "write-delete",
+    "prompt": "Delete the temporary Storage Box snapshot.",
+    "expectedOperation": "delete-snapshot",
+    "expectedTier": "red",
+    "costMeasurement": { "system": "UsageTotals" }
+  }
+]

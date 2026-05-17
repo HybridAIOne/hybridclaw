@@ -12,9 +12,11 @@ import {
 } from './profile-dir.js';
 import type {
   BrowserProvider,
+  BrowserProviderCapabilities,
   BrowserSession,
   SessionOptions,
 } from './provider.js';
+import { DEFAULT_BROWSER_PROVIDER_CAPABILITIES } from './provider.js';
 
 type PlaywrightPage = PlaywrightPageShape;
 type PlaywrightContext = PlaywrightContextShape<PlaywrightPage>;
@@ -86,6 +88,10 @@ export class LocalBrowserProvider implements BrowserProvider {
     );
     this.contexts.set(session, context);
     return session;
+  }
+
+  getCapabilities(): BrowserProviderCapabilities {
+    return DEFAULT_BROWSER_PROVIDER_CAPABILITIES;
   }
 
   async closeSession(session: BrowserSession): Promise<void> {

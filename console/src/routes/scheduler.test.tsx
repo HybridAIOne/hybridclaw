@@ -19,6 +19,7 @@ const fetchSchedulerMock = vi.fn<() => Promise<AdminSchedulerResponse>>();
 const saveSchedulerJobMock = vi.fn();
 const deleteSchedulerJobMock = vi.fn();
 const setSchedulerJobPausedMock = vi.fn();
+const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
@@ -33,6 +34,14 @@ vi.mock('../api/client', () => ({
 
 vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
+}));
+
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => navigateMock,
+  useSearch: () => ({
+    jobId:
+      new URLSearchParams(window.location.search).get('jobId') || undefined,
+  }),
 }));
 
 function makeStatus(overrides: Partial<GatewayStatus> = {}): GatewayStatus {
@@ -354,7 +363,7 @@ function makeConfigJob(
 ): AdminSchedulerJob {
   return {
     id: 'release-notes',
-    source: 'config',
+    source: 'job',
     name: 'Release Notes',
     description: 'Draft release notes once.',
     agentId: 'main',
@@ -415,6 +424,8 @@ describe('SchedulerPage', () => {
     saveSchedulerJobMock.mockReset();
     deleteSchedulerJobMock.mockReset();
     setSchedulerJobPausedMock.mockReset();
+    navigateMock.mockReset();
+    navigateMock.mockResolvedValue(undefined);
     useAuthMock.mockReset();
     fetchConfigMock.mockResolvedValue({
       path: '/tmp/config.json',
@@ -492,6 +503,30 @@ describe('SchedulerPage', () => {
         }),
       }),
     );
+  });
+
+  it('returns to the jobs board with SPA navigation after saving', async () => {
+    fetchSchedulerMock.mockResolvedValue({
+      jobs: [makeConfigJob()],
+    });
+    saveSchedulerJobMock.mockResolvedValue({
+      jobs: [makeConfigJob()],
+    });
+    window.history.replaceState({}, '', '/admin/scheduler?jobId=release-notes');
+
+    renderSchedulerPage();
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('ID') as HTMLInputElement).value).toBe(
+        'release-notes',
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save job' }));
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith({ to: '/admin/jobs' });
+    });
   });
 
   it('saves one-shot jobs with the configured retry count', async () => {

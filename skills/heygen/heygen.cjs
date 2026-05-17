@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   DEFAULT_TIMEOUT_MS,
   INSUFFICIENT_CREDITS_RE,
@@ -12,6 +14,10 @@ const { runEvalScenarios } = require('./eval.cjs');
 
 const API_BASE = 'https://api.heygen.com';
 const DEFAULT_API_KEY_SECRET = 'HEYGEN_API_KEY';
+const ASSET_LIST_MAX_RESPONSE_BYTES = 5_000_000;
+const DEFAULT_WATCH_INTERVAL_MS = 30_000;
+const DEFAULT_WATCH_POLLS = 10;
+const ASSET_CACHE_DIR_ENV = 'HEYGEN_ASSET_CACHE_DIR';
 
 const COST_MEASUREMENT = {
   system: 'UsageTotals',
@@ -90,13 +96,21 @@ function parseJsonValue(raw, label) {
   }
 }
 
-function parsePositiveInteger(raw, label) {
+function parsePositiveInteger(raw, label, min = 1) {
   if (!/^\d+$/.test(String(raw || ''))) {
-    die(`${label} must be a positive integer.`);
+    die(
+      min > 0
+        ? `${label} must be a positive integer.`
+        : `${label} must be a non-negative integer.`,
+    );
   }
   const value = Number.parseInt(raw, 10);
-  if (value <= 0) {
-    die(`${label} must be a positive integer.`);
+  if (value < min) {
+    die(
+      min > 0
+        ? `${label} must be a positive integer.`
+        : `${label} must be a non-negative integer.`,
+    );
   }
   return value;
 }
@@ -163,7 +177,73 @@ function validateChoice(value, label, choices) {
   return value;
 }
 
-function buildHttpRequest({ url, method = 'GET', json = undefined }) {
+function resolveAssetCacheDir() {
+  return path.resolve(
+    process.env[ASSET_CACHE_DIR_ENV] ||
+      path.join(process.cwd(), '.heygen-cache'),
+  );
+}
+
+function cachePathForKind(kind) {
+  return path.join(resolveAssetCacheDir(), `${kind}s.json`);
+}
+
+function readAssetCache(kind) {
+  try {
+    const raw = fs.readFileSync(cachePathForKind(kind), 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed.items) ? parsed.items : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAssetCache(kind, items) {
+  const cacheDir = resolveAssetCacheDir();
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(
+    cachePathForKind(kind),
+    `${JSON.stringify(
+      {
+        kind,
+        cachedAt: new Date().toISOString(),
+        items,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+function validateCachedAssetId(kind, id, label, skipCacheValidation) {
+  if (!id || skipCacheValidation) return;
+  if (/\s/.test(id)) {
+    die(
+      `${label} must be a HeyGen ${kind} id, not a display name. Run request list-${kind}s and use the exact id value.`,
+    );
+  }
+  const items = readAssetCache(kind);
+  if (items.length === 0) return;
+  if (items.some((item) => item.id === id)) return;
+  const nameMatch = items.find(
+    (item) =>
+      typeof item.name === 'string' &&
+      item.name.toLowerCase() === id.toLowerCase(),
+  );
+  if (nameMatch?.id) {
+    die(`${label} looks like a ${kind} display name. Use id ${nameMatch.id}.`);
+  }
+  die(
+    `${label} was not found in the cached HeyGen ${kind} list. Run request list-${kind}s again or pass --skip-cache-validation if this is a known private asset id.`,
+  );
+}
+
+function buildHttpRequest({
+  url,
+  method = 'GET',
+  json = undefined,
+  maxResponseBytes = undefined,
+}) {
   const httpRequest = {
     url,
     method,
@@ -177,6 +257,9 @@ function buildHttpRequest({ url, method = 'GET', json = undefined }) {
     ],
     skillName: 'heygen',
   };
+  if (maxResponseBytes !== undefined) {
+    httpRequest.maxResponseBytes = maxResponseBytes;
+  }
   if (json !== undefined) {
     httpRequest.json = json;
   }
@@ -230,6 +313,7 @@ function classifyPlan(text) {
 }
 
 function buildGenerateVideo(args) {
+  const skipCacheValidation = popBoolean(args, '--skip-cache-validation');
   const avatarId = popFlag(args, '--avatar-id');
   const imageUrl = popFlag(args, '--image-url');
   const imageAssetId = popFlag(args, '--image-asset-id');
@@ -257,6 +341,8 @@ function buildGenerateVideo(args) {
   if (script && script.length > 5_000) {
     die('--script must be 5000 characters or fewer.');
   }
+  validateCachedAssetId('avatar', avatarId, '--avatar-id', skipCacheValidation);
+  validateCachedAssetId('voice', voiceId, '--voice-id', skipCacheValidation);
 
   const json = {};
   if (avatarId) json.avatar_id = avatarId;
@@ -356,9 +442,15 @@ function buildRequest(args) {
   const operation = args.shift();
   switch (operation) {
     case 'list-avatars':
-      return buildHttpRequest({ url: `${API_BASE}/v2/avatars` });
+      return buildHttpRequest({
+        url: `${API_BASE}/v2/avatars`,
+        maxResponseBytes: ASSET_LIST_MAX_RESPONSE_BYTES,
+      });
     case 'list-voices':
-      return buildHttpRequest({ url: `${API_BASE}/v2/voices` });
+      return buildHttpRequest({
+        url: `${API_BASE}/v2/voices`,
+        maxResponseBytes: ASSET_LIST_MAX_RESPONSE_BYTES,
+      });
     case 'list-translation-languages':
       return buildHttpRequest({
         url: `${API_BASE}/v2/video_translate/target_languages`,
@@ -418,13 +510,140 @@ function classifyRateLimit(args) {
   };
 }
 
+function isTerminalStatus(statusValue) {
+  const normalized = String(statusValue || '').toLowerCase();
+  return [
+    'completed',
+    'complete',
+    'done',
+    'success',
+    'succeeded',
+    'failed',
+    'failure',
+    'error',
+    'cancelled',
+    'canceled',
+  ].includes(normalized);
+}
+
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function executeRequestCommand(args) {
+  const operation = args[0];
+  const assetKind =
+    operation === 'list-avatars'
+      ? 'avatar'
+      : operation === 'list-voices'
+        ? 'voice'
+        : null;
+  const summary = assetKind
+    ? !popBoolean(args, '--raw')
+    : popBoolean(args, '--summary');
+  const limit = summary
+    ? parsePositiveInteger(popFlag(args, '--limit', '20'), '--limit')
+    : 20;
+  const watch = popBoolean(args, '--watch');
+  const maxPolls = watch
+    ? parsePositiveInteger(
+        popFlag(args, '--max-polls', String(DEFAULT_WATCH_POLLS)),
+        '--max-polls',
+      )
+    : DEFAULT_WATCH_POLLS;
+  const intervalSeconds = watch
+    ? parsePositiveInteger(
+        popFlag(
+          args,
+          '--interval-seconds',
+          String(DEFAULT_WATCH_INTERVAL_MS / 1000),
+        ),
+        '--interval-seconds',
+        0,
+      )
+    : DEFAULT_WATCH_INTERVAL_MS / 1000;
+  if (
+    watch &&
+    operation !== 'video-status' &&
+    operation !== 'translation-status'
+  ) {
+    die('--watch is only supported for video-status and translation-status.');
+  }
+  if (summary && !assetKind) {
+    die('--summary is only supported for list-avatars and list-voices.');
+  }
+
+  const requestArgs = [...args];
+  const buildPreparedRequest = () => {
+    const copy = [...requestArgs];
+    const request = buildRequest(copy);
+    if (copy.length > 0) {
+      die(`Unexpected arguments: ${copy.join(' ')}`);
+    }
+    return request.httpRequest;
+  };
+  const preparedRequest = buildPreparedRequest();
+  args.length = 0;
+
+  const {
+    executeHeyGenGatewayRequest,
+    extractHeyGenAssetSummaries,
+    summarizeHeyGenAssets,
+  } = require('./client.cjs');
+  const runOnce = () => executeHeyGenGatewayRequest(preparedRequest);
+
+  if (watch) {
+    const polls = [];
+    for (let index = 0; index < maxPolls; index += 1) {
+      const result = await runOnce();
+      polls.push({
+        poll: index + 1,
+        status: result.statusValue || null,
+        videoId: result.videoId,
+        videoTranslateId: result.videoTranslateId,
+        videoUrl: result.videoUrl,
+        thumbnailUrl: result.thumbnailUrl,
+      });
+      if (isTerminalStatus(result.statusValue)) {
+        return {
+          watch: true,
+          terminal: true,
+          pollCount: polls.length,
+          status: result.statusValue || null,
+          result,
+          polls,
+        };
+      }
+      if (index + 1 < maxPolls) {
+        await sleep(intervalSeconds * 1000);
+      }
+    }
+    return {
+      watch: true,
+      terminal: false,
+      pollCount: polls.length,
+      status: polls.at(-1)?.status || null,
+      hint: 'Polling budget exhausted. Re-run status later or increase --max-polls.',
+      polls,
+    };
+  }
+
+  const result = await runOnce();
+  if (summary && assetKind) {
+    const items = extractHeyGenAssetSummaries(result.json, { kind: assetKind });
+    writeAssetCache(assetKind, items);
+    return summarizeHeyGenAssets(result, { kind: assetKind, limit });
+  }
+  return result;
+}
+
 function helpText() {
   return `HeyGen skill helper
 
 Usage:
   node skills/heygen/heygen.cjs plan <request>
   node skills/heygen/heygen.cjs http-request <operation> [flags]
-  node skills/heygen/heygen.cjs request <operation> [flags]
+  node skills/heygen/heygen.cjs request <operation> [--raw] [--limit <count>] [--watch]
   node skills/heygen/heygen.cjs classify-rate-limit --status <code> [--retry-after <seconds-or-date>] [--body-json <json>]
   node skills/heygen/heygen.cjs eval-scenarios
 
@@ -454,6 +673,7 @@ Credit-consuming operations, requiring --operator-grant:
       --remove-background
       --background-json <json>
       --voice-settings-json <json>
+      --skip-cache-validation
       --operator-grant
 
   translate-video
@@ -473,6 +693,9 @@ Credit-consuming operations, requiring --operator-grant:
 Authentication:
   Store the Direct API key as HEYGEN_API_KEY. The helper never accepts or prints API keys.
   The request command sends the same secret-backed payload through the local gateway and retries bounded 429/5xx responses.
+  request list-avatars/list-voices summarize by default; pass --raw only when the full response is truly needed.
+  Asset summaries are cached locally so generate-video can catch display names and stale ids before contacting HeyGen.
+  request video-status/translation-status support bounded polling with --watch --max-polls <n> --interval-seconds <n>.
   eval-scenarios runs local adapter contract smoke checks without contacting HeyGen.`;
 }
 
@@ -496,10 +719,7 @@ async function main() {
       payload = buildRequest(args);
       break;
     case 'request': {
-      const { executeHeyGenGatewayRequest } = require('./client.cjs');
-      payload = await executeHeyGenGatewayRequest(
-        buildRequest(args).httpRequest,
-      );
+      payload = await executeRequestCommand(args);
       break;
     }
     case 'classify-rate-limit':
@@ -538,5 +758,8 @@ module.exports = {
   buildRequest,
   classifyPlan,
   classifyRateLimit,
+  executeRequestCommand,
+  readAssetCache,
   validatePublicUrl,
+  writeAssetCache,
 };

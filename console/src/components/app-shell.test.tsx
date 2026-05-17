@@ -9,6 +9,13 @@ describe('resolveCurrentAdminNavItem', () => {
     });
   });
 
+  it('resolves top-level app paths outside the sidebar groups', () => {
+    expect(resolveCurrentAdminNavItem('/agents')).toMatchObject({
+      to: '/agents',
+      label: 'Agents',
+    });
+  });
+
   it('falls back to the first nav item when no match is found', () => {
     expect(resolveCurrentAdminNavItem('/admin/unknown')).toMatchObject({
       to: '/admin',

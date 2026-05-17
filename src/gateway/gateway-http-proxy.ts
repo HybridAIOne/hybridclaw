@@ -171,47 +171,68 @@ async function isPrivateHost(hostname: string): Promise<boolean> {
   }
 }
 
+type HttpResponseReadResult = {
+  buffer: Buffer;
+  bytesRead: number;
+  truncated: boolean;
+};
+
 async function readHttpResponseBuffer(
   response: Response,
   maxResponseBytes: number,
-): Promise<Buffer> {
+): Promise<HttpResponseReadResult> {
   if (!response.body) {
     if (typeof response.arrayBuffer === 'function') {
       const buffered = Buffer.from(await response.arrayBuffer());
-      if (buffered.length > maxResponseBytes) {
-        throw new GatewayRequestError(
-          413,
-          `Outbound response exceeded limit (${buffered.length} bytes > ${maxResponseBytes}).`,
-        );
+      if (buffered.length <= maxResponseBytes) {
+        return {
+          buffer: buffered,
+          bytesRead: buffered.length,
+          truncated: false,
+        };
       }
-      return buffered;
+      return {
+        buffer: buffered.subarray(0, maxResponseBytes),
+        bytesRead: buffered.length,
+        truncated: true,
+      };
     }
-    return Buffer.alloc(0);
+    return { buffer: Buffer.alloc(0), bytesRead: 0, truncated: false };
   }
   const reader = response.body.getReader();
   const chunks: Buffer[] = [];
-  let totalBytes = 0;
+  let bytesRead = 0;
+  let bufferedBytes = 0;
+  let truncated = false;
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value || value.byteLength === 0) continue;
-      totalBytes += value.byteLength;
-      if (totalBytes > maxResponseBytes) {
+      bytesRead += value.byteLength;
+      const remainingBytes = maxResponseBytes - bufferedBytes;
+      if (value.byteLength > remainingBytes) {
+        if (remainingBytes > 0) {
+          chunks.push(Buffer.from(value.subarray(0, remainingBytes)));
+          bufferedBytes += remainingBytes;
+        }
+        truncated = true;
         await reader.cancel();
-        throw new GatewayRequestError(
-          413,
-          `Outbound response exceeded limit (${totalBytes} bytes > ${maxResponseBytes}).`,
-        );
+        break;
       }
       chunks.push(Buffer.from(value));
+      bufferedBytes += value.byteLength;
     }
   } finally {
     reader.releaseLock();
   }
 
-  return Buffer.concat(chunks);
+  return {
+    buffer: Buffer.concat(chunks),
+    bytesRead,
+    truncated,
+  };
 }
 
 async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
@@ -1199,24 +1220,31 @@ export async function handleApiHttpRequest(
     String(response.headers.get('content-length') || ''),
     10,
   );
-  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
-    throw new GatewayRequestError(
-      413,
-      `Outbound response exceeded limit (${contentLength} bytes > ${maxResponseBytes}).`,
-    );
-  }
+  const responseBody =
+    Number.isFinite(contentLength) && contentLength > maxResponseBytes
+      ? {
+          buffer: Buffer.alloc(0),
+          bytesRead: contentLength,
+          truncated: true,
+        }
+      : await readHttpResponseBuffer(response, maxResponseBytes);
+  const declaredBodyBytes = Number.isFinite(contentLength)
+    ? contentLength
+    : undefined;
+  const bodyBytes =
+    responseBody.truncated && declaredBodyBytes !== undefined
+      ? declaredBodyBytes
+      : responseBody.bytesRead;
+  const bodyTruncated = responseBody.truncated;
 
-  const responseBuffer = await readHttpResponseBuffer(
-    response,
-    maxResponseBytes,
-  );
-
-  const responseText = responseBuffer.toString('utf-8');
+  const responseText = responseBody.buffer.toString('utf-8');
   let responseJson: unknown;
-  try {
-    responseJson = JSON.parse(responseText) as unknown;
-  } catch {
-    responseJson = undefined;
+  if (!bodyTruncated) {
+    try {
+      responseJson = JSON.parse(responseText) as unknown;
+    } catch {
+      responseJson = undefined;
+    }
   }
 
   // Capture selected response fields into the secret store and return only a
@@ -1242,6 +1270,13 @@ export async function handleApiHttpRequest(
     url: response.url,
     headers: Object.fromEntries(response.headers.entries()),
     body: responseText,
+    ...(bodyTruncated
+      ? {
+          bodyTruncated: true,
+          bodyBytes,
+          maxResponseBytes,
+        }
+      : {}),
     ...(responseJson === undefined ? {} : { json: responseJson }),
   });
 }

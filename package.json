@@ -38,6 +38,7 @@
     "presets/",
     "templates/",
     "docs/",
+    "infra/managed-browser/",
     "plugins/concierge-router/",
     "container/Dockerfile",
     "container/.dockerignore",

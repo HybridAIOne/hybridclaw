@@ -8,6 +8,11 @@ metadata:
   hybridclaw:
     category: memory
     short_description: "Persona mode switching."
+    tags:
+      - personality
+      - persona
+      - memory
+      - identity
 ---
 # Personality Switcher
 

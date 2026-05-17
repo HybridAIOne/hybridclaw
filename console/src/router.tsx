@@ -10,6 +10,7 @@ import { A2AInboxPage } from './routes/a2a-inbox';
 import { A2ATrustPage } from './routes/a2a-trust';
 import { AgentsPage } from './routes/agent-scoreboard';
 import { AgentFilesPage } from './routes/agents';
+import { AgentsOverviewPage } from './routes/agents-overview';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
@@ -53,18 +54,32 @@ function ChatRouteComponent() {
   );
 }
 
+function optionalStringSearchValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
 });
 
-const adminLayoutRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  id: '_admin_layout',
-  component: () => (
+function AppShellRouteComponent() {
+  return (
     <AppShell>
       <Outlet />
     </AppShell>
-  ),
+  );
+}
+
+const adminLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: '_admin_layout',
+  component: AppShellRouteComponent,
+});
+
+const agentsOverviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/agents',
+  component: AgentsOverviewPage,
 });
 
 const dashboardRoute = createRoute({
@@ -124,6 +139,9 @@ const gatewayRoute = createRoute({
 const sessionsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/sessions',
+  validateSearch: (search: Record<string, unknown>) => ({
+    sessionId: optionalStringSearchValue(search.sessionId),
+  }),
   component: SessionsPage,
 });
 
@@ -154,6 +172,9 @@ const modelsRoute = createRoute({
 const schedulerRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/scheduler',
+  validateSearch: (search: Record<string, unknown>) => ({
+    jobId: optionalStringSearchValue(search.jobId),
+  }),
   component: SchedulerPage,
 });
 
@@ -228,6 +249,7 @@ const routeTree = rootRoute.addChildren([
     pluginsRoute,
     toolsRoute,
   ]),
+  agentsOverviewRoute,
   chatRoute.addChildren([chatSessionRoute]),
 ]);
 

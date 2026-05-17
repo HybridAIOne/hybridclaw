@@ -16,7 +16,6 @@ function buildToolExecution(
           source_artifact_ref:
             '/workspace/.generated-diagrams/skills/diagram/a.mmd',
           diagram_type: 'flowchart',
-          requested_type: 'auto',
           format: 'mermaid',
           render_to: 'svg',
           scope: { type: 'skill', id: 'diagram' },

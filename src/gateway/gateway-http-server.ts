@@ -18,6 +18,15 @@ import {
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
+import { getBoardBudgetSummaries } from '../board/budget-chip.js';
+import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
+import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
+import type {
+  BrowserProvider,
+  BrowserSession,
+  BrowserWaypointEvent,
+} from '../browser/provider.js';
+import { createBrowserProvider } from '../browser/provider-factory.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -76,6 +85,7 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import type { SecretInput } from '../security/secret-refs.js';
 import {
   normalizeRecentChatSearchQuery,
   normalizeRecentChatSessionLimit,
@@ -216,7 +226,10 @@ import type {
   GatewayChatResult,
   GatewayCommandRequest,
 } from './gateway-types.js';
-import { resolveWorkspaceRelativePath } from './gateway-utils.js';
+import {
+  extensionToMimeType,
+  resolveWorkspaceRelativePath,
+} from './gateway-utils.js';
 import {
   consumeOperatorReturn,
   createSuspendedSession,
@@ -262,6 +275,9 @@ const SITE_MIME_TYPES: Record<string, string> = {
   '.js': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
+  '.m4v': extensionToMimeType('.m4v'),
+  '.mov': extensionToMimeType('.mov'),
+  '.mp4': extensionToMimeType('.mp4'),
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
@@ -279,10 +295,14 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
+  '.m4v': extensionToMimeType('.m4v'),
+  '.mov': extensionToMimeType('.mov'),
+  '.mp4': extensionToMimeType('.mp4'),
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.webm': extensionToMimeType('.webm'),
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
@@ -312,6 +332,791 @@ type ApiAdminPolicyRequestBody = {
   presetName?: unknown;
   rule?: unknown;
 };
+
+type GatewayBrowserSessionEntry = {
+  provider: BrowserProvider;
+  session: BrowserSession;
+  skillName: string;
+};
+
+const gatewayBrowserSessions = new Map<string, GatewayBrowserSessionEntry>();
+
+async function handleApiAdminBrowserPoolHealth(
+  res: ServerResponse,
+): Promise<void> {
+  const browserConfig = getRuntimeConfig().browser;
+  if (browserConfig.provider !== 'managed-cloud') {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'disabled',
+      endpointUrl: browserConfig.managedCloud.endpointUrl,
+      nodeCount: 0,
+      healthyNodeCount: 0,
+      message: 'Browser provider is not managed-cloud.',
+    });
+    return;
+  }
+  const health = await checkManagedBrowserPoolHealth(
+    browserConfig.managedCloud.endpointUrl,
+  );
+  sendJson(res, 200, {
+    ...health,
+    status: health.ok ? 'online' : 'offline',
+  });
+}
+
+async function handleApiAdminBrowserPoolStart(
+  res: ServerResponse,
+): Promise<void> {
+  sendJson(res, 200, await startLocalManagedBrowserPool());
+}
+
+function normalizeGatewayBrowserSessionId(value: unknown): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) throw new GatewayRequestError(400, 'Missing `sessionId`.');
+  return normalized;
+}
+
+function normalizeGatewayBrowserAgentId(value: unknown): string {
+  const normalized = String(value || '').trim();
+  return normalized || DEFAULT_AGENT_ID;
+}
+
+function gatewayBrowserTextPreviewHint(params: {
+  contentLength: number;
+  hasNoscript: boolean;
+  rootShell: boolean;
+}): string {
+  if (params.contentLength > 0) return 'ok';
+  if (params.hasNoscript) return 'javascript_required';
+  if (params.rootShell) return 'spa_shell_only';
+  return 'empty_extraction';
+}
+
+function normalizeGatewayBrowserSkillName(value: unknown): string {
+  const normalized = String(value || '').trim();
+  return normalized || 'browser';
+}
+
+function getGatewayBrowserSelector(args: Record<string, unknown>): string {
+  const selector = String(args.selector || '').trim();
+  if (selector) return selector;
+  const ref = String(args.ref || '').trim();
+  if (!ref) return '';
+  if (ref.startsWith('@')) return '';
+  return ref;
+}
+
+function parseGatewayBrowserCoordinate(
+  args: Record<string, unknown>,
+): { x: number; y: number } | null {
+  const ref = String(args.ref || '').trim();
+  const refMatch = ref.match(/^@?viewport-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/i);
+  const rawX = refMatch ? refMatch[1] : args.x;
+  const rawY = refMatch ? refMatch[2] : args.y;
+  if (rawX == null && rawY == null) return null;
+  const x = Number(rawX);
+  const y = Number(rawY);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
+    throw new GatewayRequestError(
+      400,
+      'x and y must be non-negative viewport coordinates.',
+    );
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+function browserRendererFunction<T>(source: string): () => T {
+  return new Function(`return (${source});`) as () => T;
+}
+
+function unsupportedGatewayBrowserTool(toolName: string): never {
+  throw new GatewayRequestError(
+    400,
+    `${toolName} is not supported by the managed-cloud browser provider.`,
+  );
+}
+
+function sanitizeGatewayUploadName(value: unknown, index: number): string {
+  const basename = path.basename(String(value || '').trim());
+  const sanitized = basename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `${index + 1}-${sanitized || 'upload'}`;
+}
+
+function writeGatewayBrowserUploadFiles(args: Record<string, unknown>): {
+  dir: string;
+  paths: string[];
+} {
+  const payloads = Array.isArray(args.filePayloads) ? args.filePayloads : [];
+  if (payloads.length === 0) {
+    throw new GatewayRequestError(
+      400,
+      'browser_upload requires filePayloads when using managed-cloud.',
+    );
+  }
+  const dir = path.join(
+    DATA_DIR,
+    'tmp',
+    'managed-browser-uploads',
+    randomUUID(),
+  );
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const paths: string[] = [];
+  try {
+    payloads.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new GatewayRequestError(
+          400,
+          'Invalid browser_upload file payload.',
+        );
+      }
+      const record = entry as Record<string, unknown>;
+      const dataBase64 = String(record.dataBase64 || '');
+      if (!dataBase64) {
+        throw new GatewayRequestError(
+          400,
+          'Invalid browser_upload file payload: missing dataBase64.',
+        );
+      }
+      const filePath = path.join(
+        dir,
+        sanitizeGatewayUploadName(record.name, index),
+      );
+      fs.writeFileSync(filePath, Buffer.from(dataBase64, 'base64'), {
+        mode: 0o600,
+      });
+      paths.push(filePath);
+    });
+    return { dir, paths };
+  } catch (error) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function normalizeGatewayBrowserWaypoint(
+  toolName: string,
+): BrowserWaypointEvent {
+  if (
+    toolName === 'browser_await_two_factor' ||
+    toolName === 'browser_resume_interaction'
+  ) {
+    return toolName;
+  }
+  throw new GatewayRequestError(400, `Invalid browser waypoint: ${toolName}`);
+}
+
+function safeGatewayBrowserUrlHost(url: string): string | null {
+  try {
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getGatewayBrowserSession(
+  sessionId: string,
+  agentId: string,
+  opts?: { headed?: boolean; skillName?: string },
+): Promise<GatewayBrowserSessionEntry> {
+  const existing = gatewayBrowserSessions.get(sessionId);
+  if (existing) return existing;
+  const provider = createBrowserProvider(getRuntimeConfig().browser);
+  const skillName = normalizeGatewayBrowserSkillName(opts?.skillName);
+  const session = await provider.launchSession({
+    headed: opts?.headed,
+    timeoutMs: 60_000,
+    metering: {
+      sessionId,
+      agentId,
+      auditRunId: `gateway_browser_${randomUUID().replace(/-/g, '')}`,
+      skillName,
+    },
+  });
+  const entry = { provider, session, skillName };
+  gatewayBrowserSessions.set(sessionId, entry);
+  return entry;
+}
+
+async function handleApiBrowserTool(
+  req: IncomingMessage,
+  res: ServerResponse,
+  activeSseResponses: Set<ServerResponse>,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as Record<string, unknown>;
+  const toolName = String(body.toolName || '').trim();
+  const sessionId = normalizeGatewayBrowserSessionId(body.sessionId);
+  const agentId = normalizeGatewayBrowserAgentId(body.agentId);
+  const args =
+    body.args && typeof body.args === 'object' && !Array.isArray(body.args)
+      ? (body.args as Record<string, unknown>)
+      : {};
+
+  if (toolName === 'browser_close') {
+    const active = gatewayBrowserSessions.get(sessionId);
+    if (active) {
+      await active.provider.closeSession(active.session);
+      gatewayBrowserSessions.delete(sessionId);
+    }
+    sendJson(res, 200, { success: true, closed: true });
+    return;
+  }
+
+  if (toolName === 'browser_navigate') {
+    const url = String(args.url || '').trim();
+    if (!url) throw new GatewayRequestError(400, 'Missing `args.url`.');
+    const active = await getGatewayBrowserSession(sessionId, agentId, {
+      headed: args.headed === true || args.headful === true,
+    });
+    await active.session.navigate(url, {
+      timeoutMs: 60_000,
+      waitUntil: 'domcontentloaded',
+    });
+    const pageState = await active.session.evaluate(() => {
+      const bodyText = document.body
+        ? String(document.body.innerText || '')
+        : '';
+      const normalized = bodyText
+        .replace(/\r/g, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      return {
+        url: String(window.location.href || ''),
+        title: String(document.title || ''),
+        preview: normalized.slice(0, 6000),
+        textLength: normalized.length,
+        previewTruncated: normalized.length > 6000,
+        hasNoscript: Boolean(document.querySelector('noscript')),
+        rootShell: Boolean(
+          document.querySelector(
+            'div#root:empty, div#app:empty, div#__next:empty',
+          ),
+        ),
+        readyState: String(document.readyState || ''),
+      };
+    });
+    sendJson(res, 200, {
+      success: true,
+      url: pageState.url || url,
+      title: pageState.title || '',
+      content_text_length: pageState.textLength || 0,
+      ...(pageState.preview ? { content_preview: pageState.preview } : {}),
+      content_preview_truncated: pageState.previewTruncated === true,
+      ready_state: pageState.readyState || '',
+      read_extraction_hint: gatewayBrowserTextPreviewHint({
+        contentLength: pageState.textLength || 0,
+        hasNoscript: pageState.hasNoscript === true,
+        rootShell: pageState.rootShell === true,
+      }),
+    });
+    return;
+  }
+
+  if (toolName === 'browser_screenshot') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const image = await active.session.screenshot({
+      fullPage: args.fullPage === true,
+      type: 'png',
+    });
+    sendJson(res, 200, {
+      success: true,
+      imageBase64: Buffer.from(image).toString('base64'),
+    });
+    return;
+  }
+
+  if (toolName === 'browser_snapshot') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const pageState = await active.session.evaluate(() => {
+      const bodyText = document.body
+        ? String(document.body.innerText || '')
+        : '';
+      const normalized = bodyText
+        .replace(/\r/g, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      const elements = Array.from(
+        document.querySelectorAll(
+          'a,button,input,textarea,select,summary,[role="button"],[role="link"]',
+        ),
+      )
+        .slice(0, 100)
+        .map((element, index) => {
+          const tag = String(element.tagName || '').toLowerCase();
+          const label = String(
+            element.getAttribute('aria-label') ||
+              element.getAttribute('placeholder') ||
+              element.textContent ||
+              element.getAttribute('value') ||
+              '',
+          )
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 160);
+          const id = element.id ? `#${element.id}` : '';
+          const name = element.getAttribute('name') || '';
+          return `@managed-${index + 1} ${tag}${id}${name ? ` [name="${name}"]` : ''}${label ? ` - ${label}` : ''}`;
+        });
+      const snapshot = [
+        `URL: ${String(window.location.href || '')}`,
+        `Title: ${String(document.title || '')}`,
+        '',
+        normalized.slice(0, 12_000),
+        elements.length ? '\nInteractive elements:' : '',
+        ...elements,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      return {
+        url: String(window.location.href || ''),
+        title: String(document.title || ''),
+        snapshot,
+        truncated: normalized.length > 12_000,
+        elementCount: elements.length,
+      };
+    });
+    sendJson(res, 200, {
+      success: true,
+      snapshot: pageState.snapshot,
+      truncated: pageState.truncated === true,
+      element_count: pageState.elementCount || 0,
+      url: pageState.url || '',
+      title: pageState.title || '',
+      mode: String(args.mode || 'default'),
+      frames: [],
+      two_factor_detection: { detected: false, signals: [] },
+    });
+    return;
+  }
+
+  if (toolName === 'browser_click') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const selector = getGatewayBrowserSelector(args);
+    const text = String(args.text || '').trim();
+    const coordinate = parseGatewayBrowserCoordinate(args);
+    if (selector) {
+      await active.session.click(selector, { timeoutMs: 30_000 });
+      sendJson(res, 200, { success: true, selector });
+      return;
+    }
+    if (text) {
+      const clicked = await active.session.evaluate(
+        browserRendererFunction<boolean>(`
+          () => {
+            const needle = ${JSON.stringify(text.toLowerCase())};
+            const candidates = Array.from(document.querySelectorAll('a,button,input,summary,[role="button"],[role="link"],label'));
+            const target = candidates.find((element) => {
+              const value = String(
+                element.getAttribute('aria-label') ||
+                element.getAttribute('value') ||
+                element.textContent ||
+                '',
+              ).replace(/\\s+/g, ' ').trim().toLowerCase();
+              return value === needle || value.includes(needle);
+            });
+            if (!target) return false;
+            if (typeof target.scrollIntoView === 'function') {
+              target.scrollIntoView({ block: 'center', inline: 'center' });
+            }
+            if (typeof target.click === 'function') {
+              target.click();
+              return true;
+            }
+            return false;
+          }
+        `),
+      );
+      if (!clicked) {
+        throw new GatewayRequestError(
+          404,
+          `No managed browser element matched text: ${text}`,
+        );
+      }
+      sendJson(res, 200, { success: true, text });
+      return;
+    }
+    if (coordinate) {
+      const clicked = await active.session.evaluate(
+        browserRendererFunction<boolean>(`
+          () => {
+            const element = document.elementFromPoint(${coordinate.x}, ${coordinate.y});
+            if (!element || typeof element.click !== 'function') return false;
+            element.click();
+            return true;
+          }
+        `),
+      );
+      if (!clicked) {
+        throw new GatewayRequestError(
+          404,
+          `No managed browser element found at ${coordinate.x},${coordinate.y}`,
+        );
+      }
+      sendJson(res, 200, { success: true, x: coordinate.x, y: coordinate.y });
+      return;
+    }
+    throw new GatewayRequestError(
+      400,
+      'browser_click requires selector, text, or x/y coordinates.',
+    );
+  }
+
+  if (toolName === 'browser_type' || toolName === 'browser_secret_type') {
+    const skillName = normalizeGatewayBrowserSkillName(args.skillName);
+    const active = await getGatewayBrowserSession(sessionId, agentId, {
+      skillName,
+    });
+    const selector = getGatewayBrowserSelector(args);
+    if (!selector) {
+      throw new GatewayRequestError(
+        400,
+        `${toolName} requires a CSS selector when using the managed-cloud provider.`,
+      );
+    }
+    const value: SecretInput =
+      toolName === 'browser_secret_type'
+        ? {
+            source: 'store',
+            id: String(args.secretName || '').trim(),
+          }
+        : String(args.text || '');
+    if (
+      toolName === 'browser_secret_type' &&
+      !String(args.secretName || '').trim()
+    ) {
+      throw new GatewayRequestError(
+        400,
+        'browser_secret_type requires secretName.',
+      );
+    }
+    await active.session.fill(selector, value);
+    sendJson(res, 200, {
+      success: true,
+      selector,
+      typed_chars:
+        toolName === 'browser_secret_type' ? 0 : String(args.text || '').length,
+      secret_injected: toolName === 'browser_secret_type',
+    });
+    return;
+  }
+
+  if (toolName === 'browser_scroll') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const direction = String(args.direction || 'down').toLowerCase();
+    if (
+      direction !== 'up' &&
+      direction !== 'down' &&
+      direction !== 'left' &&
+      direction !== 'right'
+    ) {
+      throw new GatewayRequestError(
+        400,
+        'browser_scroll direction must be up, down, left, or right.',
+      );
+    }
+    const rawPixels = Number(args.pixels);
+    const pixels =
+      Number.isFinite(rawPixels) && rawPixels > 0 ? Math.floor(rawPixels) : 800;
+    await active.session.scroll({
+      direction,
+      deltaY: direction === 'up' ? -pixels : direction === 'down' ? pixels : 0,
+      deltaX:
+        direction === 'left' ? -pixels : direction === 'right' ? pixels : 0,
+    });
+    sendJson(res, 200, { success: true, direction, pixels });
+    return;
+  }
+
+  if (toolName === 'browser_back') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    await active.session.back({
+      timeoutMs: 30_000,
+      waitUntil: 'domcontentloaded',
+    });
+    const url = await active.session.evaluate(() =>
+      String(window.location.href || ''),
+    );
+    sendJson(res, 200, { success: true, url });
+    return;
+  }
+
+  if (toolName === 'browser_press') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const key = String(args.key || '').trim();
+    if (!key) throw new GatewayRequestError(400, 'browser_press requires key.');
+    const pressed = await active.session.evaluate(
+      browserRendererFunction<boolean>(`
+        () => {
+          const key = ${JSON.stringify(key)};
+          const target = document.activeElement;
+          if (!target) return false;
+          const eventInit = { key, bubbles: true, cancelable: true };
+          target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+          target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+          return true;
+        }
+      `),
+    );
+    if (!pressed) unsupportedGatewayBrowserTool(toolName);
+    sendJson(res, 200, { success: true, key });
+    return;
+  }
+
+  if (toolName === 'browser_get_images') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const images = await active.session.evaluate(() =>
+      Array.from(document.images)
+        .map((img) => ({
+          src: String(img.currentSrc || img.src || ''),
+          alt: String(img.alt || ''),
+          width: Number(img.naturalWidth || img.width || 0),
+          height: Number(img.naturalHeight || img.height || 0),
+        }))
+        .filter((img) => img.src),
+    );
+    sendJson(res, 200, {
+      success: true,
+      count: images.length,
+      images,
+    });
+    return;
+  }
+
+  if (toolName === 'browser_network') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const filter = String(args.filter || '').trim();
+    const entries = await active.session.evaluate(() =>
+      performance
+        .getEntriesByType('resource')
+        .map((entry) => ({
+          url: String(entry.name || ''),
+          method: 'GET',
+          status: null,
+          type: String(
+            (entry as PerformanceResourceTiming).initiatorType || '',
+          ),
+          startTime: Number(entry.startTime || 0),
+          duration: Number(entry.duration || 0),
+        }))
+        .filter((entry) => entry.url),
+    );
+    const requests = filter
+      ? entries.filter((entry) => entry.url.includes(filter))
+      : entries;
+    sendJson(res, 200, {
+      success: true,
+      requests,
+      count: requests.length,
+      source: 'performance',
+    });
+    return;
+  }
+
+  if (toolName === 'browser_upload') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (!active.session.upload) unsupportedGatewayBrowserTool(toolName);
+    const selector = getGatewayBrowserSelector(args);
+    if (!selector) {
+      throw new GatewayRequestError(
+        400,
+        'browser_upload requires a CSS selector when using managed-cloud.',
+      );
+    }
+    const upload = writeGatewayBrowserUploadFiles(args);
+    try {
+      await active.session.upload(selector, upload.paths);
+      sendJson(res, 200, {
+        success: true,
+        selector,
+        target: selector,
+        uploaded_count: upload.paths.length,
+      });
+    } finally {
+      fs.rmSync(upload.dir, { recursive: true, force: true });
+    }
+    return;
+  }
+
+  if (toolName === 'browser_pdf') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (!active.session.pdf) unsupportedGatewayBrowserTool(toolName);
+    const pdf = await active.session.pdf({
+      printBackground: args.printBackground !== false,
+      format: typeof args.format === 'string' ? args.format : undefined,
+    });
+    sendJson(res, 200, {
+      success: true,
+      pdfBase64: Buffer.from(pdf).toString('base64'),
+    });
+    return;
+  }
+
+  if (toolName === 'browser_console') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (!active.session.consoleMessages)
+      unsupportedGatewayBrowserTool(toolName);
+    const rawLimit = Number(args.limit);
+    const limit =
+      Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(Math.floor(rawLimit), 500)
+        : 200;
+    const messages = await active.session.consoleMessages({
+      clear: args.clear === true,
+      limit,
+    });
+    sendJson(res, 200, {
+      success: true,
+      messages,
+      count: messages.length,
+      cleared: args.clear === true,
+    });
+    return;
+  }
+
+  if (toolName === 'browser_await_two_factor') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const waypoint = normalizeGatewayBrowserWaypoint(toolName);
+    const modality = parseInteractionModality(args.modality || 'totp');
+    const prompt =
+      normalizeOptionalString(args.prompt) ||
+      `A ${modality} challenge needs operator input.`;
+    const targetChannel = normalizeOptionalString(args.escalationChannel);
+    const targetRecipient = normalizeOptionalString(args.escalationRecipient);
+    const escalationTarget =
+      targetChannel && targetRecipient
+        ? { channel: targetChannel, recipient: targetRecipient }
+        : undefined;
+    const pageState = await active.session.evaluate(() => {
+      const bodyText = document.body
+        ? String(document.body.innerText || '')
+        : '';
+      const selectors = Array.from(
+        document.querySelectorAll(
+          'input[autocomplete="one-time-code"], input[name*="otp" i], input[id*="otp" i], input[name*="code" i], input[id*="code" i]',
+        ),
+      )
+        .slice(0, 10)
+        .map((element) => {
+          const id = element.id ? `#${element.id}` : '';
+          const name = element.getAttribute('name');
+          return id || (name ? `input[name="${name}"]` : 'input');
+        });
+      return {
+        url: String(window.location.href || ''),
+        title: String(document.title || ''),
+        preview: bodyText.replace(/\s+/g, ' ').trim().slice(0, 1000),
+        selectors,
+      };
+    });
+    const image = await active.session.screenshot({
+      fullPage: true,
+      type: 'png',
+    });
+    const screenshotRef = `managed-browser://${sessionId}/two-factor-${randomUUID()}.png`;
+    const session = createSuspendedSession({
+      prompt,
+      userId:
+        normalizeOptionalString(args.userId) ||
+        escalationTarget?.recipient ||
+        'operator',
+      modality,
+      frameSnapshot: {
+        url: pageState.url || 'about:blank',
+        title: pageState.title || '',
+        browserSessionKey: sessionId,
+        screenshotRef,
+      },
+      context: {
+        host: safeGatewayBrowserUrlHost(pageState.url || ''),
+        pageTitle: pageState.title || null,
+        url: pageState.url || 'about:blank',
+        screenshotRef,
+      },
+      agentId,
+      skillId: normalizeOptionalString(args.skillId) || null,
+      escalationTarget,
+      ttlMs:
+        typeof args.ttlMs === 'number' && Number.isFinite(args.ttlMs)
+          ? args.ttlMs
+          : null,
+    });
+    await active.session.waypoint?.(waypoint, {
+      modality,
+      prompt,
+      sessionId: session.sessionId,
+    });
+    emitInteractionNeededEvent({ session });
+    const notification = queueInteractionNotification(session);
+    const payload = { session, notification };
+    broadcastSseEvent(activeSseResponses, 'interaction_needed', payload);
+    sendJson(res, 200, {
+      success: true,
+      parked: true,
+      modality,
+      detected_selectors: pageState.selectors,
+      text_preview: pageState.preview,
+      screenshot: screenshotRef,
+      screenshotBase64: Buffer.from(image).toString('base64'),
+      interaction: payload,
+    });
+    return;
+  }
+
+  if (toolName === 'browser_resume_interaction') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const waypoint = normalizeGatewayBrowserWaypoint(toolName);
+    const suspendedSessionId =
+      normalizeOptionalString(args.sessionId) || sessionId;
+    const response = consumeOperatorReturn(suspendedSessionId);
+    if (!response) {
+      throw new GatewayRequestError(
+        404,
+        'No operator response is available for this suspended session.',
+      );
+    }
+    if (response.kind === 'code') {
+      const selector = getGatewayBrowserSelector(args);
+      if (!selector) {
+        throw new GatewayRequestError(
+          400,
+          'browser_resume_interaction requires selector for code injection with managed-cloud.',
+        );
+      }
+      await active.session.fill(selector, response.value);
+      await active.session.waypoint?.(waypoint, {
+        sessionId: suspendedSessionId,
+        responseKind: response.kind,
+      });
+      sendJson(res, 200, {
+        success: true,
+        resumed: true,
+        response_kind: 'code',
+        code_injected: true,
+        selector,
+      });
+      return;
+    }
+    await active.session.waypoint?.(waypoint, {
+      sessionId: suspendedSessionId,
+      responseKind: response.kind,
+    });
+    sendJson(res, 200, {
+      success: true,
+      resumed: true,
+      response_kind: response.kind,
+      operator_completed_challenge:
+        response.kind === 'approved' || response.kind === 'scanned',
+    });
+    return;
+  }
+
+  throw new GatewayRequestError(
+    400,
+    `Unsupported gateway browser tool: ${toolName}`,
+  );
+}
 
 function normalizeStringListInput(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
@@ -1013,6 +1818,8 @@ function resolveHybridAILoginUrl(): string | null {
 
 function isConsoleSpaPath(pathname: string): boolean {
   return (
+    pathname === '/agents' ||
+    pathname.startsWith('/agents/') ||
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||
@@ -2281,6 +3088,24 @@ function handleApiAdminJobsContext(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminJobsContext());
 }
 
+function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
+  const values = url.searchParams
+    .getAll('agentId')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
+}
+
+function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
+  sendJson(
+    res,
+    200,
+    getBoardBudgetSummaries({
+      agentIds: parseBoardBudgetAgentIds(url),
+    }),
+  );
+}
+
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
   const channelId = (url.searchParams.get('channelId') || '').trim();
   if (!channelId) {
@@ -3340,7 +4165,7 @@ async function handleApiAdminScheduler(
     const source =
       (url.searchParams.get('source') || '').trim().toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const rawId =
       source === 'task'
         ? (url.searchParams.get('taskId') || '').trim()
@@ -3364,7 +4189,7 @@ async function handleApiAdminScheduler(
         .trim()
         .toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const jobId = String(
       source === 'task' ? body.taskId || '' : body.jobId || '',
     ).trim();
@@ -4751,6 +5576,20 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (
+            pathname === '/api/admin/browser-pool/health' &&
+            method === 'GET'
+          ) {
+            await handleApiAdminBrowserPoolHealth(res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/browser-pool/start' &&
+            method === 'POST'
+          ) {
+            await handleApiAdminBrowserPoolStart(res);
+            return;
+          }
+          if (
             pathname === '/api/admin/slack-webhook-targets' &&
             (method === 'POST' || method === 'PUT')
           ) {
@@ -4872,6 +5711,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminJobsContext(res);
             return;
           }
+          if (pathname === '/api/admin/board/budgets' && method === 'GET') {
+            handleApiAdminBoardBudgets(res, url);
+            return;
+          }
           if (
             pathname === '/api/admin/terminal' &&
             (method === 'POST' || method === 'DELETE')
@@ -4950,6 +5793,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/http/request' && method === 'POST') {
             await handleApiHttpRequest(req, res);
+            return;
+          }
+          if (pathname === '/api/browser/tool' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiBrowserTool(req, res, activeSseResponses);
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {

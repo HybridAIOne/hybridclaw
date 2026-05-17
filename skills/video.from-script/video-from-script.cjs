@@ -104,7 +104,7 @@ function buildStartRequest(args) {
     });
     if (value !== undefined) forwarded.push(flag, value);
   }
-  for (const flag of ['--remove-background']) {
+  for (const flag of ['--remove-background', '--skip-cache-validation']) {
     if (popBoolean(args, flag)) forwarded.push(flag);
   }
   if (args.length > 0) die(`Unexpected arguments: ${args.join(' ')}`);
@@ -339,7 +339,10 @@ function normalizeStartResult(result) {
 
 async function startFromScript(args, options = {}) {
   const request = buildStartRequest([...args]);
-  const result = await executeHeyGenGatewayRequest(request.httpRequest, options);
+  const result = await executeHeyGenGatewayRequest(
+    request.httpRequest,
+    options,
+  );
   return {
     ...normalizeStartResult(result),
     rateLimit: request.rateLimit,
@@ -360,7 +363,10 @@ async function statusVideo(args, options = {}) {
   const { jobId, request } = buildStatusRequest(localArgs);
   if (localArgs.length > 0) die(`Unexpected arguments: ${localArgs.join(' ')}`);
 
-  const result = await executeHeyGenGatewayRequest(request.httpRequest, options);
+  const result = await executeHeyGenGatewayRequest(
+    request.httpRequest,
+    options,
+  );
   const kind = statusKind(result.statusValue);
   const payload = {
     success: kind !== 'failed',
@@ -386,14 +392,16 @@ async function statusVideo(args, options = {}) {
       filename,
       maxDownloadBytes,
     });
+    const publicArtifact = {
+      path: artifact.path,
+      filename: artifact.filename,
+      mimeType: artifact.mimeType,
+      bytes: artifact.bytes,
+    };
     return {
       ...payload,
-      artifact: {
-        path: artifact.path,
-        filename: artifact.filename,
-        mimeType: artifact.mimeType,
-        bytes: artifact.bytes,
-      },
+      artifact: publicArtifact,
+      artifacts: [publicArtifact],
     };
   }
   return payload;
@@ -561,6 +569,7 @@ Optional start/render flags:
   --remove-background
   --background-json <json>
   --voice-settings-json <json>
+  --skip-cache-validation
 
 Polling/download flags:
   --wait

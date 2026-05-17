@@ -105,6 +105,48 @@ test('admin tools exposes recent tool error summaries', async () => {
   });
 });
 
+test('admin audit event type filter supports partial type-ahead matches', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-usage',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'usage.batch_flushed',
+      sessionCount: 1,
+      recordCount: 1,
+    },
+  });
+  recordAuditEvent({
+    sessionId: 'session-tool',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'tool.result',
+      toolName: 'bash',
+      isError: false,
+    },
+  });
+
+  const { getGatewayAdminAudit } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = getGatewayAdminAudit({
+    eventType: 'usage',
+    limit: 10,
+  });
+
+  expect(result.eventType).toBe('usage');
+  expect(result.entries.map((entry) => entry.eventType)).toEqual([
+    'usage.batch_flushed',
+  ]);
+});
+
 test('bot set records a structured audit event for observability export', async () => {
   setupHome();
   const userId = 'u'.repeat(200);

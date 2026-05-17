@@ -13,18 +13,20 @@ afterEach(() => {
 
 function setupProviderMocks({
   runtimeDefaultModel,
+  activeRemoteProviders,
   activeLocalBackends,
   resolveTaskModelPolicy,
   resolveDefaultAuxiliaryModelForProvider,
   resolveModelRuntimeCredentials,
 }: {
   runtimeDefaultModel?: string;
+  activeRemoteProviders?: string[];
   activeLocalBackends?: Partial<Record<string, boolean>>;
   resolveTaskModelPolicy: ReturnType<typeof vi.fn>;
   resolveDefaultAuxiliaryModelForProvider?: ReturnType<typeof vi.fn>;
   resolveModelRuntimeCredentials: ReturnType<typeof vi.fn>;
 }): void {
-  if (runtimeDefaultModel !== undefined) {
+  if (runtimeDefaultModel !== undefined || activeRemoteProviders) {
     vi.doMock('../src/config/runtime-config.js', async () => {
       const actual = await vi.importActual<
         typeof import('../src/config/runtime-config.js')
@@ -33,11 +35,34 @@ function setupProviderMocks({
         ...actual,
         getRuntimeConfig: () => {
           const config = actual.getRuntimeConfig();
+          const remoteProviders = [
+            'anthropic',
+            'openrouter',
+            'mistral',
+            'huggingface',
+            'gemini',
+            'deepseek',
+            'xai',
+            'zai',
+            'kimi',
+            'minimax',
+            'dashscope',
+            'xiaomi',
+            'kilo',
+          ] as const;
+          if (activeRemoteProviders) {
+            const active = new Set(activeRemoteProviders);
+            for (const provider of remoteProviders) {
+              config[provider].enabled = active.has(provider);
+            }
+          }
           return {
             ...config,
             hybridai: {
               ...config.hybridai,
-              defaultModel: runtimeDefaultModel,
+              ...(runtimeDefaultModel !== undefined
+                ? { defaultModel: runtimeDefaultModel }
+                : {}),
             },
           };
         },
@@ -60,6 +85,44 @@ function setupProviderMocks({
       },
     }));
   }
+
+  const remoteProviderKeys = [
+    'anthropic',
+    'openrouter',
+    'mistral',
+    'huggingface',
+    'gemini',
+    'deepseek',
+    'xai',
+    'zai',
+    'kimi',
+    'minimax',
+    'dashscope',
+    'xiaomi',
+    'kilo',
+  ];
+  const activeRemoteSet = new Set(activeRemoteProviders ?? remoteProviderKeys);
+  vi.doMock('../src/gateway/provider-status.js', () => ({
+    buildGatewayProviderHealth: vi.fn(),
+    getGatewayAdminProviderStatus: vi.fn(async () => {
+      const status: Record<
+        string,
+        { kind: 'local' | 'remote'; reachable: boolean }
+      > = {};
+      for (const provider of remoteProviderKeys) {
+        status[provider] = {
+          kind: 'remote',
+          reachable: activeRemoteSet.has(provider),
+        };
+      }
+      for (const [backend, reachable] of Object.entries(
+        activeLocalBackends ?? {},
+      )) {
+        status[backend] = { kind: 'local', reachable: Boolean(reachable) };
+      }
+      return status;
+    }),
+  }));
 
   vi.doMock('../src/providers/task-routing.js', async () => {
     const actual = await vi.importActual<
@@ -829,6 +892,7 @@ test('host auxiliary caller falls back to the OpenRouter small model when task r
     thinkingFormat: undefined,
   }));
   setupProviderMocks({
+    activeRemoteProviders: ['openrouter'],
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -923,6 +987,7 @@ test('host auxiliary caller falls back remotely when a configured task model cal
     },
   );
   setupProviderMocks({
+    activeRemoteProviders: ['openrouter'],
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -1006,6 +1071,139 @@ test('host auxiliary caller falls back remotely when a configured task model cal
   );
 });
 
+test('host auxiliary caller continues through remote fallback calls after a fallback timeout', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    baseUrl: 'https://hybrid.example',
+    apiKey: 'hybrid-key',
+    requestHeaders: {},
+    isLocal: false,
+    model: 'hybridai/anthropic/claude-haiku-4-5',
+    chatbotId: 'bot_123',
+    maxTokens: 1_200,
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn(() => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      if (model === 'openrouter/google/gemini-2.5-flash-lite') {
+        return {
+          provider: 'openrouter' as const,
+          apiKey: 'openrouter-key',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          chatbotId: '',
+          enableRag: false,
+          requestHeaders: {},
+          agentId: 'main',
+          isLocal: false,
+          contextWindow: 200_000,
+          thinkingFormat: undefined,
+        };
+      }
+      if (model === 'gemini/gemini-2.5-flash-lite') {
+        return {
+          provider: 'gemini' as const,
+          apiKey: 'gemini-key',
+          baseUrl: 'https://gemini.example/v1beta/openai',
+          chatbotId: '',
+          enableRag: false,
+          requestHeaders: {},
+          agentId: 'main',
+          isLocal: false,
+          contextWindow: 200_000,
+          thinkingFormat: undefined,
+        };
+      }
+      throw new Error(`Provider is not configured for ${model}.`);
+    },
+  );
+  setupProviderMocks({
+    activeRemoteProviders: ['openrouter', 'gemini'],
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  const warn = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn,
+    },
+  }));
+
+  const fetchMock = vi
+    .fn()
+    .mockRejectedValueOnce(
+      new DOMException(
+        'The operation was aborted due to timeout',
+        'TimeoutError',
+      ),
+    )
+    .mockRejectedValueOnce(
+      new DOMException(
+        'The operation was aborted due to timeout',
+        'TimeoutError',
+      ),
+    )
+    .mockImplementationOnce(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe(
+          'https://gemini.example/v1beta/openai/chat/completions',
+        );
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.model).toBe('gemini-2.5-flash-lite');
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content: 'Recovered after second remote fallback.',
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'cv_narration',
+    agentId: 'main',
+    maxTokens: 1_200,
+    messages: [{ role: 'user', content: 'Write one CV entry.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'gemini',
+    model: 'gemini/gemini-2.5-flash-lite',
+    content: 'Recovered after second remote fallback.',
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    'https://hybrid.example/v1/chat/completions',
+  );
+  expect(fetchMock.mock.calls[1]?.[0]).toBe(
+    'https://openrouter.ai/api/v1/chat/completions',
+  );
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'cv_narration',
+      fallbackProvider: 'openrouter',
+      modelHint: 'openrouter/google/gemini-2.5-flash-lite',
+      error: expect.any(DOMException),
+    }),
+    'Auxiliary fallback provider call failed; trying next fallback',
+  );
+});
+
 test('host auxiliary caller preserves resolved task max tokens on provider-call fallback', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     provider: 'hybridai' as const,
@@ -1039,6 +1237,7 @@ test('host auxiliary caller preserves resolved task max tokens on provider-call 
     },
   );
   setupProviderMocks({
+    activeRemoteProviders: ['anthropic'],
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -1130,6 +1329,7 @@ test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter f
     },
   );
   setupProviderMocks({
+    activeRemoteProviders: ['openrouter', 'gemini'],
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -1196,6 +1396,91 @@ test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter f
   );
 });
 
+test('host auxiliary caller skips inactive remote fallback providers', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'anthropic/claude-3-7-sonnet',
+    error: 'Anthropic provider is not implemented yet.',
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn(() => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      expect(model).toBe('gemini/gemini-2.5-flash-lite');
+      return {
+        provider: 'gemini' as const,
+        apiKey: 'gemini-key',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: false,
+        contextWindow: 1_000_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    activeRemoteProviders: ['gemini'],
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: vi.fn(),
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      );
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('gemini-2.5-flash-lite');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Skipped inactive OpenRouter fallback.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'gemini',
+    model: 'gemini/gemini-2.5-flash-lite',
+    content: 'Skipped inactive OpenRouter fallback.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledWith(
+    expect.objectContaining({
+      model: 'gemini/gemini-2.5-flash-lite',
+    }),
+  );
+});
+
 test('host auxiliary caller falls through to Anthropic Haiku when earlier remote fallbacks are unavailable', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'anthropic/claude-3-7-sonnet',
@@ -1223,6 +1508,7 @@ test('host auxiliary caller falls through to Anthropic Haiku when earlier remote
     },
   );
   setupProviderMocks({
+    activeRemoteProviders: ['openrouter', 'gemini', 'anthropic'],
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -1554,6 +1840,80 @@ test('host auxiliary caller skips inactive local fallback candidates', async () 
   expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
 });
 
+test('host auxiliary caller prefers healthy local auto routing before remote fallback models', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn((provider: string) =>
+    provider === 'vllm' ? 'vllm/Qwen/Qwen3.6-27B-FP8' : undefined,
+  );
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      expect(model).toBe('vllm/Qwen/Qwen3.6-27B-FP8');
+      return {
+        provider: 'vllm' as const,
+        apiKey: '',
+        baseUrl: 'http://127.0.0.1:8000/v1',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: true,
+        contextWindow: 128_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    activeLocalBackends: { vllm: true },
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('http://127.0.0.1:8000/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('Qwen/Qwen3.6-27B-FP8');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Narrated through local vLLM first.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'cv_narration',
+    agentId: 'main',
+    fallbackModel: 'openrouter/anthropic/claude-sonnet-4',
+    maxTokens: 1_200,
+    messages: [{ role: 'user', content: 'Write one CV entry.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    content: 'Narrated through local vLLM first.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
+});
+
 test('host auxiliary caller prefers local model fallback when task resolution fails', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'anthropic/claude-3-7-sonnet',
@@ -1655,6 +2015,7 @@ test('host auxiliary caller uses fixed OpenRouter small fallback instead of fail
     thinkingFormat: undefined,
   }));
   setupProviderMocks({
+    activeRemoteProviders: ['openrouter'],
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
