@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 'use strict';
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
-const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
+const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const SKILL_NAME = 'zabbix';
 const SECRET_NAME = 'ZABBIX_API_TOKEN';
+
+const RPC_IDS = {
+  apiVersion: 1,
+  hosts: 2,
+  problems: 3,
+  triggersProblem: 4,
+};
 
 const SECRET_FLAGS = new Set([
   '--api-token',
@@ -42,13 +49,23 @@ const SEVERITIES = new Map([
   ['disaster', 5],
 ]);
 
+const PROBLEM_ONLY_FLAGS = new Set([
+  '--acknowledged',
+  '--unacknowledged',
+  '--suppressed',
+  '--unsuppressed',
+  '--time-from',
+  '--time-till',
+]);
+
 function fail(message, code = 2) {
   process.stderr.write(`${message}\n`);
   process.exit(code);
 }
 
-function printJson(payload) {
-  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+function printJson(payload, format = 'pretty') {
+  const indent = format === 'pretty' ? 2 : undefined;
+  process.stdout.write(`${JSON.stringify(payload, null, indent)}\n`);
 }
 
 function usage() {
@@ -59,12 +76,14 @@ Usage:
   node skills/zabbix/zabbix.cjs --format json http-request hosts --base-url https://zabbix.example.com/zabbix --monitored-only
   node skills/zabbix/zabbix.cjs --format json http-request problems --base-url https://zabbix.example.com/zabbix --recent --limit 50
   node skills/zabbix/zabbix.cjs --format json http-request triggers-problem --base-url https://zabbix.example.com/zabbix --limit 50
-  node skills/zabbix/zabbix.cjs --format json run problems --base-url https://zabbix.example.com/zabbix --recent --limit 50
+  node skills/zabbix/zabbix.cjs --live --format json http-request problems --base-url https://zabbix.example.com/zabbix --recent --limit 50
 
 Global options:
-  --format json|pretty        Output format. Defaults to pretty.
+  --format json|pretty        json emits compact output; pretty emits indented output. Defaults to pretty.
   --base-url URL              Zabbix frontend URL or api_jsonrpc.php endpoint.
                               Can also be set with ZABBIX_BASE_URL.
+  --live                      Send one live request through the HybridClaw gateway.
+  --allow-http                Allow an http:// Zabbix base URL. HTTPS is required by default.
   --help                      Show this help.
 
 Filters:
@@ -84,7 +103,7 @@ Filters:
 Secret values are not accepted on the command line. Store the token with:
   hybridclaw secret set ZABBIX_API_TOKEN "<token>"
 
-Live run mode uses HYBRIDCLAW_GATEWAY_URL and HYBRIDCLAW_GATEWAY_TOKEN when set.`;
+Live mode uses HYBRIDCLAW_GATEWAY_URL and HYBRIDCLAW_GATEWAY_TOKEN when set.`;
 }
 
 class ZabbixError extends Error {
@@ -102,17 +121,12 @@ class ZabbixCredentialError extends ZabbixError {
   }
 }
 
-class ZabbixConfigError extends ZabbixError {
-  constructor(message, details = {}) {
-    super(message, details);
-    this.name = 'ZabbixConfigError';
-  }
-}
-
 function parseArgs(argv) {
   const opts = {
+    allowHttp: false,
     format: 'pretty',
     help: false,
+    live: false,
   };
   const positional = [];
 
@@ -122,6 +136,14 @@ function parseArgs(argv) {
       opts.help = true;
       continue;
     }
+    if (arg === '--live') {
+      opts.live = true;
+      continue;
+    }
+    if (arg === '--allow-http') {
+      opts.allowHttp = true;
+      continue;
+    }
     if (SECRET_FLAGS.has(arg)) {
       fail(
         `${arg} is not supported. Store Zabbix credentials in ${SECRET_NAME}.`,
@@ -129,8 +151,11 @@ function parseArgs(argv) {
     }
     if (arg === '--format' || arg === '--base-url') {
       const value = argv[index + 1];
-      if (value === undefined || value.startsWith('--')) {
+      if (value === undefined || value.startsWith('--') || !value.trim()) {
         fail(`${arg} requires a value.`);
+      }
+      if (arg === '--format' && !['json', 'pretty'].includes(value)) {
+        fail('--format must be json or pretty.');
       }
       opts[arg.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] =
         value;
@@ -143,44 +168,7 @@ function parseArgs(argv) {
   return { opts, positional };
 }
 
-function popFlag(args, name, fallback = undefined) {
-  const index = args.indexOf(name);
-  if (index === -1) {
-    return fallback;
-  }
-  const value = args[index + 1];
-  if (value === undefined || value.startsWith('--')) {
-    fail(`${name} requires a value.`);
-  }
-  args.splice(index, 2);
-  return value;
-}
-
-function popRepeatedFlag(args, name) {
-  const values = [];
-  let index = args.indexOf(name);
-  while (index !== -1) {
-    const value = args[index + 1];
-    if (value === undefined || value.startsWith('--')) {
-      fail(`${name} requires a value.`);
-    }
-    values.push(value);
-    args.splice(index, 2);
-    index = args.indexOf(name);
-  }
-  return values;
-}
-
-function popBoolean(args, name) {
-  const index = args.indexOf(name);
-  if (index === -1) {
-    return false;
-  }
-  args.splice(index, 1);
-  return true;
-}
-
-function normalizeEndpoint(rawUrl) {
+function normalizeEndpoint(rawUrl, { allowHttp = false } = {}) {
   const text = String(rawUrl || '').trim();
   if (!text) {
     fail('--base-url is required or ZABBIX_BASE_URL must be set.');
@@ -193,8 +181,13 @@ function normalizeEndpoint(rawUrl) {
     fail('--base-url must be a valid URL.');
   }
 
-  if (!['http:', 'https:'].includes(url.protocol)) {
-    fail('--base-url must use http or https.');
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    fail('--base-url must use https.');
+  }
+  if (url.protocol === 'http:' && !allowHttp) {
+    fail(
+      '--base-url must use https. Pass --allow-http only for trusted local or private Zabbix frontends.',
+    );
   }
   if (url.username || url.password) {
     fail('--base-url must not include credentials.');
@@ -227,16 +220,20 @@ function parseInteger(raw, label, min, max) {
 
 function parseIdList(values) {
   return values.flatMap((value) =>
-    String(value)
+    normalizeText(value)
       .split(',')
       .map((part) => part.trim())
       .filter(Boolean),
   );
 }
 
+function normalizeText(value) {
+  return String(value).trim();
+}
+
 function parseTags(values) {
   return values.map((value) => {
-    const text = String(value).trim();
+    const text = normalizeText(value);
     if (!text) {
       fail('--tag cannot be empty.');
     }
@@ -256,7 +253,7 @@ function parseTags(values) {
 function parseSeverities(values) {
   const severities = [];
   for (const value of values) {
-    for (const part of String(value).split(',')) {
+    for (const part of normalizeText(value).split(',')) {
       const key = part.trim().toLowerCase();
       if (!key) {
         continue;
@@ -280,37 +277,68 @@ function parseUnixSeconds(raw, label) {
   return parseInteger(raw, label, 0, 4_102_444_800);
 }
 
-function ensureNoUnknownArgs(args) {
-  if (args.length > 0) {
-    fail(`Unknown option or argument: ${args[0]}`);
+function parseCommandOptions(args, spec = {}) {
+  const booleans = new Set(spec.booleans || []);
+  const values = new Set(spec.values || []);
+  const repeated = new Set(spec.repeated || []);
+  const result = {
+    booleans: {},
+    values: {},
+    repeated: {},
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!spec.allowProblemFilters && PROBLEM_ONLY_FLAGS.has(arg)) {
+      fail(`${arg} is only valid for the problems command.`);
+    }
+    if (booleans.has(arg)) {
+      result.booleans[arg] = true;
+      continue;
+    }
+    if (values.has(arg) || repeated.has(arg)) {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith('--') || !value.trim()) {
+        fail(`${arg} requires a value.`);
+      }
+      if (repeated.has(arg)) {
+        result.repeated[arg] ||= [];
+        result.repeated[arg].push(value);
+      } else {
+        result.values[arg] = value;
+      }
+      index += 1;
+      continue;
+    }
+    fail(`Unknown option or argument: ${arg}`);
   }
+
+  return result;
 }
 
-function addSharedFilters(params, args, { allowProblemFilters = false } = {}) {
+function addSharedFilters(params, options) {
   const hostIds = parseIdList([
-    ...popRepeatedFlag(args, '--host-id'),
-    ...popRepeatedFlag(args, '--host'),
+    ...(options.repeated['--host-id'] || []),
+    ...(options.repeated['--host'] || []),
   ]);
   const groupIds = parseIdList([
-    ...popRepeatedFlag(args, '--group-id'),
-    ...popRepeatedFlag(args, '--host-group'),
+    ...(options.repeated['--group-id'] || []),
+    ...(options.repeated['--host-group'] || []),
   ]);
-  const tags = parseTags(popRepeatedFlag(args, '--tag'));
-  const severities = parseSeverities(popRepeatedFlag(args, '--severity'));
+  const tags = parseTags(options.repeated['--tag'] || []);
+  const severities = parseSeverities(options.repeated['--severity'] || []);
 
   if (hostIds.length > 0) params.hostids = hostIds;
   if (groupIds.length > 0) params.groupids = groupIds;
   if (tags.length > 0) params.tags = tags;
   if (severities.length > 0) params.severities = severities;
+}
 
-  if (!allowProblemFilters) {
-    return;
-  }
-
-  const acknowledged = popBoolean(args, '--acknowledged');
-  const unacknowledged = popBoolean(args, '--unacknowledged');
-  const suppressed = popBoolean(args, '--suppressed');
-  const unsuppressed = popBoolean(args, '--unsuppressed');
+function addProblemFilters(params, options) {
+  const acknowledged = options.booleans['--acknowledged'] === true;
+  const unacknowledged = options.booleans['--unacknowledged'] === true;
+  const suppressed = options.booleans['--suppressed'] === true;
+  const unsuppressed = options.booleans['--unsuppressed'] === true;
   if (acknowledged && unacknowledged) {
     fail('Use only one of --acknowledged or --unacknowledged.');
   }
@@ -323,15 +351,38 @@ function addSharedFilters(params, args, { allowProblemFilters = false } = {}) {
   if (unsuppressed) params.suppressed = false;
 
   const timeFrom = parseUnixSeconds(
-    popFlag(args, '--time-from'),
+    options.values['--time-from'],
     '--time-from',
   );
   const timeTill = parseUnixSeconds(
-    popFlag(args, '--time-till'),
+    options.values['--time-till'],
     '--time-till',
   );
   if (timeFrom !== undefined) params.time_from = timeFrom;
   if (timeTill !== undefined) params.time_till = timeTill;
+}
+
+function parseReadOptions(args, extra = {}) {
+  return parseCommandOptions(args, {
+    allowProblemFilters: extra.allowProblemFilters === true,
+    booleans: [
+      ...(extra.booleans || []),
+      '--acknowledged',
+      '--unacknowledged',
+      '--suppressed',
+      '--unsuppressed',
+    ],
+    values: [...(extra.values || []), '--time-from', '--time-till'],
+    repeated: [
+      '--host-id',
+      '--host',
+      '--group-id',
+      '--host-group',
+      '--tag',
+      '--severity',
+      ...(extra.repeated || []),
+    ],
+  });
 }
 
 function buildRpc(method, params, id) {
@@ -367,7 +418,6 @@ function buildHttpRequest({
   }
   return {
     command: 'http-request',
-    operation: rpcMethod,
     httpRequest,
     costMeasurement: {
       system: 'UsageTotals',
@@ -381,37 +431,44 @@ function buildApiVersion(endpoint) {
     endpoint,
     rpcMethod: 'apiinfo.version',
     params: {},
-    id: 1,
+    id: RPC_IDS.apiVersion,
     auth: false,
     maxResponseBytes: 200_000,
   });
 }
 
 function buildHosts(endpoint, args) {
+  const options = parseReadOptions(args, {
+    booleans: ['--monitored-only'],
+  });
   const params = {
     output: ['hostid', 'host', 'name', 'status', 'maintenance_status'],
     selectInterfaces: ['interfaceid', 'ip', 'dns', 'type', 'main', 'useip'],
     selectTags: ['tag', 'value'],
     sortfield: 'name',
   };
-  if (popBoolean(args, '--monitored-only')) {
+  if (options.booleans['--monitored-only']) {
     params.monitored_hosts = true;
   }
-  addSharedFilters(params, args);
-  ensureNoUnknownArgs(args);
+  addSharedFilters(params, options);
   return buildHttpRequest({
     endpoint,
     rpcMethod: 'host.get',
     params,
-    id: 2,
+    id: RPC_IDS.hosts,
     auth: true,
     maxResponseBytes: 2_000_000,
   });
 }
 
 function buildProblems(endpoint, args) {
+  const options = parseReadOptions(args, {
+    allowProblemFilters: true,
+    booleans: ['--recent'],
+    values: ['--limit'],
+  });
   const limit = parseInteger(
-    popFlag(args, '--limit', String(DEFAULT_LIMIT)),
+    options.values['--limit'] || String(DEFAULT_LIMIT),
     '--limit',
     1,
     MAX_LIMIT,
@@ -425,24 +482,27 @@ function buildProblems(endpoint, args) {
     sortorder: 'DESC',
     limit,
   };
-  if (popBoolean(args, '--recent')) {
+  if (options.booleans['--recent']) {
     params.recent = true;
   }
-  addSharedFilters(params, args, { allowProblemFilters: true });
-  ensureNoUnknownArgs(args);
+  addSharedFilters(params, options);
+  addProblemFilters(params, options);
   return buildHttpRequest({
     endpoint,
     rpcMethod: 'problem.get',
     params,
-    id: 3,
+    id: RPC_IDS.problems,
     auth: true,
     maxResponseBytes: 4_000_000,
   });
 }
 
 function buildTriggersProblem(endpoint, args) {
+  const options = parseReadOptions(args, {
+    values: ['--limit'],
+  });
   const limit = parseInteger(
-    popFlag(args, '--limit', String(DEFAULT_LIMIT)),
+    options.values['--limit'] || String(DEFAULT_LIMIT),
     '--limit',
     1,
     MAX_LIMIT,
@@ -458,13 +518,12 @@ function buildTriggersProblem(endpoint, args) {
     sortorder: 'DESC',
     limit,
   };
-  addSharedFilters(params, args);
-  ensureNoUnknownArgs(args);
+  addSharedFilters(params, options);
   return buildHttpRequest({
     endpoint,
     rpcMethod: 'trigger.get',
     params,
-    id: 4,
+    id: RPC_IDS.triggersProblem,
     auth: true,
     maxResponseBytes: 4_000_000,
   });
@@ -475,21 +534,19 @@ function buildRequest(argv = process.argv.slice(2)) {
   if (opts.help) {
     return { help: true };
   }
-  if (!['json', 'pretty'].includes(opts.format)) {
-    fail('--format must be json or pretty.');
-  }
   const mode = positional.shift();
   const command = positional.shift();
-  if (!['http-request', 'run'].includes(mode)) {
-    fail('Expected command mode: http-request or run.');
+  if (mode !== 'http-request') {
+    fail('Expected command mode: http-request.');
   }
   const endpoint = normalizeEndpoint(
     opts.baseUrl || process.env.ZABBIX_BASE_URL,
+    { allowHttp: opts.allowHttp },
   );
 
   let request;
   if (command === 'api-version') {
-    ensureNoUnknownArgs(positional);
+    parseCommandOptions(positional);
     request = buildApiVersion(endpoint);
   } else if (command === 'hosts') {
     request = buildHosts(endpoint, positional);
@@ -501,9 +558,10 @@ function buildRequest(argv = process.argv.slice(2)) {
     fail(`Unsupported Zabbix operation: ${command || '(missing)'}`);
   }
 
-  if (mode === 'run') {
-    request.command = 'run';
+  if (opts.live) {
+    request.command = 'live';
   }
+  request.format = opts.format;
   return request;
 }
 
@@ -515,12 +573,7 @@ function resolveGatewayUrl() {
 }
 
 function resolveGatewayToken() {
-  return String(
-    process.env.HYBRIDCLAW_GATEWAY_TOKEN ||
-      process.env.GATEWAY_API_TOKEN ||
-      process.env.WEB_API_TOKEN ||
-      '',
-  ).trim();
+  return String(process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim();
 }
 
 function parseJsonMaybe(text) {
@@ -529,17 +582,6 @@ function parseJsonMaybe(text) {
   } catch {
     return null;
   }
-}
-
-function responseHeadersToObject(headers) {
-  if (!headers || typeof headers.forEach !== 'function') {
-    return {};
-  }
-  const result = {};
-  headers.forEach((value, key) => {
-    result[key] = value;
-  });
-  return result;
 }
 
 function normalizeGatewayResult(wrapper, fallbackStatus) {
@@ -571,7 +613,7 @@ async function executeZabbixGatewayRequest(httpRequest, options = {}) {
   const gatewayToken = options.gatewayToken || resolveGatewayToken();
   const fetchImpl = options.fetch || globalThis.fetch;
   if (typeof fetchImpl !== 'function') {
-    throw new ZabbixConfigError('fetch is not available for Zabbix requests.');
+    throw new ZabbixError('fetch is not available for Zabbix requests.');
   }
 
   const headers = { 'Content-Type': 'application/json' };
@@ -609,7 +651,7 @@ async function executeZabbixGatewayRequest(httpRequest, options = {}) {
     return {
       ok: true,
       status: response.status,
-      headers: responseHeadersToObject(response.headers),
+      headers: {},
       body: text,
       bodyJson: null,
     };
@@ -654,9 +696,11 @@ async function main() {
     process.stdout.write(`${usage()}\n`);
     return;
   }
-  if (result.command === 'run') {
+  const format = result.format || 'pretty';
+  delete result.format;
+  if (result.command === 'live') {
     try {
-      printJson(await executeZabbixGatewayRequest(result.httpRequest));
+      printJson(await executeZabbixGatewayRequest(result.httpRequest), format);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`${message}\n`);
@@ -664,7 +708,7 @@ async function main() {
     }
     return;
   }
-  printJson(result);
+  printJson(result, format);
 }
 
 if (require.main === module) {
@@ -677,7 +721,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  ZabbixConfigError,
   ZabbixCredentialError,
   ZabbixError,
   buildRequest,

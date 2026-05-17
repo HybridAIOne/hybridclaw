@@ -10,11 +10,19 @@ import { parseSkillManifestFromMarkdown } from '../src/skills/skill-manifest.js'
 const helperPath = path.join(process.cwd(), 'skills', 'zabbix', 'zabbix.cjs');
 const skillPath = path.join(process.cwd(), 'skills', 'zabbix', 'SKILL.md');
 const require = createRequire(import.meta.url);
+const zabbix = require('../skills/zabbix/zabbix.cjs');
+
+const BASE_URL = 'https://zabbix.example.com/zabbix';
+const ENDPOINT = 'https://zabbix.example.com/zabbix/api_jsonrpc.php';
 
 function runHelper(args: string[]) {
   return spawnSync('node', [helperPath, ...args], {
     encoding: 'utf-8',
   });
+}
+
+function request(args: string[]) {
+  return zabbix.buildRequest(['http-request', ...args]);
 }
 
 test('Zabbix skill manifest declares SecretRef credential metadata', () => {
@@ -55,21 +63,44 @@ test('Zabbix helper --help exits cleanly without secret flags', () => {
   expect(result.stdout).not.toContain('--password');
 });
 
-test('Zabbix run mode prepares the same gateway-proxied request', () => {
-  const zabbix = require('../skills/zabbix/zabbix.cjs');
+test('Zabbix helper formats json compactly and pretty output with indentation', () => {
+  const compact = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'api-version',
+    '--base-url',
+    BASE_URL,
+  ]);
+  const pretty = runHelper([
+    '--format',
+    'pretty',
+    'http-request',
+    'api-version',
+    '--base-url',
+    BASE_URL,
+  ]);
 
+  expect(compact.status).toBe(0);
+  expect(pretty.status).toBe(0);
+  expect(compact.stdout).not.toContain('\n  "');
+  expect(pretty.stdout).toContain('\n  "');
+});
+
+test('Zabbix live flag prepares the same gateway-proxied request', () => {
   const payload = zabbix.buildRequest([
-    'run',
+    '--live',
+    'http-request',
     'problems',
     '--base-url',
-    'https://zabbix.example.com/zabbix',
+    BASE_URL,
     '--recent',
   ]);
 
   expect(payload).toMatchObject({
-    command: 'run',
+    command: 'live',
     httpRequest: {
-      url: 'https://zabbix.example.com/zabbix/api_jsonrpc.php',
+      url: ENDPOINT,
       bearerSecretName: 'ZABBIX_API_TOKEN',
       json: {
         method: 'problem.get',
@@ -79,47 +110,18 @@ test('Zabbix run mode prepares the same gateway-proxied request', () => {
 });
 
 test('Zabbix helper normalizes frontend URLs to the JSON-RPC endpoint', () => {
-  const frontend = runHelper([
-    '--format',
-    'json',
-    'http-request',
-    'api-version',
-    '--base-url',
-    'https://zabbix.example.com/zabbix',
-  ]);
-  const endpoint = runHelper([
-    '--format',
-    'json',
-    'http-request',
-    'api-version',
-    '--base-url',
-    'https://zabbix.example.com/zabbix/api_jsonrpc.php',
-  ]);
+  const frontend = request(['api-version', '--base-url', BASE_URL]);
+  const endpoint = request(['api-version', '--base-url', ENDPOINT]);
 
-  expect(frontend.status).toBe(0);
-  expect(endpoint.status).toBe(0);
-  expect(JSON.parse(frontend.stdout).httpRequest.url).toBe(
-    'https://zabbix.example.com/zabbix/api_jsonrpc.php',
-  );
-  expect(JSON.parse(endpoint.stdout).httpRequest.url).toBe(
-    'https://zabbix.example.com/zabbix/api_jsonrpc.php',
-  );
+  expect(frontend.httpRequest.url).toBe(ENDPOINT);
+  expect(endpoint.httpRequest.url).toBe(ENDPOINT);
 });
 
 test('Zabbix api-version request is unauthenticated and bounded', () => {
-  const result = runHelper([
-    '--format',
-    'json',
-    'http-request',
-    'api-version',
-    '--base-url',
-    'https://zabbix.example.com/zabbix',
-  ]);
+  const payload = request(['api-version', '--base-url', BASE_URL]);
 
-  expect(result.status).toBe(0);
-  const payload = JSON.parse(result.stdout);
   expect(payload.httpRequest).toMatchObject({
-    url: 'https://zabbix.example.com/zabbix/api_jsonrpc.php',
+    url: ENDPOINT,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json-rpc',
@@ -131,7 +133,7 @@ test('Zabbix api-version request is unauthenticated and bounded', () => {
       id: 1,
     },
     skillName: 'zabbix',
-    timeoutMs: 30000,
+    timeoutMs: 10000,
     maxResponseBytes: 200000,
   });
   expect(payload.httpRequest).not.toHaveProperty('bearerSecretName');
@@ -139,13 +141,10 @@ test('Zabbix api-version request is unauthenticated and bounded', () => {
 });
 
 test('Zabbix host request injects bearer SecretRef field and explicit outputs', () => {
-  const result = runHelper([
-    '--format',
-    'json',
-    'http-request',
+  const payload = request([
     'hosts',
     '--base-url',
-    'https://zabbix.example.com/zabbix',
+    BASE_URL,
     '--monitored-only',
     '--host',
     '10084',
@@ -155,8 +154,6 @@ test('Zabbix host request injects bearer SecretRef field and explicit outputs', 
     'role=db',
   ]);
 
-  expect(result.status).toBe(0);
-  const payload = JSON.parse(result.stdout);
   expect(payload.httpRequest).toMatchObject({
     bearerSecretName: 'ZABBIX_API_TOKEN',
     skillName: 'zabbix',
@@ -176,17 +173,14 @@ test('Zabbix host request injects bearer SecretRef field and explicit outputs', 
     },
     id: 2,
   });
-  expect(result.stdout).not.toContain('Authorization');
+  expect(JSON.stringify(payload)).not.toContain('Authorization');
 });
 
 test('Zabbix problem request supports recent, bounds, and incident filters', () => {
-  const result = runHelper([
-    '--format',
-    'json',
-    'http-request',
+  const payload = request([
     'problems',
     '--base-url',
-    'https://zabbix.example.com/zabbix',
+    BASE_URL,
     '--recent',
     '--limit',
     '25',
@@ -206,8 +200,6 @@ test('Zabbix problem request supports recent, bounds, and incident filters', () 
     '1767312000',
   ]);
 
-  expect(result.status).toBe(0);
-  const payload = JSON.parse(result.stdout);
   expect(payload.httpRequest).toMatchObject({
     bearerSecretName: 'ZABBIX_API_TOKEN',
     maxResponseBytes: 4000000,
@@ -237,13 +229,10 @@ test('Zabbix problem request supports recent, bounds, and incident filters', () 
 });
 
 test('Zabbix trigger problem request follows documented problem-state pattern', () => {
-  const result = runHelper([
-    '--format',
-    'json',
-    'http-request',
+  const payload = request([
     'triggers-problem',
     '--base-url',
-    'https://zabbix.example.com/zabbix/api_jsonrpc.php',
+    ENDPOINT,
     '--limit',
     '10',
     '--severity',
@@ -252,8 +241,6 @@ test('Zabbix trigger problem request follows documented problem-state pattern', 
     'team=infra',
   ]);
 
-  expect(result.status).toBe(0);
-  const payload = JSON.parse(result.stdout);
   expect(payload.httpRequest.json).toMatchObject({
     method: 'trigger.get',
     params: {
@@ -280,7 +267,7 @@ test('Zabbix helper validates limit bounds and mutually exclusive filters', () =
     'http-request',
     'problems',
     '--base-url',
-    'https://zabbix.example.com/zabbix',
+    BASE_URL,
     '--limit',
     '101',
   ]);
@@ -290,7 +277,7 @@ test('Zabbix helper validates limit bounds and mutually exclusive filters', () =
     'http-request',
     'triggers-problem',
     '--base-url',
-    'https://zabbix.example.com/zabbix',
+    BASE_URL,
     '--limit',
     '25.5',
   ]);
@@ -300,7 +287,7 @@ test('Zabbix helper validates limit bounds and mutually exclusive filters', () =
     'http-request',
     'problems',
     '--base-url',
-    'https://zabbix.example.com/zabbix',
+    BASE_URL,
     '--acknowledged',
     '--unacknowledged',
   ]);
@@ -317,6 +304,47 @@ test('Zabbix helper validates limit bounds and mutually exclusive filters', () =
   );
 });
 
+test('Zabbix helper rejects http base URLs unless explicitly allowed', () => {
+  const rejected = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'api-version',
+    '--base-url',
+    'http://zabbix.example.com/zabbix',
+  ]);
+  const allowed = zabbix.buildRequest([
+    '--allow-http',
+    'http-request',
+    'api-version',
+    '--base-url',
+    'http://127.0.0.1/zabbix',
+  ]);
+
+  expect(rejected.status).not.toBe(0);
+  expect(rejected.stderr).toContain('--base-url must use https.');
+  expect(allowed.httpRequest.url).toBe(
+    'http://127.0.0.1/zabbix/api_jsonrpc.php',
+  );
+});
+
+test('Zabbix helper reports problem-only filters on unsupported commands', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'hosts',
+    '--base-url',
+    BASE_URL,
+    '--acknowledged',
+  ]);
+
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain(
+    '--acknowledged is only valid for the problems command.',
+  );
+});
+
 test('Zabbix helper rejects cleartext credential flags without echoing values', () => {
   const result = runHelper([
     '--format',
@@ -324,7 +352,28 @@ test('Zabbix helper rejects cleartext credential flags without echoing values', 
     'http-request',
     'hosts',
     '--base-url',
-    'https://zabbix.example.com/zabbix',
+    BASE_URL,
+    '--token',
+    'super-secret-token',
+  ]);
+
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain(
+    '--token is not supported. Store Zabbix credentials in ZABBIX_API_TOKEN.',
+  );
+  expect(result.stderr).not.toContain('super-secret-token');
+  expect(result.stdout).not.toContain('super-secret-token');
+});
+
+test('Zabbix helper rejects secret flags in value position without echoing values', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'hosts',
+    '--base-url',
+    BASE_URL,
+    '--host-id',
     '--token',
     'super-secret-token',
   ]);
@@ -338,7 +387,6 @@ test('Zabbix helper rejects cleartext credential flags without echoing values', 
 });
 
 test('Zabbix live executor uses the gateway http_request route without exposing secrets', async () => {
-  const zabbix = require('../skills/zabbix/zabbix.cjs');
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
@@ -359,7 +407,7 @@ test('Zabbix live executor uses the gateway http_request route without exposing 
     'http-request',
     'api-version',
     '--base-url',
-    'https://zabbix.example.com/zabbix',
+    BASE_URL,
   ]);
 
   const result = await zabbix.executeZabbixGatewayRequest(payload.httpRequest, {
@@ -387,7 +435,6 @@ test('Zabbix live executor uses the gateway http_request route without exposing 
 });
 
 test('Zabbix live executor stops after one Zabbix 401 response', async () => {
-  const zabbix = require('../skills/zabbix/zabbix.cjs');
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
@@ -405,7 +452,7 @@ test('Zabbix live executor stops after one Zabbix 401 response', async () => {
     'http-request',
     'problems',
     '--base-url',
-    'https://zabbix.example.com/zabbix',
+    BASE_URL,
   ]);
 
   await expect(
@@ -418,4 +465,34 @@ test('Zabbix live executor stops after one Zabbix 401 response', async () => {
     'Zabbix returned HTTP 401 for the first live call. Check ZABBIX_API_TOKEN',
   );
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('Zabbix live executor reports truncated gateway responses', async () => {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    headers: new Headers(),
+    text: async () =>
+      JSON.stringify({
+        ok: true,
+        status: 200,
+        bodyTruncated: true,
+        maxResponseBytes: 200000,
+        body: '{"jsonrpc":"2.0","result":[],"id":3}',
+      }),
+  });
+  const payload = zabbix.buildRequest([
+    'http-request',
+    'problems',
+    '--base-url',
+    BASE_URL,
+  ]);
+
+  await expect(
+    zabbix.executeZabbixGatewayRequest(payload.httpRequest, {
+      gatewayUrl: 'http://127.0.0.1:9090',
+      gatewayToken: 'gateway-token',
+      fetch: fetchMock,
+    }),
+  ).rejects.toThrow('Zabbix response was truncated by the gateway');
 });

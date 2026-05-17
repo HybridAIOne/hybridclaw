@@ -79,8 +79,8 @@ Zabbix methods so the gateway injects the bearer token server-side. It never
 prints `Authorization` headers, token values, usernames, passwords, or Zabbix
 session tokens.
 
-When a terminal-side live smoke test is needed, use the helper's `run` mode.
-It posts the same `httpRequest` object to the HybridClaw gateway
+When a terminal-side live smoke test is needed, pass `--live` to the same
+`http-request` command. It posts the same `httpRequest` object to the HybridClaw gateway
 `/api/http/request` route and stops after the first Zabbix 401/403 response.
 Set `HYBRIDCLAW_GATEWAY_URL` and `HYBRIDCLAW_GATEWAY_TOKEN` only for gateway
 access; do not store those as Zabbix credentials.
@@ -93,7 +93,9 @@ If the operator has a tenant-specific frontend path, pass it with `--base-url`
 or set `ZABBIX_BASE_URL` in the runtime environment. The helper accepts both
 `https://zabbix.example.com/zabbix` and
 `https://zabbix.example.com/zabbix/api_jsonrpc.php` and normalizes both to the
-JSON-RPC endpoint.
+JSON-RPC endpoint. HTTPS is required by default. Use `--allow-http` only for a
+trusted local or private Zabbix frontend where plaintext HTTP is an intentional
+operator choice.
 
 ## Command Contract
 
@@ -138,7 +140,7 @@ node skills/zabbix/zabbix.cjs --format json http-request triggers-problem \
 Run one live gateway-proxied request, with no retry loop:
 
 ```bash
-node skills/zabbix/zabbix.cjs --format json run problems \
+node skills/zabbix/zabbix.cjs --live --format json http-request problems \
   --base-url https://zabbix.example.com/zabbix \
   --recent \
   --limit 50
