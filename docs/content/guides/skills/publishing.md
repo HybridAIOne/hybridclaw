@@ -13,11 +13,13 @@ native `diagram_create`, `diagram_update`, and `diagram_validate` tools.
 Mermaid is the default format, with PlantUML, Graphviz DOT, and Excalidraw JSON
 available when the diagram shape or user request calls for them.
 
-**Prerequisites** — none for source artifacts and Excalidraw SVG previews.
-Install or configure optional renderers for native exports: `mmdc` for Mermaid,
-`dot` for Graphviz, and `HYBRIDCLAW_PLANTUML_SERVER_URL` for PlantUML.
-Only point the PlantUML setting at a trusted server with appropriate network
-egress controls.
+**Prerequisites** — none for source artifacts, Mermaid validation, and
+Excalidraw SVG previews. Install or configure optional renderers for native
+exports: `mmdc` for Mermaid, `dot` for Graphviz, and
+`HYBRIDCLAW_PLANTUML_SERVER_URL` for PlantUML. Only point the PlantUML setting
+at a trusted server with appropriate network egress controls. Local diagram
+renders are recorded as zero-cost usage hooks; only LLM calls used to draft or
+repair source consume token budget.
 
 > 💡 **Tips & Tricks**
 >

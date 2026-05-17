@@ -351,6 +351,8 @@ const IMPLICIT_DELAY_BROWSER_INPUT_TOOLS = new Set([
 ]);
 const NO_IMPLICIT_DELAY_TOOLS = new Set([
   'audio_transcribe',
+  'diagram_create',
+  'diagram_update',
   'image_generate',
   'video_generate',
 ]);
@@ -3340,6 +3342,47 @@ export class TrustedAgentApprovalRuntime {
           'video generation may call a configured external provider and writes generated media into the workspace',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: [],
+        hostHints: [],
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: true,
+      };
+    }
+
+    if (lowerTool === 'diagram_validate') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'validate diagram source',
+        consequenceIfDenied: 'I will continue without validating the diagram.',
+        reason: 'diagram validation is local, read-only syntax checking',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (lowerTool === 'diagram_create' || lowerTool === 'diagram_update') {
+      return {
+        tier: 'yellow',
+        actionKey: lowerTool,
+        intent:
+          lowerTool === 'diagram_update'
+            ? 'update diagram artifacts'
+            : 'create diagram artifacts',
+        consequenceIfDenied:
+          lowerTool === 'diagram_update'
+            ? 'I will continue without updating the diagram.'
+            : 'I will continue without creating the diagram.',
+        reason:
+          'diagram rendering writes source/rendered artifacts locally and may call a configured PlantUML server for PlantUML renders',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: normalizeText(args.artifact_ref)
+          ? [normalizeText(args.artifact_ref)]
+          : [],
         hostHints: [],
         writeIntent: true,
         promotableRed: false,

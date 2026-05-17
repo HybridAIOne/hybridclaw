@@ -1095,6 +1095,48 @@ autonomy:
     expect(videoGenerate.reason).toContain('video generation may call');
   });
 
+  test('diagram tools classify validation as green and artifact writes as yellow', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const validate = runtime.evaluateToolCall({
+      toolName: 'diagram_validate',
+      argsJson: JSON.stringify({
+        source: 'flowchart TD\n  A --> B',
+        type: 'flowchart',
+      }),
+      latestUserPrompt: 'Validate this diagram',
+    });
+    const create = runtime.evaluateToolCall({
+      toolName: 'diagram_create',
+      argsJson: JSON.stringify({
+        description: 'Create a flowchart',
+        type: 'flowchart',
+      }),
+      latestUserPrompt: 'Create a diagram',
+    });
+    const update = runtime.evaluateToolCall({
+      toolName: 'diagram_update',
+      argsJson: JSON.stringify({
+        artifact_ref: '/workspace/.generated-diagrams/skills/diagram/a.mmd',
+        instructions: 'Add a decision node',
+      }),
+      latestUserPrompt: 'Update this diagram',
+    });
+
+    expect(validate.tier).toBe('green');
+    expect(validate.decision).toBe('auto');
+    expect(create.tier).toBe('yellow');
+    expect(create.implicitDelayMs).toBeUndefined();
+    expect(create.reason).toContain('diagram rendering writes');
+    expect(update.tier).toBe('yellow');
+    expect(update.implicitDelayMs).toBeUndefined();
+    expect(update.commandPreview).toContain(
+      '/workspace/.generated-diagrams/skills/diagram/a.mmd',
+    );
+  });
+
   test('delegate tool is green by default', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

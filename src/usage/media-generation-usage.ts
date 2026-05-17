@@ -1,4 +1,8 @@
 import { estimateAudioTranscriptionCostUsd } from '../../container/shared/audio-transcription-pricing.js';
+import {
+  readFiniteNumber,
+  readString,
+} from '../../container/shared/primitive-values.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { TokenUsageEvent } from './token-usage-buffer.js';
 
@@ -13,29 +17,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function readNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-    return value;
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
-  }
-  return null;
+function readNonNegativeNumber(value: unknown): number | null {
+  const parsed = readFiniteNumber(value);
+  return parsed != null && parsed >= 0 ? parsed : null;
 }
 
 function readInteger(value: unknown): number {
-  const parsed = readNumber(value);
+  const parsed = readNonNegativeNumber(value);
   return parsed == null ? 0 : Math.max(0, Math.floor(parsed));
 }
 
 function readCostUsd(value: unknown): number | undefined {
-  const parsed = readNumber(value);
+  const parsed = readNonNegativeNumber(value);
   return parsed == null ? undefined : parsed;
-}
-
-function readString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
 }
 
 function parseToolResult(result: string): Record<string, unknown> | null {
@@ -80,7 +74,7 @@ function estimateImageGenerationCostUsd(params: {
   const provider = params.provider.toLowerCase();
   const model = params.model.toLowerCase();
   if (provider === 'gemini' && model.includes('3.1-flash-image')) {
-    const outputTokens = readNumber(
+    const outputTokens = readNonNegativeNumber(
       params.usage.output_image_tokens ?? params.usage.output_tokens,
     );
     if (outputTokens != null) return (outputTokens * 60) / 1_000_000;
@@ -175,7 +169,7 @@ function buildAudioUsageEvent(params: {
   const model = readString(params.payload.model);
   if (!model) return null;
   const usage = isRecord(params.payload.usage) ? params.payload.usage : {};
-  const audioSeconds = readNumber(
+  const audioSeconds = readNonNegativeNumber(
     params.payload.duration_sec ??
       params.payload.durationSec ??
       usage.audio_seconds ??
@@ -205,6 +199,30 @@ function buildAudioUsageEvent(params: {
   };
 }
 
+function buildDiagramUsageEvent(params: {
+  sessionId: string;
+  agentId: string;
+  auditRunId: string;
+  payload: Record<string, unknown>;
+}): TokenUsageEvent | null {
+  if (params.payload.success !== true) return null;
+  const usage = isRecord(params.payload.usage) ? params.payload.usage : {};
+  const renders = readInteger(usage.renders);
+  if (renders <= 0) return null;
+  const format = readString(params.payload.format) || 'unknown';
+  return {
+    sessionId: params.sessionId,
+    agentId: params.agentId,
+    model: `diagram/${format}`,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    toolCalls: 0,
+    costUsd: 0,
+    auditRunId: params.auditRunId,
+  };
+}
+
 export function buildMediaGenerationUsageEvents(
   input: MediaUsageEventInput,
 ): TokenUsageEvent[] {
@@ -227,6 +245,12 @@ export function buildMediaGenerationUsageEvents(
       if (event) events.push(event);
     } else if (execution.name === 'video_generate') {
       const event = buildVideoUsageEvent(params);
+      if (event) events.push(event);
+    } else if (
+      execution.name === 'diagram_create' ||
+      execution.name === 'diagram_update'
+    ) {
+      const event = buildDiagramUsageEvent(params);
       if (event) events.push(event);
     }
   }
