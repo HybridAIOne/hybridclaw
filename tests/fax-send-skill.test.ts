@@ -1,0 +1,350 @@
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+
+import { expect, test, vi } from 'vitest';
+
+const helperPath = path.join(
+  process.cwd(),
+  'skills',
+  'fax-send',
+  'fax_send.cjs',
+);
+const skillPath = path.join(process.cwd(), 'skills', 'fax-send', 'SKILL.md');
+const docsPath = path.join(
+  process.cwd(),
+  'docs',
+  'content',
+  'channels',
+  'fax.md',
+);
+const require = createRequire(import.meta.url);
+const fax = require('../skills/fax-send/fax_send.cjs');
+
+function runHelper(args: string[]) {
+  return spawnSync('node', [helperPath, ...args], {
+    encoding: 'utf-8',
+  });
+}
+
+test('fax-send skill manifest declares DACH fax metadata and guarded secrets', () => {
+  const skill = fs.readFileSync(skillPath, 'utf-8');
+
+  expect(skill).toContain('name: fax-send');
+  expect(skill).toContain('issue: 659');
+  expect(skill).toContain('SINCH_FAX_BASIC_AUTH');
+  expect(skill).toContain('SINCH_FAX_OAUTH_TOKEN');
+  expect(skill).toContain('fax.send.start');
+  expect(skill).toContain('fax.send.delivered');
+  expect(skill).toContain('fax.send.failed');
+  expect(skill).toContain('recordFaxUsageEvent()');
+  expect(skill).toContain('UsageTotals');
+  expect(skill).toContain('unit: page');
+});
+
+test('fax-send helper builds Sinch send request with secret-backed Basic auth', () => {
+  const payload = fax.buildSendRequest({
+    provider: 'sinch',
+    auth: 'basic',
+    projectId: 'project-123',
+    serviceId: 'service-123',
+    pdfUrl: 'https://example.com/contract.pdf',
+    to: '+49 89 1234567',
+    from: '+49 30 12345678',
+    pageCount: 3,
+    labels: ['costCenter=legal'],
+    operatorGrant: true,
+    timeoutMs: 120000,
+    maxResponseBytes: 1000000,
+    headerPageNumbers: true,
+  });
+
+  expect(payload.operation).toBe('fax.send');
+  expect(payload.stakesTier).toBe('amber');
+  expect(payload.httpRequest).toMatchObject({
+    url: 'https://fax.api.sinch.com/v3/projects/project-123/faxes',
+    method: 'POST',
+    skillName: 'fax-send',
+    stakesTier: 'amber',
+    secretHeaders: [
+      {
+        name: 'Authorization',
+        secretName: 'SINCH_FAX_BASIC_AUTH',
+        prefix: 'Basic',
+      },
+    ],
+    json: {
+      to: '+49891234567',
+      from: '+493012345678',
+      contentUrl: ['https://example.com/contract.pdf'],
+      serviceId: 'service-123',
+      labels: { costCenter: 'legal' },
+    },
+  });
+  expect(payload.costMeasurement).toEqual({
+    system: 'UsageTotals',
+    subLimitKey: 'fax-pages',
+    unit: 'fax-page',
+    pageCount: 3,
+  });
+  expect(payload.auditEvents[0]).toMatchObject({
+    eventType: 'fax.send.start',
+    payload: {
+      provider: 'sinch',
+      to: '+49891234567',
+      from: '+493012345678',
+      pageCount: 3,
+    },
+  });
+  expect(JSON.stringify(payload)).not.toContain('username:password');
+});
+
+test('fax-send helper supports bearer auth for Sinch OAuth deployments', () => {
+  const payload = fax.buildStatusRequest({
+    provider: 'sinch',
+    auth: 'bearer',
+    projectId: 'project-123',
+    faxId: '01F3J0G1M4WQR6HGY6HCF6JA0K',
+    timeoutMs: 120000,
+    maxResponseBytes: 1000000,
+  });
+
+  expect(payload.operation).toBe('fax.status');
+  expect(payload.stakesTier).toBe('green');
+  expect(payload.httpRequest).toMatchObject({
+    url: 'https://fax.api.sinch.com/v3/projects/project-123/faxes/01F3J0G1M4WQR6HGY6HCF6JA0K',
+    method: 'GET',
+    bearerSecretName: 'SINCH_FAX_OAUTH_TOKEN',
+  });
+  expect(payload.httpRequest).not.toHaveProperty('secretHeaders');
+});
+
+test('fax-send refuses live sends without an operator grant', () => {
+  expect(() =>
+    fax.buildSendRequest({
+      provider: 'sinch',
+      auth: 'basic',
+      projectId: 'project-123',
+      pdfUrl: 'https://example.com/contract.pdf',
+      to: '+49891234567',
+      from: '+493012345678',
+      labels: [],
+      timeoutMs: 120000,
+      maxResponseBytes: 1000000,
+    }),
+  ).toThrow(/operator approval/);
+});
+
+test('fax-send rejects non-HTTPS or non-PDF outbound content URLs', () => {
+  const base = {
+    provider: 'sinch',
+    auth: 'basic',
+    projectId: 'project-123',
+    to: '+49891234567',
+    from: '+493012345678',
+    labels: [],
+    operatorGrant: true,
+    timeoutMs: 120000,
+    maxResponseBytes: 1000000,
+  };
+
+  expect(() =>
+    fax.buildSendRequest({
+      ...base,
+      pdfUrl: 'http://example.com/contract.pdf',
+    }),
+  ).toThrow(/https/);
+  expect(() =>
+    fax.buildSendRequest({
+      ...base,
+      pdfUrl: 'https://example.com/contract.docx',
+    }),
+  ).toThrow(/ending in .pdf/);
+});
+
+test('fax-send classifies delivered and busy-line failed statuses for audit', () => {
+  const delivered = fax.classifyStatus({
+    provider: 'sinch',
+    faxId: 'fax-123',
+    status: 'COMPLETED',
+    pagesSent: 2,
+  });
+  const failed = fax.classifyStatus({
+    provider: 'sinch',
+    faxId: 'fax-123',
+    status: 'FAILURE',
+    errorType: 'CALL_ERROR',
+    errorMessage: 'Line busy',
+  });
+
+  expect(delivered.auditEvents[0].eventType).toBe('fax.send.delivered');
+  expect(delivered.retryRecommended).toBe(false);
+  expect(failed.auditEvents[0].eventType).toBe('fax.send.failed');
+  expect(failed.retryRecommended).toBe(true);
+});
+
+test('sendFax returns a provider fax id when dispatched through a gateway adapter', async () => {
+  const faxId = await fax.sendFax(
+    'https://example.com/contract.pdf',
+    '+49891234567',
+    {
+      provider: 'sinch',
+      auth: 'basic',
+      projectId: 'project-123',
+      from: '+493012345678',
+      labels: [],
+      operatorGrant: true,
+      timeoutMs: 120000,
+      maxResponseBytes: 1000000,
+      dispatch: async (httpRequest: unknown) => {
+        expect(httpRequest).toMatchObject({
+          method: 'POST',
+          skillName: 'fax-send',
+        });
+        return { body: JSON.stringify({ id: 'fax-provider-123' }) };
+      },
+    },
+  );
+
+  expect(faxId).toBe('fax-provider-123');
+});
+
+test('fax-send helper exposes at least 15 eval scenarios', () => {
+  const result = runHelper(['--format', 'json', 'eval-scenarios']);
+
+  expect(result.status).toBe(0);
+  const scenarios = JSON.parse(result.stdout);
+  expect(scenarios).toHaveLength(15);
+  expect(
+    scenarios.some(
+      (scenario: { expectedOperation?: string; expectedDownstream?: string }) =>
+        scenario.expectedOperation === 'fax.inbound.email-route' &&
+        scenario.expectedDownstream === 'DATEV Belegtransfer',
+    ),
+  ).toBe(true);
+  expect(
+    scenarios.every(
+      (scenario: { costMeasurement?: { system?: string; unit?: string } }) =>
+        scenario.costMeasurement?.system === 'UsageTotals' &&
+        scenario.costMeasurement?.unit === 'fax-page',
+    ),
+  ).toBe(true);
+});
+
+test('fax-send helper lists Sinch EU as the implemented provider reference', () => {
+  const result = runHelper(['--format', 'json', 'providers']);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.providers).toContainEqual(
+    expect.objectContaining({
+      id: 'sinch-eu',
+      provider: 'sinch',
+      residency: 'eu',
+      implemented: true,
+    }),
+  );
+  expect(payload.providers).toContainEqual(
+    expect.objectContaining({
+      id: 'telekom-cloud-fax',
+      residency: 'de',
+      implemented: false,
+    }),
+  );
+});
+
+test('fax channel docs describe fax-to-email inbound wiring and retention', () => {
+  const docs = fs.readFileSync(docsPath, 'utf-8');
+
+  expect(docs).toContain('fax-to-email');
+  expect(docs).toContain('hybridclaw channels email setup');
+  expect(docs).toContain('DATEV Belegtransfer');
+  expect(docs).toContain('fax.send.start');
+  expect(docs).toContain('Sinch Fax');
+  expect(docs).toContain('EU-region');
+  expect(docs).toContain('UsageTotals.billable_units');
+  expect(docs).toContain('delivery receipt');
+  expect(docs).toContain('qualified electronic');
+  expect(docs).toContain('+19898989898');
+});
+
+test('fax accounting persists structured audit events and page usage totals', async () => {
+  const dbPath = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-fax-accounting-')),
+    'test.db',
+  );
+  vi.resetModules();
+  const {
+    getRecentStructuredAuditForSession,
+    getUsageBillableUnitTotals,
+    getUsageTotals,
+    initDatabase,
+  } = await import('../src/memory/db.ts');
+  const {
+    recordFaxSendDelivered,
+    recordFaxSendFailed,
+    recordFaxSendStart,
+    recordFaxUsageEvent,
+  } = await import('../src/fax/accounting.ts');
+
+  initDatabase({ quiet: true, dbPath });
+  const runId = recordFaxSendStart({
+    sessionId: 'session-fax',
+    provider: 'sinch',
+    recipientNumber: '+49891234567',
+    senderNumber: '+493012345678',
+    pageCount: 3,
+    documentUrl: 'https://example.com/contract.pdf',
+  });
+  recordFaxSendDelivered({
+    sessionId: 'session-fax',
+    runId,
+    provider: 'sinch',
+    providerMessageId: 'fax-provider-123',
+    recipientNumber: '+49891234567',
+    senderNumber: '+493012345678',
+    pageCount: 3,
+  });
+  recordFaxSendFailed({
+    sessionId: 'session-fax',
+    runId,
+    provider: 'sinch',
+    providerMessageId: 'fax-provider-456',
+    recipientNumber: '+49891234567',
+    pageCount: 3,
+    errorType: 'CALL_ERROR',
+    errorMessage: 'Line busy',
+    retryable: true,
+  });
+  recordFaxUsageEvent({
+    sessionId: 'session-fax',
+    agentId: 'agent-fax',
+    provider: 'sinch',
+    pageCount: 3,
+    costUsd: 0.45,
+  });
+
+  const audit = getRecentStructuredAuditForSession('session-fax', 10);
+  expect(audit.map((event) => event.event_type)).toEqual([
+    'fax.send.failed',
+    'fax.send.delivered',
+    'fax.send.start',
+  ]);
+  expect(JSON.parse(audit[0]?.payload || '{}')).toMatchObject({
+    type: 'fax.send.failed',
+    provider: 'sinch',
+    providerMessageId: 'fax-provider-456',
+    retryable: true,
+  });
+
+  const totals = getUsageTotals({ agentId: 'agent-fax', window: 'daily' });
+  expect(totals.total_cost_usd).toBeCloseTo(0.45, 6);
+  expect(totals.billable_units).toEqual([
+    { unit: 'fax-page', quantity: 3, cost_usd: 0.45 },
+  ]);
+  expect(getUsageBillableUnitTotals({ agentId: 'agent-fax' })).toEqual([
+    { unit: 'fax-page', quantity: 3, cost_usd: 0.45 },
+  ]);
+});
