@@ -1,6 +1,6 @@
 ---
 title: Development Skills
-description: Code review, GitHub issue automation, PR workflows, Salesforce inspection, and skill creation tools.
+description: Code review, GitHub issue automation, PR workflows, Salesforce inspection, Hetzner DevOps, and skill creation tools.
 sidebar_position: 3
 ---
 
@@ -248,6 +248,73 @@ SOQL rows with a bundled Python helper. Read-only by default.
 
 ---
 
+## hetzner-devops
+
+Operate Hetzner infrastructure with three bundled skills:
+
+- `hetzner-cloud` — VPS inventory, server types, locations, prices, provisioning, volumes, snapshots, restores, and guarded deletes.
+- `hetzner-dns` — DNS zones and records, including guarded A, AAAA, CNAME, TXT, add/remove/update/delete flows.
+- `hetzner-storage-box` — Storage Box inventory, snapshots, WebDAV file list/download/upload/archive flows, and public URL preparation.
+
+**Prerequisites**
+
+| Dependency | Purpose | Install |
+|---|---|---|
+| `node` | Required helper runtime | System install |
+| Hetzner Cloud/API token | Stored secret: `HETZNER_API_TOKEN` for Cloud and Storage Box management | `hybridclaw secret set HETZNER_API_TOKEN "<token>"` |
+| Hetzner DNS API token | Stored secret: `HETZNER_DNS_API_TOKEN` for DNS API `Auth-API-Token` injection | `hybridclaw secret set HETZNER_DNS_API_TOKEN "<token>"` |
+| Storage Box WebDAV auth | Optional stored secret for file operations: `HETZNER_STORAGE_BOX_BASIC_AUTH` | Store base64 `username:password` payload |
+
+`HETZNER_API_TOKEN` is intentionally limited to Hetzner Console APIs. DNS and
+WebDAV use separate secrets because Hetzner exposes those surfaces through
+different auth contracts; HybridClaw still injects every secret server-side, so
+the model never sees raw tokens or passwords.
+
+Per-skill operator setup references:
+
+- [Hetzner Cloud operator setup](../../../../skills/hetzner-cloud/references/operator-setup.md)
+- [Hetzner DNS operator setup](../../../../skills/hetzner-dns/references/operator-setup.md)
+- [Hetzner Storage Box operator setup](../../../../skills/hetzner-storage-box/references/operator-setup.md)
+
+> 💡 **Tips & Tricks**
+>
+> Use read-only Hetzner API tokens for inventory and cost reporting.
+>
+> Discover DNS record ids before updates and deletes; the DNS API is record-id based.
+>
+> Use Storage Box subaccounts scoped to the archive path for WebDAV writes.
+>
+> All helpers emit gateway-backed `http_request` payloads; secrets are injected server-side and are never printed.
+>
+> Treat the CJS helpers as the API wrappers: they choose endpoints, methods, payloads, tiers, URL encoding, and secret refs. For prompt/user testing, stop after `plan` or helper payload generation. For real user requests that need live Hetzner data, pass the emitted `httpRequest` object unchanged to live `http_request` and let the gateway resolve `bearerSecretName` or `secretHeaders`. If one live call returns 401 or 403, stop immediately and ask the operator to verify the secret; do not retry or continue across more Hetzner endpoints.
+
+> 🎯 **Try it yourself**
+>
+> `List all Hetzner Cloud servers with label project=acme and estimate their current monthly cost`
+>
+> `Create a plan for a demo VPS in Falkenstein with a TTL label, but do not provision it yet`
+>
+> `Point demo-acme.example.com to this server IP in Hetzner DNS`
+>
+> `Snapshot the production server before deploy and show me the exact rollback request`
+>
+> `Archive this Q4 invoice manifest to the Storage Box and prepare the public URL`
+>
+> **Conversation flow:**
+>
+> `1. List Hetzner servers and DNS zones for project acme`
+> `2. Plan a demo VPS and DNS record for Friday's customer demo`
+> `3. After I approve, build the create-server and create-rrset requests`
+> `4. On Monday, tear down the demo server and delete the temporary DNS record`
+
+**Troubleshooting**
+
+- **Token rejected** — verify the Cloud/Storage Box token belongs to the Hetzner Console project, or that the DNS token was created in the DNS Console.
+- **Write refused** — rerun the helper after an exact operator grant and include `--operator-grant`.
+- **WebDAV auth fails** — verify the Storage Box host, subaccount permissions, and `HETZNER_STORAGE_BOX_BASIC_AUTH` encoded payload.
+
+---
+
 ## warehouse-sql
 
 Review and run read-only natural-language SQL against a customer data
@@ -314,6 +381,15 @@ docs, and reliable init/validate/package/publish workflows.
 > Follow the three-layer model: frontmatter (triggers + metadata), SKILL.md body (core workflow), references/scripts/assets (detail).
 >
 > Keep SKILL.md concise — the model already knows general concepts; only include what is unique to your skill.
+>
+> For API-backed skills, provide a `*.cjs` CLI wrapper that owns endpoints,
+> payloads, tiers, and secret refs. Prefer a `run` subcommand for live gateway
+> execution, and keep `http-request` as the dry-run path that emits
+> gateway-ready JSON the model can inspect or pass through unchanged.
+>
+> If a request shape is safety-critical, include generic
+> `skillRequestContract` metadata in the emitted request instead of adding
+> provider-specific checks to gateway or container core.
 >
 > Use `quick_validate.py` to check your skill before publishing.
 
