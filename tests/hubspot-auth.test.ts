@@ -131,7 +131,7 @@ test('HubSpot runtime env mints short-lived access token from stored refresh tok
   );
 });
 
-test('HubSpot runtime env uses stored private app access token', async () => {
+test('HubSpot runtime env uses stored Service Key bearer token', async () => {
   const homeDir = makeTempHome();
   process.env.HUBSPOT_ACCESS_TOKEN = 'old-env-access-token';
   const {
@@ -160,7 +160,7 @@ test('HubSpot runtime env uses stored private app access token', async () => {
   });
 });
 
-test('auth command handles HubSpot private app access token login', async () => {
+test('auth command handles HubSpot Service Key bearer token login', async () => {
   const homeDir = makeTempHome();
   const { handleAuthCommand } = await importFreshAuthCommand(homeDir);
   const logs: string[] = [];
@@ -180,9 +180,13 @@ test('auth command handles HubSpot private app access token login', async () => 
   await handleAuthCommand(['logout', 'hubspot']);
 
   logSpy.mockRestore();
-  expect(logs.join('\n')).toContain('Saved HubSpot private app access token');
+  expect(logs.join('\n')).toContain(
+    'Saved HubSpot Service Key or bearer token',
+  );
   expect(logs.join('\n')).toContain('Account: sales@example.com');
-  expect(logs.join('\n')).toContain('Private app access token: configured');
+  expect(logs.join('\n')).toContain(
+    'HubSpot Service Key or bearer token: configured',
+  );
   expect(logs.join('\n')).toContain('Cleared HubSpot credentials');
 });
 

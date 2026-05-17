@@ -35,6 +35,10 @@ test('HubSpot skill manifest declares OAuth, safety, and UsageTotals metadata', 
   expect(skill).toContain('category: business');
   expect(skill).toContain('stakes_tiers:');
   expect(skill).toContain('HUBSPOT_ACCESS_TOKEN');
+  expect(skill).toContain('HubSpot Service Key');
+  expect(skill).toContain('https://app.hubspot.com/service-keys');
+  expect(skill).toContain('Personal Access Key');
+  expect(skill).toContain('Developer\nKey');
   expect(skill).toContain('hybridclaw auth login hubspot');
   expect(skill).toContain('deal-stage-update');
   expect(skill).toContain('lifecycle-stage-update');

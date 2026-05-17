@@ -232,7 +232,7 @@ function explainErrorPayload(payload) {
   ) {
     category = 'authentication';
     operatorMessage =
-      'HubSpot rejected HUBSPOT_ACCESS_TOKEN. Stop after this failed call. Ask the operator to verify or replace the stored HubSpot private app access token; if the token was rotated, revoked, copied incorrectly, or exposed and deactivated, they must copy the current token from HubSpot and store that exact value. Do not infer token age from HubSpot error timestamps.';
+      'HubSpot rejected HUBSPOT_ACCESS_TOKEN. Stop after this failed call. Ask the operator to verify or replace the stored HubSpot Service Key or bearer credential. For Service Keys, they must copy the current key from HubSpot Development > Keys > Service keys and store that exact value. Do not infer token age from HubSpot error timestamps.';
   } else if (
     status === 403 ||
     text.includes('scope') ||
@@ -240,7 +240,7 @@ function explainErrorPayload(payload) {
   ) {
     category = 'authorization';
     operatorMessage =
-      'HubSpot blocked the request. Stop after this failed call. Ask the operator to verify the private app scopes, OAuth scopes, app installation, and object permissions for the stored HUBSPOT_ACCESS_TOKEN.';
+      'HubSpot blocked the request. Stop after this failed call. Ask the operator to verify the Service Key scopes, OAuth scopes, app installation, and object permissions for the stored HUBSPOT_ACCESS_TOKEN.';
   } else if (status === 404 || text.includes('not found')) {
     category = 'not-found';
     operatorMessage =

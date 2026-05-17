@@ -1443,7 +1443,7 @@ function printHubSpotStatus(): void {
     console.log('Source: runtime-secrets');
     console.log(`Account: ${status.account || '(not set)'}`);
     if (status.authMode === 'private-app-token') {
-      console.log('Private app access token: configured');
+      console.log('HubSpot Service Key or bearer token: configured');
       console.log(
         `Access token source: ${status.accessTokenSource || '(unknown)'}`,
       );
@@ -1579,7 +1579,7 @@ async function resolveInteractiveHubSpotLogin(params: {
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error(
-      'Missing HubSpot credentials. Pass `--access-token <token>` for a private app token, pass `--client-id <id>` and `--client-secret <secret>` for OAuth, or run this command in an interactive terminal.',
+      'Missing HubSpot credentials. Pass `--access-token <token>` for a Service Key or bearer token, pass `--client-id <id>` and `--client-secret <secret>` for OAuth, or run this command in an interactive terminal.',
     );
   }
 
@@ -1634,7 +1634,7 @@ async function configureHubSpotAuth(args: string[]): Promise<void> {
       accessToken,
     });
     console.log(
-      `Saved HubSpot private app access token to ${result.secretsPath}.`,
+      `Saved HubSpot Service Key or bearer token to ${result.secretsPath}.`,
     );
     if (result.account) console.log(`Account: ${result.account}`);
     console.log(

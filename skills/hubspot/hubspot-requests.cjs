@@ -65,7 +65,7 @@ const LIVE_EXECUTION = {
   requestShape:
     'Do not handcraft HubSpot API calls. The helper owns endpoint selection, method, payload, tier, and bearerSecretName.',
   unauthorizedPolicy:
-    'If a live call returns 401 or 403, stop after the first failure. Do not retry or call additional HubSpot endpoints; ask the operator to set or verify HUBSPOT_ACCESS_TOKEN. For private apps, rotate or reveal-copy the current private app access token in HubSpot and store that exact value.',
+    'If a live call returns 401 or 403, stop after the first failure. Do not retry or call additional HubSpot endpoints; ask the operator to set or verify HUBSPOT_ACCESS_TOKEN. For Service Keys, copy the current key from HubSpot Development > Keys > Service keys and store that exact value.',
 };
 
 function usageTotalsMeasurement() {

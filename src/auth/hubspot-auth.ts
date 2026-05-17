@@ -386,7 +386,7 @@ export function loginHubSpotAccessToken(input: {
 }): HubSpotAccessTokenLoginResult {
   const accessToken = input.accessToken.trim();
   if (!accessToken) {
-    throw new Error('HubSpot private app access token is required.');
+    throw new Error('HubSpot Service Key or bearer access token is required.');
   }
   const account = input.account?.trim() || '';
   cachedHubSpotAccessToken = null;

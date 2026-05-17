@@ -259,8 +259,8 @@ Notes:
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
-  - \`secret set HUBSPOT_ACCESS_TOKEN\` stores a HubSpot private app access token in ${runtimeSecretsPath()} for HubSpot API calls.
-  - \`auth login hubspot --access-token <token>\` is an equivalent HubSpot private app token setup path.
+  - \`secret set HUBSPOT_ACCESS_TOKEN\` stores a HubSpot Service Key or bearer token in ${runtimeSecretsPath()} for HubSpot API calls.
+  - \`auth login hubspot --access-token <token>\` is an equivalent HubSpot Service Key setup path.
   - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
   - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
 }
@@ -292,7 +292,7 @@ export function printHubSpotUsage(): void {
   console.log(`Usage: hybridclaw auth login hubspot [options]
 
 Options:
-  --access-token <token>    HubSpot private app access token
+  --access-token <token>    HubSpot Service Key or bearer access token
   --client-id <id>          HubSpot OAuth app client id
   --client-secret <secret>  HubSpot OAuth app client secret
   --account <label>         Optional account label or email for status output
@@ -309,7 +309,8 @@ Examples:
   hybridclaw auth logout hubspot
 
 Notes:
-  - For normal single-account HubSpot use, create a private app access token in HubSpot and store it as \`HUBSPOT_ACCESS_TOKEN\`.
+  - For normal single-account HubSpot use, create a Service Key at https://app.hubspot.com/service-keys and store it as \`HUBSPOT_ACCESS_TOKEN\`.
+  - Legacy private app access tokens are also accepted bearer credentials; HubSpot Personal Access Keys and Developer Keys are not valid CRM REST bearer tokens for this skill.
   - OAuth client id/client secret setup is only needed for public app OAuth flows.
   - The gateway injects \`HUBSPOT_ACCESS_TOKEN\` only into HubSpot API requests.`);
 }

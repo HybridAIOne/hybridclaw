@@ -13,7 +13,7 @@ credentials:
       source: store
       id: HUBSPOT_ACCESS_TOKEN
     scope: "api.hubapi.com and api.hubspot.com"
-    how_to_obtain: "Create or open a HubSpot private app, reveal/copy the access token from the Auth tab, and store it as HUBSPOT_ACCESS_TOKEN. If HubSpot reports the token is expired, revoked, or invalid, rotate the private app token or copy the current revealed token again; do not use a HubSpot developer token."
+    how_to_obtain: "Create a HubSpot Service Key from Development > Keys > Service keys, copy the key, and store it as HUBSPOT_ACCESS_TOKEN. Service keys are the recommended single-account system-to-system credential for HubSpot REST APIs. Legacy private app access tokens and OAuth access tokens are also accepted bearer credentials; HubSpot personal access keys and developer keys are not valid CRM REST bearer tokens."
 metadata:
   hybridclaw:
     category: business
@@ -24,6 +24,7 @@ metadata:
       - contacts
       - companies
       - deals
+      - service-key
       - private-app-token
       - oauth
     stakes_tiers:
@@ -48,7 +49,8 @@ metadata:
 # HubSpot
 
 Use this skill for HubSpot CRM work when the operator has connected HubSpot to
-HybridClaw with a private app access token or OAuth credentials.
+HybridClaw with a HubSpot Service Key, legacy private app access token, or
+OAuth credentials.
 
 ## Scope
 
@@ -69,9 +71,20 @@ HybridClaw with a private app access token or OAuth credentials.
 
 ## Credential Rules
 
-For normal single-account HubSpot use, create a HubSpot private app access
-token and store it as `HUBSPOT_ACCESS_TOKEN` in HybridClaw encrypted runtime
-secrets. Never paste tokens into a prompt.
+For normal single-account HubSpot use, create a HubSpot Service Key and store
+it as `HUBSPOT_ACCESS_TOKEN` in HybridClaw encrypted runtime secrets. Service
+Keys are HubSpot's recommended account-level, system-to-system bearer
+credential for direct REST API requests when OAuth and webhooks are not needed.
+Never paste tokens into a prompt.
+
+Create the Service Key in HubSpot under **Development > Keys > Service keys**
+or open <https://app.hubspot.com/service-keys>. Give it only the scopes needed
+for the requested CRM operations, copy the key, and store that value as
+`HUBSPOT_ACCESS_TOKEN`. Do not use a HubSpot Personal Access Key or Developer
+Key for this skill; those are for other HubSpot developer workflows and are not
+valid CRM REST bearer tokens for these calls.
+HubSpot Service Key docs:
+<https://developers.hubspot.com/docs/apps/developer-platform/build-apps/authentication/account-service-keys>.
 
 Recommended setup:
 
@@ -79,13 +92,17 @@ Recommended setup:
 hybridclaw secret set HUBSPOT_ACCESS_TOKEN
 ```
 
-Equivalent setup when passing the token explicitly:
+Equivalent setup when passing the Service Key explicitly:
 
 ```bash
 hybridclaw auth login hubspot \
-  --access-token "<hubspot-private-app-access-token>" \
+  --access-token "<hubspot-service-key>" \
   --account sales@example.com
 ```
+
+Legacy private app access tokens can also be stored as
+`HUBSPOT_ACCESS_TOKEN`, but new single-account REST integrations should prefer
+Service Keys.
 
 OAuth client credentials are also supported for public app installations:
 
@@ -99,8 +116,8 @@ hybridclaw auth login hubspot \
 The gateway injects `HUBSPOT_ACCESS_TOKEN` only when an `http_request` uses
 `bearerSecretName: "HUBSPOT_ACCESS_TOKEN"` against HubSpot API hosts. With OAuth
 credentials, the gateway mints the access token from `HUBSPOT_CLIENT_SECRET` and
-`HUBSPOT_REFRESH_TOKEN`; with private app setup, the stored private app token is
-used directly.
+`HUBSPOT_REFRESH_TOKEN`; with Service Key or legacy private app setup, the
+stored bearer credential is used directly.
 
 Required HubSpot scopes depend on the task. The default OAuth login scope set
 covers contacts, companies, deals, notes, tasks, CRM schema reads, and `oauth`.
@@ -131,9 +148,9 @@ covers contacts, companies, deals, notes, tasks, CRM schema reads, and `oauth`.
 9. If a live HubSpot call returns 401 or 403, stop after that first failure. Do
    not retry, do not call more HubSpot endpoints, and do not guess from dates or
    epoch timestamps. Tell the operator to verify or replace
-   `HUBSPOT_ACCESS_TOKEN`. For private apps, they should reveal/copy the current
-   access token from the HubSpot private app Auth tab, or rotate the token if
-   HubSpot says it was revoked, expired, exposed, or invalid.
+   `HUBSPOT_ACCESS_TOKEN`. For Service Keys, they should copy the current key
+   from HubSpot's Service keys page or rotate it if HubSpot says it was revoked,
+   expired, exposed, or invalid.
 
 ## Command Contract
 
@@ -254,9 +271,9 @@ node skills/hubspot/hubspot.cjs --format json explain-error \
 - Never print, store in files, or include real HubSpot access tokens in tool
   arguments or prose.
 - Never infer that a HubSpot token is a "default", "stale", or "1970" value from
-  API timestamps. HubSpot private app tokens are opaque; report only that the
-  stored `HUBSPOT_ACCESS_TOKEN` was rejected and needs verification or
-  replacement.
+  API timestamps. HubSpot Service Keys, legacy private app tokens, and OAuth
+  tokens are opaque; report only that the stored `HUBSPOT_ACCESS_TOKEN` was
+  rejected and needs verification or replacement.
 - Treat writes as amber operations and require exact operator grant in the
   current task.
 - Use exact HubSpot record IDs for writes.

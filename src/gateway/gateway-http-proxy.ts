@@ -476,7 +476,7 @@ async function resolveHubSpotOAuthTokenOrThrow(
     isAllowedHost: isHubSpotApiHost,
     allowedHostDescription: 'HubSpot API',
     resolveToken: resolveHubSpotAccessToken,
-    loginHint: `${secretName} is not available. Store a HubSpot private app access token with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
+    loginHint: `${secretName} is not available. Store a HubSpot Service Key with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
   });
 }
 
