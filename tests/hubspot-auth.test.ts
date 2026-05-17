@@ -118,10 +118,16 @@ test('HubSpot runtime env mints short-lived access token from stored refresh tok
   });
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(fetchMock.mock.calls[0]?.[0]).toBe(
-    'https://api.hubapi.com/oauth/v1/token',
+    'https://api.hubapi.com/oauth/2026-03/token',
   );
   expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
     'grant_type=refresh_token',
+  );
+  expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+    'client_id=hubspot-client-id',
+  );
+  expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+    'client_secret=hubspot-client-secret',
   );
 });
 

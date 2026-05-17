@@ -11,7 +11,7 @@ import {
 } from '../security/runtime-secrets.js';
 
 const HUBSPOT_AUTH_URL = 'https://app.hubspot.com/oauth/authorize';
-const HUBSPOT_TOKEN_URL = 'https://api.hubapi.com/oauth/v1/token';
+const HUBSPOT_TOKEN_URL = 'https://api.hubapi.com/oauth/2026-03/token';
 const LOOPBACK_HOST = '127.0.0.1';
 const DEFAULT_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
