@@ -12,6 +12,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
 
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
+import {
+  HUBSPOT_ACCESS_TOKEN_SECRET,
+  resolveHubSpotAccessToken,
+} from '../auth/hubspot-auth.js';
 import type {
   RuntimeConfig,
   RuntimeHttpRequestGoogleOAuthSecretRef,
@@ -374,52 +378,106 @@ function isGoogleApisHost(host?: string): boolean {
   );
 }
 
+function isHubSpotApiHost(host?: string): boolean {
+  const normalized = normalizeSecretString(host).toLowerCase();
+  return (
+    normalized === 'api.hubapi.com' ||
+    normalized.endsWith('.api.hubapi.com') ||
+    normalized === 'api.hubspot.com' ||
+    normalized.endsWith('.api.hubspot.com')
+  );
+}
+
 function isGoogleOAuthHttpAuthRuleSecret(
   value: unknown,
 ): value is RuntimeHttpRequestGoogleOAuthSecretRef {
   return isGoogleOAuthSecretRef(value);
 }
 
-async function resolveGoogleOAuthTokenOrThrow(
-  secretName: string,
-  context: SecretResolveContext,
-): Promise<string> {
-  if (!isGoogleApisHost(context.host)) {
+async function resolveOAuthTokenOrThrow(params: {
+  secretName: string;
+  context: SecretResolveContext;
+  isAllowedHost: (host?: string) => boolean;
+  allowedHostDescription: string;
+  resolveToken: () => Promise<{
+    accessToken: string;
+    source: 'store' | 'google-oauth' | 'hubspot-oauth';
+  } | null>;
+  loginHint: string;
+}): Promise<string> {
+  if (!params.isAllowedHost(params.context.host)) {
     throw new GatewayRequestError(
       403,
-      `${secretName} can only be injected into googleapis.com requests.`,
+      `${params.secretName} can only be injected into ${params.allowedHostDescription} requests.`,
     );
   }
 
-  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
-  const token = normalizeSecretString(runtimeEnv[secretName]);
+  const resolved = await params.resolveToken();
+  if (!resolved?.accessToken) {
+    throw new GatewayRequestError(400, params.loginHint);
+  }
+  const token = normalizeSecretString(resolved.accessToken);
   if (!token) {
-    throw new GatewayRequestError(
-      400,
-      `${secretName} is not available. Run \`hybridclaw auth login google\` and start a fresh agent runtime.`,
-    );
+    throw new GatewayRequestError(400, params.loginHint);
   }
 
   const auditContext = {
-    sessionId: context.sessionId,
-    skillName: context.skillName,
-    secretSource: 'google-oauth' as const,
-    secretId: secretName,
+    sessionId: params.context.sessionId,
+    skillName: params.context.skillName,
+    secretSource: resolved.source,
+    secretId: params.secretName,
     sinkKind: 'http' as const,
-    host: context.host,
-    selector: context.selector,
+    host: params.context.host,
+    selector: params.context.selector,
   };
   recordSecretResolved(auditContext);
   recordSecretUnsafeEscaped({
     ...auditContext,
-    reason: `inject ${secretName} into http sink`,
+    reason: `inject ${params.secretName} into http sink`,
   });
   rememberResolvedSecretForLeakScan({
-    sessionId: normalizeSecretSessionId(context.sessionId),
-    secretId: secretName,
+    sessionId: normalizeSecretSessionId(params.context.sessionId),
+    secretId: params.secretName,
     value: token,
   });
   return token;
+}
+
+async function resolveGoogleOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isGoogleApisHost,
+    allowedHostDescription: 'googleapis.com',
+    resolveToken: async () => {
+      const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
+      const accessToken = normalizeSecretString(runtimeEnv[secretName]);
+      return accessToken
+        ? {
+            accessToken,
+            source: 'google-oauth',
+          }
+        : null;
+    },
+    loginHint: `${secretName} is not available. Run \`hybridclaw auth login google\` and start a fresh agent runtime.`,
+  });
+}
+
+async function resolveHubSpotOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isHubSpotApiHost,
+    allowedHostDescription: 'HubSpot API',
+    resolveToken: resolveHubSpotAccessToken,
+    loginHint: `${secretName} is not available. Store a HubSpot Service Key with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
+  });
 }
 
 async function resolveHttpSecretOrThrow(
@@ -431,6 +489,9 @@ async function resolveHttpSecretOrThrow(
   }
   if (isGoogleWorkspaceRuntimeTokenName(secretName)) {
     return await resolveGoogleOAuthTokenOrThrow(secretName, context);
+  }
+  if (secretName === HUBSPOT_ACCESS_TOKEN_SECRET) {
+    return await resolveHubSpotOAuthTokenOrThrow(secretName, context);
   }
   return resolveStoredSecretForInjection({
     secretName,

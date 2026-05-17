@@ -8523,6 +8523,200 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test('injects HubSpot OAuth runtime bearer tokens for HubSpot API hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-hubspot-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    vi.doMock('../src/auth/hubspot-auth.js', () => ({
+      HUBSPOT_ACCESS_TOKEN_SECRET: 'HUBSPOT_ACCESS_TOKEN',
+      resolveHubSpotAccessToken: vi.fn(async () => ({
+        accessToken: 'minted-hubspot-access-token',
+        source: 'hubspot-oauth',
+      })),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '199.60.103.31', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://api.hubapi.com/crm/v3/objects/deals',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      arrayBuffer: async () =>
+        Buffer.from(JSON.stringify({ results: [], paging: undefined })),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.hubapi.com/crm/v3/objects/deals',
+        bearerSecretName: 'HUBSPOT_ACCESS_TOKEN',
+        sessionId: 'hubspot-audit',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer minted-hubspot-access-token',
+        }),
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).json).toEqual({ results: [] });
+    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const auditRecords = fs
+      .readFileSync(getAuditWirePath('hubspot-audit'), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    expect(auditRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            type: 'secret.resolved',
+            secretRef: {
+              source: 'hubspot-oauth',
+              id: 'HUBSPOT_ACCESS_TOKEN',
+            },
+          }),
+        }),
+      ]),
+    );
+  });
+
+  test('injects stored HubSpot private app tokens for HubSpot API hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-hubspot-private-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    vi.doMock('../src/auth/hubspot-auth.js', () => ({
+      HUBSPOT_ACCESS_TOKEN_SECRET: 'HUBSPOT_ACCESS_TOKEN',
+      resolveHubSpotAccessToken: vi.fn(async () => ({
+        accessToken: 'private-app-access-token',
+        source: 'store',
+      })),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '199.60.103.31', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://api.hubapi.com/crm/v3/objects/contacts',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      arrayBuffer: async () =>
+        Buffer.from(JSON.stringify({ results: [], paging: undefined })),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.hubapi.com/crm/v3/objects/contacts',
+        bearerSecretName: 'HUBSPOT_ACCESS_TOKEN',
+        sessionId: 'hubspot-private-audit',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer private-app-access-token',
+        }),
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const auditRecords = fs
+      .readFileSync(getAuditWirePath('hubspot-private-audit'), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    expect(auditRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            type: 'secret.resolved',
+            secretRef: {
+              source: 'store',
+              id: 'HUBSPOT_ACCESS_TOKEN',
+            },
+          }),
+        }),
+      ]),
+    );
+  });
+
+  test('blocks HubSpot OAuth runtime bearer tokens for non-HubSpot hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-hubspot-block-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    vi.doMock('../src/auth/hubspot-auth.js', () => ({
+      HUBSPOT_ACCESS_TOKEN_SECRET: 'HUBSPOT_ACCESS_TOKEN',
+      resolveHubSpotAccessToken: vi.fn(async () => ({
+        accessToken: 'minted-hubspot-access-token',
+        source: 'hubspot-oauth',
+      })),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/steal',
+        bearerSecretName: 'HUBSPOT_ACCESS_TOKEN',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toContain(
+      'HUBSPOT_ACCESS_TOKEN can only be injected into HubSpot API requests',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('exchanges Google service-account JWTs and injects short-lived bearer tokens', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-sa-');
     process.env.HOME = homeDir;

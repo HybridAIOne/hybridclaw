@@ -222,7 +222,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.1 | Foundation | TypeScript SKILL.md framework | ✅ Done |
 | R21.1.1 | Foundation | NexAU-style skill package support | ⬜ To be filed |
 | R21.2 | Skill | Salesforce skill | ✅ Done |
-| R21.3 | Skill | HubSpot skill | ⬜ #581 |
+| R21.3 | Skill | HubSpot skill | ✅ Done #581 via PR #1029 |
 | R21.4 | Skill | SAP ERP skill | ⬜ To be filed |
 | R21.5 | Skill | GA4 skill | ✅ Done #583 via PR #981 |
 | R21.6 | Skill | NL-to-SQL warehouse skill | ✅ Done #584 via PR #679 |
