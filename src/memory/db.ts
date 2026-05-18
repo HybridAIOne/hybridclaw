@@ -2499,15 +2499,13 @@ function migrateV35(
     ddl: 'billable_quantity REAL NOT NULL DEFAULT 0.0',
     quiet,
   });
-  database.exec(`
-    CREATE INDEX IF NOT EXISTS idx_usage_events_billable_unit_time
-      ON usage_events(billable_unit, timestamp);
-  `);
-  recordMigration(
-    database,
-    35,
-    'Persist non-token billable usage units',
-  );
+  if (tableExists(database, 'usage_events')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_usage_events_billable_unit_time
+        ON usage_events(billable_unit, timestamp);
+    `);
+  }
+  recordMigration(database, 35, 'Persist non-token billable usage units');
 }
 
 function runMigrations(
@@ -4183,7 +4181,7 @@ export function getUsageBillableUnitTotals(params?: {
   window?: UsageWindow;
 }): Array<{ unit: string; quantity: number; cost_usd: number }> {
   const whereClauses = [
-    "billable_unit IS NOT NULL",
+    'billable_unit IS NOT NULL',
     "billable_unit <> ''",
     'billable_quantity > 0',
   ];

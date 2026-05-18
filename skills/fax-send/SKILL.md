@@ -7,7 +7,7 @@ requires:
     - node
 credentials:
   - id: sinch-fax-basic-auth
-    kind: basic_auth
+    kind: header
     required: false
     secret_ref:
       source: store
