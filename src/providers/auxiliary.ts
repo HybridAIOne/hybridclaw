@@ -4,7 +4,6 @@ import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
 } from '../../container/shared/server-sent-events.js';
-import { getRuntimeConfig } from '../config/runtime-config.js';
 import type { GatewayModelProviderKey } from '../gateway/model-provider-keys.js';
 import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';
@@ -19,6 +18,8 @@ import {
   resolveModelProvider,
   resolveModelRuntimeCredentials,
 } from './factory.js';
+import { discoverAllLocalModels } from './local-discovery.js';
+import { localBackendsProbe } from './local-health.js';
 import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -53,12 +54,12 @@ const REMOTE_AUXILIARY_FALLBACKS: Array<{
     model: 'openrouter/google/gemini-2.5-flash-lite',
   },
   {
-    provider: 'gemini',
-    model: 'gemini/gemini-2.5-flash-lite',
-  },
-  {
     provider: 'anthropic',
     model: 'anthropic/claude-haiku-4-5',
+  },
+  {
+    provider: 'openai-codex',
+    model: 'openai-codex/gpt-5.4-mini',
   },
 ];
 const FALLBACK_PROVIDER_STATUS_TTL_MS = 30_000;
@@ -529,13 +530,38 @@ function resolveLocalFallbackProviderOrder(params: {
 
   pushProvider(resolveLocalProviderForModel(params.params.fallbackModel));
   pushProvider(resolveLocalProviderForModel(params.modelHint));
-  pushProvider(
-    resolveLocalProviderForModel(getRuntimeConfig().hybridai.defaultModel),
-  );
   for (const provider of LOCAL_BACKEND_IDS) {
     pushProvider(provider);
   }
   return providers;
+}
+
+function resolveLocalCandidateProvider(
+  model: string,
+  expectedProvider?: RuntimeProvider,
+): RuntimeProvider | undefined {
+  const explicitProvider = detectRuntimeProviderPrefix(model);
+  if (explicitProvider) {
+    return isLocalBackendType(explicitProvider) ? explicitProvider : undefined;
+  }
+  if (expectedProvider) {
+    return isLocalBackendType(expectedProvider) ? expectedProvider : undefined;
+  }
+  return resolveLocalProviderForModel(model);
+}
+
+function hasCachedReachableLocalBackend(): boolean {
+  const cached = localBackendsProbe.peek();
+  if (!cached) return false;
+  for (const status of cached.values()) {
+    if (status.reachable) return true;
+  }
+  return false;
+}
+
+async function discoverLocalModelsForAuxFallback(): Promise<void> {
+  if (!hasCachedReachableLocalBackend()) return;
+  await discoverAllLocalModels();
 }
 
 async function resolveLocalFallbackContext(params: {
@@ -546,6 +572,8 @@ async function resolveLocalFallbackContext(params: {
   logMessage?: string;
   maxTokens?: number;
 }): Promise<AuxiliaryTextCallContext | null> {
+  await discoverLocalModelsForAuxFallback();
+
   const candidates: Array<{
     model: string;
     expectedProvider?: RuntimeProvider;
@@ -557,15 +585,13 @@ async function resolveLocalFallbackContext(params: {
   ): void => {
     const trimmed = model?.trim() ?? '';
     if (!trimmed) return;
+    const provider = resolveLocalCandidateProvider(trimmed, expectedProvider);
+    if (!provider) return;
     const explicitProvider = detectRuntimeProviderPrefix(trimmed);
-    if (explicitProvider && !isLocalBackendType(explicitProvider)) return;
-    const provider = explicitProvider || expectedProvider;
-    if (provider && !isLocalBackendType(provider)) return;
-    const normalized =
-      provider && !explicitProvider
-        ? normalizeAuxiliaryProviderModel({ provider, model: trimmed })
-        : trimmed;
-    const key = `${provider || 'auto'}:${normalized}`;
+    const normalized = !explicitProvider
+      ? normalizeAuxiliaryProviderModel({ provider, model: trimmed })
+      : trimmed;
+    const key = `${provider}:${normalized}`;
     if (seen.has(key)) return;
     seen.add(key);
     candidates.push({ model: normalized, expectedProvider: provider });
@@ -628,6 +654,8 @@ async function resolveLocalFallbackContexts(params: {
   modelHint?: string;
   maxTokens?: number;
 }): Promise<AuxiliaryTextCallContext[]> {
+  await discoverLocalModelsForAuxFallback();
+
   const candidates: Array<{
     model: string;
     expectedProvider?: RuntimeProvider;
@@ -639,15 +667,13 @@ async function resolveLocalFallbackContexts(params: {
   ): void => {
     const trimmed = model?.trim() ?? '';
     if (!trimmed) return;
+    const provider = resolveLocalCandidateProvider(trimmed, expectedProvider);
+    if (!provider) return;
     const explicitProvider = detectRuntimeProviderPrefix(trimmed);
-    if (explicitProvider && !isLocalBackendType(explicitProvider)) return;
-    const provider = explicitProvider || expectedProvider;
-    if (provider && !isLocalBackendType(provider)) return;
-    const normalized =
-      provider && !explicitProvider
-        ? normalizeAuxiliaryProviderModel({ provider, model: trimmed })
-        : trimmed;
-    const key = `${provider || 'auto'}:${normalized}`;
+    const normalized = !explicitProvider
+      ? normalizeAuxiliaryProviderModel({ provider, model: trimmed })
+      : trimmed;
+    const key = `${provider}:${normalized}`;
     if (seen.has(key)) return;
     seen.add(key);
     candidates.push({ model: normalized, expectedProvider: provider });
@@ -759,31 +785,6 @@ async function resolveTaskOverrideTextCallContext(
   });
 }
 
-async function resolveFallbackModelTextCallContext(
-  params: AuxiliaryModelCallParams,
-  requestedMaxTokens: number | undefined,
-): Promise<AuxiliaryTextCallContext> {
-  const fallbackModel = params.fallbackModel?.trim() ?? '';
-  try {
-    return await resolveContextFromModel({
-      task: params.task,
-      model: fallbackModel,
-      agentId: params.agentId,
-      chatbotId: params.fallbackChatbotId,
-      enableRag: params.fallbackEnableRag ?? false,
-      maxTokens: requestedMaxTokens ?? params.fallbackMaxTokens,
-      expectedProvider: detectRuntimeProviderPrefix(fallbackModel),
-    });
-  } catch (error) {
-    return withAuxiliaryFallbackChain(
-      params,
-      error,
-      params.fallbackModel,
-      detectRuntimeProviderPrefix(fallbackModel),
-    );
-  }
-}
-
 async function resolveTextCallContext(
   params: AuxiliaryModelCallParams,
 ): Promise<AuxiliaryTextCallContext> {
@@ -816,8 +817,16 @@ async function resolveTextCallContext(
     )[0] ?? null;
   if (preferredLocal) return preferredLocal;
 
-  // 4. Finally fall back to the session model, with OpenRouter as recovery.
-  return resolveFallbackModelTextCallContext(params, requestedMaxTokens);
+  // 4. Finally use the fixed remote auxiliary chain. Do not route auto aux
+  // calls through the main/session model.
+  return resolveRemoteFallbackContext({
+    params,
+    primaryError: new Error(
+      `${params.task} has no configured local auxiliary model.`,
+    ),
+    modelHint: params.fallbackModel,
+    maxTokens: requestedMaxTokens,
+  });
 }
 
 function buildJsonHeaders(params: {

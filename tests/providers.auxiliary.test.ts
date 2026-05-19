@@ -6,6 +6,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/config/runtime-config.js');
+  vi.doUnmock('../src/providers/local-discovery.js');
   vi.doUnmock('../src/providers/local-health.js');
   vi.doUnmock('../src/providers/task-routing.js');
   vi.doUnmock('../src/providers/factory.js');
@@ -89,6 +90,7 @@ function setupProviderMocks({
   const remoteProviderKeys = [
     'anthropic',
     'openrouter',
+    'codex',
     'mistral',
     'huggingface',
     'gemini',
@@ -123,6 +125,15 @@ function setupProviderMocks({
       return status;
     }),
   }));
+  vi.doMock('../src/providers/local-discovery.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/local-discovery.js')
+    >('../src/providers/local-discovery.js');
+    return {
+      ...actual,
+      discoverAllLocalModels: vi.fn(async () => []),
+    };
+  });
 
   vi.doMock('../src/providers/task-routing.js', async () => {
     const actual = await vi.importActual<
@@ -160,6 +171,7 @@ test('host auxiliary caller uses the configured compression task model', async (
   }));
   const resolveModelRuntimeCredentials = vi.fn();
   setupProviderMocks({
+    activeLocalBackends: { vllm: true },
     resolveTaskModelPolicy,
     resolveModelRuntimeCredentials,
   });
@@ -230,6 +242,7 @@ test('host auxiliary caller falls back to resolved runtime credentials', async (
     thinkingFormat: undefined,
   }));
   setupProviderMocks({
+    activeLocalBackends: { vllm: true },
     resolveTaskModelPolicy,
     resolveModelRuntimeCredentials,
   });
@@ -350,7 +363,8 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
   const result = await callAuxiliaryModel({
     task: 'flush_memories',
     agentId: 'main',
-    fallbackModel: 'hybridai/gpt-5-nano',
+    provider: 'hybridai',
+    model: 'gpt-5-nano',
     fallbackChatbotId: 'bot_123',
     maxTokens: 2048,
     temperature: 0.1,
@@ -359,7 +373,7 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
 
   expect(result).toEqual({
     provider: 'hybridai',
-    model: 'hybridai/gpt-5-nano',
+    model: 'gpt-5-nano',
     content: 'HybridAI cleanup response.',
     usage: {
       inputTokens: 42,
@@ -425,7 +439,7 @@ test('host auxiliary caller supports HybridAI-routed vendor model hints', async 
   const result = await callAuxiliaryModel({
     task: 'compression',
     agentId: 'main',
-    fallbackModel: 'hybridai/anthropic/claude-haiku-4-5',
+    model: 'hybridai/anthropic/claude-haiku-4-5',
     fallbackChatbotId: 'bot_123',
     messages: [{ role: 'user', content: 'Summarize this.' }],
   });
@@ -494,7 +508,8 @@ test('host auxiliary caller streams Codex responses for auxiliary tasks', async 
   const result = await callAuxiliaryModel({
     task: 'flush_memories',
     agentId: 'main',
-    fallbackModel: 'openai-codex/gpt-5-codex',
+    provider: 'openai-codex',
+    model: 'gpt-5-codex',
     fallbackChatbotId: '',
     maxTokens: 2048,
     temperature: 0.1,
@@ -671,7 +686,8 @@ test('host auxiliary caller uses OpenAI-compatible routing for xAI models', asyn
   const result = await callAuxiliaryModel({
     task: 'session_title',
     agentId: 'main',
-    fallbackModel: 'xai/grok-3',
+    provider: 'xai',
+    model: 'grok-3',
     fallbackChatbotId: '',
     messages: [{ role: 'user', content: 'Title this session.' }],
   });
@@ -1099,11 +1115,11 @@ test('host auxiliary caller continues through remote fallback calls after a fall
           thinkingFormat: undefined,
         };
       }
-      if (model === 'gemini/gemini-2.5-flash-lite') {
+      if (model === 'anthropic/claude-haiku-4-5') {
         return {
-          provider: 'gemini' as const,
-          apiKey: 'gemini-key',
-          baseUrl: 'https://gemini.example/v1beta/openai',
+          provider: 'anthropic' as const,
+          apiKey: 'anthropic-key',
+          baseUrl: 'https://api.anthropic.com/v1',
           chatbotId: '',
           enableRag: false,
           requestHeaders: {},
@@ -1117,7 +1133,7 @@ test('host auxiliary caller continues through remote fallback calls after a fall
     },
   );
   setupProviderMocks({
-    activeRemoteProviders: ['openrouter', 'gemini'],
+    activeRemoteProviders: ['openrouter', 'anthropic'],
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -1145,22 +1161,19 @@ test('host auxiliary caller continues through remote fallback calls after a fall
     )
     .mockImplementationOnce(
       async (input: RequestInfo | URL, init?: RequestInit) => {
-        expect(input).toBe(
-          'https://gemini.example/v1beta/openai/chat/completions',
-        );
+        expect(input).toBe('https://api.anthropic.com/v1/messages');
         const body = JSON.parse(String(init?.body || '{}')) as Record<
           string,
           unknown
         >;
-        expect(body.model).toBe('gemini-2.5-flash-lite');
+        expect(body.model).toBe('claude-haiku-4-5');
+        expect(body.max_tokens).toBe(1_200);
         return new Response(
           JSON.stringify({
-            choices: [
+            content: [
               {
-                message: {
-                  role: 'assistant',
-                  content: 'Recovered after second remote fallback.',
-                },
+                type: 'text',
+                text: 'Recovered after second remote fallback.',
               },
             ],
           }),
@@ -1182,8 +1195,8 @@ test('host auxiliary caller continues through remote fallback calls after a fall
   });
 
   expect(result).toEqual({
-    provider: 'gemini',
-    model: 'gemini/gemini-2.5-flash-lite',
+    provider: 'anthropic',
+    model: 'anthropic/claude-haiku-4-5',
     content: 'Recovered after second remote fallback.',
   });
   expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -1302,7 +1315,7 @@ test('host auxiliary caller preserves resolved task max tokens on provider-call 
   );
 });
 
-test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter fallback is unavailable', async () => {
+test('host auxiliary caller falls through to Anthropic Haiku when OpenRouter fallback is unavailable', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'anthropic/claude-3-7-sonnet',
     error: 'Anthropic provider is not implemented yet.',
@@ -1313,11 +1326,11 @@ test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter f
       if (model.startsWith('openrouter/')) {
         throw new Error('OpenRouter provider is not configured.');
       }
-      expect(model).toBe('gemini/gemini-2.5-flash-lite');
+      expect(model).toBe('anthropic/claude-haiku-4-5');
       return {
-        provider: 'gemini' as const,
-        apiKey: 'gemini-key',
-        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        provider: 'anthropic' as const,
+        apiKey: 'anthropic-key',
+        baseUrl: 'https://api.anthropic.com/v1',
         chatbotId: '',
         enableRag: false,
         requestHeaders: {},
@@ -1329,7 +1342,7 @@ test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter f
     },
   );
   setupProviderMocks({
-    activeRemoteProviders: ['openrouter', 'gemini'],
+    activeRemoteProviders: ['openrouter', 'anthropic'],
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -1342,22 +1355,18 @@ test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter f
 
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(input).toBe(
-        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      );
+      expect(input).toBe('https://api.anthropic.com/v1/messages');
       const body = JSON.parse(String(init?.body || '{}')) as Record<
         string,
         unknown
       >;
-      expect(body.model).toBe('gemini-2.5-flash-lite');
+      expect(body.model).toBe('claude-haiku-4-5');
       return new Response(
         JSON.stringify({
-          choices: [
+          content: [
             {
-              message: {
-                role: 'assistant',
-                content: 'Recovered through Gemini fallback.',
-              },
+              type: 'text',
+              text: 'Recovered through Anthropic fallback.',
             },
           ],
         }),
@@ -1378,9 +1387,9 @@ test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter f
   });
 
   expect(result).toEqual({
-    provider: 'gemini',
-    model: 'gemini/gemini-2.5-flash-lite',
-    content: 'Recovered through Gemini fallback.',
+    provider: 'anthropic',
+    model: 'anthropic/claude-haiku-4-5',
+    content: 'Recovered through Anthropic fallback.',
   });
   expect(resolveModelRuntimeCredentials).toHaveBeenNthCalledWith(
     1,
@@ -1391,7 +1400,7 @@ test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter f
   expect(resolveModelRuntimeCredentials).toHaveBeenNthCalledWith(
     2,
     expect.objectContaining({
-      model: 'gemini/gemini-2.5-flash-lite',
+      model: 'anthropic/claude-haiku-4-5',
     }),
   );
 });
@@ -1404,11 +1413,11 @@ test('host auxiliary caller skips inactive remote fallback providers', async () 
   const resolveDefaultAuxiliaryModelForProvider = vi.fn(() => undefined);
   const resolveModelRuntimeCredentials = vi.fn(
     async ({ model }: { model: string }) => {
-      expect(model).toBe('gemini/gemini-2.5-flash-lite');
+      expect(model).toBe('anthropic/claude-haiku-4-5');
       return {
-        provider: 'gemini' as const,
-        apiKey: 'gemini-key',
-        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        provider: 'anthropic' as const,
+        apiKey: 'anthropic-key',
+        baseUrl: 'https://api.anthropic.com/v1',
         chatbotId: '',
         enableRag: false,
         requestHeaders: {},
@@ -1420,7 +1429,7 @@ test('host auxiliary caller skips inactive remote fallback providers', async () 
     },
   );
   setupProviderMocks({
-    activeRemoteProviders: ['gemini'],
+    activeRemoteProviders: ['anthropic'],
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -1433,22 +1442,18 @@ test('host auxiliary caller skips inactive remote fallback providers', async () 
 
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(input).toBe(
-        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      );
+      expect(input).toBe('https://api.anthropic.com/v1/messages');
       const body = JSON.parse(String(init?.body || '{}')) as Record<
         string,
         unknown
       >;
-      expect(body.model).toBe('gemini-2.5-flash-lite');
+      expect(body.model).toBe('claude-haiku-4-5');
       return new Response(
         JSON.stringify({
-          choices: [
+          content: [
             {
-              message: {
-                role: 'assistant',
-                content: 'Skipped inactive OpenRouter fallback.',
-              },
+              type: 'text',
+              text: 'Skipped inactive OpenRouter fallback.',
             },
           ],
         }),
@@ -1469,14 +1474,100 @@ test('host auxiliary caller skips inactive remote fallback providers', async () 
   });
 
   expect(result).toEqual({
-    provider: 'gemini',
-    model: 'gemini/gemini-2.5-flash-lite',
+    provider: 'anthropic',
+    model: 'anthropic/claude-haiku-4-5',
     content: 'Skipped inactive OpenRouter fallback.',
   });
   expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
   expect(resolveModelRuntimeCredentials).toHaveBeenCalledWith(
     expect.objectContaining({
-      model: 'gemini/gemini-2.5-flash-lite',
+      model: 'anthropic/claude-haiku-4-5',
+    }),
+  );
+});
+
+test('host auxiliary caller falls through to Codex when OpenRouter and Anthropic are inactive', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'anthropic/claude-3-7-sonnet',
+    error: 'Anthropic provider is not implemented yet.',
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn(() => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      expect(model).toBe('openai-codex/gpt-5.4-mini');
+      return {
+        provider: 'openai-codex' as const,
+        apiKey: 'codex-key',
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: false,
+        contextWindow: 200_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    activeRemoteProviders: ['codex'],
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: vi.fn(),
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://chatgpt.com/backend-api/codex/responses');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('gpt-5.4-mini');
+      return new Response(
+        JSON.stringify({
+          output: [
+            {
+              type: 'message',
+              content: [
+                {
+                  type: 'output_text',
+                  text: 'Recovered through Codex fallback.',
+                },
+              ],
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openai-codex',
+    model: 'openai-codex/gpt-5.4-mini',
+    content: 'Recovered through Codex fallback.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledWith(
+    expect.objectContaining({
+      model: 'openai-codex/gpt-5.4-mini',
     }),
   );
 });
@@ -1660,16 +1751,11 @@ test('host auxiliary caller tries discovered local fallback before openrouter wi
   );
 });
 
-test('host auxiliary caller prefers the configured local default provider before other discovered locals', async () => {
-  const resolveTaskModelPolicy = vi.fn(async () => ({
-    model: 'anthropic/claude-3-7-sonnet',
-    error: 'Anthropic provider is not implemented yet.',
-  }));
-  const resolveDefaultAuxiliaryModelForProvider = vi.fn((provider: string) => {
-    if (provider === 'lmstudio') return 'lmstudio/nvidia/nemotron-3-nano';
-    if (provider === 'vllm') return 'vllm/Qwen/Qwen3.6-27B-FP8';
-    return undefined;
-  });
+test('host auxiliary caller ignores unprefixed remote fallback models before local defaults', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn((provider: string) =>
+    provider === 'vllm' ? 'Qwen/Qwen3.6-27B-FP8' : undefined,
+  );
   const resolveModelRuntimeCredentials = vi.fn(
     async ({ model }: { model: string }) => {
       expect(model).toBe('vllm/Qwen/Qwen3.6-27B-FP8');
@@ -1688,16 +1774,14 @@ test('host auxiliary caller prefers the configured local default provider before
     },
   );
   setupProviderMocks({
-    runtimeDefaultModel: 'vllm/Qwen/Qwen3.6-27B-FP8',
-    activeLocalBackends: { lmstudio: false, vllm: true },
+    activeLocalBackends: { vllm: true },
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
   });
-  const debug = vi.fn();
   vi.doMock('../src/logger.js', () => ({
     logger: {
-      debug,
+      debug: vi.fn(),
     },
   }));
 
@@ -1715,7 +1799,97 @@ test('host auxiliary caller prefers the configured local default provider before
             {
               message: {
                 role: 'assistant',
-                content: 'Recovered through default vLLM fallback.',
+                content: 'Ignored non-local fallback model.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    fallbackModel: 'gpt-5-nano',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    content: 'Ignored non-local fallback model.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
+  expect(resolveModelRuntimeCredentials).not.toHaveBeenCalledWith(
+    expect.objectContaining({
+      model: 'gpt-5-nano',
+    }),
+  );
+});
+
+test('host auxiliary caller ignores the main default model when ordering local aux fallbacks', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'anthropic/claude-3-7-sonnet',
+    error: 'Anthropic provider is not implemented yet.',
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn((provider: string) => {
+    if (provider === 'lmstudio') return 'lmstudio/nvidia/nemotron-3-nano';
+    if (provider === 'vllm') return 'vllm/Qwen/Qwen3.6-27B-FP8';
+    return undefined;
+  });
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      expect(model).toBe('lmstudio/nvidia/nemotron-3-nano');
+      return {
+        provider: 'lmstudio' as const,
+        apiKey: '',
+        baseUrl: 'http://127.0.0.1:1234/v1',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: true,
+        contextWindow: 128_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    runtimeDefaultModel: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    activeLocalBackends: { lmstudio: true, vllm: true },
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  const debug = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug,
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('http://127.0.0.1:1234/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('nvidia/nemotron-3-nano');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Recovered through local discovery order.',
               },
             },
           ],
@@ -1737,21 +1911,25 @@ test('host auxiliary caller prefers the configured local default provider before
   });
 
   expect(result).toEqual({
-    provider: 'vllm',
-    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
-    content: 'Recovered through default vLLM fallback.',
+    provider: 'lmstudio',
+    model: 'lmstudio/nvidia/nemotron-3-nano',
+    content: 'Recovered through local discovery order.',
   });
   expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenNthCalledWith(
     1,
-    'vllm',
+    'ollama',
+  );
+  expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenNthCalledWith(
+    2,
+    'lmstudio',
   );
   expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
   expect(debug).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'compression',
       primaryProvider: 'auto',
-      fallbackProvider: 'vllm',
-      modelHint: 'vllm/Qwen/Qwen3.6-27B-FP8',
+      fallbackProvider: 'lmstudio',
+      modelHint: 'lmstudio/nvidia/nemotron-3-nano',
       primaryError: expect.any(Error),
     }),
     'Auxiliary provider resolution failed; using local model fallback',
