@@ -69,12 +69,9 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
-import {
-  getAnthropicAuthStatus,
-  isAnthropicAuthReadyForMethod,
-} from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
@@ -264,18 +261,12 @@ import {
   removeHttpSecretRouteFromWorkspacePolicy,
   restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
-import {
-  discoverCodexModels,
-  getDiscoveredCodexModelNames,
-} from '../providers/codex-discovery.js';
+import { discoverCodexModels } from '../providers/codex-discovery.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
-import {
-  discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelNames,
-} from '../providers/huggingface-discovery.js';
+import { discoverHuggingFaceModels } from '../providers/huggingface-discovery.js';
 import {
   fetchHybridAIAccountChatbotId,
   fetchHybridAIBots,
@@ -284,7 +275,6 @@ import {
 import { getLocalModelInfo } from '../providers/local-discovery.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import {
@@ -304,11 +294,7 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
-import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
-import {
-  discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelNames,
-} from '../providers/openrouter-discovery.js';
+import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
@@ -365,7 +351,7 @@ import {
 } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
-import type { MediaContextItem } from '../types/container.js';
+import type { ContainerOutput, MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   ToolExecution,
@@ -522,7 +508,6 @@ import {
   type GatewayCommandResult,
   type GatewayHistorySummary,
   type GatewayModelProviderKey,
-  type GatewayProviderHealthEntry,
   type GatewayRecentChatSession,
   type GatewayStatus,
   renderGatewayCommand,
@@ -537,6 +522,10 @@ import { initializeGoalContinuationRunner } from './goal-continuation-runner.js'
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
+import {
+  buildGatewayProviderHealth,
+  getGatewayAdminProviderStatus,
+} from './provider-status.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
   describeSessionShowMode,
@@ -900,6 +889,16 @@ interface DelegationTaskRunInput {
   onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
+function resolveTurnRuntimeAuditLabel(
+  model: string,
+  output: Pick<ContainerOutput, 'codexRuntime'> | undefined,
+): 'codex' | 'hybridclaw' {
+  return resolveModelProvider(model) === 'openai-codex' &&
+    output?.codexRuntime === 'app-server'
+    ? 'codex'
+    : 'hybridclaw';
+}
+
 async function persistDelegationAttempt(params: {
   sessionId: string;
   model: string;
@@ -930,6 +929,8 @@ async function persistDelegationAttempt(params: {
         type: 'model.usage',
         provider: resolveModelProvider(params.model),
         model: params.model,
+        runtime: resolveTurnRuntimeAuditLabel(params.model, params.output),
+        codexRuntime: params.output.codexRuntime || null,
         durationMs: params.durationMs,
         toolCallCount,
         ...usagePayload,
@@ -1701,108 +1702,6 @@ function getAdminChannelDisabledSkills(
       ])
       .sort(([left], [right]) => String(left).localeCompare(String(right))),
   );
-}
-
-function buildGatewayProviderHealth(params: {
-  localBackends: GatewayStatus['localBackends'];
-  codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridaiHealth: GatewayProviderHealthEntry;
-}): NonNullable<GatewayStatus['providerHealth']> {
-  const runtimeConfig = getRuntimeConfig();
-  const anthropicStatus = getAnthropicAuthStatus();
-  const anthropicReady = isAnthropicAuthReadyForMethod(
-    anthropicStatus,
-    runtimeConfig.anthropic.method,
-  );
-  const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: params.hybridaiHealth,
-    codex: {
-      kind: 'remote',
-      reachable: params.codex.authenticated && !params.codex.reloginRequired,
-      ...(params.codex.authenticated && !params.codex.reloginRequired
-        ? {}
-        : {
-            error: params.codex.reloginRequired
-              ? 'Login required'
-              : 'Not authenticated',
-          }),
-      ...(params.codex.reloginRequired ? { loginRequired: true } : {}),
-      modelCount: dedupeStrings(getDiscoveredCodexModelNames()).length,
-      detail:
-        params.codex.authenticated && !params.codex.reloginRequired
-          ? `Authenticated${params.codex.source ? ` via ${params.codex.source}` : ''}`
-          : params.codex.reloginRequired
-            ? 'Login required'
-            : 'Not authenticated',
-    },
-  };
-  if (runtimeConfig.anthropic.enabled || anthropicStatus.authenticated) {
-    providerHealth.anthropic = {
-      kind: 'remote',
-      reachable: anthropicReady,
-      ...(anthropicReady ? {} : { error: 'Not authenticated' }),
-      modelCount: dedupeStrings(runtimeConfig.anthropic.models).length,
-      detail: anthropicReady
-        ? `Authenticated${anthropicStatus.source ? ` via ${anthropicStatus.source}` : ''}`
-        : anthropicStatus.authenticated && anthropicStatus.method
-          ? `Detected ${anthropicStatus.method}, configured ${runtimeConfig.anthropic.method}`
-          : 'Not authenticated',
-    };
-  }
-  const optionalRemoteProviders = [
-    {
-      key: 'openrouter',
-      enabled: runtimeConfig.openrouter.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('openrouter', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredOpenRouterModelNames()).length,
-    },
-    {
-      key: 'mistral',
-      enabled: runtimeConfig.mistral.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('mistral', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredMistralModelNames()).length,
-    },
-    {
-      key: 'huggingface',
-      enabled: runtimeConfig.huggingface.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('huggingface', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredHuggingFaceModelNames()).length,
-    },
-  ] as const;
-
-  for (const provider of optionalRemoteProviders) {
-    if (!provider.enabled) continue;
-    providerHealth[provider.key] = {
-      kind: 'remote',
-      reachable: provider.authenticated,
-      ...(provider.authenticated ? {} : { error: 'Not authenticated' }),
-      modelCount: provider.modelCount,
-      detail: provider.authenticated ? 'Authenticated' : 'Not authenticated',
-    };
-  }
-
-  for (const [name, status] of Object.entries(params.localBackends || {})) {
-    providerHealth[name as keyof typeof providerHealth] = {
-      kind: 'local',
-      reachable: status.reachable,
-      latencyMs: status.latencyMs,
-      ...(status.error ? { error: status.error } : {}),
-      ...(typeof status.modelCount === 'number'
-        ? { modelCount: status.modelCount }
-        : {}),
-      detail: status.reachable
-        ? `${status.latencyMs}ms`
-        : status.error || 'unreachable',
-    };
-  }
-
-  return providerHealth;
 }
 
 async function getGatewayStatusForModelSubcommand(
@@ -5621,41 +5520,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     runtimeConfig.hybridai.defaultModel,
     modelIds,
   );
-  const status = await getGatewayStatus();
-  const providerStatus = Object.fromEntries(
-    Object.entries(status.providerHealth || {}).map(([name, value]) => [
-      name,
-      { ...value },
-    ]),
-  ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
-  const REMOTE_OPENAI_COMPAT_KEYS = [
-    'openrouter',
-    'mistral',
-    'huggingface',
-    'gemini',
-    'deepseek',
-    'xai',
-    'zai',
-    'kimi',
-    'minimax',
-    'dashscope',
-    'xiaomi',
-    'kilo',
-  ] as const;
-  for (const key of REMOTE_OPENAI_COMPAT_KEYS) {
-    if (providerStatus[key]) continue;
-    const diagnostic = diagnoseProviderForModels(key, status.providerHealth);
-    providerStatus[key] = {
-      kind: 'remote',
-      reachable: diagnostic === null,
-      ...(diagnostic
-        ? {
-            error: diagnostic.message,
-            loginRequired: diagnostic.kind === 'unauthorized',
-          }
-        : {}),
-    };
-  }
+  const providerStatus = await getGatewayAdminProviderStatus();
   const modelCountByProvider = new Map<
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
@@ -5816,6 +5681,7 @@ export function getGatewayAdminAudit(params?: {
       query,
       sessionId,
       eventType,
+      eventTypeMatch: 'prefix',
       limit,
     }).map(mapAdminAuditEntry),
   };
@@ -5970,6 +5836,17 @@ export function getGatewayAdminApprovals(params?: {
   };
 }
 
+function syncManagedBrowserTenantPolicyProjection(): void {
+  try {
+    syncLocalManagedBrowserTenantPolicyFromAdminPolicies();
+  } catch (error) {
+    logger.warn(
+      { error },
+      'Failed to sync managed browser tenant policy from admin policy',
+    );
+  }
+}
+
 export function saveGatewayAdminPolicyRule(input: {
   agentId?: string;
   index?: number | null;
@@ -5981,6 +5858,7 @@ export function saveGatewayAdminPolicyRule(input: {
       input.index != null
         ? updatePolicyRule(workspacePath, input.index, input.rule)
         : addPolicyRule(workspacePath, input.rule);
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -5997,6 +5875,7 @@ export function deleteGatewayAdminPolicyRule(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = deletePolicyRule(workspacePath, String(input.index)).state;
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6013,6 +5892,7 @@ export function saveGatewayAdminPolicyDefault(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = setPolicyDefault(workspacePath, input.defaultAction);
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6029,6 +5909,7 @@ export function applyGatewayAdminPolicyPreset(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = applyPolicyPreset(workspacePath, input.presetName).state;
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6889,6 +6770,8 @@ export async function ensureGatewayBootstrapAutostart(params: {
         type: 'model.usage',
         provider,
         model: resolved.model,
+        runtime: resolveTurnRuntimeAuditLabel(resolved.model, output),
+        codexRuntime: output.codexRuntime || null,
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
         ...usagePayload,
@@ -10665,7 +10548,13 @@ export async function handleGatewayCommand(
             : contextSnapshot.contextUsedTokens != null
               ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
-        const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+        const sandboxMode = status.sandbox?.mode || 'container';
+        const sandboxLabel = `${sandboxMode} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+        const turnRuntimeLabel =
+          resolveModelProvider(sessionModel) === 'openai-codex' &&
+          getRuntimeConfig().codex.turnRuntime === 'app-server'
+            ? 'codex'
+            : 'hybridclaw';
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
@@ -10716,7 +10605,7 @@ export async function handleGatewayCommand(
                   .join(' · ')}`,
               ]
             : []),
-          `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
+          `⚙️ Runtime: ${turnRuntimeLabel} · Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
           `🩺 Agents: ${coworkerHealthLabel}`,

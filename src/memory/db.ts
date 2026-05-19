@@ -9112,9 +9112,14 @@ export function getWeeklyAgentAnomalyRollups(
   );
 }
 
+function escapeSqlLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
 function queryStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
   limit?: number;
   maxLimit?: number;
@@ -9136,8 +9141,13 @@ function queryStructuredAuditEntries(params?: {
     values.push(sessionId);
   }
   if (eventType) {
-    clauses.push('event_type = ?');
-    values.push(eventType);
+    if (params?.eventTypeMatch === 'prefix') {
+      clauses.push("event_type LIKE ? ESCAPE '\\'");
+      values.push(`${escapeSqlLikePattern(eventType)}%`);
+    } else {
+      clauses.push('event_type = ?');
+      values.push(eventType);
+    }
   }
   if (query) {
     const like = `%${query}%`;
@@ -9270,12 +9280,14 @@ export function getStructuredAuditForSession(
 export function listStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
   limit?: number;
 }): StructuredAuditEntry[] {
   return queryStructuredAuditEntries({
     sessionId: params?.sessionId,
     eventType: params?.eventType,
+    eventTypeMatch: params?.eventTypeMatch,
     query: params?.query,
     limit: params?.limit ?? 50,
     orderBy: 'id',
@@ -9377,17 +9389,32 @@ export function setObservabilityOffset(
   `).run(normalized, boundedLastEventId);
 }
 
-export function getObservabilityIngestToken(tokenKey: string): string | null {
+export interface ObservabilityIngestTokenRecord {
+  token: string;
+  updatedAt: string;
+}
+
+export function getObservabilityIngestTokenRecord(
+  tokenKey: string,
+): ObservabilityIngestTokenRecord | null {
   const normalized = tokenKey.trim();
   if (!normalized) return null;
-  const row = queryOne<{ token: string }, [string]>(
+  const row = queryOne<{ token: string; updated_at: string }, [string]>(
     db,
-    'SELECT token FROM observability_ingest_tokens WHERE token_key = ?',
+    'SELECT token, updated_at FROM observability_ingest_tokens WHERE token_key = ?',
     normalized,
   );
   if (!row || typeof row.token !== 'string') return null;
   const token = row.token.trim();
-  return token || null;
+  if (!token) return null;
+  return {
+    token,
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : '',
+  };
+}
+
+export function getObservabilityIngestToken(tokenKey: string): string | null {
+  return getObservabilityIngestTokenRecord(tokenKey)?.token ?? null;
 }
 
 export function setObservabilityIngestToken(

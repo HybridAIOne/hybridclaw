@@ -14,11 +14,13 @@ import {
 } from './profile-dir.js';
 import type {
   BrowserProvider,
+  BrowserProviderCapabilities,
   BrowserSession,
   BrowserSessionMeteringContext,
   NavigateOptions,
   SessionOptions,
 } from './provider.js';
+import { DEFAULT_BROWSER_PROVIDER_CAPABILITIES } from './provider.js';
 
 type CamofoxPage = PlaywrightPageShape;
 type CamofoxContext = PlaywrightContextShape<CamofoxPage>;
@@ -170,6 +172,10 @@ export class CamofoxProvider implements BrowserProvider {
     );
     this.contexts.set(session, context);
     return session;
+  }
+
+  getCapabilities(): BrowserProviderCapabilities {
+    return DEFAULT_BROWSER_PROVIDER_CAPABILITIES;
   }
 
   async closeSession(session: BrowserSession): Promise<void> {

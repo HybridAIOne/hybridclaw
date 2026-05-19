@@ -1095,6 +1095,48 @@ autonomy:
     expect(videoGenerate.reason).toContain('video generation may call');
   });
 
+  test('diagram tools classify validation as green and artifact writes as yellow', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const validate = runtime.evaluateToolCall({
+      toolName: 'diagram_validate',
+      argsJson: JSON.stringify({
+        source: 'flowchart TD\n  A --> B',
+        type: 'flowchart',
+      }),
+      latestUserPrompt: 'Validate this diagram',
+    });
+    const create = runtime.evaluateToolCall({
+      toolName: 'diagram_create',
+      argsJson: JSON.stringify({
+        description: 'Create a flowchart',
+        type: 'flowchart',
+      }),
+      latestUserPrompt: 'Create a diagram',
+    });
+    const update = runtime.evaluateToolCall({
+      toolName: 'diagram_update',
+      argsJson: JSON.stringify({
+        artifact_ref: '/workspace/.generated-diagrams/skills/diagram/a.mmd',
+        instructions: 'Add a decision node',
+      }),
+      latestUserPrompt: 'Update this diagram',
+    });
+
+    expect(validate.tier).toBe('green');
+    expect(validate.decision).toBe('auto');
+    expect(create.tier).toBe('yellow');
+    expect(create.implicitDelayMs).toBeUndefined();
+    expect(create.reason).toContain('diagram rendering writes');
+    expect(update.tier).toBe('yellow');
+    expect(update.implicitDelayMs).toBeUndefined();
+    expect(update.commandPreview).toContain(
+      '/workspace/.generated-diagrams/skills/diagram/a.mmd',
+    );
+  });
+
   test('delegate tool is green by default', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -1379,10 +1421,11 @@ approval:
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Delete dist and rebuild cleanly';
+    const argsJson = JSON.stringify({ command: 'rm -rf dist' });
 
     const pending = runtime.evaluateToolCall({
       toolName: 'bash',
-      argsJson: JSON.stringify({ command: 'rm -rf dist' }),
+      argsJson,
       latestUserPrompt: originalPrompt,
     });
     expect(pending.decision).toBe('required');
@@ -1391,11 +1434,12 @@ approval:
     expect(prelude?.replayPrompt).toContain('Approval already granted');
     expect(prelude?.replayPrompt).toContain(originalPrompt);
     expect(prelude?.replayPrompt).toContain('Do not ask for approval again');
+    expect(prelude?.approvedToolCall).toEqual({ toolName: 'bash', argsJson });
     expect(prelude?.approvalMode).toBe('once');
 
     const approved = runtime.evaluateToolCall({
       toolName: 'bash',
-      argsJson: JSON.stringify({ command: 'rm -rf dist' }),
+      argsJson,
       latestUserPrompt: originalPrompt,
     });
     expect(approved.decision).toBe('approved_once');
@@ -1439,6 +1483,7 @@ approval:
       userMessage(`yes ${pending.requestId}`),
     ]);
     expect(prelude?.replayPrompt).toContain('Approval already granted');
+    expect(prelude?.approvedToolCall).toEqual({ toolName: 'bash', argsJson });
     expect(prelude?.approvalMode).toBe('once');
 
     const approved = restarted.evaluateToolCall({
@@ -1604,6 +1649,98 @@ approval:
     expect(evaluation.tier).toBe('yellow');
     expect(evaluation.decision).toBe('implicit');
     expect(evaluation.actionKey).toBe('network:hybridai.one');
+  });
+
+  test('skill-managed API writes require explicit approval and enforce request contracts', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const readEvaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.hetzner.cloud/v1/server_types?name=cpx32',
+        method: 'GET',
+        bearerSecretName: 'HETZNER_API_TOKEN',
+        skillName: 'hetzner-cloud',
+        stakesTier: 'green',
+      }),
+      latestUserPrompt: 'Check the cpx32 server type',
+    });
+    const malformedWriteEvaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({
+        url: 'https://api.hetzner.cloud/v1/servers/4907527/actions/change_type',
+        method: 'POST',
+        bearerSecretName: 'HETZNER_API_TOKEN',
+        skillName: 'hetzner-cloud',
+        stakesTier: 'amber',
+        json: { type: 'cpx32', upgrade_disk: false },
+        skillRequestContract: {
+          version: 1,
+          name: 'hetzner-cloud.change-type',
+          requireBearerSecretName: 'HETZNER_API_TOKEN',
+          forbidSecretHeaders: true,
+          requireJsonFields: ['server_type', 'upgrade_disk'],
+          forbidJsonFields: ['type'],
+          requireJsonFieldTypes: { upgrade_disk: 'boolean' },
+          remediation:
+            'Build the request with skills/hetzner-cloud/hetzner_cloud.cjs.',
+        },
+      }),
+      latestUserPrompt: 'Downgrade bastion to cpx32',
+    });
+    const writeArgsJson = JSON.stringify({
+      url: 'https://api.hetzner.cloud/v1/servers/4907527/actions/change_type',
+      method: 'POST',
+      bearerSecretName: 'HETZNER_API_TOKEN',
+      skillName: 'hetzner-cloud',
+      stakesTier: 'amber',
+      json: { server_type: 45, upgrade_disk: false },
+      skillRequestContract: {
+        version: 1,
+        name: 'hetzner-cloud.change-type',
+        requireBearerSecretName: 'HETZNER_API_TOKEN',
+        forbidSecretHeaders: true,
+        requireJsonFields: ['server_type', 'upgrade_disk'],
+        forbidJsonFields: ['type'],
+        requireJsonFieldTypes: { upgrade_disk: 'boolean' },
+        remediation:
+          'Build the request with skills/hetzner-cloud/hetzner_cloud.cjs.',
+      },
+    });
+    const writeEvaluation = runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: writeArgsJson,
+      latestUserPrompt: 'Downgrade bastion to cpx32',
+    });
+
+    expect(readEvaluation.decision).toBe('implicit');
+    expect(malformedWriteEvaluation.tier).toBe('red');
+    expect(malformedWriteEvaluation.decision).toBe('denied');
+    expect(malformedWriteEvaluation.escalationRoute).toBe('policy_denial');
+    expect(malformedWriteEvaluation.reason).toContain(
+      'hetzner-cloud.change-type contract violation',
+    );
+    expect(malformedWriteEvaluation.reason).toContain('json.type');
+    expect(writeEvaluation.tier).toBe('red');
+    expect(writeEvaluation.decision).toBe('required');
+    expect(writeEvaluation.escalationRoute).toBe('approval_request');
+    expect(writeEvaluation.requestId).toBeTruthy();
+    expect(writeEvaluation.actionKey).toBe(
+      'network:api.hetzner.cloud:POST:/v1/servers/4907527/actions/change_type',
+    );
+    expect(writeEvaluation.reason).toBe(
+      'hetzner-cloud amber API write requests require explicit operator approval',
+    );
+
+    const prelude = runtime.handleApprovalResponse([
+      userMessage(`yes ${writeEvaluation.requestId}`),
+    ]);
+    expect(prelude?.approvedToolCall).toEqual({
+      toolName: 'http_request',
+      argsJson: writeArgsJson,
+    });
   });
 
   test('stealth browser activation is denied unless host policy allows it', () => {

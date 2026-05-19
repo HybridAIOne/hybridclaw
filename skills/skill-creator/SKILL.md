@@ -7,6 +7,11 @@ metadata:
   hybridclaw:
     category: development
     short_description: "Create and update skills."
+    tags:
+      - skills
+      - authoring
+      - development
+      - packaging
 ---
 # Skill Creator
 
@@ -64,6 +69,13 @@ Optional:
 - `assets/` for templates/images/files used in outputs
 - `license.txt` when sharing externally
 
+For API-backed skills, prefer deterministic `*.cjs` scripts that provide an
+easy CLI over the external API. The script should own endpoint selection,
+methods, payload shaping, URL encoding, write-tier classification, and secret
+reference construction, then emit gateway-ready JSON for the model to pass to
+tools such as `http_request`. The model should run the CLI and use its emitted
+request objects instead of handcrafting API calls from memory.
+
 ## What Goes Where
 
 Use this taxonomy to keep skills maintainable:
@@ -71,7 +83,8 @@ Use this taxonomy to keep skills maintainable:
 - `SKILL.md`: trigger semantics, decision flow, command contract, minimal examples
 - `metadata.hybridclaw.category`: short bucket like `development`, `office`, `apple`, or `memory`
 - `references/`: long docs, schemas, framework variants, advanced patterns
-- `scripts/`: executable deterministic helpers
+- `scripts/`: executable deterministic helpers, including `*.cjs` API wrapper
+  CLIs for skills that call external services
 - `assets/`: output resources that should not be read into context by default
 
 Keep references one level deep from `SKILL.md` links. Avoid deep reference chains.

@@ -93,6 +93,13 @@ Run the helper with Node:
 node skills/video.from-script/video-from-script.cjs --help
 ```
 
+In packaged agent workspaces this skill can be mounted with a hyphenated
+directory name. If the command above fails with `Cannot find module`, run:
+
+```bash
+node skills/video-from-script/video-from-script.cjs --help
+```
+
 Plan without contacting HeyGen:
 
 ```bash
@@ -134,6 +141,14 @@ node skills/video.from-script/video-from-script.cjs render --wait \
 
 - Never print, request, or accept a raw HeyGen API key.
 - Keep script text at or below 5000 characters.
+- Use exact HeyGen asset ids for `--avatar-id` and `--voice-id`. Display names
+  such as a presenter name or voice name are not ids.
+- Refresh candidates with `node skills/heygen/heygen.cjs request list-avatars
+  --limit <count>` and `node skills/heygen/heygen.cjs request list-voices
+  --limit <count>` before choosing ids. Those summaries are cached so this
+  helper can reject display names and stale ids before contacting HeyGen.
+- Use `--skip-cache-validation` only when the operator supplied a known private
+  HeyGen asset id that is not present in the cached list.
 - Provide exactly one avatar source: `--avatar-id`, `--image-url`, or
   `--image-asset-id`.
 - Require `--operator-grant` for `start` and `render`.
@@ -142,6 +157,14 @@ node skills/video.from-script/video-from-script.cjs render --wait \
 - Treat `failed` as terminal and include the provider error when available.
 - Download only completed provider URLs, and save MP4 artifacts under
   `.generated-videos`.
+- In web chat, the completed MP4 must be returned through the helper's
+  `artifacts[]` output so the gateway can render the browser preview/download
+  route. When asked to post or show an already completed video, run
+  `status --job-id <id> --download` again instead of writing a remembered local
+  path or hand-built `/api/artifact` link.
+- Do not say web chat cannot embed, display, or deliver the MP4, and do not
+  suggest Finder, drag-and-drop, Discord, or email unless the user explicitly
+  asks for that external channel.
 - Public auto-publish or share-link distribution is red tier and requires a
   separate escalation.
 

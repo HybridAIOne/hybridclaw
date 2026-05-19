@@ -201,11 +201,14 @@ export interface ProviderCredentials {
   assemblyai?: ProviderCredential;
 }
 
+export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
+
 export interface ContainerInput {
   healthCheck?: {
     nonce: string;
   };
   sessionId: string;
+  agentId?: string;
   messages: ChatMessage[];
   chatbotId: string;
   enableRag: boolean;
@@ -229,7 +232,9 @@ export interface ContainerInput {
   thinkingFormat?: 'qwen';
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
+  browserProvider?: string;
   model: string;
+  codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
@@ -391,6 +396,7 @@ export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  codexRuntime?: CodexTurnRuntime;
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;

@@ -33,33 +33,30 @@ describe('ViewSwitchNav', () => {
   });
 
   it('uses client router links only for console routes', () => {
-    mockRouterState.pathname = '/agents';
+    mockRouterState.pathname = '/chat';
 
     render(<ViewSwitchNav />);
 
-    expect(screen.getByRole('link', { name: 'Chat' }).dataset.routerLink).toBe(
-      'true',
-    );
     expect(screen.getByRole('link', { name: 'Admin' }).dataset.routerLink).toBe(
       'true',
     );
 
     const agentsLink = screen.getByRole('link', { name: 'Agents' });
     expect(agentsLink.getAttribute('href')).toBe('/agents');
-    expect(agentsLink.dataset.routerLink).toBeUndefined();
+    expect(agentsLink.dataset.routerLink).toBe('true');
 
     const docsLink = screen.getByRole('link', { name: 'Docs' });
     expect(docsLink.getAttribute('href')).toBe('/docs');
     expect(docsLink.dataset.routerLink).toBeUndefined();
   });
 
-  it('marks server-owned links active by pathname', () => {
+  it('marks the agents SPA view active by pathname', () => {
     mockRouterState.pathname = '/agents';
 
     render(<ViewSwitchNav />);
 
-    const agentsLink = screen.getByRole('link', { name: 'Agents' });
-    expect(agentsLink.getAttribute('aria-current')).toBe('page');
-    expect(agentsLink.className).toContain('active');
+    const agentsItem = screen.getByText('Agents').closest('.view-switch-link');
+    expect(agentsItem?.getAttribute('aria-current')).toBe('page');
+    expect(agentsItem?.className).toContain('active');
   });
 });

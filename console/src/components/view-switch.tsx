@@ -9,7 +9,7 @@ type ViewSwitchItem = {
 
 const VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
   { to: '/chat', label: 'Chat', icon: Chat },
-  { href: '/agents', label: 'Agents', icon: Agents },
+  { to: '/agents', label: 'Agents', icon: Agents },
   { to: '/admin', label: 'Admin', icon: Admin },
   {
     href: 'https://github.com/HybridAIOne/hybridclaw',

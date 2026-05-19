@@ -887,6 +887,67 @@ describe('ChatPage', () => {
     expect(fetchChatRecentMock).toHaveBeenCalledTimes(1);
   });
 
+  it('fades out chat error banners after a short delay', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    deleteChatSessionMock.mockResolvedValue({
+      deleted: false,
+      sessionId: 'session-b',
+      deletedMessages: 0,
+      deletedTasks: 0,
+      deletedSemanticMemories: 0,
+      deletedUsageEvents: 0,
+      deletedAuditEntries: 0,
+      deletedStructuredAuditEntries: 0,
+      deletedApprovalEntries: 0,
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    vi.useFakeTimers();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete Session B session' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByText('Delete failed: session was not found.'),
+    ).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(
+      screen.getByText('Delete failed: session was not found.'),
+    ).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(2200);
+    });
+
+    expect(
+      screen.queryByText('Delete failed: session was not found.'),
+    ).toBeNull();
+  });
+
   it('disables session delete buttons while deletion is pending', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',

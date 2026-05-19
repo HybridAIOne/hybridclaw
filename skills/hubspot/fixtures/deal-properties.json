@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "name": "dealstage",
+      "label": "Deal stage",
+      "type": "enumeration",
+      "fieldType": "select",
+      "options": [
+        {
+          "label": "Appointment scheduled",
+          "value": "appointmentscheduled"
+        },
+        {
+          "label": "Presentation scheduled",
+          "value": "presentationscheduled"
+        },
+        {
+          "label": "Contract sent",
+          "value": "contractsent"
+        },
+        {
+          "label": "Closed won",
+          "value": "closedwon"
+        },
+        {
+          "label": "Closed lost",
+          "value": "closedlost"
+        }
+      ]
+    },
+    {
+      "name": "lifecyclestage",
+      "label": "Lifecycle stage",
+      "type": "enumeration",
+      "fieldType": "select",
+      "options": [
+        {
+          "label": "Subscriber",
+          "value": "subscriber"
+        },
+        {
+          "label": "Lead",
+          "value": "lead"
+        },
+        {
+          "label": "Marketing qualified lead",
+          "value": "marketingqualifiedlead"
+        },
+        {
+          "label": "Sales qualified lead",
+          "value": "salesqualifiedlead"
+        },
+        {
+          "label": "Opportunity",
+          "value": "opportunity"
+        },
+        {
+          "label": "Customer",
+          "value": "customer"
+        }
+      ]
+    }
+  ]
+}

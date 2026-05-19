@@ -23,6 +23,7 @@ import {
 import type {
   BrowserEvaluateFunction,
   BrowserProvider,
+  BrowserProviderCapabilities,
   BrowserSession,
   BrowserSessionMeteringContext,
   ClickOptions,
@@ -33,6 +34,7 @@ import type {
   SessionOptions,
   WaitOptions,
 } from './provider.js';
+import { DEFAULT_BROWSER_PROVIDER_CAPABILITIES } from './provider.js';
 
 type BrowserUseCloudFetch = (
   input: string,
@@ -486,6 +488,10 @@ export class BrowserUseCloudProvider implements BrowserProvider {
       await this.cleanupFailedLaunch(apiKeyRef, cloud, browser);
       throw error;
     }
+  }
+
+  getCapabilities(): BrowserProviderCapabilities {
+    return DEFAULT_BROWSER_PROVIDER_CAPABILITIES;
   }
 
   async closeSession(session: BrowserSession): Promise<void> {

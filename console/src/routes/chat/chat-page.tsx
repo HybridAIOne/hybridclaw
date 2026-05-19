@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   createChatBranch,
   createChatMobileQr,
@@ -68,6 +75,8 @@ type BranchInfo = {
 
 const EMPTY_MESSAGES: ChatUiMessage[] = [];
 const EMPTY_MODELS: ChatModel[] = [];
+const ERROR_BANNER_VISIBLE_MS = 5000;
+const ERROR_BANNER_FADE_MS = 200;
 type RecentChatScope = 'user' | 'all';
 
 function buildBranchInfoMap(
@@ -115,7 +124,15 @@ export function ChatPage() {
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
 
-  const [error, setError] = useState('');
+  const [errorState, setErrorState] = useState({ message: '', version: 0 });
+  const error = errorState.message;
+  const setError = useCallback((next: SetStateAction<string>) => {
+    setErrorState((prev) => ({
+      message: typeof next === 'function' ? next(prev.message) : next,
+      version: prev.version + 1,
+    }));
+  }, []);
+  const [errorExiting, setErrorExiting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [mobileQr, setMobileQr] = useState<ChatMobileQrResponse | null>(null);
@@ -261,7 +278,7 @@ export function ChatPage() {
     setError(
       'Failed to load the default agent. New chats will use main until gateway status loads.',
     );
-  }, [appStatusQuery.error]);
+  }, [appStatusQuery.error, setError]);
 
   useEffect(() => {
     if (!modelsQuery.error) return;
@@ -270,7 +287,7 @@ export function ChatPage() {
       modelsQuery.error,
     );
     setError('Failed to load the model list. Model switching is unavailable.');
-  }, [modelsQuery.error]);
+  }, [modelsQuery.error, setError]);
 
   const recentQuery = useQuery({
     queryKey: chatRecentQueryKey(
@@ -303,6 +320,23 @@ export function ChatPage() {
     [agentsQuery.data],
   );
   const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
+
+  useEffect(() => {
+    const message = errorState.message;
+    setErrorExiting(false);
+    if (!message) return;
+    const fadeTimer = window.setTimeout(() => {
+      setErrorExiting(true);
+    }, ERROR_BANNER_VISIBLE_MS);
+    const clearTimer = window.setTimeout(() => {
+      setError('');
+      setErrorExiting(false);
+    }, ERROR_BANNER_VISIBLE_MS + ERROR_BANNER_FADE_MS);
+    return () => {
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [errorState, setError]);
 
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
@@ -367,7 +401,7 @@ export function ChatPage() {
   useEffect(() => {
     if (!historyQuery.error) return;
     setError(getErrorMessage(historyQuery.error));
-  }, [historyQuery.error]);
+  }, [historyQuery.error, setError]);
 
   useEffect(() => {
     if (!mobileQr) return;
@@ -472,7 +506,7 @@ export function ChatPage() {
         setError(getErrorMessage(err));
       }
     },
-    [auth.token, queryClient, switchToSession, stream.sendMessage],
+    [auth.token, queryClient, setError, switchToSession, stream.sendMessage],
   );
 
   const handleRegenerate = useCallback(
@@ -518,7 +552,7 @@ export function ChatPage() {
       }
       return uploaded;
     },
-    [auth.token],
+    [auth.token, setError],
   );
 
   const handleNewChat = useCallback(() => {
@@ -528,7 +562,7 @@ export function ChatPage() {
     }
     startFreshChat();
     refreshRecent();
-  }, [stream.isActive, startFreshChat, refreshRecent]);
+  }, [stream.isActive, startFreshChat, refreshRecent, setError]);
 
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
@@ -632,6 +666,7 @@ export function ChatPage() {
       getSessionId,
       queryClient,
       refreshRecent,
+      setError,
       stream.isActive,
       switchToSession,
       userId,
@@ -668,7 +703,7 @@ export function ChatPage() {
       }
       void navigateToSession(targetId);
     },
-    [stream.isActive, navigateToSession],
+    [stream.isActive, navigateToSession, setError],
   );
 
   const canDeleteSession = useCallback(() => {
@@ -677,7 +712,7 @@ export function ChatPage() {
       return false;
     }
     return !deleteSessionMutation.isPending;
-  }, [deleteSessionMutation.isPending, stream.isActive]);
+  }, [deleteSessionMutation.isPending, stream.isActive, setError]);
 
   const handleRequestDeleteSession = useCallback(
     (target: ChatRecentSession) => {
@@ -744,7 +779,7 @@ export function ChatPage() {
     } finally {
       setMobileQrBusy(false);
     }
-  }, [auth.token, getSessionId, userId]);
+  }, [auth.token, getSessionId, userId, setError]);
 
   const handleEditOpen = useCallback((m: ChatMessage) => {
     setEditingId(m.id);
@@ -903,7 +938,15 @@ export function ChatPage() {
             </button>
           ) : null}
 
-          {error ? <div className={css.errorBanner}>{error}</div> : null}
+          {error ? (
+            <div
+              className={`${css.errorBanner} ${
+                errorExiting ? css.errorBannerExiting : ''
+              }`}
+            >
+              {error}
+            </div>
+          ) : null}
 
           <Composer
             isStreaming={stream.isStreaming}

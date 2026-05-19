@@ -35,12 +35,9 @@ Default to Mermaid unless the user asks for another format or the shape is a bet
 
 Use the runtime tools directly:
 
-- `diagram.create`: create source, validate it, save source, and optionally render.
-- `diagram.update`: update existing source or source artifact, validate it, save a new source artifact, and optionally render.
-- `diagram.validate`: validate source only; do not render.
-
-The underscore aliases `diagram_create`, `diagram_update`, and
-`diagram_validate` remain available for older callers.
+- `diagram_create`: create source, validate it, save source, and optionally render.
+- `diagram_update`: update existing source or source artifact, validate it, save a new source artifact, and optionally render.
+- `diagram_validate`: validate source only; do not render.
 
 The tool output includes these fields:
 
@@ -69,9 +66,9 @@ On validation failure, `success` and `valid` are false and `errors` plus
 1. Pick the diagram type before writing syntax. If uncertain, set `type` to `auto`, but prefer an explicit type when the user request clearly names one.
 2. For Mermaid, read [references/mermaid-types.md](references/mermaid-types.md) when you need grammar examples or when the diagram type is not obvious.
 3. Draft complete source yourself when the user needs a specific diagram. Do not rely on the tool's generated starter unless the request is generic.
-4. Call `diagram.validate` before rendering when you wrote or revised source manually.
+4. Call `diagram_validate` before rendering when you wrote or revised source manually.
 5. If validation fails, use the returned `errors` and `suggested_fix`, revise once, then validate again. Make at most 2 fix-up attempts before surfacing the failure with the invalid source artifact. The runtime also caps automatic pre-render fix-up at 2 attempts.
-6. Call `diagram.create` or `diagram.update` with `render_to` set to `svg` by default. Use `png` or `pdf` only when requested and the adapter can render that target.
+6. Call `diagram_create` or `diagram_update` with `render_to` set to `svg` by default. Use `png` or `pdf` only when requested and the adapter can render that target.
 7. Return the source artifact and rendered artifact paths to the user.
 
 ## Type Selection
@@ -108,16 +105,18 @@ For `diagram_update`, preserve the existing `type` and `format` unless the user 
 1. Read the existing source artifact when needed.
 2. Apply the change to the source yourself.
 3. Validate the full updated source.
-4. Call `diagram.update` with the complete updated source, original format/type, and desired `render_to`.
+4. Call `diagram_update` with the complete updated source, original format/type, and desired `render_to`.
 
 If the user only asks to annotate a diagram and exact placement does not matter, the tool can add a small update annotation when passed only `artifact_ref` plus `instructions`.
 
 ## Adapter Notes
 
 - Mermaid and Graphviz use local renderers when available. If a renderer is not installed, SVG requests fall back to source-backed SVG artifacts so the operator still gets an embed-ready file.
+- Mermaid validation uses the bundled Mermaid parser before rendering, so syntax errors are surfaced even when `mmdc` is not installed. The first validation loads the parser and scoped DOM support; later validations reuse the cached parser.
 - PlantUML rendering uses `HYBRIDCLAW_PLANTUML_SERVER_URL` or `PLANTUML_SERVER_URL` when configured. Without a server, SVG requests fall back to source-backed SVG artifacts. Operators are responsible for pointing this setting only at a trusted PlantUML server with appropriate network egress controls.
 - Excalidraw defaults to `render_to: "none"` because JSON is the editable deliverable. Use `render_to: "svg"` when a static preview is requested; the runtime renders the JSON elements directly to SVG.
 - Local Mermaid and Graphviz renders use short-lived OS temp directories. Normal tool completion removes them; process-level termination such as SIGKILL may leave temporary source copies for the OS temp cleaner.
+Diagram render usage is reported as a zero-cost budget hook; LLM tokens are only consumed when the model drafts or repairs source.
 
 ## Runtime Hooks
 

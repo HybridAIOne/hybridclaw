@@ -1,0 +1,82 @@
+[
+  {
+    "id": "dns-01",
+    "category": "read-zone",
+    "prompt": "List Hetzner DNS zones available in this project.",
+    "expectedOperation": "list-zones",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "dns-02",
+    "category": "read-zone",
+    "prompt": "Show details for the example.com zone.",
+    "expectedOperation": "get-zone",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "dns-03",
+    "category": "read-record",
+    "prompt": "List the DNS records for example.com.",
+    "expectedOperation": "list-rrsets",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "dns-04",
+    "category": "read-record",
+    "prompt": "Check the current A record for demo.example.com.",
+    "expectedOperation": "get-rrset",
+    "expectedTier": "green",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "dns-05",
+    "category": "write-record",
+    "prompt": "Create demo-acme.example.com pointing to the demo VPS.",
+    "expectedOperation": "create-rrset",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "dns-06",
+    "category": "write-record",
+    "prompt": "Change the demo A record to the new IPv4 address.",
+    "expectedOperation": "update-rrset",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "dns-07",
+    "category": "write-record",
+    "prompt": "Add an IPv6 AAAA value to the demo record set.",
+    "expectedOperation": "add-record",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "dns-08",
+    "category": "write-record",
+    "prompt": "Remove the stale TXT verification value from the DNS record.",
+    "expectedOperation": "remove-record",
+    "expectedTier": "amber",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "dns-09",
+    "category": "write-delete",
+    "prompt": "Delete the temporary demo DNS record after teardown.",
+    "expectedOperation": "delete-record",
+    "expectedTier": "red",
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "dns-10",
+    "category": "write-delete",
+    "prompt": "Delete this obsolete delegated DNS zone.",
+    "expectedOperation": "delete-zone",
+    "expectedTier": "red",
+    "costMeasurement": { "system": "UsageTotals" }
+  }
+]

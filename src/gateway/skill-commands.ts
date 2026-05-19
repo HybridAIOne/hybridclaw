@@ -77,7 +77,7 @@ function formatSkillInstallLines(
       return `${install.id} (${install.kind})${label}`;
     })
     .join('; ');
-  return [`    installs: ${installSummary}`];
+  return [`    ↳ installs: ${installSummary}`];
 }
 
 function renderSkillCatalogList(catalog: SkillCatalogSummaryEntry[]): {
@@ -100,7 +100,7 @@ function renderSkillCatalogList(catalog: SkillCatalogSummaryEntry[]): {
     if (externalSourceMarker) hasExternalSourceLabels = true;
     const availability = skill.available
       ? skill.enabled
-        ? 'available'
+        ? 'enabled'
         : 'disabled'
       : skill.missing.join(', ');
     lines.push(`  ${skill.name}${externalSourceMarker} [${availability}]`);

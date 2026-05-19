@@ -6,6 +6,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { deflateRawSync } from 'node:zlib';
 import {
+  readFiniteNumberOr,
+  readString as readStringValue,
+} from '../shared/primitive-values.js';
+import {
   resolveWorkspacePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
@@ -63,7 +67,6 @@ interface DiagramRuntimeEvent {
   artifact_ref?: string;
   source_artifact_ref?: string;
   diagram_type: MermaidDiagramType;
-  requested_type?: DiagramType;
   format: DiagramFormat;
   render_to: DiagramRenderTarget;
   errors?: string[];
@@ -126,10 +129,6 @@ const MERMAID_HEADERS: Record<MermaidDiagramType, RegExp> = {
   mindmap: /^mindmap\b/i,
   pie: /^pie\b/i,
 };
-
-function readStringValue(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function readSourceValue(args: Record<string, unknown>): string {
   return readStringValue(args.source);
@@ -258,10 +257,95 @@ function hasBalancedDelimiters(source: string): boolean {
   return stack.length === 0 && quote === null;
 }
 
-function validateMermaid(
+type MermaidParser = {
+  initialize: (options: Record<string, unknown>) => void;
+  parse: (
+    source: string,
+    options?: Record<string, unknown>,
+  ) => Promise<unknown> | unknown;
+};
+
+let mermaidParserPromise: Promise<MermaidParser> | null = null;
+let mermaidDomPromise: Promise<{
+  window: unknown;
+  document: unknown;
+}> | null = null;
+let mermaidDomQueue: Promise<unknown> = Promise.resolve();
+
+async function loadMermaidDom(): Promise<{
+  window: unknown;
+  document: unknown;
+}> {
+  if (!mermaidDomPromise) {
+    mermaidDomPromise = (async () => {
+      const { parseHTML } = await import('linkedom');
+      const { window } = parseHTML('<html><body></body></html>');
+      return {
+        window,
+        document: window.document,
+      };
+    })();
+  }
+  return mermaidDomPromise;
+}
+
+async function withMermaidDom<T>(operation: () => Promise<T>): Promise<T> {
+  const run = async () => {
+    const globalScope = globalThis as Record<string, unknown>;
+    const previous = {
+      hasWindow: Object.hasOwn(globalScope, 'window'),
+      window: globalScope.window,
+      hasDocument: Object.hasOwn(globalScope, 'document'),
+      document: globalScope.document,
+    };
+    const dom = await loadMermaidDom();
+    globalScope.window = dom.window;
+    globalScope.document = dom.document;
+    try {
+      return await operation();
+    } finally {
+      if (previous.hasWindow) globalScope.window = previous.window;
+      else delete globalScope.window;
+      if (previous.hasDocument) globalScope.document = previous.document;
+      else delete globalScope.document;
+    }
+  };
+  const result = mermaidDomQueue.then(run, run);
+  mermaidDomQueue = result.catch(() => undefined);
+  return result;
+}
+
+async function loadMermaidParser(): Promise<MermaidParser> {
+  if (!mermaidParserPromise) {
+    mermaidParserPromise = withMermaidDom(async () => {
+      const module = (await import('mermaid')) as {
+        default?: MermaidParser;
+      };
+      const mermaid = module.default;
+      if (!mermaid?.parse || !mermaid.initialize) {
+        throw new Error('Mermaid parser API is unavailable.');
+      }
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+      return mermaid;
+    }).catch((err) => {
+      mermaidParserPromise = null;
+      throw err;
+    });
+  }
+  return mermaidParserPromise;
+}
+
+function parseErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) {
+    return err.message.trim().split(/\r?\n/)[0] || err.message.trim();
+  }
+  return String(err || 'unknown parse error');
+}
+
+async function validateMermaid(
   source: string,
   type: MermaidDiagramType,
-): DiagramValidation {
+): Promise<DiagramValidation> {
   const body = stripFence(source);
   const errors: string[] = [];
   const first = firstMeaningfulLine(body);
@@ -271,67 +355,16 @@ function validateMermaid(
       `Expected Mermaid ${type} source to start with the ${type} diagram header.`,
     );
   }
-  const delimiterSource =
-    type === 'er'
-      ? body.replace(/[|o}]\{/g, 'oo').replace(/\}[|o]/g, 'oo')
-      : body;
-  if (!hasBalancedDelimiters(delimiterSource)) {
-    errors.push(
-      'Source has unbalanced brackets, braces, parentheses, or quotes.',
-    );
-  }
 
-  const lines = body
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('%%'));
-  const rest = lines.slice(1).join('\n');
-  if (
-    type === 'sequence' &&
-    !/(?:-{1,2}|={1,2})>>?|participant\b|actor\b/i.test(rest)
-  ) {
-    errors.push(
-      'Sequence diagrams need at least one participant/actor or message arrow.',
-    );
-  }
-  if (type === 'flowchart' && !/(-->|---|==>|-.->|\bo--|\bx--)/.test(rest)) {
-    errors.push('Flowcharts need at least one edge such as A --> B.');
-  }
-  if (type === 'state' && !/-->/.test(rest)) {
-    errors.push('State diagrams need at least one transition using -->.');
-  }
-  if (
-    type === 'er' &&
-    !(/(?:\|\||\}\||\}o|o\{|o\|)--/.test(rest) || /\w+\s*\{/.test(rest))
-  ) {
-    errors.push(
-      'ER diagrams need an entity block or relationship cardinality.',
-    );
-  }
-  if (type === 'class' && !/\bclass\s+\w+|<\|--|--\*|--o/.test(rest)) {
-    errors.push(
-      'Class diagrams need at least one class declaration or relationship.',
-    );
-  }
-  if (
-    type === 'gantt' &&
-    !(/\bdateFormat\b/i.test(rest) && /:\s*\w*,/.test(rest))
-  ) {
-    errors.push('Gantt diagrams need a dateFormat and at least one task line.');
-  }
-  if (
-    type === 'git-graph' &&
-    !/\b(commit|branch|checkout|merge)\b/i.test(rest)
-  ) {
-    errors.push(
-      'Git graphs need at least one commit, branch, checkout, or merge statement.',
-    );
-  }
-  if (type === 'mindmap' && !/\n\s+\S/.test(body)) {
-    errors.push('Mindmaps need indented child nodes below the root.');
-  }
-  if (type === 'pie' && !/"?[^"\n:]+"?\s*:\s*\d+(?:\.\d+)?/.test(rest)) {
-    errors.push('Pie charts need at least one "Label" : number entry.');
+  if (body) {
+    try {
+      const mermaid = await loadMermaidParser();
+      await withMermaidDom(async () => {
+        await mermaid.parse(body, { suppressErrors: false });
+      });
+    } catch (err) {
+      errors.push(`Mermaid parser rejected source: ${parseErrorMessage(err)}`);
+    }
   }
 
   return {
@@ -385,11 +418,11 @@ function validateExcalidraw(source: string): DiagramValidation {
   return { valid: errors.length === 0, errors };
 }
 
-function validateDiagramSource(
+async function validateDiagramSource(
   source: string,
   format: DiagramFormat,
   type: MermaidDiagramType,
-): DiagramValidation {
+): Promise<DiagramValidation> {
   if (format === 'plantuml') return validatePlantUml(source);
   if (format === 'graphviz') return validateGraphviz(source);
   if (format === 'excalidraw') return validateExcalidraw(source);
@@ -712,7 +745,7 @@ function renderSourceSvg(source: string, title: string): Buffer {
 }
 
 function readNumber(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  return readFiniteNumberOr(value, fallback);
 }
 
 function readElementColor(value: unknown, fallback: string): string {
@@ -950,6 +983,31 @@ function encodePlantUml(source: string): string {
   return encoded;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  );
+}
+
+function parsePlantUmlServerUrl(rawUrl: string): URL {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error('PlantUML server URL must be a valid URL.');
+  }
+  if (url.protocol !== 'https:' && !isLoopbackHostname(url.hostname)) {
+    throw new Error(
+      'PlantUML server URL must use https unless it targets localhost.',
+    );
+  }
+  return url;
+}
+
 async function renderPlantUml(
   source: string,
   target: Exclude<DiagramRenderTarget, 'none'>,
@@ -973,13 +1031,12 @@ async function renderPlantUml(
       'PlantUML rendering requires HYBRIDCLAW_PLANTUML_SERVER_URL or PLANTUML_SERVER_URL.',
     );
   }
+  const serverUrl = parsePlantUmlServerUrl(baseUrl);
+  serverUrl.pathname = `${serverUrl.pathname.replace(/\/+$/, '')}/${target}/${encodePlantUml(source)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PLANTUML_FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(
-      `${baseUrl.replace(/\/+$/, '')}/${target}/${encodePlantUml(source)}`,
-      { signal: controller.signal },
-    );
+    const response = await fetch(serverUrl, { signal: controller.signal });
     if (!response.ok)
       throw new Error(`PlantUML server returned ${response.status}.`);
     return { data: Buffer.from(await response.arrayBuffer()), warnings: [] };
@@ -1048,7 +1105,6 @@ function buildValidationFailedEvent(params: {
       ? { source_artifact_ref: params.sourceArtifact.path }
       : {}),
     diagram_type: params.request.type,
-    requested_type: params.request.requestedType,
     format: params.request.format,
     render_to: params.request.renderTo,
     errors: params.errors,
@@ -1066,7 +1122,6 @@ function buildRenderedEvent(params: {
     artifact_ref: params.renderedArtifact.path,
     source_artifact_ref: params.sourceArtifact.path,
     diagram_type: params.request.type,
-    requested_type: params.request.requestedType,
     format: params.request.format,
     render_to: params.request.renderTo,
   };
@@ -1074,6 +1129,7 @@ function buildRenderedEvent(params: {
 
 async function validateWithFixups(
   initialRequest: NormalizedDiagramRequest,
+  initialValidation: DiagramValidation,
   action: Exclude<DiagramAction, 'validate'>,
   options?: DiagramRuntimeOptions,
 ): Promise<{
@@ -1082,11 +1138,7 @@ async function validateWithFixups(
   fixupAttempts: number;
 }> {
   let request = initialRequest;
-  let validation = validateDiagramSource(
-    request.source,
-    request.format,
-    request.type,
-  );
+  let validation = initialValidation;
   let fixupAttempts = 0;
 
   while (!validation.valid && fixupAttempts < MAX_FIXUP_ATTEMPTS) {
@@ -1106,7 +1158,11 @@ async function validateWithFixups(
     fixupAttempts = attempt;
     if (!fixedSource) break;
     const source = stripFence(fixedSource);
-    validation = validateDiagramSource(source, request.format, request.type);
+    validation = await validateDiagramSource(
+      source,
+      request.format,
+      request.type,
+    );
     request = {
       ...request,
       source,
@@ -1126,7 +1182,7 @@ export async function runDiagramTool(
   options?: DiagramRuntimeOptions,
 ): Promise<string> {
   let request = normalizeRequest(args, action);
-  let validation = validateDiagramSource(
+  let validation = await validateDiagramSource(
     request.source,
     request.format,
     request.type,
@@ -1134,7 +1190,7 @@ export async function runDiagramTool(
   let fixupAttempts = 0;
 
   if (action !== 'validate') {
-    const fixed = await validateWithFixups(request, action, options);
+    const fixed = await validateWithFixups(request, validation, action, options);
     request = fixed.request;
     validation = fixed.validation;
     fixupAttempts = fixed.fixupAttempts;
@@ -1234,8 +1290,7 @@ export async function runDiagramTool(
       fixup_attempts: fixupAttempts,
       runtime_events: runtimeEvents,
       warnings: [...request.warnings, ...renderWarnings],
-      usage: { renders: request.renderTo === 'none' ? 0 : 1, llm_tokens: 0 },
-      stakes: { f8: 'low', reason: 'operator-controlled file artifact' },
+      usage: { renders: request.renderTo === 'none' ? 0 : 1 },
     },
     null,
     2,

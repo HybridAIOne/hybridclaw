@@ -131,7 +131,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 28;
+export const CONFIG_VERSION = 29;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -243,6 +243,7 @@ export const SCHEDULER_BOARD_STATUSES = [
 export type SchedulerBoardStatus = (typeof SCHEDULER_BOARD_STATUSES)[number];
 const SCHEDULER_BOARD_STATUS_SET = new Set<string>(SCHEDULER_BOARD_STATUSES);
 export type ContainerSandboxMode = 'container' | 'host';
+export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
 export type RuntimeWebSearchProvider =
   | 'auto'
   | 'brave'
@@ -257,6 +258,7 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
 export type RuntimeBrowserProviderKind =
   | 'local'
   | 'camofox'
+  | 'managed-cloud'
   | 'browser-use-cloud';
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -362,10 +364,21 @@ export interface RuntimeBrowserUseCloudConfig {
   };
 }
 
+export interface RuntimeManagedCloudBrowserConfig {
+  endpointUrl: string;
+  poolTokenRef?: SecretRef;
+  defaultTenantId: string;
+  pricing: {
+    browserUsdPerMinute?: number;
+    actionUsd?: number;
+  };
+}
+
 export interface RuntimeBrowserConfig {
   provider: RuntimeBrowserProviderKind;
   local: RuntimeBrowserLocalConfig;
   camofox: RuntimeBrowserCamofoxConfig;
+  managedCloud: RuntimeManagedCloudBrowserConfig;
   browserUseCloud: RuntimeBrowserUseCloudConfig;
 }
 
@@ -952,6 +965,8 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
+    runtime: CodexTurnRuntime;
+    turnRuntime: CodexTurnRuntime;
     models: string[];
   };
   anthropic: {
@@ -1292,6 +1307,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       headed: false,
       launchOptions: {},
     },
+    managedCloud: {
+      endpointUrl: 'http://127.0.0.1:8787',
+      defaultTenantId: '',
+      pricing: {},
+    },
     browserUseCloud: {
       apiKeyRef: {
         source: 'store',
@@ -1580,6 +1600,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
+    runtime: 'hybridclaw',
+    turnRuntime: 'hybridclaw',
     models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   anthropic: {
@@ -2902,6 +2924,20 @@ function normalizeCodexModelArray(
     return [...DEFAULT_CODEX_MODEL_LIST];
   }
   return normalized;
+}
+
+export function normalizeCodexTurnRuntime(value: unknown): CodexTurnRuntime {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return normalized === 'app-server' ? 'app-server' : 'hybridclaw';
+}
+
+function normalizeCodexTurnRuntimeConfig(rawCodex: Record<string, unknown>) {
+  if (Object.hasOwn(rawCodex, 'turnRuntime')) {
+    return normalizeCodexTurnRuntime(rawCodex.turnRuntime);
+  }
+  return normalizeCodexTurnRuntime(rawCodex.runtime);
 }
 
 function normalizePathForCompare(value: string): string {
@@ -5145,6 +5181,7 @@ function normalizeBrowserProviderKind(
   if (
     normalized === 'local' ||
     normalized === 'camofox' ||
+    normalized === 'managed-cloud' ||
     normalized === 'browser-use-cloud'
   ) {
     return normalized;
@@ -5656,6 +5693,26 @@ function normalizeBrowserUseCloudPricing(
   };
 }
 
+function normalizeManagedCloudBrowserConfig(
+  value: unknown,
+  fallback: RuntimeManagedCloudBrowserConfig,
+): RuntimeManagedCloudBrowserConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    endpointUrl: normalizeBaseUrl(raw.endpointUrl, fallback.endpointUrl),
+    poolTokenRef: normalizeOptionalSecretRef(
+      raw.poolTokenRef,
+      'browser.managedCloud.poolTokenRef',
+    ),
+    defaultTenantId: normalizeString(
+      raw.defaultTenantId,
+      fallback.defaultTenantId,
+      { allowEmpty: true },
+    ),
+    pricing: normalizeBrowserUseCloudPricing(raw.pricing, fallback.pricing),
+  };
+}
+
 function normalizeBrowserConfig(
   value: unknown,
   fallback: RuntimeBrowserConfig,
@@ -5663,6 +5720,7 @@ function normalizeBrowserConfig(
   const raw = isRecord(value) ? value : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawCamofox = isRecord(raw.camofox) ? raw.camofox : {};
+  const rawManagedCloud = isRecord(raw.managedCloud) ? raw.managedCloud : {};
   const rawBrowserUseCloud = isRecord(raw.browserUseCloud)
     ? raw.browserUseCloud
     : {};
@@ -5688,6 +5746,10 @@ function normalizeBrowserConfig(
         fallback.camofox.launchOptions,
       ),
     },
+    managedCloud: normalizeManagedCloudBrowserConfig(
+      rawManagedCloud,
+      fallback.managedCloud,
+    ),
     browserUseCloud: {
       apiKeyRef: normalizeBrowserUseCloudApiKeyRef(
         rawBrowserUseCloud.apiKeyRef,
@@ -6640,6 +6702,8 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
+      runtime: normalizeCodexTurnRuntimeConfig(rawCodex),
+      turnRuntime: normalizeCodexTurnRuntimeConfig(rawCodex),
       models: codexModelList,
     },
     anthropic: {
@@ -7565,6 +7629,7 @@ function buildSerializableConfig(
     : null;
   if (serializableCodex) {
     delete (serializableCodex as { models?: string[] }).models;
+    delete (serializableCodex as { runtime?: string }).runtime;
   }
   const serializableContainer = isRecord(serializable.container)
     ? serializable.container

@@ -5,6 +5,15 @@ user-invocable: true
 requires:
   bins:
     - node
+credentials:
+  - id: fastbill-basic-auth
+    kind: header
+    required: true
+    secret_ref:
+      source: store
+      id: FASTBILL_BASIC_AUTH
+    scope: "https://my.fastbill.com/api/1.0/"
+    how_to_obtain: "Base64-encode the FastBill login email and API key as email:api-key, then store it with `hybridclaw secret set FASTBILL_BASIC_AUTH \"<base64>\"`."
 metadata:
   hybridclaw:
     category: accounting

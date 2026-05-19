@@ -770,6 +770,41 @@ describe('local container providers', () => {
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
+  test('OpenAI-compatible stream does not duplicate chunks with message and delta content', async () => {
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          'data: {"id":"resp_1","model":"Qwen/Qwen3.6-27B-FP8","choices":[{"message":{"role":"assistant","content":"Straightforward one:"},"delta":{"role":"assistant","content":"Straightforward one:"}}]}\n\n',
+          'data: {"choices":[{"message":{"role":"assistant","content":"Straightforward one: done"},"delta":{"content":" done"},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'vllm',
+      baseUrl: 'http://127.0.0.1:8000/v1',
+      apiKey: '',
+      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools,
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(deltas).toEqual(['Straightforward one:', ' done']);
+    expect(result.choices[0]?.message.content).toBe(
+      'Straightforward one: done',
+    );
+  });
+
   test('OpenAI-compatible stream reports hidden activity for tool-call-only chunks', async () => {
     const deltas: string[] = [];
     let activityCount = 0;

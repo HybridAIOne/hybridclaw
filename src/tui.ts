@@ -131,6 +131,8 @@ const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const BOLD_OFF = '\x1b[22m';
 const JELLYFISH = '🪼';
+const SAVE_CURSOR = '\x1b7';
+const RESTORE_CURSOR = '\x1b8';
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
 const TUI_EXIT_CONFIRM_WINDOW_MS = 5000;
@@ -897,6 +899,7 @@ function tuiCharacterWidth(symbol: string): number {
       (code >= 0xfe30 && code <= 0xfe6f) ||
       (code >= 0xff00 && code <= 0xff60) ||
       (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x2600 && code <= 0x27bf) ||
       (code >= 0x1f300 && code <= 0x1faff) ||
       (code >= 0x20000 && code <= 0x3fffd))
   ) {
@@ -1560,6 +1563,26 @@ function formatTuiOutput(text: string): string {
   return formatTuiMarkdownOutput(text, terminalColumns(), '  ');
 }
 
+export function formatTuiSkillListLines(
+  text: string,
+  columns: number,
+): Array<{ line: string; muted: boolean }> {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .flatMap((rawLine) => {
+      const leadingWhitespace = rawLine.match(/^\s*/u)?.[0] || '';
+      const content = rawLine.slice(leadingWhitespace.length);
+      const muted = isMutedSkillListLine(rawLine);
+      return wrapTuiBlock(content, columns, `  ${leadingWhitespace}`)
+        .split('\n')
+        .map((line) => ({
+          line: formatInlineMarkdownForTui(line),
+          muted,
+        }));
+    });
+}
+
 export function formatTuiTitledCommandBlock(
   title: string,
   text: string,
@@ -1571,7 +1594,11 @@ export function formatTuiTitledCommandBlock(
 }
 
 export function isMutedSkillListLine(line: string): boolean {
-  return /\[disabled\]/i.test(line) || /^\s*installs:/i.test(line);
+  return /\[disabled\]/i.test(line) || isSkillInstallHintLine(line);
+}
+
+function isSkillInstallHintLine(line: string): boolean {
+  return /^\s*(?:↳\s*)?installs:/u.test(line);
 }
 
 export function isPluginListHeaderLine(line: string): boolean {
@@ -1597,8 +1624,11 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.title === 'Skills') {
     clearTuiSlashMenu();
     console.log();
-    for (const line of formatTuiOutput(rendered).split('\n')) {
-      const color = isMutedSkillListLine(line) ? MUTED : GOLD;
+    for (const { line, muted } of formatTuiSkillListLines(
+      rendered,
+      terminalColumns(),
+    )) {
+      const color = muted ? MUTED : GOLD;
       console.log(`${color}${line}${RESET}`);
     }
     console.log();
@@ -1735,6 +1765,7 @@ function spinner(): {
   let cursorHidden = false;
   const toolEntries: SpinnerToolEntry[] = [];
   let hasVisibleText = false;
+  let visibleTextCursorSaved = false;
   let visibleTextState = createTuiStreamFormatState();
   let visibleTextRows = 0;
   let thinkingPreviewRows = 0;
@@ -1828,15 +1859,20 @@ function spinner(): {
   const clearVisibleText = () => {
     if (!hasVisibleText) return;
     if (process.stdout.isTTY) {
-      const rows = Math.max(1, visibleTextRows);
-      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
-      for (let row = 0; row < rows; row += 1) {
-        clearLine();
-        if (row < rows - 1) process.stdout.write('\n');
+      if (visibleTextCursorSaved) {
+        process.stdout.write(`${RESTORE_CURSOR}\x1b[0J`);
+      } else {
+        const rows = Math.max(1, visibleTextRows);
+        if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
+        for (let row = 0; row < rows; row += 1) {
+          clearLine();
+          if (row < rows - 1) process.stdout.write('\n');
+        }
+        if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
       }
-      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
     }
     hasVisibleText = false;
+    visibleTextCursorSaved = false;
     visibleTextState = createTuiStreamFormatState();
     visibleTextRows = 0;
     if (!stopped && showActivityPreview && thinkingPreviewRows === 0) {
@@ -1942,6 +1978,10 @@ function spinner(): {
       if (!hasVisibleText) {
         clearTools();
         clearLine();
+        if (process.stdout.isTTY) {
+          process.stdout.write(SAVE_CURSOR);
+          visibleTextCursorSaved = true;
+        }
       }
       const formatted = formatTuiStreamDelta(
         delta,
@@ -1965,6 +2005,10 @@ function spinner(): {
       if (!hasVisibleText) {
         clearTools();
         clearLine();
+        if (process.stdout.isTTY) {
+          process.stdout.write(SAVE_CURSOR);
+          visibleTextCursorSaved = true;
+        }
         hasVisibleText = true;
       }
       visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);

@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   formatTuiMarkdownOutput,
+  formatTuiSkillListLines,
   formatTuiTitledCommandBlock,
   formatTuiToolActivityBlock,
   formatTuiToolActivityLine,
@@ -35,11 +36,32 @@ test('formats titled command blocks with the standard left gutter', () => {
   ]);
 });
 
-test('mutes disabled and install hint lines in the skill list', () => {
+test('mutes disabled skill and install hint lines in the skill list', () => {
   expect(isMutedSkillListLine('  apple-music [disabled]')).toBe(true);
+  expect(isMutedSkillListLine('      ↳ installs: brew (brew)')).toBe(true);
   expect(isMutedSkillListLine('      installs: brew (brew)')).toBe(true);
-  expect(isMutedSkillListLine('  apple-music [available]')).toBe(false);
+  expect(isMutedSkillListLine('  apple-music [enabled]')).toBe(false);
   expect(isMutedSkillListLine('Apple:')).toBe(false);
+});
+
+test('keeps wrapped skill install lines muted and aligned', () => {
+  const lines = formatTuiSkillListLines(
+    [
+      'Publishing:',
+      '    ↳ installs: manim (uv) — Install Manim Community Edition with uv; ffmpeg (brew) — Install ffmpeg (brew)',
+    ].join('\n'),
+    78,
+  );
+  const installLines = lines.slice(1);
+
+  expect(installLines.length).toBeGreaterThan(1);
+  expect(installLines.every((line) => line.muted)).toBe(true);
+  expect(installLines.map((line) => stripAnsi(line.line))).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/^ {6}↳ installs:/u),
+      expect.stringMatching(/^ {6}.*ffmpeg \(brew\)/u),
+    ]),
+  );
 });
 
 test('identifies only plugin list section headers for accent color', () => {
@@ -174,6 +196,23 @@ test('keeps wide glyph markdown table rows inside the terminal width', () => {
 
   expect(stripAnsi(rendered)).toContain('界界');
   expect(lines.every((line) => visibleTuiLength(line) <= 36)).toBe(true);
+});
+
+test('counts emoji checkmarks correctly in markdown table padding', () => {
+  const text = [
+    '|              | Before                      | After                       |',
+    '|--------------|-----------------------------|-----------------------------|',
+    '| Status       | off -> migrating -> running ✅ |                             |',
+    '| IP           | 116.203.47.17               | 116.203.47.17 ✅ (preserved) |',
+    '| IPv6         | 2a01:4f8:c0c:9b6a::/64      | 2a01:4f8:c0c:9b6a::/64 ✅    |',
+  ].join('\n');
+
+  const rendered = formatTuiMarkdownOutput(text, 76);
+  const lines = rendered.split('\n');
+
+  expect(visibleTuiLength('✅')).toBe(2);
+  expect(stripAnsi(rendered)).toContain('running ✅');
+  expect(lines.every((line) => visibleTuiLength(line) <= 76)).toBe(true);
 });
 
 test('delegate text suppression only remains active while delegate tools are in flight', () => {

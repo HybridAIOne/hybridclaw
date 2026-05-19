@@ -81,9 +81,13 @@ Recommended setup:
 hybridclaw secret set HEYGEN_API_KEY "<api-key>"
 ```
 
-For live API calls inside HybridClaw, use the helper to build the
-`http_request` payload wrapper, then pass the emitted inner `httpRequest` object
-to the built-in `http_request` tool. The helper sets
+For live API calls inside HybridClaw, prefer the helper's `request` command. It
+sends the secret-backed payload through the local gateway, retries bounded
+429/5xx responses, summarizes large asset lists by default, and fails clearly
+if the gateway truncates a response.
+
+Use `http-request` only when you need to inspect or hand off the generated
+payload wrapper to the built-in `http_request` tool. The helper sets
 `secretHeaders: [{ "name": "X-API-KEY", "secretName": "HEYGEN_API_KEY",
 "prefix": "" }]` so the gateway injects the API key server-side.
 
@@ -96,8 +100,11 @@ missing if `http_request` returns a gateway error that explicitly says
 
 ## Default Workflow
 
-1. Start with `list-avatars` and `list-voices` unless the avatar and voice ids
-   are already known.
+1. Start with `request list-avatars` and `request list-voices` unless the
+   avatar and voice ids are already known. These commands return concise
+   summaries by default; use `--limit <count>` to show more candidates. Asset
+   ids are opaque values; never use display names as `--avatar-id` or
+   `--voice-id`.
 2. Run the script through `/brand-voice` before generating avatar video from
    marketing, sales, training, or public-facing copy.
 3. Use `plan` for natural-language generation or translation requests so the
@@ -105,8 +112,10 @@ missing if `http_request` returns a gateway error that explicitly says
 4. Do not emit `generate-video` or `translate-video` requests unless the user
    has granted that exact credit-consuming operation in the current task or
    through an approved F8 escalation.
-5. Poll status conservatively. Respect `Retry-After`, avoid parallel polling
-   loops, and stop if HeyGen reports quota, credit, or rate-limit failure.
+5. Poll status with `request video-status --watch` or
+   `request translation-status --watch`. Use a bounded polling budget, respect
+   `Retry-After`, avoid parallel polling loops, and stop if HeyGen reports
+   quota, credit, or rate-limit failure.
 6. Treat auto-publish to public channels as red tier and escalate before any
    upload, share link, social post, or public channel message.
 
@@ -124,12 +133,13 @@ Plan a request without contacting HeyGen:
 node skills/heygen/heygen.cjs plan "Create an approved onboarding video from this script"
 ```
 
-List avatars, voices, or translation languages:
+List avatars, voices, or translation languages. Asset lists use compact summary
+output by default:
 
 ```bash
-node skills/heygen/heygen.cjs http-request list-avatars
-node skills/heygen/heygen.cjs http-request list-voices
-node skills/heygen/heygen.cjs http-request list-translation-languages
+node skills/heygen/heygen.cjs request list-avatars --limit 10
+node skills/heygen/heygen.cjs request list-voices --limit 10
+node skills/heygen/heygen.cjs request list-translation-languages
 ```
 
 Generate an avatar video only after explicit operator grant:
@@ -158,14 +168,15 @@ node skills/heygen/heygen.cjs http-request translate-video \
 Poll status:
 
 ```bash
-node skills/heygen/heygen.cjs http-request video-status --video-id <video-id>
-node skills/heygen/heygen.cjs http-request translation-status --video-translate-id <translation-id>
+node skills/heygen/heygen.cjs request video-status --video-id <video-id>
+node skills/heygen/heygen.cjs request video-status --video-id <video-id> --watch --max-polls 10 --interval-seconds 30
+node skills/heygen/heygen.cjs request translation-status --video-translate-id <translation-id>
 ```
 
-Execute a generated request through the local gateway with bounded retry/backoff:
+If you truly need a raw gateway payload for the built-in `http_request` tool:
 
 ```bash
-node skills/heygen/heygen.cjs request list-avatars
+node skills/heygen/heygen.cjs http-request list-avatars
 ```
 
 Classify retry behavior after an API response:
@@ -200,17 +211,32 @@ Red tier:
 ## Working Rules
 
 - Never print or ask for the HeyGen API key.
-- Use `http-request` plus built-in `http_request` for live API calls.
+- Prefer `request` for live API calls. Use `http-request` plus the built-in
+  `http_request` tool only when a raw payload is necessary.
+- Do not hand-author HeyGen `http_request` payloads. Use the helper output
+  unchanged so `skillName`, secret injection, response limits, and cost
+  metadata stay intact.
+- Do not pipe asset-list responses through `head` or ask for the full JSON by
+  default. Use `request list-avatars --limit <count>` or
+  `request list-voices --limit <count>`. These commands cache concise asset
+  summaries locally so `generate-video` can catch display names and stale ids
+  before contacting HeyGen.
+- Pass `--skip-cache-validation` only for a known private/custom asset id
+  supplied by the operator and not present in the cached asset list.
 - Do not claim `HEYGEN_API_KEY` is missing unless `http_request` returns an
   explicit missing/forbidden/unresolved secret error.
 - Keep scripts at or below 5000 characters for the direct video endpoint.
 - Do not pass localhost, loopback, RFC1918, link-local, or other internal media
   URLs to HeyGen.
 - Honor `Retry-After` on HTTP 429 and back off on quota/rate-limit messages.
+- Poll with `--watch` only when the user expects you to wait. Keep polling
+  bounded with `--max-polls` and `--interval-seconds`; otherwise perform one
+  status check and report the id so the session can resume later.
 - Use `request` or `skills/heygen/client.cjs` when direct execution is needed;
   it sends the generated `httpRequest` through `/api/http/request`, never adds
-  cleartext HeyGen credentials to process output, and retries bounded 429/5xx
-  responses.
+  cleartext HeyGen credentials to process output, retries bounded 429/5xx
+  responses, and refuses truncated gateway bodies instead of parsing partial
+  JSON.
 - Avoid concurrent generate/translate bursts; HeyGen quotas are account and
   plan dependent.
 - Cost per assistant run is recorded by HybridClaw `UsageTotals`; helper output

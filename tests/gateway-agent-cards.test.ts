@@ -173,7 +173,7 @@ describe('mapLogicalAgentCard', () => {
     });
   });
 
-  test('logs debug details when conversation preview skips unsupported roles', async () => {
+  test('logs debug details when conversation preview skips non-chat roles', async () => {
     const { mapSessionCard } = await import(
       '../src/gateway/gateway-agent-cards.ts'
     );
@@ -235,10 +235,10 @@ describe('mapLogicalAgentCard', () => {
     expect(loggerDebugMock).toHaveBeenCalledWith(
       {
         sessionId: 'sess-1',
-        unsupportedRoles: ['system', 'tool'],
+        nonChatRoles: ['system', 'tool'],
         messageCount: 2,
       },
-      'Session conversation preview omitted unsupported message roles',
+      'Session conversation preview omitted non-chat message roles',
     );
   });
 });

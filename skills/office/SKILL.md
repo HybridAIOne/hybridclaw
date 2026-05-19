@@ -7,6 +7,12 @@ metadata:
   hybridclaw:
     category: office
     short_description: "OOXML helper scripts."
+    tags:
+      - office
+      - ooxml
+      - docx
+      - xlsx
+      - pptx
 ---
 # Office Helpers
 

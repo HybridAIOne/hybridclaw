@@ -6,8 +6,13 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { fetchConfig, saveConfig } from '../api/client';
-import type { AdminConfig } from '../api/types';
+import {
+  fetchBrowserPoolHealth,
+  fetchConfig,
+  saveConfig,
+  startBrowserPool,
+} from '../api/client';
+import type { AdminBrowserPoolHealthResponse, AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
@@ -19,6 +24,7 @@ import {
   FieldSet,
 } from '../components/field';
 import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
@@ -50,6 +56,191 @@ function updateSection<K extends keyof AdminConfigSections>(
     if (!current) return current;
     return { ...current, [section]: { ...current[section], ...updates } };
   });
+}
+
+type BrowserConfig = NonNullable<AdminConfig['browser']>;
+type BrowserProvider = BrowserConfig['provider'];
+const LOCAL_DOCKER_POOL_TENANT_ID = 'main';
+
+function DecimalNumberInput({
+  id,
+  value,
+  onValueChange,
+}: {
+  id: string;
+  value: number;
+  onValueChange: (value: number) => void;
+}) {
+  const [rawValue, setRawValue] = useState(String(value));
+
+  useEffect(() => {
+    setRawValue(String(value));
+  }, [value]);
+
+  return (
+    <Input
+      id={id}
+      inputMode="decimal"
+      value={rawValue}
+      onBlur={() => {
+        const parsed = Number(rawValue);
+        if (!Number.isFinite(parsed)) {
+          setRawValue(String(value));
+        }
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setRawValue(nextValue);
+        if (nextValue.trim() === '') {
+          onValueChange(0);
+          return;
+        }
+        const parsed = Number(nextValue);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          onValueChange(parsed);
+        }
+      }}
+    />
+  );
+}
+
+function defaultBrowserConfig(): BrowserConfig {
+  return {
+    provider: 'local',
+    local: {
+      profileDir: '',
+      headed: false,
+    },
+    camofox: {
+      profileDir: '',
+      headed: false,
+    },
+    managedCloud: {
+      endpointUrl: 'http://127.0.0.1:8787',
+      poolTokenRef: undefined,
+      defaultTenantId: '',
+      pricing: {
+        actionUsd: 0,
+      },
+    },
+    browserUseCloud: {
+      apiKeyRef: undefined,
+      projectId: '',
+      profileId: '',
+      region: '',
+      keepAlive: false,
+      pricing: {
+        browserUsdPerMinute: 0,
+        actionUsd: 0,
+      },
+    },
+  };
+}
+
+function isLoopbackBrowserEndpoint(endpointUrl: string): boolean {
+  try {
+    const parsed = new URL(endpointUrl);
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      parsed.protocol === 'http:' &&
+      (hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function applyLocalDockerPoolTenantDefault(
+  browser: BrowserConfig,
+): BrowserConfig {
+  if (
+    browser.provider !== 'managed-cloud' ||
+    !isLoopbackBrowserEndpoint(browser.managedCloud.endpointUrl) ||
+    browser.managedCloud.defaultTenantId.trim()
+  ) {
+    return browser;
+  }
+  return {
+    ...browser,
+    managedCloud: {
+      ...browser.managedCloud,
+      defaultTenantId: LOCAL_DOCKER_POOL_TENANT_ID,
+    },
+  };
+}
+
+function browserConfig(config: AdminConfig): BrowserConfig {
+  return applyLocalDockerPoolTenantDefault({
+    ...defaultBrowserConfig(),
+    ...(config.browser ?? {}),
+    local: {
+      ...defaultBrowserConfig().local,
+      ...(config.browser?.local ?? {}),
+    },
+    camofox: {
+      ...defaultBrowserConfig().camofox,
+      ...(config.browser?.camofox ?? {}),
+    },
+    managedCloud: {
+      ...defaultBrowserConfig().managedCloud,
+      ...(config.browser?.managedCloud ?? {}),
+      pricing: {
+        ...defaultBrowserConfig().managedCloud.pricing,
+        ...(config.browser?.managedCloud?.pricing ?? {}),
+      },
+    },
+    browserUseCloud: {
+      ...defaultBrowserConfig().browserUseCloud,
+      ...(config.browser?.browserUseCloud ?? {}),
+      pricing: {
+        ...defaultBrowserConfig().browserUseCloud.pricing,
+        ...(config.browser?.browserUseCloud?.pricing ?? {}),
+      },
+    },
+  });
+}
+
+function updateBrowserConfig(
+  current: AdminConfig | null,
+  updater: (browser: BrowserConfig) => BrowserConfig,
+): AdminConfig | null {
+  if (!current) return current;
+  return {
+    ...current,
+    browser: updater(browserConfig(current)),
+  };
+}
+
+function browserPoolStatusClass(
+  health: AdminBrowserPoolHealthResponse | undefined,
+): string {
+  if (!health) return 'list-status';
+  if (health.status === 'online') return 'list-status list-status-success';
+  if (health.status === 'offline') return 'list-status list-status-danger';
+  return 'list-status list-status-warning';
+}
+
+function browserPoolDotClass(
+  health: AdminBrowserPoolHealthResponse | undefined,
+): string {
+  if (!health) return 'status-dot';
+  if (health.status === 'online') return 'status-dot status-dot-success';
+  if (health.status === 'offline') return 'status-dot status-dot-danger';
+  return 'status-dot status-dot-warning';
+}
+
+function browserPoolStatusText(
+  health: AdminBrowserPoolHealthResponse | undefined,
+  isLoading: boolean,
+): string {
+  if (isLoading) return 'checking';
+  if (!health) return 'not checked';
+  if (health.status === 'online') {
+    return `online - ${health.healthyNodeCount}/${health.nodeCount} nodes healthy`;
+  }
+  return `${health.status} - ${health.message}`;
 }
 
 export function ConfigPage() {
@@ -97,6 +288,54 @@ export function ConfigPage() {
     return serialize(draft) !== savedSerialized;
   }, [configQuery.data, draft, rawMode, rawJson, savedSerialized]);
 
+  const draftBrowser = draft ? browserConfig(draft) : defaultBrowserConfig();
+  const managedPoolTokenId = draftBrowser.managedCloud.poolTokenRef?.id ?? '';
+  const browserUseApiKeyId = draftBrowser.browserUseCloud.apiKeyRef?.id ?? '';
+  const browserPoolHealthQuery = useQuery({
+    queryKey: [
+      'browser-pool-health',
+      auth.token,
+      draftBrowser.provider,
+      draftBrowser.managedCloud.endpointUrl,
+    ],
+    queryFn: () => fetchBrowserPoolHealth(auth.token),
+    enabled: Boolean(
+      draft && !rawMode && draftBrowser.provider === 'managed-cloud',
+    ),
+    refetchInterval: 15_000,
+  });
+  const browserPoolHealth = browserPoolHealthQuery.data;
+  const startBrowserPoolMutation = useMutation({
+    mutationFn: () => startBrowserPool(auth.token),
+    onSuccess: (payload) => {
+      if (payload.ok) {
+        toast.success('Browser pool start requested.', payload.message);
+      } else {
+        toast.error('Browser pool did not start', payload.message);
+      }
+      if (payload.poolTokenRefId) {
+        const poolTokenRefId = payload.poolTokenRefId;
+        setDraft((current) =>
+          updateBrowserConfig(current, (currentBrowser) => ({
+            ...currentBrowser,
+            managedCloud: {
+              ...currentBrowser.managedCloud,
+              poolTokenRef: {
+                source: 'store',
+                id: poolTokenRefId,
+              },
+            },
+          })),
+        );
+      }
+      void configQuery.refetch();
+      void browserPoolHealthQuery.refetch();
+    },
+    onError: (error) => {
+      toast.error('Browser pool start failed', getErrorMessage(error));
+    },
+  });
+
   if (configQuery.isLoading && !draft) {
     return <div className="empty-state">Loading runtime config...</div>;
   }
@@ -104,6 +343,8 @@ export function ConfigPage() {
   if (!draft || !configQuery.data) {
     return <div className="empty-state">Runtime config is unavailable.</div>;
   }
+
+  const browser = draftBrowser;
 
   const toggleRawMode = () => {
     if (rawMode) {
@@ -314,6 +555,382 @@ export function ConfigPage() {
                     }
                   />
                 </Field>
+              </FieldGroup>
+            </FieldSet>
+
+            <FieldSet>
+              <FieldLegend>Browser</FieldLegend>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>Provider</FieldLabel>
+                  <NativeSelect
+                    value={browser.provider}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        updateBrowserConfig(current, (currentBrowser) => ({
+                          ...currentBrowser,
+                          provider: event.target.value as BrowserProvider,
+                        })),
+                      )
+                    }
+                  >
+                    <NativeSelectOption value="local">local</NativeSelectOption>
+                    <NativeSelectOption value="camofox">
+                      camofox
+                    </NativeSelectOption>
+                    <NativeSelectOption value="managed-cloud">
+                      managed-cloud
+                    </NativeSelectOption>
+                    <NativeSelectOption value="browser-use-cloud">
+                      browser-use-cloud
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </Field>
+
+                {browser.provider === 'local' ? (
+                  <>
+                    <Field>
+                      <FieldLabel>Profile directory</FieldLabel>
+                      <Input
+                        value={browser.local.profileDir}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              local: {
+                                ...currentBrowser.local,
+                                profileDir: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field orientation="horizontal">
+                      <FieldLabel>Headed browser</FieldLabel>
+                      <Switch
+                        checked={browser.local.headed}
+                        onCheckedChange={(headed) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              local: {
+                                ...currentBrowser.local,
+                                headed,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                  </>
+                ) : null}
+
+                {browser.provider === 'camofox' ? (
+                  <>
+                    <Field>
+                      <FieldLabel>Profile directory</FieldLabel>
+                      <Input
+                        value={browser.camofox.profileDir}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              camofox: {
+                                ...currentBrowser.camofox,
+                                profileDir: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field orientation="horizontal">
+                      <FieldLabel>Headed browser</FieldLabel>
+                      <Switch
+                        checked={browser.camofox.headed}
+                        onCheckedChange={(headed) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              camofox: {
+                                ...currentBrowser.camofox,
+                                headed,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                  </>
+                ) : null}
+
+                {browser.provider === 'managed-cloud' ? (
+                  <>
+                    <Field>
+                      <FieldLabel>Pool status</FieldLabel>
+                      <div className="button-row">
+                        <span
+                          className={browserPoolStatusClass(browserPoolHealth)}
+                        >
+                          <span
+                            className={browserPoolDotClass(browserPoolHealth)}
+                          />
+                          {browserPoolStatusText(
+                            browserPoolHealth,
+                            browserPoolHealthQuery.isLoading,
+                          )}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          disabled={browserPoolHealthQuery.isFetching}
+                          onClick={() => void browserPoolHealthQuery.refetch()}
+                        >
+                          {browserPoolHealthQuery.isFetching
+                            ? 'Checking...'
+                            : 'Check now'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          disabled={startBrowserPoolMutation.isPending}
+                          onClick={() => startBrowserPoolMutation.mutate()}
+                        >
+                          {startBrowserPoolMutation.isPending
+                            ? 'Starting...'
+                            : 'Start Docker pool'}
+                        </Button>
+                      </div>
+                    </Field>
+                    <Field>
+                      <FieldLabel>Pool endpoint URL</FieldLabel>
+                      <Input
+                        value={browser.managedCloud.endpointUrl}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              managedCloud: {
+                                ...currentBrowser.managedCloud,
+                                endpointUrl: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Pool token SecretRef id</FieldLabel>
+                      <Input
+                        value={managedPoolTokenId}
+                        placeholder="MANAGED_BROWSER_POOL_TOKEN"
+                        onChange={(event) => {
+                          const id = event.target.value.trim();
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              managedCloud: {
+                                ...currentBrowser.managedCloud,
+                                poolTokenRef: id
+                                  ? {
+                                      source: 'store',
+                                      id,
+                                    }
+                                  : undefined,
+                              },
+                            })),
+                          );
+                        }}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Default tenant id (optional)</FieldLabel>
+                      <Input
+                        value={browser.managedCloud.defaultTenantId}
+                        placeholder="Uses agent id when blank"
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              managedCloud: {
+                                ...currentBrowser.managedCloud,
+                                defaultTenantId: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <div className="button-row">
+                      <a className="ghost-button" href="/admin/approvals">
+                        Manage network policy
+                      </a>
+                    </div>
+                    <Field controlId="managed-cloud-action-usd">
+                      <FieldLabel>Action price USD</FieldLabel>
+                      <DecimalNumberInput
+                        id="managed-cloud-action-usd"
+                        value={browser.managedCloud.pricing.actionUsd}
+                        onValueChange={(value) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              managedCloud: {
+                                ...currentBrowser.managedCloud,
+                                pricing: {
+                                  ...currentBrowser.managedCloud.pricing,
+                                  actionUsd: value,
+                                },
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                  </>
+                ) : null}
+
+                {browser.provider === 'browser-use-cloud' ? (
+                  <>
+                    <Field>
+                      <FieldLabel>API key SecretRef id</FieldLabel>
+                      <Input
+                        value={browserUseApiKeyId}
+                        onChange={(event) => {
+                          const id = event.target.value.trim();
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                apiKeyRef: id
+                                  ? {
+                                      source: 'store',
+                                      id,
+                                    }
+                                  : undefined,
+                              },
+                            })),
+                          );
+                        }}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Project id</FieldLabel>
+                      <Input
+                        value={browser.browserUseCloud.projectId}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                projectId: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Profile id</FieldLabel>
+                      <Input
+                        value={browser.browserUseCloud.profileId}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                profileId: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Region</FieldLabel>
+                      <Input
+                        value={browser.browserUseCloud.region}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                region: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field orientation="horizontal">
+                      <FieldLabel>Keep alive</FieldLabel>
+                      <Switch
+                        checked={browser.browserUseCloud.keepAlive}
+                        onCheckedChange={(keepAlive) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                keepAlive,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Browser price USD/min</FieldLabel>
+                      <Input
+                        inputMode="decimal"
+                        value={String(
+                          browser.browserUseCloud.pricing.browserUsdPerMinute,
+                        )}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                pricing: {
+                                  ...currentBrowser.browserUseCloud.pricing,
+                                  browserUsdPerMinute:
+                                    Number(event.target.value) || 0,
+                                },
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field controlId="browser-use-action-usd">
+                      <FieldLabel>Action price USD</FieldLabel>
+                      <DecimalNumberInput
+                        id="browser-use-action-usd"
+                        value={browser.browserUseCloud.pricing.actionUsd}
+                        onValueChange={(value) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              browserUseCloud: {
+                                ...currentBrowser.browserUseCloud,
+                                pricing: {
+                                  ...currentBrowser.browserUseCloud.pricing,
+                                  actionUsd: value,
+                                },
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                  </>
+                ) : null}
               </FieldGroup>
             </FieldSet>
           </>
