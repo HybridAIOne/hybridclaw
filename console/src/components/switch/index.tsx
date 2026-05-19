@@ -12,6 +12,11 @@ export type SwitchProps = Omit<
   checked: boolean;
   onCheckedChange?: (checked: boolean) => void;
   size?: SwitchSize;
+  /**
+   * When set, a hidden form input is emitted *only while checked*, mirroring
+   * native checkbox submit semantics. Forms that need an explicit "off" value
+   * should read state directly rather than relying on form serialization.
+   */
   name?: string;
   value?: string;
   required?: boolean;

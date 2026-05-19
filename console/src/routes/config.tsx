@@ -434,7 +434,7 @@ export function ConfigPage() {
                 if (jsonError) setJsonError(null);
               }}
             />
-            {jsonError ? <FieldError>{jsonError}</FieldError> : null}
+            <FieldError>{jsonError}</FieldError>
           </Field>
         ) : (
           <>
@@ -884,14 +884,14 @@ export function ConfigPage() {
                         }
                       />
                     </Field>
-                    <Field>
+                    <Field controlId="browser-use-browser-usd">
                       <FieldLabel>Browser price USD/min</FieldLabel>
-                      <Input
-                        inputMode="decimal"
-                        value={String(
-                          browser.browserUseCloud.pricing.browserUsdPerMinute,
-                        )}
-                        onChange={(event) =>
+                      <DecimalNumberInput
+                        id="browser-use-browser-usd"
+                        value={
+                          browser.browserUseCloud.pricing.browserUsdPerMinute
+                        }
+                        onValueChange={(value) =>
                           setDraft((current) =>
                             updateBrowserConfig(current, (currentBrowser) => ({
                               ...currentBrowser,
@@ -899,8 +899,7 @@ export function ConfigPage() {
                                 ...currentBrowser.browserUseCloud,
                                 pricing: {
                                   ...currentBrowser.browserUseCloud.pricing,
-                                  browserUsdPerMinute:
-                                    Number(event.target.value) || 0,
+                                  browserUsdPerMinute: value,
                                 },
                               },
                             })),

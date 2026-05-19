@@ -227,4 +227,54 @@ describe('ConfigPage', () => {
       }),
     );
   });
+
+  it('hides Save changes until a field is edited, and Discard restores the saved state', async () => {
+    renderConfigPage();
+
+    const healthHost = (await screen.findByLabelText(
+      'Health host',
+    )) as HTMLInputElement;
+    expect(healthHost.value).toBe('127.0.0.1');
+    expect(screen.getByText('Saved')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
+
+    fireEvent.change(healthHost, { target: { value: '10.0.0.1' } });
+
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Health host') as HTMLInputElement).value,
+      ).toBe('127.0.0.1'),
+    );
+    expect(screen.getByText('Saved')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(saveConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a FieldError for malformed JSON in raw mode and blocks saving', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+
+    const editor = (await screen.findByLabelText(
+      'config.json',
+    )) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: '{ not json' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(saveConfigMock).not.toHaveBeenCalled();
+
+    fireEvent.change(editor, {
+      target: { value: JSON.stringify({ ...makeConfig(), version: 2 }) },
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+  });
 });
