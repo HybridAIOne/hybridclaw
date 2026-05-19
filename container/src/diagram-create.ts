@@ -1190,7 +1190,12 @@ export async function runDiagramTool(
   let fixupAttempts = 0;
 
   if (action !== 'validate') {
-    const fixed = await validateWithFixups(request, validation, action, options);
+    const fixed = await validateWithFixups(
+      request,
+      validation,
+      action,
+      options,
+    );
     request = fixed.request;
     validation = fixed.validation;
     fixupAttempts = fixed.fixupAttempts;
