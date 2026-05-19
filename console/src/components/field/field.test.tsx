@@ -105,6 +105,18 @@ describe('Field', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('does not render FieldError when the Field is not invalid', () => {
+    render(
+      <Field>
+        <FieldLabel>Email</FieldLabel>
+        <Input />
+        <FieldError>Required</FieldError>
+      </Field>,
+    );
+
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('dedupes a list of error messages', () => {
     render(
       <Field invalid>

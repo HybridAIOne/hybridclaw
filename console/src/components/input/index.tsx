@@ -23,11 +23,11 @@ export function Input({
   const props = useFieldControlProps(rest);
   return (
     <input
+      {...props}
       type={type}
       data-slot="input"
       data-size={size}
       className={cx(styles.input, sizeClass[size], className)}
-      {...props}
     />
   );
 }

@@ -12,6 +12,7 @@ import {
   useState,
 } from 'react';
 import { cx } from '../../lib/cx';
+import { useFieldContext } from '../field';
 import { Circle } from '../icons';
 import styles from './radio-group.module.css';
 
@@ -23,6 +24,7 @@ type RadioGroupContextValue = {
   setValue: (next: string) => void;
   disabled?: boolean;
   required?: boolean;
+  invalid?: boolean;
   orientation: Orientation;
   registerItem: (value: string, el: HTMLButtonElement) => () => void;
   focusValue: (currentValue: string, direction: 1 | -1) => void;
@@ -61,8 +63,21 @@ export function RadioGroup({
   loop = true,
   className,
   children,
+  id,
+  'aria-invalid': ariaInvalidProp,
+  'aria-describedby': ariaDescribedByProp,
   ...props
 }: RadioGroupProps) {
+  const field = useFieldContext();
+  const resolvedDisabled = disabled ?? field.disabled;
+  const resolvedInvalid = ariaInvalidProp === undefined
+    ? field.invalid
+    : ariaInvalidProp === true || ariaInvalidProp === 'true';
+  const describedBy = mergeIds(
+    field.descriptionId,
+    resolvedInvalid ? field.errorId : undefined,
+    ariaDescribedByProp,
+  );
   const isControlled = valueProp !== undefined;
   const [internalValue, setInternalValue] = useState<string | undefined>(
     defaultValue,
@@ -113,8 +128,9 @@ export function RadioGroup({
       name,
       value,
       setValue,
-      disabled,
+      disabled: resolvedDisabled,
       required,
+      invalid: resolvedInvalid,
       orientation,
       registerItem,
       focusValue,
@@ -124,8 +140,9 @@ export function RadioGroup({
       name,
       value,
       setValue,
-      disabled,
+      resolvedDisabled,
       required,
+      resolvedInvalid,
       orientation,
       registerItem,
       focusValue,
@@ -136,19 +153,27 @@ export function RadioGroup({
   return (
     <RadioGroupContext.Provider value={ctx}>
       <div
+        {...props}
+        id={id ?? field.id}
         role="radiogroup"
         aria-orientation={orientation}
-        aria-disabled={disabled || undefined}
+        aria-disabled={resolvedDisabled || undefined}
         aria-required={required || undefined}
+        aria-invalid={resolvedInvalid || undefined}
+        aria-describedby={describedBy}
         data-slot="radio-group"
         data-orientation={orientation}
         className={cx(styles.root, className)}
-        {...props}
       >
         {children}
       </div>
     </RadioGroupContext.Provider>
   );
+}
+
+function mergeIds(...ids: Array<string | undefined>): string | undefined {
+  const filtered = ids.filter((id): id is string => Boolean(id));
+  return filtered.length === 0 ? undefined : filtered.join(' ');
 }
 
 export type RadioGroupItemProps = Omit<
@@ -210,10 +235,12 @@ export function RadioGroupItem({
   return (
     // biome-ignore lint/a11y/useSemanticElements: button-with-role lets the indicator be styled
     <button
+      {...props}
       ref={buttonRef}
       type="button"
       role="radio"
       aria-checked={checked}
+      aria-invalid={ctx.invalid || undefined}
       name={ctx.name}
       data-slot="radio-group-item"
       data-state={state}
@@ -223,7 +250,6 @@ export function RadioGroupItem({
       className={cx(styles.item, className)}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      {...props}
     >
       {checked ? (
         <Circle aria-hidden="true" className={styles.indicator} />

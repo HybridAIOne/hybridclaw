@@ -198,15 +198,18 @@ export function FieldError({
 }: FieldErrorProps) {
   const field = useFieldContext();
   const content = resolveErrorContent(children, errors);
-  if (!content) return null;
+  // Gate rendering on the surrounding Field being marked invalid so the
+  // control's aria-describedby (which only references errorId when invalid)
+  // stays in sync with what's actually on screen.
+  if (!content || !field.invalid) return null;
 
   return (
     <div
+      {...props}
       role="alert"
       data-slot="field-error"
       id={id ?? field.errorId}
       className={cx(styles.error, className)}
-      {...props}
     >
       {content}
     </div>

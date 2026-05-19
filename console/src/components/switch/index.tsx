@@ -48,6 +48,7 @@ export function Switch({
   return (
     <>
       <button
+        {...props}
         type="button"
         role="switch"
         aria-checked={checked}
@@ -57,7 +58,6 @@ export function Switch({
         data-size={size}
         className={cx(styles.root, sizeClass[size], className)}
         onClick={handleClick}
-        {...props}
       >
         <span
           aria-hidden="true"

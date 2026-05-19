@@ -55,6 +55,7 @@ export function Checkbox({
     <>
       {/* biome-ignore lint/a11y/useSemanticElements: button-with-role lets the indicator be styled */}
       <button
+        {...props}
         type="button"
         role="checkbox"
         aria-checked={ariaChecked}
@@ -63,7 +64,6 @@ export function Checkbox({
         data-state={state}
         className={cx(styles.root, className)}
         onClick={handleClick}
-        {...props}
       >
         <span aria-hidden="true" className={styles.indicator}>
           {IndicatorIcon ? <IndicatorIcon className={styles.icon} /> : null}

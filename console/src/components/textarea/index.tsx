@@ -15,10 +15,10 @@ export function Textarea({
   const props = useFieldControlProps(rest);
   return (
     <textarea
+      {...props}
       data-slot="textarea"
       data-auto-size={autoSize ? '' : undefined}
       className={cx(styles.textarea, autoSize && styles.autoSize, className)}
-      {...props}
     />
   );
 }

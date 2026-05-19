@@ -25,10 +25,10 @@ export function NativeSelect({
   return (
     <div className={styles.wrapper} data-slot="native-select-wrapper">
       <select
+        {...props}
         data-slot="native-select"
         data-size={size}
         className={cx(styles.select, sizeClass[size], className)}
-        {...props}
       >
         {children}
       </select>
@@ -49,9 +49,9 @@ export function NativeSelectOption({
 }: NativeSelectOptionProps) {
   return (
     <option
+      {...props}
       data-slot="native-select-option"
       className={cx(styles.option, className)}
-      {...props}
     />
   );
 }
@@ -64,9 +64,9 @@ export function NativeSelectOptGroup({
 }: NativeSelectOptGroupProps) {
   return (
     <optgroup
+      {...props}
       data-slot="native-select-optgroup"
       className={cx(styles.optgroup, className)}
-      {...props}
     />
   );
 }
