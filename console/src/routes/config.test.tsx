@@ -276,5 +276,78 @@ describe('ConfigPage', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    expect(saveConfigMock).toHaveBeenLastCalledWith(
+      'admin-token',
+      expect.objectContaining({ version: 2 }),
+    );
+  });
+
+  it('keeps raw mode open when toggling back to form view with invalid JSON', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+
+    const editor = (await screen.findByLabelText(
+      'config.json',
+    )) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: 'not json' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit as form' }));
+
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.queryByLabelText('Health host')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Edit as form' })).toBeTruthy();
+    expect(saveConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('parses valid JSON when switching from raw mode back to the form view', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+
+    const editor = (await screen.findByLabelText(
+      'config.json',
+    )) as HTMLTextAreaElement;
+    const edited = { ...makeConfig() };
+    edited.ops = { ...edited.ops, healthHost: '10.20.30.40' };
+    fireEvent.change(editor, { target: { value: JSON.stringify(edited) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit as form' }));
+
+    const healthHost = (await screen.findByLabelText(
+      'Health host',
+    )) as HTMLInputElement;
+    expect(healthHost.value).toBe('10.20.30.40');
+    expect(screen.getByRole('button', { name: 'Edit as JSON' })).toBeTruthy();
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+  });
+
+  it('keeps "0." in flight for the browser-use-cloud price field and persists the parsed value', async () => {
+    renderConfigPage();
+
+    const provider = await screen.findByDisplayValue('local');
+    fireEvent.change(provider, { target: { value: 'browser-use-cloud' } });
+
+    const browserPrice = screen.getByLabelText(
+      'Browser price USD/min',
+    ) as HTMLInputElement;
+    fireEvent.change(browserPrice, { target: { value: '0.' } });
+    expect(browserPrice.value).toBe('0.');
+    fireEvent.change(browserPrice, { target: { value: '0.25' } });
+    expect(browserPrice.value).toBe('0.25');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      'admin-token',
+      expect.objectContaining({
+        browser: expect.objectContaining({
+          provider: 'browser-use-cloud',
+          browserUseCloud: expect.objectContaining({
+            pricing: expect.objectContaining({ browserUsdPerMinute: 0.25 }),
+          }),
+        }),
+      }),
+    );
   });
 });
