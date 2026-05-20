@@ -145,7 +145,7 @@ const DESTRUCTIVE_KEY_CHORDS = new Set([
   'cmd+ctrl+q',
   'cmd+option+shift+q',
 ]);
-const DEFAULT_DRIVER_TIMEOUT_MS = 30_000;
+const DEFAULT_DRIVER_TIMEOUT_MS = 60_000;
 
 function normalizeKeyChord(key: string, modifiers: string[]): string {
   const normalizedModifiers = modifiers
@@ -478,16 +478,17 @@ class StdioMacCuaDriver implements MacCuaDriver {
 
   private async ensureStarted(): Promise<void> {
     if (this.child) return;
-    this.child = spawn(this.command, this.args, {
+    const child = spawn(this.command, this.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: process.env,
     });
-    this.child.stdout.setEncoding('utf-8');
-    this.child.stdout.on('data', (chunk) => this.handleStdout(String(chunk)));
-    this.child.stderr.on('data', (chunk) => {
+    this.child = child;
+    child.stdout.setEncoding('utf-8');
+    child.stdout.on('data', (chunk) => this.handleStdout(String(chunk)));
+    child.stderr.on('data', (chunk) => {
       process.stderr.write(`[mac-cua] ${String(chunk)}`);
     });
-    this.child.on('exit', (code, signal) => {
+    child.on('exit', (code, signal) => {
       const error = new Error(
         signal
           ? `mac-cua driver exited after ${signal}`
@@ -498,8 +499,25 @@ class StdioMacCuaDriver implements MacCuaDriver {
         pending.reject(error);
       }
       this.pending.clear();
-      this.child = null;
+      if (this.child === child) {
+        this.child = null;
+        this.buffer = '';
+      }
     });
+  }
+
+  private terminateChild(error: Error): void {
+    const child = this.child;
+    this.child = null;
+    this.buffer = '';
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+    this.pending.clear();
+    if (child && !child.killed) {
+      child.kill('SIGTERM');
+    }
   }
 
   private handleStdout(chunk: string): void {
@@ -537,10 +555,9 @@ class StdioMacCuaDriver implements MacCuaDriver {
     const message: JsonRpcMessage = { id, method, params };
     return await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(
+        this.terminateChild(
           new Error(
-            `mac-cua driver call ${method} timed out after ${this.timeoutMs}ms`,
+            `mac-cua driver call ${method} timed out after ${this.timeoutMs}ms; restarting driver`,
           ),
         );
       }, this.timeoutMs);
