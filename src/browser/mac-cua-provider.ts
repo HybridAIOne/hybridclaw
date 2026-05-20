@@ -1,5 +1,8 @@
 import { Buffer } from 'node:buffer';
-import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { buildCuaMacResults } from '../doctor/checks/cua-mac.js';
@@ -118,12 +121,6 @@ export interface MacCuaProviderOptions {
   driverTimeoutMs?: number;
 }
 
-type JsonRpcMessage = {
-  id: number;
-  method: string;
-  params?: unknown;
-};
-
 type ActiveMacCuaSession = {
   sessionId: string;
   metering: BrowserSessionMeteringContext | undefined;
@@ -199,56 +196,6 @@ function parseMacCuaTarget(selector: string): MacCuaTarget {
   return { kind: 'query', query: raw };
 }
 
-function readMacCuaTarget(value: unknown): MacCuaTarget | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (record.kind === 'ax' && typeof record.elementIndex === 'number') {
-    return {
-      kind: 'ax',
-      elementIndex: record.elementIndex,
-      ...(typeof record.windowId === 'string' ||
-      typeof record.windowId === 'number'
-        ? { windowId: record.windowId }
-        : {}),
-    };
-  }
-  if (
-    record.kind === 'point' &&
-    typeof record.x === 'number' &&
-    typeof record.y === 'number'
-  ) {
-    return { kind: 'point', x: record.x, y: record.y };
-  }
-  if (record.kind === 'query' && typeof record.query === 'string') {
-    return { kind: 'query', query: record.query };
-  }
-  return null;
-}
-
-function normalizeResolvedTarget(
-  value: unknown,
-  fallback: MacCuaTarget,
-): MacCuaResolvedTarget {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { target: fallback };
-  }
-  const record = value as Record<string, unknown>;
-  const target = readMacCuaTarget(record.target) || readMacCuaTarget(value);
-  if (!target) return { target: fallback };
-  const pixelFallback =
-    record.pixelFallback &&
-    typeof record.pixelFallback === 'object' &&
-    !Array.isArray(record.pixelFallback)
-      ? (record.pixelFallback as Record<string, unknown>)
-      : null;
-  return {
-    target,
-    ...(pixelFallback && typeof pixelFallback.reason === 'string'
-      ? { pixelFallback: { reason: pixelFallback.reason } }
-      : {}),
-  };
-}
-
 function driverPayloadForText(value: string): { text: string } {
   assertSafeMacCuaTypedPayload(value);
   return { text: value };
@@ -306,18 +253,71 @@ function defaultDriverCommand(): { command: string; args: string[] } {
   };
 }
 
-class StdioMacCuaDriver implements MacCuaDriver {
-  private child: ChildProcessWithoutNullStreams | null = null;
-  private nextId = 1;
-  private readonly pending = new Map<
-    number,
-    {
-      resolve: (value: unknown) => void;
-      reject: (error: Error) => void;
-      timeout: NodeJS.Timeout;
+function normalizePositiveInteger(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
+function normalizeWindowId(value: unknown): number | null {
+  if (!Array.isArray(value)) return null;
+  const candidates: Array<{
+    id: number;
+    onCurrentSpace: boolean;
+    layer: number;
+    area: number;
+  }> = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const id = normalizePositiveInteger(record.window_id);
+    if (id === null) continue;
+    const bounds =
+      record.bounds && typeof record.bounds === 'object'
+        ? (record.bounds as Record<string, unknown>)
+        : {};
+    const width = Number(bounds.width);
+    const height = Number(bounds.height);
+    candidates.push({
+      id,
+      onCurrentSpace: record.on_current_space === true,
+      layer: typeof record.layer === 'number' ? record.layer : 0,
+      area:
+        Number.isFinite(width) && Number.isFinite(height)
+          ? Math.max(0, width * height)
+          : 0,
+    });
+  }
+  candidates.sort((a, b) => {
+    if (a.layer !== b.layer) return a.layer - b.layer;
+    if (a.onCurrentSpace !== b.onCurrentSpace) {
+      return a.onCurrentSpace ? -1 : 1;
     }
+    return b.area - a.area;
+  });
+  return candidates[0]?.id ?? null;
+}
+
+function firstElementIndex(record: Record<string, unknown>): number | null {
+  const tree = String(record.tree_markdown || record.markdown || '');
+  const match = tree.match(/\[element_index\s+(\d+)\]/u);
+  return match?.[1] ? Number(match[1]) : null;
+}
+
+function scrollDirectionFromDelta(
+  deltaX: number,
+  deltaY: number,
+): 'up' | 'down' | 'left' | 'right' {
+  if (Math.abs(deltaX) > Math.abs(deltaY)) {
+    return deltaX < 0 ? 'left' : 'right';
+  }
+  return deltaY < 0 ? 'up' : 'down';
+}
+
+class StdioMacCuaDriver implements MacCuaDriver {
+  private readonly sessions = new Map<
+    string,
+    { pid: number; windowId: number; lastTypedText?: string }
   >();
-  private buffer = '';
 
   constructor(
     private readonly command: string,
@@ -329,49 +329,80 @@ class StdioMacCuaDriver implements MacCuaDriver {
     bundleId: string;
     backgroundSafe: true;
   }): Promise<{ sessionId: string; windowId?: string | number }> {
-    const result = await this.call('browser.start', params);
-    if (!result || typeof result !== 'object') {
-      throw new Error('mac-cua driver returned an invalid start response.');
-    }
-    const record = result as Record<string, unknown>;
-    if (typeof record.sessionId !== 'string' || !record.sessionId.trim()) {
+    const existing = await this.findExistingBrowserWindow(params.bundleId);
+    const record =
+      existing ||
+      (await this.callToolRecord('launch_app', {
+        bundle_id: params.bundleId,
+        urls: ['about:blank'],
+      }));
+    const pid = normalizePositiveInteger(record.pid);
+    const windowId =
+      normalizePositiveInteger(record.window_id) ||
+      normalizeWindowId(record.windows);
+    if (pid === null || windowId === null) {
       throw new Error(
-        'mac-cua driver start response did not include sessionId.',
+        'mac-cua driver launch_app response did not include pid and window_id.',
       );
     }
+    const sessionId = `${pid}:${windowId}`;
+    this.sessions.set(sessionId, { pid, windowId });
     return {
-      sessionId: record.sessionId,
-      ...(typeof record.windowId === 'string' ||
-      typeof record.windowId === 'number'
-        ? { windowId: record.windowId }
-        : {}),
+      sessionId,
+      windowId,
     };
   }
 
   async stopBrowserSession(sessionId: string): Promise<void> {
-    await this.call('browser.stop', { sessionId });
+    this.sessions.delete(sessionId);
   }
 
   async keyChord(
     sessionId: string,
     params: { key: string; modifiers: string[] },
   ): Promise<void> {
-    await this.call('input.key_chord', { sessionId, ...params });
+    const session = this.requireSession(sessionId);
+    await this.callTool('hotkey', {
+      pid: session.pid,
+      window_id: session.windowId,
+      keys: [...params.modifiers, params.key],
+    });
   }
 
   async pressKey(sessionId: string, key: string): Promise<void> {
-    await this.call('input.press_key', { sessionId, key });
+    const session = this.requireSession(sessionId);
+    await this.callTool('press_key', {
+      pid: session.pid,
+      window_id: session.windowId,
+      key,
+    });
   }
 
   async typeTextChars(
     sessionId: string,
     payload: { text: string } | { secretRef: SecretRef },
   ): Promise<void> {
-    await this.call('input.type_text_chars', { sessionId, ...payload });
+    const session = this.requireSession(sessionId);
+    if ('secretRef' in payload) {
+      throw new Error(
+        'mac-cua CLI driver cannot resolve SecretRef payloads directly.',
+      );
+    }
+    session.lastTypedText = payload.text;
+    await this.callTool('type_text', {
+      pid: session.pid,
+      window_id: session.windowId,
+      text: payload.text,
+    });
   }
 
   async click(sessionId: string, target: MacCuaTarget): Promise<void> {
-    await this.call('input.click', { sessionId, target });
+    const session = this.requireSession(sessionId);
+    await this.callTool('click', {
+      pid: session.pid,
+      window_id: session.windowId,
+      ...this.toDriverTarget(target),
+    });
   }
 
   async setValue(
@@ -379,41 +410,72 @@ class StdioMacCuaDriver implements MacCuaDriver {
     target: MacCuaTarget,
     payload: { text: string } | { secretRef: SecretRef },
   ): Promise<void> {
-    await this.call('ax.set_value', { sessionId, target, ...payload });
+    const session = this.requireSession(sessionId);
+    if ('secretRef' in payload) {
+      throw new Error(
+        'mac-cua CLI driver cannot resolve SecretRef payloads directly.',
+      );
+    }
+    await this.callTool('set_value', {
+      pid: session.pid,
+      window_id: session.windowId,
+      ...this.toDriverTarget(target),
+      value: payload.text,
+    });
   }
 
   async scroll(
     sessionId: string,
     params: { target?: MacCuaTarget; deltaX: number; deltaY: number },
   ): Promise<void> {
-    await this.call('input.scroll', { sessionId, ...params });
+    const session = this.requireSession(sessionId);
+    await this.callTool('scroll', {
+      pid: session.pid,
+      window_id: session.windowId,
+      ...(params.target ? this.toDriverTarget(params.target) : {}),
+      direction: scrollDirectionFromDelta(params.deltaX, params.deltaY),
+      by: 'page',
+      amount: 1,
+    });
   }
 
   async screenshot(
     sessionId: string,
     opts: ScreenshotOptions & { mode: MacCuaScreenshotMode },
   ): Promise<MacCuaScreenshotResult> {
-    const result = await this.call('browser.screenshot', {
-      sessionId,
-      ...opts,
-    });
-    if (!result || typeof result !== 'object') {
-      throw new Error(
-        'mac-cua driver returned an invalid screenshot response.',
-      );
+    const session = this.requireSession(sessionId);
+    const outPath = path.join(
+      os.tmpdir(),
+      `hybridclaw-mac-cua-${process.pid}-${Date.now()}.png`,
+    );
+    try {
+      if (opts.mode === 'ax') {
+        await this.callTool('get_window_state', {
+          pid: session.pid,
+          window_id: session.windowId,
+        });
+      } else {
+        await this.callTool(
+          'screenshot',
+          {
+            window_id: session.windowId,
+            format: opts.type || 'png',
+          },
+          { screenshotOutFile: outPath },
+        );
+      }
+      if (!fs.existsSync(outPath)) {
+        throw new Error(
+          'mac-cua driver screenshot response did not include image bytes.',
+        );
+      }
+      return {
+        dataBase64: fs.readFileSync(outPath).toString('base64'),
+        mimeType: opts.type === 'jpeg' ? 'image/jpeg' : 'image/png',
+      };
+    } finally {
+      fs.rmSync(outPath, { force: true });
     }
-    const record = result as Record<string, unknown>;
-    if (typeof record.dataBase64 !== 'string') {
-      throw new Error(
-        'mac-cua driver screenshot response did not include dataBase64.',
-      );
-    }
-    return {
-      dataBase64: record.dataBase64,
-      ...(typeof record.mimeType === 'string'
-        ? { mimeType: record.mimeType }
-        : {}),
-    };
   }
 
   async waitForElement(
@@ -421,154 +483,249 @@ class StdioMacCuaDriver implements MacCuaDriver {
     target: MacCuaTarget,
     opts?: WaitOptions,
   ): Promise<void> {
-    await this.call('ax.wait_for_element', { sessionId, target, opts });
+    await this.resolveTarget(sessionId, target);
+    void opts;
   }
 
   async resolveTarget(
     sessionId: string,
     target: MacCuaTarget,
   ): Promise<MacCuaResolvedTarget> {
-    const result = await this.call('ax.resolve_target', {
-      sessionId,
-      target,
+    const session = this.requireSession(sessionId);
+    if (target.kind === 'point') return { target };
+    if (target.kind === 'ax') return { target };
+    const record = await this.callToolRecord('get_window_state', {
+      pid: session.pid,
+      window_id: session.windowId,
+      query: target.query,
     });
-    return normalizeResolvedTarget(result, target);
+    const elementIndex = firstElementIndex(record);
+    if (elementIndex === null) return { target };
+    return { target: { kind: 'ax', elementIndex, windowId: session.windowId } };
   }
 
   async getAddressBarValue(sessionId: string): Promise<string | null> {
-    const result = await this.call('browser.address_bar_value', { sessionId });
-    if (!result || typeof result !== 'object') return null;
-    const value = (result as Record<string, unknown>).value;
-    return typeof value === 'string' && value.trim() ? value.trim() : null;
+    return this.requireSession(sessionId).lastTypedText || null;
   }
 
   async getCurrentUrl(sessionId: string): Promise<string | null> {
-    const result = await this.call('browser.current_url', { sessionId });
-    if (!result || typeof result !== 'object') return null;
-    const value = (result as Record<string, unknown>).url;
-    return typeof value === 'string' && value.trim() ? value.trim() : null;
+    const session = this.requireSession(sessionId);
+    try {
+      const record = await this.callToolRecord('page', {
+        pid: session.pid,
+        window_id: session.windowId,
+        action: 'execute_javascript',
+        javascript: '(() => window.location.href)()',
+      });
+      const value = record.result || record.value;
+      return typeof value === 'string' && value.trim() ? value.trim() : null;
+    } catch {
+      return null;
+    }
   }
 
   async detectTwoFactorWaypoint(
     sessionId: string,
   ): Promise<{ detected: boolean; signals?: string[] }> {
-    const result = await this.call('ax.detect_two_factor_waypoint', {
-      sessionId,
+    const session = this.requireSession(sessionId);
+    const record = await this.callToolRecord('get_window_state', {
+      pid: session.pid,
+      window_id: session.windowId,
+      query: 'verification code',
     });
-    if (!result || typeof result !== 'object') return { detected: false };
-    const record = result as Record<string, unknown>;
-    const signals = Array.isArray(record.signals)
-      ? record.signals.filter(
-          (value): value is string => typeof value === 'string',
-        )
-      : undefined;
-    return {
-      detected: record.detected === true,
-      ...(signals && signals.length > 0 ? { signals } : {}),
-    };
+    const text = JSON.stringify(record).toLowerCase();
+    const detected =
+      text.includes('verification code') ||
+      text.includes('two-factor') ||
+      text.includes('2fa') ||
+      text.includes('one-time');
+    return detected
+      ? { detected: true, signals: ['ax_two_factor_text'] }
+      : { detected: false };
   }
 
   async getEnvironmentState(): Promise<MacCuaEnvironmentState> {
-    const result = await this.call('system.environment_state');
-    if (!result || typeof result !== 'object') {
-      throw new Error('mac-cua driver returned an invalid environment state.');
-    }
-    return result as MacCuaEnvironmentState;
+    const [cursorText, apps, windows] = await Promise.all([
+      this.callToolText('get_cursor_position', {}),
+      this.callToolRecord('list_apps', {}),
+      this.callToolRecord('list_windows', {}),
+    ]);
+    const cursor = cursorText.match(
+      /\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)/u,
+    );
+    const activeApp = Array.isArray(apps.apps)
+      ? apps.apps.find(
+          (app): app is Record<string, unknown> =>
+            Boolean(app) &&
+            typeof app === 'object' &&
+            !Array.isArray(app) &&
+            app.active === true,
+        )
+      : null;
+    return {
+      cursorX: cursor?.[1] ? Number(cursor[1]) : 0,
+      cursorY: cursor?.[2] ? Number(cursor[2]) : 0,
+      frontmostBundleId:
+        typeof activeApp?.bundle_id === 'string' ? activeApp.bundle_id : '',
+      activeSpaceId:
+        typeof windows.current_space_id === 'number'
+          ? windows.current_space_id
+          : null,
+    };
   }
 
-  private async ensureStarted(): Promise<void> {
-    if (this.child) return;
-    const child = spawn(this.command, this.args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: process.env,
+  private requireSession(sessionId: string): {
+    pid: number;
+    windowId: number;
+    lastTypedText?: string;
+  } {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error('mac-cua driver session is not active.');
+    return session;
+  }
+
+  private toDriverTarget(target: MacCuaTarget): {
+    element_index?: number;
+    x?: number;
+    y?: number;
+  } {
+    if (target.kind === 'point') return { x: target.x, y: target.y };
+    if (target.kind === 'ax') return { element_index: target.elementIndex };
+    throw new Error('mac-cua query target was not resolved to AX or point.');
+  }
+
+  private async findExistingBrowserWindow(
+    bundleId: string,
+  ): Promise<Record<string, unknown> | null> {
+    const apps = await this.callToolRecord('list_apps', {});
+    const app = Array.isArray(apps.apps)
+      ? apps.apps.find(
+          (entry): entry is Record<string, unknown> =>
+            Boolean(entry) &&
+            typeof entry === 'object' &&
+            !Array.isArray(entry) &&
+            entry.bundle_id === bundleId &&
+            entry.running === true,
+        )
+      : null;
+    const pid = normalizePositiveInteger(app?.pid);
+    if (pid === null) return null;
+    const windows = await this.callToolRecord('list_windows', {
+      pid,
+      on_screen_only: false,
     });
-    this.child = child;
-    child.stdout.setEncoding('utf-8');
-    child.stdout.on('data', (chunk) => this.handleStdout(String(chunk)));
-    child.stderr.on('data', (chunk) => {
-      process.stderr.write(`[mac-cua] ${String(chunk)}`);
-    });
-    child.on('exit', (code, signal) => {
-      const error = new Error(
-        signal
-          ? `mac-cua driver exited after ${signal}`
-          : `mac-cua driver exited with code ${code ?? 'unknown'}`,
+    const windowId = normalizeWindowId(windows.windows);
+    return windowId === null ? null : { pid, window_id: windowId };
+  }
+
+  private async callToolRecord(
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const result = await this.callTool(tool, args);
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      throw new Error(
+        `mac-cua driver tool ${tool} returned non-object output.`,
       );
-      for (const pending of this.pending.values()) {
-        clearTimeout(pending.timeout);
-        pending.reject(error);
-      }
-      this.pending.clear();
-      if (this.child === child) {
-        this.child = null;
-        this.buffer = '';
-      }
-    });
+    }
+    return result as Record<string, unknown>;
   }
 
-  private terminateChild(error: Error): void {
-    const child = this.child;
-    this.child = null;
-    this.buffer = '';
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timeout);
-      pending.reject(error);
+  private async callToolText(
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<string> {
+    const result = await this.callTool(tool, args, { raw: true });
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      return typeof result === 'string' ? result : '';
     }
-    this.pending.clear();
-    if (child && !child.killed) {
-      child.kill('SIGTERM');
+    const content = (result as Record<string, unknown>).content;
+    if (!Array.isArray(content)) return '';
+    return content
+      .map((entry) =>
+        entry &&
+        typeof entry === 'object' &&
+        !Array.isArray(entry) &&
+        typeof (entry as Record<string, unknown>).text === 'string'
+          ? String((entry as Record<string, unknown>).text)
+          : '',
+      )
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  private async callTool(
+    tool: string,
+    args: Record<string, unknown>,
+    opts?: { raw?: boolean; screenshotOutFile?: string },
+  ): Promise<unknown> {
+    const commandArgs = [
+      ...this.args,
+      'call',
+      tool,
+      JSON.stringify(args),
+      '--compact',
+      ...(opts?.raw ? ['--raw'] : []),
+      ...(opts?.screenshotOutFile
+        ? ['--screenshot-out-file', opts.screenshotOutFile]
+        : []),
+    ];
+    const { stdout, stderr, status, signal } =
+      await this.runCommand(commandArgs);
+    if (status !== 0) {
+      throw new Error(
+        `mac-cua driver tool ${tool} failed${
+          signal ? ` after ${signal}` : ''
+        }: ${stderr || stdout || `exit ${status}`}`,
+      );
+    }
+    const trimmed = stdout.trim();
+    if (!trimmed) return {};
+    try {
+      return JSON.parse(trimmed) as unknown;
+    } catch {
+      return trimmed;
     }
   }
 
-  private handleStdout(chunk: string): void {
-    this.buffer += chunk;
-    for (;;) {
-      const newline = this.buffer.indexOf('\n');
-      if (newline < 0) return;
-      const line = this.buffer.slice(0, newline).trim();
-      this.buffer = this.buffer.slice(newline + 1);
-      if (!line) continue;
-      let message: Record<string, unknown>;
-      try {
-        message = JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-      const id = typeof message.id === 'number' ? message.id : null;
-      if (id === null) continue;
-      const pending = this.pending.get(id);
-      if (!pending) continue;
-      this.pending.delete(id);
-      clearTimeout(pending.timeout);
-      if (message.error) {
-        pending.reject(new Error(String(message.error)));
-      } else {
-        pending.resolve(message.result);
-      }
-    }
-  }
-
-  private async call(method: string, params?: unknown): Promise<unknown> {
-    await this.ensureStarted();
-    if (!this.child) throw new Error('mac-cua driver is not running.');
-    const id = this.nextId++;
-    const message: JsonRpcMessage = { id, method, params };
+  private async runCommand(args: string[]): Promise<{
+    stdout: string;
+    stderr: string;
+    status: number | null;
+    signal: NodeJS.Signals | null;
+  }> {
     return await new Promise((resolve, reject) => {
+      const child = spawn(this.command, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: process.env,
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf-8');
+      child.stderr.setEncoding('utf-8');
+      child.stdout.on('data', (chunk) => {
+        stdout += String(chunk);
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += String(chunk);
+      });
       const timeout = setTimeout(() => {
-        this.terminateChild(
+        child.kill('SIGTERM');
+        reject(
           new Error(
-            `mac-cua driver call ${method} timed out after ${this.timeoutMs}ms; restarting driver`,
+            `mac-cua driver command ${args.join(' ')} timed out after ${
+              this.timeoutMs
+            }ms`,
           ),
         );
       }, this.timeoutMs);
-      this.pending.set(id, { resolve, reject, timeout });
-      this.child?.stdin.write(`${JSON.stringify(message)}\n`, (error) => {
-        if (error) {
-          const pending = this.pending.get(id);
-          if (pending) clearTimeout(pending.timeout);
-          this.pending.delete(id);
-          reject(error);
-        }
+      child.on('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.on('exit', (status, signal) => {
+        clearTimeout(timeout);
+        resolve({ stdout, stderr, status, signal });
       });
     });
   }
