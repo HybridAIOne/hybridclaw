@@ -732,7 +732,6 @@ async function importFreshHealth(options?: {
             length: 12,
             sha256_prefix: '0123456789ab',
           },
-          references: [],
         },
         {
           name: 'OTHER_SECRET',
@@ -740,7 +739,6 @@ async function importFreshHealth(options?: {
           created_at: null,
           last_rotated_at: null,
           fingerprint: null,
-          references: [],
         },
       ].filter((entry) => params?.canListSecret?.(entry.name) ?? true);
       return {
@@ -4715,6 +4713,7 @@ describe('gateway HTTP server', () => {
       url: '/api/admin/secrets',
       headers: {
         cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
           actor: 'admin-user',
           actions: ['secret.list_metadata'],
         }),
@@ -4728,6 +4727,7 @@ describe('gateway HTTP server', () => {
     expect(state.getGatewayAdminSecrets).toHaveBeenCalledWith({
       canListSecret: expect.any(Function),
       audit: {
+        sessionId: 'admin-session-1',
         actor: 'admin-user',
         sourceIp: '127.0.0.1',
       },
@@ -4744,7 +4744,6 @@ describe('gateway HTTP server', () => {
             length: 12,
             sha256_prefix: '0123456789ab',
           },
-          references: [],
         },
         {
           name: 'OTHER_SECRET',
@@ -4752,7 +4751,6 @@ describe('gateway HTTP server', () => {
           created_at: null,
           last_rotated_at: null,
           fingerprint: null,
-          references: [],
         },
       ],
       total: 2,
@@ -4814,7 +4812,6 @@ describe('gateway HTTP server', () => {
             length: 12,
             sha256_prefix: '0123456789ab',
           },
-          references: [],
         },
       ],
       total: 2,

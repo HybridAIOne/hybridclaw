@@ -61,6 +61,7 @@ describe('gateway admin secrets metadata', () => {
 
     const response = adminSecrets.getGatewayAdminSecrets({
       audit: {
+        sessionId: 'admin-session-1',
         actor: 'admin-user',
         sourceIp: '127.0.0.1',
       },
@@ -82,7 +83,6 @@ describe('gateway admin secrets metadata', () => {
           .digest('hex')
           .slice(0, 12),
       },
-      references: [],
     });
     expect(setEntry?.created_at).toEqual(expect.any(String));
     expect(setEntry?.last_rotated_at).toEqual(expect.any(String));
@@ -90,13 +90,12 @@ describe('gateway admin secrets metadata', () => {
       name: 'OPENAI_API_KEY',
       state: 'unset',
       fingerprint: null,
-      references: [],
     });
-    expect(unsetEntry?.created_at).toEqual(expect.any(String));
-    expect(unsetEntry?.last_rotated_at).toEqual(expect.any(String));
+    expect(unsetEntry?.created_at).toBeNull();
+    expect(unsetEntry?.last_rotated_at).toBeNull();
     expect(JSON.stringify(response)).not.toContain('super-secret-value');
     expect(recordAuditEvent).toHaveBeenCalledWith({
-      sessionId: 'admin:secrets',
+      sessionId: 'admin-session-1',
       runId: 'secret-metadata-run',
       event: {
         type: 'secret.viewed_metadata',
@@ -135,7 +134,11 @@ describe('gateway admin secrets metadata', () => {
       SET_SECRET: 'super-secret-value',
     });
 
-    const response = adminSecrets.getGatewayAdminSecrets();
+    const response = adminSecrets.getGatewayAdminSecrets({
+      audit: {
+        actor: 'admin-user',
+      },
+    });
     const declaredEntry = response.secrets.find(
       (entry) => entry.name === 'DECLARED_SECRET',
     );
@@ -144,10 +147,9 @@ describe('gateway admin secrets metadata', () => {
       name: 'DECLARED_SECRET',
       state: 'unset',
       fingerprint: null,
-      references: [],
     });
-    expect(declaredEntry?.created_at).toEqual(expect.any(String));
-    expect(declaredEntry?.last_rotated_at).toEqual(expect.any(String));
+    expect(declaredEntry?.created_at).toBeNull();
+    expect(declaredEntry?.last_rotated_at).toBeNull();
     expect(response.secrets).toContainEqual(
       expect.objectContaining({
         name: 'ROUTE_DECLARED_SECRET',
@@ -166,6 +168,9 @@ describe('gateway admin secrets metadata', () => {
 
     const response = adminSecrets.getGatewayAdminSecrets({
       canListSecret: (name) => name.startsWith('SET_'),
+      audit: {
+        actor: 'admin-user',
+      },
     });
 
     expect(response.secrets.map((entry) => entry.name)).toEqual(['SET_SECRET']);

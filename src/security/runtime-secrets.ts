@@ -108,13 +108,6 @@ export interface RuntimeSecretMetadataEntry {
   created_at: string | null;
   last_rotated_at: string | null;
   fingerprint: RuntimeSecretFingerprint | null;
-  references: RuntimeSecretReference[];
-}
-
-export interface RuntimeSecretReference {
-  kind: 'skill' | 'connector' | 'provider' | 'unattributed';
-  label: string;
-  source_id: string;
 }
 
 let cachedSecretStoreRead: SecretStoreReadResult | null = null;
@@ -177,7 +170,12 @@ function isEncryptedSecretEntry(value: unknown): value is EncryptedSecretEntry {
     isRecord(value) &&
     value.alg === SECRET_STORE_ALGORITHM &&
     typeof value.nonce === 'string' &&
-    typeof value.ciphertext === 'string'
+    value.nonce.length === 16 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(value.nonce) &&
+    typeof value.ciphertext === 'string' &&
+    value.ciphertext.length >= 24 &&
+    value.ciphertext.length % 4 === 0 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(value.ciphertext)
   );
 }
 
@@ -264,21 +262,21 @@ function readMasterKeyFile(filePath: string): Buffer | null {
 }
 
 function readFileSignature(filePath: string): string | null {
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    const stats = fs.statSync(filePath);
-    return `${stats.size}:${stats.mtimeMs}`;
-  } catch {
-    return null;
-  }
+  return readFileMetadata(filePath).signature;
 }
 
-function readFileModifiedAt(filePath: string): string | null {
-  if (!fs.existsSync(filePath)) return null;
+function readFileMetadata(filePath: string): {
+  modifiedAt: string | null;
+  signature: string | null;
+} {
   try {
-    return new Date(fs.statSync(filePath).mtimeMs).toISOString();
+    const stats = fs.statSync(filePath);
+    return {
+      modifiedAt: new Date(stats.mtimeMs).toISOString(),
+      signature: `${stats.size}:${stats.mtimeMs}`,
+    };
   } catch {
-    return null;
+    return { modifiedAt: null, signature: null };
   }
 }
 
@@ -301,10 +299,6 @@ function currentMasterKeySourceSignature(): string {
   return 'none';
 }
 
-function cloneRuntimeSecrets(secrets: RuntimeSecrets): RuntimeSecrets {
-  return { ...secrets };
-}
-
 function cloneRuntimeSecretStoreMetadata(
   metadata: RuntimeSecretStoreMetadata,
 ): RuntimeSecretStoreMetadata {
@@ -325,12 +319,12 @@ function cacheSecretStoreRead(
   cachedSecretStoreRead = {
     ...result,
     metadata: cloneRuntimeSecretStoreMetadata(result.metadata),
-    secrets: cloneRuntimeSecrets(result.secrets),
+    secrets: { ...result.secrets },
   };
   return {
     ...result,
     metadata: cloneRuntimeSecretStoreMetadata(result.metadata),
-    secrets: cloneRuntimeSecrets(result.secrets),
+    secrets: { ...result.secrets },
   };
 }
 
@@ -574,8 +568,9 @@ class SecretStore {
 
   readAllResult(): SecretStoreReadResult {
     ensureExistingRuntimeHomePermissions();
-    const fileSignature = readFileSignature(this.filePath);
-    const fileModifiedAt = readFileModifiedAt(this.filePath);
+    const fileMetadata = readFileMetadata(this.filePath);
+    const fileSignature = fileMetadata.signature;
+    const fileModifiedAt = fileMetadata.modifiedAt;
     const keySourceSignature = currentMasterKeySourceSignature();
     if (!fileSignature) {
       return cacheSecretStoreRead({
@@ -594,7 +589,10 @@ class SecretStore {
     ) {
       return {
         ...cachedSecretStoreRead,
-        secrets: cloneRuntimeSecrets(cachedSecretStoreRead.secrets),
+        metadata: cloneRuntimeSecretStoreMetadata(
+          cachedSecretStoreRead.metadata,
+        ),
+        secrets: { ...cachedSecretStoreRead.secrets },
       };
     }
 
@@ -630,17 +628,6 @@ class SecretStore {
             status: 'encrypted-unreadable',
           });
         }
-      }
-
-      if (!isRecord(parsed)) {
-        return cacheSecretStoreRead({
-          fileSignature,
-          fileModifiedAt,
-          keySourceSignature: null,
-          metadata: {},
-          secrets: {},
-          status: 'invalid',
-        });
       }
 
       return cacheSecretStoreRead({
@@ -699,9 +686,10 @@ class SecretStore {
         readEncryptedSecretStoreFile(targetPath, key),
       areEqual: haveEqualRuntimeSecrets,
       onValidated: () => {
+        const fileMetadata = readFileMetadata(this.filePath);
         cachedSecretStoreRead = {
-          fileSignature: readFileSignature(this.filePath),
-          fileModifiedAt: readFileModifiedAt(this.filePath),
+          fileSignature: fileMetadata.signature,
+          fileModifiedAt: fileMetadata.modifiedAt,
           keySourceSignature: currentMasterKeySourceSignature(),
           metadata: Object.fromEntries(
             Object.keys(sanitizedSecrets).map((secretKey) => [
@@ -709,7 +697,7 @@ class SecretStore {
               { createdAt: now, lastRotatedAt: now },
             ]),
           ),
-          secrets: cloneRuntimeSecrets(sanitizedSecrets),
+          secrets: { ...sanitizedSecrets },
           status: 'encrypted',
         };
       },
@@ -759,12 +747,13 @@ class SecretStore {
         },
       ]),
     );
+    const fileMetadata = readFileMetadata(this.filePath);
     cachedSecretStoreRead = {
-      fileSignature: readFileSignature(this.filePath),
-      fileModifiedAt: readFileModifiedAt(this.filePath),
+      fileSignature: fileMetadata.signature,
+      fileModifiedAt: fileMetadata.modifiedAt,
       keySourceSignature: currentMasterKeySourceSignature(),
       metadata,
-      secrets: cloneRuntimeSecrets(sanitizedSecrets),
+      secrets: { ...sanitizedSecrets },
       status: 'encrypted',
     };
   }
@@ -828,7 +817,7 @@ export function readStoredRuntimeSecret(
 
 export function readStoredRuntimeSecrets(): RuntimeSecrets {
   const store = new SecretStore();
-  return cloneRuntimeSecrets(store.readAll());
+  return { ...store.readAll() };
 }
 
 export function migrateLegacyRuntimeSecretsFile(): boolean {
@@ -903,16 +892,16 @@ export function listRuntimeSecretMetadata(options?: {
       const value = result.secrets[name] || '';
       const metadata = result.metadata[name];
       const fallbackTimestamp = result.fileModifiedAt;
-      const createdAt = metadata?.createdAt || fallbackTimestamp;
-      const lastRotatedAt =
-        metadata?.lastRotatedAt || metadata?.createdAt || fallbackTimestamp;
+      const createdAt = value ? metadata?.createdAt || fallbackTimestamp : null;
+      const lastRotatedAt = value
+        ? metadata?.lastRotatedAt || metadata?.createdAt || fallbackTimestamp
+        : null;
       return {
         name,
         state: value ? 'set' : 'unset',
         created_at: createdAt,
         last_rotated_at: lastRotatedAt,
         fingerprint: value ? fingerprintRuntimeSecretValue(value) : null,
-        references: [],
       };
     });
 }

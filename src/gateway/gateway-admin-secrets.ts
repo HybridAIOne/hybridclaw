@@ -52,9 +52,9 @@ function listDeclaredRuntimeSecretNames(): string[] {
   return [...names].sort((left, right) => left.localeCompare(right));
 }
 
-export function getGatewayAdminSecrets(options?: {
+export function getGatewayAdminSecrets(options: {
   canListSecret?: (name: string) => boolean;
-  audit?: {
+  audit: {
     sessionId?: string;
     actor?: string | null;
     sourceIp?: string | null;
@@ -63,8 +63,9 @@ export function getGatewayAdminSecrets(options?: {
   const allSecrets = listRuntimeSecretMetadata({
     declaredNames: listDeclaredRuntimeSecretNames(),
   });
-  const secrets = options?.canListSecret
-    ? allSecrets.filter((entry) => options.canListSecret?.(entry.name))
+  const filterFn = options.canListSecret;
+  const secrets = filterFn
+    ? allSecrets.filter((entry) => filterFn(entry.name))
     : allSecrets;
   const response = {
     secrets,
@@ -72,20 +73,19 @@ export function getGatewayAdminSecrets(options?: {
     filtered: allSecrets.length - secrets.length,
   };
 
-  if (options?.audit) {
-    recordAuditEvent({
-      sessionId: options.audit.sessionId || 'admin:secrets',
-      runId: makeAuditRunId('secret-metadata'),
-      event: {
-        type: 'secret.viewed_metadata',
-        actor: options.audit.actor || null,
-        sourceIp: options.audit.sourceIp || null,
-        visibleCount: response.secrets.length,
-        totalCount: response.total,
-        filteredCount: response.filtered,
-      },
-    });
-  }
+  recordAuditEvent({
+    sessionId:
+      options.audit.sessionId || options.audit.actor || 'admin:anonymous',
+    runId: makeAuditRunId('secret-metadata'),
+    event: {
+      type: 'secret.viewed_metadata',
+      actor: options.audit.actor || null,
+      sourceIp: options.audit.sourceIp || null,
+      visibleCount: response.secrets.length,
+      totalCount: response.total,
+      filteredCount: response.filtered,
+    },
+  });
 
   return response;
 }
