@@ -265,7 +265,10 @@ pattern, see [Remote Access](../guides/remote-access.md).
 The `mac-cua` browser provider drives the operator-owned macOS browser through
 the upstream Cua Driver binary. It only supports macOS and requires
 Accessibility plus Screen Recording grants for the terminal or app process that
-runs HybridClaw.
+runs HybridClaw. HybridClaw connects to the driver over the driver's MCP stdio
+mode (`cua-driver mcp`); the driver may proxy through the `CuaDriver` app
+daemon so macOS attributes Accessibility and Screen Recording permissions to
+the correct app bundle.
 
 Install Cua Driver:
 
@@ -278,6 +281,13 @@ Verify the binary is available:
 ```bash
 which cua-driver
 cua-driver --version
+```
+
+If the installed driver is stale, refresh it with the upstream updater or rerun
+the installer:
+
+```bash
+cua-driver update
 ```
 
 If `cua-driver` is installed outside `PATH`, point HybridClaw at the executable:

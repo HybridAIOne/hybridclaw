@@ -1,8 +1,11 @@
 import { Buffer } from 'node:buffer';
-import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import {
+  getDefaultEnvironment,
+  StdioClientTransport,
+} from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { buildCuaMacResults } from '../doctor/checks/cua-mac.js';
@@ -143,6 +146,10 @@ const DESTRUCTIVE_KEY_CHORDS = new Set([
   'cmd+option+shift+q',
 ]);
 const DEFAULT_DRIVER_TIMEOUT_MS = 60_000;
+const CUA_MCP_CLIENT_INFO = {
+  name: 'hybridclaw-mac-cua',
+  version: process.env.npm_package_version || '0.0.0',
+};
 
 function normalizeKeyChord(key: string, modifiers: string[]): string {
   const normalizedModifiers = modifiers
@@ -249,7 +256,7 @@ function defaultDriverCommand(): { command: string; args: string[] } {
   const configured = process.env.HYBRIDAI_CUA_DRIVER_BIN?.trim();
   return {
     command: configured || 'cua-driver',
-    args: [],
+    args: ['mcp'],
   };
 }
 
@@ -313,7 +320,72 @@ function scrollDirectionFromDelta(
   return deltaY < 0 ? 'up' : 'down';
 }
 
+interface CuaMcpToolResult {
+  data: unknown;
+  images: string[];
+  structuredContent: Record<string, unknown> | null;
+  isError: boolean;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function normalizeMcpToolResult(result: CallToolResult): CuaMcpToolResult {
+  const images: string[] = [];
+  const textChunks: string[] = [];
+  for (const part of result.content || []) {
+    if (part.type === 'text') {
+      textChunks.push(part.text || '');
+    } else if (part.type === 'image' && part.data) {
+      images.push(part.data);
+    }
+  }
+  const text = textChunks.filter(Boolean).join('\n');
+  let data: unknown = text;
+  if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+    try {
+      data = JSON.parse(text) as unknown;
+    } catch {
+      data = text;
+    }
+  }
+  const structured =
+    result.structuredContent &&
+    typeof result.structuredContent === 'object' &&
+    !Array.isArray(result.structuredContent)
+      ? (result.structuredContent as Record<string, unknown>)
+      : null;
+  return {
+    data,
+    images,
+    structuredContent: structured,
+    isError: result.isError === true,
+  };
+}
+
 class StdioMacCuaDriver implements MacCuaDriver {
+  private client: Client | null = null;
+  private transport: StdioClientTransport | null = null;
+  private startPromise: Promise<void> | null = null;
   private readonly sessions = new Map<
     string,
     { pid: number; windowId: number; lastTypedText?: string }
@@ -355,6 +427,9 @@ class StdioMacCuaDriver implements MacCuaDriver {
 
   async stopBrowserSession(sessionId: string): Promise<void> {
     this.sessions.delete(sessionId);
+    if (this.sessions.size === 0) {
+      await this.closeMcpSession();
+    }
   }
 
   async keyChord(
@@ -385,15 +460,21 @@ class StdioMacCuaDriver implements MacCuaDriver {
     const session = this.requireSession(sessionId);
     if ('secretRef' in payload) {
       throw new Error(
-        'mac-cua CLI driver cannot resolve SecretRef payloads directly.',
+        'mac-cua MCP driver cannot resolve SecretRef payloads directly.',
       );
     }
     session.lastTypedText = payload.text;
-    await this.callTool('type_text', {
+    const args = {
       pid: session.pid,
       window_id: session.windowId,
       text: payload.text,
-    });
+    };
+    try {
+      await this.callTool('type_text_chars', args);
+    } catch (error) {
+      if (!String(error).includes('Unknown tool')) throw error;
+      await this.callTool('type_text', args);
+    }
   }
 
   async click(sessionId: string, target: MacCuaTarget): Promise<void> {
@@ -413,7 +494,7 @@ class StdioMacCuaDriver implements MacCuaDriver {
     const session = this.requireSession(sessionId);
     if ('secretRef' in payload) {
       throw new Error(
-        'mac-cua CLI driver cannot resolve SecretRef payloads directly.',
+        'mac-cua MCP driver cannot resolve SecretRef payloads directly.',
       );
     }
     await this.callTool('set_value', {
@@ -444,38 +525,30 @@ class StdioMacCuaDriver implements MacCuaDriver {
     opts: ScreenshotOptions & { mode: MacCuaScreenshotMode },
   ): Promise<MacCuaScreenshotResult> {
     const session = this.requireSession(sessionId);
-    const outPath = path.join(
-      os.tmpdir(),
-      `hybridclaw-mac-cua-${process.pid}-${Date.now()}.png`,
-    );
-    try {
-      if (opts.mode === 'ax') {
-        await this.callTool('get_window_state', {
-          pid: session.pid,
-          window_id: session.windowId,
-        });
-      } else {
-        await this.callTool(
-          'screenshot',
-          {
+    const result =
+      opts.mode === 'ax'
+        ? await this.callTool('get_window_state', {
+            pid: session.pid,
+            window_id: session.windowId,
+          })
+        : await this.callTool('screenshot', {
             window_id: session.windowId,
             format: opts.type || 'png',
-          },
-          { screenshotOutFile: outPath },
-        );
-      }
-      if (!fs.existsSync(outPath)) {
-        throw new Error(
-          'mac-cua driver screenshot response did not include image bytes.',
-        );
-      }
-      return {
-        dataBase64: fs.readFileSync(outPath).toString('base64'),
-        mimeType: opts.type === 'jpeg' ? 'image/jpeg' : 'image/png',
-      };
-    } finally {
-      fs.rmSync(outPath, { force: true });
+          });
+    const dataBase64 = result.images[0];
+    if (!dataBase64) {
+      const text =
+        typeof result.data === 'string' ? result.data : JSON.stringify(result);
+      throw new Error(
+        text
+          ? `mac-cua driver screenshot response did not include image bytes: ${text}`
+          : 'mac-cua driver screenshot response did not include image bytes.',
+      );
     }
+    return {
+      dataBase64,
+      mimeType: opts.type === 'jpeg' ? 'image/jpeg' : 'image/png',
+    };
   }
 
   async waitForElement(
@@ -623,111 +696,101 @@ class StdioMacCuaDriver implements MacCuaDriver {
     args: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     const result = await this.callTool(tool, args);
-    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    const payload =
+      result.structuredContent ||
+      (result.data &&
+      typeof result.data === 'object' &&
+      !Array.isArray(result.data)
+        ? result.data
+        : null);
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new Error(
         `mac-cua driver tool ${tool} returned non-object output.`,
       );
     }
-    return result as Record<string, unknown>;
+    return payload as Record<string, unknown>;
   }
 
   private async callToolText(
     tool: string,
     args: Record<string, unknown>,
   ): Promise<string> {
-    const result = await this.callTool(tool, args, { raw: true });
-    if (!result || typeof result !== 'object' || Array.isArray(result)) {
-      return typeof result === 'string' ? result : '';
-    }
-    const content = (result as Record<string, unknown>).content;
-    if (!Array.isArray(content)) return '';
-    return content
-      .map((entry) =>
-        entry &&
-        typeof entry === 'object' &&
-        !Array.isArray(entry) &&
-        typeof (entry as Record<string, unknown>).text === 'string'
-          ? String((entry as Record<string, unknown>).text)
-          : '',
-      )
-      .filter(Boolean)
-      .join('\n');
+    const result = await this.callTool(tool, args);
+    return typeof result.data === 'string' ? result.data : '';
   }
 
   private async callTool(
     tool: string,
     args: Record<string, unknown>,
-    opts?: { raw?: boolean; screenshotOutFile?: string },
-  ): Promise<unknown> {
-    const commandArgs = [
-      ...this.args,
-      'call',
-      tool,
-      JSON.stringify(args),
-      '--compact',
-      ...(opts?.raw ? ['--raw'] : []),
-      ...(opts?.screenshotOutFile
-        ? ['--screenshot-out-file', opts.screenshotOutFile]
-        : []),
-    ];
-    const { stdout, stderr, status, signal } =
-      await this.runCommand(commandArgs);
-    if (status !== 0) {
+  ): Promise<CuaMcpToolResult> {
+    await this.ensureMcpSession();
+    if (!this.client) throw new Error('mac-cua MCP client is not connected.');
+    const result = (await withTimeout(
+      this.client.callTool(
+        {
+          name: tool,
+          arguments: args,
+        },
+        CallToolResultSchema,
+      ),
+      this.timeoutMs,
+      `mac-cua driver tool ${tool}`,
+    )) as CallToolResult;
+    const normalized = normalizeMcpToolResult(result);
+    if (normalized.isError) {
+      const message =
+        typeof normalized.data === 'string'
+          ? normalized.data
+          : JSON.stringify(
+              normalized.data || normalized.structuredContent || {},
+            );
       throw new Error(
-        `mac-cua driver tool ${tool} failed${
-          signal ? ` after ${signal}` : ''
-        }: ${stderr || stdout || `exit ${status}`}`,
+        `mac-cua driver tool ${tool} failed${message ? `: ${message}` : ''}`,
       );
     }
-    const trimmed = stdout.trim();
-    if (!trimmed) return {};
+    return normalized;
+  }
+
+  private async ensureMcpSession(): Promise<void> {
+    if (this.client) return;
+    if (this.startPromise) {
+      await this.startPromise;
+      return;
+    }
+    this.startPromise = (async () => {
+      const transport = new StdioClientTransport({
+        command: this.command,
+        args: this.args,
+        env: getDefaultEnvironment(),
+        stderr: 'pipe',
+      });
+      transport.stderr?.on('data', (chunk) => {
+        process.stderr.write(`[mac-cua] ${String(chunk)}`);
+      });
+      const client = new Client(CUA_MCP_CLIENT_INFO, { capabilities: {} });
+      await withTimeout(
+        client.connect(transport),
+        this.timeoutMs,
+        'mac-cua driver MCP connect',
+      );
+      this.transport = transport;
+      this.client = client;
+    })();
     try {
-      return JSON.parse(trimmed) as unknown;
-    } catch {
-      return trimmed;
+      await this.startPromise;
+    } finally {
+      this.startPromise = null;
     }
   }
 
-  private async runCommand(args: string[]): Promise<{
-    stdout: string;
-    stderr: string;
-    status: number | null;
-    signal: NodeJS.Signals | null;
-  }> {
-    return await new Promise((resolve, reject) => {
-      const child = spawn(this.command, args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: process.env,
-      });
-      let stdout = '';
-      let stderr = '';
-      child.stdout.setEncoding('utf-8');
-      child.stderr.setEncoding('utf-8');
-      child.stdout.on('data', (chunk) => {
-        stdout += String(chunk);
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += String(chunk);
-      });
-      const timeout = setTimeout(() => {
-        child.kill('SIGTERM');
-        reject(
-          new Error(
-            `mac-cua driver command ${args.join(' ')} timed out after ${
-              this.timeoutMs
-            }ms`,
-          ),
-        );
-      }, this.timeoutMs);
-      child.on('error', (error) => {
-        clearTimeout(timeout);
-        reject(error);
-      });
-      child.on('exit', (status, signal) => {
-        clearTimeout(timeout);
-        resolve({ stdout, stderr, status, signal });
-      });
-    });
+  private async closeMcpSession(): Promise<void> {
+    const client = this.client;
+    const transport = this.transport;
+    this.client = null;
+    this.transport = null;
+    this.startPromise = null;
+    await client?.close().catch(() => undefined);
+    await transport?.close().catch(() => undefined);
   }
 }
 
