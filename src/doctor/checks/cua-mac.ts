@@ -45,30 +45,78 @@ function probeCuaDriverPermissions(
   CuaMacProbeInput,
   'accessibilityGranted' | 'screenRecordingGranted' | 'permissionProbeError'
 > {
-  const result = spawnSync(driverPath, ['doctor', '--json'], {
+  const doctorResult = spawnSync(driverPath, ['doctor', '--json'], {
     encoding: 'utf-8',
     timeout: 10_000,
   });
-  if (result.status !== 0) {
+  if (doctorResult.status === 0) {
+    try {
+      const payload = JSON.parse(doctorResult.stdout) as Record<
+        string,
+        unknown
+      >;
+      return {
+        accessibilityGranted: payload.accessibilityGranted === true,
+        screenRecordingGranted: payload.screenRecordingGranted === true,
+      };
+    } catch (error) {
+      return {
+        permissionProbeError: `cua-driver doctor returned invalid JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+  }
+
+  const permissionsResult = spawnSync(driverPath, ['check_permissions'], {
+    encoding: 'utf-8',
+    timeout: 10_000,
+  });
+  if (permissionsResult.status === 0) {
+    const parsed = parseCheckPermissionsOutput(
+      `${permissionsResult.stdout}\n${permissionsResult.stderr}`,
+    );
+    if (parsed) return parsed;
     return {
       permissionProbeError:
-        result.stderr.trim() ||
-        `cua-driver doctor exited with ${result.status}`,
+        'cua-driver check_permissions did not report Accessibility and Screen Recording status.',
     };
   }
-  try {
-    const payload = JSON.parse(result.stdout) as Record<string, unknown>;
-    return {
-      accessibilityGranted: payload.accessibilityGranted === true,
-      screenRecordingGranted: payload.screenRecordingGranted === true,
-    };
-  } catch (error) {
-    return {
-      permissionProbeError: `cua-driver doctor returned invalid JSON: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    };
+
+  return {
+    permissionProbeError:
+      doctorResult.stderr.trim() ||
+      permissionsResult.stderr.trim() ||
+      `cua-driver doctor exited with ${doctorResult.status}`,
+  };
+}
+
+function parsePermissionLine(output: string, label: string): boolean | null {
+  const match = new RegExp(`${label}:\\s*(granted|not granted)`, 'iu').exec(
+    output,
+  );
+  if (!match?.[1]) return null;
+  return match[1].toLowerCase() === 'granted';
+}
+
+export function parseCheckPermissionsOutput(
+  output: string,
+): Pick<
+  CuaMacProbeInput,
+  'accessibilityGranted' | 'screenRecordingGranted'
+> | null {
+  const accessibilityGranted = parsePermissionLine(output, 'Accessibility');
+  const screenRecordingGranted = parsePermissionLine(
+    output,
+    'Screen Recording',
+  );
+  if (accessibilityGranted === null || screenRecordingGranted === null) {
+    return null;
   }
+  return {
+    accessibilityGranted,
+    screenRecordingGranted,
+  };
 }
 
 export function buildCuaMacResults(input: CuaMacProbeInput = {}): DiagResult[] {

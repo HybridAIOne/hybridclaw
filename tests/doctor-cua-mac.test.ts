@@ -73,6 +73,42 @@ test('cua-mac doctor check reports ready when driver and permissions are availab
   ]);
 });
 
+test('cua-mac doctor falls back to check_permissions output', async () => {
+  const root = makeTempRoot();
+  const driverPath = path.join(root, 'cua-driver');
+  fs.writeFileSync(
+    driverPath,
+    [
+      '#!/bin/sh',
+      'if [ "$1" = "doctor" ]; then exit 1; fi',
+      'if [ "$1" = "check_permissions" ]; then',
+      '  printf "✅ Accessibility: granted.\\n✅ Screen Recording: granted.\\n"',
+      '  exit 0',
+      'fi',
+      'exit 2',
+      '',
+    ].join('\n'),
+    { mode: 0o700 },
+  );
+  const { buildCuaMacResults } = await import(
+    '../src/doctor/checks/cua-mac.js'
+  );
+
+  const results = buildCuaMacResults({
+    platform: 'darwin',
+    driverPath,
+  });
+
+  expect(results[1]).toEqual(
+    expect.objectContaining({
+      category: 'cua-mac',
+      label: 'macOS permissions',
+      severity: 'ok',
+      message: expect.stringContaining('can be advertised'),
+    }),
+  );
+});
+
 test('cua-mac doctor does not accept non-executable absolute driver paths', async () => {
   const root = makeTempRoot();
   const driverPath = path.join(root, 'cua-driver');
