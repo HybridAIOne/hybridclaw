@@ -7,10 +7,12 @@ redacted text by default. Uses only the Python standard library.
 import argparse
 import json
 import os
+from ipaddress import ip_address
+from pathlib import Path
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
-from pathlib import Path
 
 DEFAULT_SERVER_URL = os.environ.get(
     "DISTIL_PII_SERVER_URL",
@@ -53,7 +55,7 @@ Produce a redacted version of texts, removing sensitive personal data while pres
 ## Output schema (exactly these fields)
 * **redacted_text** The original text with all the sensitive information replaced with redacted tokens
 * **entities** Array with all the replaced elements, each element represented by following fields
-  * **replacement_token**: one of `[PERSON] | [EMAIL] | [PHONE] | [ADDRESS] | [SSN] | [ID] | [UUID] | [CREDIT_CARD] | [IBAN] | [GENDER] | [AGE] | [RACE] | [MARITAL_STATUS]`
+  * **replacement_token**: one of [PERSON] | [EMAIL] | [PHONE] | [ADDRESS] | [SSN] | [ID] | [UUID] | [CARD_LAST4:####] | [IBAN_LAST4:####] | [GENDER] | [AGE_YEARS:##] | [RACE] | [MARITAL_STATUS]
   * **value**: original text that was redacted
   * **reason**: brief string explaining the rule/rationale
 </task_description>
@@ -77,8 +79,10 @@ def main(
     model: str = DEFAULT_MODEL,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     output_file: str | None = None,
+    allow_remote: bool = False,
 ):
     """Send text to the local Distil-PII model and emit redacted output."""
+    validate_server_url(server_url, allow_remote=allow_remote)
     response_format = {
         "type": "json_schema",
         "json_schema": {
@@ -124,27 +128,82 @@ def main(
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            result = json.loads(resp.read().decode())
-    except urllib.error.URLError:
-        print(
-            f"ERROR: Could not connect to llama-server at {server_url}.\n"
-            "Run 'bash skills/distil-pii-redactor/scripts/setup.sh' first to "
-            "download the model and start the server.",
-            file=sys.stderr,
+            result = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        fail(
+            f"llama-server returned HTTP {error.code}. "
+            "Response body omitted to avoid exposing source text."
         )
-        sys.exit(1)
+    except urllib.error.URLError:
+        fail(
+            f"Could not connect to llama-server at {server_url}.\n"
+            "Run 'bash skills/distil-pii-redactor/scripts/setup.sh' first to "
+            "download the model and start the server."
+        )
+    except json.JSONDecodeError:
+        fail("llama-server returned a non-JSON response.")
 
-    content = result["choices"][0]["message"]["content"]
+    try:
+        content = result["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        fail("llama-server returned an unexpected response shape.")
+
+    if not isinstance(content, str):
+        fail("llama-server returned non-text message content.")
+
     if show_entities:
         output = content
     else:
-        parsed = json.loads(content)
-        output = parsed["redacted_text"]
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            fail("llama-server returned non-JSON redaction content.")
+        try:
+            output = parsed["redacted_text"]
+        except (KeyError, TypeError):
+            fail("llama-server response did not include redacted_text.")
+        if not isinstance(output, str):
+            fail("llama-server returned non-text redacted_text.")
 
     if output_file:
         write_output_file(output_file, output)
     else:
         print(output)
+
+
+def fail(message: str) -> None:
+    print(f"ERROR: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def validate_server_url(server_url: str, allow_remote: bool = False) -> None:
+    parsed = urllib.parse.urlparse(server_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        fail("--server-url must be an http(s) URL with a host.")
+
+    if allow_remote:
+        return
+
+    hostname = parsed.hostname.rstrip(".").lower()
+    if hostname == "localhost":
+        return
+
+    try:
+        address = ip_address(hostname)
+    except ValueError:
+        fail(
+            "--server-url must point to localhost, 127.0.0.0/8, or ::1 by "
+            "default. Re-run with --unsafe-allow-remote only for an explicitly "
+            "trusted endpoint."
+        )
+
+    if address.is_loopback:
+        return
+
+    fail(
+        "--server-url must point to a loopback address by default. Re-run with "
+        "--unsafe-allow-remote only for an explicitly trusted endpoint."
+    )
 
 
 def write_output_file(output_file: str, output: str) -> None:
@@ -195,6 +254,11 @@ if __name__ == "__main__":
     parser.add_argument("--server-url", default=DEFAULT_SERVER_URL)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--unsafe-allow-remote",
+        action="store_true",
+        help="Allow sending raw text to a non-loopback server URL",
+    )
     args = parser.parse_args()
 
     input_text = read_input_text(args)
@@ -210,4 +274,5 @@ if __name__ == "__main__":
         model=args.model,
         timeout=args.timeout,
         output_file=args.output_file,
+        allow_remote=args.unsafe_allow_remote,
     )

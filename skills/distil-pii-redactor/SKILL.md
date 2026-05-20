@@ -107,6 +107,10 @@ The default output is only `redacted_text`, with sensitive spans replaced by
 tokens such as `[PERSON]`, `[EMAIL]`, `[PHONE]`, `[ADDRESS]`, `[SSN]`,
 `[CARD_LAST4:1234]`, and `[IBAN_LAST4:1234]`.
 
+The redactor refuses non-loopback `--server-url` values by default. Use
+`--unsafe-allow-remote` only for an explicitly trusted endpoint after the user
+accepts that raw text will leave the local machine.
+
 ## Debug Output
 
 Use `--show-entities` only while testing the redactor, because it includes the
