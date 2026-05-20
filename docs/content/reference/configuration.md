@@ -260,6 +260,69 @@ For the dual-backend iMessage workflow, see
 For SSH tunnels, host-managed Tailscale, and the macOS LaunchAgent tunnel
 pattern, see [Remote Access](../guides/remote-access.md).
 
+## mac-cua Driver Setup
+
+The `mac-cua` browser provider drives the operator-owned macOS browser through
+the upstream Cua Driver binary. It only supports macOS and requires
+Accessibility plus Screen Recording grants for the terminal or app process that
+runs HybridClaw.
+
+Install Cua Driver:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)"
+```
+
+Verify the binary is available:
+
+```bash
+which cua-driver
+cua-driver --version
+```
+
+If `cua-driver` is installed outside `PATH`, point HybridClaw at the executable:
+
+```bash
+export HYBRIDAI_CUA_DRIVER_BIN="$HOME/.local/bin/cua-driver"
+```
+
+Start the driver service and grant macOS permissions:
+
+```bash
+open -n -g -a CuaDriver --args serve
+cua-driver check_permissions
+```
+
+`check_permissions` should report both grants as present:
+
+```text
+Accessibility: granted.
+Screen Recording: granted.
+```
+
+Then verify HybridClaw readiness:
+
+```bash
+hybridclaw doctor cua-mac
+```
+
+Enable the provider:
+
+```bash
+hybridclaw config set browser.provider mac-cua
+hybridclaw config set browser.macCua.browser chrome
+```
+
+Supported `browser.macCua.browser` values are `safari`, `chrome`, `firefox`,
+`brave`, and `arc`. Supported screenshot modes are `som`, `vision`, and `ax`:
+
+```bash
+hybridclaw config set browser.macCua.screenshotMode som
+```
+
+Restart the gateway after changing browser configuration so the runtime picks
+up the new provider.
+
 ## Shared Inbound Media Staging
 
 When built-in channel transports need to materialize inbound attachments
