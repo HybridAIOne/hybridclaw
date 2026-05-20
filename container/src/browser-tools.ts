@@ -2164,7 +2164,10 @@ function failure(message: string): string {
 }
 
 export function usesGatewayManagedBrowser(): boolean {
-  return gatewayBrowserProvider === 'managed-cloud';
+  return (
+    gatewayBrowserProvider === 'managed-cloud' ||
+    gatewayBrowserProvider === 'mac-cua'
+  );
 }
 
 export function getBrowserProviderLogLabel(): string {
@@ -2173,6 +2176,15 @@ export function getBrowserProviderLogLabel(): string {
 
 function shouldUseGatewayManagedBrowser(name: string): boolean {
   return usesGatewayManagedBrowser() && name.startsWith('browser_');
+}
+
+function gatewayBrowserResultContext(
+  effectiveSessionId: string,
+): Record<string, string> {
+  return {
+    provider: getBrowserProviderLogLabel(),
+    audit_session_id: gatewayBrowserSessionId || effectiveSessionId,
+  };
 }
 
 async function callGatewayManagedBrowser(
@@ -2233,6 +2245,7 @@ async function executeGatewayManagedBrowserTool(
       return failure('failed to normalize screenshot artifact path');
     }
     return success({
+      ...gatewayBrowserResultContext(effectiveSessionId),
       path: relativePath,
       image_url: relativePath,
       full_page: args.fullPage === true,
@@ -2249,6 +2262,7 @@ async function executeGatewayManagedBrowserTool(
     if (!imageBase64) return failure('managed browser screenshot was empty');
     const vision = await callVisionModel(question, imageBase64);
     return success({
+      ...gatewayBrowserResultContext(effectiveSessionId),
       model: vision.model,
       analysis: vision.analysis,
     });
@@ -2267,7 +2281,10 @@ async function executeGatewayManagedBrowserTool(
     if (!relativePath) {
       return failure('failed to normalize PDF artifact path');
     }
-    return success({ path: relativePath });
+    return success({
+      ...gatewayBrowserResultContext(effectiveSessionId),
+      path: relativePath,
+    });
   }
 
   if (name === 'browser_upload') {
@@ -2281,6 +2298,7 @@ async function executeGatewayManagedBrowserTool(
       filePayloads,
     });
     return success({
+      ...gatewayBrowserResultContext(effectiveSessionId),
       target: payload.target || args.selector || args.ref || '',
       ...(payload.selector ? { selector: payload.selector } : {}),
       uploaded_count: payload.uploaded_count || filePaths.length,
@@ -2291,6 +2309,7 @@ async function executeGatewayManagedBrowserTool(
   const payload = await callGatewayManagedBrowser(name, args);
   if (name === 'browser_navigate') {
     return success({
+      ...gatewayBrowserResultContext(effectiveSessionId),
       url: payload.url || args.url || '',
       title: payload.title || '',
       session_id: effectiveSessionId,
@@ -2310,10 +2329,16 @@ async function executeGatewayManagedBrowserTool(
   }
 
   if (name === 'browser_close') {
-    return success({ closed: true });
+    return success({
+      ...gatewayBrowserResultContext(effectiveSessionId),
+      closed: true,
+    });
   }
 
-  return success(payload);
+  return success({
+    ...gatewayBrowserResultContext(effectiveSessionId),
+    ...payload,
+  });
 }
 
 export async function executeBrowserTool(
