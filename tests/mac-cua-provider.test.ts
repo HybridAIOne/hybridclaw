@@ -116,7 +116,7 @@ test('mac-cua real driver defaults to MCP args when config args are empty', asyn
 
   expect(resolveMacCuaDriverCommand({ args: [] })).toEqual({
     command: 'cua-driver',
-    args: ['mcp'],
+    args: ['mcp', '--no-daemon-relaunch'],
   });
   expect(
     resolveMacCuaDriverCommand({ args: ['mcp', '--no-daemon-relaunch'] }),
@@ -128,7 +128,7 @@ test('mac-cua real driver defaults to MCP args when config args are empty', asyn
   process.env.HYBRIDAI_CUA_DRIVER_BIN = '/opt/cua-driver';
   expect(resolveMacCuaDriverCommand({ args: [] })).toEqual({
     command: '/opt/cua-driver',
-    args: ['mcp'],
+    args: ['mcp', '--no-daemon-relaunch'],
   });
 });
 

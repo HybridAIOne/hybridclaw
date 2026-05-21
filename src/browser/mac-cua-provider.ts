@@ -256,7 +256,7 @@ function defaultDriverCommand(): { command: string; args: string[] } {
   const configured = process.env.HYBRIDAI_CUA_DRIVER_BIN?.trim();
   return {
     command: configured || 'cua-driver',
-    args: ['mcp'],
+    args: ['mcp', '--no-daemon-relaunch'],
   };
 }
 

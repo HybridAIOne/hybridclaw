@@ -266,9 +266,9 @@ The `mac-cua` browser provider drives the operator-owned macOS browser through
 the upstream Cua Driver binary. It only supports macOS and requires
 Accessibility plus Screen Recording grants for the terminal or app process that
 runs HybridClaw. HybridClaw connects to the driver over the driver's MCP stdio
-mode (`cua-driver mcp`); the driver may proxy through the `CuaDriver` app
-daemon so macOS attributes Accessibility and Screen Recording permissions to
-the correct app bundle.
+mode and defaults to `cua-driver mcp --no-daemon-relaunch` so macOS attributes
+Accessibility and Screen Recording permissions to the HybridClaw host process
+instead of opening the `CuaDriver` permissions app on each use.
 
 Install Cua Driver:
 
@@ -296,10 +296,14 @@ If `cua-driver` is installed outside `PATH`, point HybridClaw at the executable:
 export HYBRIDAI_CUA_DRIVER_BIN="$HOME/.local/bin/cua-driver"
 ```
 
-Start the driver service and grant macOS permissions:
+Leave `browser.macCua.driverArgs` empty to use the default
+`["mcp", "--no-daemon-relaunch"]`. Set it only when you need to override the
+driver launch mode explicitly.
+
+Grant macOS permissions to the terminal or app that runs HybridClaw, then check
+the grants from that same environment:
 
 ```bash
-open -n -g -a CuaDriver --args serve
 cua-driver check_permissions
 ```
 
