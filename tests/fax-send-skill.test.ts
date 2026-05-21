@@ -42,6 +42,8 @@ test('fax-send skill manifest declares DACH fax metadata and guarded secrets', (
   expect(skill).toContain('recordFaxUsageEvent()');
   expect(skill).toContain('UsageTotals');
   expect(skill).toContain('unit: fax-page');
+  expect(skill).toContain('Return exactly one user-facing summary');
+  expect(skill).toContain('text content such as "Hallo Welt"');
   expect(skill).toContain('give one concise no-send summary only');
   expect(skill).toContain('do not add decorative emoji');
 });

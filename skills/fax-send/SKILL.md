@@ -59,6 +59,16 @@ Use this skill when a user asks to fax a PDF to an external fax number, or when
 an inbound fax arrives as an email PDF and needs routing to a document workflow
 such as DATEV Belegtransfer, file storage, or client records.
 
+## Response Contract
+
+- Return exactly one user-facing summary per fax request. Do not restate the
+  same plan, missing-input list, or no-send notice in a second format.
+- Do not use decorative emoji, checkmarks, sign-off text, or "ready to proceed"
+  filler in fax responses.
+- When the user provides text content such as "Hallo Welt" instead of a public
+  HTTPS PDF URL, do not send. Ask once for the missing PDF URL or hosting path,
+  sender fax number, Sinch project ID, Sinch service ID, and explicit approval.
+
 ## Scope
 
 - outbound fax send from a public HTTPS PDF URL
