@@ -1609,6 +1609,21 @@ th {
   opacity: 0.72;
 }
 
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
 .button-with-spinner {
   display: inline-flex;
   align-items: center;
@@ -1622,6 +1637,57 @@ th {
   border-right-color: transparent;
   border-radius: 999px;
   animation: button-spinner-rotate 0.75s linear infinite;
+}
+
+.brand-voice-list-field {
+  display: grid;
+}
+
+.brand-voice-list {
+  display: grid;
+  gap: 8px;
+}
+
+.brand-voice-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.brand-voice-add-button {
+  width: fit-content;
+}
+
+.brand-voice-score-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted);
+}
+
+.brand-voice-score-bar {
+  overflow: hidden;
+  height: 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
+}
+
+.brand-voice-score-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
+}
+
+.brand-voice-reason-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 @keyframes button-spinner-rotate {

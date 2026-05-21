@@ -1306,6 +1306,50 @@ export interface GatewayAdminPluginsResponse {
   plugins: GatewayAdminPlugin[];
 }
 
+export interface GatewayAdminBrandVoiceProfile {
+  enabled: boolean;
+  mode: 'block' | 'rewrite' | 'flag';
+  voice: string;
+  doList: string[];
+  dontList: string[];
+  bannedPhrases: string[];
+  bannedPatterns: string[];
+  requirePhrases: string[];
+}
+
+export interface GatewayAdminBrandVoiceRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+}
+
+export interface GatewayAdminBrandVoiceProfileResponse {
+  configPath: string;
+  profile: GatewayAdminBrandVoiceProfile;
+  revisions: GatewayAdminBrandVoiceRevision[];
+}
+
+export interface GatewayAdminBrandVoiceProfileUpdateResponse
+  extends GatewayAdminBrandVoiceProfileResponse {
+  changed: boolean;
+  reloadMessage: string;
+}
+
+export interface GatewayAdminBrandVoicePreviewViolation {
+  kind: 'banned_phrase' | 'banned_pattern' | 'missing_required' | 'dont_phrase';
+  detail: string;
+}
+
+export interface GatewayAdminBrandVoicePreviewResponse {
+  score: number;
+  verdict: 'on_brand' | 'needs_review' | 'off_brand';
+  violations: GatewayAdminBrandVoicePreviewViolation[];
+  reasons: string[];
+}
+
 export interface GatewayAdminToolCatalogEntry {
   name: string;
   group: string;

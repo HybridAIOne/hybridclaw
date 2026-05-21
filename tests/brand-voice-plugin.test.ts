@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 test('brand-voice rules detect banned phrases, banned patterns, and missing required phrases', async () => {
-  const { resolveBrandVoiceConfig } = await import(
+  const { buildVoiceBrief, resolveBrandVoiceConfig } = await import(
     '../plugins/brand-voice/src/config.js'
   );
   const { detectRuleViolations } = await import(
@@ -52,6 +52,8 @@ test('brand-voice rules detect banned phrases, banned patterns, and missing requ
   const config = resolveBrandVoiceConfig(
     {
       mode: 'block',
+      doList: ['Use concrete examples'],
+      dontList: ['Use hype'],
       bannedPhrases: ['Synergy'],
       bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
       requirePhrases: ['Best regards'],
@@ -74,6 +76,8 @@ test('brand-voice rules detect banned phrases, banned patterns, and missing requ
     'banned_phrase',
     'missing_required',
   ]);
+  expect(buildVoiceBrief(config)).toContain('Do:\n- Use concrete examples');
+  expect(buildVoiceBrief(config)).toContain("Don't:\n- Use hype");
 
   const onBrand = detectRuleViolations(
     'Thanks for reaching out — we will follow up Tuesday.\n\nBest regards',

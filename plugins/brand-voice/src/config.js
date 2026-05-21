@@ -124,6 +124,8 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
     'allow',
   );
   const voice = normalizeString(rawConfig?.voice);
+  const doList = normalizeStringArray(rawConfig?.doList);
+  const dontList = normalizeStringArray(rawConfig?.dontList);
   const voiceFileText = resolveVoiceFile(
     normalizeString(rawConfig?.voiceFile),
     runtime,
@@ -164,6 +166,8 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
     mode,
     failureMode,
     voice,
+    doList: Object.freeze(doList),
+    dontList: Object.freeze(dontList),
     voiceFileText,
     bannedPhrases: Object.freeze(bannedPhrases),
     bannedPatterns: Object.freeze(
@@ -181,6 +185,16 @@ export function buildVoiceBrief(config) {
   const sections = [];
   if (config.voice) sections.push(`Brand voice: ${config.voice}`);
   if (config.voiceFileText) sections.push(config.voiceFileText);
+  if (config.doList.length > 0) {
+    sections.push(
+      `Do:\n${config.doList.map((entry) => `- ${entry}`).join('\n')}`,
+    );
+  }
+  if (config.dontList.length > 0) {
+    sections.push(
+      `Don't:\n${config.dontList.map((entry) => `- ${entry}`).join('\n')}`,
+    );
+  }
   if (config.bannedPhrases.length > 0) {
     sections.push(
       `Never use these phrases: ${config.bannedPhrases

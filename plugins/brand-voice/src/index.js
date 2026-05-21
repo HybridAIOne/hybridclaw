@@ -26,6 +26,8 @@ export default {
           `  failure mode: ${config.failureMode}`,
           `  voice brief: ${config.voice ? 'configured' : '(none)'}`,
           `  voice file: ${config.voiceFileText ? 'loaded' : '(none)'}`,
+          `  do list: ${config.doList.length}`,
+          `  don't list: ${config.dontList.length}`,
           `  banned phrases: ${config.bannedPhrases.length}`,
           `  banned patterns: ${config.bannedPatterns.length}`,
           `  required phrases: ${config.requirePhrases.length}`,
@@ -47,6 +49,8 @@ export default {
       {
         mode: config.mode,
         bannedPhrases: config.bannedPhrases.length,
+        doList: config.doList.length,
+        dontList: config.dontList.length,
         bannedPatterns: config.bannedPatterns.length,
         requirePhrases: config.requirePhrases.length,
         classifierProvider: config.classifier.provider,

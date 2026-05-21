@@ -12,6 +12,10 @@ import type {
   AdminApprovalsResponse,
   AdminAuditResponse,
   AdminBoardBudgetResponse,
+  AdminBrandVoicePreviewResponse,
+  AdminBrandVoiceProfile,
+  AdminBrandVoiceProfileResponse,
+  AdminBrandVoiceProfileUpdateResponse,
   AdminBrowserPoolHealthResponse,
   AdminBrowserPoolLaunchResponse,
   AdminChannelConfig,
@@ -1071,6 +1075,43 @@ export function unblockSkill(
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {
   return requestJson<AdminPluginsResponse>('/api/admin/plugins', { token });
+}
+
+export function fetchBrandVoiceProfile(
+  token: string,
+): Promise<AdminBrandVoiceProfileResponse> {
+  return requestJson<AdminBrandVoiceProfileResponse>('/api/admin/brand-voice', {
+    token,
+  });
+}
+
+export function saveBrandVoiceProfile(
+  token: string,
+  profile: AdminBrandVoiceProfile,
+): Promise<AdminBrandVoiceProfileUpdateResponse> {
+  return requestJson<AdminBrandVoiceProfileUpdateResponse>(
+    '/api/admin/brand-voice',
+    {
+      token,
+      method: 'PUT',
+      body: { profile },
+    },
+  );
+}
+
+export function previewBrandVoiceProfile(
+  token: string,
+  profile: AdminBrandVoiceProfile,
+  sample: string,
+): Promise<AdminBrandVoicePreviewResponse> {
+  return requestJson<AdminBrandVoicePreviewResponse>(
+    '/api/admin/brand-voice/preview',
+    {
+      token,
+      method: 'POST',
+      body: { profile, sample },
+    },
+  );
 }
 
 export function fetchAdaptiveSkillHealth(

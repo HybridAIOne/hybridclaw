@@ -1428,6 +1428,50 @@ export interface AdminPluginsResponse {
   plugins: AdminPlugin[];
 }
 
+export interface AdminBrandVoiceProfile {
+  enabled: boolean;
+  mode: 'block' | 'rewrite' | 'flag';
+  voice: string;
+  doList: string[];
+  dontList: string[];
+  bannedPhrases: string[];
+  bannedPatterns: string[];
+  requirePhrases: string[];
+}
+
+export interface AdminBrandVoiceRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+}
+
+export interface AdminBrandVoiceProfileResponse {
+  configPath: string;
+  profile: AdminBrandVoiceProfile;
+  revisions: AdminBrandVoiceRevision[];
+}
+
+export interface AdminBrandVoiceProfileUpdateResponse
+  extends AdminBrandVoiceProfileResponse {
+  changed: boolean;
+  reloadMessage: string;
+}
+
+export interface AdminBrandVoicePreviewViolation {
+  kind: 'banned_phrase' | 'banned_pattern' | 'missing_required' | 'dont_phrase';
+  detail: string;
+}
+
+export interface AdminBrandVoicePreviewResponse {
+  score: number;
+  verdict: 'on_brand' | 'needs_review' | 'off_brand';
+  violations: AdminBrandVoicePreviewViolation[];
+  reasons: string[];
+}
+
 export interface AdminAdaptiveSkillErrorCluster {
   category: string;
   count: number;

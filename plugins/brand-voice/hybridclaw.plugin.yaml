@@ -25,6 +25,18 @@ configSchema:
       type: string
       default: ''
       description: One-paragraph description of the brand voice (formal, playful, …).
+    doList:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Positive voice guidelines the assistant should follow.
+    dontList:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Voice guidelines the assistant should avoid.
     voiceFile:
       type: string
       description: Path to a markdown file with the brand voice guidelines. Loaded once at registration.
@@ -116,6 +128,12 @@ configUiHints:
   voice:
     label: Brand voice description
     placeholder: Friendly, plainspoken, no jargon. Confident but never cocky.
+  doList:
+    label: Do
+    help: Positive voice rules, one per array entry.
+  dontList:
+    label: Don't
+    help: Voice rules to avoid, one per array entry.
   voiceFile:
     label: Path to brand voice markdown
   bannedPhrases:
