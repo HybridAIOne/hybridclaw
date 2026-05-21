@@ -480,7 +480,6 @@ export function SkillsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Skills"
         description="Browse installed skills, review health, and manage amendments."
         actions={
           <>

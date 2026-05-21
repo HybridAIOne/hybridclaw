@@ -246,7 +246,7 @@ export function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader title="Dashboard" />
+      <PageHeader />
 
       <div className="metric-grid">
         <MetricCard

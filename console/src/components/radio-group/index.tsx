@@ -70,9 +70,10 @@ export function RadioGroup({
 }: RadioGroupProps) {
   const field = useFieldContext();
   const resolvedDisabled = disabled ?? field.disabled;
-  const resolvedInvalid = ariaInvalidProp === undefined
-    ? field.invalid
-    : ariaInvalidProp === true || ariaInvalidProp === 'true';
+  const resolvedInvalid =
+    ariaInvalidProp === undefined
+      ? field.invalid
+      : ariaInvalidProp === true || ariaInvalidProp === 'true';
   const describedBy = mergeIds(
     field.descriptionId,
     resolvedInvalid ? field.errorId : undefined,

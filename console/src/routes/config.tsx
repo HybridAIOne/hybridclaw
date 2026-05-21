@@ -1,9 +1,12 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link, useBlocker } from '@tanstack/react-router';
 import {
   type Dispatch,
   type SetStateAction,
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -12,11 +15,26 @@ import {
   saveConfig,
   startBrowserPool,
 } from '../api/client';
-import type { AdminBrowserPoolHealthResponse, AdminConfig } from '../api/types';
+import type {
+  AdminBrowserPoolHealthResponse,
+  AdminConfig,
+  LogLevel,
+} from '../api/types';
+import { LOG_LEVELS } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/dialog';
+import {
   Field,
+  FieldContent,
+  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -29,12 +47,9 @@ import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
 import { getErrorMessage } from '../lib/error-message';
 import styles from './config.module.css';
-
-function cloneConfig<T>(value: T): T {
-  return structuredClone(value);
-}
 
 function serialize(config: AdminConfig): string {
   return JSON.stringify(config, null, 2);
@@ -47,8 +62,10 @@ type AdminConfigSections = {
   container: AdminConfig['container'];
 };
 
+type DraftSetter = Dispatch<SetStateAction<AdminConfig | null>>;
+
 function updateSection<K extends keyof AdminConfigSections>(
-  setDraft: Dispatch<SetStateAction<AdminConfig | null>>,
+  setDraft: DraftSetter,
   section: K,
   updates: Partial<AdminConfigSections[K]>,
 ) {
@@ -60,22 +77,59 @@ function updateSection<K extends keyof AdminConfigSections>(
 
 type BrowserConfig = NonNullable<AdminConfig['browser']>;
 type BrowserProvider = BrowserConfig['provider'];
+type BrowserObjectSection = Exclude<keyof BrowserConfig, 'provider'>;
 const LOCAL_DOCKER_POOL_TENANT_ID = 'main';
+
+const PROVIDER_OPTIONS: ReadonlyArray<{
+  value: BrowserProvider;
+  label: string;
+}> = [
+  { value: 'local', label: 'Local (Playwright)' },
+  { value: 'camofox', label: 'Camoufox (anti-detection)' },
+  { value: 'managed-cloud', label: 'Managed cloud (Docker pool)' },
+  { value: 'browser-use-cloud', label: 'Browser Use cloud' },
+];
+
+const CONTAINER_MEMORY_PATTERN = /^\d+(?:\.\d+)?[kKmMgG]?$/;
+
+function isLogLevel(value: string): value is LogLevel {
+  return (LOG_LEVELS as readonly string[]).includes(value);
+}
+
+type DecimalInputProps = {
+  id: string;
+  value: number;
+  onValueChange: (value: number) => void;
+  onErrorChange: (error: string | null) => void;
+  min?: number;
+  max?: number;
+};
+
+function useStableCallback<Args extends unknown[], R>(
+  callback: (...args: Args) => R,
+): (...args: Args) => R {
+  const ref = useRef(callback);
+  useEffect(() => {
+    ref.current = callback;
+  });
+  return useCallback((...args: Args) => ref.current(...args), []);
+}
 
 function DecimalNumberInput({
   id,
   value,
   onValueChange,
-}: {
-  id: string;
-  value: number;
-  onValueChange: (value: number) => void;
-}) {
+  onErrorChange,
+  min = 0,
+  max,
+}: DecimalInputProps) {
   const [rawValue, setRawValue] = useState(String(value));
+  const reportError = useStableCallback(onErrorChange);
 
   useEffect(() => {
     setRawValue(String(value));
-  }, [value]);
+    reportError(null);
+  }, [value, reportError]);
 
   return (
     <Input
@@ -86,19 +140,90 @@ function DecimalNumberInput({
         const parsed = Number(rawValue);
         if (!Number.isFinite(parsed)) {
           setRawValue(String(value));
+          reportError(null);
         }
       }}
       onChange={(event) => {
-        const nextValue = event.target.value;
-        setRawValue(nextValue);
-        if (nextValue.trim() === '') {
+        const next = event.target.value;
+        setRawValue(next);
+        if (next.trim() === '') {
+          reportError(null);
           onValueChange(0);
           return;
         }
-        const parsed = Number(nextValue);
-        if (Number.isFinite(parsed) && parsed >= 0) {
-          onValueChange(parsed);
+        const parsed = Number(next);
+        if (!Number.isFinite(parsed)) {
+          reportError('Enter a valid number.');
+          return;
         }
+        if (parsed < min) {
+          reportError(`Must be ≥ ${min}.`);
+          return;
+        }
+        if (max !== undefined && parsed > max) {
+          reportError(`Must be ≤ ${max}.`);
+          return;
+        }
+        reportError(null);
+        onValueChange(parsed);
+      }}
+    />
+  );
+}
+
+function IntegerInput({
+  id,
+  value,
+  onValueChange,
+  onErrorChange,
+  min,
+  max,
+}: {
+  id: string;
+  value: number;
+  onValueChange: (value: number) => void;
+  onErrorChange: (error: string | null) => void;
+  min?: number;
+  max?: number;
+}) {
+  const [rawValue, setRawValue] = useState(String(value));
+  const reportError = useStableCallback(onErrorChange);
+
+  useEffect(() => {
+    setRawValue(String(value));
+    reportError(null);
+  }, [value, reportError]);
+
+  return (
+    <Input
+      id={id}
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      value={rawValue}
+      onChange={(event) => {
+        const text = event.target.value;
+        setRawValue(text);
+        if (text.trim() === '') {
+          reportError('Required.');
+          return;
+        }
+        const parsed = Number(text);
+        if (!Number.isInteger(parsed)) {
+          reportError('Enter a whole number.');
+          return;
+        }
+        if (min !== undefined && parsed < min) {
+          reportError(`Must be ≥ ${min}.`);
+          return;
+        }
+        if (max !== undefined && parsed > max) {
+          reportError(`Must be ≤ ${max}.`);
+          return;
+        }
+        reportError(null);
+        onValueChange(parsed);
       }}
     />
   );
@@ -202,15 +327,45 @@ function browserConfig(config: AdminConfig): BrowserConfig {
   });
 }
 
-function updateBrowserConfig(
+function withBrowser(
   current: AdminConfig | null,
   updater: (browser: BrowserConfig) => BrowserConfig,
 ): AdminConfig | null {
   if (!current) return current;
-  return {
-    ...current,
-    browser: updater(browserConfig(current)),
-  };
+  return { ...current, browser: updater(browserConfig(current)) };
+}
+
+function setBrowserSection<K extends BrowserObjectSection>(
+  setDraft: DraftSetter,
+  section: K,
+  updates: Partial<BrowserConfig[K]>,
+) {
+  setDraft((current) =>
+    withBrowser(current, (b) => ({
+      ...b,
+      [section]: { ...b[section], ...updates },
+    })),
+  );
+}
+
+type BrowserPricedSection = 'managedCloud' | 'browserUseCloud';
+type BrowserPricing<K extends BrowserPricedSection> =
+  BrowserConfig[K]['pricing'];
+
+function setBrowserPricing<K extends BrowserPricedSection>(
+  setDraft: DraftSetter,
+  section: K,
+  updates: Partial<BrowserPricing<K>>,
+) {
+  setDraft((current) =>
+    withBrowser(current, (b) => ({
+      ...b,
+      [section]: {
+        ...b[section],
+        pricing: { ...b[section].pricing, ...updates },
+      },
+    })),
+  );
 }
 
 function browserPoolStatusClass(
@@ -243,13 +398,62 @@ function browserPoolStatusText(
   return `${health.status} - ${health.message}`;
 }
 
+function ProfileBrowserFields({
+  provider,
+  config,
+  setDraft,
+}: {
+  provider: 'local' | 'camofox';
+  config: BrowserConfig['local'];
+  setDraft: DraftSetter;
+}) {
+  return (
+    <>
+      <Field>
+        <FieldLabel>Profile directory</FieldLabel>
+        <Input
+          value={config.profileDir}
+          onChange={(event) =>
+            setBrowserSection(setDraft, provider, {
+              profileDir: event.target.value,
+            })
+          }
+        />
+      </Field>
+      <Field orientation="horizontal">
+        <Switch
+          checked={config.headed}
+          onCheckedChange={(headed) =>
+            setBrowserSection(setDraft, provider, { headed })
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Headed browser</FieldLabel>
+          <FieldDescription>
+            Show the browser window instead of running headless.
+          </FieldDescription>
+        </FieldContent>
+      </Field>
+    </>
+  );
+}
+
 export function ConfigPage() {
   const auth = useAuth();
   const toast = useToast();
-  const [rawMode, setRawMode] = useState(false);
+  const [viewMode, setViewMode] = useState<'form' | 'json'>('form');
   const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [rawJson, setRawJson] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [portError, setPortError] = useState<string | null>(null);
+  const [managedActionPriceError, setManagedActionPriceError] = useState<
+    string | null
+  >(null);
+  const [browserUseBrowserPriceError, setBrowserUseBrowserPriceError] =
+    useState<string | null>(null);
+  const [browserUseActionPriceError, setBrowserUseActionPriceError] = useState<
+    string | null
+  >(null);
 
   const configQuery = useQuery({
     queryKey: ['config', auth.token],
@@ -261,7 +465,7 @@ export function ConfigPage() {
       return saveConfig(auth.token, nextConfig);
     },
     onSuccess: (payload) => {
-      setDraft(cloneConfig(payload.config));
+      setDraft(payload.config);
       setRawJson(serialize(payload.config));
       setJsonError(null);
       toast.success('Runtime config saved.');
@@ -273,7 +477,7 @@ export function ConfigPage() {
 
   useEffect(() => {
     if (!configQuery.data || draft) return;
-    setDraft(cloneConfig(configQuery.data.config));
+    setDraft(configQuery.data.config);
     setRawJson(serialize(configQuery.data.config));
   }, [configQuery.data, draft]);
 
@@ -284,11 +488,14 @@ export function ConfigPage() {
 
   const isDirty = useMemo(() => {
     if (!configQuery.data || !draft) return false;
-    if (rawMode) return rawJson !== savedSerialized;
+    if (viewMode === 'json') return rawJson !== savedSerialized;
     return serialize(draft) !== savedSerialized;
-  }, [configQuery.data, draft, rawMode, rawJson, savedSerialized]);
+  }, [configQuery.data, draft, viewMode, rawJson, savedSerialized]);
 
   const draftBrowser = draft ? browserConfig(draft) : defaultBrowserConfig();
+  const savedBrowserProvider =
+    configQuery.data?.config.browser?.provider ?? 'local';
+  const providerChanged = draftBrowser.provider !== savedBrowserProvider;
   const managedPoolTokenId = draftBrowser.managedCloud.poolTokenRef?.id ?? '';
   const browserUseApiKeyId = draftBrowser.browserUseCloud.apiKeyRef?.id ?? '';
   const browserPoolHealthQuery = useQuery({
@@ -300,7 +507,7 @@ export function ConfigPage() {
     ],
     queryFn: () => fetchBrowserPoolHealth(auth.token),
     enabled: Boolean(
-      draft && !rawMode && draftBrowser.provider === 'managed-cloud',
+      draft && viewMode === 'form' && draftBrowser.provider === 'managed-cloud',
     ),
     refetchInterval: 15_000,
   });
@@ -314,19 +521,9 @@ export function ConfigPage() {
         toast.error('Browser pool did not start', payload.message);
       }
       if (payload.poolTokenRefId) {
-        const poolTokenRefId = payload.poolTokenRefId;
-        setDraft((current) =>
-          updateBrowserConfig(current, (currentBrowser) => ({
-            ...currentBrowser,
-            managedCloud: {
-              ...currentBrowser.managedCloud,
-              poolTokenRef: {
-                source: 'store',
-                id: poolTokenRefId,
-              },
-            },
-          })),
-        );
+        setBrowserSection(setDraft, 'managedCloud', {
+          poolTokenRef: { source: 'store', id: payload.poolTokenRefId },
+        });
       }
       void configQuery.refetch();
       void browserPoolHealthQuery.refetch();
@@ -336,23 +533,54 @@ export function ConfigPage() {
     },
   });
 
+  const handleRawJsonChange = useCallback((next: string) => {
+    setRawJson(next);
+    try {
+      JSON.parse(next);
+      setJsonError(null);
+    } catch (error) {
+      setJsonError(getErrorMessage(error));
+    }
+  }, []);
+
+  const blocker = useBlocker({
+    shouldBlockFn: ({ next, current }) =>
+      isDirty && next.pathname !== current.pathname,
+    enableBeforeUnload: () => isDirty,
+    withResolver: true,
+  });
+  const isBlocked = blocker.status === 'blocked';
+
   if (configQuery.isLoading && !draft) {
-    return <div className="empty-state">Loading runtime config...</div>;
+    return <div className="empty-state">Loading runtime config…</div>;
   }
 
   if (!draft || !configQuery.data) {
-    return <div className="empty-state">Runtime config is unavailable.</div>;
+    return (
+      <div className={styles.unavailable}>
+        <p>Runtime config is unavailable.</p>
+        <Button
+          variant="ghost"
+          onClick={() => void configQuery.refetch()}
+          disabled={configQuery.isFetching}
+        >
+          {configQuery.isFetching ? 'Retrying…' : 'Retry'}
+        </Button>
+      </div>
+    );
   }
 
   const browser = draftBrowser;
 
-  const toggleRawMode = () => {
-    if (rawMode) {
+  const handleViewModeChange = (next: string) => {
+    const target = next === 'json' ? 'json' : 'form';
+    if (target === viewMode) return;
+    if (target === 'form') {
       try {
         const parsed = JSON.parse(rawJson) as AdminConfig;
         setDraft(parsed);
         setJsonError(null);
-        setRawMode(false);
+        setViewMode('form');
       } catch (error) {
         setJsonError(getErrorMessage(error));
       }
@@ -360,18 +588,18 @@ export function ConfigPage() {
     }
     setRawJson(serialize(draft));
     setJsonError(null);
-    setRawMode(true);
+    setViewMode('json');
   };
 
   const discard = () => {
     if (!configQuery.data) return;
-    setDraft(cloneConfig(configQuery.data.config));
+    setDraft(configQuery.data.config);
     setRawJson(serialize(configQuery.data.config));
     setJsonError(null);
   };
 
   const save = () => {
-    if (rawMode) {
+    if (viewMode === 'json') {
       try {
         const parsed = JSON.parse(rawJson) as AdminConfig;
         setDraft(parsed);
@@ -385,33 +613,54 @@ export function ConfigPage() {
     saveMutation.mutate(draft);
   };
 
+  const memoryInvalid = !CONTAINER_MEMORY_PATTERN.test(draft.container.memory);
+  const formInvalid =
+    memoryInvalid ||
+    Boolean(portError) ||
+    Boolean(managedActionPriceError) ||
+    Boolean(browserUseBrowserPriceError) ||
+    Boolean(browserUseActionPriceError);
+
+  const saveDisabled =
+    saveMutation.isPending ||
+    (viewMode === 'json' ? Boolean(jsonError) : formInvalid);
+
   return (
     <div className={styles.page}>
       <PageHeader
-        title="Config"
-        description={configQuery.data.path}
+        description={
+          <>
+            <span className={styles.path}>{configQuery.data.path}</span>
+            {isDirty ? (
+              <span className={styles.statusInline}>
+                <span className={styles.statusDot} aria-hidden="true" />
+                Unsaved changes
+              </span>
+            ) : (
+              <span className={styles.statusInline}>Saved</span>
+            )}
+          </>
+        }
         actions={
           <>
+            <ToggleGroup
+              ariaLabel="Editor view"
+              value={viewMode}
+              onValueChange={handleViewModeChange}
+              size="sm"
+            >
+              <ToggleGroupItem value="form">Form</ToggleGroupItem>
+              <ToggleGroupItem value="json">JSON</ToggleGroupItem>
+            </ToggleGroup>
             {isDirty ? (
-              <>
-                <span className={styles.status}>
-                  <span className={styles.statusDot} aria-hidden="true" />
-                  Unsaved changes
-                </span>
-                <Button variant="ghost" onClick={discard}>
-                  Discard
-                </Button>
-              </>
-            ) : (
-              <span className={styles.status}>Saved</span>
-            )}
-            <Button variant="ghost" onClick={toggleRawMode}>
-              {rawMode ? 'Edit as form' : 'Edit as JSON'}
-            </Button>
+              <Button variant="ghost" onClick={discard}>
+                Discard
+              </Button>
+            ) : null}
             {isDirty || saveMutation.isPending ? (
               <Button
                 loading={saveMutation.isPending}
-                disabled={saveMutation.isPending}
+                disabled={saveDisabled}
                 onClick={save}
               >
                 {saveMutation.isPending ? 'Saving…' : 'Save changes'}
@@ -421,18 +670,23 @@ export function ConfigPage() {
         }
       />
 
+      <p className={styles.formNote}>
+        Form covers core runtime fields. For the full schema (channels,
+        deployment, plugins, scheduler…) switch to <strong>JSON</strong>.
+      </p>
+
       <div className={styles.content}>
-        {rawMode ? (
+        {viewMode === 'json' ? (
           <Field invalid={Boolean(jsonError)}>
             <FieldLabel>config.json</FieldLabel>
             <Textarea
-              className="code-editor"
-              rows={24}
+              className={`code-editor ${styles.jsonEditor}`}
+              spellCheck={false}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
               value={rawJson}
-              onChange={(event) => {
-                setRawJson(event.target.value);
-                if (jsonError) setJsonError(null);
-              }}
+              onChange={(event) => handleRawJsonChange(event.target.value)}
             />
             <FieldError>{jsonError}</FieldError>
           </Field>
@@ -440,6 +694,9 @@ export function ConfigPage() {
           <>
             <FieldSet>
               <FieldLegend>Operations</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                Gateway listener and log verbosity.
+              </FieldDescription>
               <FieldGroup>
                 <Field>
                   <FieldLabel>Health host</FieldLabel>
@@ -451,38 +708,53 @@ export function ConfigPage() {
                       })
                     }
                   />
+                  <FieldDescription>
+                    Interface the gateway binds to. Use <code>127.0.0.1</code>{' '}
+                    for loopback-only.
+                  </FieldDescription>
                 </Field>
-                <Field>
+                <Field controlId="ops-health-port" invalid={Boolean(portError)}>
                   <FieldLabel>Health port</FieldLabel>
-                  <Input
-                    value={String(draft.ops.healthPort)}
-                    onChange={(event) =>
-                      updateSection(setDraft, 'ops', {
-                        healthPort:
-                          Number.parseInt(event.target.value, 10) || 0,
-                      })
+                  <IntegerInput
+                    id="ops-health-port"
+                    value={draft.ops.healthPort}
+                    min={1}
+                    max={65535}
+                    onValueChange={(healthPort) =>
+                      updateSection(setDraft, 'ops', { healthPort })
                     }
+                    onErrorChange={setPortError}
                   />
+                  <FieldError>{portError}</FieldError>
                 </Field>
                 <Field>
                   <FieldLabel>Log level</FieldLabel>
-                  <Input
+                  <NativeSelect
                     value={draft.ops.logLevel}
-                    onChange={(event) =>
-                      updateSection(setDraft, 'ops', {
-                        logLevel: event.target.value,
-                      })
-                    }
-                  />
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      if (isLogLevel(next)) {
+                        updateSection(setDraft, 'ops', { logLevel: next });
+                      }
+                    }}
+                  >
+                    {LOG_LEVELS.map((level) => (
+                      <NativeSelectOption key={level} value={level}>
+                        {level}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
                 </Field>
               </FieldGroup>
             </FieldSet>
 
             <FieldSet>
               <FieldLegend>Security</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                Sensitive-content guards applied to agent output.
+              </FieldDescription>
               <FieldGroup>
                 <Field orientation="horizontal">
-                  <FieldLabel>Confidential leak guard</FieldLabel>
                   <Switch
                     checked={draft.security.confidentialRedactionEnabled}
                     onCheckedChange={(confidentialRedactionEnabled) =>
@@ -491,16 +763,27 @@ export function ConfigPage() {
                       })
                     }
                   />
+                  <FieldContent>
+                    <FieldLabel>Confidential leak guard</FieldLabel>
+                    <FieldDescription>
+                      Redact secrets and sensitive patterns before they leave
+                      the agent.
+                    </FieldDescription>
+                  </FieldContent>
                 </Field>
               </FieldGroup>
             </FieldSet>
 
             <FieldSet>
               <FieldLegend>HybridAI</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                HybridAI provider defaults.
+              </FieldDescription>
               <FieldGroup>
                 <Field>
                   <FieldLabel>Base URL</FieldLabel>
                   <Input
+                    type="url"
                     value={draft.hybridai.baseUrl}
                     onChange={(event) =>
                       updateSection(setDraft, 'hybridai', {
@@ -521,45 +804,73 @@ export function ConfigPage() {
                   />
                 </Field>
                 <Field orientation="horizontal">
-                  <FieldLabel>RAG default</FieldLabel>
                   <Switch
                     checked={draft.hybridai.enableRag}
                     onCheckedChange={(enableRag) =>
                       updateSection(setDraft, 'hybridai', { enableRag })
                     }
                   />
+                  <FieldContent>
+                    <FieldLabel>RAG default</FieldLabel>
+                    <FieldDescription>
+                      Enable retrieval augmentation by default for new
+                      conversations.
+                    </FieldDescription>
+                  </FieldContent>
                 </Field>
               </FieldGroup>
             </FieldSet>
 
             <FieldSet>
               <FieldLegend>Container</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                Sandboxed container runtime for tool execution.
+              </FieldDescription>
               <FieldGroup>
-                <Field>
+                <Field controlId="container-memory" invalid={memoryInvalid}>
                   <FieldLabel>Memory</FieldLabel>
                   <Input
+                    id="container-memory"
                     value={draft.container.memory}
+                    placeholder="1024m"
                     onChange={(event) =>
                       updateSection(setDraft, 'container', {
                         memory: event.target.value,
                       })
                     }
                   />
+                  <FieldDescription>
+                    Docker memory limit. e.g. <code>512m</code>, <code>1g</code>
+                    , <code>2048m</code>.
+                  </FieldDescription>
+                  <FieldError>
+                    Use a number with optional <code>k</code>, <code>m</code>,
+                    or <code>g</code> suffix.
+                  </FieldError>
                 </Field>
                 <Field orientation="horizontal">
-                  <FieldLabel>Persistent bash state</FieldLabel>
                   <Switch
                     checked={draft.container.persistBashState}
                     onCheckedChange={(persistBashState) =>
                       updateSection(setDraft, 'container', { persistBashState })
                     }
                   />
+                  <FieldContent>
+                    <FieldLabel>Persistent bash state</FieldLabel>
+                    <FieldDescription>
+                      Reuse the same shell across tool calls so cwd, env, and
+                      aliases survive.
+                    </FieldDescription>
+                  </FieldContent>
                 </Field>
               </FieldGroup>
             </FieldSet>
 
             <FieldSet>
               <FieldLegend>Browser</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                Browser provider used for agent web tasks.
+              </FieldDescription>
               <FieldGroup>
                 <Field>
                   <FieldLabel>Provider</FieldLabel>
@@ -567,102 +878,38 @@ export function ConfigPage() {
                     value={browser.provider}
                     onChange={(event) =>
                       setDraft((current) =>
-                        updateBrowserConfig(current, (currentBrowser) => ({
-                          ...currentBrowser,
+                        withBrowser(current, (b) => ({
+                          ...b,
                           provider: event.target.value as BrowserProvider,
                         })),
                       )
                     }
                   >
-                    <NativeSelectOption value="local">local</NativeSelectOption>
-                    <NativeSelectOption value="camofox">
-                      camofox
-                    </NativeSelectOption>
-                    <NativeSelectOption value="managed-cloud">
-                      managed-cloud
-                    </NativeSelectOption>
-                    <NativeSelectOption value="browser-use-cloud">
-                      browser-use-cloud
-                    </NativeSelectOption>
+                    {PROVIDER_OPTIONS.map((option) => (
+                      <NativeSelectOption
+                        key={option.value}
+                        value={option.value}
+                      >
+                        {option.label}
+                      </NativeSelectOption>
+                    ))}
                   </NativeSelect>
                 </Field>
 
                 {browser.provider === 'local' ? (
-                  <>
-                    <Field>
-                      <FieldLabel>Profile directory</FieldLabel>
-                      <Input
-                        value={browser.local.profileDir}
-                        onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              local: {
-                                ...currentBrowser.local,
-                                profileDir: event.target.value,
-                              },
-                            })),
-                          )
-                        }
-                      />
-                    </Field>
-                    <Field orientation="horizontal">
-                      <FieldLabel>Headed browser</FieldLabel>
-                      <Switch
-                        checked={browser.local.headed}
-                        onCheckedChange={(headed) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              local: {
-                                ...currentBrowser.local,
-                                headed,
-                              },
-                            })),
-                          )
-                        }
-                      />
-                    </Field>
-                  </>
+                  <ProfileBrowserFields
+                    provider="local"
+                    config={browser.local}
+                    setDraft={setDraft}
+                  />
                 ) : null}
 
                 {browser.provider === 'camofox' ? (
-                  <>
-                    <Field>
-                      <FieldLabel>Profile directory</FieldLabel>
-                      <Input
-                        value={browser.camofox.profileDir}
-                        onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              camofox: {
-                                ...currentBrowser.camofox,
-                                profileDir: event.target.value,
-                              },
-                            })),
-                          )
-                        }
-                      />
-                    </Field>
-                    <Field orientation="horizontal">
-                      <FieldLabel>Headed browser</FieldLabel>
-                      <Switch
-                        checked={browser.camofox.headed}
-                        onCheckedChange={(headed) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              camofox: {
-                                ...currentBrowser.camofox,
-                                headed,
-                              },
-                            })),
-                          )
-                        }
-                      />
-                    </Field>
-                  </>
+                  <ProfileBrowserFields
+                    provider="camofox"
+                    config={browser.camofox}
+                    setDraft={setDraft}
+                  />
                 ) : null}
 
                 {browser.provider === 'managed-cloud' ? (
@@ -702,21 +949,23 @@ export function ConfigPage() {
                             : 'Start Docker pool'}
                         </Button>
                       </div>
+                      {providerChanged ? (
+                        <FieldDescription className={styles.poolStatusPending}>
+                          Pending save — status above reflects the previously
+                          saved provider ({savedBrowserProvider}). Save changes
+                          to refresh.
+                        </FieldDescription>
+                      ) : null}
                     </Field>
                     <Field>
                       <FieldLabel>Pool endpoint URL</FieldLabel>
                       <Input
+                        type="url"
                         value={browser.managedCloud.endpointUrl}
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              managedCloud: {
-                                ...currentBrowser.managedCloud,
-                                endpointUrl: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'managedCloud', {
+                            endpointUrl: event.target.value,
+                          })
                         }
                       />
                     </Field>
@@ -727,20 +976,11 @@ export function ConfigPage() {
                         placeholder="MANAGED_BROWSER_POOL_TOKEN"
                         onChange={(event) => {
                           const id = event.target.value.trim();
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              managedCloud: {
-                                ...currentBrowser.managedCloud,
-                                poolTokenRef: id
-                                  ? {
-                                      source: 'store',
-                                      id,
-                                    }
-                                  : undefined,
-                              },
-                            })),
-                          );
+                          setBrowserSection(setDraft, 'managedCloud', {
+                            poolTokenRef: id
+                              ? { source: 'store', id }
+                              : undefined,
+                          });
                         }}
                       />
                     </Field>
@@ -750,43 +990,33 @@ export function ConfigPage() {
                         value={browser.managedCloud.defaultTenantId}
                         placeholder="Uses agent id when blank"
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              managedCloud: {
-                                ...currentBrowser.managedCloud,
-                                defaultTenantId: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'managedCloud', {
+                            defaultTenantId: event.target.value,
+                          })
                         }
                       />
                     </Field>
                     <div className="button-row">
-                      <a className="ghost-button" href="/admin/approvals">
+                      <Link to="/admin/approvals" className="ghost-button">
                         Manage network policy
-                      </a>
+                      </Link>
                     </div>
-                    <Field controlId="managed-cloud-action-usd">
+                    <Field
+                      controlId="managed-cloud-action-usd"
+                      invalid={Boolean(managedActionPriceError)}
+                    >
                       <FieldLabel>Action price USD</FieldLabel>
                       <DecimalNumberInput
                         id="managed-cloud-action-usd"
                         value={browser.managedCloud.pricing.actionUsd}
-                        onValueChange={(value) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              managedCloud: {
-                                ...currentBrowser.managedCloud,
-                                pricing: {
-                                  ...currentBrowser.managedCloud.pricing,
-                                  actionUsd: value,
-                                },
-                              },
-                            })),
-                          )
+                        onValueChange={(actionUsd) =>
+                          setBrowserPricing(setDraft, 'managedCloud', {
+                            actionUsd,
+                          })
                         }
+                        onErrorChange={setManagedActionPriceError}
                       />
+                      <FieldError>{managedActionPriceError}</FieldError>
                     </Field>
                   </>
                 ) : null}
@@ -799,20 +1029,9 @@ export function ConfigPage() {
                         value={browserUseApiKeyId}
                         onChange={(event) => {
                           const id = event.target.value.trim();
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                apiKeyRef: id
-                                  ? {
-                                      source: 'store',
-                                      id,
-                                    }
-                                  : undefined,
-                              },
-                            })),
-                          );
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            apiKeyRef: id ? { source: 'store', id } : undefined,
+                          });
                         }}
                       />
                     </Field>
@@ -821,15 +1040,9 @@ export function ConfigPage() {
                       <Input
                         value={browser.browserUseCloud.projectId}
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                projectId: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            projectId: event.target.value,
+                          })
                         }
                       />
                     </Field>
@@ -838,15 +1051,9 @@ export function ConfigPage() {
                       <Input
                         value={browser.browserUseCloud.profileId}
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                profileId: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            profileId: event.target.value,
+                          })
                         }
                       />
                     </Field>
@@ -855,78 +1062,64 @@ export function ConfigPage() {
                       <Input
                         value={browser.browserUseCloud.region}
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                region: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            region: event.target.value,
+                          })
                         }
                       />
                     </Field>
                     <Field orientation="horizontal">
-                      <FieldLabel>Keep alive</FieldLabel>
                       <Switch
                         checked={browser.browserUseCloud.keepAlive}
                         onCheckedChange={(keepAlive) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                keepAlive,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            keepAlive,
+                          })
                         }
                       />
+                      <FieldContent>
+                        <FieldLabel>Keep alive</FieldLabel>
+                        <FieldDescription>
+                          Keep the cloud browser session alive between calls
+                          instead of tearing it down.
+                        </FieldDescription>
+                      </FieldContent>
                     </Field>
-                    <Field controlId="browser-use-browser-usd">
+                    <Field
+                      controlId="browser-use-browser-usd"
+                      invalid={Boolean(browserUseBrowserPriceError)}
+                    >
                       <FieldLabel>Browser price USD/min</FieldLabel>
                       <DecimalNumberInput
                         id="browser-use-browser-usd"
                         value={
                           browser.browserUseCloud.pricing.browserUsdPerMinute
                         }
-                        onValueChange={(value) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                pricing: {
-                                  ...currentBrowser.browserUseCloud.pricing,
-                                  browserUsdPerMinute: value,
-                                },
-                              },
-                            })),
-                          )
+                        onValueChange={(browserUsdPerMinute) =>
+                          setBrowserPricing(setDraft, 'browserUseCloud', {
+                            browserUsdPerMinute,
+                          })
                         }
+                        onErrorChange={setBrowserUseBrowserPriceError}
                       />
+                      <FieldError>{browserUseBrowserPriceError}</FieldError>
                     </Field>
-                    <Field controlId="browser-use-action-usd">
+                    <Field
+                      controlId="browser-use-action-usd"
+                      invalid={Boolean(browserUseActionPriceError)}
+                    >
                       <FieldLabel>Action price USD</FieldLabel>
                       <DecimalNumberInput
                         id="browser-use-action-usd"
                         value={browser.browserUseCloud.pricing.actionUsd}
-                        onValueChange={(value) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                pricing: {
-                                  ...currentBrowser.browserUseCloud.pricing,
-                                  actionUsd: value,
-                                },
-                              },
-                            })),
-                          )
+                        onValueChange={(actionUsd) =>
+                          setBrowserPricing(setDraft, 'browserUseCloud', {
+                            actionUsd,
+                          })
                         }
+                        onErrorChange={setBrowserUseActionPriceError}
                       />
+                      <FieldError>{browserUseActionPriceError}</FieldError>
                     </Field>
                   </>
                 ) : null}
@@ -935,6 +1128,41 @@ export function ConfigPage() {
           </>
         )}
       </div>
+
+      <Dialog
+        open={isBlocked}
+        onOpenChange={(open) => {
+          if (!open && blocker.status === 'blocked') blocker.reset();
+        }}
+      >
+        <DialogContent role="alertdialog" size="sm">
+          <DialogHeader>
+            <DialogTitle>Discard unsaved changes?</DialogTitle>
+            <DialogDescription>
+              You have unsaved edits to the runtime config. Leaving this page
+              will discard them.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (blocker.status === 'blocked') blocker.reset();
+              }}
+            >
+              Keep editing
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                if (blocker.status === 'blocked') blocker.proceed();
+              }}
+            >
+              Discard and leave
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -301,7 +301,6 @@ export function ApprovalsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Approvals & Policy"
         actions={
           <label className="field">
             <span>Policy agent</span>

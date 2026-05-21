@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminBrowserPoolHealthResponse,
@@ -8,6 +9,29 @@ import type {
 } from '../api/types';
 import { ToastProvider } from '../components/toast';
 import { ConfigPage } from './config';
+
+const blockerStateMock: {
+  status: 'idle' | 'blocked';
+  proceed: ReturnType<typeof vi.fn>;
+  reset: ReturnType<typeof vi.fn>;
+} = {
+  status: 'idle',
+  proceed: vi.fn(),
+  reset: vi.fn(),
+};
+
+vi.mock('@tanstack/react-router', () => ({
+  useBlocker: () => blockerStateMock,
+  Link: ({
+    to,
+    children,
+    ...rest
+  }: { to: string; children: ReactNode } & Record<string, unknown>) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchBrowserPoolHealthMock =
@@ -132,6 +156,9 @@ function renderConfigPage() {
 }
 
 beforeEach(() => {
+  blockerStateMock.status = 'idle';
+  blockerStateMock.proceed = vi.fn();
+  blockerStateMock.reset = vi.fn();
   useAuthMock.mockReturnValue({ token: 'admin-token' });
   const config = makeConfig();
   fetchConfigMock.mockResolvedValue({
@@ -169,7 +196,9 @@ describe('ConfigPage', () => {
   it('edits managed cloud browser config from the form view', async () => {
     renderConfigPage();
 
-    const provider = await screen.findByDisplayValue('local');
+    const provider = (await screen.findByLabelText(
+      'Provider',
+    )) as HTMLSelectElement;
     fireEvent.change(provider, { target: { value: 'managed-cloud' } });
     expect(screen.getByDisplayValue('main')).toBeTruthy();
     expect(await screen.findByText(/fetch failed/i)).toBeTruthy();
@@ -259,7 +288,7 @@ describe('ConfigPage', () => {
     renderConfigPage();
 
     await screen.findByLabelText('Health host');
-    fireEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
 
     const editor = (await screen.findByLabelText(
       'config.json',
@@ -286,17 +315,17 @@ describe('ConfigPage', () => {
     renderConfigPage();
 
     await screen.findByLabelText('Health host');
-    fireEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
 
     const editor = (await screen.findByLabelText(
       'config.json',
     )) as HTMLTextAreaElement;
     fireEvent.change(editor, { target: { value: 'not json' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Edit as form' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Form' }));
 
     expect(screen.getByRole('alert')).toBeTruthy();
     expect(screen.queryByLabelText('Health host')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Edit as form' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Form' })).toBeTruthy();
     expect(saveConfigMock).not.toHaveBeenCalled();
   });
 
@@ -304,7 +333,7 @@ describe('ConfigPage', () => {
     renderConfigPage();
 
     await screen.findByLabelText('Health host');
-    fireEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
 
     const editor = (await screen.findByLabelText(
       'config.json',
@@ -312,20 +341,22 @@ describe('ConfigPage', () => {
     const edited = { ...makeConfig() };
     edited.ops = { ...edited.ops, healthHost: '10.20.30.40' };
     fireEvent.change(editor, { target: { value: JSON.stringify(edited) } });
-    fireEvent.click(screen.getByRole('button', { name: 'Edit as form' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Form' }));
 
     const healthHost = (await screen.findByLabelText(
       'Health host',
     )) as HTMLInputElement;
     expect(healthHost.value).toBe('10.20.30.40');
-    expect(screen.getByRole('button', { name: 'Edit as JSON' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'JSON' })).toBeTruthy();
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
   });
 
   it('keeps "0." in flight for the browser-use-cloud price field and persists the parsed value', async () => {
     renderConfigPage();
 
-    const provider = await screen.findByDisplayValue('local');
+    const provider = (await screen.findByLabelText(
+      'Provider',
+    )) as HTMLSelectElement;
     fireEvent.change(provider, { target: { value: 'browser-use-cloud' } });
 
     const browserPrice = screen.getByLabelText(
@@ -348,6 +379,49 @@ describe('ConfigPage', () => {
           }),
         }),
       }),
+    );
+  });
+
+  it('shows the unsaved-changes dialog and routes both choices through the blocker', async () => {
+    blockerStateMock.status = 'blocked';
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+    expect(
+      screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(blockerStateMock.reset).toHaveBeenCalledTimes(1);
+    expect(blockerStateMock.proceed).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and leave' }));
+    expect(blockerStateMock.proceed).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables Save when a field-level validator rejects the input', async () => {
+    renderConfigPage();
+
+    const memory = (await screen.findByLabelText('Memory')) as HTMLInputElement;
+    fireEvent.change(memory, { target: { value: 'not-a-size' } });
+
+    const save = (await screen.findByRole('button', {
+      name: 'Save changes',
+    })) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    fireEvent.click(save);
+    expect(saveConfigMock).not.toHaveBeenCalled();
+
+    fireEvent.change(memory, { target: { value: '4g' } });
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole('button', {
+            name: 'Save changes',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
     );
   });
 });

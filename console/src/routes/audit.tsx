@@ -61,7 +61,7 @@ export function AuditPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader title="Audit Log" />
+      <PageHeader />
 
       <Card>
         <CardHeader>

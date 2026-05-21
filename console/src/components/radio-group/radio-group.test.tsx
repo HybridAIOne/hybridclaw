@@ -56,7 +56,9 @@ describe('RadioGroup', () => {
       </Field>,
     );
 
-    expect(screen.getByTestId('group').getAttribute('aria-disabled')).toBeNull();
+    expect(
+      screen.getByTestId('group').getAttribute('aria-disabled'),
+    ).toBeNull();
     expect((screen.getByTestId('item-a') as HTMLButtonElement).disabled).toBe(
       false,
     );

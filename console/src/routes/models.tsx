@@ -213,7 +213,6 @@ export function ModelsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Models"
         actions={
           <input
             className="compact-search"

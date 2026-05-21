@@ -159,7 +159,6 @@ export function McpPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="MCP"
         actions={
           <button
             className="ghost-button"

@@ -1164,7 +1164,6 @@ export function SchedulerPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Scheduler"
         actions={
           <button
             className="ghost-button"

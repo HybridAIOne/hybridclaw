@@ -105,7 +105,7 @@ export function A2ATrustPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader title="A2A Trust" />
+      <PageHeader />
 
       <Card>
         <CardHeader>
