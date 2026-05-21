@@ -526,7 +526,7 @@ Cross-cutting work that several roadmap items depend on. Decomposed under the `f
 - ✅ **F3** — Generalize the network-only policy engine into a "predicate → action" engine. Used by #4, #5, #6, #8, #14, F8.
 - ✅ **F4** — Versioning + rollback for skills, knowledge, CVs, and classifier weights. Extends `runtime-config-revisions`. Required by Principle VII.
 - 🟡 **F5** — Model pricing & capability matrix on top of `model-catalog`. Base catalog ✅ shipped (required by #5 cost compute and routing). **F5.1 (added 2026-05-13)**: extend the per-model entry in [`src/providers/model-metadata.ts`](../../../src/providers/model-metadata.ts) with an optional `model_overlay` field — `{ tool_discipline: string; completion_contract: string; execution_policy: string; narrate_only_retry: boolean }` — and a matcher predicate so a single overlay can claim a family (`isGpt5ModelId()`-style: matches `gpt-5`, `gpt-5-codex`, `gpt-5.1`, `gpt-5.1-codex-max`, …). Land this as the precursor to **row 60** so the schema is settled before any overlay text or applier code is written; otherwise two call sites will diverge on shape. No applier wired yet — F5.1 is just the field + matcher + a registry pass that returns `undefined` overlay for every model still. Required by row 60 and **R10a** harness evolution (overlay edits need a stable schema to record as F12 manifest entries against).
-- 🟡 **F6** — Deployment-mode + public-URL abstraction. See **Foundation Sub-Issues** below for F6 rows.
+- ✅ **F6** [#576](https://github.com/HybridAIOne/hybridclaw/issues/576) — Deployment-mode + public-URL abstraction is complete for the cloud/local/tunnel foundation scope. Follow-up provider and admin-configuration extensions remain tracked as separate F6 rows below.
 - 🟡 **F7** — Global identity primitives. Agent-ID format, canonical user IDs, and local instance-ID allocation are in production ([`src/identity/agent-id.ts`](../../../src/identity/agent-id.ts), [`src/identity/user-id.ts`](../../../src/identity/user-id.ts), and F7.1 ✅ via PR #776); cross-instance resolver and TOFU trust remain. See **Foundation Sub-Issues** below for F7 rows.
 - 🟡 **F8** — Autonomy + escalation policy framework. Stakes classification and escalation routing are substantially shipped; policy-pipeline work remains. See **Foundation Sub-Issues** below for F8 rows.
 - 🟡 **F9** — Always-on runtime guarantees. Warm process pool and liveness probes are done; restart and fleet visibility remain. See **Foundation Sub-Issues** below for F9 rows.
@@ -548,7 +548,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | F6.1 | Public URL | Deployment-mode config schema | ✅ Done |
 | F6.2 | Public URL | `TunnelProvider` interface and ngrok reference implementation | ✅ Done |
 | F6.3 | Public URL | Tunnel health check and auto-reconnect with capped-backoff jitter | ✅ Done |
-| F6.4 | Public URL | Read-only admin surface for public URL and tunnel status | ✅ Done |
+| F6.4 | Public URL | Admin surface for public URL, tunnel status, and manual reconnect | ✅ Done |
 | F6.5 | Public URL | Deployment-mode and public-URL docs | ✅ #570 |
 | F6.6 | Public URL | Tailscale Funnel provider | ✅ #644 |
 | F6.7 | Public URL | Cloudflare Tunnel provider | ✅ #645 via PR #794 |
