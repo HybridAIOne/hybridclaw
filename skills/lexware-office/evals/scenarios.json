@@ -1,0 +1,212 @@
+[
+  {
+    "id": "lexware-001",
+    "category": "invoice-read",
+    "prompt": "Show open invoices in Lexware Office.",
+    "expected": { "operation": "list-invoices", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-002",
+    "category": "invoice-read",
+    "prompt": "Pull outstanding invoices older than 30 days.",
+    "expected": { "operation": "list-invoices", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-003",
+    "category": "invoice-read",
+    "prompt": "Get invoice details by id for RE-2026-041.",
+    "expected": { "operation": "get-invoice", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-004",
+    "category": "invoice-read",
+    "prompt": "Download the PDF file for this Lexware invoice.",
+    "expected": { "operation": "invoice-file", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-005",
+    "category": "invoice-write",
+    "prompt": "Generate an invoice for Acme GmbH for last month's consulting hours.",
+    "expected": { "operation": "create-invoice", "operatorGrantRequired": true },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-006",
+    "category": "invoice-write",
+    "prompt": "Create and finalize a new Rechnung in Lexware Office.",
+    "expected": { "operation": "create-invoice", "operatorGrantRequired": true },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-007",
+    "category": "customers",
+    "prompt": "Find the customer record for Acme GmbH.",
+    "expected": { "operation": "list-customers", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-008",
+    "category": "customers",
+    "prompt": "Look up the Kunde by email billing@example.com.",
+    "expected": { "operation": "list-customers", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-009",
+    "category": "products",
+    "prompt": "List products and services I can use as Lexware invoice line items.",
+    "expected": { "operation": "list-products", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-010",
+    "category": "products",
+    "prompt": "Find the Artikel for monthly retainer.",
+    "expected": { "operation": "list-products", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-011",
+    "category": "expenses",
+    "prompt": "Show the Reisekosten Belege for Q4.",
+    "expected": { "operation": "list-expenses", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-012",
+    "category": "expenses",
+    "prompt": "Sync this expense receipt with the Lexware Belege module.",
+    "expected": { "operation": "log-expense", "operatorGrantRequired": true },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-013",
+    "category": "expenses",
+    "prompt": "Record a purchase invoice for train travel.",
+    "expected": { "operation": "log-expense", "operatorGrantRequired": true },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-014",
+    "category": "payments",
+    "prompt": "Read payment status and open amount for this voucher id.",
+    "expected": { "operation": "payment-status", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-015",
+    "category": "payments",
+    "prompt": "Show incoming bank transaction status for this invoice.",
+    "expected": { "operation": "list-bank-transactions", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-016",
+    "category": "payments",
+    "prompt": "Match incoming bank transaction with the open invoice in Lexware Office.",
+    "expected": { "operation": "match-transaction", "operatorGrantRequired": true },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-017",
+    "category": "reporting",
+    "prompt": "Export the Q4 income statement from Lexware Office.",
+    "expected": { "operation": "income-statement", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-018",
+    "category": "reporting",
+    "prompt": "What's our current revenue this quarter according to Lexware?",
+    "expected": { "operation": "income-statement", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-019",
+    "category": "reporting",
+    "prompt": "Prepare a P&L from Lexware vouchers for March.",
+    "expected": { "operation": "income-statement", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-020",
+    "category": "bookkeeping",
+    "prompt": "List posting categories for travel expenses.",
+    "expected": { "operation": "posting-categories", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-021",
+    "category": "profile",
+    "prompt": "Show the Lexware organization profile and company name.",
+    "expected": { "operation": "profile", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-022",
+    "category": "voucher-read",
+    "prompt": "Get the Beleg by id from Lexware.",
+    "expected": { "operation": "get-voucher", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-023",
+    "category": "voucher-read",
+    "prompt": "Show all purchase invoices in Lexware.",
+    "expected": { "operation": "list-expenses", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-024",
+    "category": "invoice-read",
+    "prompt": "Find overdue Lexware invoices due before last month.",
+    "expected": { "operation": "list-invoices", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-025",
+    "category": "payments",
+    "prompt": "Check whether invoice voucher 123 is paid off.",
+    "expected": { "operation": "payment-status", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-026",
+    "category": "expenses",
+    "prompt": "Upload and book a receipt under category Reisekosten.",
+    "expected": { "operation": "upload-file", "operatorGrantRequired": true },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-029",
+    "category": "expenses",
+    "prompt": "Attach this receipt file to the existing Beleg in Lexware.",
+    "expected": { "operation": "upload-file", "operatorGrantRequired": true },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-030",
+    "category": "expenses",
+    "prompt": "Download the receipt file for this Beleg id.",
+    "expected": { "operation": "download-file", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-027",
+    "category": "customers",
+    "prompt": "Search contacts for customer number 10037.",
+    "expected": { "operation": "list-customers", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  },
+  {
+    "id": "lexware-028",
+    "category": "products",
+    "prompt": "Read service article details by id.",
+    "expected": { "operation": "list-products", "operatorGrantRequired": false },
+    "costMeasurement": { "system": "UsageTotals" }
+  }
+]
