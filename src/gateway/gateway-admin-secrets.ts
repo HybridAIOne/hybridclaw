@@ -18,13 +18,13 @@ export interface GatewayAdminSecretMutationResponse {
   secret: RuntimeSecretMetadataEntry;
 }
 
-interface AdminSecretAuditContext {
+export interface AdminSecretAuditContext {
   sessionId?: string;
   actor?: string | null;
   sourceIp?: string | null;
 }
 
-type AdminSecretMutationType = 'secret.overwritten' | 'secret.unset';
+export type AdminSecretMutationType = 'secret.overwritten' | 'secret.unset';
 
 function isStoreSecretRef(value: unknown): value is {
   source: 'store';
@@ -197,7 +197,7 @@ export function overwriteGatewayAdminSecret(options: {
 }): GatewayAdminSecretMutationResponse {
   let name = options.name.trim();
   try {
-    name = requireWritableSecretName(options.name);
+    name = requireWritableSecretName(name);
     const value = requireSecretValue(options.value);
     saveNamedRuntimeSecrets({ [name]: value });
     const secret = getRuntimeSecretMetadata(name);
@@ -229,7 +229,7 @@ export function unsetGatewayAdminSecret(options: {
 }): GatewayAdminSecretMutationResponse {
   let name = options.name.trim();
   try {
-    name = requireWritableSecretName(options.name);
+    name = requireWritableSecretName(name);
     saveNamedRuntimeSecrets({ [name]: null });
     const secret = getRuntimeSecretMetadata(name);
     recordSecretMutationAudit({
