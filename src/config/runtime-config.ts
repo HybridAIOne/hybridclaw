@@ -259,7 +259,15 @@ export type RuntimeBrowserProviderKind =
   | 'local'
   | 'camofox'
   | 'managed-cloud'
-  | 'browser-use-cloud';
+  | 'browser-use-cloud'
+  | 'mac-cua';
+export type RuntimeBrowserMacCuaBrowser =
+  | 'safari'
+  | 'chrome'
+  | 'firefox'
+  | 'brave'
+  | 'arc';
+export type RuntimeBrowserMacCuaScreenshotMode = 'som' | 'vision' | 'ax';
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SlackDmPolicy = 'open' | 'allowlist' | 'disabled';
@@ -364,6 +372,13 @@ export interface RuntimeBrowserUseCloudConfig {
   };
 }
 
+export interface RuntimeBrowserMacCuaConfig {
+  browser: RuntimeBrowserMacCuaBrowser;
+  driverCommand: string;
+  driverArgs: string[];
+  screenshotMode: RuntimeBrowserMacCuaScreenshotMode;
+}
+
 export interface RuntimeManagedCloudBrowserConfig {
   endpointUrl: string;
   poolTokenRef?: SecretRef;
@@ -380,6 +395,7 @@ export interface RuntimeBrowserConfig {
   camofox: RuntimeBrowserCamofoxConfig;
   managedCloud: RuntimeManagedCloudBrowserConfig;
   browserUseCloud: RuntimeBrowserUseCloudConfig;
+  macCua: RuntimeBrowserMacCuaConfig;
 }
 
 export interface RuntimeAudioProviderModelConfig {
@@ -1320,6 +1336,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       baseUrl: '',
       browser: {},
       pricing: {},
+    },
+    macCua: {
+      browser: 'chrome',
+      driverCommand: '',
+      driverArgs: [],
+      screenshotMode: 'som',
     },
   },
   agents: {
@@ -5182,8 +5204,39 @@ function normalizeBrowserProviderKind(
     normalized === 'local' ||
     normalized === 'camofox' ||
     normalized === 'managed-cloud' ||
-    normalized === 'browser-use-cloud'
+    normalized === 'browser-use-cloud' ||
+    normalized === 'mac-cua'
   ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeBrowserMacCuaBrowser(
+  value: unknown,
+  fallback: RuntimeBrowserMacCuaBrowser,
+): RuntimeBrowserMacCuaBrowser {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'safari' ||
+    normalized === 'chrome' ||
+    normalized === 'firefox' ||
+    normalized === 'brave' ||
+    normalized === 'arc'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeBrowserMacCuaScreenshotMode(
+  value: unknown,
+  fallback: RuntimeBrowserMacCuaScreenshotMode,
+): RuntimeBrowserMacCuaScreenshotMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'som' || normalized === 'vision' || normalized === 'ax') {
     return normalized;
   }
   return fallback;
@@ -5724,6 +5777,7 @@ function normalizeBrowserConfig(
   const rawBrowserUseCloud = isRecord(raw.browserUseCloud)
     ? raw.browserUseCloud
     : {};
+  const rawMacCua = isRecord(raw.macCua) ? raw.macCua : {};
   return {
     provider: normalizeBrowserProviderKind(raw.provider, fallback.provider),
     local: {
@@ -5766,6 +5820,24 @@ function normalizeBrowserConfig(
       pricing: normalizeBrowserUseCloudPricing(
         rawBrowserUseCloud.pricing,
         fallback.browserUseCloud.pricing,
+      ),
+    },
+    macCua: {
+      browser: normalizeBrowserMacCuaBrowser(
+        rawMacCua.browser,
+        fallback.macCua.browser,
+      ),
+      driverCommand: normalizeString(
+        rawMacCua.driverCommand,
+        fallback.macCua.driverCommand,
+        { allowEmpty: true },
+      ),
+      driverArgs:
+        normalizeOptionalTrimmedUniqueStringArray(rawMacCua.driverArgs) ??
+        fallback.macCua.driverArgs,
+      screenshotMode: normalizeBrowserMacCuaScreenshotMode(
+        rawMacCua.screenshotMode,
+        fallback.macCua.screenshotMode,
       ),
     },
   };

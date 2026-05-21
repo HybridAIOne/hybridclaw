@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -5,6 +6,7 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import type { CamofoxModule } from '../src/browser/camofox-provider.js';
 import type { LocalBrowserPlaywrightModule } from '../src/browser/local-provider.js';
+import type { MacCuaDriver } from '../src/browser/mac-cua-provider.js';
 import { createBrowserProvider } from '../src/browser/provider-factory.js';
 import type { RuntimeBrowserConfig } from '../src/config/runtime-config.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../src/config/runtime-config.js';
@@ -92,6 +94,10 @@ function makeBrowserConfig(
         ...patch.browserUseCloud?.pricing,
       },
     },
+    macCua: {
+      ...DEFAULT_RUNTIME_CONFIG.browser.macCua,
+      ...patch.macCua,
+    },
   };
 }
 
@@ -165,6 +171,56 @@ test('browser provider factory can select browser-use cloud', async () => {
   await expect(
     provider.launchSession({ profileDirHint: '/tmp/browser-profiles' }),
   ).rejects.toThrow(/does not accept local profileDirHint/u);
+});
+
+test('browser provider factory can select mac-cua', async () => {
+  const driver: MacCuaDriver = {
+    startBrowserSession: vi.fn(async () => ({ sessionId: 'mac-cua-session' })),
+    stopBrowserSession: vi.fn(async () => undefined),
+    keyChord: vi.fn(async () => undefined),
+    pressKey: vi.fn(async () => undefined),
+    typeTextChars: vi.fn(async () => undefined),
+    click: vi.fn(async () => undefined),
+    setValue: vi.fn(async () => undefined),
+    scroll: vi.fn(async () => undefined),
+    screenshot: vi.fn(async () => ({
+      dataBase64: Buffer.from('factory-cua').toString('base64'),
+    })),
+    waitForElement: vi.fn(async () => undefined),
+    resolveTarget: vi.fn(async (_sessionId, target) => ({ target })),
+    getAddressBarValue: vi.fn(async () => 'https://example.com/'),
+    getCurrentUrl: vi.fn(async () => 'https://example.com/'),
+    getEnvironmentState: vi.fn(async () => ({
+      cursorX: 0,
+      cursorY: 0,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    })),
+  };
+  const provider = createBrowserProvider(
+    makeBrowserConfig({
+      provider: 'mac-cua',
+      macCua: {
+        browser: 'brave',
+        driverCommand: '',
+        driverArgs: [],
+        screenshotMode: 'vision',
+      },
+    }),
+    { macCuaDriver: driver },
+  );
+
+  const session = await provider.launchSession({});
+  await session.screenshot();
+  await provider.closeSession(session);
+
+  expect(driver.startBrowserSession).toHaveBeenCalledWith({
+    bundleId: 'com.brave.Browser',
+    backgroundSafe: true,
+  });
+  expect(driver.screenshot).toHaveBeenCalledWith('mac-cua-session', {
+    mode: 'vision',
+  });
 });
 
 test('browser provider factory can select managed cloud', async () => {
