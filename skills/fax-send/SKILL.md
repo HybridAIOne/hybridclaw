@@ -55,9 +55,10 @@ metadata:
 
 # Fax Send
 
-Use this skill when a user asks to fax a PDF to an external fax number, or when
-an inbound fax arrives as an email PDF and needs routing to a document workflow
-such as DATEV Belegtransfer, file storage, or client records.
+Use this skill when a user asks to fax a supported file, web page, text note, or
+PDF to an external fax number, or when an inbound fax arrives as an email PDF
+and needs routing to a document workflow such as DATEV Belegtransfer, file
+storage, or client records.
 
 ## Response Contract
 
@@ -65,13 +66,13 @@ such as DATEV Belegtransfer, file storage, or client records.
   same plan, missing-input list, or no-send notice in a second format.
 - Do not use decorative emoji, checkmarks, sign-off text, or "ready to proceed"
   filler in fax responses.
-- When the user provides text content such as "Hallo Welt" instead of a public
-  HTTPS PDF URL, do not send. Ask once for the missing PDF URL or hosting path,
-  sender fax number, Sinch project ID, Sinch service ID, and explicit approval.
+- When the user provides text content such as "Hallo Welt", use the helper's
+  direct text-file upload path after the sender fax number, Sinch project ID,
+  Sinch service ID, stored credential, and explicit approval are available.
 
 ## Scope
 
-- outbound fax send from a public HTTPS PDF URL
+- outbound fax send from a content URL or direct plain-text file upload
 - Sinch Fax API request construction for EU-resident Sinch projects/services
 - delivery status lookup and status-to-audit-event classification
 - structured audit persistence through `src/fax/accounting.ts`
@@ -80,7 +81,7 @@ such as DATEV Belegtransfer, file storage, or client records.
 - eval scenarios for successful send, busy/retry, failed delivery, and inbound
   PDF handoff flows
 
-Direct modem control, T.38/SIP live transmission, image-to-PDF conversion, and
+Direct modem control, T.38/SIP live transmission, binary local file upload, and
 cover-page templating are outside this skill slice.
 
 ## Credential Rules
@@ -107,8 +108,8 @@ The helper emits either `secretHeaders: [{ name: "Authorization", secretName:
 
 ## Default Workflow
 
-1. Confirm the recipient fax number in E.164 format, the PDF URL, the sender
-   fax number, and the provider/project/service.
+1. Confirm the recipient fax number in E.164 format, the content URL or text
+   upload content, the sender fax number, and the provider/project/service.
 2. Run `plan` for natural-language requests when details are incomplete.
 3. Require explicit operator approval before `fax.send`; faxing is an external
    document delivery action and can incur per-page cost.
@@ -144,7 +145,7 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --auth basic \
   --project-id <sinch-project-id> \
   --service-id <sinch-service-id> \
-  --pdf-url https://example.com/signed-contract.pdf \
+  --content-url https://example.com/signed-contract.pdf \
   --to +49891234567 \
   --from +493012345678 \
   --page-count 3 \
@@ -193,10 +194,29 @@ Use a narrow sender allowlist when the provider uses stable sender domains, and
 route attachment PDFs with normal document skills. See
 `docs/content/channels/fax.md` for the operator recipe and reference YAML.
 
+Build a guarded Sinch text-file upload request:
+
+```bash
+node skills/fax-send/fax_send.cjs --format json http-request send \
+  --provider sinch \
+  --auth basic \
+  --project-id <sinch-project-id> \
+  --service-id <sinch-service-id> \
+  --text "Hallo Welt" \
+  --filename hallo-welt.txt \
+  --to +498920931098 \
+  --from +493012345678 \
+  --page-count 1 \
+  --operator-grant
+```
+
 ## Working Rules
 
-- Only send PDFs from public HTTPS URLs. Do not send local paths or private
-  intranet URLs to a fax provider.
+- For URL-based sends, use a public HTTP(S) `contentUrl` for a Sinch-supported
+  file type or web page. Do not send local paths or private intranet URLs to a
+  fax provider.
+- For short user-provided text, use `--text` so the helper emits a
+  secret-backed multipart/form-data request with a direct `.txt` file upload.
 - For `plan` responses, give one concise no-send summary only. Do not repeat
   the same plan in a second format, do not mirror raw helper JSON after a
   human summary, and do not add decorative emoji, sign-off text, or readiness

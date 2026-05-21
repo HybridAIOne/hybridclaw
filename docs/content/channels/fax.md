@@ -72,11 +72,28 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --auth basic \
   --project-id <sinch-project-id> \
   --service-id <sinch-service-id> \
-  --pdf-url https://example.com/signed-contract.pdf \
+  --content-url https://example.com/signed-contract.pdf \
   --to +49891234567 \
   --from +493012345678 \
   --page-count 3 \
   --label costCenter=legal \
+  --operator-grant
+```
+
+For short text-only test faxes, use direct multipart upload instead of hosting a
+PDF:
+
+```bash
+node skills/fax-send/fax_send.cjs --format json http-request send \
+  --provider sinch \
+  --auth basic \
+  --project-id <sinch-project-id> \
+  --service-id <sinch-service-id> \
+  --text "Hallo Welt" \
+  --filename hallo-welt.txt \
+  --to +498920931098 \
+  --from +493012345678 \
+  --page-count 1 \
   --operator-grant
 ```
 

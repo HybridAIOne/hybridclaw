@@ -54,7 +54,7 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
     auth: 'basic',
     projectId: 'project-123',
     serviceId: 'service-123',
-    pdfUrl: 'https://example.com/contract.pdf',
+    contentUrl: 'https://example.com/contract.pdf',
     to: '+49 89 1234567',
     from: '+49 30 12345678',
     pageCount: 3,
@@ -93,6 +93,10 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
     unit: 'fax-page',
     pageCount: 3,
   });
+  expect(payload.liveExecution.requiresOneOfConfiguredSecrets).toEqual([
+    'SINCH_FAX_BASIC_AUTH',
+    'SINCH_FAX_OAUTH_TOKEN',
+  ]);
   expect(payload.auditEvents[0]).toMatchObject({
     eventType: 'fax.send.start',
     payload: {
@@ -141,7 +145,7 @@ test('fax-send refuses live sends without an operator grant', () => {
   ).toThrow(/operator approval/);
 });
 
-test('fax-send rejects non-HTTPS or non-PDF outbound content URLs', () => {
+test('fax-send accepts supported content URLs and rejects unsafe URLs', () => {
   const base = {
     provider: 'sinch',
     auth: 'basic',
@@ -157,15 +161,57 @@ test('fax-send rejects non-HTTPS or non-PDF outbound content URLs', () => {
   expect(() =>
     fax.buildSendRequest({
       ...base,
-      pdfUrl: 'http://example.com/contract.pdf',
+      contentUrl: 'ftp://example.com/contract.pdf',
     }),
-  ).toThrow(/https/);
+  ).toThrow(/http or https/);
   expect(() =>
     fax.buildSendRequest({
       ...base,
-      pdfUrl: 'https://example.com/contract.docx',
+      contentUrl: 'https://user:pass@example.com/contract.pdf',
     }),
-  ).toThrow(/ending in .pdf/);
+  ).toThrow(/embedded credentials/);
+
+  const payload = fax.buildSendRequest({
+    ...base,
+    contentUrl: 'https://example.com/hello.html',
+  });
+
+  expect(payload.httpRequest.json.contentUrl).toEqual([
+    'https://example.com/hello.html',
+  ]);
+  expect(payload.httpRequest.skillRequestContract.documentKind).toBe(
+    'content-url',
+  );
+});
+
+test('fax-send helper can build direct text file uploads', () => {
+  const payload = fax.buildSendRequest({
+    provider: 'sinch',
+    auth: 'basic',
+    projectId: 'project-123',
+    serviceId: 'service-123',
+    text: 'Hallo Welt',
+    filename: 'hallo-welt.txt',
+    to: '+498920931098',
+    from: '+493012345678',
+    labels: ['costCenter=test'],
+    operatorGrant: true,
+    timeoutMs: 120000,
+    maxResponseBytes: 1000000,
+    headerPageNumbers: true,
+  });
+
+  expect(payload.httpRequest).not.toHaveProperty('json');
+  expect(payload.httpRequest.headers).toMatchObject({
+    'Content-Type':
+      'multipart/form-data; boundary=----hybridclaw-fax-text-boundary',
+  });
+  expect(payload.httpRequest.body).toContain('name="file"; filename="hallo-welt.txt"');
+  expect(payload.httpRequest.body).toContain('Content-Type: text/plain; charset=utf-8');
+  expect(payload.httpRequest.body).toContain('Hallo Welt');
+  expect(payload.httpRequest.body).toContain('name="to"');
+  expect(payload.httpRequest.body).toContain('+498920931098');
+  expect(payload.httpRequest.skillRequestContract.documentKind).toBe('txt');
 });
 
 test('fax-send classifies delivered and busy-line failed statuses for audit', () => {

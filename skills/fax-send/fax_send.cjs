@@ -20,7 +20,7 @@ const COST_MEASUREMENT = {
 
 const LIVE_EXECUTION = {
   mode: 'live-fax-api',
-  requiresConfiguredSecrets: [SINCH_BASIC_SECRET, SINCH_OAUTH_SECRET],
+  requiresOneOfConfiguredSecrets: [SINCH_BASIC_SECRET, SINCH_OAUTH_SECRET],
   dryRunSafe:
     'For prompt/user testing, build the http-request payload and stop; do not call http_request unless the operator approved the send.',
   approvalPolicy:
@@ -77,7 +77,8 @@ Build guarded fax-send requests and classify delivery states.
 
 Usage:
   node skills/fax-send/fax_send.cjs [--format json] plan "Fax the signed PDF to +49 89 1234567"
-  node skills/fax-send/fax_send.cjs [--format json] http-request send --pdf-url https://example.com/file.pdf --to +49891234567 --from +493012345678 --project-id <id> --operator-grant
+  node skills/fax-send/fax_send.cjs [--format json] http-request send --content-url https://example.com/file.pdf --to +49891234567 --from +493012345678 --project-id <id> --operator-grant
+  node skills/fax-send/fax_send.cjs [--format json] http-request send --text "Hallo Welt" --to +49891234567 --from +493012345678 --project-id <id> --operator-grant
   node skills/fax-send/fax_send.cjs [--format json] http-request status --fax-id <fax-id> --project-id <id>
   node skills/fax-send/fax_send.cjs [--format json] classify-status --fax-id <fax-id> --status COMPLETED
   node skills/fax-send/fax_send.cjs [--format json] providers
@@ -91,7 +92,10 @@ Global options:
   --max-response-bytes <n>   Gateway response cap. Default: ${DEFAULT_MAX_RESPONSE_BYTES}
 
 Send options:
-  --pdf-url <url>            Public HTTPS PDF URL to fax.
+  --content-url <url>        Public HTTP(S) URL of a supported file or web page to fax.
+  --pdf-url <url>            Alias for --content-url.
+  --text <text>              Plain text to send as a direct .txt file upload.
+  --filename <name>          File name for --text uploads. Default: message.txt.
   --to <number>              Recipient fax number in E.164 format.
   --from <number>            Sender fax number in E.164 format.
   --project-id <id>          Sinch project id.
@@ -178,7 +182,13 @@ function parseArgs(argv) {
         break;
       case '--pdf-url':
       case '--content-url':
-        opts.pdfUrl = readValue();
+        opts.contentUrl = readValue();
+        break;
+      case '--text':
+        opts.text = readValue();
+        break;
+      case '--filename':
+        opts.filename = readValue();
         break;
       case '--to':
         opts.to = readValue();
@@ -306,22 +316,37 @@ function normalizePhoneNumber(value, label) {
   return compact;
 }
 
-function normalizePdfUrl(value) {
-  const raw = requireNonEmpty(value, '--pdf-url');
+function normalizeContentUrl(value) {
+  const raw = requireNonEmpty(value, '--content-url');
   let parsed;
   try {
     parsed = new URL(raw);
   } catch {
-    die('--pdf-url must be an absolute HTTPS URL.');
+    die('--content-url must be an absolute HTTP(S) URL.');
   }
-  if (parsed.protocol !== 'https:') die('--pdf-url must use https.');
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    die('--content-url must use http or https.');
+  }
   if (parsed.username || parsed.password) {
-    die('--pdf-url must not include embedded credentials.');
-  }
-  if (!parsed.pathname.toLowerCase().endsWith('.pdf')) {
-    die('--pdf-url must point to a PDF URL ending in .pdf.');
+    die('--content-url must not include embedded credentials.');
   }
   return parsed.toString();
+}
+
+function normalizeTextUpload(value) {
+  const text = requireNonEmpty(value, '--text');
+  if (Buffer.byteLength(text, 'utf8') > 500_000) {
+    die('--text must be 500000 bytes or fewer.');
+  }
+  return text;
+}
+
+function normalizeUploadFilename(value) {
+  const filename = String(value || 'message.txt').trim();
+  if (!/^[A-Za-z0-9._-]{1,120}$/u.test(filename)) {
+    die('--filename must use only letters, digits, dots, underscores, or hyphens.');
+  }
+  return filename;
 }
 
 function normalizeOptionalUrl(value, label) {
@@ -351,6 +376,52 @@ function parseLabels(values) {
     labels[key] = labelValue;
   }
   return labels;
+}
+
+function appendMultipartField(parts, boundary, name, value) {
+  if (value === undefined || value === null) return;
+  parts.push(
+    `--${boundary}`,
+    `Content-Disposition: form-data; name="${name}"`,
+    '',
+    String(value),
+  );
+}
+
+function buildTextMultipartBody(params) {
+  const boundary = '----hybridclaw-fax-text-boundary';
+  const text = normalizeTextUpload(params.text);
+  if (text.includes(boundary)) {
+    die('--text must not include the generated multipart boundary.');
+  }
+  const parts = [];
+  appendMultipartField(parts, boundary, 'to', params.to);
+  appendMultipartField(parts, boundary, 'from', params.from);
+  appendMultipartField(parts, boundary, 'headerPageNumbers', params.headerPageNumbers);
+  appendMultipartField(parts, boundary, 'serviceId', params.serviceId);
+  appendMultipartField(parts, boundary, 'headerText', params.headerText);
+  appendMultipartField(parts, boundary, 'headerTimeZone', params.headerTimeZone);
+  appendMultipartField(parts, boundary, 'callbackUrl', params.callbackUrl);
+  appendMultipartField(parts, boundary, 'callbackUrlContentType', params.callbackUrlContentType);
+  appendMultipartField(parts, boundary, 'maxRetries', params.maxRetries);
+  appendMultipartField(parts, boundary, 'retryDelaySeconds', params.retryDelaySeconds);
+  appendMultipartField(parts, boundary, 'resolution', params.resolution);
+  for (const [key, value] of Object.entries(params.labels)) {
+    appendMultipartField(parts, boundary, `labels[${key}]`, value);
+  }
+  parts.push(
+    `--${boundary}`,
+    `Content-Disposition: form-data; name="file"; filename="${params.filename}"`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    text,
+    `--${boundary}--`,
+    '',
+  );
+  return {
+    boundary,
+    body: parts.join('\r\n'),
+  };
 }
 
 function buildCostMeasurement(opts) {
@@ -384,40 +455,40 @@ function buildSendRequest(opts) {
   if (!opts.operatorGrant) {
     die('fax.send requires --operator-grant after explicit operator approval.');
   }
+  if (opts.contentUrl && opts.text) {
+    die('Use either --content-url/--pdf-url or --text, not both.');
+  }
   const projectId = encodeURIComponent(requireNonEmpty(opts.projectId, '--project-id'));
-  const json = {
+  const payload = {
     to: normalizePhoneNumber(opts.to, '--to'),
     from: normalizePhoneNumber(opts.from, '--from'),
-    contentUrl: [normalizePdfUrl(opts.pdfUrl)],
     headerPageNumbers: opts.headerPageNumbers,
   };
-  if (opts.serviceId) json.serviceId = requireNonEmpty(opts.serviceId, '--service-id');
+  if (opts.serviceId) payload.serviceId = requireNonEmpty(opts.serviceId, '--service-id');
   if (opts.headerText !== undefined) {
     const headerText = String(opts.headerText).trim();
     if (headerText.length > 50) die('--header-text must be 50 characters or fewer.');
-    json.headerText = headerText;
+    payload.headerText = headerText;
   }
-  if (opts.headerTimeZone) json.headerTimeZone = requireNonEmpty(opts.headerTimeZone, '--header-time-zone');
-  if (opts.callbackUrl) json.callbackUrl = normalizeOptionalUrl(opts.callbackUrl, '--callback-url');
-  if (opts.callbackJson) json.callbackUrlContentType = 'application/json';
-  if (opts.maxRetries !== undefined) json.maxRetries = opts.maxRetries;
+  if (opts.headerTimeZone) payload.headerTimeZone = requireNonEmpty(opts.headerTimeZone, '--header-time-zone');
+  if (opts.callbackUrl) payload.callbackUrl = normalizeOptionalUrl(opts.callbackUrl, '--callback-url');
+  if (opts.callbackJson) payload.callbackUrlContentType = 'application/json';
+  if (opts.maxRetries !== undefined) payload.maxRetries = opts.maxRetries;
   if (opts.retryDelaySeconds !== undefined) {
-    json.retryDelaySeconds = opts.retryDelaySeconds;
+    payload.retryDelaySeconds = opts.retryDelaySeconds;
   }
   if (opts.resolution !== undefined) {
     const resolution = String(opts.resolution).trim().toUpperCase();
     if (resolution !== 'FINE' && resolution !== 'SUPERFINE') {
       die('--resolution must be FINE or SUPERFINE.');
     }
-    json.resolution = resolution;
+    payload.resolution = resolution;
   }
   const labels = parseLabels(opts.labels);
-  if (Object.keys(labels).length > 0) json.labels = labels;
 
   const httpRequest = {
     url: `${SINCH_BASE_URL}/projects/${projectId}/faxes`,
     method: 'POST',
-    json,
     skillName: SKILL_NAME,
     stakesTier: 'amber',
     timeoutMs: opts.timeoutMs,
@@ -426,11 +497,30 @@ function buildSendRequest(opts) {
       skillName: SKILL_NAME,
       operation: 'fax.send',
       provider: 'sinch',
-      documentKind: 'pdf',
+      documentKind: opts.text ? 'txt' : 'content-url',
       requiresOperatorGrant: true,
       costUnit: 'fax-page',
     },
   };
+  if (opts.text) {
+    const multipart = buildTextMultipartBody({
+      ...payload,
+      labels,
+      text: opts.text,
+      filename: normalizeUploadFilename(opts.filename),
+    });
+    httpRequest.headers = {
+      'Content-Type': `multipart/form-data; boundary=${multipart.boundary}`,
+    };
+    httpRequest.body = multipart.body;
+  } else {
+    if (!opts.contentUrl) die('Either --content-url/--pdf-url or --text is required.');
+    httpRequest.json = {
+      ...payload,
+      contentUrl: [normalizeContentUrl(opts.contentUrl)],
+      ...(Object.keys(labels).length > 0 ? { labels } : {}),
+    };
+  }
   if (auth === 'basic') {
     httpRequest.secretHeaders = [
       {
@@ -562,7 +652,7 @@ function buildPlan(prompt) {
       ? normalizePhoneNumber(germanNumber, 'detected recipient number')
       : null,
     requiredInputs: [
-      'public HTTPS PDF URL',
+      'content URL or direct supported file',
       'recipient fax number in E.164 format',
       'sender fax number in E.164 format',
       'Sinch project id',
@@ -577,7 +667,7 @@ function buildPlan(prompt) {
 async function sendFax(pdfUrl, recipientNumber, options = {}) {
   const payload = buildSendRequest({
     ...options,
-    pdfUrl,
+    contentUrl: pdfUrl,
     to: recipientNumber,
     operatorGrant: options.operatorGrant === true,
   });
