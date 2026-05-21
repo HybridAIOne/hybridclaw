@@ -131,6 +131,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
+import { getGatewayAdminSecrets } from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
@@ -1716,6 +1717,47 @@ function hasApiTokenValue(token: string): boolean {
   return Boolean(GATEWAY_API_TOKEN) && trimmed === GATEWAY_API_TOKEN;
 }
 
+function readRecordProperty(
+  record: Record<string, unknown>,
+  keys: string[],
+): unknown {
+  for (const key of keys) {
+    if (Object.hasOwn(record, key)) {
+      return record[key];
+    }
+  }
+  return undefined;
+}
+
+function resolveAdminSessionActor(
+  payload: Record<string, unknown> | null,
+): string | null {
+  if (!payload) return null;
+  const value = readRecordProperty(payload, [
+    'actor',
+    'sub',
+    'email',
+    'userId',
+    'user_id',
+    'username',
+  ]);
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function resolveAdminSessionAuditId(
+  payload: Record<string, unknown> | null,
+): string | null {
+  if (!payload) return null;
+  const value = readRecordProperty(payload, [
+    'sessionId',
+    'sid',
+    'jti',
+    'sub',
+    'actor',
+  ]);
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   const authHeader = req.headers.authorization || '';
   if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
@@ -3241,6 +3283,25 @@ function handleApiConfigReload(res: ServerResponse): void {
 
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
+}
+
+function handleApiAdminSecrets(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  const sessionPayload = getSessionAuthPayload(req);
+
+  sendJson(
+    res,
+    200,
+    getGatewayAdminSecrets({
+      audit: {
+        sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
+        actor: resolveAdminSessionActor(sessionPayload),
+        sourceIp: req.socket.remoteAddress || null,
+      },
+    }),
+  );
 }
 
 async function handleApiAdminTunnelReconnect(
@@ -5557,6 +5618,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
             await handleApiAdminOverview(res);
+            return;
+          }
+          if (pathname === '/api/admin/secrets' && method === 'GET') {
+            handleApiAdminSecrets(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/secrets') {
+            sendMethodNotAllowed(res);
             return;
           }
           if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {
