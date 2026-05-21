@@ -12,6 +12,7 @@ import {
   normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentIdentityFields,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
 import {
@@ -2571,7 +2572,8 @@ function agentCanonicalIdentityNeedMigration(
     tableExists(database, 'agents') &&
     (!columnExists(database, 'agents', 'canonical_id') ||
       !columnExists(database, 'agents', 'owner_user_id') ||
-      !indexExists(database, 'idx_agents_canonical_id'))
+      !indexExists(database, 'idx_agents_canonical_id') ||
+      !indexExists(database, 'idx_agents_owner_user_id'))
   );
 }
 
@@ -3007,6 +3009,23 @@ function addCollisionSuffixToAgentSlug(slug: string, index: number): string {
   return `${slug.slice(0, AGENT_IDENTITY_COMPONENT_MAX_LENGTH - suffix.length)}${suffix}`;
 }
 
+function ownerUserIdMatchesCanonicalAgentId(
+  canonicalId: string,
+  ownerUserId: string | undefined,
+): boolean {
+  if (!ownerUserId) return false;
+  try {
+    normalizeAgentIdentityFields({
+      canonicalId,
+      ownerUserId,
+      path: 'agents',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function allocateCanonicalAgentIdentity(params: {
   database: Database.Database;
   agentId: string;
@@ -3147,12 +3166,13 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     agent.escalationTarget,
   );
   const normalizedA2A = serializeAgentA2AConfig(agent.a2a);
-  const explicitOwnerUserId = agent.ownerUserId?.trim()
-    ? parseUserId(agent.ownerUserId).id
-    : '';
-  const explicitCanonicalId = agent.canonicalId?.trim()
-    ? parseAgentIdentity(agent.canonicalId).id
-    : '';
+  const explicitIdentity = normalizeAgentIdentityFields({
+    canonicalId: agent.canonicalId,
+    ownerUserId: agent.ownerUserId,
+    path: 'agents',
+  });
+  const explicitOwnerUserId = explicitIdentity.ownerUserId || '';
+  const explicitCanonicalId = explicitIdentity.canonicalId || '';
   const shouldReplaceDefaultIdentity =
     Boolean(existingAgent) &&
     !explicitOwnerUserId &&
@@ -3166,23 +3186,31 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const existingCanonicalId = shouldReplaceDefaultIdentity
     ? undefined
     : existingAgent?.canonicalId;
+  const compatibleExistingOwnerUserId =
+    explicitCanonicalId && !explicitOwnerUserId
+      ? ownerUserIdMatchesCanonicalAgentId(
+          explicitCanonicalId,
+          existingOwnerUserId,
+        )
+        ? existingOwnerUserId
+        : undefined
+      : existingOwnerUserId;
   const normalizedOwnerUserId =
-    explicitOwnerUserId || existingOwnerUserId || null;
-  const identity =
-    explicitCanonicalId && normalizedOwnerUserId
-      ? null
-      : allocateCanonicalAgentIdentity({
-          database: db,
-          agentId: normalizedId,
-          owner: normalizedOwner,
-          ownerUserId: normalizedOwnerUserId,
-        });
+    explicitOwnerUserId || compatibleExistingOwnerUserId || null;
+  const identity = explicitCanonicalId
+    ? null
+    : allocateCanonicalAgentIdentity({
+        database: db,
+        agentId: normalizedId,
+        owner: normalizedOwner,
+        ownerUserId: normalizedOwnerUserId,
+      });
   const canonicalId =
     explicitCanonicalId || existingCanonicalId || identity?.canonicalId || null;
   const ownerUserId =
     normalizedOwnerUserId ||
     identity?.ownerUserId ||
-    existingOwnerUserId ||
+    compatibleExistingOwnerUserId ||
     null;
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;

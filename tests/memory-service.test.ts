@@ -740,6 +740,62 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('self-heals v36 agents missing the owner user index', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        canonical_id TEXT,
+        owner_user_id TEXT,
+        name TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      INSERT INTO agents (id, canonical_id, owner_user_id, name)
+      VALUES ('main', 'main@local@inst-test', 'local@local', 'Main Agent');
+      CREATE UNIQUE INDEX idx_agents_canonical_id
+        ON agents(canonical_id)
+        WHERE canonical_id IS NOT NULL AND TRIM(canonical_id) != '';
+      CREATE TABLE jobs (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('scheduler_job', 'scheduled_task')),
+        legacy_task_id INTEGER UNIQUE,
+        session_id TEXT,
+        channel_id TEXT,
+        name TEXT,
+        description TEXT,
+        agent_id TEXT,
+        board_status TEXT CHECK (board_status IS NULL OR board_status IN ('backlog', 'in_progress', 'review', 'done', 'cancelled')),
+        max_retries INTEGER,
+        schedule TEXT NOT NULL,
+        action TEXT NOT NULL,
+        delivery TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_run TEXT,
+        last_status TEXT CHECK (last_status IS NULL OR last_status IN ('success', 'error')),
+        consecutive_errors INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      PRAGMA user_version = 36;
+    `);
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const ownerIndex = inspect
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agents_owner_user_id'",
+      )
+      .get() as { name: string } | undefined;
+    inspect.close();
+
+    expect(ownerIndex?.name).toBe('idx_agents_owner_user_id');
+  });
+
   test('fills admin statistics indexes for branch schema v23 databases', () => {
     const dbPath = createTempDbPath();
     const legacy = new Database(dbPath);

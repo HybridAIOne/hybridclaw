@@ -96,8 +96,7 @@ display name, config value, or environment value.
 Agent registry records persist two canonical fields:
 
 - `canonicalId`: the stable `agent-slug@user@instance-id` identity for the agent
-- `ownerUserId`: the canonical `username@authority` owner user ID used when the
-  local identity is first derived
+- `ownerUserId`: the canonical `username@authority` owner user ID used when the local identity is first derived
 
 Existing local agents are backfilled on first database migration. Agents with no
 federated owner use the `local` user authority, so an owner like `benedikt`

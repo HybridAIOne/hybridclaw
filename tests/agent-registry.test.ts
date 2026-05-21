@@ -412,6 +412,53 @@ test('agent registry persists canonical local identities and keeps bare slug A2A
   });
 });
 
+test('agent registry validates explicit canonical identity fields', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_INSTANCE_ID = 'Inst Test';
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { initAgentRegistry, resolveAgentConfig } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  expect(() =>
+    updateRuntimeConfig((draft) => {
+      draft.agents.list = [
+        {
+          id: 'writer',
+          canonicalId: 'writer@team@inst-test',
+          ownerUserId: 'ada@local',
+        },
+      ];
+    }),
+  ).toThrow(
+    'agents.list[].ownerUserId username must match agents.list[].canonicalId user slug',
+  );
+
+  initAgentRegistry({
+    list: [
+      {
+        id: 'writer',
+        canonicalId: 'writer@team@inst-test',
+      },
+    ],
+  });
+  expect(resolveAgentConfig('writer')).toEqual(
+    expect.objectContaining({
+      id: 'writer',
+      canonicalId: 'writer@team@inst-test',
+    }),
+  );
+  expect(resolveAgentConfig('writer').ownerUserId).toBeUndefined();
+});
+
 test('agent registry rejects cyclic reports_to relationships', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

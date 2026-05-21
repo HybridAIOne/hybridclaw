@@ -43,7 +43,14 @@ export function resolveA2AAgentId(agentId: string): string {
 
   const agent = findLocalAgent(normalized);
   if (agent.canonicalId) {
-    return parseAgentIdentity(agent.canonicalId).id;
+    try {
+      return parseAgentIdentity(agent.canonicalId).id;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new A2AEnvelopeValidationError([
+        `canonical id for local agent ${agent.id} is invalid: ${detail}`,
+      ]);
+    }
   }
 
   return deriveLocalAgentIdentity({

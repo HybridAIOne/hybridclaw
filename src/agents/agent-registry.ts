@@ -39,6 +39,7 @@ import {
   normalizeAgentBudgetConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentIdentityFields,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
@@ -160,12 +161,15 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const id = normalizeString((value as { id?: unknown }).id);
   if (!id) return null;
-  const canonicalId = normalizeString(
-    (value as { canonicalId?: unknown }).canonicalId,
-  );
-  const ownerUserId = normalizeString(
-    (value as { ownerUserId?: unknown }).ownerUserId,
-  );
+  const identityFields = normalizeAgentIdentityFields({
+    canonicalId: normalizeString(
+      (value as { canonicalId?: unknown }).canonicalId,
+    ),
+    ownerUserId: normalizeString(
+      (value as { ownerUserId?: unknown }).ownerUserId,
+    ),
+    path: 'agents.list[]',
+  });
   const name = normalizeString((value as { name?: unknown }).name);
   const displayName = normalizeString(
     (value as { displayName?: unknown }).displayName,
@@ -211,8 +215,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   );
   return {
     id,
-    ...(canonicalId ? { canonicalId } : {}),
-    ...(ownerUserId ? { ownerUserId } : {}),
+    ...identityFields,
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
@@ -366,15 +369,20 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     agent.chatbotId ?? configuredDefaults.chatbotId,
   );
   const enableRag = agent.enableRag ?? configuredDefaults.enableRag;
-  const identity = deriveLocalAgentIdentity({
-    agentId: agent.id,
-    owner: agent.owner,
-    ownerUserId: agent.ownerUserId,
-  });
+  const identity = agent.canonicalId
+    ? normalizeAgentIdentityFields({
+        canonicalId: agent.canonicalId,
+        ownerUserId: agent.ownerUserId,
+        path: 'agent',
+      })
+    : deriveLocalAgentIdentity({
+        agentId: agent.id,
+        owner: agent.owner,
+        ownerUserId: agent.ownerUserId,
+      });
   return {
     id: agent.id,
-    canonicalId: agent.canonicalId ?? identity.canonicalId,
-    ownerUserId: agent.ownerUserId ?? identity.ownerUserId,
+    ...identity,
     ...(agent.name ? { name: agent.name } : {}),
     ...buildOptionalAgentPresentation(agent.displayName, agent.imageAsset),
     ...(model ? { model } : {}),

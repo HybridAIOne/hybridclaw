@@ -22,6 +22,7 @@ import {
   normalizeAgentBudgetConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentIdentityFields,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
@@ -2673,20 +2674,23 @@ function normalizeAgentConfig(
     allowEmpty: false,
   });
   if (!id) return null;
-  const canonicalId = normalizeString(
-    value.canonicalId,
-    fallback?.canonicalId ?? '',
-    {
-      allowEmpty: true,
-    },
-  );
-  const ownerUserId = normalizeString(
-    value.ownerUserId,
-    fallback?.ownerUserId ?? '',
-    {
-      allowEmpty: true,
-    },
-  );
+  const identityFields = normalizeAgentIdentityFields({
+    canonicalId: normalizeString(
+      value.canonicalId,
+      fallback?.canonicalId ?? '',
+      {
+        allowEmpty: true,
+      },
+    ),
+    ownerUserId: normalizeString(
+      value.ownerUserId,
+      fallback?.ownerUserId ?? '',
+      {
+        allowEmpty: true,
+      },
+    ),
+    path: 'agents.list[]',
+  });
   const name = normalizeString(value.name, fallback?.name ?? '', {
     allowEmpty: true,
   });
@@ -2776,8 +2780,7 @@ function normalizeAgentConfig(
     : cloneAgentBudgetConfig(fallback?.budget);
   return {
     id,
-    ...(canonicalId ? { canonicalId } : {}),
-    ...(ownerUserId ? { ownerUserId } : {}),
+    ...identityFields,
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
