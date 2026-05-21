@@ -11,10 +11,7 @@ import {
   type TaskModelPolicy,
 } from '../types/models.js';
 import { positiveIntegerOrNull } from '../utils/number-normalization.js';
-import {
-  resolveModelProvider,
-  resolveModelRuntimeCredentials,
-} from './factory.js';
+import { resolveModelRuntimeCredentials } from './factory.js';
 import {
   findVisionCapableModel,
   getAvailableModelList,
@@ -155,33 +152,21 @@ export function resolveDefaultAuxiliaryModelForProvider(
   provider: RuntimeProvider,
 ): string | undefined {
   const config = getRuntimeConfig();
-  const currentDefaultModel = config.hybridai.defaultModel.trim();
-  const currentDefaultProvider = currentDefaultModel
-    ? resolveModelProvider(currentDefaultModel)
-    : undefined;
   const discoveredModels = getAvailableModelList(
     provider === 'openai-codex' ? 'codex' : provider,
   );
 
   if (provider === 'hybridai') {
-    return selectFirstNonEmpty([
-      currentDefaultProvider === 'hybridai' ? currentDefaultModel : '',
-      ...discoveredModels,
-      'gpt-4.1-mini',
-    ]);
+    return selectFirstNonEmpty([...discoveredModels, 'gpt-4.1-mini']);
   }
 
   if (provider === 'openai-codex') {
-    return selectFirstNonEmpty([
-      currentDefaultProvider === 'openai-codex' ? currentDefaultModel : '',
-      ...discoveredModels,
-    ]);
+    return selectFirstNonEmpty(discoveredModels);
   }
 
   if (provider === 'openrouter') {
     if (!config.openrouter.enabled) return undefined;
     return selectFirstNonEmpty([
-      currentDefaultProvider === 'openrouter' ? currentDefaultModel : '',
       ...discoveredModels,
       'openrouter/anthropic/claude-sonnet-4',
     ]);
@@ -190,7 +175,6 @@ export function resolveDefaultAuxiliaryModelForProvider(
   if (provider === 'mistral') {
     if (!config.mistral.enabled) return undefined;
     return selectFirstNonEmpty([
-      currentDefaultProvider === 'mistral' ? currentDefaultModel : '',
       ...discoveredModels,
       'mistral/mistral-large-latest',
     ]);
@@ -199,7 +183,6 @@ export function resolveDefaultAuxiliaryModelForProvider(
   if (provider === 'huggingface') {
     if (!config.huggingface.enabled) return undefined;
     return selectFirstNonEmpty([
-      currentDefaultProvider === 'huggingface' ? currentDefaultModel : '',
       ...discoveredModels,
       'huggingface/meta-llama/Llama-3.1-8B-Instruct',
     ]);

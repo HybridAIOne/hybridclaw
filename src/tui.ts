@@ -1676,6 +1676,17 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     console.log();
     return;
   }
+  if (result.title === 'BTW') {
+    clearTuiSlashMenu();
+    console.log();
+    console.log(
+      `${GOLD}${wrapTuiBlock(result.title, terminalColumns(), '  ')}${RESET}`,
+    );
+    console.log();
+    console.log(wrapTuiBlock(result.text, terminalColumns(), '  '));
+    console.log();
+    return;
+  }
   if (result.title) {
     clearTuiSlashMenu();
     console.log();
