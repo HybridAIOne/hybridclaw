@@ -131,8 +131,11 @@ test('fax-send helper uses stored Sinch project default for text uploads', () =>
   expect(payload.httpRequest.url).toBe(
     'https://fax.api.sinch.com/v3/projects/<secret:SINCH_FAX_PROJECT_ID>/faxes',
   );
-  expect(payload.httpRequest.body).toContain('+493012345678');
-  expect(payload.httpRequest.body).toContain('+498920931098');
+  const body = Buffer.from(payload.httpRequest.bodyBase64, 'base64').toString(
+    'utf8',
+  );
+  expect(body).toContain('+493012345678');
+  expect(body).toContain('+498920931098');
   expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
     'SINCH_FAX_PROJECT_ID',
   ]);
@@ -154,8 +157,11 @@ test('fax-send helper can use an explicit Sinch service id', () => {
     headerPageNumbers: true,
   });
 
-  expect(payload.httpRequest.body).toContain('name="serviceId"');
-  expect(payload.httpRequest.body).toContain('service-123');
+  const body = Buffer.from(payload.httpRequest.bodyBase64, 'base64').toString(
+    'utf8',
+  );
+  expect(body).toContain('name="serviceId"');
+  expect(body).toContain('service-123');
 });
 
 test('fax-send helper supports bearer auth for Sinch OAuth deployments', () => {
@@ -252,15 +258,15 @@ test('fax-send helper can build direct text file uploads', () => {
     'Content-Type':
       'multipart/form-data; boundary=----hybridclaw-fax-text-boundary',
   });
-  expect(payload.httpRequest.body).toContain(
-    'name="file"; filename="hallo-welt.txt"',
+  const body = Buffer.from(payload.httpRequest.bodyBase64, 'base64').toString(
+    'utf8',
   );
-  expect(payload.httpRequest.body).toContain(
-    'Content-Type: text/plain; charset=utf-8',
-  );
-  expect(payload.httpRequest.body).toContain('Hallo Welt');
-  expect(payload.httpRequest.body).toContain('name="to"');
-  expect(payload.httpRequest.body).toContain('+498920931098');
+  expect(payload.httpRequest).not.toHaveProperty('body');
+  expect(body).toContain('name="file"; filename="hallo-welt.txt"');
+  expect(body).toContain('Content-Type: text/plain; charset=utf-8');
+  expect(body).toContain('Hallo Welt');
+  expect(body).toContain('name="to"');
+  expect(body).toContain('+498920931098');
   expect(payload.httpRequest.skillRequestContract.documentKind).toBe('txt');
 });
 

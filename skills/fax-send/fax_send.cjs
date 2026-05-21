@@ -437,7 +437,7 @@ function buildTextMultipartBody(params) {
   );
   return {
     boundary,
-    body: parts.join('\r\n'),
+    bodyBase64: Buffer.from(parts.join('\r\n'), 'utf8').toString('base64'),
   };
 }
 
@@ -530,7 +530,7 @@ function buildSendRequest(opts) {
     httpRequest.headers = {
       'Content-Type': `multipart/form-data; boundary=${multipart.boundary}`,
     };
-    httpRequest.body = multipart.body;
+    httpRequest.bodyBase64 = multipart.bodyBase64;
   } else {
     if (!opts.contentUrl) die('Either --content-url/--pdf-url or --text is required.');
     httpRequest.json = {
