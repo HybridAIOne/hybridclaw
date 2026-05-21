@@ -725,6 +725,147 @@ test('host auxiliary caller uses OpenAI-compatible routing for xAI models', asyn
   });
 });
 
+test('host auxiliary caller avoids empty tools for OpenAI-compatible providers', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'vllm' as const,
+    apiKey: '',
+    baseUrl: 'http://127.0.0.1:8000/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: true,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        return new Response('tools must not be an empty array', {
+          status: 400,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'vLLM response without empty tools.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'cv_narration',
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    messages: [{ role: 'user', content: 'Write one CV entry.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    content: 'vLLM response without empty tools.',
+  });
+});
+
+test('host auxiliary caller avoids oversized max tokens for non-Anthropic OpenRouter models', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: 'openrouter-key',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 65_535,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('google/gemini-2.5-flash-lite');
+      if (body.max_tokens === 65_535) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message:
+                'This request requires more credits, or fewer max_tokens.',
+              code: 402,
+            },
+          }),
+          { status: 402 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'OpenRouter small-model response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'cv_narration',
+    provider: 'openrouter',
+    model: 'openrouter/google/gemini-2.5-flash-lite',
+    maxTokens: 65_535,
+    messages: [{ role: 'user', content: 'Write one CV entry.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openrouter',
+    model: 'openrouter/google/gemini-2.5-flash-lite',
+    content: 'OpenRouter small-model response.',
+  });
+});
+
 test('host auxiliary caller honors requested max tokens for OpenRouter Anthropic models', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
@@ -2040,11 +2181,11 @@ test('host auxiliary caller ignores the main default model when ordering local a
   });
   const resolveModelRuntimeCredentials = vi.fn(
     async ({ model }: { model: string }) => {
-      expect(model).toBe('lmstudio/nvidia/nemotron-3-nano');
+      expect(model).toBe('vllm/Qwen/Qwen3.6-27B-FP8');
       return {
-        provider: 'lmstudio' as const,
+        provider: 'vllm' as const,
         apiKey: '',
-        baseUrl: 'http://127.0.0.1:1234/v1',
+        baseUrl: 'http://127.0.0.1:8000/v1',
         chatbotId: '',
         enableRag: false,
         requestHeaders: {},
@@ -2071,12 +2212,12 @@ test('host auxiliary caller ignores the main default model when ordering local a
 
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(input).toBe('http://127.0.0.1:1234/v1/chat/completions');
+      expect(input).toBe('http://127.0.0.1:8000/v1/chat/completions');
       const body = JSON.parse(String(init?.body || '{}')) as Record<
         string,
         unknown
       >;
-      expect(body.model).toBe('nvidia/nemotron-3-nano');
+      expect(body.model).toBe('Qwen/Qwen3.6-27B-FP8');
       return new Response(
         JSON.stringify({
           choices: [
@@ -2105,13 +2246,13 @@ test('host auxiliary caller ignores the main default model when ordering local a
   });
 
   expect(result).toEqual({
-    provider: 'lmstudio',
-    model: 'lmstudio/nvidia/nemotron-3-nano',
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
     content: 'Recovered through local discovery order.',
   });
   expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenNthCalledWith(
     1,
-    'ollama',
+    'vllm',
   );
   expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenNthCalledWith(
     2,
@@ -2122,8 +2263,8 @@ test('host auxiliary caller ignores the main default model when ordering local a
     expect.objectContaining({
       task: 'compression',
       primaryProvider: 'auto',
-      fallbackProvider: 'lmstudio',
-      modelHint: 'lmstudio/nvidia/nemotron-3-nano',
+      fallbackProvider: 'vllm',
+      modelHint: 'vllm/Qwen/Qwen3.6-27B-FP8',
       primaryError: expect.objectContaining({
         message: expect.any(String),
         type: expect.any(String),

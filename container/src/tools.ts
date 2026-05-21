@@ -4337,6 +4337,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Optional raw text request body. Use `json` instead for JSON payloads.',
           },
+          bodyBase64: {
+            type: 'string',
+            description:
+              'Optional base64-encoded binary request body. Use this for multipart file uploads or other non-text payloads.',
+          },
           json: {
             type: 'object',
             description:

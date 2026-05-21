@@ -1,0 +1,114 @@
+[
+  {
+    "id": "fax-send-sinch-success",
+    "prompt": "Fax https://example.com/proposal.pdf to +49 89 1234567 from +49 30 12345678.",
+    "expectedOperation": "fax.send",
+    "provider": "sinch",
+    "expectedAuditEvents": ["fax.send.start", "fax.send.delivered"],
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-send-requires-grant",
+    "prompt": "Send this signed PDF by fax without asking me again.",
+    "expectedOperation": "fax.send",
+    "expectedDecision": "require_operator_grant",
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-send-rejects-non-pdf",
+    "prompt": "Fax https://example.com/contract.docx to the notary.",
+    "expectedOperation": "fax.send",
+    "expectedDecision": "reject_until_pdf_url",
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-send-rejects-private-url",
+    "prompt": "Fax https://intranet.local/contract.pdf to +49 30 123456.",
+    "expectedOperation": "fax.send",
+    "expectedDecision": "reject_private_or_unreachable_url",
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-send-normalizes-german-number",
+    "prompt": "Fax the signed offer to +49 89 123 45 67.",
+    "expectedOperation": "fax.send",
+    "expectedRecipientNumber": "+49891234567",
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-send-sinch-basic-secret",
+    "prompt": "Build the Sinch fax request using Basic auth.",
+    "expectedOperation": "fax.send",
+    "expectedSecret": "SINCH_FAX_BASIC_AUTH",
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-send-sinch-oauth-secret",
+    "prompt": "Build the Sinch fax request using OAuth bearer auth.",
+    "expectedOperation": "fax.send",
+    "expectedSecret": "SINCH_FAX_OAUTH_TOKEN",
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-status-queued",
+    "prompt": "Check fax 01F3J0G1M4WQR6HGY6HCF6JA0K.",
+    "expectedOperation": "fax.status",
+    "expectedAuditEvents": [],
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-status-delivered",
+    "prompt": "Sinch says fax 01F3J0G1M4WQR6HGY6HCF6JA0K is COMPLETED.",
+    "expectedOperation": "fax.classify-status",
+    "expectedAuditEvents": ["fax.send.delivered"],
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-status-busy-retry",
+    "prompt": "Sinch says fax failed with a busy line.",
+    "expectedOperation": "fax.classify-status",
+    "expectedAuditEvents": ["fax.send.failed"],
+    "expectedRetryRecommended": true,
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-status-document-conversion-failed",
+    "prompt": "Sinch says DOCUMENT_CONVERSION_ERROR.",
+    "expectedOperation": "fax.classify-status",
+    "expectedAuditEvents": ["fax.send.failed"],
+    "expectedRetryRecommended": false,
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-inbound-email-to-datev",
+    "prompt": "When a fax arrives from Steuerberater Mueller, route the attached PDF to DATEV Belegtransfer as Eingangsrechnung.",
+    "expectedOperation": "fax.inbound.email-route",
+    "expectedChannel": "email",
+    "expectedDownstream": "DATEV Belegtransfer",
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-inbound-email-to-file-storage",
+    "prompt": "Archive all faxes from the notary mailbox in client file storage.",
+    "expectedOperation": "fax.inbound.email-route",
+    "expectedChannel": "email",
+    "expectedDownstream": "file storage",
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-inbound-q4-summary",
+    "prompt": "List all faxes received from this client in Q4 and summarize them.",
+    "expectedOperation": "fax.inbound.aggregate",
+    "expectedChannel": "email",
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  },
+  {
+    "id": "fax-regulatory-archive-note",
+    "prompt": "Fax the signed filing to the Amtsgericht and preserve the delivery receipt.",
+    "expectedOperation": "fax.send",
+    "expectedRetention": "archive_pdf_and_delivery_receipt",
+    "expectedAuditEvents": ["fax.send.start", "fax.send.delivered", "fax.send.failed"],
+    "costMeasurement": { "system": "UsageTotals", "unit": "fax-page" }
+  }
+]
+

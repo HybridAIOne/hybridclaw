@@ -10,6 +10,10 @@ import { openPdfDocument } from '../skills/pdf/scripts/_pdf_runtime.mjs';
 
 const repoRoot = process.cwd();
 const tempDirs = [];
+const onePixelPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+  'base64',
+);
 
 function makeTempDir() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-pdf-test-'));
@@ -200,6 +204,29 @@ describe('PDF skill Node scripts', () => {
 
     const generated = await PDFDocument.load(fs.readFileSync(outputPdf));
     expect(generated.getPageCount()).toBeGreaterThan(1);
+  });
+
+  test('creates a PDF with text and an embedded image', async () => {
+    const dir = makeTempDir();
+    const outputPdf = path.join(dir, 'text-image.pdf');
+    const imagePath = path.join(dir, 'logo.png');
+    fs.writeFileSync(imagePath, onePixelPng);
+
+    runNodeScript([
+      'skills/pdf/scripts/create_pdf.mjs',
+      outputPdf,
+      '--image-path',
+      imagePath,
+      '--text',
+      'Hello World! This Claw can fax!',
+    ]);
+
+    const generated = await PDFDocument.load(fs.readFileSync(outputPdf));
+    expect(generated.getPageCount()).toBe(1);
+    const items = await readPageTextItems(outputPdf);
+    expect(items.map((item) => item.text).join(' ')).toContain(
+      'Hello World! This Claw can fax!',
+    );
   });
 
   test('supports the fillable-form workflow end to end', async () => {

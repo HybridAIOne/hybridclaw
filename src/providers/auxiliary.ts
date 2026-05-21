@@ -27,10 +27,12 @@ import {
 import {
   isLocalBackendType,
   isOpenAICompatProviderId,
-  LOCAL_BACKEND_IDS,
   type RuntimeProviderId,
 } from './provider-ids.js';
-import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
+import {
+  isAnthropicProviderModel,
+  resolveProviderRequestMaxTokens,
+} from './request-max-tokens.js';
 import {
   type AuxiliaryTask,
   detectRuntimeProviderPrefix,
@@ -65,6 +67,12 @@ const REMOTE_AUXILIARY_FALLBACKS: Array<{
     provider: 'gemini',
     model: 'gemini/gemini-2.5-flash-lite',
   },
+];
+const LOCAL_AUXILIARY_FALLBACK_ORDER: RuntimeProvider[] = [
+  'vllm',
+  'lmstudio',
+  'llamacpp',
+  'ollama',
 ];
 const FALLBACK_PROVIDER_STATUS_TTL_MS = 30_000;
 
@@ -594,11 +602,11 @@ function resolveLocalFallbackProviderOrder(params: {
     providers.push(provider);
   };
 
-  pushProvider(resolveLocalProviderForModel(params.params.fallbackModel));
-  pushProvider(resolveLocalProviderForModel(params.modelHint));
-  for (const provider of LOCAL_BACKEND_IDS) {
+  for (const provider of LOCAL_AUXILIARY_FALLBACK_ORDER) {
     pushProvider(provider);
   }
+  pushProvider(resolveLocalProviderForModel(params.params.fallbackModel));
+  pushProvider(resolveLocalProviderForModel(params.modelHint));
   return providers;
 }
 
@@ -663,11 +671,11 @@ async function resolveLocalFallbackContext(params: {
     candidates.push({ model: normalized, expectedProvider: provider });
   };
 
-  pushCandidate(params.params.fallbackModel);
-  pushCandidate(params.modelHint);
   for (const provider of resolveLocalFallbackProviderOrder(params)) {
     pushCandidate(resolveDefaultAuxiliaryModelForProvider(provider), provider);
   }
+  pushCandidate(params.params.fallbackModel);
+  pushCandidate(params.modelHint);
 
   for (const candidate of candidates) {
     try {
@@ -745,11 +753,11 @@ async function resolveLocalFallbackContexts(params: {
     candidates.push({ model: normalized, expectedProvider: provider });
   };
 
-  pushCandidate(params.params.fallbackModel);
-  pushCandidate(params.modelHint);
   for (const provider of resolveLocalFallbackProviderOrder(params)) {
     pushCandidate(resolveDefaultAuxiliaryModelForProvider(provider), provider);
   }
+  pushCandidate(params.params.fallbackModel);
+  pushCandidate(params.modelHint);
 
   const contexts: AuxiliaryTextCallContext[] = [];
   for (const candidate of candidates) {
@@ -1085,18 +1093,32 @@ function shouldRetryWithMaxCompletionTokens(
   );
 }
 
+function openAICompatRequestMaxTokens(
+  context: AuxiliaryTextCallContext,
+): number | undefined {
+  if (
+    context.provider === 'openrouter' &&
+    !isAnthropicProviderModel(context.model)
+  ) {
+    return undefined;
+  }
+  return context.maxTokens;
+}
+
 async function callOpenAICompatTextModel(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
+  const maxTokens = openAICompatRequestMaxTokens(context);
   const body = withCoreRequestBody(
     {
       model: normalizeOpenAICompatModelName(context.provider, context.model),
       messages: collapseSystemMessages(messages),
-      tools: options.tools,
-      tool_choice: 'auto',
-      ...(context.maxTokens ? { max_tokens: context.maxTokens } : {}),
+      ...(options.tools.length > 0
+        ? { tools: options.tools, tool_choice: 'auto' }
+        : {}),
+      ...(maxTokens ? { max_tokens: maxTokens } : {}),
     },
     options,
   );
@@ -1114,9 +1136,9 @@ async function callOpenAICompatTextModel(
 
   if (!response.ok) {
     const responseText = await response.text();
-    if (shouldRetryWithMaxCompletionTokens(responseText, context.maxTokens)) {
+    if (shouldRetryWithMaxCompletionTokens(responseText, maxTokens)) {
       delete body.max_tokens;
-      body.max_completion_tokens = context.maxTokens;
+      body.max_completion_tokens = maxTokens;
       response = await fetch(`${context.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: buildJsonHeaders({

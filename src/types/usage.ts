@@ -34,6 +34,13 @@ export interface UsageTotals {
   cost_per_call_usd: number;
   call_count: number;
   total_tool_calls: number;
+  billable_units?: UsageBillableUnitTotal[];
+}
+
+export interface UsageBillableUnitTotal {
+  unit: string;
+  quantity: number;
+  cost_usd: number;
 }
 
 export interface UsageModelAggregate {

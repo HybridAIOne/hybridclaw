@@ -9323,6 +9323,60 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('forwards base64-encoded binary bodies for outbound http_request calls', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: 'fax-123' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const multipartBody = Buffer.from(
+      [
+        '------boundary',
+        'Content-Disposition: form-data; name="file"; filename="hello.txt"',
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        'Hallo Welt',
+        '------boundary--',
+        '',
+      ].join('\r\n'),
+      'utf8',
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/faxes',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data; boundary=----boundary',
+        },
+        bodyBase64: multipartBody.toString('base64'),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        body: new Uint8Array(multipartBody),
+        method: 'POST',
+      }),
+    );
+  });
+
   test('blocks outbound http_request redirects to avoid SSRF bypasses', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
