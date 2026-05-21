@@ -5,6 +5,7 @@ import {
   parseAgentIdentity,
   resolveLocalInstanceId,
 } from '../identity/agent-id.js';
+import { logger } from '../logger.js';
 import {
   type A2AEnvelope,
   A2AEnvelopeValidationError,
@@ -31,6 +32,20 @@ function findLocalAgent(agentId: string): AgentConfig {
   ]);
 }
 
+function resolveLocalAgentOwnerFallback(agent: AgentConfig): string {
+  if (agent.owner) return agent.owner;
+  if (process.env.HYBRIDCLAW_USER_ID) return process.env.HYBRIDCLAW_USER_ID;
+
+  const osOwner = process.env.USER || process.env.LOGNAME || '';
+  if (osOwner) {
+    logger.warn(
+      { agentId: agent.id },
+      'Deriving transient local agent identity from OS user environment',
+    );
+  }
+  return osOwner;
+}
+
 export function resolveA2AAgentId(agentId: string): string {
   const normalized = agentId.trim();
   const kind = classifyA2AAgentId(normalized);
@@ -55,12 +70,7 @@ export function resolveA2AAgentId(agentId: string): string {
 
   return deriveLocalAgentIdentity({
     agentId: agent.id,
-    owner:
-      agent.owner ||
-      process.env.HYBRIDCLAW_USER_ID ||
-      process.env.USER ||
-      process.env.LOGNAME ||
-      '',
+    owner: resolveLocalAgentOwnerFallback(agent),
     ownerUserId: agent.ownerUserId,
     instanceId: resolveLocalInstanceId(),
   }).canonicalId;

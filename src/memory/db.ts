@@ -36,6 +36,7 @@ import {
   AGENT_IDENTITY_COMPONENT_MAX_LENGTH,
   deriveLocalAgentIdentity,
   formatAgentIdentity,
+  formatLocalOwnerUserId,
   parseAgentIdentity,
 } from '../identity/agent-id.js';
 import { parseUserId } from '../identity/user-id.js';
@@ -148,6 +149,8 @@ let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
 export const DATABASE_SCHEMA_VERSION = 36;
+const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
+const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -2547,8 +2550,12 @@ function backfillAgentCanonicalIdentities(database: Database.Database): void {
   for (const row of rows) {
     const existingCanonicalId = normalizeStoredCanonicalAgentId(
       row.canonical_id,
+      row.id,
     );
-    const existingOwnerUserId = normalizeStoredOwnerUserId(row.owner_user_id);
+    const existingOwnerUserId = normalizeStoredOwnerUserId(
+      row.owner_user_id,
+      row.id,
+    );
     if (existingCanonicalId && existingOwnerUserId) continue;
 
     const identity = allocateCanonicalAgentIdentity({
@@ -2958,49 +2965,69 @@ function parseAgentA2AConfig(rawConfig: string | null): AgentConfig['a2a'] {
   }
 }
 
-function normalizeStoredCanonicalAgentId(value: string | null): string {
+function normalizeStoredIdentityField(
+  value: string | null,
+  parseIdentity: (normalized: string) => { id: string },
+  params: {
+    agentId: string;
+    lengthKey: string;
+    warning: string;
+  },
+): string {
   const normalized = value?.trim() || '';
   if (!normalized) return '';
   try {
-    return parseAgentIdentity(normalized).id;
+    return parseIdentity(normalized).id;
   } catch {
     logger.warn(
-      { canonicalIdLength: normalized.length },
-      'Ignoring invalid persisted canonical agent identity',
+      { agentId: params.agentId, [params.lengthKey]: normalized.length },
+      params.warning,
     );
     return '';
   }
 }
 
-function normalizeStoredOwnerUserId(value: string | null): string {
-  const normalized = value?.trim() || '';
-  if (!normalized) return '';
-  try {
-    return parseUserId(normalized).id;
-  } catch {
-    logger.warn(
-      { ownerUserIdLength: normalized.length },
-      'Ignoring invalid persisted agent owner user id',
-    );
-    return '';
-  }
+function normalizeStoredCanonicalAgentId(
+  value: string | null,
+  agentId: string,
+): string {
+  return normalizeStoredIdentityField(value, parseAgentIdentity, {
+    agentId,
+    lengthKey: 'canonicalIdLength',
+    warning: 'Ignoring invalid persisted canonical agent identity',
+  });
+}
+
+function normalizeStoredOwnerUserId(
+  value: string | null,
+  agentId: string,
+): string {
+  return normalizeStoredIdentityField(value, parseUserId, {
+    agentId,
+    lengthKey: 'ownerUserIdLength',
+    warning: 'Ignoring invalid persisted agent owner user id',
+  });
+}
+
+function prepareCanonicalAgentIdentityConflictStatement(
+  database: Database.Database,
+): Database.Statement | null {
+  if (!tableExists(database, 'agents')) return null;
+  if (!columnExists(database, 'agents', 'canonical_id')) return null;
+  return database.prepare(
+    `SELECT id
+     FROM agents
+     WHERE canonical_id = ? AND id != ?
+     LIMIT 1`,
+  );
 }
 
 function canonicalAgentIdentityExists(
-  database: Database.Database,
+  statement: Database.Statement,
   canonicalId: string,
   agentId: string,
 ): boolean {
-  if (!tableExists(database, 'agents')) return false;
-  if (!columnExists(database, 'agents', 'canonical_id')) return false;
-  const row = database
-    .prepare(
-      `SELECT id
-       FROM agents
-       WHERE canonical_id = ? AND id != ?
-       LIMIT 1`,
-    )
-    .get(canonicalId, agentId) as { id: string } | undefined;
+  const row = statement.get(canonicalId, agentId) as { id: string } | undefined;
   return Boolean(row);
 }
 
@@ -3026,6 +3053,16 @@ function ownerUserIdMatchesCanonicalAgentId(
   }
 }
 
+function isDefaultPlaceholderIdentity(
+  agent: AgentConfig | null | undefined,
+): boolean {
+  return (
+    Boolean(agent) &&
+    !agent?.owner &&
+    agent?.ownerUserId === DEFAULT_LOCAL_OWNER_USER_ID
+  );
+}
+
 function allocateCanonicalAgentIdentity(params: {
   database: Database.Database;
   agentId: string;
@@ -3037,9 +3074,13 @@ function allocateCanonicalAgentIdentity(params: {
     owner: params.owner ?? undefined,
     ownerUserId: params.ownerUserId ?? undefined,
   });
+  const conflictStatement = prepareCanonicalAgentIdentityConflictStatement(
+    params.database,
+  );
+  if (!conflictStatement) return identity;
   if (
     !canonicalAgentIdentityExists(
-      params.database,
+      conflictStatement,
       identity.canonicalId,
       params.agentId,
     )
@@ -3048,7 +3089,7 @@ function allocateCanonicalAgentIdentity(params: {
   }
 
   const parsed = parseAgentIdentity(identity.canonicalId);
-  for (let index = 2; index <= 1000; index += 1) {
+  for (let index = 2; index <= AGENT_CANONICAL_ID_COLLISION_LIMIT; index += 1) {
     const canonicalId = formatAgentIdentity(
       addCollisionSuffixToAgentSlug(parsed.agentSlug, index),
       parsed.userSlug,
@@ -3056,7 +3097,7 @@ function allocateCanonicalAgentIdentity(params: {
     );
     if (
       !canonicalAgentIdentityExists(
-        params.database,
+        conflictStatement,
         canonicalId,
         params.agentId,
       )
@@ -3074,8 +3115,8 @@ function allocateCanonicalAgentIdentity(params: {
 }
 
 function mapAgentRow(row: AgentRow): AgentConfig {
-  const canonicalId = normalizeStoredCanonicalAgentId(row.canonical_id);
-  const ownerUserId = normalizeStoredOwnerUserId(row.owner_user_id);
+  const canonicalId = normalizeStoredCanonicalAgentId(row.canonical_id, row.id);
+  const ownerUserId = normalizeStoredOwnerUserId(row.owner_user_id, row.id);
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
   const imageAsset = row.image_asset?.trim() || '';
@@ -3174,12 +3215,10 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const explicitOwnerUserId = explicitIdentity.ownerUserId || '';
   const explicitCanonicalId = explicitIdentity.canonicalId || '';
   const shouldReplaceDefaultIdentity =
-    Boolean(existingAgent) &&
     !explicitOwnerUserId &&
     !explicitCanonicalId &&
-    !existingAgent?.owner &&
     Boolean(normalizedOwner) &&
-    existingAgent?.ownerUserId === 'local@local';
+    isDefaultPlaceholderIdentity(existingAgent);
   const existingOwnerUserId = shouldReplaceDefaultIdentity
     ? undefined
     : existingAgent?.ownerUserId;
@@ -3207,11 +3246,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
       });
   const canonicalId =
     explicitCanonicalId || existingCanonicalId || identity?.canonicalId || null;
-  const ownerUserId =
-    normalizedOwnerUserId ||
-    identity?.ownerUserId ||
-    compatibleExistingOwnerUserId ||
-    null;
+  const ownerUserId = normalizedOwnerUserId || identity?.ownerUserId || null;
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
