@@ -7,6 +7,7 @@ type RedactionReplacer = (substring: string, ...args: string[]) => string;
 export interface SecretRedactionPattern {
   match: RegExp;
   replace: string | RedactionReplacer;
+  shouldRun?: (text: string) => boolean;
 }
 
 export interface HighEntropyRedactionOptions {
@@ -173,6 +174,14 @@ function redactConnectionString(value: string): string {
   return `${value.slice(0, schemeIdx + 3)}***`;
 }
 
+function containsDigit(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code >= 48 && code <= 57) return true;
+  }
+  return false;
+}
+
 const JSON_SECRET_KEY_RE =
   /((?:["'])(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|webhook[_-]?secret|auth(?:orization)?|token|secret|password|private[_-]?key)(?:["'])\s*:\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,\s}\]]+)/gi;
 const ENV_SECRET_ASSIGNMENT_RE =
@@ -186,78 +195,98 @@ export const CREDENTIAL_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
       match:
         /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9]+)* PRIVATE KEY-----/g,
       replace: '***PRIVATE_KEY_REDACTED***',
+      shouldRun: (text) => text.includes('PRIVATE KEY'),
     },
     {
       match: JSON_SECRET_KEY_RE,
       replace: (_match: string, prefix: string, value: string) =>
         `${prefix}${redactStructuredSecretValue(value)}`,
+      shouldRun: (text) =>
+        text.includes(':') && (text.includes('"') || text.includes("'")),
     },
     {
       match: ENV_SECRET_ASSIGNMENT_RE,
       replace: (_match: string, key: string, value: string) =>
         `${key}=${redactStructuredSecretValue(value)}`,
+      shouldRun: (text) => text.includes('='),
     },
     {
       match: /\b(Bearer\s+)([^\s"',;]+)/gi,
       replace: (_match: string, prefix: string, token: string) =>
         `${prefix}${maskSecret(token)}`,
+      shouldRun: (text) => text.toLowerCase().includes('bearer'),
     },
     {
       match:
         /\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|mssql):\/\/[^\s"'`]+)/gi,
       replace: (_match: string, value: string) => redactConnectionString(value),
+      shouldRun: (text) => text.includes('://'),
     },
     {
       match: /\b(github_pat_[A-Za-z0-9_]{20,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('github_pat_'),
     },
     {
       match: /\b(gho_[A-Za-z0-9_]{20,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('gho_'),
     },
     {
       match: /\b(ghs_[A-Za-z0-9_]{20,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('ghs_'),
     },
     {
       match: /\b(ghu_[A-Za-z0-9_]{20,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('ghu_'),
     },
     {
       match: /\b(ghp_[A-Za-z0-9_]{20,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('ghp_'),
     },
     {
       match: /\b(npm_[A-Za-z0-9]{20,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('npm_'),
     },
     {
       match: /\b(sk_(?:live|test)_[A-Za-z0-9]{16,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) =>
+        text.includes('sk_live_') || text.includes('sk_test_'),
     },
     {
       match: /\b(sk-[A-Za-z0-9_-]{16,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('sk-'),
     },
     {
       match: /\b(AKIA[0-9A-Z]{16})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('AKIA'),
     },
     {
       match: /\b(xox[baprs]-[A-Za-z0-9-]{10,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('xox'),
     },
     {
       match: /\b(AIza[0-9A-Za-z_-]{35})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('AIza'),
     },
     {
       match: /\b(hf_[A-Za-z0-9]{20,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('hf_'),
     },
     {
       match: /\b(SG\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g,
       replace: (_match: string, token: string) => maskSecret(token),
+      shouldRun: (text) => text.includes('SG.'),
     },
   ]);
 
@@ -267,6 +296,7 @@ export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
     {
       match: /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi,
       replace: replaceEmail,
+      shouldRun: (text) => text.includes('@'),
     },
     {
       match:
@@ -281,15 +311,22 @@ export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
     {
       match: /\b(\d{3}-\d{2}-\d{4})\b/g,
       replace: replaceSsn,
+      shouldRun: (text) => text.includes('-'),
     },
     {
       match:
         /(?<!\w)((?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4})(?!\w)/g,
       replace: replacePhone,
+      shouldRun: (text) =>
+        text.includes('(') ||
+        text.includes(' ') ||
+        text.includes('.') ||
+        text.includes('-'),
     },
     {
       match: /(?<!\w)(\+\d{1,3}(?:[\s./-]?\d){6,14})(?!\w)/g,
       replace: replacePhone,
+      shouldRun: (text) => text.includes('+'),
     },
     {
       match: /(?<!\w)(0\d{1,5}(?:[/\s.-]?\d){5,13})(?!\w)/g,
@@ -298,6 +335,7 @@ export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
     {
       match: /\b((?:\d[ -]?){13,19})\b/g,
       replace: replaceCreditCard,
+      shouldRun: containsDigit,
     },
   ]);
 
@@ -306,6 +344,9 @@ export function redactCredentialSecrets(text: string): string {
 
   let next = text;
   for (const pattern of CREDENTIAL_REDACTION_PATTERNS) {
+    // Guards run after earlier replacements, so each must remain a necessary
+    // match condition that prior patterns do not remove.
+    if (pattern.shouldRun && !pattern.shouldRun(next)) continue;
     next = next.replace(pattern.match, pattern.replace as never);
   }
   return next;
@@ -316,6 +357,9 @@ export function redactSecrets(text: string): string {
 
   let next = text;
   for (const pattern of SECRET_REDACTION_PATTERNS) {
+    // Guards run after earlier replacements, so each must remain a necessary
+    // match condition that prior patterns do not remove.
+    if (pattern.shouldRun && !pattern.shouldRun(next)) continue;
     next = next.replace(pattern.match, pattern.replace as never);
   }
   return next;
