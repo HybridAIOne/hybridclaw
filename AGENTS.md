@@ -175,6 +175,20 @@ should verify no broken references.
 - npm
 - Docker when working on container-mode behavior or image builds
 
+### Node Version Discipline
+
+- Always run local repo commands under NVM Node 22. Before direct shell commands
+  that invoke `node`, `npm`, `npx`, `tsx`, `tsc`, `vitest`, or local
+  `node_modules/.bin/*`, run:
+  `source ~/.nvm/nvm.sh && nvm use 22`.
+- For one-off commands, prefer `./scripts/with-node22.sh <command>`, for
+  example:
+  `./scripts/with-node22.sh npm exec -- vitest run --configLoader runner --project unit tests/fax-send-skill.test.ts`.
+- Do not run repo checks with bare Homebrew/system `node`; native modules such
+  as `better-sqlite3` are ABI-sensitive and must match Node 22.
+- `npm run typecheck`, `npm run lint`, `npm run check`, `npm run format`, and
+  test scripts run `check:node` first and must fail fast outside Node 22.
+
 ### Common Commands
 
 ```bash
