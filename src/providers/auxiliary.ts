@@ -1479,6 +1479,63 @@ async function callAuxiliaryTextProvider(
   return callHybridAITextModel(context, messages, options);
 }
 
+async function callAuxiliaryTextProviderWithLogging(
+  params: AuxiliaryModelCallParams,
+  context: AuxiliaryTextCallContext,
+  messages: ChatMessage[],
+  options: AuxiliaryRequestOptions,
+): Promise<AuxiliaryTextResponse> {
+  const startedAt = Date.now();
+  if (typeof logger.info === 'function') {
+    logger.info(
+      {
+        task: params.task,
+        provider: context.provider,
+        model: context.model,
+        messages: messages.length,
+        tools: params.tools?.length ?? 0,
+        maxTokens: context.maxTokens,
+      },
+      '[aux-model] call start',
+    );
+  }
+
+  try {
+    const response = await callAuxiliaryTextProvider(
+      context,
+      messages,
+      options,
+    );
+    if (typeof logger.info === 'function') {
+      logger.info(
+        {
+          task: params.task,
+          provider: context.provider,
+          model: context.model,
+          durationMs: Date.now() - startedAt,
+          usage: response.usage,
+        },
+        '[aux-model] call success',
+      );
+    }
+    return response;
+  } catch (error) {
+    if (typeof logger.warn === 'function') {
+      logger.warn(
+        {
+          task: params.task,
+          provider: context.provider,
+          model: context.model,
+          durationMs: Date.now() - startedAt,
+          error,
+        },
+        '[aux-model] call error',
+      );
+    }
+    throw error;
+  }
+}
+
 async function callAuxiliaryTextProviderWithFallback(
   params: AuxiliaryModelCallParams,
   context: AuxiliaryTextCallContext,
@@ -1491,7 +1548,12 @@ async function callAuxiliaryTextProviderWithFallback(
   try {
     return {
       context,
-      response: await callAuxiliaryTextProvider(context, messages, options),
+      response: await callAuxiliaryTextProviderWithLogging(
+        params,
+        context,
+        messages,
+        options,
+      ),
     };
   } catch (error) {
     if (params.provider && params.provider !== 'auto') {
@@ -1526,7 +1588,8 @@ async function callAuxiliaryTextProviderWithFallback(
       try {
         return {
           context: fallbackContext,
-          response: await callAuxiliaryTextProvider(
+          response: await callAuxiliaryTextProviderWithLogging(
+            params,
             fallbackContext,
             messages,
             options,
@@ -1574,17 +1637,6 @@ export async function callAuxiliaryModel(
   const content = response.content.trim();
   if (!content) {
     throw new Error(`${params.task} returned an empty response.`);
-  }
-  if (typeof logger.debug === 'function') {
-    logger.debug(
-      {
-        task: params.task,
-        provider: context.provider,
-        model: context.model,
-        usage: response.usage,
-      },
-      'Auxiliary model call completed',
-    );
   }
   return {
     provider: context.provider,

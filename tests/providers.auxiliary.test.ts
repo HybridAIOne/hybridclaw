@@ -175,6 +175,12 @@ test('host auxiliary caller uses the configured compression task model', async (
     resolveTaskModelPolicy,
     resolveModelRuntimeCredentials,
   });
+  const info = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      info,
+    },
+  }));
 
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -225,6 +231,26 @@ test('host auxiliary caller uses the configured compression task model', async (
     content: 'Compressed via auxiliary task model.',
   });
   expect(resolveModelRuntimeCredentials).not.toHaveBeenCalled();
+  expect(info).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'compression',
+      provider: 'lmstudio',
+      model: 'lmstudio/qwen/qwen2.5-instruct',
+      messages: 2,
+      tools: 0,
+      maxTokens: undefined,
+    }),
+    '[aux-model] call start',
+  );
+  expect(info).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'compression',
+      provider: 'lmstudio',
+      model: 'lmstudio/qwen/qwen2.5-instruct',
+      durationMs: expect.any(Number),
+    }),
+    '[aux-model] call success',
+  );
 });
 
 test('host auxiliary caller falls back to resolved runtime credentials', async () => {
