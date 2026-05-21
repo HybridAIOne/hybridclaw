@@ -31,6 +31,13 @@ import {
   runtimeConfigRevisionStorePath,
   syncRuntimeAssetRevisionStateInOpenDatabase,
 } from '../config/runtime-config-revisions.js';
+import {
+  AGENT_IDENTITY_COMPONENT_MAX_LENGTH,
+  deriveLocalAgentIdentity,
+  formatAgentIdentity,
+  parseAgentIdentity,
+} from '../identity/agent-id.js';
+import { parseUserId } from '../identity/user-id.js';
 import { logger } from '../logger.js';
 import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
 import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
@@ -139,7 +146,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 35;
+export const DATABASE_SCHEMA_VERSION = 36;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -181,6 +188,8 @@ interface ColumnInfoRow {
 
 type AgentRow = {
   id: AgentConfig['id'];
+  canonical_id: string | null;
+  owner_user_id: string | null;
   name: string | null;
   display_name: string | null;
   image_asset: string | null;
@@ -2508,6 +2517,100 @@ function migrateV35(
   recordMigration(database, 35, 'Persist non-token billable usage units');
 }
 
+function backfillAgentCanonicalIdentities(database: Database.Database): void {
+  if (!tableExists(database, 'agents')) return;
+  if (!columnExists(database, 'agents', 'canonical_id')) return;
+  if (!columnExists(database, 'agents', 'owner_user_id')) return;
+
+  const ownerSelect = columnExists(database, 'agents', 'owner')
+    ? 'owner'
+    : 'NULL AS owner';
+  const rows = database
+    .prepare(
+      `SELECT id, ${ownerSelect}, canonical_id, owner_user_id
+       FROM agents
+       ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
+    )
+    .all(DEFAULT_AGENT_ID) as Array<{
+    id: string;
+    owner: string | null;
+    canonical_id: string | null;
+    owner_user_id: string | null;
+  }>;
+
+  const update = database.prepare(
+    `UPDATE agents
+     SET canonical_id = ?, owner_user_id = ?, updated_at = datetime('now')
+     WHERE id = ?`,
+  );
+  for (const row of rows) {
+    const existingCanonicalId = normalizeStoredCanonicalAgentId(
+      row.canonical_id,
+    );
+    const existingOwnerUserId = normalizeStoredOwnerUserId(row.owner_user_id);
+    if (existingCanonicalId && existingOwnerUserId) continue;
+
+    const identity = allocateCanonicalAgentIdentity({
+      database,
+      agentId: row.id,
+      owner: row.owner,
+      ownerUserId: existingOwnerUserId || undefined,
+    });
+    update.run(
+      existingCanonicalId || identity.canonicalId,
+      existingOwnerUserId || identity.ownerUserId,
+      row.id,
+    );
+  }
+}
+
+function agentCanonicalIdentityNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    (!columnExists(database, 'agents', 'canonical_id') ||
+      !columnExists(database, 'agents', 'owner_user_id') ||
+      !indexExists(database, 'idx_agents_canonical_id'))
+  );
+}
+
+function migrateV36(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'canonical_id',
+    ddl: 'canonical_id TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'owner_user_id',
+    ddl: 'owner_user_id TEXT',
+    quiet,
+  });
+  backfillAgentCanonicalIdentities(database);
+  if (tableExists(database, 'agents')) {
+    database.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_canonical_id
+        ON agents(canonical_id)
+        WHERE canonical_id IS NOT NULL AND TRIM(canonical_id) != '';
+      CREATE INDEX IF NOT EXISTS idx_agents_owner_user_id
+        ON agents(owner_user_id);
+    `);
+  }
+  recordMigration(
+    database,
+    36,
+    'Persist canonical local agent and owner user identities',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2589,6 +2692,9 @@ function runMigrations(
   }
   if (currentVersion < 34) migrateV34(database);
   if (currentVersion < 35) migrateV35(database, opts);
+  if (currentVersion < 36 || agentCanonicalIdentityNeedMigration(database)) {
+    migrateV36(database, opts);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2850,7 +2956,107 @@ function parseAgentA2AConfig(rawConfig: string | null): AgentConfig['a2a'] {
   }
 }
 
+function normalizeStoredCanonicalAgentId(value: string | null): string {
+  const normalized = value?.trim() || '';
+  if (!normalized) return '';
+  try {
+    return parseAgentIdentity(normalized).id;
+  } catch {
+    logger.warn(
+      { canonicalIdLength: normalized.length },
+      'Ignoring invalid persisted canonical agent identity',
+    );
+    return '';
+  }
+}
+
+function normalizeStoredOwnerUserId(value: string | null): string {
+  const normalized = value?.trim() || '';
+  if (!normalized) return '';
+  try {
+    return parseUserId(normalized).id;
+  } catch {
+    logger.warn(
+      { ownerUserIdLength: normalized.length },
+      'Ignoring invalid persisted agent owner user id',
+    );
+    return '';
+  }
+}
+
+function canonicalAgentIdentityExists(
+  database: Database.Database,
+  canonicalId: string,
+  agentId: string,
+): boolean {
+  if (!tableExists(database, 'agents')) return false;
+  if (!columnExists(database, 'agents', 'canonical_id')) return false;
+  const row = database
+    .prepare(
+      `SELECT id
+       FROM agents
+       WHERE canonical_id = ? AND id != ?
+       LIMIT 1`,
+    )
+    .get(canonicalId, agentId) as { id: string } | undefined;
+  return Boolean(row);
+}
+
+function addCollisionSuffixToAgentSlug(slug: string, index: number): string {
+  const suffix = `-${index}`;
+  return `${slug.slice(0, AGENT_IDENTITY_COMPONENT_MAX_LENGTH - suffix.length)}${suffix}`;
+}
+
+function allocateCanonicalAgentIdentity(params: {
+  database: Database.Database;
+  agentId: string;
+  owner?: string | null;
+  ownerUserId?: string | null;
+}): { canonicalId: string; ownerUserId: string } {
+  const identity = deriveLocalAgentIdentity({
+    agentId: params.agentId,
+    owner: params.owner ?? undefined,
+    ownerUserId: params.ownerUserId ?? undefined,
+  });
+  if (
+    !canonicalAgentIdentityExists(
+      params.database,
+      identity.canonicalId,
+      params.agentId,
+    )
+  ) {
+    return identity;
+  }
+
+  const parsed = parseAgentIdentity(identity.canonicalId);
+  for (let index = 2; index <= 1000; index += 1) {
+    const canonicalId = formatAgentIdentity(
+      addCollisionSuffixToAgentSlug(parsed.agentSlug, index),
+      parsed.userSlug,
+      parsed.instanceId,
+    );
+    if (
+      !canonicalAgentIdentityExists(
+        params.database,
+        canonicalId,
+        params.agentId,
+      )
+    ) {
+      return {
+        canonicalId,
+        ownerUserId: identity.ownerUserId,
+      };
+    }
+  }
+
+  throw new Error(
+    `Could not allocate a unique canonical agent identity for ${params.agentId}.`,
+  );
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
+  const canonicalId = normalizeStoredCanonicalAgentId(row.canonical_id);
+  const ownerUserId = normalizeStoredOwnerUserId(row.owner_user_id);
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
   const imageAsset = row.image_asset?.trim() || '';
@@ -2868,6 +3074,8 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const a2a = parseAgentA2AConfig(row.a2a);
   return {
     id: row.id,
+    ...(canonicalId ? { canonicalId } : {}),
+    ...(ownerUserId ? { ownerUserId } : {}),
     ...(name ? { name } : {}),
     ...(displayName ? { displayName } : {}),
     ...(imageAsset ? { imageAsset } : {}),
@@ -2890,7 +3098,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, created_at, updated_at';
+  'id, canonical_id, owner_user_id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -2921,6 +3129,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   if (!normalizedId) {
     throw new Error('Agent id is required.');
   }
+  const existingAgent = getAgentById(normalizedId);
   const normalizedName = agent.name?.trim() || null;
   const normalizedDisplayName = agent.displayName?.trim() || null;
   const normalizedImageAsset = agent.imageAsset?.trim() || null;
@@ -2938,11 +3147,50 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     agent.escalationTarget,
   );
   const normalizedA2A = serializeAgentA2AConfig(agent.a2a);
+  const explicitOwnerUserId = agent.ownerUserId?.trim()
+    ? parseUserId(agent.ownerUserId).id
+    : '';
+  const explicitCanonicalId = agent.canonicalId?.trim()
+    ? parseAgentIdentity(agent.canonicalId).id
+    : '';
+  const shouldReplaceDefaultIdentity =
+    Boolean(existingAgent) &&
+    !explicitOwnerUserId &&
+    !explicitCanonicalId &&
+    !existingAgent?.owner &&
+    Boolean(normalizedOwner) &&
+    existingAgent?.ownerUserId === 'local@local';
+  const existingOwnerUserId = shouldReplaceDefaultIdentity
+    ? undefined
+    : existingAgent?.ownerUserId;
+  const existingCanonicalId = shouldReplaceDefaultIdentity
+    ? undefined
+    : existingAgent?.canonicalId;
+  const normalizedOwnerUserId =
+    explicitOwnerUserId || existingOwnerUserId || null;
+  const identity =
+    explicitCanonicalId && normalizedOwnerUserId
+      ? null
+      : allocateCanonicalAgentIdentity({
+          database: db,
+          agentId: normalizedId,
+          owner: normalizedOwner,
+          ownerUserId: normalizedOwnerUserId,
+        });
+  const canonicalId =
+    explicitCanonicalId || existingCanonicalId || identity?.canonicalId || null;
+  const ownerUserId =
+    normalizedOwnerUserId ||
+    identity?.ownerUserId ||
+    existingOwnerUserId ||
+    null;
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
     `INSERT INTO agents (
        id,
+       canonical_id,
+       owner_user_id,
        name,
        display_name,
        image_asset,
@@ -2961,8 +3209,10 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        a2a,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
+       canonical_id = excluded.canonical_id,
+       owner_user_id = excluded.owner_user_id,
        name = excluded.name,
        display_name = excluded.display_name,
        image_asset = excluded.image_asset,
@@ -2982,6 +3232,8 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
+    canonicalId,
+    ownerUserId,
     normalizedName,
     normalizedDisplayName,
     normalizedImageAsset,

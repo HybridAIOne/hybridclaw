@@ -676,6 +676,70 @@ describe.sequential('schema migrations', () => {
     expect(boardCardsTable?.name).toBe('board_cards');
   });
 
+  test('migrates legacy agents to canonical local identities', () => {
+    const dbPath = createTempDbPath();
+    const originalInstanceId = process.env.HYBRIDCLAW_INSTANCE_ID;
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'Inst Test';
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        owner TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      INSERT INTO agents (id, name, owner)
+      VALUES ('main', 'Main Agent', NULL), ('writer', 'Writer', 'Benedikt');
+      PRAGMA user_version = 33;
+    `);
+    legacy.close();
+
+    try {
+      initDatabase({ quiet: true, dbPath });
+    } finally {
+      if (originalInstanceId === undefined) {
+        delete process.env.HYBRIDCLAW_INSTANCE_ID;
+      } else {
+        process.env.HYBRIDCLAW_INSTANCE_ID = originalInstanceId;
+      }
+    }
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const columns = inspect.pragma('table_info(agents)') as Array<{
+      name: string;
+    }>;
+    const agents = inspect
+      .prepare(
+        'SELECT id, canonical_id, owner_user_id FROM agents ORDER BY id ASC',
+      )
+      .all() as Array<{
+      id: string;
+      canonical_id: string;
+      owner_user_id: string;
+    }>;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(columns.some((column) => column.name === 'canonical_id')).toBe(true);
+    expect(columns.some((column) => column.name === 'owner_user_id')).toBe(
+      true,
+    );
+    expect(agents).toEqual([
+      {
+        id: 'main',
+        canonical_id: 'main@local@inst-test',
+        owner_user_id: 'local@local',
+      },
+      {
+        id: 'writer',
+        canonical_id: 'writer@benedikt@inst-test',
+        owner_user_id: 'benedikt@local',
+      },
+    ]);
+  });
+
   test('fills admin statistics indexes for branch schema v23 databases', () => {
     const dbPath = createTempDbPath();
     const legacy = new Database(dbPath);

@@ -2673,6 +2673,20 @@ function normalizeAgentConfig(
     allowEmpty: false,
   });
   if (!id) return null;
+  const canonicalId = normalizeString(
+    value.canonicalId,
+    fallback?.canonicalId ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
+  const ownerUserId = normalizeString(
+    value.ownerUserId,
+    fallback?.ownerUserId ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
   const name = normalizeString(value.name, fallback?.name ?? '', {
     allowEmpty: true,
   });
@@ -2762,6 +2776,8 @@ function normalizeAgentConfig(
     : cloneAgentBudgetConfig(fallback?.budget);
   return {
     id,
+    ...(canonicalId ? { canonicalId } : {}),
+    ...(ownerUserId ? { ownerUserId } : {}),
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),

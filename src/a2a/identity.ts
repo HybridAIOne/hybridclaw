@@ -1,10 +1,9 @@
 import { findAgentConfig, listAgents } from '../agents/agent-registry.js';
-import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import type { AgentConfig } from '../agents/agent-types.js';
 import {
-  formatAgentIdentity,
+  deriveLocalAgentIdentity,
   parseAgentIdentity,
   resolveLocalInstanceId,
-  slugifyAgentIdentityComponent,
 } from '../identity/agent-id.js';
 import {
   type A2AEnvelope,
@@ -43,16 +42,21 @@ export function resolveA2AAgentId(agentId: string): string {
   }
 
   const agent = findLocalAgent(normalized);
-  const agentSlug = slugifyAgentIdentityComponent(agent.id, DEFAULT_AGENT_ID);
-  const userSlug = slugifyAgentIdentityComponent(
-    agent.owner ||
+  if (agent.canonicalId) {
+    return parseAgentIdentity(agent.canonicalId).id;
+  }
+
+  return deriveLocalAgentIdentity({
+    agentId: agent.id,
+    owner:
+      agent.owner ||
       process.env.HYBRIDCLAW_USER_ID ||
       process.env.USER ||
       process.env.LOGNAME ||
       '',
-    'local',
-  );
-  return formatAgentIdentity(agentSlug, userSlug, resolveLocalInstanceId());
+    ownerUserId: agent.ownerUserId,
+    instanceId: resolveLocalInstanceId(),
+  }).canonicalId;
 }
 
 export function resolveA2AEnvelopeAgentIds(envelope: unknown): A2AEnvelope {

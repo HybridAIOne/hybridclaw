@@ -6,6 +6,7 @@ import { expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_INSTANCE_ID = process.env.HYBRIDCLAW_INSTANCE_ID;
 
 const makeTempHome = useTempDir('hybridclaw-agents-');
 
@@ -25,6 +26,7 @@ useCleanMocks({
     );
     resetAgentRegistryForTesting();
     restoreEnvVar('HOME', ORIGINAL_HOME);
+    restoreEnvVar('HYBRIDCLAW_INSTANCE_ID', ORIGINAL_INSTANCE_ID);
   },
   resetModules: true,
   unmock: ['../src/logger.js'],
@@ -346,6 +348,67 @@ test('agent owner, role, and CV persist through runtime config and registry', as
   expect(stored?.escalationTarget).toEqual({
     channel: 'slack:COPS',
     recipient: 'ops-lead',
+  });
+});
+
+test('agent registry persists canonical local identities and keeps bare slug A2A compatibility', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_INSTANCE_ID = 'Inst Test';
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { getAgentById, initAgentRegistry } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { resolveA2AAgentId } = await import('../src/a2a/identity.ts');
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = [
+      {
+        id: 'main',
+        name: 'Main Agent',
+      },
+      {
+        id: 'writer',
+        owner: '  Benedikt  ',
+      },
+    ];
+  });
+  initAgentRegistry({
+    list: [
+      { id: 'main', name: 'Main Agent' },
+      { id: 'writer', owner: 'Benedikt' },
+    ],
+  });
+
+  expect(getAgentById('writer')).toMatchObject({
+    canonicalId: 'writer@benedikt@inst-test',
+    ownerUserId: 'benedikt@local',
+  });
+  expect(resolveA2AAgentId('writer')).toBe('writer@benedikt@inst-test');
+
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = [
+      { id: 'main', name: 'Main Agent' },
+      { id: 'writer', owner: 'Ada' },
+    ];
+  });
+  initAgentRegistry({
+    list: [
+      { id: 'main', name: 'Main Agent' },
+      { id: 'writer', owner: 'Ada' },
+    ],
+  });
+
+  expect(getAgentById('writer')).toMatchObject({
+    owner: 'Ada',
+    canonicalId: 'writer@benedikt@inst-test',
+    ownerUserId: 'benedikt@local',
   });
 });
 

@@ -51,6 +51,8 @@ export interface AgentBudgetConfig {
 
 export interface AgentConfig {
   id: string;
+  canonicalId?: string;
+  ownerUserId?: string;
   name?: string;
   displayName?: string;
   imageAsset?: string;
