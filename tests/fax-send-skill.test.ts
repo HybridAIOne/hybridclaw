@@ -101,6 +101,8 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
   ]);
   expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
     'SINCH_FAX_PROJECT_ID',
+  ]);
+  expect(payload.liveExecution.optionalConfiguredSecrets).toEqual([
     'SINCH_FAX_SERVICE_ID',
   ]);
   expect(payload.auditEvents[0]).toMatchObject({
@@ -115,7 +117,7 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
   expect(JSON.stringify(payload)).not.toContain('username:password');
 });
 
-test('fax-send helper uses stored Sinch project/service defaults when omitted', () => {
+test('fax-send helper uses stored Sinch project default and omits service by default', () => {
   const payload = fax.buildSendRequest({
     provider: 'sinch',
     auth: 'basic',
@@ -133,14 +135,34 @@ test('fax-send helper uses stored Sinch project/service defaults when omitted', 
   expect(payload.httpRequest.url).toBe(
     'https://fax.api.sinch.com/v3/projects/<secret:SINCH_FAX_PROJECT_ID>/faxes',
   );
-  expect(payload.httpRequest.body).toContain('<secret:SINCH_FAX_SERVICE_ID>');
+  expect(payload.httpRequest.body).not.toContain('SINCH_FAX_SERVICE_ID');
+  expect(payload.httpRequest.body).not.toContain('name="serviceId"');
   expect(payload.httpRequest.body).not.toContain('SINCH_FAX_SENDER_NUMBER');
   expect(payload.httpRequest.body).toContain('+493012345678');
   expect(payload.httpRequest.body).toContain('+498920931098');
   expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
     'SINCH_FAX_PROJECT_ID',
-    'SINCH_FAX_SERVICE_ID',
   ]);
+});
+
+test('fax-send helper can use an optional stored Sinch service id', () => {
+  const payload = fax.buildSendRequest({
+    provider: 'sinch',
+    auth: 'basic',
+    text: 'Hallo Welt',
+    filename: 'hallo-welt.txt',
+    to: '+498920931098',
+    from: '+493012345678',
+    useStoredServiceId: true,
+    labels: [],
+    operatorGrant: true,
+    timeoutMs: 120000,
+    maxResponseBytes: 1000000,
+    headerPageNumbers: true,
+  });
+
+  expect(payload.httpRequest.body).toContain('name="serviceId"');
+  expect(payload.httpRequest.body).toContain('<secret:SINCH_FAX_SERVICE_ID>');
 });
 
 test('fax-send helper supports bearer auth for Sinch OAuth deployments', () => {

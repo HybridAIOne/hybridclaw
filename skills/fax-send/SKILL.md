@@ -68,9 +68,9 @@ storage, or client records.
   filler in fax responses.
 - When the user provides text content such as "Hallo Welt", use the helper's
   direct text-file upload path after the sender fax number, stored Sinch
-  project/service defaults, stored credential, and explicit approval are
-  available. Do not ask the user to pass project ID or service ID per fax when
-  the stored defaults are configured.
+  project ID, stored credential, and explicit approval are available. Do not
+  ask the user for a service ID for a normal outbound send; Sinch uses the
+  product's default Fax service when `serviceId` is omitted.
 
 ## Scope
 
@@ -108,20 +108,22 @@ The helper emits either `secretHeaders: [{ name: "Authorization", secretName:
 "SINCH_FAX_BASIC_AUTH", prefix: "Basic" }]` or `bearerSecretName:
 "SINCH_FAX_OAUTH_TOKEN"` so the gateway injects the secret server-side.
 
-Store the Sinch project/service defaults once so normal sends do not need
-provider account arguments:
+Store the Sinch project default once so normal sends do not need provider
+account arguments:
 
 ```bash
 hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"
-hybridclaw secret set SINCH_FAX_SERVICE_ID "<sinch-service-id>"
 ```
+
+Only store `SINCH_FAX_SERVICE_ID` and pass `--use-stored-service-id` when the
+operator intentionally wants a non-default Fax service.
 
 ## Default Workflow
 
 1. Confirm the recipient fax number in E.164 format and the content URL or text
    upload content. Confirm the sender fax number from the user. Use stored
-   `SINCH_FAX_PROJECT_ID` and `SINCH_FAX_SERVICE_ID` defaults unless the user
-   explicitly overrides them.
+   `SINCH_FAX_PROJECT_ID` by default. Omit `serviceId` unless the user
+   explicitly chooses a non-default Fax service.
 2. Run `plan` for natural-language requests when details are incomplete.
 3. Require explicit operator approval before `fax.send`; faxing is an external
    document delivery action and can incur per-page cost.

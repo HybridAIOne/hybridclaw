@@ -22,10 +22,8 @@ const COST_MEASUREMENT = {
 
 const LIVE_EXECUTION = {
   mode: 'live-fax-api',
-  requiresConfiguredSecrets: [
-    SINCH_PROJECT_ID_SECRET,
-    SINCH_SERVICE_ID_SECRET,
-  ],
+  requiresConfiguredSecrets: [SINCH_PROJECT_ID_SECRET],
+  optionalConfiguredSecrets: [SINCH_SERVICE_ID_SECRET],
   requiresOneOfConfiguredSecrets: [SINCH_BASIC_SECRET, SINCH_OAUTH_SECRET],
   dryRunSafe:
     'For prompt/user testing, build the http-request payload and stop; do not call http_request unless the operator approved the send.',
@@ -105,7 +103,8 @@ Send options:
   --to <number>              Recipient fax number in E.164 format.
   --from <number>            Sender fax number in E.164 format.
   --project-id <id>          Sinch project id. Defaults to SINCH_FAX_PROJECT_ID.
-  --service-id <id>          Sinch fax service id. Defaults to SINCH_FAX_SERVICE_ID.
+  --service-id <id>          Optional Sinch fax service id. Uses the default Sinch Fax service when omitted.
+  --use-stored-service-id    Use optional stored SINCH_FAX_SERVICE_ID instead of Sinch's default service.
   --page-count <n>           Known PDF page count for page-based usage tracking.
   --cost-per-page-eur <n>    Optional operator cost estimate.
   --header-text <text>       Fax header text, max 50 chars.
@@ -207,6 +206,9 @@ function parseArgs(argv) {
         break;
       case '--service-id':
         opts.serviceId = readValue();
+        break;
+      case '--use-stored-service-id':
+        opts.useStoredServiceId = true;
         break;
       case '--page-count':
         opts.pageCount = parseInteger(readValue(), '--page-count', 1, 10_000);
@@ -324,8 +326,10 @@ function sinchProjectPathSegment(opts) {
 }
 
 function sinchServiceId(opts) {
-  if (!opts.serviceId) return secretPlaceholder(SINCH_SERVICE_ID_SECRET);
-  return requireNonEmpty(opts.serviceId, '--service-id');
+  const explicit = String(opts.serviceId || '').trim();
+  if (explicit) return explicit;
+  if (opts.useStoredServiceId) return secretPlaceholder(SINCH_SERVICE_ID_SECRET);
+  return undefined;
 }
 
 function normalizePhoneNumber(value, label) {
@@ -483,8 +487,9 @@ function buildSendRequest(opts) {
     to: normalizePhoneNumber(opts.to, '--to'),
     from: normalizePhoneNumber(opts.from, '--from'),
     headerPageNumbers: opts.headerPageNumbers,
-    serviceId: sinchServiceId(opts),
   };
+  const serviceId = sinchServiceId(opts);
+  if (serviceId) payload.serviceId = serviceId;
   if (opts.headerText !== undefined) {
     const headerText = String(opts.headerText).trim();
     if (headerText.length > 50) die('--header-text must be 50 characters or fewer.');
@@ -675,7 +680,7 @@ function buildPlan(prompt) {
       'content URL or direct supported file',
       'recipient fax number in E.164 format',
       'sender fax number in E.164 format',
-      'stored Sinch project id, service id, and credential',
+      'stored Sinch project id and credential',
       'operator approval for fax.send',
     ],
     costMeasurement: COST_MEASUREMENT,

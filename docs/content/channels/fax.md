@@ -108,16 +108,17 @@ For Sinch Fax API:
    hybridclaw secret set SINCH_FAX_BASIC_AUTH "<base64-username-password>"
    ```
 
-4. Store the Sinch project/service defaults once:
+4. Store the Sinch project default once:
 
    ```bash
    hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"
-   hybridclaw secret set SINCH_FAX_SERVICE_ID "<sinch-service-id>"
    ```
 
 5. Use `fax-send` with the approved recipient number and the sender number
-   provided by the user. The helper emits `<secret:...>` placeholders for the
-   stored project and service values; the gateway resolves them server-side.
+   provided by the user. The helper emits a `<secret:...>` placeholder for the
+   stored project value; the gateway resolves it server-side. Omit `serviceId`
+   for the default Sinch Fax service, or pass `--service-id` when intentionally
+   using a non-default service.
 6. Configure provider completion callbacks or poll status with:
 
    ```bash
