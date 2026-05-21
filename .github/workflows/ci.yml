@@ -86,6 +86,14 @@ jobs:
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
 
+      - name: Fetch PR base for dependency policy
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+
+      - name: Dependency policy (PR lockfiles)
+        if: github.event_name == 'pull_request'
+        run: node ./scripts/check-dependency-policy.mjs --base "${{ github.event.pull_request.base.sha }}"
+
       - name: Biome check (changed files)
         shell: bash
         run: |

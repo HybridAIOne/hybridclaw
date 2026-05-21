@@ -8,6 +8,6 @@
     "node": "22.x"
   },
   "dependencies": {
-    "mem0ai": "^2.4.6"
+    "mem0ai": "2.4.6"
   }
 }

@@ -45,6 +45,7 @@
         "to": "hybridclaw-runtime",
         "filter": [
           "package.json",
+          "npm-shrinkwrap.json",
           "dist/**/*",
           "!dist/**/*.js.map",
           "console/dist/**/*",
@@ -52,6 +53,7 @@
           "!container/dist/**/*.js.map",
           "container/package.json",
           "container/package-lock.json",
+          "container/npm-shrinkwrap.json",
           "container/tsconfig.json",
           "container/shared/**/*",
           "container/src/**/*",
