@@ -6,7 +6,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import {
@@ -40,9 +39,13 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
+  pattern,
+  required,
+  useFieldError,
 } from '../components/field';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import { NumberField } from '../components/number-field';
 import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
@@ -94,139 +97,6 @@ const CONTAINER_MEMORY_PATTERN = /^\d+(?:\.\d+)?[kKmMgG]?$/;
 
 function isLogLevel(value: string): value is LogLevel {
   return (LOG_LEVELS as readonly string[]).includes(value);
-}
-
-type DecimalInputProps = {
-  id: string;
-  value: number;
-  onValueChange: (value: number) => void;
-  onErrorChange: (error: string | null) => void;
-  min?: number;
-  max?: number;
-};
-
-function useStableCallback<Args extends unknown[], R>(
-  callback: (...args: Args) => R,
-): (...args: Args) => R {
-  const ref = useRef(callback);
-  useEffect(() => {
-    ref.current = callback;
-  });
-  return useCallback((...args: Args) => ref.current(...args), []);
-}
-
-function DecimalNumberInput({
-  id,
-  value,
-  onValueChange,
-  onErrorChange,
-  min = 0,
-  max,
-}: DecimalInputProps) {
-  const [rawValue, setRawValue] = useState(String(value));
-  const reportError = useStableCallback(onErrorChange);
-
-  useEffect(() => {
-    setRawValue(String(value));
-    reportError(null);
-  }, [value, reportError]);
-
-  return (
-    <Input
-      id={id}
-      inputMode="decimal"
-      value={rawValue}
-      onBlur={() => {
-        const parsed = Number(rawValue);
-        if (!Number.isFinite(parsed)) {
-          setRawValue(String(value));
-          reportError(null);
-        }
-      }}
-      onChange={(event) => {
-        const next = event.target.value;
-        setRawValue(next);
-        if (next.trim() === '') {
-          reportError(null);
-          onValueChange(0);
-          return;
-        }
-        const parsed = Number(next);
-        if (!Number.isFinite(parsed)) {
-          reportError('Enter a valid number.');
-          return;
-        }
-        if (parsed < min) {
-          reportError(`Must be ≥ ${min}.`);
-          return;
-        }
-        if (max !== undefined && parsed > max) {
-          reportError(`Must be ≤ ${max}.`);
-          return;
-        }
-        reportError(null);
-        onValueChange(parsed);
-      }}
-    />
-  );
-}
-
-function IntegerInput({
-  id,
-  value,
-  onValueChange,
-  onErrorChange,
-  min,
-  max,
-}: {
-  id: string;
-  value: number;
-  onValueChange: (value: number) => void;
-  onErrorChange: (error: string | null) => void;
-  min?: number;
-  max?: number;
-}) {
-  const [rawValue, setRawValue] = useState(String(value));
-  const reportError = useStableCallback(onErrorChange);
-
-  useEffect(() => {
-    setRawValue(String(value));
-    reportError(null);
-  }, [value, reportError]);
-
-  return (
-    <Input
-      id={id}
-      type="number"
-      inputMode="numeric"
-      min={min}
-      max={max}
-      value={rawValue}
-      onChange={(event) => {
-        const text = event.target.value;
-        setRawValue(text);
-        if (text.trim() === '') {
-          reportError('Required.');
-          return;
-        }
-        const parsed = Number(text);
-        if (!Number.isInteger(parsed)) {
-          reportError('Enter a whole number.');
-          return;
-        }
-        if (min !== undefined && parsed < min) {
-          reportError(`Must be ≥ ${min}.`);
-          return;
-        }
-        if (max !== undefined && parsed > max) {
-          reportError(`Must be ≤ ${max}.`);
-          return;
-        }
-        reportError(null);
-        onValueChange(parsed);
-      }}
-    />
-  );
 }
 
 function defaultBrowserConfig(): BrowserConfig {
@@ -551,6 +421,14 @@ export function ConfigPage() {
   });
   const isBlocked = blocker.status === 'blocked';
 
+  const memoryError = useFieldError(draft?.container.memory ?? '', [
+    required(),
+    pattern(
+      CONTAINER_MEMORY_PATTERN,
+      'Use a number with optional k, m, or g suffix.',
+    ),
+  ]);
+
   if (configQuery.isLoading && !draft) {
     return <div className="empty-state">Loading runtime config…</div>;
   }
@@ -613,9 +491,8 @@ export function ConfigPage() {
     saveMutation.mutate(draft);
   };
 
-  const memoryInvalid = !CONTAINER_MEMORY_PATTERN.test(draft.container.memory);
   const formInvalid =
-    memoryInvalid ||
+    Boolean(memoryError) ||
     Boolean(portError) ||
     Boolean(managedActionPriceError) ||
     Boolean(browserUseBrowserPriceError) ||
@@ -715,11 +592,12 @@ export function ConfigPage() {
                 </Field>
                 <Field controlId="ops-health-port" invalid={Boolean(portError)}>
                   <FieldLabel>Health port</FieldLabel>
-                  <IntegerInput
+                  <NumberField
                     id="ops-health-port"
-                    value={draft.ops.healthPort}
+                    integer
                     min={1}
                     max={65535}
+                    value={draft.ops.healthPort}
                     onValueChange={(healthPort) =>
                       updateSection(setDraft, 'ops', { healthPort })
                     }
@@ -827,7 +705,10 @@ export function ConfigPage() {
                 Sandboxed container runtime for tool execution.
               </FieldDescription>
               <FieldGroup>
-                <Field controlId="container-memory" invalid={memoryInvalid}>
+                <Field
+                  controlId="container-memory"
+                  invalid={Boolean(memoryError)}
+                >
                   <FieldLabel>Memory</FieldLabel>
                   <Input
                     id="container-memory"
@@ -843,10 +724,7 @@ export function ConfigPage() {
                     Docker memory limit. e.g. <code>512m</code>, <code>1g</code>
                     , <code>2048m</code>.
                   </FieldDescription>
-                  <FieldError>
-                    Use a number with optional <code>k</code>, <code>m</code>,
-                    or <code>g</code> suffix.
-                  </FieldError>
+                  <FieldError>{memoryError}</FieldError>
                 </Field>
                 <Field orientation="horizontal">
                   <Switch
@@ -1006,8 +884,10 @@ export function ConfigPage() {
                       invalid={Boolean(managedActionPriceError)}
                     >
                       <FieldLabel>Action price USD</FieldLabel>
-                      <DecimalNumberInput
+                      <NumberField
                         id="managed-cloud-action-usd"
+                        min={0}
+                        emptyValue={0}
                         value={browser.managedCloud.pricing.actionUsd}
                         onValueChange={(actionUsd) =>
                           setBrowserPricing(setDraft, 'managedCloud', {
@@ -1090,8 +970,10 @@ export function ConfigPage() {
                       invalid={Boolean(browserUseBrowserPriceError)}
                     >
                       <FieldLabel>Browser price USD/min</FieldLabel>
-                      <DecimalNumberInput
+                      <NumberField
                         id="browser-use-browser-usd"
+                        min={0}
+                        emptyValue={0}
                         value={
                           browser.browserUseCloud.pricing.browserUsdPerMinute
                         }
@@ -1109,8 +991,10 @@ export function ConfigPage() {
                       invalid={Boolean(browserUseActionPriceError)}
                     >
                       <FieldLabel>Action price USD</FieldLabel>
-                      <DecimalNumberInput
+                      <NumberField
                         id="browser-use-action-usd"
+                        min={0}
+                        emptyValue={0}
                         value={browser.browserUseCloud.pricing.actionUsd}
                         onValueChange={(actionUsd) =>
                           setBrowserPricing(setDraft, 'browserUseCloud', {

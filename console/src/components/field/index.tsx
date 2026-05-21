@@ -6,6 +6,18 @@ import styles from './field.module.css';
 
 export type { FieldContextValue } from './context';
 export { useFieldContext, useFieldControlProps } from './context';
+export { useFieldError } from './use-field-error';
+export type { Validator } from './validators';
+export {
+  compose,
+  loopbackUrl,
+  maxLength,
+  minLength,
+  oneOf,
+  pattern,
+  required,
+  url,
+} from './validators';
 
 export type FieldOrientation = 'vertical' | 'horizontal' | 'responsive';
 
