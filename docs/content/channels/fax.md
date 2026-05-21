@@ -91,6 +91,23 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --operator-grant
 ```
 
+For generated PDFs, including text plus an image, create the PDF first and send
+that local PDF file:
+
+```bash
+node skills/pdf/scripts/create_pdf.mjs fax.pdf \
+  --image-url https://github.com/HybridAIOne/hybridclaw/blob/main/docs/hero.png?raw=true \
+  --text "Hello World! This Claw can fax!"
+
+node skills/fax-send/fax_send.cjs --format json http-request send \
+  --provider sinch \
+  --auth basic \
+  --file fax.pdf \
+  --to +498920931098 \
+  --page-count 1 \
+  --operator-grant
+```
+
 Pass only the emitted `httpRequest` object to `http_request`. The gateway
 injects provider credentials from encrypted secrets.
 

@@ -32,7 +32,7 @@ function runHelper(args: string[]) {
 
 function extractMultipartPdf(bodyBase64: string) {
   const body = Buffer.from(bodyBase64, 'base64');
-  const start = body.indexOf(Buffer.from('%PDF-1.4', 'utf8'));
+  const start = body.indexOf(Buffer.from('%PDF-', 'utf8'));
   expect(start).toBeGreaterThanOrEqual(0);
   const end = body.indexOf(
     Buffer.from('\r\n------hybridclaw-fax-pdf-boundary', 'utf8'),
@@ -59,6 +59,8 @@ test('fax-send skill manifest declares DACH fax metadata and guarded secrets', (
   expect(skill).toContain('Return exactly one user-facing summary');
   expect(skill).toContain('write the status sentence once');
   expect(skill).toContain('text content such as "Hallo Welt"');
+  expect(skill).toContain('--file path/to/file.pdf');
+  expect(skill).toContain('Do not write custom multipart builders');
   expect(skill).toContain('A live `http_request` to Sinch is terminal');
   expect(skill).toContain('Do not use `web_search`');
   expect(skill).toContain('helper-generated PDF upload');
@@ -122,7 +124,7 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
     'summarize the provider result once',
   );
   expect(payload.liveExecution.requestShape).toContain(
-    'helper-generated PDF multipart upload',
+    'pass the local PDF path with --file',
   );
   expect(payload.liveExecution.terminalProviderResponsePolicy).toContain(
     'do not duplicate the status sentence',
@@ -306,6 +308,44 @@ test('fax-send helper renders direct text input into a valid PDF upload', async 
   const pdf = await PDFDocument.load(pdfBytes);
   expect(pdf.getPageCount()).toBe(1);
   expect(payload.httpRequest.skillRequestContract.documentKind).toBe('pdf');
+});
+
+test('fax-send helper uploads a generated local PDF file', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-fax-file-'));
+  const filePath = path.join(dir, 'generated.pdf');
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([400, 400]);
+  page.drawText('Hello World! This Claw can fax!', { x: 50, y: 320, size: 18 });
+  fs.writeFileSync(filePath, await pdf.save());
+
+  const payload = fax.buildSendRequest({
+    provider: 'sinch',
+    auth: 'basic',
+    projectId: 'project-123',
+    filePath,
+    to: '+498920931098',
+    labels: [],
+    operatorGrant: true,
+    timeoutMs: 120000,
+    maxResponseBytes: 1000000,
+    headerPageNumbers: true,
+  });
+
+  expect(payload.httpRequest.headers).toMatchObject({
+    'Content-Type':
+      'multipart/form-data; boundary=----hybridclaw-fax-pdf-boundary',
+  });
+  const body = Buffer.from(payload.httpRequest.bodyBase64, 'base64').toString(
+    'utf8',
+  );
+  expect(body).toContain('name="file"; filename="generated.pdf"');
+  expect(body).toContain('Content-Type: application/pdf');
+  const pdfBytes = extractMultipartPdf(payload.httpRequest.bodyBase64);
+  const uploaded = await PDFDocument.load(pdfBytes);
+  expect(uploaded.getPageCount()).toBe(1);
+  expect(payload.httpRequest.skillRequestContract.documentKind).toBe('pdf');
+
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('fax-send classifies delivered and busy-line failed statuses for audit', () => {

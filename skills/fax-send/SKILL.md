@@ -86,6 +86,7 @@ storage, or client records.
 ## Scope
 
 - outbound fax send from a content URL or direct generated-PDF text upload
+- outbound fax send from a local generated PDF file
 - Sinch Fax API request construction for EU-resident Sinch projects/services
 - delivery status lookup and status-to-audit-event classification
 - structured audit persistence through `src/fax/accounting.ts`
@@ -128,8 +129,8 @@ hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"
 
 ## Default Workflow
 
-1. Confirm the recipient fax number in E.164 format and the content URL or text
-   upload content. Use stored `SINCH_FAX_PROJECT_ID` by default. Include
+1. Confirm the recipient fax number in E.164 format and the content URL, local
+   PDF file, or text upload content. Use stored `SINCH_FAX_PROJECT_ID` by default. Include
    `--from` only when the user explicitly supplies a sender fax number;
    otherwise omit it so Sinch uses the Fax service default sender. Omit
    `serviceId` unless the user explicitly provides a non-default Fax service ID
@@ -231,11 +232,32 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --operator-grant
 ```
 
+For generated PDFs, including requests that combine text with an image, first
+create the PDF with the bundled PDF script and then send that file. Do not write
+ad hoc PDF or multipart scripts.
+
+```bash
+node skills/pdf/scripts/create_pdf.mjs fax.pdf \
+  --image-url https://github.com/HybridAIOne/hybridclaw/blob/main/docs/hero.png?raw=true \
+  --text "Hello World! This Claw can fax!"
+
+node skills/fax-send/fax_send.cjs --format json http-request send \
+  --provider sinch \
+  --auth basic \
+  --file fax.pdf \
+  --to +498920931098 \
+  --page-count 1 \
+  --operator-grant
+```
+
 ## Working Rules
 
 - For URL-based sends, use a public HTTP(S) `contentUrl` for a Sinch-supported
   file type or web page. Do not send local paths or private intranet URLs to a
   fax provider.
+- For generated PDF files, use `--file path/to/file.pdf` so the helper emits a
+  secret-backed multipart/form-data request with the PDF as the `file` part.
+  Do not write custom multipart builders.
 - For short user-provided text, use `--text` so the helper emits a
   secret-backed multipart/form-data request with a generated PDF file upload.
   Do not invoke `skills/pdf`, `create_pdf.mjs`, `web_search`, or `web_fetch` to

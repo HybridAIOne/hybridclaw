@@ -37,7 +37,7 @@ const LIVE_EXECUTION = {
   secretRefPolicy:
     'Do not inspect, print, or ask for fax provider secrets. The helper emits secret-backed Authorization metadata for gateway injection.',
   requestShape:
-    'Do not handcraft provider fax API calls. The helper owns URL, method, JSON or multipart body, provider metadata, audit intent, and secret references. For text sends, use the helper-generated PDF multipart upload; do not inspect PDF tooling, search the web, or retry with a different payload shape unless the operator explicitly asks for debugging in a new turn.',
+    'Do not handcraft provider fax API calls. The helper owns URL, method, JSON or multipart body, provider metadata, audit intent, and secret references. For generated PDFs, pass the local PDF path with --file. Do not write one-off multipart scripts, inspect helper source, search the web, or retry with a different payload shape unless the operator explicitly asks for debugging in a new turn.',
   unauthorizedPolicy:
     'If a live provider call returns 401 or 403, stop after the first failure and ask the operator to verify the stored credential.',
   terminalProviderResponsePolicy:
@@ -103,6 +103,8 @@ Global options:
 Send options:
   --content-url <url>        Public HTTP(S) URL of a supported file or web page to fax.
   --pdf-url <url>            Alias for --content-url.
+  --file <path>              Local PDF file to upload directly.
+  --pdf-file <path>          Alias for --file.
   --text <text>              Plain text to render into a generated PDF upload.
   --filename <name>          PDF file name for --text uploads. Default: message.pdf.
   --to <number>              Recipient fax number in E.164 format.
@@ -192,6 +194,10 @@ function parseArgs(argv) {
       case '--pdf-url':
       case '--content-url':
         opts.contentUrl = readValue();
+        break;
+      case '--file':
+      case '--pdf-file':
+        opts.filePath = readValue();
         break;
       case '--text':
         opts.text = readValue();
@@ -367,6 +373,22 @@ function normalizeTextUpload(value) {
     die('--text must be 500000 bytes or fewer.');
   }
   return text;
+}
+
+function normalizePdfFilePath(value) {
+  const filePath = requireNonEmpty(value, '--file');
+  if (!filePath.toLowerCase().endsWith('.pdf')) {
+    die('--file must point to a .pdf file.');
+  }
+  const bytes = fs.readFileSync(filePath);
+  if (bytes.length === 0) die('--file must not be empty.');
+  if (!bytes.subarray(0, 5).equals(Buffer.from('%PDF-', 'utf8'))) {
+    die('--file must be a PDF file.');
+  }
+  return {
+    filename: normalizePdfUploadFilename(path.basename(filePath)),
+    bytes,
+  };
 }
 
 function normalizePdfUploadFilename(value) {
@@ -632,6 +654,78 @@ function buildTextPdfMultipartBody(params) {
   };
 }
 
+function buildPdfFileMultipartBody(params) {
+  const boundary = '----hybridclaw-fax-pdf-boundary';
+  const file = normalizePdfFilePath(params.filePath);
+  const buffers = [];
+  appendMultipartFieldBuffer(buffers, boundary, 'to', params.to);
+  appendMultipartFieldBuffer(buffers, boundary, 'from', params.from);
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'headerPageNumbers',
+    params.headerPageNumbers,
+  );
+  appendMultipartFieldBuffer(buffers, boundary, 'serviceId', params.serviceId);
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'headerText',
+    params.headerText,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'headerTimeZone',
+    params.headerTimeZone,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'callbackUrl',
+    params.callbackUrl,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'callbackUrlContentType',
+    params.callbackUrlContentType,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'maxRetries',
+    params.maxRetries,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'retryDelaySeconds',
+    params.retryDelaySeconds,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'resolution',
+    params.resolution,
+  );
+  for (const [key, value] of Object.entries(params.labels)) {
+    appendMultipartFieldBuffer(buffers, boundary, `labels[${key}]`, value);
+  }
+  buffers.push(
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${file.filename}"\r\nContent-Type: application/pdf\r\n\r\n`,
+      'utf8',
+    ),
+    file.bytes,
+    Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'),
+  );
+  return {
+    boundary,
+    bodyBase64: Buffer.concat(buffers).toString('base64'),
+  };
+}
+
 function buildCostMeasurement(opts) {
   return {
     ...COST_MEASUREMENT,
@@ -664,8 +758,13 @@ function buildSendRequest(opts) {
   if (!opts.operatorGrant) {
     die('fax.send requires --operator-grant after explicit operator approval.');
   }
-  if (opts.contentUrl && opts.text) {
-    die('Use either --content-url/--pdf-url or --text, not both.');
+  const contentSources = [opts.contentUrl, opts.filePath, opts.text].filter(
+    Boolean,
+  );
+  if (contentSources.length > 1) {
+    die(
+      'Use exactly one of --content-url/--pdf-url, --file/--pdf-file, or --text.',
+    );
   }
   const projectId = sinchProjectPathSegment(opts);
   const payload = {
@@ -716,12 +815,22 @@ function buildSendRequest(opts) {
       skillName: SKILL_NAME,
       operation: 'fax.send',
       provider: 'sinch',
-      documentKind: opts.text ? 'pdf' : 'content-url',
+      documentKind: opts.text || opts.filePath ? 'pdf' : 'content-url',
       requiresOperatorGrant: true,
       costUnit: 'fax-page',
     },
   };
-  if (opts.text) {
+  if (opts.filePath) {
+    const multipart = buildPdfFileMultipartBody({
+      ...payload,
+      labels,
+      filePath: opts.filePath,
+    });
+    httpRequest.headers = {
+      'Content-Type': `multipart/form-data; boundary=${multipart.boundary}`,
+    };
+    httpRequest.bodyBase64 = multipart.bodyBase64;
+  } else if (opts.text) {
     const multipart = buildTextPdfMultipartBody({
       ...payload,
       labels,
@@ -734,7 +843,9 @@ function buildSendRequest(opts) {
     httpRequest.bodyBase64 = multipart.bodyBase64;
   } else {
     if (!opts.contentUrl)
-      die('Either --content-url/--pdf-url or --text is required.');
+      die(
+        'One of --content-url/--pdf-url, --file/--pdf-file, or --text is required.',
+      );
     httpRequest.json = {
       ...payload,
       contentUrl: [normalizeContentUrl(opts.contentUrl)],
@@ -873,7 +984,7 @@ function buildPlan(prompt) {
       ? normalizePhoneNumber(germanNumber, 'detected recipient number')
       : null,
     requiredInputs: [
-      'content URL or direct supported file',
+      'content URL, local PDF file, or direct supported text',
       'recipient fax number in E.164 format',
       'optional sender fax number in E.164 format, otherwise Sinch service default',
       'stored Sinch project id and credential',
