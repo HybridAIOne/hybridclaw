@@ -187,6 +187,10 @@ route attachment PDFs with normal document skills. See
 
 - Only send PDFs from public HTTPS URLs. Do not send local paths or private
   intranet URLs to a fax provider.
+- For `plan` responses, give one concise no-send summary only. Do not repeat
+  the same plan in a second format, do not mirror raw helper JSON after a
+  human summary, and do not add decorative emoji, sign-off text, or readiness
+  filler.
 - Normalize German numbers to E.164 before dispatch, for example
   `+49 89 1234567` becomes `+49891234567`.
 - Treat `SUPERFINE` as higher cost/risk than the default `FINE`; use it only
