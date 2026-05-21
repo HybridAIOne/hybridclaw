@@ -72,34 +72,41 @@ Generate only the solution, do not generate anything else
 </context>
 <question>Redact provided text according to the task description and return redacted elements.</question>"""
 
+REDACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "redacted_text": {"type": "string"},
+        "entities": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "string"},
+                    "replacement_token": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["value", "replacement_token", "reason"],
+            },
+        },
+    },
+    "required": ["redacted_text", "entities"],
+}
+
+JSON_OBJECT_SCHEMA_RESPONSE_FORMAT = {
+    "type": "json_object",
+    "schema": REDACTION_SCHEMA,
+}
+
+JSON_OBJECT_RESPONSE_FORMAT = {"type": "json_object"}
+
 JSON_SCHEMA_RESPONSE_FORMAT = {
     "type": "json_schema",
     "json_schema": {
         "name": "pii_redaction",
         "strict": True,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "redacted_text": {"type": "string"},
-                "entities": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "value": {"type": "string"},
-                            "replacement_token": {"type": "string"},
-                            "reason": {"type": "string"},
-                        },
-                        "required": ["value", "replacement_token", "reason"],
-                    },
-                },
-            },
-            "required": ["redacted_text", "entities"],
-        },
+        "schema": REDACTION_SCHEMA,
     },
 }
-
-JSON_OBJECT_RESPONSE_FORMAT = {"type": "json_object"}
 
 
 def main(
@@ -135,28 +142,31 @@ def request_redaction(
     model: str,
     timeout: float,
 ) -> dict:
-    try:
-        return post_redaction_request(
-            text=text,
-            server_url=server_url,
-            model=model,
-            timeout=timeout,
-            response_format=JSON_SCHEMA_RESPONSE_FORMAT,
-        )
-    except urllib.error.HTTPError as error:
-        if error.code not in FALLBACK_RESPONSE_FORMAT_STATUSES:
-            fail_http_error(error)
+    response_formats = [
+        JSON_OBJECT_SCHEMA_RESPONSE_FORMAT,
+        JSON_OBJECT_RESPONSE_FORMAT,
+        JSON_SCHEMA_RESPONSE_FORMAT,
+    ]
+    last_error: urllib.error.HTTPError | None = None
 
-    try:
-        return post_redaction_request(
-            text=text,
-            server_url=server_url,
-            model=model,
-            timeout=timeout,
-            response_format=JSON_OBJECT_RESPONSE_FORMAT,
-        )
-    except urllib.error.HTTPError as error:
-        fail_http_error(error)
+    for response_format in response_formats:
+        try:
+            return post_redaction_request(
+                text=text,
+                server_url=server_url,
+                model=model,
+                timeout=timeout,
+                response_format=response_format,
+            )
+        except urllib.error.HTTPError as error:
+            if error.code not in FALLBACK_RESPONSE_FORMAT_STATUSES:
+                fail_http_error(error)
+            last_error = error
+
+    if last_error is not None:
+        fail_http_error(last_error)
+
+    fail("llama-server did not accept any supported JSON response format.")
 
 
 def post_redaction_request(
