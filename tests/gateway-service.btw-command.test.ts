@@ -83,9 +83,12 @@ test('btw command answers side question using a tool-less model call', async () 
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
   const call = callAuxiliaryModelMock.mock.calls[0]?.[0];
   expect(call).toBeDefined();
+  expect(call?.task).toBe('btw');
   expect(call?.tools).toEqual([]);
   expect(call?.model).toBeUndefined();
   expect(call?.fallbackModel).toBe('gpt-5.4-mini');
+  expect(call?.maxTokens).toBe(160);
+  expect(call?.timeoutMs).toBe(20_000);
   const systemMessage = call?.messages?.find((m) => m.role === 'system');
   expect(typeof systemMessage?.content === 'string').toBe(true);
   expect(String(systemMessage?.content)).toContain(
