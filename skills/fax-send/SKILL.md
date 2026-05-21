@@ -72,9 +72,10 @@ storage, or client records.
   `SINCH_FAX_BASIC_AUTH` or `SINCH_FAX_OAUTH_TOKEN`. Never claim a Sinch
   service ID secret is required for normal outbound sending.
 - When the user provides text content such as "Hallo Welt", use the helper's
-  helper-generated PDF upload path after the sender fax number, stored Sinch
-  project ID, stored credential, and explicit approval are available. Do not
-  ask the user for a service ID for a normal outbound send; Sinch uses the
+  helper-generated PDF upload path after the recipient fax number, stored Sinch
+  project ID, stored credential, and explicit approval are available. Omit
+  `from` when the user wants to use the Sinch Fax service default sender. Do
+  not ask the user for a service ID for a normal outbound send; Sinch uses the
   product's default Fax service when `serviceId` is omitted.
 - A live `http_request` to Sinch is terminal for that send attempt. After it
   returns, stop and report the provider result. Do not use `web_search`,
@@ -128,9 +129,11 @@ hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"
 ## Default Workflow
 
 1. Confirm the recipient fax number in E.164 format and the content URL or text
-   upload content. Confirm the sender fax number from the user. Use stored
-   `SINCH_FAX_PROJECT_ID` by default. Omit `serviceId` unless the user
-   explicitly provides a non-default Fax service ID in the same request.
+   upload content. Use stored `SINCH_FAX_PROJECT_ID` by default. Include
+   `--from` only when the user explicitly supplies a sender fax number;
+   otherwise omit it so Sinch uses the Fax service default sender. Omit
+   `serviceId` unless the user explicitly provides a non-default Fax service ID
+   in the same request.
 2. Run `plan` for natural-language requests when details are incomplete.
 3. Require explicit operator approval before `fax.send`; faxing is an external
    document delivery action and can incur per-page cost.
@@ -170,7 +173,6 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --auth basic \
   --content-url https://example.com/signed-contract.pdf \
   --to +49891234567 \
-  --from +493012345678 \
   --page-count 3 \
   --label costCenter=legal \
   --operator-grant
@@ -225,7 +227,6 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --text "Hallo Welt" \
   --filename hallo-welt.pdf \
   --to +498920931098 \
-  --from +493012345678 \
   --page-count 1 \
   --operator-grant
 ```

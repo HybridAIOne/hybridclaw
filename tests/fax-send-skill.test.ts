@@ -142,14 +142,13 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
   expect(JSON.stringify(payload)).not.toContain('username:password');
 });
 
-test('fax-send helper uses stored Sinch project default for text uploads', () => {
+test('fax-send helper uses stored Sinch project and default sender for text uploads', () => {
   const payload = fax.buildSendRequest({
     provider: 'sinch',
     auth: 'basic',
     text: 'Hallo Welt',
     filename: 'hallo-welt.pdf',
     to: '+498920931098',
-    from: '+493012345678',
     labels: [],
     operatorGrant: true,
     timeoutMs: 120000,
@@ -163,8 +162,16 @@ test('fax-send helper uses stored Sinch project default for text uploads', () =>
   const body = Buffer.from(payload.httpRequest.bodyBase64, 'base64').toString(
     'utf8',
   );
-  expect(body).toContain('+493012345678');
+  expect(body).not.toContain('name="from"');
   expect(body).toContain('+498920931098');
+  expect(payload.auditEvents[0]).toMatchObject({
+    eventType: 'fax.send.start',
+    payload: {
+      provider: 'sinch',
+      to: '+498920931098',
+    },
+  });
+  expect(payload.auditEvents[0].payload).not.toHaveProperty('from');
   expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
     'SINCH_FAX_PROJECT_ID',
   ]);

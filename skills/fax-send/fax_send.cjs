@@ -106,7 +106,7 @@ Send options:
   --text <text>              Plain text to render into a generated PDF upload.
   --filename <name>          PDF file name for --text uploads. Default: message.pdf.
   --to <number>              Recipient fax number in E.164 format.
-  --from <number>            Sender fax number in E.164 format.
+  --from <number>            Optional sender fax number in E.164 format. Omit to use the Sinch service default.
   --project-id <id>          Sinch project id. Defaults to SINCH_FAX_PROJECT_ID.
   --service-id <id>          Optional explicit Sinch fax service id. Uses the default Sinch Fax service when omitted.
   --page-count <n>           Known PDF page count for page-based usage tracking.
@@ -643,17 +643,18 @@ function buildCostMeasurement(opts) {
 }
 
 function buildAuditIntent(eventType, opts, extra = {}) {
+  const payload = {
+    provider: 'sinch',
+    faxId: opts.faxId || null,
+    providerMessageId: opts.faxId || null,
+    pageCount: opts.pageCount || undefined,
+    ...extra,
+  };
+  if (opts.to) payload.to = normalizePhoneNumber(opts.to, '--to');
+  if (opts.from) payload.from = normalizePhoneNumber(opts.from, '--from');
   return {
     eventType,
-    payload: {
-      provider: 'sinch',
-      faxId: opts.faxId || null,
-      providerMessageId: opts.faxId || null,
-      to: opts.to ? normalizePhoneNumber(opts.to, '--to') : undefined,
-      from: opts.from ? normalizePhoneNumber(opts.from, '--from') : undefined,
-      pageCount: opts.pageCount || undefined,
-      ...extra,
-    },
+    payload,
   };
 }
 
@@ -669,9 +670,9 @@ function buildSendRequest(opts) {
   const projectId = sinchProjectPathSegment(opts);
   const payload = {
     to: normalizePhoneNumber(opts.to, '--to'),
-    from: normalizePhoneNumber(opts.from, '--from'),
     headerPageNumbers: opts.headerPageNumbers,
   };
+  if (opts.from) payload.from = normalizePhoneNumber(opts.from, '--from');
   const serviceId = sinchServiceId(opts);
   if (serviceId) payload.serviceId = serviceId;
   if (opts.headerText !== undefined) {
@@ -874,7 +875,7 @@ function buildPlan(prompt) {
     requiredInputs: [
       'content URL or direct supported file',
       'recipient fax number in E.164 format',
-      'sender fax number in E.164 format',
+      'optional sender fax number in E.164 format, otherwise Sinch service default',
       'stored Sinch project id and credential',
       'operator approval for fax.send',
     ],

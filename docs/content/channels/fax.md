@@ -72,7 +72,6 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --auth basic \
   --content-url https://example.com/signed-contract.pdf \
   --to +49891234567 \
-  --from +493012345678 \
   --page-count 3 \
   --label costCenter=legal \
   --operator-grant
@@ -88,7 +87,6 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --text "Hallo Welt" \
   --filename hallo-welt.pdf \
   --to +498920931098 \
-  --from +493012345678 \
   --page-count 1 \
   --operator-grant
 ```
@@ -144,7 +142,8 @@ Current provider reference support:
 Fax delivery should preserve:
 
 - original outbound PDF
-- recipient and sender fax numbers
+- recipient fax number, plus an optional sender fax number if you do not want
+  to use the Sinch Fax service default
 - provider fax ID
 - provider delivery status and timestamp
 - delivery receipt or completion webhook payload
