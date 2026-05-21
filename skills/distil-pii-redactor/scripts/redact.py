@@ -20,6 +20,7 @@ DEFAULT_SERVER_URL = os.environ.get(
 )
 DEFAULT_MODEL = os.environ.get("DISTIL_PII_MODEL", "distil-pii")
 DEFAULT_TIMEOUT_SECONDS = float(os.environ.get("DISTIL_PII_TIMEOUT", "120"))
+FALLBACK_RESPONSE_FORMAT_STATUSES = {400, 422}
 
 SYSTEM_PROMPT = """\
 You are a problem solving model working on task_description XML block:
@@ -71,6 +72,35 @@ Generate only the solution, do not generate anything else
 </context>
 <question>Redact provided text according to the task description and return redacted elements.</question>"""
 
+JSON_SCHEMA_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "pii_redaction",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "redacted_text": {"type": "string"},
+                "entities": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "value": {"type": "string"},
+                            "replacement_token": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["value", "replacement_token", "reason"],
+                    },
+                },
+            },
+            "required": ["redacted_text", "entities"],
+        },
+    },
+}
+
+JSON_OBJECT_RESPONSE_FORMAT = {"type": "json_object"}
+
 
 def main(
     text: str,
@@ -83,33 +113,59 @@ def main(
 ):
     """Send text to the local Distil-PII model and emit redacted output."""
     validate_server_url(server_url, allow_remote=allow_remote)
-    response_format = {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "pii_redaction",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "redacted_text": {"type": "string"},
-                    "entities": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "value": {"type": "string"},
-                                "replacement_token": {"type": "string"},
-                                "reason": {"type": "string"},
-                            },
-                            "required": ["value", "replacement_token", "reason"],
-                        },
-                    },
-                },
-                "required": ["redacted_text", "entities"],
-            },
-        },
-    }
+    result = request_redaction(
+        text=text,
+        server_url=server_url,
+        model=model,
+        timeout=timeout,
+    )
 
+    content = extract_message_content(result)
+    output = content if show_entities else extract_redacted_text(content)
+
+    if output_file:
+        write_output_file(output_file, output)
+    else:
+        print(output)
+
+
+def request_redaction(
+    text: str,
+    server_url: str,
+    model: str,
+    timeout: float,
+) -> dict:
+    try:
+        return post_redaction_request(
+            text=text,
+            server_url=server_url,
+            model=model,
+            timeout=timeout,
+            response_format=JSON_SCHEMA_RESPONSE_FORMAT,
+        )
+    except urllib.error.HTTPError as error:
+        if error.code not in FALLBACK_RESPONSE_FORMAT_STATUSES:
+            fail_http_error(error)
+
+    try:
+        return post_redaction_request(
+            text=text,
+            server_url=server_url,
+            model=model,
+            timeout=timeout,
+            response_format=JSON_OBJECT_RESPONSE_FORMAT,
+        )
+    except urllib.error.HTTPError as error:
+        fail_http_error(error)
+
+
+def post_redaction_request(
+    text: str,
+    server_url: str,
+    model: str,
+    timeout: float,
+    response_format: dict,
+) -> dict:
     payload = json.dumps({
         "model": model,
         "messages": [
@@ -128,12 +184,9 @@ def main(
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        fail(
-            f"llama-server returned HTTP {error.code}. "
-            "Response body omitted to avoid exposing source text."
-        )
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError:
+        raise
     except urllib.error.URLError:
         fail(
             f"Could not connect to llama-server at {server_url}.\n"
@@ -143,6 +196,15 @@ def main(
     except json.JSONDecodeError:
         fail("llama-server returned a non-JSON response.")
 
+
+def fail_http_error(error: urllib.error.HTTPError) -> None:
+    fail(
+        f"llama-server returned HTTP {error.code}. "
+        "Response body omitted to avoid exposing source text."
+    )
+
+
+def extract_message_content(result: dict) -> str:
     try:
         content = result["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
@@ -151,24 +213,22 @@ def main(
     if not isinstance(content, str):
         fail("llama-server returned non-text message content.")
 
-    if show_entities:
-        output = content
-    else:
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError:
-            fail("llama-server returned non-JSON redaction content.")
-        try:
-            output = parsed["redacted_text"]
-        except (KeyError, TypeError):
-            fail("llama-server response did not include redacted_text.")
-        if not isinstance(output, str):
-            fail("llama-server returned non-text redacted_text.")
+    return content
 
-    if output_file:
-        write_output_file(output_file, output)
-    else:
-        print(output)
+
+def extract_redacted_text(content: str) -> str:
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        fail("llama-server returned non-JSON redaction content.")
+    try:
+        output = parsed["redacted_text"]
+    except (KeyError, TypeError):
+        fail("llama-server response did not include redacted_text.")
+    if not isinstance(output, str):
+        fail("llama-server returned non-text redacted_text.")
+
+    return output
 
 
 def fail(message: str) -> None:
@@ -213,16 +273,10 @@ def write_output_file(output_file: str, output: str) -> None:
 
 
 def read_input_text(args: argparse.Namespace) -> str:
-    sources = sum(
-        1
-        for has_source in [
-            bool(args.input_file),
-            bool(args.text),
-            not sys.stdin.isatty(),
-        ]
-        if has_source
+    explicit_sources = sum(
+        1 for has_source in [bool(args.input_file), bool(args.text)] if has_source
     )
-    if sources > 1:
+    if explicit_sources > 1:
         print(
             "ERROR: Provide text via exactly one source: --input-file, argv, or stdin.",
             file=sys.stderr,
