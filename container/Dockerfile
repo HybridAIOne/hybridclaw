@@ -3,7 +3,7 @@ FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091c
 WORKDIR /app
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --global npm@11.10.0 --no-audit --fund=false
+    npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
 RUN printf '%s\n' \
     'engine-strict=true' \
     'save-exact=true' \
@@ -11,7 +11,7 @@ RUN printf '%s\n' \
     > .npmrc
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+    npm ci --ignore-scripts
 COPY tsconfig.json ./
 COPY shared/ shared/
 COPY src/ src/
@@ -26,7 +26,7 @@ LABEL org.opencontainers.image.description="HybridClaw sandboxed agent runtime"
 LABEL org.opencontainers.image.version="${HYBRIDCLAW_VERSION}"
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --global npm@11.10.0 --no-audit --fund=false
+    npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pillow==11.3.0
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm install -g \
+    npm install -g --ignore-scripts \
     docx@9.5.1 \
     pptxgenjs@4.0.1 \
     csv-parse@6.1.0 \
@@ -56,7 +56,7 @@ WORKDIR /app
 
 COPY --link --from=builder /app/.npmrc /app/package.json /app/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev
+    npm ci --ignore-scripts --omit=dev
 
 # System deps need root; browser installed as node user so /ms-playwright stays owned by node:node
 RUN DEBIAN_FRONTEND=noninteractive npx playwright install-deps chromium \

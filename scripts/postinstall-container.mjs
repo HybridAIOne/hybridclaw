@@ -102,6 +102,7 @@ export function resolveNpmCommand(containerDir, env = process.env) {
     '--prefix',
     containerDir,
     'install',
+    '--ignore-scripts',
     '--omit=dev',
     '--workspaces=false',
   ];
