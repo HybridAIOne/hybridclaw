@@ -54,7 +54,7 @@ export async function runBtwSideQuestion(
       ...contextMessages,
       { role: 'user', content: buildBtwQuestionPrompt(question) },
     ],
-    model: resolved.model,
+    fallbackModel: resolved.model,
     fallbackChatbotId: resolved.chatbotId,
     agentId: resolved.agentId,
     tools: [],

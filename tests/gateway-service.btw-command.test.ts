@@ -84,6 +84,8 @@ test('btw command answers side question using a tool-less model call', async () 
   const call = callAuxiliaryModelMock.mock.calls[0]?.[0];
   expect(call).toBeDefined();
   expect(call?.tools).toEqual([]);
+  expect(call?.model).toBeUndefined();
+  expect(call?.fallbackModel).toBe('gpt-5.4-mini');
   const systemMessage = call?.messages?.find((m) => m.role === 'system');
   expect(typeof systemMessage?.content === 'string').toBe(true);
   expect(String(systemMessage?.content)).toContain(

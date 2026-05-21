@@ -1575,6 +1575,17 @@ export async function callAuxiliaryModel(
   if (!content) {
     throw new Error(`${params.task} returned an empty response.`);
   }
+  if (typeof logger.debug === 'function') {
+    logger.debug(
+      {
+        task: params.task,
+        provider: context.provider,
+        model: context.model,
+        usage: response.usage,
+      },
+      'Auxiliary model call completed',
+    );
+  }
   return {
     provider: context.provider,
     model: context.model,
