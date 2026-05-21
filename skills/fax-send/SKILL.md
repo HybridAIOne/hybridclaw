@@ -1,6 +1,6 @@
 ---
 name: fax-send
-description: "Send outbound PDF faxes through a guarded provider adapter and route inbound fax-to-email PDFs into downstream document workflows."
+description: "Send outbound faxes through a guarded provider adapter and route inbound fax-to-email attachments into downstream document workflows."
 user-invocable: true
 requires:
   bins:
@@ -29,7 +29,6 @@ metadata:
     tags:
       - fax
       - dach
-      - pdf
       - sinch
       - healthcare
       - legal
@@ -75,6 +74,11 @@ storage, or client records.
   project ID, stored credential, and explicit approval are available. Do not
   ask the user for a service ID for a normal outbound send; Sinch uses the
   product's default Fax service when `serviceId` is omitted.
+- A live `http_request` to Sinch is terminal for that send attempt. After it
+  returns, stop and report the provider result. Do not use `web_search`,
+  `web_fetch`, the PDF skill, local PDF scripts, helper source inspection, or
+  ad hoc replacement requests unless the user explicitly asks for debugging in
+  a new turn.
 
 ## Scope
 
@@ -131,11 +135,15 @@ hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"
 4. Build the request with `fax_send.cjs http-request send`. Do not hand-author
    Sinch API JSON or secret references.
 5. Pass only the emitted `httpRequest` object to `http_request` for live sends.
-6. Record/inspect audit intent or call the runtime accounting helper:
+6. After the `http_request` returns, stop tool use for that send attempt and
+   summarize the returned status/body. If Sinch returns 4xx/5xx, report it as
+   the provider response; do not search the web, generate a PDF, or retry with
+   a different payload shape in the same turn.
+7. Record/inspect audit intent or call the runtime accounting helper:
    - `fax.send.start` before dispatch
    - `fax.send.delivered` when status is `COMPLETED`
    - `fax.send.failed` when status is `FAILURE`
-7. Use `classify-status` after status polling or webhook payloads to turn
+8. Use `classify-status` after status polling or webhook payloads to turn
    provider states into the expected audit event and retry decision.
 
 ## Command Contract
@@ -227,6 +235,8 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   fax provider.
 - For short user-provided text, use `--text` so the helper emits a
   secret-backed multipart/form-data request with a direct `.txt` file upload.
+  Do not invoke `skills/pdf`, `create_pdf.mjs`, `web_search`, or `web_fetch` to
+  convert or verify this path; the fax helper owns the payload shape.
 - For `plan` responses, give one concise no-send summary only. Do not repeat
   the same plan in a second format, do not mirror raw helper JSON after a
   human summary, and do not add decorative emoji, sign-off text, or readiness
