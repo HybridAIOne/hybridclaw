@@ -1,10 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Link, useBlocker } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import {
   type Dispatch,
   type SetStateAction,
   useCallback,
-  useEffect,
   useMemo,
   useState,
 } from 'react';
@@ -22,14 +21,6 @@ import type {
 import { LOG_LEVELS } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../components/dialog';
 import {
   Field,
   FieldContent,
@@ -51,6 +42,9 @@ import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
+import { useFormDraft } from '../hooks/use-form-draft';
+import { useFormMutation } from '../hooks/use-form-mutation';
+import { useUnsavedChangesGuard } from '../hooks/use-unsaved-changes-guard';
 import { getErrorMessage } from '../lib/error-message';
 import styles from './config.module.css';
 
@@ -312,7 +306,6 @@ export function ConfigPage() {
   const auth = useAuth();
   const toast = useToast();
   const [viewMode, setViewMode] = useState<'form' | 'json'>('form');
-  const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [rawJson, setRawJson] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [portError, setPortError] = useState<string | null>(null);
@@ -330,37 +323,40 @@ export function ConfigPage() {
     queryFn: () => fetchConfig(auth.token),
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async (nextConfig: AdminConfig) => {
-      return saveConfig(auth.token, nextConfig);
-    },
-    onSuccess: (payload) => {
-      setDraft(payload.config);
-      setRawJson(serialize(payload.config));
-      setJsonError(null);
-      toast.success('Runtime config saved.');
-    },
-    onError: (error) => {
-      toast.error('Save failed', getErrorMessage(error));
-    },
-  });
-
-  useEffect(() => {
-    if (!configQuery.data || draft) return;
-    setDraft(configQuery.data.config);
-    setRawJson(serialize(configQuery.data.config));
-  }, [configQuery.data, draft]);
+  const {
+    draft,
+    setDraft,
+    isDirty: formIsDirty,
+    discard: discardDraft,
+    commit: commitDraft,
+  } = useFormDraft({ source: configQuery.data?.config });
 
   const savedSerialized = useMemo(
     () => (configQuery.data ? serialize(configQuery.data.config) : ''),
     [configQuery.data],
   );
 
-  const isDirty = useMemo(() => {
-    if (!configQuery.data || !draft) return false;
-    if (viewMode === 'json') return rawJson !== savedSerialized;
-    return serialize(draft) !== savedSerialized;
-  }, [configQuery.data, draft, viewMode, rawJson, savedSerialized]);
+  // Hydrate the JSON editor buffer whenever the saved config first arrives
+  // or changes from underneath us, so the textarea matches `draft` on mount.
+  if (configQuery.data && rawJson === '' && savedSerialized !== '') {
+    setRawJson(savedSerialized);
+  }
+
+  const isDirty =
+    viewMode === 'json' ? rawJson !== savedSerialized : formIsDirty;
+
+  const saveMutation = useFormMutation({
+    mutationFn: (nextConfig: AdminConfig) => saveConfig(auth.token, nextConfig),
+    onSuccess: (payload) => {
+      commitDraft(payload.config);
+      setRawJson(serialize(payload.config));
+      setJsonError(null);
+      toast.success('Runtime config saved.');
+    },
+    onError: (error) => {
+      toast.error('Save failed', error.message);
+    },
+  });
 
   const draftBrowser = draft ? browserConfig(draft) : defaultBrowserConfig();
   const savedBrowserProvider =
@@ -413,13 +409,11 @@ export function ConfigPage() {
     }
   }, []);
 
-  const blocker = useBlocker({
-    shouldBlockFn: ({ next, current }) =>
-      isDirty && next.pathname !== current.pathname,
-    enableBeforeUnload: () => isDirty,
-    withResolver: true,
+  const { dialog: unsavedChangesDialog } = useUnsavedChangesGuard({
+    isDirty,
+    description:
+      'You have unsaved edits to the runtime config. Leaving this page will discard them.',
   });
-  const isBlocked = blocker.status === 'blocked';
 
   const memoryError = useFieldError(draft?.container.memory ?? '', [
     required(),
@@ -470,9 +464,8 @@ export function ConfigPage() {
   };
 
   const discard = () => {
-    if (!configQuery.data) return;
-    setDraft(configQuery.data.config);
-    setRawJson(serialize(configQuery.data.config));
+    discardDraft();
+    if (configQuery.data) setRawJson(serialize(configQuery.data.config));
     setJsonError(null);
   };
 
@@ -1013,40 +1006,7 @@ export function ConfigPage() {
         )}
       </div>
 
-      <Dialog
-        open={isBlocked}
-        onOpenChange={(open) => {
-          if (!open && blocker.status === 'blocked') blocker.reset();
-        }}
-      >
-        <DialogContent role="alertdialog" size="sm">
-          <DialogHeader>
-            <DialogTitle>Discard unsaved changes?</DialogTitle>
-            <DialogDescription>
-              You have unsaved edits to the runtime config. Leaving this page
-              will discard them.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (blocker.status === 'blocked') blocker.reset();
-              }}
-            >
-              Keep editing
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (blocker.status === 'blocked') blocker.proceed();
-              }}
-            >
-              Discard and leave
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {unsavedChangesDialog}
     </div>
   );
 }
