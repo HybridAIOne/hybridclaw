@@ -42,6 +42,8 @@ or personal data from text. It runs a local Distil-PII GGUF model through
   file or attachment.
 - Return only the redacted text unless the user is explicitly debugging the
   redactor itself.
+- If the user asks for only the LLM or redaction output, do not narrate setup,
+  server status, tool use, or validation details in the final response.
 - Do not use `--show-entities` in normal workflows. It emits original values.
 - Do not store raw PII in tracked files, shell history, long-lived notes, or
   logs.

@@ -13,6 +13,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Optional
 
 DEFAULT_SERVER_URL = os.environ.get(
     "DISTIL_PII_SERVER_URL",
@@ -115,7 +116,7 @@ def main(
     server_url: str = DEFAULT_SERVER_URL,
     model: str = DEFAULT_MODEL,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
-    output_file: str | None = None,
+    output_file: Optional[str] = None,
     allow_remote: bool = False,
 ):
     """Send text to the local Distil-PII model and emit redacted output."""
@@ -147,7 +148,7 @@ def request_redaction(
         JSON_OBJECT_RESPONSE_FORMAT,
         JSON_SCHEMA_RESPONSE_FORMAT,
     ]
-    last_error: urllib.error.HTTPError | None = None
+    last_error: Optional[urllib.error.HTTPError] = None
 
     for response_format in response_formats:
         try:
