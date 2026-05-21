@@ -41,7 +41,7 @@ test('fax-send skill manifest declares DACH fax metadata and guarded secrets', (
   expect(skill).toContain('fax.send.failed');
   expect(skill).toContain('recordFaxUsageEvent()');
   expect(skill).toContain('UsageTotals');
-  expect(skill).toContain('unit: page');
+  expect(skill).toContain('unit: fax-page');
 });
 
 test('fax-send helper builds Sinch send request with secret-backed Basic auth', () => {

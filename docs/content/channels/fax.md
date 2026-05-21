@@ -87,9 +87,7 @@ injects provider credentials from encrypted secrets.
 
 For Sinch Fax API:
 
-1. Create or select a Sinch Fax project and fax service for the target region.
-   For German customer testing, use a Sinch EU-region project/service when
-   available on the account.
+1. Create or select a Sinch Fax project and fax service for the target region. For German customer testing, use a Sinch EU-region project/service when available on the account.
 2. Register or port the sending fax number in the provider dashboard.
 3. Store Basic auth as a base64-encoded `username:password` secret:
 
@@ -97,8 +95,7 @@ For Sinch Fax API:
    hybridclaw secret set SINCH_FAX_BASIC_AUTH "<base64-username-password>"
    ```
 
-4. Use `fax-send` with `--project-id`, `--service-id`, `--from`, and the
-   approved recipient number.
+4. Use `fax-send` with `--project-id`, `--service-id`, `--from`, and the approved recipient number.
 5. Configure provider completion callbacks or poll status with:
 
    ```bash
@@ -140,19 +137,15 @@ administration workflows:
 
 - archive the outbound PDF or inbound fax PDF unchanged
 - archive provider delivery receipts and webhook/status payloads
-- keep sender/recipient numbers, provider fax ID, timestamps, page count, and
-  failure reason
+- keep sender/recipient numbers, provider fax ID, timestamps, page count, and failure reason
 - preserve the mailbox message ID for fax-to-email inbound workflows
-- align retention and deletion schedules with the customer contract and the
-  relevant legal/tax record class
+- align retention and deletion schedules with the customer contract and the relevant legal/tax record class
 
 Signature semantics:
 
 - a fax transmission receipt is operational delivery evidence
-- a fax receipt is not proof that the underlying PDF has a qualified electronic
-  signature
-- if a workflow depends on a signed original, archive the signed source document
-  separately from the fax transport receipt
+- a fax receipt is not proof that the underlying PDF has a qualified electronic signature
+- if a workflow depends on a signed original, archive the signed source document separately from the fax transport receipt
 
 Usage accounting records page-based cost through `UsageTotals.billable_units`
 with unit `fax-page`.

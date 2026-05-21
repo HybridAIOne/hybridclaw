@@ -50,7 +50,7 @@ metadata:
     cost_measurement:
       system: UsageTotals
       sub_limit_key: fax-pages
-      unit: page
+      unit: fax-page
 ---
 
 # Fax Send
