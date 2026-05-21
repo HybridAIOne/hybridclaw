@@ -2181,11 +2181,11 @@ test('host auxiliary caller ignores the main default model when ordering local a
   });
   const resolveModelRuntimeCredentials = vi.fn(
     async ({ model }: { model: string }) => {
-      expect(model).toBe('lmstudio/nvidia/nemotron-3-nano');
+      expect(model).toBe('vllm/Qwen/Qwen3.6-27B-FP8');
       return {
-        provider: 'lmstudio' as const,
+        provider: 'vllm' as const,
         apiKey: '',
-        baseUrl: 'http://127.0.0.1:1234/v1',
+        baseUrl: 'http://127.0.0.1:8000/v1',
         chatbotId: '',
         enableRag: false,
         requestHeaders: {},
@@ -2212,12 +2212,12 @@ test('host auxiliary caller ignores the main default model when ordering local a
 
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(input).toBe('http://127.0.0.1:1234/v1/chat/completions');
+      expect(input).toBe('http://127.0.0.1:8000/v1/chat/completions');
       const body = JSON.parse(String(init?.body || '{}')) as Record<
         string,
         unknown
       >;
-      expect(body.model).toBe('nvidia/nemotron-3-nano');
+      expect(body.model).toBe('Qwen/Qwen3.6-27B-FP8');
       return new Response(
         JSON.stringify({
           choices: [
@@ -2246,13 +2246,13 @@ test('host auxiliary caller ignores the main default model when ordering local a
   });
 
   expect(result).toEqual({
-    provider: 'lmstudio',
-    model: 'lmstudio/nvidia/nemotron-3-nano',
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
     content: 'Recovered through local discovery order.',
   });
   expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenNthCalledWith(
     1,
-    'ollama',
+    'vllm',
   );
   expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenNthCalledWith(
     2,
@@ -2263,8 +2263,8 @@ test('host auxiliary caller ignores the main default model when ordering local a
     expect.objectContaining({
       task: 'compression',
       primaryProvider: 'auto',
-      fallbackProvider: 'lmstudio',
-      modelHint: 'lmstudio/nvidia/nemotron-3-nano',
+      fallbackProvider: 'vllm',
+      modelHint: 'vllm/Qwen/Qwen3.6-27B-FP8',
       primaryError: expect.objectContaining({
         message: expect.any(String),
         type: expect.any(String),
