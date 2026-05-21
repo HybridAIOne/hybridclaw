@@ -260,6 +260,18 @@ function defaultDriverCommand(): { command: string; args: string[] } {
   };
 }
 
+export function resolveMacCuaDriverCommand(options?: {
+  command?: string;
+  args?: string[];
+}): { command: string; args: string[] } {
+  const fallback = defaultDriverCommand();
+  return {
+    command: options?.command || fallback.command,
+    args:
+      options?.args && options.args.length > 0 ? options.args : fallback.args,
+  };
+}
+
 function normalizePositiveInteger(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
@@ -1206,10 +1218,13 @@ export class MacCuaBrowserProvider implements BrowserProvider {
       if (process.platform !== 'darwin') {
         throw new Error('MacCuaBrowserProvider is only supported on macOS.');
       }
-      const fallback = defaultDriverCommand();
+      const driverCommand = resolveMacCuaDriverCommand({
+        command: options.driverCommand,
+        args: options.driverArgs,
+      });
       this.driver = new StdioMacCuaDriver(
-        options.driverCommand || fallback.command,
-        options.driverArgs || fallback.args,
+        driverCommand.command,
+        driverCommand.args,
         options.driverTimeoutMs,
       );
     }

@@ -12,6 +12,7 @@ import type {
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_MASTER_KEY = process.env.HYBRIDCLAW_MASTER_KEY;
+const ORIGINAL_CUA_DRIVER_BIN = process.env.HYBRIDAI_CUA_DRIVER_BIN;
 let tempRoot = '';
 
 function makeTempRoot(): string {
@@ -105,6 +106,30 @@ afterEach(() => {
   }
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDCLAW_MASTER_KEY', ORIGINAL_MASTER_KEY);
+  restoreEnvVar('HYBRIDAI_CUA_DRIVER_BIN', ORIGINAL_CUA_DRIVER_BIN);
+});
+
+test('mac-cua real driver defaults to MCP args when config args are empty', async () => {
+  const { resolveMacCuaDriverCommand } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+
+  expect(resolveMacCuaDriverCommand({ args: [] })).toEqual({
+    command: 'cua-driver',
+    args: ['mcp'],
+  });
+  expect(
+    resolveMacCuaDriverCommand({ args: ['mcp', '--no-daemon-relaunch'] }),
+  ).toEqual({
+    command: 'cua-driver',
+    args: ['mcp', '--no-daemon-relaunch'],
+  });
+
+  process.env.HYBRIDAI_CUA_DRIVER_BIN = '/opt/cua-driver';
+  expect(resolveMacCuaDriverCommand({ args: [] })).toEqual({
+    command: '/opt/cua-driver',
+    args: ['mcp'],
+  });
 });
 
 test('mac-cua provider starts the selected operator browser in background-safe mode', async () => {
