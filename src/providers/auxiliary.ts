@@ -30,7 +30,10 @@ import {
   LOCAL_BACKEND_IDS,
   type RuntimeProviderId,
 } from './provider-ids.js';
-import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
+import {
+  isAnthropicProviderModel,
+  resolveProviderRequestMaxTokens,
+} from './request-max-tokens.js';
 import {
   type AuxiliaryTask,
   detectRuntimeProviderPrefix,
@@ -1085,18 +1088,32 @@ function shouldRetryWithMaxCompletionTokens(
   );
 }
 
+function openAICompatRequestMaxTokens(
+  context: AuxiliaryTextCallContext,
+): number | undefined {
+  if (
+    context.provider === 'openrouter' &&
+    !isAnthropicProviderModel(context.model)
+  ) {
+    return undefined;
+  }
+  return context.maxTokens;
+}
+
 async function callOpenAICompatTextModel(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
+  const maxTokens = openAICompatRequestMaxTokens(context);
   const body = withCoreRequestBody(
     {
       model: normalizeOpenAICompatModelName(context.provider, context.model),
       messages: collapseSystemMessages(messages),
-      tools: options.tools,
-      tool_choice: 'auto',
-      ...(context.maxTokens ? { max_tokens: context.maxTokens } : {}),
+      ...(options.tools.length > 0
+        ? { tools: options.tools, tool_choice: 'auto' }
+        : {}),
+      ...(maxTokens ? { max_tokens: maxTokens } : {}),
     },
     options,
   );
@@ -1114,9 +1131,9 @@ async function callOpenAICompatTextModel(
 
   if (!response.ok) {
     const responseText = await response.text();
-    if (shouldRetryWithMaxCompletionTokens(responseText, context.maxTokens)) {
+    if (shouldRetryWithMaxCompletionTokens(responseText, maxTokens)) {
       delete body.max_tokens;
-      body.max_completion_tokens = context.maxTokens;
+      body.max_completion_tokens = maxTokens;
       response = await fetch(`${context.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: buildJsonHeaders({

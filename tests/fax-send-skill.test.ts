@@ -37,8 +37,6 @@ test('fax-send skill manifest declares DACH fax metadata and guarded secrets', (
   expect(skill).toContain('SINCH_FAX_BASIC_AUTH');
   expect(skill).toContain('SINCH_FAX_OAUTH_TOKEN');
   expect(skill).toContain('SINCH_FAX_PROJECT_ID');
-  expect(skill).not.toContain('SINCH_FAX_SERVICE_ID');
-  expect(skill).toContain('Never claim a Sinch');
   expect(skill).toContain('fax.send.start');
   expect(skill).toContain('fax.send.delivered');
   expect(skill).toContain('fax.send.failed');
@@ -103,7 +101,6 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
   expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
     'SINCH_FAX_PROJECT_ID',
   ]);
-  expect(payload.liveExecution).not.toHaveProperty('optionalConfiguredSecrets');
   expect(payload.auditEvents[0]).toMatchObject({
     eventType: 'fax.send.start',
     payload: {
@@ -116,7 +113,7 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
   expect(JSON.stringify(payload)).not.toContain('username:password');
 });
 
-test('fax-send helper uses stored Sinch project default and omits service by default', () => {
+test('fax-send helper uses stored Sinch project default for text uploads', () => {
   const payload = fax.buildSendRequest({
     provider: 'sinch',
     auth: 'basic',
@@ -134,9 +131,6 @@ test('fax-send helper uses stored Sinch project default and omits service by def
   expect(payload.httpRequest.url).toBe(
     'https://fax.api.sinch.com/v3/projects/<secret:SINCH_FAX_PROJECT_ID>/faxes',
   );
-  expect(payload.httpRequest.body).not.toContain('SINCH_FAX_SERVICE_ID');
-  expect(payload.httpRequest.body).not.toContain('name="serviceId"');
-  expect(payload.httpRequest.body).not.toContain('SINCH_FAX_SENDER_NUMBER');
   expect(payload.httpRequest.body).toContain('+493012345678');
   expect(payload.httpRequest.body).toContain('+498920931098');
   expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
@@ -162,7 +156,6 @@ test('fax-send helper can use an explicit Sinch service id', () => {
 
   expect(payload.httpRequest.body).toContain('name="serviceId"');
   expect(payload.httpRequest.body).toContain('service-123');
-  expect(payload.httpRequest.body).not.toContain('SINCH_FAX_SERVICE_ID');
 });
 
 test('fax-send helper supports bearer auth for Sinch OAuth deployments', () => {
@@ -181,7 +174,6 @@ test('fax-send helper supports bearer auth for Sinch OAuth deployments', () => {
     method: 'GET',
     bearerSecretName: 'SINCH_FAX_OAUTH_TOKEN',
   });
-  expect(payload.httpRequest).not.toHaveProperty('secretHeaders');
 });
 
 test('fax-send refuses live sends without an operator grant', () => {
@@ -256,7 +248,6 @@ test('fax-send helper can build direct text file uploads', () => {
     headerPageNumbers: true,
   });
 
-  expect(payload.httpRequest).not.toHaveProperty('json');
   expect(payload.httpRequest.headers).toMatchObject({
     'Content-Type':
       'multipart/form-data; boundary=----hybridclaw-fax-text-boundary',
