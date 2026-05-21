@@ -264,7 +264,7 @@ Once the gateway is running, open HybridClaw locally:
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
   Salesforce inspection, GitHub issue queue processing (`gh-issues`),
   monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
-  FastBill, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
+  FastBill, Lexware Office, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
   HeyGen, Hermes3000 long-form writing, natural-language warehouse SQL
   (`warehouse-sql`), brand-voice drafting, speech transcription and language
   detection (`speech.transcribe`, `speech.detect-language`), validated
