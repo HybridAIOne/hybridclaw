@@ -6,7 +6,7 @@ import type { Session, StoredMessage } from '../types/session.js';
 
 const BTW_CONTEXT_MESSAGE_LIMIT = 8;
 const BTW_MAX_RESPONSE_TOKENS = 160;
-const BTW_TIMEOUT_MS = 20_000;
+const BTW_TIMEOUT_MS = 300_000;
 const BTW_SYSTEM_PROMPT = [
   'You are answering an ephemeral /btw side question about the current conversation.',
   'Use the conversation only as background context.',

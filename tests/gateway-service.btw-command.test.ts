@@ -58,6 +58,18 @@ test('btw command answers side question using a tool-less model call', async () 
   const session = seedSession(memoryService, 'session-btw', [
     {
       role: 'user',
+      content: 'This old context should not be sent to /btw.',
+    },
+    {
+      role: 'assistant',
+      content: 'This old assistant reply should not be sent to /btw.',
+    },
+    ...Array.from({ length: 6 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `Older filler turn ${index + 1}.`,
+    })),
+    {
+      role: 'user',
       content: 'Please refactor src/foo.ts into smaller modules.',
     },
     {
@@ -88,7 +100,7 @@ test('btw command answers side question using a tool-less model call', async () 
   expect(call?.model).toBeUndefined();
   expect(call?.fallbackModel).toBe('gpt-5.4-mini');
   expect(call?.maxTokens).toBe(160);
-  expect(call?.timeoutMs).toBe(20_000);
+  expect(call?.timeoutMs).toBe(300_000);
   const systemMessage = call?.messages?.find((m) => m.role === 'system');
   expect(typeof systemMessage?.content === 'string').toBe(true);
   expect(String(systemMessage?.content)).toContain(
@@ -103,10 +115,15 @@ test('btw command answers side question using a tool-less model call', async () 
   expect(
     call?.messages?.some((m) => m.content === 'Working on the refactor now.'),
   ).toBe(true);
+  expect(
+    call?.messages?.some((m) =>
+      String(m.content).includes('This old context should not be sent'),
+    ),
+  ).toBe(false);
 
   // BTW must not persist to session history.
   const messagesAfter = memoryService.getRecentMessages(session.id);
-  expect(messagesAfter.length).toBe(2);
+  expect(messagesAfter.length).toBe(10);
 });
 
 test('btw command without a question returns a usage error', async () => {
