@@ -481,6 +481,7 @@ export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
+export let CODEX_RUNTIME: RuntimeConfig['codex']['runtime'] = 'hybridclaw';
 export let ANTHROPIC_ENABLED = false;
 export let ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
 export let ANTHROPIC_METHOD: RuntimeConfig['anthropic']['method'] = 'api-key';
@@ -1042,6 +1043,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
+  CODEX_RUNTIME = config.codex.turnRuntime;
   ANTHROPIC_ENABLED = config.anthropic.enabled;
   ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
   ANTHROPIC_METHOD = config.anthropic.method;

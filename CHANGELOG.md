@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- **Diagram validation and accounting**: Mermaid diagrams are validated with
+  the bundled Mermaid parser before render, diagram render artifacts retain
+  skill-scoped source/rendered metadata, and local diagram renders emit
+  zero-cost usage hooks so budget accounting only reflects LLM token use.
+
 ## [0.19.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.2) - 2026-05-14
 
 ### Fixed

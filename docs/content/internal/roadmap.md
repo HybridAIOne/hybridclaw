@@ -19,7 +19,7 @@ The roadmap is anchored in the [HybridClaw manifesto — *The AI Coworker Who's 
 
 | # | Feature | Description | Priority | Status |
 |---|---------|-------------|----------|--------|
-| 21 | **Business skills and connectors** | Production skills and connector work. See **R21 Production Skills** below for sub-issue rows. *Principle I — the skills are the product.* | P0 | 🟡 13/104 |
+| 21 | **Business skills and connectors** | Production skills and connector work. See **R21 Production Skills** below for sub-issue rows. *Principle I — the skills are the product.* | P0 | 🟡 13/105 |
 | 1 | **Agent-to-agent messaging** | First-class primitive for agents to message, hand off, escalate, federate across instances, and speak multiple transport formats. See **R1 Messaging Work** below for sub-issue rows. *Principle VI.* | P0 | 🟡 7/14 |
 | 2 | **Workflow engine — autonomous-by-default with high-stakes escalation** | Declarative YAML workflows. Sequential runner; escalation gates only on high-stakes steps. Return-for-revision rewinds. Built on top of #1. See **R2 Workflow Work** below for sub-issue rows. *Principles II + VI.* | P0 | 🔄 #461 |
 | 3 | **Agent scoreboard + auto-`CV.md`** | Per-skill score data model populated from the skill-run event bus. Auto-rendered CV per agent; admin scoreboard; "best at X" recommendation API. See **R3 Scoreboard Work** below for the follow-up row. *Principle IV.* | P0 | ✅ (5/5; follow-up R3.7 ✅ #618; #616, #619 still open) |
@@ -222,7 +222,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.1 | Foundation | TypeScript SKILL.md framework | ✅ Done |
 | R21.1.1 | Foundation | NexAU-style skill package support | ⬜ To be filed |
 | R21.2 | Skill | Salesforce skill | ✅ Done |
-| R21.3 | Skill | HubSpot skill | ⬜ #581 |
+| R21.3 | Skill | HubSpot skill | ✅ Done #581 via PR #1029 |
 | R21.4 | Skill | SAP ERP skill | ⬜ To be filed |
 | R21.5 | Skill | GA4 skill | ✅ Done #583 via PR #981 |
 | R21.6 | Skill | NL-to-SQL warehouse skill | ✅ Done #584 via PR #679 |
@@ -323,6 +323,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.100 | Integration | **Content-tools R5 / R47 / R48 wiring.** Image, speech-to-text, and diagram tools now ship through the per-tool-module shape, but follow-up integration remains: (a) complete **R5** per-agent budget enforcement for all generated-media/tool costs; (b) **R47** scoped-knowledge artifact storage (generated media lands in agent/skill-scoped store, not global); (c) **R48** credential-lifecycle auto-grants beyond declared skill credentials; (d) F8 stakes refinement for public-output content tools such as image generation and future TTS. | ⬜ #1000 |
 | R21.101 | Provider | **Content-tool multi-provider extension** — catalog-provider pattern for per-provider adapters, F5 capability-matrix entries, fallback chain on auth/quota errors, and per-provider cost units for R21.100 budget integration. Image providers shipped under R21.68; speech-to-text providers shipped under R21.69/R21.96; diagram adapters shipped under R21.99. Remaining extensions land separately for TTS and later provider additions. | 🟡 #1003 (image/STT/diagram provider paths shipped; TTS provider path open) |
 | R21.102 | Skill | Miro skill (board discovery, item reads for summarization/planning, sticky/text/shape/connector/frame writes, board snapshot artifacts, OAuth/token-backed credentials, and preview/approval before high-impact board writes) | ⬜ #1040 |
+| R21.103 | Skill | Zabbix monitoring skill (host inventory, current/recent problems, trigger severity summaries, and incident-card handoff). Must use the existing SecretRef runtime secret store for Zabbix API tokens and emit gateway `http_request` payloads from its helper script: JSON-RPC POST to `api_jsonrpc.php`, `Content-Type: application/json-rpc`, `bearerSecretName: "ZABBIX_API_TOKEN"`, and bounded `host.get`, `problem.get`, and `trigger.get` request bodies derived from the official Zabbix API docs. Write-like event actions such as acknowledge, suppress, or close are amber/red and require exact F8/F14 operator grants. Complements R32/R33 server-maintenance skills by turning monitoring state into actionable incidents. | ⬜ #1045 |
 
 ## R1 Messaging Work
 

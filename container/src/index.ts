@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
 import {
+  type ApprovalPrelude,
   type ToolApprovalEvaluation,
   TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
@@ -9,6 +10,10 @@ import {
   cleanupAllBrowserSessions,
   getBrowserProviderLogLabel,
 } from './browser-tools.js';
+import {
+  resumePendingCodexAppServerApproval,
+  runCodexAppServerTurn,
+} from './codex-app-server.js';
 import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
@@ -915,6 +920,7 @@ interface ProcessRequestParams {
   baseUrl: string;
   provider: ContainerInput['provider'];
   providerMethod?: string;
+  codexRuntime?: ContainerInput['codexRuntime'];
   isLocal?: boolean;
   contextWindow?: number;
   thinkingFormat?: 'qwen';
@@ -922,6 +928,13 @@ interface ProcessRequestParams {
   chatbotId: string;
   enableRag: boolean;
   requestHeaders?: Record<string, string>;
+  gatewayBaseUrl?: string;
+  gatewayApiToken?: string;
+  configuredDiscordChannels?: string[];
+  mcpServers?: ContainerInput['mcpServers'];
+  media?: ContainerInput['media'];
+  webSearch?: ContainerInput['webSearch'];
+  providerCredentials?: ContainerInput['providerCredentials'];
   tools: ToolDefinition[];
   taskModels?: ContainerInput['taskModels'];
   contextGuard?: ContainerInput['contextGuard'];
@@ -933,6 +946,30 @@ interface ProcessRequestParams {
   effectiveUserPromptOverride?: string;
   ralphMaxIterationsOverride?: number | null;
   escalationTarget?: EscalationTarget;
+  approvedToolCall?: ApprovalPrelude['approvedToolCall'];
+}
+
+function inputRuntimeContext(
+  input: ContainerInput,
+): Pick<
+  ProcessRequestParams,
+  | 'gatewayBaseUrl'
+  | 'gatewayApiToken'
+  | 'configuredDiscordChannels'
+  | 'mcpServers'
+  | 'media'
+  | 'webSearch'
+  | 'providerCredentials'
+> {
+  return {
+    gatewayBaseUrl: input.gatewayBaseUrl,
+    gatewayApiToken: input.gatewayApiToken,
+    configuredDiscordChannels: input.configuredDiscordChannels,
+    mcpServers: input.mcpServers,
+    media: input.media,
+    webSearch: input.webSearch,
+    providerCredentials: input.providerCredentials,
+  };
 }
 
 async function processRequest(
@@ -945,6 +982,7 @@ async function processRequest(
     baseUrl,
     provider,
     providerMethod,
+    codexRuntime,
     isLocal,
     contextWindow,
     thinkingFormat,
@@ -952,6 +990,13 @@ async function processRequest(
     chatbotId,
     enableRag,
     requestHeaders,
+    gatewayBaseUrl,
+    gatewayApiToken,
+    configuredDiscordChannels,
+    mcpServers,
+    media,
+    webSearch,
+    providerCredentials,
     tools,
     taskModels,
     contextGuard,
@@ -963,6 +1008,7 @@ async function processRequest(
     effectiveUserPromptOverride,
     ralphMaxIterationsOverride,
     escalationTarget,
+    approvedToolCall,
   } = params;
   const processStartedAt = Date.now();
   console.error('[hybridclaw-agent] agent request start');
@@ -995,6 +1041,57 @@ async function processRequest(
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
+
+  if (provider === 'openai-codex' && codexRuntime === 'app-server') {
+    const resumed = await resumePendingCodexAppServerApproval({
+      sessionId,
+      messages: history,
+      streamTextDeltas,
+      onTextDelta: emitStreamDelta,
+    });
+    if (resumed) {
+      resumed.codexRuntime = 'app-server';
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: resumed.status,
+        toolsUsed: resumed.toolsUsed,
+      });
+      return resumed;
+    }
+    const output = await runCodexAppServerTurn({
+      sessionId,
+      messages: history,
+      model,
+      cwd: WORKSPACE_ROOT,
+      apiKey,
+      baseUrl,
+      provider,
+      providerMethod,
+      chatbotId,
+      requestHeaders,
+      maxTokens,
+      debugModelResponses,
+      gatewayBaseUrl,
+      gatewayApiToken,
+      channelId,
+      configuredDiscordChannels,
+      mcpServers,
+      taskModels,
+      media,
+      webSearch,
+      providerCredentials,
+      streamTextDeltas,
+      onTextDelta: emitStreamDelta,
+    });
+    output.codexRuntime = 'app-server';
+    await emitRuntimeEvent({
+      event: 'turn_end',
+      status: output.status,
+      toolsUsed: output.toolsUsed,
+    });
+    return output;
+  }
+
   const resolveToolApproval = async (input: {
     toolName: string;
     argsJson: string;
@@ -1049,6 +1146,110 @@ async function processRequest(
     }
     return evaluation;
   };
+
+  if (approvedToolCall) {
+    const approval = await resolveToolApproval({
+      toolName: approvedToolCall.toolName,
+      argsJson: approvedToolCall.argsJson,
+    });
+    if (approval.decision === 'required') {
+      const prompt = approvalRuntime.formatApprovalRequest(approval);
+      return {
+        status: 'success',
+        result: prompt,
+        toolsUsed: [approvedToolCall.toolName],
+        toolExecutions: [
+          {
+            name: approvedToolCall.toolName,
+            arguments: approvedToolCall.argsJson,
+            result: prompt,
+            durationMs: 0,
+            isError: false,
+            blocked: true,
+            blockedReason: approval.reason,
+            approvalTier: approval.tier,
+            approvalBaseTier: approval.baseTier,
+            autonomyLevel: approval.autonomyLevel,
+            stakes: approval.stakes,
+            stakesScore: approval.stakesScore,
+            anomaly: approval.anomaly,
+            escalationRoute: approval.escalationRoute,
+            escalationTarget: approval.escalationTarget,
+            approvalDecision: approval.decision,
+            approvalActionKey: approval.actionKey,
+            approvalIntent: approval.intent,
+            approvalReason: approval.reason,
+            approvalRequestId: approval.requestId,
+            approvalExpiresAt: approval.expiresAtMs,
+          },
+        ],
+        pendingApproval: approval.requestId
+          ? {
+              approvalId: approval.requestId,
+              prompt,
+              intent: approval.intent,
+              reason: approval.reason,
+              allowSession: !approval.pinned,
+              allowAgent: !approval.pinned,
+              allowAll: !approval.pinned,
+              expiresAt:
+                typeof approval.expiresAtMs === 'number' &&
+                Number.isFinite(approval.expiresAtMs)
+                  ? approval.expiresAtMs
+                  : null,
+              ...(approval.escalationTarget
+                ? { escalationTarget: approval.escalationTarget }
+                : {}),
+            }
+          : undefined,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        effectiveUserPrompt,
+      };
+    }
+    if (approval.decision === 'denied') {
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [approvedToolCall.toolName],
+        toolExecutions: [],
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        error: `Approved action was denied by policy: ${approval.reason}`,
+        effectiveUserPrompt,
+      };
+    }
+
+    const approvedCall: ToolCall = {
+      id: `approved_${approval.requestId || Date.now()}`,
+      type: 'function',
+      function: {
+        name: approvedToolCall.toolName,
+        arguments: approvedToolCall.argsJson,
+      },
+    };
+    logToolCallStart(
+      approvedToolCall.toolName,
+      approvedToolCall.argsJson,
+      approval,
+    );
+    history.push({
+      role: 'assistant',
+      content: null,
+      tool_calls: [approvedCall],
+    });
+    const completed = await executePreparedToolCall(
+      { call: approvedCall, approval },
+      toolCallHistory,
+    );
+    appendCompletedToolCall({
+      completed,
+      toolsUsed,
+      toolExecutions,
+      history,
+      toolCallHistory,
+      artifacts,
+      artifactPaths,
+    });
+  }
 
   while (stalledTurns < maxStalledTurns) {
     const guardResult = applyContextGuard({
@@ -1694,6 +1895,7 @@ async function processRequest(
     toolsUsed: [...new Set(toolsUsed)],
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,
+    codexRuntime,
     tokenUsage: finalizeTokenUsage(tokenUsage),
     effectiveUserPrompt,
   };
@@ -1814,6 +2016,7 @@ async function main(): Promise<void> {
   });
   const firstPrelude = approvalRuntime.handleApprovalResponse(firstMessages);
   const firstPromptOverride = firstPrelude?.replayPrompt;
+  const firstApprovedToolCall = firstPrelude?.approvedToolCall;
   const firstPreparedMessages = firstPromptOverride
     ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
     : firstMessages;
@@ -1841,6 +2044,7 @@ async function main(): Promise<void> {
       baseUrl: firstInput.baseUrl,
       provider: firstInput.provider,
       providerMethod: firstInput.providerMethod,
+      codexRuntime: firstInput.codexRuntime,
       isLocal: firstInput.isLocal,
       contextWindow: firstInput.contextWindow,
       thinkingFormat: firstInput.thinkingFormat,
@@ -1848,6 +2052,7 @@ async function main(): Promise<void> {
       chatbotId: firstInput.chatbotId,
       enableRag: firstInput.enableRag,
       requestHeaders: storedRequestHeaders,
+      ...inputRuntimeContext(firstInput),
       tools: resolveTools(firstInput),
       taskModels: firstTaskModels,
       contextGuard: firstInput.contextGuard,
@@ -1859,6 +2064,7 @@ async function main(): Promise<void> {
       effectiveUserPromptOverride: firstPromptOverride,
       ralphMaxIterationsOverride: firstInput.ralphMaxIterations,
       escalationTarget: firstInput.escalationTarget,
+      approvedToolCall: firstApprovedToolCall,
     });
     if (
       firstMessagesForRequest !== firstInput.messages &&
@@ -1880,6 +2086,7 @@ async function main(): Promise<void> {
         baseUrl: firstInput.baseUrl,
         provider: firstInput.provider,
         providerMethod: firstInput.providerMethod,
+        codexRuntime: firstInput.codexRuntime,
         isLocal: firstInput.isLocal,
         contextWindow: firstInput.contextWindow,
         thinkingFormat: firstInput.thinkingFormat,
@@ -1887,6 +2094,7 @@ async function main(): Promise<void> {
         chatbotId: firstInput.chatbotId,
         enableRag: firstInput.enableRag,
         requestHeaders: firstInput.requestHeaders,
+        ...inputRuntimeContext(firstInput),
         tools: resolveTools(firstInput),
         taskModels: firstTaskModels,
         contextGuard: firstInput.contextGuard,
@@ -1899,6 +2107,7 @@ async function main(): Promise<void> {
         effectiveUserPromptOverride: firstPromptOverride,
         ralphMaxIterationsOverride: firstInput.ralphMaxIterations,
         escalationTarget: firstInput.escalationTarget,
+        approvedToolCall: firstApprovedToolCall,
       });
     }
   }
@@ -1994,6 +2203,7 @@ async function main(): Promise<void> {
     });
     const prelude = approvalRuntime.handleApprovalResponse(preparedMessages);
     const promptOverride = prelude?.replayPrompt;
+    const approvedToolCall = prelude?.approvedToolCall;
     const messagesForRequest = promptOverride
       ? replaceLatestUserPrompt(preparedMessages, promptOverride)
       : preparedMessages;
@@ -2021,6 +2231,7 @@ async function main(): Promise<void> {
       baseUrl: input.baseUrl,
       provider: input.provider,
       providerMethod: input.providerMethod,
+      codexRuntime: input.codexRuntime,
       isLocal: input.isLocal,
       contextWindow: input.contextWindow,
       thinkingFormat: input.thinkingFormat,
@@ -2028,6 +2239,7 @@ async function main(): Promise<void> {
       chatbotId: input.chatbotId,
       enableRag: input.enableRag,
       requestHeaders,
+      ...inputRuntimeContext(input),
       tools: resolveTools(input),
       taskModels,
       contextGuard: input.contextGuard,
@@ -2039,6 +2251,7 @@ async function main(): Promise<void> {
       effectiveUserPromptOverride: promptOverride,
       ralphMaxIterationsOverride: input.ralphMaxIterations,
       escalationTarget: input.escalationTarget,
+      approvedToolCall,
     });
     if (
       messagesForRequestWithSkillCache !== input.messages &&
@@ -2059,6 +2272,7 @@ async function main(): Promise<void> {
         baseUrl: input.baseUrl,
         provider: input.provider,
         providerMethod: input.providerMethod,
+        codexRuntime: input.codexRuntime,
         isLocal: input.isLocal,
         contextWindow: input.contextWindow,
         thinkingFormat: input.thinkingFormat,
@@ -2066,6 +2280,7 @@ async function main(): Promise<void> {
         chatbotId: input.chatbotId,
         enableRag: input.enableRag,
         requestHeaders,
+        ...inputRuntimeContext(input),
         tools: resolveTools(input),
         taskModels,
         contextGuard: input.contextGuard,
@@ -2077,6 +2292,7 @@ async function main(): Promise<void> {
         effectiveUserPromptOverride: promptOverride,
         ralphMaxIterationsOverride: input.ralphMaxIterations,
         escalationTarget: input.escalationTarget,
+        approvedToolCall,
       });
     }
 

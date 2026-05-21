@@ -108,6 +108,8 @@ node skills/pdf/scripts/render_pdf_pages.mjs document.pdf /tmp/pdf-pages
 node skills/pdf/scripts/create_pdf.mjs output.pdf --text "Hello World"
 node skills/pdf/scripts/create_pdf.mjs output.pdf --title "Heading" --text "Body content"
 node skills/pdf/scripts/create_pdf.mjs output.pdf --text "Line 1\nLine 2" --font-size 18
+node skills/pdf/scripts/create_pdf.mjs output.pdf --image-url https://example.com/logo.png --text "Body content"
+node skills/pdf/scripts/create_pdf.mjs output.pdf --image-path logo.png --text "Body content"
 ```
 
 For creation tasks ("make a PDF", "create a PDF with X"), always use this bundled

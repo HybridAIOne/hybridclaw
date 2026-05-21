@@ -1,4 +1,8 @@
-import type { RuntimeConfig } from './runtime-config.js';
+import { spawnSync } from 'node:child_process';
+import {
+  normalizeCodexTurnRuntime,
+  type RuntimeConfig,
+} from './runtime-config.js';
 
 const FORBIDDEN_CONFIG_PATH_SEGMENTS = new Set([
   '__proto__',
@@ -42,6 +46,14 @@ export function setRuntimeConfigValueAtPath(
   value: unknown,
 ): void {
   const segments = splitRuntimeConfigPath(keyPath);
+  if (
+    segments.length === 2 &&
+    segments[0] === 'codex' &&
+    (segments[1] === 'runtime' || segments[1] === 'turnRuntime') &&
+    normalizeCodexTurnRuntime(value) === 'app-server'
+  ) {
+    assertCodexAppServerRuntimeAvailable();
+  }
   let current = config as unknown as Record<string, unknown>;
 
   for (const segment of segments.slice(0, -1)) {
@@ -60,6 +72,46 @@ export function setRuntimeConfigValueAtPath(
     throw new Error(`Config key \`${keyPath}\` was not found.`);
   }
   current[leaf] = value;
+  if (
+    segments.length === 2 &&
+    segments[0] === 'codex' &&
+    (segments[1] === 'runtime' || segments[1] === 'turnRuntime')
+  ) {
+    const normalized = normalizeCodexTurnRuntime(value);
+    current.runtime = normalized;
+    current.turnRuntime = normalized;
+  }
+}
+
+export function assertCodexAppServerRuntimeAvailable(): void {
+  const version = spawnSync('codex', ['--version'], {
+    encoding: 'utf-8',
+  });
+  if (version.error) {
+    const code = (version.error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      throw new Error(
+        'Cannot enable `codex.runtime=app-server`: `codex` is not installed or is not on PATH. Install the OpenAI Codex CLI, then run `hybridclaw config set codex.runtime app-server` again.',
+      );
+    }
+    throw new Error(
+      `Cannot enable \`codex.runtime=app-server\`: failed to run \`codex --version\`: ${version.error.message}`,
+    );
+  }
+  if (version.status !== 0) {
+    throw new Error(
+      `Cannot enable \`codex.runtime=app-server\`: \`codex --version\` exited with ${version.status ?? 'null'}.${version.stderr ? ` ${version.stderr.trim()}` : ''}`,
+    );
+  }
+
+  const help = spawnSync('codex', ['app-server', '--help'], {
+    encoding: 'utf-8',
+  });
+  if (help.error || help.status !== 0) {
+    throw new Error(
+      'Cannot enable `codex.runtime=app-server`: the installed Codex CLI does not expose `codex app-server`. Upgrade the OpenAI Codex CLI, then try again.',
+    );
+  }
 }
 
 export function getRuntimeConfigValueAtPath(

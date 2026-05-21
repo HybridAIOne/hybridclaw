@@ -12,6 +12,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
 
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
+import {
+  HUBSPOT_ACCESS_TOKEN_SECRET,
+  resolveHubSpotAccessToken,
+} from '../auth/hubspot-auth.js';
 import type {
   RuntimeConfig,
   RuntimeHttpRequestGoogleOAuthSecretRef,
@@ -73,6 +77,7 @@ type ApiHttpRequestBody = {
   method?: unknown;
   headers?: unknown;
   body?: unknown;
+  bodyBase64?: unknown;
   json?: unknown;
   bearerSecretName?: unknown;
   bearerSecretRef?: unknown;
@@ -167,47 +172,68 @@ async function isPrivateHost(hostname: string): Promise<boolean> {
   }
 }
 
+type HttpResponseReadResult = {
+  buffer: Buffer;
+  bytesRead: number;
+  truncated: boolean;
+};
+
 async function readHttpResponseBuffer(
   response: Response,
   maxResponseBytes: number,
-): Promise<Buffer> {
+): Promise<HttpResponseReadResult> {
   if (!response.body) {
     if (typeof response.arrayBuffer === 'function') {
       const buffered = Buffer.from(await response.arrayBuffer());
-      if (buffered.length > maxResponseBytes) {
-        throw new GatewayRequestError(
-          413,
-          `Outbound response exceeded limit (${buffered.length} bytes > ${maxResponseBytes}).`,
-        );
+      if (buffered.length <= maxResponseBytes) {
+        return {
+          buffer: buffered,
+          bytesRead: buffered.length,
+          truncated: false,
+        };
       }
-      return buffered;
+      return {
+        buffer: buffered.subarray(0, maxResponseBytes),
+        bytesRead: buffered.length,
+        truncated: true,
+      };
     }
-    return Buffer.alloc(0);
+    return { buffer: Buffer.alloc(0), bytesRead: 0, truncated: false };
   }
   const reader = response.body.getReader();
   const chunks: Buffer[] = [];
-  let totalBytes = 0;
+  let bytesRead = 0;
+  let bufferedBytes = 0;
+  let truncated = false;
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value || value.byteLength === 0) continue;
-      totalBytes += value.byteLength;
-      if (totalBytes > maxResponseBytes) {
+      bytesRead += value.byteLength;
+      const remainingBytes = maxResponseBytes - bufferedBytes;
+      if (value.byteLength > remainingBytes) {
+        if (remainingBytes > 0) {
+          chunks.push(Buffer.from(value.subarray(0, remainingBytes)));
+          bufferedBytes += remainingBytes;
+        }
+        truncated = true;
         await reader.cancel();
-        throw new GatewayRequestError(
-          413,
-          `Outbound response exceeded limit (${totalBytes} bytes > ${maxResponseBytes}).`,
-        );
+        break;
       }
       chunks.push(Buffer.from(value));
+      bufferedBytes += value.byteLength;
     }
   } finally {
     reader.releaseLock();
   }
 
-  return Buffer.concat(chunks);
+  return {
+    buffer: Buffer.concat(chunks),
+    bytesRead,
+    truncated,
+  };
 }
 
 async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
@@ -353,52 +379,106 @@ function isGoogleApisHost(host?: string): boolean {
   );
 }
 
+function isHubSpotApiHost(host?: string): boolean {
+  const normalized = normalizeSecretString(host).toLowerCase();
+  return (
+    normalized === 'api.hubapi.com' ||
+    normalized.endsWith('.api.hubapi.com') ||
+    normalized === 'api.hubspot.com' ||
+    normalized.endsWith('.api.hubspot.com')
+  );
+}
+
 function isGoogleOAuthHttpAuthRuleSecret(
   value: unknown,
 ): value is RuntimeHttpRequestGoogleOAuthSecretRef {
   return isGoogleOAuthSecretRef(value);
 }
 
-async function resolveGoogleOAuthTokenOrThrow(
-  secretName: string,
-  context: SecretResolveContext,
-): Promise<string> {
-  if (!isGoogleApisHost(context.host)) {
+async function resolveOAuthTokenOrThrow(params: {
+  secretName: string;
+  context: SecretResolveContext;
+  isAllowedHost: (host?: string) => boolean;
+  allowedHostDescription: string;
+  resolveToken: () => Promise<{
+    accessToken: string;
+    source: 'store' | 'google-oauth' | 'hubspot-oauth';
+  } | null>;
+  loginHint: string;
+}): Promise<string> {
+  if (!params.isAllowedHost(params.context.host)) {
     throw new GatewayRequestError(
       403,
-      `${secretName} can only be injected into googleapis.com requests.`,
+      `${params.secretName} can only be injected into ${params.allowedHostDescription} requests.`,
     );
   }
 
-  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
-  const token = normalizeSecretString(runtimeEnv[secretName]);
+  const resolved = await params.resolveToken();
+  if (!resolved?.accessToken) {
+    throw new GatewayRequestError(400, params.loginHint);
+  }
+  const token = normalizeSecretString(resolved.accessToken);
   if (!token) {
-    throw new GatewayRequestError(
-      400,
-      `${secretName} is not available. Run \`hybridclaw auth login google\` and start a fresh agent runtime.`,
-    );
+    throw new GatewayRequestError(400, params.loginHint);
   }
 
   const auditContext = {
-    sessionId: context.sessionId,
-    skillName: context.skillName,
-    secretSource: 'google-oauth' as const,
-    secretId: secretName,
+    sessionId: params.context.sessionId,
+    skillName: params.context.skillName,
+    secretSource: resolved.source,
+    secretId: params.secretName,
     sinkKind: 'http' as const,
-    host: context.host,
-    selector: context.selector,
+    host: params.context.host,
+    selector: params.context.selector,
   };
   recordSecretResolved(auditContext);
   recordSecretUnsafeEscaped({
     ...auditContext,
-    reason: `inject ${secretName} into http sink`,
+    reason: `inject ${params.secretName} into http sink`,
   });
   rememberResolvedSecretForLeakScan({
-    sessionId: normalizeSecretSessionId(context.sessionId),
-    secretId: secretName,
+    sessionId: normalizeSecretSessionId(params.context.sessionId),
+    secretId: params.secretName,
     value: token,
   });
   return token;
+}
+
+async function resolveGoogleOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isGoogleApisHost,
+    allowedHostDescription: 'googleapis.com',
+    resolveToken: async () => {
+      const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
+      const accessToken = normalizeSecretString(runtimeEnv[secretName]);
+      return accessToken
+        ? {
+            accessToken,
+            source: 'google-oauth',
+          }
+        : null;
+    },
+    loginHint: `${secretName} is not available. Run \`hybridclaw auth login google\` and start a fresh agent runtime.`,
+  });
+}
+
+async function resolveHubSpotOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isHubSpotApiHost,
+    allowedHostDescription: 'HubSpot API',
+    resolveToken: resolveHubSpotAccessToken,
+    loginHint: `${secretName} is not available. Store a HubSpot Service Key with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
+  });
 }
 
 async function resolveHttpSecretOrThrow(
@@ -410,6 +490,9 @@ async function resolveHttpSecretOrThrow(
   }
   if (isGoogleWorkspaceRuntimeTokenName(secretName)) {
     return await resolveGoogleOAuthTokenOrThrow(secretName, context);
+  }
+  if (secretName === HUBSPOT_ACCESS_TOKEN_SECRET) {
+    return await resolveHubSpotOAuthTokenOrThrow(secretName, context);
   }
   return resolveStoredSecretForInjection({
     secretName,
@@ -1087,7 +1170,19 @@ export async function handleApiHttpRequest(
     }
   }
 
-  let payloadBody: string | undefined;
+  const payloadSources = [
+    body.json !== undefined,
+    body.body !== undefined,
+    body.bodyBase64 !== undefined,
+  ].filter(Boolean).length;
+  if (payloadSources > 1) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `json`, `body`, or `bodyBase64`.',
+    );
+  }
+
+  let payloadBody: BodyInit | undefined;
   if (body.json !== undefined) {
     const jsonValue = replacePlaceholders
       ? await replaceSecretPlaceholders(body.json, {
@@ -1112,6 +1207,22 @@ export async function handleApiHttpRequest(
     throw new GatewayRequestError(
       400,
       '`body` must be a string when provided. Use `json` for structured payloads.',
+    );
+  } else if (typeof body.bodyBase64 === 'string') {
+    let payloadBuffer: Buffer;
+    try {
+      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
+    } catch {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    payloadBody = new Uint8Array(payloadBuffer);
+  } else if (body.bodyBase64 !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`bodyBase64` must be a base64 string when provided.',
     );
   }
 
@@ -1150,24 +1261,31 @@ export async function handleApiHttpRequest(
     String(response.headers.get('content-length') || ''),
     10,
   );
-  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
-    throw new GatewayRequestError(
-      413,
-      `Outbound response exceeded limit (${contentLength} bytes > ${maxResponseBytes}).`,
-    );
-  }
+  const responseBody =
+    Number.isFinite(contentLength) && contentLength > maxResponseBytes
+      ? {
+          buffer: Buffer.alloc(0),
+          bytesRead: contentLength,
+          truncated: true,
+        }
+      : await readHttpResponseBuffer(response, maxResponseBytes);
+  const declaredBodyBytes = Number.isFinite(contentLength)
+    ? contentLength
+    : undefined;
+  const bodyBytes =
+    responseBody.truncated && declaredBodyBytes !== undefined
+      ? declaredBodyBytes
+      : responseBody.bytesRead;
+  const bodyTruncated = responseBody.truncated;
 
-  const responseBuffer = await readHttpResponseBuffer(
-    response,
-    maxResponseBytes,
-  );
-
-  const responseText = responseBuffer.toString('utf-8');
+  const responseText = responseBody.buffer.toString('utf-8');
   let responseJson: unknown;
-  try {
-    responseJson = JSON.parse(responseText) as unknown;
-  } catch {
-    responseJson = undefined;
+  if (!bodyTruncated) {
+    try {
+      responseJson = JSON.parse(responseText) as unknown;
+    } catch {
+      responseJson = undefined;
+    }
   }
 
   // Capture selected response fields into the secret store and return only a
@@ -1193,6 +1311,13 @@ export async function handleApiHttpRequest(
     url: response.url,
     headers: Object.fromEntries(response.headers.entries()),
     body: responseText,
+    ...(bodyTruncated
+      ? {
+          bodyTruncated: true,
+          bodyBytes,
+          maxResponseBytes,
+        }
+      : {}),
     ...(responseJson === undefined ? {} : { json: responseJson }),
   });
 }

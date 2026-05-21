@@ -198,6 +198,23 @@ test('keeps wide glyph markdown table rows inside the terminal width', () => {
   expect(lines.every((line) => visibleTuiLength(line) <= 36)).toBe(true);
 });
 
+test('counts emoji checkmarks correctly in markdown table padding', () => {
+  const text = [
+    '|              | Before                      | After                       |',
+    '|--------------|-----------------------------|-----------------------------|',
+    '| Status       | off -> migrating -> running ✅ |                             |',
+    '| IP           | 116.203.47.17               | 116.203.47.17 ✅ (preserved) |',
+    '| IPv6         | 2a01:4f8:c0c:9b6a::/64      | 2a01:4f8:c0c:9b6a::/64 ✅    |',
+  ].join('\n');
+
+  const rendered = formatTuiMarkdownOutput(text, 76);
+  const lines = rendered.split('\n');
+
+  expect(visibleTuiLength('✅')).toBe(2);
+  expect(stripAnsi(rendered)).toContain('running ✅');
+  expect(lines.every((line) => visibleTuiLength(line) <= 76)).toBe(true);
+});
+
 test('delegate text suppression only remains active while delegate tools are in flight', () => {
   let activeCount = 0;
 

@@ -139,7 +139,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 34;
+export const DATABASE_SCHEMA_VERSION = 35;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -1011,6 +1011,8 @@ function migrateV4(database: Database.Database): void {
       total_tokens INTEGER NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0.0,
       tool_calls INTEGER NOT NULL DEFAULT 0,
+      billable_unit TEXT,
+      billable_quantity REAL NOT NULL DEFAULT 0.0,
       batch_id TEXT,
       batch_hash TEXT
     );
@@ -2478,6 +2480,34 @@ function migrateV34(database: Database.Database): void {
   recordMigration(database, 34, 'Persist scheduler jobs in SQLite');
 }
 
+function migrateV35(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'billable_unit',
+    ddl: 'billable_unit TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'billable_quantity',
+    ddl: 'billable_quantity REAL NOT NULL DEFAULT 0.0',
+    quiet,
+  });
+  if (tableExists(database, 'usage_events')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_usage_events_billable_unit_time
+        ON usage_events(billable_unit, timestamp);
+    `);
+  }
+  recordMigration(database, 35, 'Persist non-token billable usage units');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2558,6 +2588,7 @@ function runMigrations(
     migrateV33(database);
   }
   if (currentVersion < 34) migrateV34(database);
+  if (currentVersion < 35) migrateV35(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -3588,6 +3619,8 @@ export interface RecordUsageEventEntry {
   toolCalls?: number;
   costUsd?: number;
   timestamp?: string;
+  billableUnit?: string;
+  billableQuantity?: number;
 }
 
 export interface RecordUsageEventBatchEntry extends RecordUsageEventEntry {
@@ -3759,9 +3792,19 @@ type NormalizedUsageEventRow = {
   totalTokens: number;
   costUsd: number;
   toolCalls: number;
+  billableUnit: string | null;
+  billableQuantity: number;
   batchId: string | null;
   batchHash: string | null;
 };
+
+function normalizeBillableUnit(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (!/^[a-z][a-z0-9._-]{0,62}$/u.test(normalized)) return null;
+  return normalized;
+}
 
 function normalizeUsageEntry(
   entry: RecordUsageEventBatchEntry,
@@ -3791,6 +3834,8 @@ function normalizeUsageEntry(
     totalTokens,
     costUsd: normalizeUsageCost(entry.costUsd),
     toolCalls: normalizeUsageNumber(entry.toolCalls),
+    billableUnit: normalizeBillableUnit(entry.billableUnit),
+    billableQuantity: normalizeUsageCost(entry.billableQuantity),
     batchId:
       typeof entry.batchId === 'string' && entry.batchId.trim()
         ? entry.batchId.trim()
@@ -3893,8 +3938,8 @@ function getUsageEventBatchInsertStatement(): Database.Statement {
   if (!usageEventBatchInsertStatement) {
     usageEventBatchInsertStatement = db.prepare(
       `INSERT INTO usage_events
-        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, batch_id, batch_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity, batch_id, batch_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
   }
   return usageEventBatchInsertStatement;
@@ -3906,8 +3951,8 @@ export function recordUsageEvent(params: RecordUsageEventEntry): void {
 
   db.prepare(
     `INSERT INTO usage_events
-      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.id,
     row.sessionId,
@@ -3919,6 +3964,8 @@ export function recordUsageEvent(params: RecordUsageEventEntry): void {
     row.totalTokens,
     row.costUsd,
     row.toolCalls,
+    row.billableUnit,
+    row.billableQuantity,
   );
   notifyUsageRecords([row.agentId]);
 }
@@ -3971,6 +4018,8 @@ export function recordUsageEventBatch(
         row.totalTokens,
         row.costUsd,
         row.toolCalls,
+        row.billableUnit,
+        row.billableQuantity,
         row.batchId,
         row.batchHash,
       );
@@ -4111,6 +4160,10 @@ export function getUsageTotals(params?: {
 
   const callCount = normalizeUsageNumber(row.call_count);
   const totalCostUsd = normalizeUsageCost(row.total_cost_usd);
+  const billableUnits = getUsageBillableUnitTotals({
+    agentId: params?.agentId,
+    window: params?.window,
+  });
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
@@ -4119,7 +4172,45 @@ export function getUsageTotals(params?: {
     cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
     call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
+    ...(billableUnits.length > 0 ? { billable_units: billableUnits } : {}),
   };
+}
+
+export function getUsageBillableUnitTotals(params?: {
+  agentId?: string;
+  window?: UsageWindow;
+}): Array<{ unit: string; quantity: number; cost_usd: number }> {
+  const whereClauses = [
+    'billable_unit IS NOT NULL',
+    "billable_unit <> ''",
+    'billable_quantity > 0',
+  ];
+  const args: unknown[] = [];
+  applyUsageFilters({
+    whereClauses,
+    args,
+    agentId: params?.agentId,
+    window: params?.window,
+  });
+  return queryAll<
+    { unit: string; quantity: number | null; cost_usd: number | null },
+    unknown[]
+  >(
+    db,
+    `SELECT
+       billable_unit AS unit,
+       COALESCE(SUM(billable_quantity), 0.0) AS quantity,
+       COALESCE(SUM(cost_usd), 0.0) AS cost_usd
+     FROM usage_events
+     WHERE ${whereClauses.join(' AND ')}
+     GROUP BY billable_unit
+     ORDER BY billable_unit ASC`,
+    ...args,
+  ).map((row) => ({
+    unit: row.unit,
+    quantity: normalizeUsageCost(row.quantity),
+    cost_usd: normalizeUsageCost(row.cost_usd),
+  }));
 }
 
 export function monthlySpendUsd(agentId: string): number {
@@ -9389,17 +9480,32 @@ export function setObservabilityOffset(
   `).run(normalized, boundedLastEventId);
 }
 
-export function getObservabilityIngestToken(tokenKey: string): string | null {
+export interface ObservabilityIngestTokenRecord {
+  token: string;
+  updatedAt: string;
+}
+
+export function getObservabilityIngestTokenRecord(
+  tokenKey: string,
+): ObservabilityIngestTokenRecord | null {
   const normalized = tokenKey.trim();
   if (!normalized) return null;
-  const row = queryOne<{ token: string }, [string]>(
+  const row = queryOne<{ token: string; updated_at: string }, [string]>(
     db,
-    'SELECT token FROM observability_ingest_tokens WHERE token_key = ?',
+    'SELECT token, updated_at FROM observability_ingest_tokens WHERE token_key = ?',
     normalized,
   );
   if (!row || typeof row.token !== 'string') return null;
   const token = row.token.trim();
-  return token || null;
+  if (!token) return null;
+  return {
+    token,
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : '',
+  };
+}
+
+export function getObservabilityIngestToken(tokenKey: string): string | null {
+  return getObservabilityIngestTokenRecord(tokenKey)?.token ?? null;
 }
 
 export function setObservabilityIngestToken(

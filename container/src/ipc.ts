@@ -8,6 +8,10 @@ const INPUT_PATH = path.join(IPC_DIR, 'input.json');
 const OUTPUT_PATH = path.join(IPC_DIR, 'output.json');
 const HEALTH_INPUT_PATH = path.join(IPC_DIR, 'health-input.json');
 const HEALTH_OUTPUT_PATH = path.join(IPC_DIR, 'health-output.json');
+const MIN_INPUT_POLL_INTERVAL_MS = 5;
+const MAX_INPUT_POLL_INTERVAL_MS = 200;
+// Keep the backoff formula aligned with src/infra/ipc.ts; max differs by side.
+const INPUT_POLL_BACKOFF_FACTOR = 1.5;
 
 function readInputFile(inputPath: string): ContainerInput | null {
   try {
@@ -28,8 +32,8 @@ function readInputFile(inputPath: string): ContainerInput | null {
 export async function waitForInput(
   idleTimeoutMs: number,
 ): Promise<ContainerInput | null> {
-  const pollInterval = 200;
   const deadline = Date.now() + idleTimeoutMs;
+  let pollInterval = MIN_INPUT_POLL_INTERVAL_MS;
 
   while (Date.now() < deadline) {
     if (fs.existsSync(HEALTH_INPUT_PATH)) {
@@ -40,7 +44,15 @@ export async function waitForInput(
       const input = readInputFile(INPUT_PATH);
       if (input) return input;
     }
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(pollInterval, remainingMs)),
+    );
+    pollInterval = Math.min(
+      Math.ceil(pollInterval * INPUT_POLL_BACKOFF_FACTOR),
+      MAX_INPUT_POLL_INTERVAL_MS,
+    );
   }
 
   return null; // Idle timeout

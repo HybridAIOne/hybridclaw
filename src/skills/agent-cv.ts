@@ -32,7 +32,7 @@ const AGENT_CV_STATE_SCHEMA_VERSION = 1;
 const CV_STATE_FILE = '.CV.state.json';
 const MAX_NARRATION_SOURCE_CHARS = 1_200;
 const DEFAULT_CV_NARRATION_MAX_TOKENS = 1_200;
-const DEFAULT_CV_NARRATION_TIMEOUT_MS = 20_000;
+const DEFAULT_CV_NARRATION_TIMEOUT_MS = 45_000;
 const APPROX_CHARS_PER_TOKEN = 4;
 
 interface AgentCvEntry {
@@ -818,17 +818,27 @@ async function refreshAgentCvFromEvents(input: {
   const now = new Date();
   const budgetDay = cvNarrationBudgetDay(now);
   const spentToday = state.narration_cost_usd_by_day[budgetDay] || 0;
-  const narrationResult =
-    events.length > 0
-      ? await narrateSkillRuns({
-          events,
-          remainingBudgetUsd: Math.max(
-            0,
-            getRuntimeConfig().adaptiveSkills.cv.narrationDailyBudgetUsd -
-              spentToday,
-          ),
-        })
-      : { narrations: [], costUsd: 0 };
+  let narrationResult: { narrations: CvNarration[]; costUsd: number };
+  if (events.length > 0) {
+    try {
+      narrationResult = await narrateSkillRuns({
+        events,
+        remainingBudgetUsd: Math.max(
+          0,
+          getRuntimeConfig().adaptiveSkills.cv.narrationDailyBudgetUsd -
+            spentToday,
+        ),
+      });
+    } catch (error) {
+      logger.warn(
+        { eventCount: events.length, error },
+        'Failed to narrate agent CV entries',
+      );
+      return;
+    }
+  } else {
+    narrationResult = { narrations: [], costUsd: 0 };
+  }
   const nextState: AgentCvState = {
     ...state,
     updated_at: now.toISOString(),

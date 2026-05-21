@@ -2373,7 +2373,7 @@ async function fixDiagramSourceWithAuxiliary(
     const fixed = await callTextAuxiliaryTask({
       runtimeContext,
       task: 'skills_hub',
-      toolName: 'diagram.fixup',
+      toolName: 'diagram_fixup',
       maxTokens: 1600,
       messages: [
         {
@@ -4336,6 +4336,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description:
               'Optional raw text request body. Use `json` instead for JSON payloads.',
+          },
+          bodyBase64: {
+            type: 'string',
+            description:
+              'Optional base64-encoded binary request body. Use this for multipart file uploads or other non-text payloads.',
           },
           json: {
             type: 'object',

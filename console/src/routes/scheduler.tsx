@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
   deleteSchedulerJob,
   fetchChannels,
@@ -27,6 +28,7 @@ import { useToast } from '../components/toast';
 import { BooleanField, BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
+import { logNavigationError } from '../lib/navigation';
 import { buildChannelCatalog } from './channels-catalog';
 
 interface SchedulerDraft {
@@ -1032,13 +1034,21 @@ function SchedulerJobEditor(props: {
 
 export function SchedulerPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
+  const schedulerSearch = useSearch({ strict: false }) as { jobId?: string };
   const toast = useToast();
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(() => {
-    const requestedId =
-      new URLSearchParams(window.location.search).get('jobId') || '';
-    return requestedId.trim() || null;
-  });
+  const selectedId = schedulerSearch.jobId?.trim() || null;
+  const setSelectedId = useCallback(
+    (jobId: string | null) => {
+      void navigate({
+        to: '/admin/scheduler',
+        replace: true,
+        search: { jobId: jobId || undefined },
+      }).catch(logNavigationError);
+    },
+    [navigate],
+  );
   const [draft, setDraft] = useState<SchedulerDraft>(createDraft());
 
   const schedulerQuery = useQuery({
@@ -1071,10 +1081,9 @@ export function SchedulerPage() {
   const saveMutation = useMutation({
     mutationFn: (nextDraft: SchedulerDraft) =>
       saveSchedulerJob(auth.token, normalizeDraft(nextDraft)),
-    onSuccess: (payload, nextDraft) => {
+    onSuccess: (payload) => {
       replaceJobs(payload, auth.token, queryClient);
-      setSelectedId(nextDraft.id.trim());
-      window.location.href = '/admin/jobs';
+      void navigate({ to: '/admin/jobs' }).catch(logNavigationError);
     },
     onError: (error) => {
       toast.error('Save failed', getErrorMessage(error));
@@ -1150,21 +1159,7 @@ export function SchedulerPage() {
     if (!selectedId || schedulerQuery.isLoading) return;
     if (selectedJob) return;
     setSelectedId(null);
-  }, [schedulerQuery.isLoading, selectedId, selectedJob]);
-
-  useEffect(() => {
-    const currentUrl = new URL(window.location.href);
-    const currentJobId = currentUrl.searchParams.get('jobId')?.trim() || null;
-    if (selectedId) {
-      if (currentJobId === selectedId) return;
-      currentUrl.searchParams.set('jobId', selectedId);
-    } else if (!currentJobId) {
-      return;
-    } else {
-      currentUrl.searchParams.delete('jobId');
-    }
-    window.history.replaceState({}, '', currentUrl.toString());
-  }, [selectedId]);
+  }, [schedulerQuery.isLoading, selectedId, selectedJob, setSelectedId]);
 
   return (
     <div className="page-stack">
@@ -1263,7 +1258,7 @@ export function SchedulerPage() {
               }
               setSelectedId(null);
               setDraft(createDraft());
-              window.location.href = '/admin/jobs';
+              void navigate({ to: '/admin/jobs' }).catch(logNavigationError);
             }}
             onPauseToggle={() =>
               pauseMutation.mutate(
