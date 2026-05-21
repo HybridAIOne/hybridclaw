@@ -99,16 +99,7 @@ saved revision history directly.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
-- `browser.provider` selects the browser automation backend. Supported values
-  include `local`, `camofox`, `managed-cloud`, and `browser-use-cloud`.
-  `browser.local.*` and `browser.camofox.*` configure persistent profile roots
-  and headed mode; `browser.managedCloud.*` points at an operator-run
-  HybridClaw browser pool with navigation-guard enforcement and optional
-  `poolTokenRef` bearer authentication; and
-  `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and
-  reads `BROWSER_USE_API_KEY` through the configured SecretRef. Camofox stealth
-  mode is deny-by-default per host; allow it from the workspace policy with
-  `browser.stealth.rules`.
+- `browser.provider` selects the browser automation backend. Supported values include `local`, `camofox`, `managed-cloud`, `browser-use-cloud`, and `mac-cua`. `browser.local.*` and `browser.camofox.*` configure persistent profile roots and headed mode; `browser.managedCloud.*` points at an operator-run HybridClaw browser pool with navigation-guard enforcement and optional `poolTokenRef` bearer authentication; `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef; and `browser.macCua.*` selects the operator-owned macOS browser, driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`). Camofox stealth mode is deny-by-default per host; allow it from the workspace policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS Accessibility and Screen Recording grants.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
@@ -123,6 +114,11 @@ saved revision history directly.
 - `hybridai.maxTokens` for the default completion output budget; the shipped
   default is `4096`; you can change it live with
   `hybridclaw config set hybridai.maxTokens <n>`
+- `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
+  Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
+  standard HybridClaw tool loop or `app-server` for the native Codex app-server
+  turn loop on `openai-codex/*` models. `codex.runtime` is accepted as a
+  compatibility alias; new config should use `codex.turnRuntime`.
 - `HYBRIDAI_FALLBACK_CHAIN` accepts a JSON array of fallback entries with
   `model`, optional `baseUrl`, `keyEnv`, `chatbotId`, and `agentId`. Gateway
   model calls use the chain for auth and rate-limit failures, then cool down
@@ -263,6 +259,83 @@ For the dual-backend iMessage workflow, see
 [Setting Up iMessage](../channels/imessage.md).
 For SSH tunnels, host-managed Tailscale, and the macOS LaunchAgent tunnel
 pattern, see [Remote Access](../guides/remote-access.md).
+
+## mac-cua Driver Setup
+
+The `mac-cua` browser provider drives the operator-owned macOS browser through
+the upstream Cua Driver binary. It only supports macOS and requires
+Accessibility plus Screen Recording grants for the terminal or app process that
+runs HybridClaw. HybridClaw connects to the driver over the driver's MCP stdio
+mode and defaults to `cua-driver mcp --no-daemon-relaunch` so macOS attributes
+Accessibility and Screen Recording permissions to the HybridClaw host process
+instead of opening the `CuaDriver` permissions app on each use.
+
+Install Cua Driver:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)"
+```
+
+Verify the binary is available:
+
+```bash
+which cua-driver
+cua-driver --version
+```
+
+If the installed driver is stale, refresh it with the upstream updater or rerun
+the installer:
+
+```bash
+cua-driver update
+```
+
+If `cua-driver` is installed outside `PATH`, point HybridClaw at the executable:
+
+```bash
+export HYBRIDAI_CUA_DRIVER_BIN="$HOME/.local/bin/cua-driver"
+```
+
+Leave `browser.macCua.driverArgs` empty to use the default
+`["mcp", "--no-daemon-relaunch"]`. Set it only when you need to override the
+driver launch mode explicitly.
+
+Grant macOS permissions to the terminal or app that runs HybridClaw, then check
+the grants from that same environment:
+
+```bash
+cua-driver check_permissions
+```
+
+`check_permissions` should report both grants as present:
+
+```text
+Accessibility: granted.
+Screen Recording: granted.
+```
+
+Then verify HybridClaw readiness:
+
+```bash
+hybridclaw doctor cua-mac
+```
+
+Enable the provider:
+
+```bash
+hybridclaw config set browser.provider mac-cua
+hybridclaw config set browser.macCua.browser chrome
+```
+
+Supported `browser.macCua.browser` values are `safari`, `chrome`, `firefox`,
+`brave`, and `arc`. Supported screenshot modes are `som`, `vision`, and `ax`:
+
+```bash
+hybridclaw config set browser.macCua.screenshotMode som
+```
+
+Restart the gateway after changing browser configuration so the runtime picks
+up the new provider.
 
 ## Shared Inbound Media Staging
 

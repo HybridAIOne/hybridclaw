@@ -182,6 +182,10 @@ export function createActivityTracker(): ActivityTracker {
 }
 
 const ACTIVITY_HARD_TIMEOUT_MULTIPLIER = 4;
+const MIN_OUTPUT_POLL_INTERVAL_MS = 5;
+const MAX_OUTPUT_POLL_INTERVAL_MS = 250;
+// Keep the backoff formula aligned with container/src/ipc.ts; max differs by side.
+const OUTPUT_POLL_BACKOFF_FACTOR = 1.5;
 
 function normalizePositiveTimeoutMs(
   value: number | null | undefined,
@@ -237,7 +241,7 @@ async function readOutputFile(
         : Math.max(idleTimeoutMs, requestedWallClockMs);
   const hardDeadline =
     hardTimeoutMs === null ? Number.POSITIVE_INFINITY : start + hardTimeoutMs;
-  const pollInterval = 250;
+  let pollInterval = MIN_OUTPUT_POLL_INTERVAL_MS;
 
   if (signal?.aborted) return interruptedOutput();
 
@@ -303,6 +307,10 @@ async function readOutputFile(
     );
     const aborted = await sleepWithAbort(sleepMs, signal);
     if (aborted) return interruptedOutput();
+    pollInterval = Math.min(
+      Math.ceil(pollInterval * OUTPUT_POLL_BACKOFF_FACTOR),
+      MAX_OUTPUT_POLL_INTERVAL_MS,
+    );
   }
 
   return {

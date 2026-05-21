@@ -131,7 +131,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 28;
+export const CONFIG_VERSION = 29;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -243,6 +243,7 @@ export const SCHEDULER_BOARD_STATUSES = [
 export type SchedulerBoardStatus = (typeof SCHEDULER_BOARD_STATUSES)[number];
 const SCHEDULER_BOARD_STATUS_SET = new Set<string>(SCHEDULER_BOARD_STATUSES);
 export type ContainerSandboxMode = 'container' | 'host';
+export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
 export type RuntimeWebSearchProvider =
   | 'auto'
   | 'brave'
@@ -258,7 +259,15 @@ export type RuntimeBrowserProviderKind =
   | 'local'
   | 'camofox'
   | 'managed-cloud'
-  | 'browser-use-cloud';
+  | 'browser-use-cloud'
+  | 'mac-cua';
+export type RuntimeBrowserMacCuaBrowser =
+  | 'safari'
+  | 'chrome'
+  | 'firefox'
+  | 'brave'
+  | 'arc';
+export type RuntimeBrowserMacCuaScreenshotMode = 'som' | 'vision' | 'ax';
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SlackDmPolicy = 'open' | 'allowlist' | 'disabled';
@@ -363,6 +372,13 @@ export interface RuntimeBrowserUseCloudConfig {
   };
 }
 
+export interface RuntimeBrowserMacCuaConfig {
+  browser: RuntimeBrowserMacCuaBrowser;
+  driverCommand: string;
+  driverArgs: string[];
+  screenshotMode: RuntimeBrowserMacCuaScreenshotMode;
+}
+
 export interface RuntimeManagedCloudBrowserConfig {
   endpointUrl: string;
   poolTokenRef?: SecretRef;
@@ -379,6 +395,7 @@ export interface RuntimeBrowserConfig {
   camofox: RuntimeBrowserCamofoxConfig;
   managedCloud: RuntimeManagedCloudBrowserConfig;
   browserUseCloud: RuntimeBrowserUseCloudConfig;
+  macCua: RuntimeBrowserMacCuaConfig;
 }
 
 export interface RuntimeAudioProviderModelConfig {
@@ -964,6 +981,8 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
+    runtime: CodexTurnRuntime;
+    turnRuntime: CodexTurnRuntime;
     models: string[];
   };
   anthropic: {
@@ -1043,6 +1062,7 @@ export interface RuntimeConfig {
     goal_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
+    btw: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
     cv_narration: RuntimeAuxiliaryModelPolicyConfig;
   };
@@ -1317,6 +1337,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       baseUrl: '',
       browser: {},
       pricing: {},
+    },
+    macCua: {
+      browser: 'chrome',
+      driverCommand: '',
+      driverArgs: [],
+      screenshotMode: 'som',
     },
   },
   agents: {
@@ -1597,6 +1623,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
+    runtime: 'hybridclaw',
+    turnRuntime: 'hybridclaw',
     models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   anthropic: {
@@ -1744,6 +1772,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       provider: 'auto',
       model: '',
       maxTokens: 0,
+    },
+    btw: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 160,
     },
     session_title: {
       provider: 'auto',
@@ -2919,6 +2952,20 @@ function normalizeCodexModelArray(
     return [...DEFAULT_CODEX_MODEL_LIST];
   }
   return normalized;
+}
+
+export function normalizeCodexTurnRuntime(value: unknown): CodexTurnRuntime {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return normalized === 'app-server' ? 'app-server' : 'hybridclaw';
+}
+
+function normalizeCodexTurnRuntimeConfig(rawCodex: Record<string, unknown>) {
+  if (Object.hasOwn(rawCodex, 'turnRuntime')) {
+    return normalizeCodexTurnRuntime(rawCodex.turnRuntime);
+  }
+  return normalizeCodexTurnRuntime(rawCodex.runtime);
 }
 
 function normalizePathForCompare(value: string): string {
@@ -5163,8 +5210,39 @@ function normalizeBrowserProviderKind(
     normalized === 'local' ||
     normalized === 'camofox' ||
     normalized === 'managed-cloud' ||
-    normalized === 'browser-use-cloud'
+    normalized === 'browser-use-cloud' ||
+    normalized === 'mac-cua'
   ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeBrowserMacCuaBrowser(
+  value: unknown,
+  fallback: RuntimeBrowserMacCuaBrowser,
+): RuntimeBrowserMacCuaBrowser {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'safari' ||
+    normalized === 'chrome' ||
+    normalized === 'firefox' ||
+    normalized === 'brave' ||
+    normalized === 'arc'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeBrowserMacCuaScreenshotMode(
+  value: unknown,
+  fallback: RuntimeBrowserMacCuaScreenshotMode,
+): RuntimeBrowserMacCuaScreenshotMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'som' || normalized === 'vision' || normalized === 'ax') {
     return normalized;
   }
   return fallback;
@@ -5705,6 +5783,7 @@ function normalizeBrowserConfig(
   const rawBrowserUseCloud = isRecord(raw.browserUseCloud)
     ? raw.browserUseCloud
     : {};
+  const rawMacCua = isRecord(raw.macCua) ? raw.macCua : {};
   return {
     provider: normalizeBrowserProviderKind(raw.provider, fallback.provider),
     local: {
@@ -5747,6 +5826,24 @@ function normalizeBrowserConfig(
       pricing: normalizeBrowserUseCloudPricing(
         rawBrowserUseCloud.pricing,
         fallback.browserUseCloud.pricing,
+      ),
+    },
+    macCua: {
+      browser: normalizeBrowserMacCuaBrowser(
+        rawMacCua.browser,
+        fallback.macCua.browser,
+      ),
+      driverCommand: normalizeString(
+        rawMacCua.driverCommand,
+        fallback.macCua.driverCommand,
+        { allowEmpty: true },
+      ),
+      driverArgs:
+        normalizeOptionalTrimmedUniqueStringArray(rawMacCua.driverArgs) ??
+        fallback.macCua.driverArgs,
+      screenshotMode: normalizeBrowserMacCuaScreenshotMode(
+        rawMacCua.screenshotMode,
+        fallback.macCua.screenshotMode,
       ),
     },
   };
@@ -6057,6 +6154,9 @@ function normalizeRuntimeConfig(
     rawAuxiliaryModels.flush_memories,
   )
     ? rawAuxiliaryModels.flush_memories
+    : {};
+  const rawBtwAuxiliaryModel = isRecord(rawAuxiliaryModels.btw)
+    ? rawAuxiliaryModels.btw
     : {};
   const rawSessionTitleAuxiliaryModel = isRecord(
     rawAuxiliaryModels.session_title,
@@ -6683,6 +6783,8 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
+      runtime: normalizeCodexTurnRuntimeConfig(rawCodex),
+      turnRuntime: normalizeCodexTurnRuntimeConfig(rawCodex),
       models: codexModelList,
     },
     anthropic: {
@@ -7065,6 +7167,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawFlushMemoriesAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      btw: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawBtwAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.provider,
+        ),
+        model: normalizeString(
+          rawBtwAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawBtwAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },
@@ -7608,6 +7726,7 @@ function buildSerializableConfig(
     : null;
   if (serializableCodex) {
     delete (serializableCodex as { models?: string[] }).models;
+    delete (serializableCodex as { runtime?: string }).runtime;
   }
   const serializableContainer = isRecord(serializable.container)
     ? serializable.container

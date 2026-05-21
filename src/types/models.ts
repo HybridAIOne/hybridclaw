@@ -40,6 +40,7 @@ export const TASK_MODEL_KEYS = [
   'goal_judge',
   'mcp',
   'flush_memories',
+  'btw',
   'session_title',
 ] as const;
 

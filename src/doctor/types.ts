@@ -7,6 +7,7 @@ export const DOCTOR_CATEGORIES = [
   'providers',
   'local-backends',
   'browser-use',
+  'cua-mac',
   'docker',
   'channels',
   'skills',
