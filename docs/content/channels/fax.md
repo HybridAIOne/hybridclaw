@@ -78,15 +78,15 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --operator-grant
 ```
 
-For short text-only test faxes, use direct multipart upload instead of hosting a
-PDF:
+For short text-only test faxes, let the helper render a PDF and upload it
+directly instead of hosting a PDF:
 
 ```bash
 node skills/fax-send/fax_send.cjs --format json http-request send \
   --provider sinch \
   --auth basic \
   --text "Hallo Welt" \
-  --filename hallo-welt.txt \
+  --filename hallo-welt.pdf \
   --to +498920931098 \
   --from +493012345678 \
   --page-count 1 \

@@ -12,6 +12,11 @@ const SINCH_PROJECT_ID_SECRET = 'SINCH_FAX_PROJECT_ID';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 1_000_000;
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
+const PDF_PAGE_WIDTH = 595.28;
+const PDF_PAGE_HEIGHT = 841.89;
+const PDF_MARGIN = 56;
+const PDF_FONT_SIZE = 18;
+const PDF_LINE_HEIGHT = 24;
 
 const COST_MEASUREMENT = {
   system: 'UsageTotals',
@@ -32,7 +37,7 @@ const LIVE_EXECUTION = {
   secretRefPolicy:
     'Do not inspect, print, or ask for fax provider secrets. The helper emits secret-backed Authorization metadata for gateway injection.',
   requestShape:
-    'Do not handcraft provider fax API calls. The helper owns URL, method, JSON or multipart body, provider metadata, audit intent, and secret references. For text sends, do not generate PDFs, inspect PDF tooling, search the web, or retry with a different payload shape unless the operator explicitly asks for debugging in a new turn.',
+    'Do not handcraft provider fax API calls. The helper owns URL, method, JSON or multipart body, provider metadata, audit intent, and secret references. For text sends, use the helper-generated PDF multipart upload; do not inspect PDF tooling, search the web, or retry with a different payload shape unless the operator explicitly asks for debugging in a new turn.',
   unauthorizedPolicy:
     'If a live provider call returns 401 or 403, stop after the first failure and ask the operator to verify the stored credential.',
   terminalProviderResponsePolicy:
@@ -98,8 +103,8 @@ Global options:
 Send options:
   --content-url <url>        Public HTTP(S) URL of a supported file or web page to fax.
   --pdf-url <url>            Alias for --content-url.
-  --text <text>              Plain text to send as a direct .txt file upload.
-  --filename <name>          File name for --text uploads. Default: message.txt.
+  --text <text>              Plain text to render into a generated PDF upload.
+  --filename <name>          PDF file name for --text uploads. Default: message.pdf.
   --to <number>              Recipient fax number in E.164 format.
   --from <number>            Sender fax number in E.164 format.
   --project-id <id>          Sinch project id. Defaults to SINCH_FAX_PROJECT_ID.
@@ -291,7 +296,9 @@ function parseMoney(value, label) {
 }
 
 function normalizeProvider(value) {
-  const normalized = String(value || 'sinch').trim().toLowerCase();
+  const normalized = String(value || 'sinch')
+    .trim()
+    .toLowerCase();
   if (normalized !== 'sinch' && normalized !== 'sinch-eu') {
     die('--provider must be sinch or sinch-eu.');
   }
@@ -299,7 +306,9 @@ function normalizeProvider(value) {
 }
 
 function normalizeAuth(value) {
-  const normalized = String(value || 'basic').trim().toLowerCase();
+  const normalized = String(value || 'basic')
+    .trim()
+    .toLowerCase();
   if (normalized !== 'basic' && normalized !== 'bearer') {
     die('--auth must be basic or bearer.');
   }
@@ -360,12 +369,16 @@ function normalizeTextUpload(value) {
   return text;
 }
 
-function normalizeUploadFilename(value) {
-  const filename = String(value || 'message.txt').trim();
+function normalizePdfUploadFilename(value) {
+  const filename = String(value || 'message.pdf').trim();
   if (!/^[A-Za-z0-9._-]{1,120}$/u.test(filename)) {
-    die('--filename must use only letters, digits, dots, underscores, or hyphens.');
+    die(
+      '--filename must use only letters, digits, dots, underscores, or hyphens.',
+    );
   }
-  return filename;
+  return filename.toLowerCase().endsWith('.pdf')
+    ? filename
+    : `${filename.replace(/\.[^.]*$/u, '')}.pdf`;
 }
 
 function normalizeOptionalUrl(value, label) {
@@ -388,7 +401,9 @@ function parseLabels(values) {
     const separator = String(value).indexOf('=');
     if (separator <= 0) die('--label must use key=value format.');
     const key = String(value).slice(0, separator).trim();
-    const labelValue = String(value).slice(separator + 1).trim();
+    const labelValue = String(value)
+      .slice(separator + 1)
+      .trim();
     if (!/^[a-z][a-z0-9._-]{0,62}$/iu.test(key)) {
       die(`Invalid label key: ${key}`);
     }
@@ -397,49 +412,223 @@ function parseLabels(values) {
   return labels;
 }
 
-function appendMultipartField(parts, boundary, name, value) {
+function appendMultipartFieldBuffer(buffers, boundary, name, value) {
   if (value === undefined || value === null) return;
-  parts.push(
-    `--${boundary}`,
-    `Content-Disposition: form-data; name="${name}"`,
-    '',
-    String(value),
+  buffers.push(
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${String(value)}\r\n`,
+      'utf8',
+    ),
   );
 }
 
-function buildTextMultipartBody(params) {
-  const boundary = '----hybridclaw-fax-text-boundary';
+function escapePdfText(value) {
+  return [...String(value)]
+    .map((character) => {
+      const codePoint = character.codePointAt(0) || 0;
+      return codePoint >= 32 && codePoint <= 126 ? character : '?';
+    })
+    .join('')
+    .replace(/\\/gu, '\\\\')
+    .replace(/\(/gu, '\\(')
+    .replace(/\)/gu, '\\)');
+}
+
+function wrapPdfTextLine(line, maxCharacters) {
+  if (!line.trim()) return [''];
+  const words = line.trim().split(/\s+/u);
+  const wrapped = [];
+  let current = '';
+
+  for (const word of words) {
+    if (word.length > maxCharacters) {
+      if (current) {
+        wrapped.push(current);
+        current = '';
+      }
+      for (let index = 0; index < word.length; index += maxCharacters) {
+        wrapped.push(word.slice(index, index + maxCharacters));
+      }
+      continue;
+    }
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxCharacters) {
+      current = candidate;
+      continue;
+    }
+    if (current) wrapped.push(current);
+    current = word;
+  }
+
+  if (current) wrapped.push(current);
+  return wrapped;
+}
+
+function buildPdfTextPages(text) {
+  const normalized = normalizeTextUpload(text)
+    .replace(/\\n/gu, '\n')
+    .replace(/\r\n/gu, '\n')
+    .replace(/\r/gu, '\n');
+  const maxCharacters = Math.max(
+    20,
+    Math.floor((PDF_PAGE_WIDTH - PDF_MARGIN * 2) / (PDF_FONT_SIZE * 0.55)),
+  );
+  const maxLines = Math.max(
+    1,
+    Math.floor((PDF_PAGE_HEIGHT - PDF_MARGIN * 2) / PDF_LINE_HEIGHT),
+  );
+  const lines = normalized
+    .split('\n')
+    .flatMap((line) => wrapPdfTextLine(line, maxCharacters));
+  const pages = [];
+  for (let index = 0; index < lines.length; index += maxLines) {
+    pages.push(lines.slice(index, index + maxLines));
+  }
+  return pages.length > 0 ? pages : [['']];
+}
+
+function pdfObject(id, body) {
+  return `${id} 0 obj\n${body}\nendobj\n`;
+}
+
+function buildTextPdfBuffer(text) {
+  const pages = buildPdfTextPages(text);
+  const pageObjectStart = 4;
+  const contentObjectStart = pageObjectStart + pages.length;
+  const pageRefs = pages
+    .map((_, index) => `${pageObjectStart + index} 0 R`)
+    .join(' ');
+  const objects = [
+    pdfObject(1, '<< /Type /Catalog /Pages 2 0 R >>'),
+    pdfObject(
+      2,
+      `<< /Type /Pages /Kids [ ${pageRefs} ] /Count ${pages.length} >>`,
+    ),
+    pdfObject(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),
+  ];
+
+  pages.forEach((_, index) => {
+    const contentRef = contentObjectStart + index;
+    objects.push(
+      pdfObject(
+        pageObjectStart + index,
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PDF_PAGE_WIDTH} ${PDF_PAGE_HEIGHT}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentRef} 0 R >>`,
+      ),
+    );
+  });
+
+  pages.forEach((lines, index) => {
+    const textCommands = lines
+      .map((line, lineIndex) =>
+        lineIndex === 0
+          ? `(${escapePdfText(line)}) Tj`
+          : `T* (${escapePdfText(line)}) Tj`,
+      )
+      .join('\n');
+    const stream = [
+      'BT',
+      `/F1 ${PDF_FONT_SIZE} Tf`,
+      `${PDF_LINE_HEIGHT} TL`,
+      `1 0 0 1 ${PDF_MARGIN} ${PDF_PAGE_HEIGHT - PDF_MARGIN - PDF_FONT_SIZE} Tm`,
+      textCommands,
+      'ET',
+    ].join('\n');
+    objects.push(
+      pdfObject(
+        contentObjectStart + index,
+        `<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream`,
+      ),
+    );
+  });
+
+  let body = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(body, 'utf8'));
+    body += object;
+  }
+  const xrefOffset = Buffer.byteLength(body, 'utf8');
+  body += `xref\n0 ${objects.length + 1}\n`;
+  body += '0000000000 65535 f \n';
+  for (const offset of offsets.slice(1)) {
+    body += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  }
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(body, 'utf8');
+}
+
+function buildTextPdfMultipartBody(params) {
+  const boundary = '----hybridclaw-fax-pdf-boundary';
   const text = normalizeTextUpload(params.text);
   if (text.includes(boundary)) {
     die('--text must not include the generated multipart boundary.');
   }
-  const parts = [];
-  appendMultipartField(parts, boundary, 'to', params.to);
-  appendMultipartField(parts, boundary, 'from', params.from);
-  appendMultipartField(parts, boundary, 'headerPageNumbers', params.headerPageNumbers);
-  appendMultipartField(parts, boundary, 'serviceId', params.serviceId);
-  appendMultipartField(parts, boundary, 'headerText', params.headerText);
-  appendMultipartField(parts, boundary, 'headerTimeZone', params.headerTimeZone);
-  appendMultipartField(parts, boundary, 'callbackUrl', params.callbackUrl);
-  appendMultipartField(parts, boundary, 'callbackUrlContentType', params.callbackUrlContentType);
-  appendMultipartField(parts, boundary, 'maxRetries', params.maxRetries);
-  appendMultipartField(parts, boundary, 'retryDelaySeconds', params.retryDelaySeconds);
-  appendMultipartField(parts, boundary, 'resolution', params.resolution);
+  const buffers = [];
+  appendMultipartFieldBuffer(buffers, boundary, 'to', params.to);
+  appendMultipartFieldBuffer(buffers, boundary, 'from', params.from);
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'headerPageNumbers',
+    params.headerPageNumbers,
+  );
+  appendMultipartFieldBuffer(buffers, boundary, 'serviceId', params.serviceId);
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'headerText',
+    params.headerText,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'headerTimeZone',
+    params.headerTimeZone,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'callbackUrl',
+    params.callbackUrl,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'callbackUrlContentType',
+    params.callbackUrlContentType,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'maxRetries',
+    params.maxRetries,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'retryDelaySeconds',
+    params.retryDelaySeconds,
+  );
+  appendMultipartFieldBuffer(
+    buffers,
+    boundary,
+    'resolution',
+    params.resolution,
+  );
   for (const [key, value] of Object.entries(params.labels)) {
-    appendMultipartField(parts, boundary, `labels[${key}]`, value);
+    appendMultipartFieldBuffer(buffers, boundary, `labels[${key}]`, value);
   }
-  parts.push(
-    `--${boundary}`,
-    `Content-Disposition: form-data; name="file"; filename="${params.filename}"`,
-    'Content-Type: text/plain; charset=utf-8',
-    '',
-    text,
-    `--${boundary}--`,
-    '',
+  buffers.push(
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${params.filename}"\r\nContent-Type: application/pdf\r\n\r\n`,
+      'utf8',
+    ),
+    buildTextPdfBuffer(text),
+    Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'),
   );
   return {
     boundary,
-    bodyBase64: Buffer.from(parts.join('\r\n'), 'utf8').toString('base64'),
+    bodyBase64: Buffer.concat(buffers).toString('base64'),
   };
 }
 
@@ -487,11 +676,20 @@ function buildSendRequest(opts) {
   if (serviceId) payload.serviceId = serviceId;
   if (opts.headerText !== undefined) {
     const headerText = String(opts.headerText).trim();
-    if (headerText.length > 50) die('--header-text must be 50 characters or fewer.');
+    if (headerText.length > 50)
+      die('--header-text must be 50 characters or fewer.');
     payload.headerText = headerText;
   }
-  if (opts.headerTimeZone) payload.headerTimeZone = requireNonEmpty(opts.headerTimeZone, '--header-time-zone');
-  if (opts.callbackUrl) payload.callbackUrl = normalizeOptionalUrl(opts.callbackUrl, '--callback-url');
+  if (opts.headerTimeZone)
+    payload.headerTimeZone = requireNonEmpty(
+      opts.headerTimeZone,
+      '--header-time-zone',
+    );
+  if (opts.callbackUrl)
+    payload.callbackUrl = normalizeOptionalUrl(
+      opts.callbackUrl,
+      '--callback-url',
+    );
   if (opts.callbackJson) payload.callbackUrlContentType = 'application/json';
   if (opts.maxRetries !== undefined) payload.maxRetries = opts.maxRetries;
   if (opts.retryDelaySeconds !== undefined) {
@@ -517,24 +715,25 @@ function buildSendRequest(opts) {
       skillName: SKILL_NAME,
       operation: 'fax.send',
       provider: 'sinch',
-      documentKind: opts.text ? 'txt' : 'content-url',
+      documentKind: opts.text ? 'pdf' : 'content-url',
       requiresOperatorGrant: true,
       costUnit: 'fax-page',
     },
   };
   if (opts.text) {
-    const multipart = buildTextMultipartBody({
+    const multipart = buildTextPdfMultipartBody({
       ...payload,
       labels,
       text: opts.text,
-      filename: normalizeUploadFilename(opts.filename),
+      filename: normalizePdfUploadFilename(opts.filename),
     });
     httpRequest.headers = {
       'Content-Type': `multipart/form-data; boundary=${multipart.boundary}`,
     };
     httpRequest.bodyBase64 = multipart.bodyBase64;
   } else {
-    if (!opts.contentUrl) die('Either --content-url/--pdf-url or --text is required.');
+    if (!opts.contentUrl)
+      die('Either --content-url/--pdf-url or --text is required.');
     httpRequest.json = {
       ...payload,
       contentUrl: [normalizeContentUrl(opts.contentUrl)],
@@ -651,7 +850,8 @@ function classifyStatus(opts) {
 }
 
 function isRetryableFailure(opts) {
-  const haystack = `${opts.errorType || ''} ${opts.errorMessage || ''}`.toLowerCase();
+  const haystack =
+    `${opts.errorType || ''} ${opts.errorMessage || ''}`.toLowerCase();
   return (
     haystack.includes('busy') ||
     haystack.includes('call') ||
@@ -753,7 +953,9 @@ function main(argv = process.argv.slice(2)) {
   } else if (mode === 'eval-scenarios') {
     result = readEvalScenarios();
   } else {
-    die('Expected mode: plan, http-request, classify-status, or eval-scenarios.');
+    die(
+      'Expected mode: plan, http-request, classify-status, or eval-scenarios.',
+    );
   }
   writeResult(result, opts.format);
 }

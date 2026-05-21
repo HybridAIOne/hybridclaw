@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
+import { PDFDocument } from 'pdf-lib';
 import { expect, test, vi } from 'vitest';
 
 const helperPath = path.join(
@@ -29,6 +30,18 @@ function runHelper(args: string[]) {
   });
 }
 
+function extractMultipartPdf(bodyBase64: string) {
+  const body = Buffer.from(bodyBase64, 'base64');
+  const start = body.indexOf(Buffer.from('%PDF-1.4', 'utf8'));
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = body.indexOf(
+    Buffer.from('\r\n------hybridclaw-fax-pdf-boundary', 'utf8'),
+    start,
+  );
+  expect(end).toBeGreaterThan(start);
+  return body.subarray(start, end);
+}
+
 test('fax-send skill manifest declares DACH fax metadata and guarded secrets', () => {
   const skill = fs.readFileSync(skillPath, 'utf-8');
 
@@ -48,7 +61,7 @@ test('fax-send skill manifest declares DACH fax metadata and guarded secrets', (
   expect(skill).toContain('text content such as "Hallo Welt"');
   expect(skill).toContain('A live `http_request` to Sinch is terminal');
   expect(skill).toContain('Do not use `web_search`');
-  expect(skill).toContain('Do not invoke `skills/pdf`');
+  expect(skill).toContain('helper-generated PDF upload');
   expect(skill).toContain('give one concise no-send summary only');
   expect(skill).toContain('do not add decorative emoji');
 });
@@ -108,7 +121,9 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
   expect(payload.liveExecution.callPolicy).toContain(
     'summarize the provider result once',
   );
-  expect(payload.liveExecution.requestShape).toContain('do not generate PDFs');
+  expect(payload.liveExecution.requestShape).toContain(
+    'helper-generated PDF multipart upload',
+  );
   expect(payload.liveExecution.terminalProviderResponsePolicy).toContain(
     'do not duplicate the status sentence',
   );
@@ -132,7 +147,7 @@ test('fax-send helper uses stored Sinch project default for text uploads', () =>
     provider: 'sinch',
     auth: 'basic',
     text: 'Hallo Welt',
-    filename: 'hallo-welt.txt',
+    filename: 'hallo-welt.pdf',
     to: '+498920931098',
     from: '+493012345678',
     labels: [],
@@ -160,7 +175,7 @@ test('fax-send helper can use an explicit Sinch service id', () => {
     provider: 'sinch',
     auth: 'basic',
     text: 'Hallo Welt',
-    filename: 'hallo-welt.txt',
+    filename: 'hallo-welt.pdf',
     to: '+498920931098',
     from: '+493012345678',
     serviceId: 'service-123',
@@ -251,7 +266,7 @@ test('fax-send accepts supported content URLs and rejects unsafe URLs', () => {
   );
 });
 
-test('fax-send helper can build direct text file uploads', () => {
+test('fax-send helper renders direct text input into a valid PDF upload', async () => {
   const payload = fax.buildSendRequest({
     provider: 'sinch',
     auth: 'basic',
@@ -270,17 +285,20 @@ test('fax-send helper can build direct text file uploads', () => {
 
   expect(payload.httpRequest.headers).toMatchObject({
     'Content-Type':
-      'multipart/form-data; boundary=----hybridclaw-fax-text-boundary',
+      'multipart/form-data; boundary=----hybridclaw-fax-pdf-boundary',
   });
   const body = Buffer.from(payload.httpRequest.bodyBase64, 'base64').toString(
     'utf8',
   );
-  expect(body).toContain('name="file"; filename="hallo-welt.txt"');
-  expect(body).toContain('Content-Type: text/plain; charset=utf-8');
+  expect(body).toContain('name="file"; filename="hallo-welt.pdf"');
+  expect(body).toContain('Content-Type: application/pdf');
   expect(body).toContain('Hallo Welt');
   expect(body).toContain('name="to"');
   expect(body).toContain('+498920931098');
-  expect(payload.httpRequest.skillRequestContract.documentKind).toBe('txt');
+  const pdfBytes = extractMultipartPdf(payload.httpRequest.bodyBase64);
+  const pdf = await PDFDocument.load(pdfBytes);
+  expect(pdf.getPageCount()).toBe(1);
+  expect(payload.httpRequest.skillRequestContract.documentKind).toBe('pdf');
 });
 
 test('fax-send classifies delivered and busy-line failed statuses for audit', () => {

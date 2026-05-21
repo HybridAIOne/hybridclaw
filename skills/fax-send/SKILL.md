@@ -72,7 +72,7 @@ storage, or client records.
   `SINCH_FAX_BASIC_AUTH` or `SINCH_FAX_OAUTH_TOKEN`. Never claim a Sinch
   service ID secret is required for normal outbound sending.
 - When the user provides text content such as "Hallo Welt", use the helper's
-  direct text-file upload path after the sender fax number, stored Sinch
+  helper-generated PDF upload path after the sender fax number, stored Sinch
   project ID, stored credential, and explicit approval are available. Do not
   ask the user for a service ID for a normal outbound send; Sinch uses the
   product's default Fax service when `serviceId` is omitted.
@@ -84,7 +84,7 @@ storage, or client records.
 
 ## Scope
 
-- outbound fax send from a content URL or direct plain-text file upload
+- outbound fax send from a content URL or direct generated-PDF text upload
 - Sinch Fax API request construction for EU-resident Sinch projects/services
 - delivery status lookup and status-to-audit-event classification
 - structured audit persistence through `src/fax/accounting.ts`
@@ -139,8 +139,8 @@ hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"
 5. Pass only the emitted `httpRequest` object to `http_request` for live sends.
 6. After the `http_request` returns, stop tool use for that send attempt and
    summarize the returned status/body. If Sinch returns 4xx/5xx, report it as
-   the provider response; do not search the web, generate a PDF, or retry with
-   a different payload shape in the same turn.
+   the provider response; do not search the web, inspect PDF tooling, or retry
+   with a different payload shape in the same turn.
 7. Record/inspect audit intent or call the runtime accounting helper:
    - `fax.send.start` before dispatch
    - `fax.send.delivered` when status is `COMPLETED`
@@ -216,14 +216,14 @@ Use a narrow sender allowlist when the provider uses stable sender domains, and
 route attachment PDFs with normal document skills. See
 `docs/content/channels/fax.md` for the operator recipe and reference YAML.
 
-Build a guarded Sinch text-file upload request:
+Build a guarded Sinch generated-PDF text upload request:
 
 ```bash
 node skills/fax-send/fax_send.cjs --format json http-request send \
   --provider sinch \
   --auth basic \
   --text "Hallo Welt" \
-  --filename hallo-welt.txt \
+  --filename hallo-welt.pdf \
   --to +498920931098 \
   --from +493012345678 \
   --page-count 1 \
@@ -236,9 +236,9 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   file type or web page. Do not send local paths or private intranet URLs to a
   fax provider.
 - For short user-provided text, use `--text` so the helper emits a
-  secret-backed multipart/form-data request with a direct `.txt` file upload.
+  secret-backed multipart/form-data request with a generated PDF file upload.
   Do not invoke `skills/pdf`, `create_pdf.mjs`, `web_search`, or `web_fetch` to
-  convert or verify this path; the fax helper owns the payload shape.
+  convert or verify this path; the fax helper owns the PDF payload shape.
 - For `plan` responses, give one concise no-send summary only. Do not repeat
   the same plan in a second format, do not mirror raw helper JSON after a
   human summary, and do not add decorative emoji, sign-off text, or readiness
