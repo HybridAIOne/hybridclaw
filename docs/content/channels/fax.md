@@ -117,8 +117,8 @@ For Sinch Fax API:
 5. Use `fax-send` with the approved recipient number and the sender number
    provided by the user. The helper emits a `<secret:...>` placeholder for the
    stored project value; the gateway resolves it server-side. Omit `serviceId`
-   for the default Sinch Fax service, or pass `--service-id` when intentionally
-   using a non-default service.
+   for the default Sinch Fax service, or pass an explicit `--service-id` when
+   intentionally using a non-default service.
 6. Configure provider completion callbacks or poll status with:
 
    ```bash

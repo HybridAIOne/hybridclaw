@@ -66,6 +66,10 @@ storage, or client records.
   same plan, missing-input list, or no-send notice in a second format.
 - Do not use decorative emoji, checkmarks, sign-off text, or "ready to proceed"
   filler in fax responses.
+- If setup is blocked by missing secrets, report each missing secret exactly
+  once and only if it is actually required: `SINCH_FAX_PROJECT_ID` plus either
+  `SINCH_FAX_BASIC_AUTH` or `SINCH_FAX_OAUTH_TOKEN`. Never claim a Sinch
+  service ID secret is required for normal outbound sending.
 - When the user provides text content such as "Hallo Welt", use the helper's
   direct text-file upload path after the sender fax number, stored Sinch
   project ID, stored credential, and explicit approval are available. Do not
@@ -115,15 +119,12 @@ account arguments:
 hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"
 ```
 
-Only store `SINCH_FAX_SERVICE_ID` and pass `--use-stored-service-id` when the
-operator intentionally wants a non-default Fax service.
-
 ## Default Workflow
 
 1. Confirm the recipient fax number in E.164 format and the content URL or text
    upload content. Confirm the sender fax number from the user. Use stored
    `SINCH_FAX_PROJECT_ID` by default. Omit `serviceId` unless the user
-   explicitly chooses a non-default Fax service.
+   explicitly provides a non-default Fax service ID in the same request.
 2. Run `plan` for natural-language requests when details are incomplete.
 3. Require explicit operator approval before `fax.send`; faxing is an external
    document delivery action and can incur per-page cost.

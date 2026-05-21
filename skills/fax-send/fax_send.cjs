@@ -9,7 +9,6 @@ const SINCH_BASE_URL = 'https://fax.api.sinch.com/v3';
 const SINCH_BASIC_SECRET = 'SINCH_FAX_BASIC_AUTH';
 const SINCH_OAUTH_SECRET = 'SINCH_FAX_OAUTH_TOKEN';
 const SINCH_PROJECT_ID_SECRET = 'SINCH_FAX_PROJECT_ID';
-const SINCH_SERVICE_ID_SECRET = 'SINCH_FAX_SERVICE_ID';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 1_000_000;
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
@@ -23,7 +22,6 @@ const COST_MEASUREMENT = {
 const LIVE_EXECUTION = {
   mode: 'live-fax-api',
   requiresConfiguredSecrets: [SINCH_PROJECT_ID_SECRET],
-  optionalConfiguredSecrets: [SINCH_SERVICE_ID_SECRET],
   requiresOneOfConfiguredSecrets: [SINCH_BASIC_SECRET, SINCH_OAUTH_SECRET],
   dryRunSafe:
     'For prompt/user testing, build the http-request payload and stop; do not call http_request unless the operator approved the send.',
@@ -103,8 +101,7 @@ Send options:
   --to <number>              Recipient fax number in E.164 format.
   --from <number>            Sender fax number in E.164 format.
   --project-id <id>          Sinch project id. Defaults to SINCH_FAX_PROJECT_ID.
-  --service-id <id>          Optional Sinch fax service id. Uses the default Sinch Fax service when omitted.
-  --use-stored-service-id    Use optional stored SINCH_FAX_SERVICE_ID instead of Sinch's default service.
+  --service-id <id>          Optional explicit Sinch fax service id. Uses the default Sinch Fax service when omitted.
   --page-count <n>           Known PDF page count for page-based usage tracking.
   --cost-per-page-eur <n>    Optional operator cost estimate.
   --header-text <text>       Fax header text, max 50 chars.
@@ -206,9 +203,6 @@ function parseArgs(argv) {
         break;
       case '--service-id':
         opts.serviceId = readValue();
-        break;
-      case '--use-stored-service-id':
-        opts.useStoredServiceId = true;
         break;
       case '--page-count':
         opts.pageCount = parseInteger(readValue(), '--page-count', 1, 10_000);
@@ -328,7 +322,6 @@ function sinchProjectPathSegment(opts) {
 function sinchServiceId(opts) {
   const explicit = String(opts.serviceId || '').trim();
   if (explicit) return explicit;
-  if (opts.useStoredServiceId) return secretPlaceholder(SINCH_SERVICE_ID_SECRET);
   return undefined;
 }
 
