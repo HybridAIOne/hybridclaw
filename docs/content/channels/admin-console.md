@@ -1,6 +1,6 @@
 ---
 title: Admin Console
-description: Manage channel setup, agent prompt files, and browser-based operator workflows from /admin.
+description: Manage channel setup, agent prompt files, A2A threads, and browser-based operator workflows from /admin.
 sidebar_position: 10
 ---
 
@@ -12,6 +12,7 @@ instead of the CLI. The channel setup page lives at `/admin/channels`, and the
 agent prompt-file editor lives at `/admin/agents`. The approvals page at
 `/admin/approvals` shows live pending approvals and lets operators add, edit,
 and delete the current workspace network policy rules for a selected agent.
+The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message threads and uses the same web-console authentication as the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local web access.
 
 ## What The Admin Console Can Do
 
@@ -44,6 +45,8 @@ and delete the current workspace network policy rules for a selected agent.
   `deny` and `allow`
 - `/admin/approvals` can apply bundled network policy templates from the
   browser
+- `/admin/a2a-inbox` lists A2A threads by most recent message and opens each thread with sender, recipient, timestamp, intent, and content
+- `/admin/a2a-inbox` is read-only
 - `/admin/gateway` can reload runtime config and refresh secrets from the
   browser without tearing down the enclosing workspace container
 - `/admin/gateway` shows the configured public URL and current tunnel provider
@@ -77,6 +80,7 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want to inspect pending approvals and compare them with the declarative
   network policy without switching to `/chat` or opening the workspace files
 - you want to add, edit, or remove network policy rules from the browser
+- you want to inspect A2A coordination threads without impersonating a recipient agent
 - you want explicit browser confirmation before destructive operator actions
 - you want to reload runtime config and secrets from `/admin/gateway` without
   switching back to the CLI
