@@ -1572,6 +1572,162 @@ test('host auxiliary caller falls through to Codex when OpenRouter and Anthropic
   );
 });
 
+test('host auxiliary caller falls through to Gemini when earlier remote fallbacks are inactive', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'anthropic/claude-3-7-sonnet',
+    error: 'Anthropic provider is not implemented yet.',
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn(() => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      expect(model).toBe('gemini/gemini-2.5-flash-lite');
+      return {
+        provider: 'gemini' as const,
+        apiKey: 'gemini-key',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: false,
+        contextWindow: 1_000_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    activeRemoteProviders: ['gemini'],
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: vi.fn(),
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      );
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('gemini-2.5-flash-lite');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Recovered through Gemini fallback.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'gemini',
+    model: 'gemini/gemini-2.5-flash-lite',
+    content: 'Recovered through Gemini fallback.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledWith(
+    expect.objectContaining({
+      model: 'gemini/gemini-2.5-flash-lite',
+    }),
+  );
+});
+
+test('host auxiliary caller uses the session model after local and remote fallbacks are unavailable', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn(() => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      expect(model).toBe('openrouter/meta-llama/llama-3.1-8b-instruct');
+      return {
+        provider: 'openrouter' as const,
+        apiKey: 'openrouter-key',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: false,
+        contextWindow: 200_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    activeRemoteProviders: [],
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('meta-llama/llama-3.1-8b-instruct');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Recovered through session model.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    fallbackModel: 'openrouter/meta-llama/llama-3.1-8b-instruct',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openrouter',
+    model: 'openrouter/meta-llama/llama-3.1-8b-instruct',
+    content: 'Recovered through session model.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
+});
+
 test('host auxiliary caller falls through to Anthropic Haiku when earlier remote fallbacks are unavailable', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'anthropic/claude-3-7-sonnet',

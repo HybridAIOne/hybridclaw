@@ -61,6 +61,10 @@ const REMOTE_AUXILIARY_FALLBACKS: Array<{
     provider: 'openai-codex',
     model: 'openai-codex/gpt-5.4-mini',
   },
+  {
+    provider: 'gemini',
+    model: 'gemini/gemini-2.5-flash-lite',
+  },
 ];
 const FALLBACK_PROVIDER_STATUS_TTL_MS = 30_000;
 
@@ -462,6 +466,25 @@ async function isFallbackProviderHealthy(
   return status[providerStatusKey(provider)]?.reachable === true;
 }
 
+async function resolveSessionFallbackContext(params: {
+  params: AuxiliaryModelCallParams;
+  maxTokens?: number;
+}): Promise<AuxiliaryTextCallContext | null> {
+  const model = params.params.fallbackModel?.trim() ?? '';
+  if (!model) return null;
+  return resolveContextFromModel({
+    task: params.params.task,
+    model,
+    agentId: params.params.agentId,
+    chatbotId: params.params.fallbackChatbotId,
+    enableRag: params.params.fallbackEnableRag ?? false,
+    maxTokens:
+      normalizeMaxTokens(params.maxTokens) ??
+      normalizeMaxTokens(params.params.maxTokens) ??
+      normalizeMaxTokens(params.params.fallbackMaxTokens),
+  });
+}
+
 async function withAuxiliaryFallbackChain(
   params: AuxiliaryModelCallParams,
   primaryError: unknown,
@@ -491,8 +514,19 @@ async function withAuxiliaryFallbackChain(
       maxTokens,
     });
   } catch (fallbackError) {
+    try {
+      const sessionFallback = await resolveSessionFallbackContext({
+        params,
+        maxTokens,
+      });
+      if (sessionFallback) return sessionFallback;
+    } catch (sessionFallbackError) {
+      throw new Error(
+        `${errorMessage(primaryError)} Remote fallback also failed: ${errorMessage(fallbackError)} Session fallback also failed: ${errorMessage(sessionFallbackError)}`,
+      );
+    }
     throw new Error(
-      `${errorMessage(primaryError)} Remote fallback also failed: ${errorMessage(fallbackError)}`,
+      `${errorMessage(primaryError)} Remote fallback also failed: ${errorMessage(fallbackError)} No session fallback model available.`,
     );
   }
 }
@@ -725,9 +759,13 @@ async function resolveAuxiliaryFallbackContexts(params: {
   modelHint?: string;
   maxTokens?: number;
 }): Promise<AuxiliaryTextCallContext[]> {
+  const sessionFallback = await resolveSessionFallbackContext(params).catch(
+    () => null,
+  );
   const contexts = [
     ...(await resolveLocalFallbackContexts(params)),
     ...(await resolveRemoteFallbackContexts(params)),
+    ...(sessionFallback ? [sessionFallback] : []),
   ];
   const seen = new Set<string>();
   return contexts.filter((context) => {
@@ -817,16 +855,24 @@ async function resolveTextCallContext(
     )[0] ?? null;
   if (preferredLocal) return preferredLocal;
 
-  // 4. Finally use the fixed remote auxiliary chain. Do not route auto aux
-  // calls through the main/session model.
-  return resolveRemoteFallbackContext({
-    params,
-    primaryError: new Error(
-      `${params.task} has no configured local auxiliary model.`,
-    ),
-    modelHint: params.fallbackModel,
-    maxTokens: requestedMaxTokens,
-  });
+  // 4. Then use the fixed remote auxiliary chain.
+  try {
+    return await resolveRemoteFallbackContext({
+      params,
+      primaryError: new Error(
+        `${params.task} has no configured local auxiliary model.`,
+      ),
+      modelHint: params.fallbackModel,
+      maxTokens: requestedMaxTokens,
+    });
+  } catch (remoteFallbackError) {
+    const sessionFallback = await resolveSessionFallbackContext({
+      params,
+      maxTokens: requestedMaxTokens,
+    });
+    if (sessionFallback) return sessionFallback;
+    throw remoteFallbackError;
+  }
 }
 
 function buildJsonHeaders(params: {
