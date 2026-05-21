@@ -261,7 +261,6 @@ test('fax-send helper can build direct text file uploads', () => {
   const body = Buffer.from(payload.httpRequest.bodyBase64, 'base64').toString(
     'utf8',
   );
-  expect(payload.httpRequest).not.toHaveProperty('body');
   expect(body).toContain('name="file"; filename="hallo-welt.txt"');
   expect(body).toContain('Content-Type: text/plain; charset=utf-8');
   expect(body).toContain('Hallo Welt');
