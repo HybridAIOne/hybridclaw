@@ -993,7 +993,10 @@ test('host auxiliary caller falls back to the OpenRouter small model when task r
       fallbackProvider: 'openrouter',
       modelHint: 'openrouter/google/gemini-2.5-flash-lite',
       primaryModelHint: 'anthropic/claude-3-7-sonnet',
-      primaryError: expect.any(Error),
+      primaryError: expect.objectContaining({
+        message: expect.any(String),
+        type: expect.any(String),
+      }),
     }),
     'Auxiliary provider resolution failed; using remote fallback',
   );
@@ -1107,7 +1110,10 @@ test('host auxiliary caller falls back remotely when a configured task model cal
       fallbackProvider: 'openrouter',
       modelHint: 'openrouter/google/gemini-2.5-flash-lite',
       primaryModelHint: 'hybridai/anthropic/claude-haiku-4-5',
-      primaryError: expect.any(DOMException),
+      primaryError: expect.objectContaining({
+        message: 'The operation was aborted due to timeout',
+        type: 'TimeoutError',
+      }),
     }),
     'Auxiliary provider call failed; using remote fallback',
   );
@@ -1237,7 +1243,10 @@ test('host auxiliary caller continues through remote fallback calls after a fall
       task: 'cv_narration',
       fallbackProvider: 'openrouter',
       modelHint: 'openrouter/google/gemini-2.5-flash-lite',
-      error: expect.any(DOMException),
+      error: expect.objectContaining({
+        message: 'The operation was aborted due to timeout',
+        type: 'TimeoutError',
+      }),
     }),
     'Auxiliary fallback provider call failed; trying next fallback',
   );
@@ -1927,7 +1936,10 @@ test('host auxiliary caller tries discovered local fallback before openrouter wi
       primaryProvider: 'auto',
       fallbackProvider: 'vllm',
       modelHint: 'vllm/Qwen/Qwen3.6-27B-FP8',
-      primaryError: expect.any(Error),
+      primaryError: expect.objectContaining({
+        message: expect.any(String),
+        type: expect.any(String),
+      }),
     }),
     'Auxiliary provider resolution failed; using local model fallback',
   );
@@ -2112,7 +2124,10 @@ test('host auxiliary caller ignores the main default model when ordering local a
       primaryProvider: 'auto',
       fallbackProvider: 'lmstudio',
       modelHint: 'lmstudio/nvidia/nemotron-3-nano',
-      primaryError: expect.any(Error),
+      primaryError: expect.objectContaining({
+        message: expect.any(String),
+        type: expect.any(String),
+      }),
     }),
     'Auxiliary provider resolution failed; using local model fallback',
   );
@@ -2350,7 +2365,10 @@ test('host auxiliary caller prefers local model fallback when task resolution fa
       primaryProvider: 'auto',
       fallbackProvider: 'vllm',
       modelHint: 'vllm/Qwen/Qwen3.6-27B-FP8',
-      primaryError: expect.any(Error),
+      primaryError: expect.objectContaining({
+        message: expect.any(String),
+        type: expect.any(String),
+      }),
     }),
     'Auxiliary provider resolution failed; using local model fallback',
   );

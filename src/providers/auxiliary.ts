@@ -40,7 +40,7 @@ import {
   resolveDefaultAuxiliaryModelForProvider,
   resolveTaskModelPolicy,
 } from './task-routing.js';
-import { isRecord } from './utils.js';
+import { formatUnknownError, isRecord } from './utils.js';
 
 type AuxiliaryTextTask = Exclude<AuxiliaryTask, 'vision'>;
 type RuntimeProvider = RuntimeProviderId;
@@ -171,7 +171,39 @@ function buildRequestOptions(
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return formatUnknownError(error);
+}
+
+function serializeAuxiliaryError(error: unknown): Record<string, unknown> {
+  const details: Record<string, unknown> = {
+    message: errorMessage(error),
+  };
+
+  if (error instanceof Error) {
+    details.type = error.name || error.constructor.name || 'Error';
+    if ('code' in error && typeof error.code === 'string') {
+      details.code = error.code;
+    }
+    if (error.cause !== undefined) {
+      details.cause = errorMessage(error.cause);
+    }
+    return details;
+  }
+
+  if (!isRecord(error)) return details;
+
+  for (const key of ['type', 'name', 'code', 'status', 'statusCode']) {
+    const value = error[key];
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      details[key] = value;
+    }
+  }
+
+  return details;
 }
 
 function readFiniteNumber(values: unknown[]): number | undefined {
@@ -393,7 +425,7 @@ async function resolveRemoteFallbackContext(params: {
           fallbackProvider: fallback.provider,
           modelHint: candidate.model,
           primaryModelHint: params.modelHint?.trim() || undefined,
-          primaryError: params.primaryError,
+          primaryError: serializeAuxiliaryError(params.primaryError),
         },
         params.logMessage ??
           'Auxiliary provider resolution failed; using remote fallback',
@@ -670,7 +702,7 @@ async function resolveLocalFallbackContext(params: {
             params.primaryProvider || params.params.provider || 'auto',
           fallbackProvider: fallback.provider,
           modelHint: candidate.model,
-          primaryError: params.primaryError,
+          primaryError: serializeAuxiliaryError(params.primaryError),
         },
         params.logMessage ??
           'Auxiliary provider resolution failed; using local model fallback',
@@ -1527,7 +1559,7 @@ async function callAuxiliaryTextProviderWithLogging(
           provider: context.provider,
           model: context.model,
           durationMs: Date.now() - startedAt,
-          error,
+          error: serializeAuxiliaryError(error),
         },
         '[aux-model] call error',
       );
@@ -1579,7 +1611,7 @@ async function callAuxiliaryTextProviderWithFallback(
           fallbackProvider: fallbackContext.provider,
           modelHint: fallbackContext.model,
           primaryModelHint: context.model,
-          primaryError: error,
+          primaryError: serializeAuxiliaryError(error),
         },
         isLocalBackendType(fallbackContext.provider)
           ? 'Auxiliary provider call failed; using local model fallback'
@@ -1604,7 +1636,7 @@ async function callAuxiliaryTextProviderWithFallback(
             task: params.task,
             fallbackProvider: fallbackContext.provider,
             modelHint: fallbackContext.model,
-            error: fallbackError,
+            error: serializeAuxiliaryError(fallbackError),
           },
           'Auxiliary fallback provider call failed; trying next fallback',
         );
