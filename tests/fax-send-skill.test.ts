@@ -36,6 +36,9 @@ test('fax-send skill manifest declares DACH fax metadata and guarded secrets', (
   expect(skill).toContain('issue: 659');
   expect(skill).toContain('SINCH_FAX_BASIC_AUTH');
   expect(skill).toContain('SINCH_FAX_OAUTH_TOKEN');
+  expect(skill).toContain('SINCH_FAX_PROJECT_ID');
+  expect(skill).toContain('SINCH_FAX_SERVICE_ID');
+  expect(skill).toContain('SINCH_FAX_SENDER_NUMBER');
   expect(skill).toContain('fax.send.start');
   expect(skill).toContain('fax.send.delivered');
   expect(skill).toContain('fax.send.failed');
@@ -97,6 +100,11 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
     'SINCH_FAX_BASIC_AUTH',
     'SINCH_FAX_OAUTH_TOKEN',
   ]);
+  expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
+    'SINCH_FAX_PROJECT_ID',
+    'SINCH_FAX_SERVICE_ID',
+    'SINCH_FAX_SENDER_NUMBER',
+  ]);
   expect(payload.auditEvents[0]).toMatchObject({
     eventType: 'fax.send.start',
     payload: {
@@ -109,11 +117,39 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
   expect(JSON.stringify(payload)).not.toContain('username:password');
 });
 
+test('fax-send helper uses stored Sinch defaults when account fields are omitted', () => {
+  const payload = fax.buildSendRequest({
+    provider: 'sinch',
+    auth: 'basic',
+    text: 'Hallo Welt',
+    filename: 'hallo-welt.txt',
+    to: '+498920931098',
+    labels: [],
+    operatorGrant: true,
+    timeoutMs: 120000,
+    maxResponseBytes: 1000000,
+    headerPageNumbers: true,
+  });
+
+  expect(payload.httpRequest.url).toBe(
+    'https://fax.api.sinch.com/v3/projects/<secret:SINCH_FAX_PROJECT_ID>/faxes',
+  );
+  expect(payload.httpRequest.body).toContain('<secret:SINCH_FAX_SERVICE_ID>');
+  expect(payload.httpRequest.body).toContain(
+    '<secret:SINCH_FAX_SENDER_NUMBER>',
+  );
+  expect(payload.httpRequest.body).toContain('+498920931098');
+  expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
+    'SINCH_FAX_PROJECT_ID',
+    'SINCH_FAX_SERVICE_ID',
+    'SINCH_FAX_SENDER_NUMBER',
+  ]);
+});
+
 test('fax-send helper supports bearer auth for Sinch OAuth deployments', () => {
   const payload = fax.buildStatusRequest({
     provider: 'sinch',
     auth: 'bearer',
-    projectId: 'project-123',
     faxId: '01F3J0G1M4WQR6HGY6HCF6JA0K',
     timeoutMs: 120000,
     maxResponseBytes: 1000000,
@@ -122,7 +158,7 @@ test('fax-send helper supports bearer auth for Sinch OAuth deployments', () => {
   expect(payload.operation).toBe('fax.status');
   expect(payload.stakesTier).toBe('green');
   expect(payload.httpRequest).toMatchObject({
-    url: 'https://fax.api.sinch.com/v3/projects/project-123/faxes/01F3J0G1M4WQR6HGY6HCF6JA0K',
+    url: 'https://fax.api.sinch.com/v3/projects/<secret:SINCH_FAX_PROJECT_ID>/faxes/01F3J0G1M4WQR6HGY6HCF6JA0K',
     method: 'GET',
     bearerSecretName: 'SINCH_FAX_OAUTH_TOKEN',
   });
@@ -206,8 +242,12 @@ test('fax-send helper can build direct text file uploads', () => {
     'Content-Type':
       'multipart/form-data; boundary=----hybridclaw-fax-text-boundary',
   });
-  expect(payload.httpRequest.body).toContain('name="file"; filename="hallo-welt.txt"');
-  expect(payload.httpRequest.body).toContain('Content-Type: text/plain; charset=utf-8');
+  expect(payload.httpRequest.body).toContain(
+    'name="file"; filename="hallo-welt.txt"',
+  );
+  expect(payload.httpRequest.body).toContain(
+    'Content-Type: text/plain; charset=utf-8',
+  );
   expect(payload.httpRequest.body).toContain('Hallo Welt');
   expect(payload.httpRequest.body).toContain('name="to"');
   expect(payload.httpRequest.body).toContain('+498920931098');

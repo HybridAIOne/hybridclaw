@@ -70,11 +70,8 @@ Use `fax-send` for outbound delivery:
 node skills/fax-send/fax_send.cjs --format json http-request send \
   --provider sinch \
   --auth basic \
-  --project-id <sinch-project-id> \
-  --service-id <sinch-service-id> \
   --content-url https://example.com/signed-contract.pdf \
   --to +49891234567 \
-  --from +493012345678 \
   --page-count 3 \
   --label costCenter=legal \
   --operator-grant
@@ -87,12 +84,9 @@ PDF:
 node skills/fax-send/fax_send.cjs --format json http-request send \
   --provider sinch \
   --auth basic \
-  --project-id <sinch-project-id> \
-  --service-id <sinch-service-id> \
   --text "Hallo Welt" \
   --filename hallo-welt.txt \
   --to +498920931098 \
-  --from +493012345678 \
   --page-count 1 \
   --operator-grant
 ```
@@ -112,12 +106,21 @@ For Sinch Fax API:
    hybridclaw secret set SINCH_FAX_BASIC_AUTH "<base64-username-password>"
    ```
 
-4. Use `fax-send` with `--project-id`, `--service-id`, `--from`, and the approved recipient number.
-5. Configure provider completion callbacks or poll status with:
+4. Store the Sinch account defaults once:
+
+   ```bash
+   hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"
+   hybridclaw secret set SINCH_FAX_SERVICE_ID "<sinch-service-id>"
+   hybridclaw secret set SINCH_FAX_SENDER_NUMBER "+493012345678"
+   ```
+
+5. Use `fax-send` with the approved recipient number. The helper emits
+   `<secret:...>` placeholders for the stored project, service, and sender
+   values; the gateway resolves them server-side.
+6. Configure provider completion callbacks or poll status with:
 
    ```bash
    node skills/fax-send/fax_send.cjs --format json http-request status \
-     --project-id <sinch-project-id> \
      --fax-id <provider-fax-id>
    ```
 

@@ -8,6 +8,9 @@ const SKILL_NAME = 'fax-send';
 const SINCH_BASE_URL = 'https://fax.api.sinch.com/v3';
 const SINCH_BASIC_SECRET = 'SINCH_FAX_BASIC_AUTH';
 const SINCH_OAUTH_SECRET = 'SINCH_FAX_OAUTH_TOKEN';
+const SINCH_PROJECT_ID_SECRET = 'SINCH_FAX_PROJECT_ID';
+const SINCH_SERVICE_ID_SECRET = 'SINCH_FAX_SERVICE_ID';
+const SINCH_SENDER_NUMBER_SECRET = 'SINCH_FAX_SENDER_NUMBER';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 1_000_000;
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
@@ -20,6 +23,11 @@ const COST_MEASUREMENT = {
 
 const LIVE_EXECUTION = {
   mode: 'live-fax-api',
+  requiresConfiguredSecrets: [
+    SINCH_PROJECT_ID_SECRET,
+    SINCH_SERVICE_ID_SECRET,
+    SINCH_SENDER_NUMBER_SECRET,
+  ],
   requiresOneOfConfiguredSecrets: [SINCH_BASIC_SECRET, SINCH_OAUTH_SECRET],
   dryRunSafe:
     'For prompt/user testing, build the http-request payload and stop; do not call http_request unless the operator approved the send.',
@@ -77,9 +85,9 @@ Build guarded fax-send requests and classify delivery states.
 
 Usage:
   node skills/fax-send/fax_send.cjs [--format json] plan "Fax the signed PDF to +49 89 1234567"
-  node skills/fax-send/fax_send.cjs [--format json] http-request send --content-url https://example.com/file.pdf --to +49891234567 --from +493012345678 --project-id <id> --operator-grant
-  node skills/fax-send/fax_send.cjs [--format json] http-request send --text "Hallo Welt" --to +49891234567 --from +493012345678 --project-id <id> --operator-grant
-  node skills/fax-send/fax_send.cjs [--format json] http-request status --fax-id <fax-id> --project-id <id>
+  node skills/fax-send/fax_send.cjs [--format json] http-request send --content-url https://example.com/file.pdf --to +49891234567 --operator-grant
+  node skills/fax-send/fax_send.cjs [--format json] http-request send --text "Hallo Welt" --to +49891234567 --operator-grant
+  node skills/fax-send/fax_send.cjs [--format json] http-request status --fax-id <fax-id>
   node skills/fax-send/fax_send.cjs [--format json] classify-status --fax-id <fax-id> --status COMPLETED
   node skills/fax-send/fax_send.cjs [--format json] providers
   node skills/fax-send/fax_send.cjs [--format json] eval-scenarios
@@ -97,9 +105,9 @@ Send options:
   --text <text>              Plain text to send as a direct .txt file upload.
   --filename <name>          File name for --text uploads. Default: message.txt.
   --to <number>              Recipient fax number in E.164 format.
-  --from <number>            Sender fax number in E.164 format.
-  --project-id <id>          Sinch project id.
-  --service-id <id>          Sinch fax service id.
+  --from <number>            Sender fax number. Defaults to SINCH_FAX_SENDER_NUMBER.
+  --project-id <id>          Sinch project id. Defaults to SINCH_FAX_PROJECT_ID.
+  --service-id <id>          Sinch fax service id. Defaults to SINCH_FAX_SERVICE_ID.
   --page-count <n>           Known PDF page count for page-based usage tracking.
   --cost-per-page-eur <n>    Optional operator cost estimate.
   --header-text <text>       Fax header text, max 50 chars.
@@ -308,6 +316,25 @@ function requireNonEmpty(value, label) {
   return normalized;
 }
 
+function secretPlaceholder(secretName) {
+  return `<secret:${secretName}>`;
+}
+
+function sinchProjectPathSegment(opts) {
+  if (!opts.projectId) return secretPlaceholder(SINCH_PROJECT_ID_SECRET);
+  return encodeURIComponent(requireNonEmpty(opts.projectId, '--project-id'));
+}
+
+function sinchServiceId(opts) {
+  if (!opts.serviceId) return secretPlaceholder(SINCH_SERVICE_ID_SECRET);
+  return requireNonEmpty(opts.serviceId, '--service-id');
+}
+
+function sinchSenderNumber(opts) {
+  if (!opts.from) return secretPlaceholder(SINCH_SENDER_NUMBER_SECRET);
+  return normalizePhoneNumber(opts.from, '--from');
+}
+
 function normalizePhoneNumber(value, label) {
   const compact = requireNonEmpty(value, label).replace(/[()\s.-]/gu, '');
   if (!/^\+[1-9]\d{6,14}$/u.test(compact)) {
@@ -458,13 +485,13 @@ function buildSendRequest(opts) {
   if (opts.contentUrl && opts.text) {
     die('Use either --content-url/--pdf-url or --text, not both.');
   }
-  const projectId = encodeURIComponent(requireNonEmpty(opts.projectId, '--project-id'));
+  const projectId = sinchProjectPathSegment(opts);
   const payload = {
     to: normalizePhoneNumber(opts.to, '--to'),
-    from: normalizePhoneNumber(opts.from, '--from'),
+    from: sinchSenderNumber(opts),
     headerPageNumbers: opts.headerPageNumbers,
+    serviceId: sinchServiceId(opts),
   };
-  if (opts.serviceId) payload.serviceId = requireNonEmpty(opts.serviceId, '--service-id');
   if (opts.headerText !== undefined) {
     const headerText = String(opts.headerText).trim();
     if (headerText.length > 50) die('--header-text must be 50 characters or fewer.');
@@ -548,7 +575,7 @@ function buildSendRequest(opts) {
 function buildStatusRequest(opts) {
   normalizeProvider(opts.provider);
   const auth = normalizeAuth(opts.auth);
-  const projectId = encodeURIComponent(requireNonEmpty(opts.projectId, '--project-id'));
+  const projectId = sinchProjectPathSegment(opts);
   const faxId = encodeURIComponent(requireNonEmpty(opts.faxId, '--fax-id'));
   const httpRequest = {
     url: `${SINCH_BASE_URL}/projects/${projectId}/faxes/${faxId}`,
@@ -654,8 +681,7 @@ function buildPlan(prompt) {
     requiredInputs: [
       'content URL or direct supported file',
       'recipient fax number in E.164 format',
-      'sender fax number in E.164 format',
-      'Sinch project id',
+      'stored Sinch project id, service id, sender number, and credential',
       'operator approval for fax.send',
     ],
     costMeasurement: COST_MEASUREMENT,
