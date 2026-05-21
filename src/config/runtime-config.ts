@@ -1062,6 +1062,7 @@ export interface RuntimeConfig {
     goal_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
+    btw: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
     cv_narration: RuntimeAuxiliaryModelPolicyConfig;
   };
@@ -1771,6 +1772,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       provider: 'auto',
       model: '',
       maxTokens: 0,
+    },
+    btw: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 160,
     },
     session_title: {
       provider: 'auto',
@@ -6149,6 +6155,9 @@ function normalizeRuntimeConfig(
   )
     ? rawAuxiliaryModels.flush_memories
     : {};
+  const rawBtwAuxiliaryModel = isRecord(rawAuxiliaryModels.btw)
+    ? rawAuxiliaryModels.btw
+    : {};
   const rawSessionTitleAuxiliaryModel = isRecord(
     rawAuxiliaryModels.session_title,
   )
@@ -7158,6 +7167,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawFlushMemoriesAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      btw: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawBtwAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.provider,
+        ),
+        model: normalizeString(
+          rawBtwAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawBtwAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },

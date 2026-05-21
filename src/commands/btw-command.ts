@@ -4,8 +4,9 @@ import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type { ChatMessage } from '../types/api.js';
 import type { Session, StoredMessage } from '../types/session.js';
 
-const BTW_CONTEXT_MESSAGE_LIMIT = 20;
-const BTW_MAX_RESPONSE_TOKENS = 512;
+const BTW_CONTEXT_MESSAGE_LIMIT = 8;
+const BTW_MAX_RESPONSE_TOKENS = 160;
+const BTW_TIMEOUT_MS = 300_000;
 const BTW_SYSTEM_PROMPT = [
   'You are answering an ephemeral /btw side question about the current conversation.',
   'Use the conversation only as background context.',
@@ -48,17 +49,18 @@ export async function runBtwSideQuestion(
     .map(toContextChatMessage)
     .filter((message): message is ChatMessage => message !== null);
   const result = await callAuxiliaryModel({
-    task: 'compression',
+    task: 'btw',
     messages: [
       { role: 'system', content: BTW_SYSTEM_PROMPT },
       ...contextMessages,
       { role: 'user', content: buildBtwQuestionPrompt(question) },
     ],
-    model: resolved.model,
+    fallbackModel: resolved.model,
     fallbackChatbotId: resolved.chatbotId,
     agentId: resolved.agentId,
     tools: [],
     maxTokens: BTW_MAX_RESPONSE_TOKENS,
+    timeoutMs: BTW_TIMEOUT_MS,
   });
   return result.content;
 }
