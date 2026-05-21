@@ -60,6 +60,26 @@ tests were updated.
 - Gateway, audit, approval, or container boundaries touched? (`Yes/No`)
 - If yes, what is the failure mode and how did you test it?
 
+## Secret Handling Checklist
+
+Complete this section for PRs labeled `security`, `auth`, `credentials`,
+`secrets`, `integrations`, or for any change that reads, stores, injects,
+displays, logs, traces, audits, deletes, or documents credential material.
+
+Threat model: `docs/security/threat-model.md`
+
+- [ ] Secret classes are identified, or this PR explains why none apply.
+- [ ] Raw secret values stay out of prompts, memory, transcripts, audit logs,
+      telemetry, screenshots, docs examples, and tests.
+- [ ] Secret resolution happens at the narrowest boundary and is bound to the
+      intended host, provider, account, session, or workspace.
+- [ ] Untrusted model, file, web, or tool output cannot redirect secrets to a
+      new sink without validation and approval.
+- [ ] Failure modes deny access and avoid echoing credential-bearing request or
+      response bodies.
+- [ ] Tests cover allowed behavior and at least one relevant denied or redacted
+      path.
+
 ## Evidence
 
 Attach at least one when relevant:
