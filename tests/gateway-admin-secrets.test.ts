@@ -103,7 +103,6 @@ describe('gateway admin secrets metadata', () => {
         sourceIp: '127.0.0.1',
         visibleCount: response.secrets.length,
         totalCount: response.total,
-        filteredCount: response.filtered,
       },
     });
   });
@@ -168,7 +167,6 @@ describe('gateway admin secrets metadata', () => {
       },
     });
 
-    expect(response.filtered).toBe(0);
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 'admin-user',
@@ -177,7 +175,6 @@ describe('gateway admin secrets metadata', () => {
           actor: 'admin-user',
           visibleCount: response.secrets.length,
           totalCount: response.total,
-          filteredCount: 0,
         }),
       }),
     );

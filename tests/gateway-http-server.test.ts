@@ -741,7 +741,6 @@ async function importFreshHealth(options?: {
       },
     ],
     total: 2,
-    filtered: 0,
   }));
   const reconnectTunnelStatus = {
     provider: 'ngrok',
@@ -4747,9 +4746,25 @@ describe('gateway HTTP server', () => {
         },
       ],
       total: 2,
-      filtered: 0,
     });
     expect(res.body).not.toContain('super-secret');
+  });
+
+  test('rejects unsupported admin secret metadata methods before listing names', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/secrets',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(405);
+    expect(res.body).not.toContain('SET_SECRET');
+    expect(res.body).not.toContain('OTHER_SECRET');
   });
 
   test('rejects unauthenticated admin secret metadata requests before listing names', async () => {

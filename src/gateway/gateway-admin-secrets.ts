@@ -9,7 +9,6 @@ import {
 export interface GatewayAdminSecretsResponse {
   secrets: RuntimeSecretMetadataEntry[];
   total: number;
-  filtered: number;
 }
 
 function isStoreSecretRef(value: unknown): value is {
@@ -65,7 +64,6 @@ export function getGatewayAdminSecrets(options: {
   const response = {
     secrets,
     total: secrets.length,
-    filtered: 0,
   };
 
   recordAuditEvent({
@@ -78,7 +76,6 @@ export function getGatewayAdminSecrets(options: {
       sourceIp: options.audit.sourceIp || null,
       visibleCount: response.secrets.length,
       totalCount: response.total,
-      filteredCount: response.filtered,
     },
   });
 

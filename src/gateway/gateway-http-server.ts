@@ -3289,11 +3289,6 @@ function handleApiAdminSecrets(
   req: IncomingMessage,
   res: ServerResponse,
 ): void {
-  if ((req.method || 'GET') !== 'GET') {
-    sendMethodNotAllowed(res);
-    return;
-  }
-
   const sessionPayload = getSessionAuthPayload(req);
 
   sendJson(
@@ -5625,8 +5620,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminOverview(res);
             return;
           }
-          if (pathname === '/api/admin/secrets') {
+          if (pathname === '/api/admin/secrets' && method === 'GET') {
             handleApiAdminSecrets(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/secrets') {
+            sendMethodNotAllowed(res);
             return;
           }
           if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {

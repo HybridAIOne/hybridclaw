@@ -99,6 +99,7 @@ interface SecretStoreReadResult {
 
 export interface RuntimeSecretFingerprint {
   length: number;
+  /** Short display identifier only; not a uniqueness or collision guarantee. */
   sha256_prefix: string;
 }
 
