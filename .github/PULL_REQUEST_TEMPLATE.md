@@ -66,7 +66,7 @@ Complete this section for PRs labeled `security`, `auth`, `credentials`,
 `secrets`, `integrations`, or for any change that reads, stores, injects,
 displays, logs, traces, audits, deletes, or documents credential material.
 
-Threat model: `docs/security/threat-model.md`
+Threat model: [docs/security/threat-model.md](docs/security/threat-model.md)
 
 - [ ] Secret classes are identified, or this PR explains why none apply.
 - [ ] Raw secret values stay out of prompts, memory, transcripts, audit logs,
