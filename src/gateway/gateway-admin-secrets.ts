@@ -53,24 +53,19 @@ function listDeclaredRuntimeSecretNames(): string[] {
 }
 
 export function getGatewayAdminSecrets(options: {
-  canListSecret?: (name: string) => boolean;
   audit: {
     sessionId?: string;
     actor?: string | null;
     sourceIp?: string | null;
   };
 }): GatewayAdminSecretsResponse {
-  const allSecrets = listRuntimeSecretMetadata({
+  const secrets = listRuntimeSecretMetadata({
     declaredNames: listDeclaredRuntimeSecretNames(),
   });
-  const filterFn = options.canListSecret;
-  const secrets = filterFn
-    ? allSecrets.filter((entry) => filterFn(entry.name))
-    : allSecrets;
   const response = {
     secrets,
-    total: allSecrets.length,
-    filtered: allSecrets.length - secrets.length,
+    total: secrets.length,
+    filtered: 0,
   };
 
   recordAuditEvent({

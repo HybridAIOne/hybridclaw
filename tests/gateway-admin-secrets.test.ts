@@ -159,22 +159,27 @@ describe('gateway admin secrets metadata', () => {
     );
   });
 
-  test('filters entries through the supplied per-secret predicate', async () => {
-    const { adminSecrets, runtimeSecrets } = await importAdminSecrets();
-    runtimeSecrets.saveNamedRuntimeSecrets({
-      SET_SECRET: 'super-secret-value',
-      OTHER_SECRET: 'other-secret-value',
-    });
+  test('always emits an audit event for metadata listing', async () => {
+    const { adminSecrets, recordAuditEvent } = await importAdminSecrets();
 
     const response = adminSecrets.getGatewayAdminSecrets({
-      canListSecret: (name) => name.startsWith('SET_'),
       audit: {
         actor: 'admin-user',
       },
     });
 
-    expect(response.secrets.map((entry) => entry.name)).toEqual(['SET_SECRET']);
-    expect(response.total).toBeGreaterThan(1);
-    expect(response.filtered).toBe(response.total - 1);
+    expect(response.filtered).toBe(0);
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'admin-user',
+        event: expect.objectContaining({
+          type: 'secret.viewed_metadata',
+          actor: 'admin-user',
+          visibleCount: response.secrets.length,
+          totalCount: response.total,
+          filteredCount: 0,
+        }),
+      }),
+    );
   });
 });

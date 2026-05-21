@@ -720,34 +720,29 @@ async function importFreshHealth(options?: {
       topModels: [],
     },
   }));
-  const getGatewayAdminSecrets = vi.fn(
-    (params?: { canListSecret?: (name: string) => boolean }) => {
-      const secrets = [
-        {
-          name: 'SET_SECRET',
-          state: 'set' as const,
-          created_at: '2026-05-17T10:00:00.000Z',
-          last_rotated_at: '2026-05-17T10:00:00.000Z',
-          fingerprint: {
-            length: 12,
-            sha256_prefix: '0123456789ab',
-          },
+  const getGatewayAdminSecrets = vi.fn(() => ({
+    secrets: [
+      {
+        name: 'SET_SECRET',
+        state: 'set' as const,
+        created_at: '2026-05-17T10:00:00.000Z',
+        last_rotated_at: '2026-05-17T10:00:00.000Z',
+        fingerprint: {
+          length: 12,
+          sha256_prefix: '0123456789ab',
         },
-        {
-          name: 'OTHER_SECRET',
-          state: 'unset' as const,
-          created_at: null,
-          last_rotated_at: null,
-          fingerprint: null,
-        },
-      ].filter((entry) => params?.canListSecret?.(entry.name) ?? true);
-      return {
-        secrets,
-        total: 2,
-        filtered: 2 - secrets.length,
-      };
-    },
-  );
+      },
+      {
+        name: 'OTHER_SECRET',
+        state: 'unset' as const,
+        created_at: null,
+        last_rotated_at: null,
+        fingerprint: null,
+      },
+    ],
+    total: 2,
+    filtered: 0,
+  }));
   const reconnectTunnelStatus = {
     provider: 'ngrok',
     publicUrl: 'https://next-public.example.test',
@@ -4715,7 +4710,6 @@ describe('gateway HTTP server', () => {
         cookie: makeSessionCookie(authSecret, {
           sessionId: 'admin-session-1',
           actor: 'admin-user',
-          actions: ['secret.list_metadata'],
         }),
       },
     });
@@ -4725,7 +4719,6 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(state.getGatewayAdminSecrets).toHaveBeenCalledWith({
-      canListSecret: expect.any(Function),
       audit: {
         sessionId: 'admin-session-1',
         actor: 'admin-user',
@@ -4759,17 +4752,11 @@ describe('gateway HTTP server', () => {
     expect(res.body).not.toContain('super-secret');
   });
 
-  test('rejects admin secret metadata requests without list permission', async () => {
-    const authSecret = 'secret-list-deny-secret';
-    const state = await importFreshHealth({ authSecret });
+  test('rejects unauthenticated admin secret metadata requests before listing names', async () => {
+    const state = await importFreshHealth();
     const req = makeRequest({
       url: '/api/admin/secrets',
-      headers: {
-        cookie: makeSessionCookie(authSecret, {
-          actor: 'audit-user',
-          actions: ['audit.read'],
-        }),
-      },
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -4777,46 +4764,9 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(403);
-    expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden' });
+    expect(res.statusCode).toBe(401);
     expect(res.body).not.toContain('SET_SECRET');
     expect(res.body).not.toContain('OTHER_SECRET');
-  });
-
-  test('applies admin secret metadata predicate filters', async () => {
-    const authSecret = 'secret-list-filter-secret';
-    const state = await importFreshHealth({ authSecret });
-    const req = makeRequest({
-      url: '/api/admin/secrets',
-      headers: {
-        cookie: makeSessionCookie(authSecret, {
-          actions: ['secret.list_metadata'],
-          secretListPatterns: ['SET_*'],
-        }),
-      },
-    });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-    await settle();
-
-    expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({
-      secrets: [
-        {
-          name: 'SET_SECRET',
-          state: 'set',
-          created_at: '2026-05-17T10:00:00.000Z',
-          last_rotated_at: '2026-05-17T10:00:00.000Z',
-          fingerprint: {
-            length: 12,
-            sha256_prefix: '0123456789ab',
-          },
-        },
-      ],
-      total: 2,
-      filtered: 1,
-    });
   });
 
   test('reconnects the admin tunnel for authorized API requests', async () => {

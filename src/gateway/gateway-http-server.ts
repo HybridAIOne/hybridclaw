@@ -268,7 +268,6 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
-const ADMIN_SECRET_LIST_METADATA_ACTION = 'secret.list_metadata';
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -1718,27 +1717,6 @@ function hasApiTokenValue(token: string): boolean {
   return Boolean(GATEWAY_API_TOKEN) && trimmed === GATEWAY_API_TOKEN;
 }
 
-function compileAdminSecretPattern(pattern: string): RegExp {
-  if (pattern === '*') return /^.*$/;
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`);
-}
-
-function collectStringValues(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => collectStringValues(entry));
-  }
-  if (typeof value === 'string') {
-    return value
-      .split(/[,\s]+/)
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
 function readRecordProperty(
   record: Record<string, unknown>,
   keys: string[],
@@ -1749,38 +1727,6 @@ function readRecordProperty(
     }
   }
   return undefined;
-}
-
-function extractRbacObject(
-  payload: Record<string, unknown>,
-): Record<string, unknown> {
-  return payload.rbac !== null &&
-    typeof payload.rbac === 'object' &&
-    !Array.isArray(payload.rbac)
-    ? (payload.rbac as Record<string, unknown>)
-    : {};
-}
-
-function collectAdminSessionActions(
-  payload: Record<string, unknown> | null,
-): Set<string> {
-  if (!payload) return new Set();
-  const rbac = extractRbacObject(payload);
-  return new Set([
-    ...collectStringValues(readRecordProperty(payload, ['actions'])),
-    ...collectStringValues(readRecordProperty(rbac, ['actions'])),
-  ]);
-}
-
-function collectAdminSecretListPatterns(
-  payload: Record<string, unknown> | null,
-): string[] {
-  if (!payload) return [];
-  const rbac = extractRbacObject(payload);
-  return [
-    ...collectStringValues(readRecordProperty(payload, ['secretListPatterns'])),
-    ...collectStringValues(readRecordProperty(rbac, ['secretListPatterns'])),
-  ];
 }
 
 function resolveAdminSessionActor(
@@ -1810,50 +1756,6 @@ function resolveAdminSessionAuditId(
     'actor',
   ]);
   return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function resolveAdminSecretsMetadataAccess(req: IncomingMessage): {
-  allowed: boolean;
-  actor: string | null;
-  sessionId: string | null;
-  canListSecret: (name: string) => boolean;
-} {
-  const payload = getSessionAuthPayload(req);
-  const actions = collectAdminSessionActions(payload);
-  if (
-    ![...actions].some(
-      (action) =>
-        action === '*' ||
-        action === 'secret.*' ||
-        action === ADMIN_SECRET_LIST_METADATA_ACTION,
-    )
-  ) {
-    return {
-      allowed: false,
-      actor: resolveAdminSessionActor(payload),
-      sessionId: resolveAdminSessionAuditId(payload),
-      canListSecret: () => false,
-    };
-  }
-
-  const patterns = collectAdminSecretListPatterns(payload);
-  if (patterns.length === 0) {
-    return {
-      allowed: true,
-      actor: resolveAdminSessionActor(payload),
-      sessionId: resolveAdminSessionAuditId(payload),
-      canListSecret: () => true,
-    };
-  }
-
-  const compiledPatterns = patterns.map(compileAdminSecretPattern);
-  return {
-    allowed: true,
-    actor: resolveAdminSessionActor(payload),
-    sessionId: resolveAdminSessionAuditId(payload),
-    canListSecret: (name) =>
-      compiledPatterns.some((pattern) => pattern.test(name)),
-  };
 }
 
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
@@ -3392,20 +3294,15 @@ function handleApiAdminSecrets(
     return;
   }
 
-  const access = resolveAdminSecretsMetadataAccess(req);
-  if (!access.allowed) {
-    sendJson(res, 403, { error: 'Forbidden' });
-    return;
-  }
+  const sessionPayload = getSessionAuthPayload(req);
 
   sendJson(
     res,
     200,
     getGatewayAdminSecrets({
-      canListSecret: access.canListSecret,
       audit: {
-        sessionId: access.sessionId || undefined,
-        actor: access.actor,
+        sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
+        actor: resolveAdminSessionActor(sessionPayload),
         sourceIp: req.socket.remoteAddress || null,
       },
     }),
