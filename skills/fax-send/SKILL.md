@@ -67,10 +67,10 @@ storage, or client records.
 - Do not use decorative emoji, checkmarks, sign-off text, or "ready to proceed"
   filler in fax responses.
 - When the user provides text content such as "Hallo Welt", use the helper's
-  direct text-file upload path after the stored Sinch defaults, stored
-  credential, and explicit approval are available. Do not ask the user to pass
-  project ID, service ID, or sender number per fax when the stored defaults are
-  configured.
+  direct text-file upload path after the sender fax number, stored Sinch
+  project/service defaults, stored credential, and explicit approval are
+  available. Do not ask the user to pass project ID or service ID per fax when
+  the stored defaults are configured.
 
 ## Scope
 
@@ -108,21 +108,20 @@ The helper emits either `secretHeaders: [{ name: "Authorization", secretName:
 "SINCH_FAX_BASIC_AUTH", prefix: "Basic" }]` or `bearerSecretName:
 "SINCH_FAX_OAUTH_TOKEN"` so the gateway injects the secret server-side.
 
-Store the Sinch account defaults once so normal sends do not need provider
-arguments:
+Store the Sinch project/service defaults once so normal sends do not need
+provider account arguments:
 
 ```bash
 hybridclaw secret set SINCH_FAX_PROJECT_ID "<sinch-project-id>"
 hybridclaw secret set SINCH_FAX_SERVICE_ID "<sinch-service-id>"
-hybridclaw secret set SINCH_FAX_SENDER_NUMBER "+493012345678"
 ```
 
 ## Default Workflow
 
 1. Confirm the recipient fax number in E.164 format and the content URL or text
-   upload content. Use stored `SINCH_FAX_PROJECT_ID`,
-   `SINCH_FAX_SERVICE_ID`, and `SINCH_FAX_SENDER_NUMBER` defaults unless the
-   user explicitly overrides them.
+   upload content. Confirm the sender fax number from the user. Use stored
+   `SINCH_FAX_PROJECT_ID` and `SINCH_FAX_SERVICE_ID` defaults unless the user
+   explicitly overrides them.
 2. Run `plan` for natural-language requests when details are incomplete.
 3. Require explicit operator approval before `fax.send`; faxing is an external
    document delivery action and can incur per-page cost.
@@ -158,6 +157,7 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --auth basic \
   --content-url https://example.com/signed-contract.pdf \
   --to +49891234567 \
+  --from +493012345678 \
   --page-count 3 \
   --label costCenter=legal \
   --operator-grant
@@ -212,6 +212,7 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
   --text "Hallo Welt" \
   --filename hallo-welt.txt \
   --to +498920931098 \
+  --from +493012345678 \
   --page-count 1 \
   --operator-grant
 ```

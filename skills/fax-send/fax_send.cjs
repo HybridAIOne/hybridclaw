@@ -10,7 +10,6 @@ const SINCH_BASIC_SECRET = 'SINCH_FAX_BASIC_AUTH';
 const SINCH_OAUTH_SECRET = 'SINCH_FAX_OAUTH_TOKEN';
 const SINCH_PROJECT_ID_SECRET = 'SINCH_FAX_PROJECT_ID';
 const SINCH_SERVICE_ID_SECRET = 'SINCH_FAX_SERVICE_ID';
-const SINCH_SENDER_NUMBER_SECRET = 'SINCH_FAX_SENDER_NUMBER';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 1_000_000;
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
@@ -26,7 +25,6 @@ const LIVE_EXECUTION = {
   requiresConfiguredSecrets: [
     SINCH_PROJECT_ID_SECRET,
     SINCH_SERVICE_ID_SECRET,
-    SINCH_SENDER_NUMBER_SECRET,
   ],
   requiresOneOfConfiguredSecrets: [SINCH_BASIC_SECRET, SINCH_OAUTH_SECRET],
   dryRunSafe:
@@ -105,7 +103,7 @@ Send options:
   --text <text>              Plain text to send as a direct .txt file upload.
   --filename <name>          File name for --text uploads. Default: message.txt.
   --to <number>              Recipient fax number in E.164 format.
-  --from <number>            Sender fax number. Defaults to SINCH_FAX_SENDER_NUMBER.
+  --from <number>            Sender fax number in E.164 format.
   --project-id <id>          Sinch project id. Defaults to SINCH_FAX_PROJECT_ID.
   --service-id <id>          Sinch fax service id. Defaults to SINCH_FAX_SERVICE_ID.
   --page-count <n>           Known PDF page count for page-based usage tracking.
@@ -330,11 +328,6 @@ function sinchServiceId(opts) {
   return requireNonEmpty(opts.serviceId, '--service-id');
 }
 
-function sinchSenderNumber(opts) {
-  if (!opts.from) return secretPlaceholder(SINCH_SENDER_NUMBER_SECRET);
-  return normalizePhoneNumber(opts.from, '--from');
-}
-
 function normalizePhoneNumber(value, label) {
   const compact = requireNonEmpty(value, label).replace(/[()\s.-]/gu, '');
   if (!/^\+[1-9]\d{6,14}$/u.test(compact)) {
@@ -488,7 +481,7 @@ function buildSendRequest(opts) {
   const projectId = sinchProjectPathSegment(opts);
   const payload = {
     to: normalizePhoneNumber(opts.to, '--to'),
-    from: sinchSenderNumber(opts),
+    from: normalizePhoneNumber(opts.from, '--from'),
     headerPageNumbers: opts.headerPageNumbers,
     serviceId: sinchServiceId(opts),
   };
@@ -681,7 +674,8 @@ function buildPlan(prompt) {
     requiredInputs: [
       'content URL or direct supported file',
       'recipient fax number in E.164 format',
-      'stored Sinch project id, service id, sender number, and credential',
+      'sender fax number in E.164 format',
+      'stored Sinch project id, service id, and credential',
       'operator approval for fax.send',
     ],
     costMeasurement: COST_MEASUREMENT,

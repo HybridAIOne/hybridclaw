@@ -38,7 +38,6 @@ test('fax-send skill manifest declares DACH fax metadata and guarded secrets', (
   expect(skill).toContain('SINCH_FAX_OAUTH_TOKEN');
   expect(skill).toContain('SINCH_FAX_PROJECT_ID');
   expect(skill).toContain('SINCH_FAX_SERVICE_ID');
-  expect(skill).toContain('SINCH_FAX_SENDER_NUMBER');
   expect(skill).toContain('fax.send.start');
   expect(skill).toContain('fax.send.delivered');
   expect(skill).toContain('fax.send.failed');
@@ -103,7 +102,6 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
   expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
     'SINCH_FAX_PROJECT_ID',
     'SINCH_FAX_SERVICE_ID',
-    'SINCH_FAX_SENDER_NUMBER',
   ]);
   expect(payload.auditEvents[0]).toMatchObject({
     eventType: 'fax.send.start',
@@ -117,13 +115,14 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
   expect(JSON.stringify(payload)).not.toContain('username:password');
 });
 
-test('fax-send helper uses stored Sinch defaults when account fields are omitted', () => {
+test('fax-send helper uses stored Sinch project/service defaults when omitted', () => {
   const payload = fax.buildSendRequest({
     provider: 'sinch',
     auth: 'basic',
     text: 'Hallo Welt',
     filename: 'hallo-welt.txt',
     to: '+498920931098',
+    from: '+493012345678',
     labels: [],
     operatorGrant: true,
     timeoutMs: 120000,
@@ -135,14 +134,12 @@ test('fax-send helper uses stored Sinch defaults when account fields are omitted
     'https://fax.api.sinch.com/v3/projects/<secret:SINCH_FAX_PROJECT_ID>/faxes',
   );
   expect(payload.httpRequest.body).toContain('<secret:SINCH_FAX_SERVICE_ID>');
-  expect(payload.httpRequest.body).toContain(
-    '<secret:SINCH_FAX_SENDER_NUMBER>',
-  );
+  expect(payload.httpRequest.body).not.toContain('SINCH_FAX_SENDER_NUMBER');
+  expect(payload.httpRequest.body).toContain('+493012345678');
   expect(payload.httpRequest.body).toContain('+498920931098');
   expect(payload.liveExecution.requiresConfiguredSecrets).toEqual([
     'SINCH_FAX_PROJECT_ID',
     'SINCH_FAX_SERVICE_ID',
-    'SINCH_FAX_SENDER_NUMBER',
   ]);
 });
 
