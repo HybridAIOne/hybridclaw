@@ -28,7 +28,7 @@ const LIVE_EXECUTION = {
   approvalPolicy:
     'fax.send requires explicit operator approval because it sends an external document and can incur per-page cost.',
   callPolicy:
-    'Use this helper as the API wrapper. Pass only the emitted httpRequest object to http_request for live provider calls. After http_request returns, stop tool use for that send attempt and summarize the provider result.',
+    'Use this helper as the API wrapper. Pass only the emitted httpRequest object to http_request for live provider calls. After http_request returns, stop tool use for that send attempt and summarize the provider result once.',
   secretRefPolicy:
     'Do not inspect, print, or ask for fax provider secrets. The helper emits secret-backed Authorization metadata for gateway injection.',
   requestShape:
@@ -36,7 +36,7 @@ const LIVE_EXECUTION = {
   unauthorizedPolicy:
     'If a live provider call returns 401 or 403, stop after the first failure and ask the operator to verify the stored credential.',
   terminalProviderResponsePolicy:
-    'A Sinch response, including 4xx or 5xx, is the result of the send attempt. Report the status and response details; do not continue with web_fetch, web_search, local PDF creation, source inspection, or a second provider request.',
+    'A Sinch response, including 4xx or 5xx, is the result of the send attempt. Report the status and response details in one summary; do not duplicate the status sentence in markdown and plain text, ask to retry, or continue with web_fetch, web_search, local PDF creation, source inspection, or a second provider request.',
 };
 
 const PROVIDER_REFERENCE = [

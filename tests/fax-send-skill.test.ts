@@ -44,6 +44,7 @@ test('fax-send skill manifest declares DACH fax metadata and guarded secrets', (
   expect(skill).toContain('UsageTotals');
   expect(skill).toContain('unit: fax-page');
   expect(skill).toContain('Return exactly one user-facing summary');
+  expect(skill).toContain('write the status sentence once');
   expect(skill).toContain('text content such as "Hallo Welt"');
   expect(skill).toContain('A live `http_request` to Sinch is terminal');
   expect(skill).toContain('Do not use `web_search`');
@@ -105,11 +106,14 @@ test('fax-send helper builds Sinch send request with secret-backed Basic auth', 
     'SINCH_FAX_PROJECT_ID',
   ]);
   expect(payload.liveExecution.callPolicy).toContain(
-    'After http_request returns, stop tool use',
+    'summarize the provider result once',
   );
   expect(payload.liveExecution.requestShape).toContain('do not generate PDFs');
   expect(payload.liveExecution.terminalProviderResponsePolicy).toContain(
-    'do not continue with web_fetch',
+    'do not duplicate the status sentence',
+  );
+  expect(payload.liveExecution.terminalProviderResponsePolicy).toContain(
+    'ask to retry',
   );
   expect(payload.auditEvents[0]).toMatchObject({
     eventType: 'fax.send.start',

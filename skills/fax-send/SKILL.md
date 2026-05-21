@@ -63,6 +63,8 @@ storage, or client records.
 
 - Return exactly one user-facing summary per fax request. Do not restate the
   same plan, missing-input list, or no-send notice in a second format.
+- For provider results, write the status sentence once. Do not emit both a
+  markdown-styled version and a plain-text duplicate of the same sentence.
 - Do not use decorative emoji, checkmarks, sign-off text, or "ready to proceed"
   filler in fax responses.
 - If setup is blocked by missing secrets, report each missing secret exactly
@@ -77,8 +79,8 @@ storage, or client records.
 - A live `http_request` to Sinch is terminal for that send attempt. After it
   returns, stop and report the provider result. Do not use `web_search`,
   `web_fetch`, the PDF skill, local PDF scripts, helper source inspection, or
-  ad hoc replacement requests unless the user explicitly asks for debugging in
-  a new turn.
+  ad hoc replacement requests, and do not ask to retry in the same response,
+  unless the user explicitly asks for debugging in a new turn.
 
 ## Scope
 
