@@ -742,6 +742,31 @@ async function importFreshHealth(options?: {
     ],
     total: 2,
   }));
+  const overwriteGatewayAdminSecret = vi.fn(
+    (params: { name: string; value: unknown }) => ({
+      secret: {
+        name: params.name,
+        state: 'set' as const,
+        created_at: '2026-05-17T10:00:00.000Z',
+        last_rotated_at: '2026-05-17T10:10:00.000Z',
+        fingerprint: {
+          length: String(params.value || '').length,
+          sha256_prefix: 'fedcba987654',
+        },
+      },
+    }),
+  );
+  const unsetGatewayAdminSecret = vi.fn((params: { name: string }) => ({
+    secret: {
+      name: params.name,
+      state: 'unset' as const,
+      created_at: null,
+      last_rotated_at: null,
+      fingerprint: null,
+    },
+  }));
+  const recordGatewayAdminSecretMutationDenied = vi.fn();
+  const recordGatewayAdminSecretMutationFailure = vi.fn();
   const reconnectTunnelStatus = {
     provider: 'ngrok',
     publicUrl: 'https://next-public.example.test',
@@ -1783,6 +1808,10 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/gateway/gateway-admin-secrets.js', () => ({
     getGatewayAdminSecrets,
+    overwriteGatewayAdminSecret,
+    recordGatewayAdminSecretMutationDenied,
+    recordGatewayAdminSecretMutationFailure,
+    unsetGatewayAdminSecret,
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
@@ -1864,6 +1893,10 @@ async function importFreshHealth(options?: {
     forkSessionBranch,
     getGatewayAdminOverview,
     getGatewayAdminSecrets,
+    overwriteGatewayAdminSecret,
+    recordGatewayAdminSecretMutationDenied,
+    recordGatewayAdminSecretMutationFailure,
+    unsetGatewayAdminSecret,
     getGatewayAdminStatistics,
     reconnectTunnelStatus,
     reconnectGatewayAdminTunnel,
@@ -4782,6 +4815,224 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(401);
     expect(res.body).not.toContain('SET_SECRET');
     expect(res.body).not.toContain('OTHER_SECRET');
+  });
+
+  test('overwrites an admin secret without echoing the submitted value', async () => {
+    const authSecret = 'secret-overwrite-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: { value: 'rotated-super-secret' },
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          actions: ['secret.overwrite'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.overwriteGatewayAdminSecret).toHaveBeenCalledWith({
+      name: 'SET_SECRET',
+      value: 'rotated-super-secret',
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      secret: {
+        name: 'SET_SECRET',
+        state: 'set',
+        fingerprint: {
+          sha256_prefix: 'fedcba987654',
+        },
+      },
+    });
+    expect(res.body).not.toContain('rotated-super-secret');
+  });
+
+  test('unsets an admin secret by name', async () => {
+    const authSecret = 'secret-unset-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/secrets/SET_SECRET',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          permissions: ['secret.unset'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.unsetGatewayAdminSecret).toHaveBeenCalledWith({
+      name: 'SET_SECRET',
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      secret: {
+        name: 'SET_SECRET',
+        state: 'unset',
+        created_at: null,
+        last_rotated_at: null,
+        fingerprint: null,
+      },
+    });
+  });
+
+  test('returns 405 for admin secret read-back routes without leaking existence', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/secrets/SET_SECRET',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(405);
+    expect(res.body).not.toContain('SET_SECRET');
+    expect(res.body).not.toContain('OTHER_SECRET');
+  });
+
+  test('denies admin secret overwrite before reading or persisting the body', async () => {
+    const authSecret = 'secret-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: { value: 'denied-super-secret' },
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          actions: ['secret.list_metadata'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.recordGatewayAdminSecretMutationDenied).toHaveBeenCalledWith({
+      type: 'secret.overwritten',
+      name: 'SET_SECRET',
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'forbidden',
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.body).not.toContain('denied-super-secret');
+  });
+
+  test('audits unauthenticated admin secret overwrite attempts without reading the body', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: { value: 'unauthenticated-super-secret' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
+      type: 'secret.overwritten',
+      name: 'SET_SECRET',
+      audit: {
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'unauthorized',
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.body).not.toContain('unauthenticated-super-secret');
+  });
+
+  test('audits unauthenticated admin secret unset attempts', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/secrets/SET_SECRET',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.unsetGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
+      type: 'secret.unset',
+      name: 'SET_SECRET',
+      audit: {
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'unauthorized',
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  test('audits malformed admin secret overwrite bodies without cleartext', async () => {
+    const authSecret = 'secret-bad-body-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: '{"value":"bad-json-secret"',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          actions: ['secret.overwrite'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
+      type: 'secret.overwritten',
+      name: 'SET_SECRET',
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'bad_request',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).not.toContain('bad-json-secret');
   });
 
   test('reconnects the admin tunnel for authorized API requests', async () => {
