@@ -17,6 +17,7 @@ import type {
   GatewayStatus,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -24,12 +25,66 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import {
+  Field,
+  FieldContent,
+  FieldError,
+  FieldLabel,
+} from '../components/field';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import { NumberField } from '../components/number-field';
+import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
-import { BooleanField, BooleanPill, PageHeader } from '../components/ui';
+import { BooleanPill, PageHeader } from '../components/ui';
+import { useFormMutation } from '../hooks/use-form-mutation';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
 import { buildChannelCatalog } from './channels-catalog';
+
+const BOARD_STATUSES = [
+  'backlog',
+  'in_progress',
+  'review',
+  'done',
+  'cancelled',
+] as const;
+type BoardStatus = (typeof BOARD_STATUSES)[number];
+
+const SCHEDULE_KINDS = ['cron', 'every', 'at', 'one_shot'] as const;
+type ScheduleKind = (typeof SCHEDULE_KINDS)[number];
+
+const ACTION_KINDS = ['agent_turn', 'system_event'] as const;
+type ActionKind = (typeof ACTION_KINDS)[number];
+
+const DELIVERY_KINDS = ['channel', 'last-channel', 'webhook'] as const;
+type DeliveryKind = (typeof DELIVERY_KINDS)[number];
+
+function asBoardStatus(value: string, fallback: BoardStatus): BoardStatus {
+  return (BOARD_STATUSES as readonly string[]).includes(value)
+    ? (value as BoardStatus)
+    : fallback;
+}
+
+function asScheduleKind(value: string, fallback: ScheduleKind): ScheduleKind {
+  return (SCHEDULE_KINDS as readonly string[]).includes(value)
+    ? (value as ScheduleKind)
+    : fallback;
+}
+
+function asActionKind(value: string, fallback: ActionKind): ActionKind {
+  return (ACTION_KINDS as readonly string[]).includes(value)
+    ? (value as ActionKind)
+    : fallback;
+}
+
+function asDeliveryKind(value: string, fallback: DeliveryKind): DeliveryKind {
+  return (DELIVERY_KINDS as readonly string[]).includes(value)
+    ? (value as DeliveryKind)
+    : fallback;
+}
 
 interface SchedulerDraft {
   originalId: string | null;
@@ -37,17 +92,17 @@ interface SchedulerDraft {
   name: string;
   description: string;
   agentId: string;
-  boardStatus: 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
+  boardStatus: BoardStatus;
   enabled: boolean;
-  scheduleKind: 'cron' | 'every' | 'at' | 'one_shot';
+  scheduleKind: ScheduleKind;
   scheduleExpr: string;
-  scheduleEveryMs: string;
+  scheduleEveryMs: number;
   scheduleAt: string;
   scheduleTz: string;
-  maxRetries: string;
-  actionKind: 'agent_turn' | 'system_event';
+  maxRetries: number;
+  actionKind: ActionKind;
   actionMessage: string;
-  deliveryKind: 'channel' | 'last-channel' | 'webhook';
+  deliveryKind: DeliveryKind;
   deliveryChannel: string;
   deliveryTo: string;
   deliveryWebhookUrl: string;
@@ -152,14 +207,10 @@ function createDraft(source?: AdminSchedulerJob): SchedulerDraft {
     enabled: source?.enabled ?? true,
     scheduleKind: source?.schedule.kind || 'cron',
     scheduleExpr: source?.schedule.expr || '0 * * * *',
-    scheduleEveryMs:
-      source?.schedule.everyMs == null
-        ? '60000'
-        : String(source.schedule.everyMs),
+    scheduleEveryMs: source?.schedule.everyMs ?? 60_000,
     scheduleAt: toDateTimeLocal(source?.schedule.at || null),
     scheduleTz: source?.schedule.tz || '',
-    maxRetries:
-      typeof source?.maxRetries === 'number' ? String(source.maxRetries) : '3',
+    maxRetries: typeof source?.maxRetries === 'number' ? source.maxRetries : 3,
     actionKind: source?.action.kind || 'agent_turn',
     actionMessage: source?.action.message || '',
     deliveryKind: source?.delivery.kind || 'channel',
@@ -470,21 +521,6 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
   if (draft.scheduleKind === 'at' && !at) {
     throw new Error('Pick a valid "Run at" timestamp.');
   }
-  const parsedMaxRetries =
-    draft.scheduleKind === 'one_shot'
-      ? Number.parseInt(draft.maxRetries, 10)
-      : null;
-  const maxRetries =
-    parsedMaxRetries == null ? null : Math.floor(parsedMaxRetries);
-  if (
-    draft.scheduleKind === 'one_shot' &&
-    (!Number.isFinite(parsedMaxRetries) ||
-      maxRetries == null ||
-      maxRetries < 0 ||
-      maxRetries > 100)
-  ) {
-    throw new Error('Pick a valid retry count from 0 to 100.');
-  }
 
   return {
     id: draft.id.trim(),
@@ -493,15 +529,12 @@ function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
     description: draft.description.trim() || null,
     agentId: draft.agentId.trim() || null,
     boardStatus: draft.boardStatus,
-    maxRetries: draft.scheduleKind === 'one_shot' ? maxRetries : null,
+    maxRetries: draft.scheduleKind === 'one_shot' ? draft.maxRetries : null,
     enabled: draft.enabled,
     schedule: {
       kind: draft.scheduleKind,
       at,
-      everyMs:
-        draft.scheduleKind === 'every'
-          ? Number.parseInt(draft.scheduleEveryMs, 10) || 0
-          : null,
+      everyMs: draft.scheduleKind === 'every' ? draft.scheduleEveryMs : null,
       expr:
         draft.scheduleKind === 'cron'
           ? draft.scheduleExpr.trim() || null
@@ -633,7 +666,12 @@ function SchedulerJobEditor(props: {
   savePending: boolean;
   pausePending: boolean;
   deletePending: boolean;
+  everyMsError: string | null;
+  maxRetriesError: string | null;
+  saveDisabled: boolean;
   onDraftChange: (update: (current: SchedulerDraft) => SchedulerDraft) => void;
+  onEveryMsErrorChange: (error: string | null) => void;
+  onMaxRetriesErrorChange: (error: string | null) => void;
   onSave: () => void;
   onCancel: () => void;
   onPauseToggle: () => void;
@@ -649,9 +687,9 @@ function SchedulerJobEditor(props: {
       <CardContent>
         <div className="stack-form">
           <div className="field-grid">
-            <label className="field">
-              <span>ID</span>
-              <input
+            <Field>
+              <FieldLabel>ID</FieldLabel>
+              <Input
                 value={draft.id}
                 onChange={(event) =>
                   props.onDraftChange((current) => ({
@@ -661,10 +699,10 @@ function SchedulerJobEditor(props: {
                 }
                 placeholder="Auto-generated from name if blank"
               />
-            </label>
-            <label className="field">
-              <span>Name</span>
-              <input
+            </Field>
+            <Field>
+              <FieldLabel>Name</FieldLabel>
+              <Input
                 value={draft.name}
                 onChange={(event) =>
                   props.onDraftChange((current) => ({
@@ -674,12 +712,12 @@ function SchedulerJobEditor(props: {
                 }
                 placeholder="Nightly research"
               />
-            </label>
+            </Field>
           </div>
 
-          <label className="field">
-            <span>Description</span>
-            <input
+          <Field>
+            <FieldLabel>Description</FieldLabel>
+            <Input
               value={draft.description}
               onChange={(event) =>
                 props.onDraftChange((current) => ({
@@ -689,73 +727,81 @@ function SchedulerJobEditor(props: {
               }
               placeholder="Optional"
             />
-          </label>
+          </Field>
 
           <div className="field-grid">
-            <label className="field">
-              <span>Status</span>
-              <select
+            <Field>
+              <FieldLabel>Status</FieldLabel>
+              <NativeSelect
                 value={draft.boardStatus}
                 onChange={(event) =>
                   props.onDraftChange((current) => ({
                     ...current,
-                    boardStatus: event.target
-                      .value as SchedulerDraft['boardStatus'],
+                    boardStatus: asBoardStatus(
+                      event.target.value,
+                      current.boardStatus,
+                    ),
                   }))
                 }
               >
-                <option value="backlog">backlog</option>
-                <option value="in_progress">in progress</option>
-                <option value="review">review</option>
-                <option value="done">done</option>
-                <option value="cancelled">cancelled</option>
-              </select>
-            </label>
-            <BooleanField
-              label="State"
-              value={draft.enabled}
-              trueLabel="on"
-              falseLabel="off"
-              onChange={(enabled) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  enabled,
-                }))
-              }
-            />
+                <NativeSelectOption value="backlog">backlog</NativeSelectOption>
+                <NativeSelectOption value="in_progress">
+                  in progress
+                </NativeSelectOption>
+                <NativeSelectOption value="review">review</NativeSelectOption>
+                <NativeSelectOption value="done">done</NativeSelectOption>
+                <NativeSelectOption value="cancelled">
+                  cancelled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+            <Field orientation="horizontal">
+              <Switch
+                checked={draft.enabled}
+                onCheckedChange={(enabled) =>
+                  props.onDraftChange((current) => ({ ...current, enabled }))
+                }
+              />
+              <FieldContent>
+                <FieldLabel>State</FieldLabel>
+              </FieldContent>
+            </Field>
           </div>
 
           <div className="field-grid">
-            <label className="field">
-              <span>Schedule</span>
-              <select
+            <Field>
+              <FieldLabel>Schedule</FieldLabel>
+              <NativeSelect
                 value={draft.scheduleKind}
                 onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    scheduleKind: event.target
-                      .value as SchedulerDraft['scheduleKind'],
-                    boardStatus:
-                      event.target.value === 'one_shot'
-                        ? 'backlog'
-                        : current.boardStatus,
-                    maxRetries:
-                      event.target.value === 'one_shot'
-                        ? current.maxRetries.trim() || '3'
-                        : current.maxRetries,
-                  }))
+                  props.onDraftChange((current) => {
+                    const nextKind = asScheduleKind(
+                      event.target.value,
+                      current.scheduleKind,
+                    );
+                    return {
+                      ...current,
+                      scheduleKind: nextKind,
+                      boardStatus:
+                        nextKind === 'one_shot'
+                          ? 'backlog'
+                          : current.boardStatus,
+                    };
+                  })
                 }
               >
-                <option value="cron">cron</option>
-                <option value="every">every</option>
-                <option value="at">at</option>
-                <option value="one_shot">one shot</option>
-              </select>
-            </label>
+                <NativeSelectOption value="cron">cron</NativeSelectOption>
+                <NativeSelectOption value="every">every</NativeSelectOption>
+                <NativeSelectOption value="at">at</NativeSelectOption>
+                <NativeSelectOption value="one_shot">
+                  one shot
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
             {draft.scheduleKind !== 'one_shot' ? (
-              <label className="field">
-                <span>Timezone</span>
-                <input
+              <Field>
+                <FieldLabel>Timezone</FieldLabel>
+                <Input
                   value={draft.scheduleTz}
                   onChange={(event) =>
                     props.onDraftChange((current) => ({
@@ -765,14 +811,14 @@ function SchedulerJobEditor(props: {
                   }
                   placeholder="Europe/Berlin"
                 />
-              </label>
+              </Field>
             ) : null}
           </div>
 
           {draft.scheduleKind === 'cron' ? (
-            <label className="field">
-              <span>Cron</span>
-              <input
+            <Field>
+              <FieldLabel>Cron</FieldLabel>
+              <Input
                 value={draft.scheduleExpr}
                 onChange={(event) =>
                   props.onDraftChange((current) => ({
@@ -782,29 +828,33 @@ function SchedulerJobEditor(props: {
                 }
                 placeholder="0 * * * *"
               />
-            </label>
+            </Field>
           ) : null}
 
           {draft.scheduleKind === 'every' ? (
-            <label className="field">
-              <span>Every ms</span>
-              <input
+            <Field invalid={Boolean(props.everyMsError)}>
+              <FieldLabel>Every ms</FieldLabel>
+              <NumberField
+                integer
+                min={1}
                 value={draft.scheduleEveryMs}
-                onChange={(event) =>
+                onValueChange={(scheduleEveryMs) =>
                   props.onDraftChange((current) => ({
                     ...current,
-                    scheduleEveryMs: event.target.value,
+                    scheduleEveryMs,
                   }))
                 }
+                onErrorChange={props.onEveryMsErrorChange}
                 placeholder="60000"
               />
-            </label>
+              <FieldError>{props.everyMsError}</FieldError>
+            </Field>
           ) : null}
 
           {draft.scheduleKind === 'at' ? (
-            <label className="field">
-              <span>Run at</span>
-              <input
+            <Field>
+              <FieldLabel>Run at</FieldLabel>
+              <Input
                 type="datetime-local"
                 value={draft.scheduleAt}
                 onChange={(event) =>
@@ -814,68 +864,76 @@ function SchedulerJobEditor(props: {
                   }))
                 }
               />
-            </label>
+            </Field>
           ) : null}
 
           {draft.scheduleKind === 'one_shot' ? (
-            <label className="field">
-              <span>Retries after failure</span>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="1"
+            <Field invalid={Boolean(props.maxRetriesError)}>
+              <FieldLabel>Retries after failure</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                max={100}
                 value={draft.maxRetries}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    maxRetries: event.target.value,
-                  }))
+                onValueChange={(maxRetries) =>
+                  props.onDraftChange((current) => ({ ...current, maxRetries }))
                 }
+                onErrorChange={props.onMaxRetriesErrorChange}
                 placeholder="3"
               />
-            </label>
+              <FieldError>{props.maxRetriesError}</FieldError>
+            </Field>
           ) : null}
 
           <div className="field-grid">
-            <label className="field">
-              <span>Action</span>
-              <select
+            <Field>
+              <FieldLabel>Action</FieldLabel>
+              <NativeSelect
                 value={draft.actionKind}
                 onChange={(event) =>
                   props.onDraftChange((current) => ({
                     ...current,
-                    actionKind: event.target
-                      .value as SchedulerDraft['actionKind'],
+                    actionKind: asActionKind(
+                      event.target.value,
+                      current.actionKind,
+                    ),
                   }))
                 }
               >
-                <option value="agent_turn">agent_turn</option>
-                <option value="system_event">system_event</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Delivery</span>
-              <select
+                <NativeSelectOption value="agent_turn">
+                  agent_turn
+                </NativeSelectOption>
+                <NativeSelectOption value="system_event">
+                  system_event
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+            <Field>
+              <FieldLabel>Delivery</FieldLabel>
+              <NativeSelect
                 value={draft.deliveryKind}
                 onChange={(event) =>
                   props.onDraftChange((current) => ({
                     ...current,
-                    deliveryKind: event.target
-                      .value as SchedulerDraft['deliveryKind'],
+                    deliveryKind: asDeliveryKind(
+                      event.target.value,
+                      current.deliveryKind,
+                    ),
                   }))
                 }
               >
-                <option value="channel">channel</option>
-                <option value="last-channel">last-channel</option>
-                <option value="webhook">webhook</option>
-              </select>
-            </label>
+                <NativeSelectOption value="channel">channel</NativeSelectOption>
+                <NativeSelectOption value="last-channel">
+                  last-channel
+                </NativeSelectOption>
+                <NativeSelectOption value="webhook">webhook</NativeSelectOption>
+              </NativeSelect>
+            </Field>
           </div>
 
-          <label className="field">
-            <span>Message</span>
-            <textarea
+          <Field>
+            <FieldLabel>Message</FieldLabel>
+            <Textarea
               rows={4}
               value={draft.actionMessage}
               onChange={(event) =>
@@ -886,13 +944,13 @@ function SchedulerJobEditor(props: {
               }
               placeholder="Prompt or system-event message"
             />
-          </label>
+          </Field>
 
           {draft.deliveryKind === 'channel' ? (
             <div className="field-grid">
-              <label className="field">
-                <span>Channel type</span>
-                <select
+              <Field>
+                <FieldLabel>Channel type</FieldLabel>
+                <NativeSelect
                   value={draft.deliveryChannel}
                   onChange={(event) =>
                     props.onDraftChange((current) => ({
@@ -903,16 +961,16 @@ function SchedulerJobEditor(props: {
                   }
                 >
                   {props.channelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
+                    <NativeSelectOption key={option.value} value={option.value}>
                       {option.label}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
-              </label>
+                </NativeSelect>
+              </Field>
               {props.targetControl.kind === 'select' ? (
-                <label className="field">
-                  <span>{props.targetControl.label}</span>
-                  <select
+                <Field>
+                  <FieldLabel>{props.targetControl.label}</FieldLabel>
+                  <NativeSelect
                     value={props.targetControl.value}
                     onChange={(event) =>
                       props.onDraftChange((current) => ({
@@ -922,17 +980,20 @@ function SchedulerJobEditor(props: {
                     }
                   >
                     {props.targetControl.options.map((option) => (
-                      <option key={option.value} value={option.value}>
+                      <NativeSelectOption
+                        key={option.value}
+                        value={option.value}
+                      >
                         {option.label}
-                      </option>
+                      </NativeSelectOption>
                     ))}
-                  </select>
-                </label>
+                  </NativeSelect>
+                </Field>
               ) : null}
               {props.targetControl.kind === 'input' ? (
-                <label className="field">
-                  <span>{props.targetControl.label}</span>
-                  <input
+                <Field>
+                  <FieldLabel>{props.targetControl.label}</FieldLabel>
+                  <Input
                     value={props.targetControl.value}
                     onChange={(event) =>
                       props.onDraftChange((current) => ({
@@ -942,15 +1003,16 @@ function SchedulerJobEditor(props: {
                     }
                     placeholder={props.targetControl.placeholder}
                   />
-                </label>
+                </Field>
               ) : null}
             </div>
           ) : null}
 
           {draft.deliveryKind === 'webhook' ? (
-            <label className="field">
-              <span>Webhook URL</span>
-              <input
+            <Field>
+              <FieldLabel>Webhook URL</FieldLabel>
+              <Input
+                type="url"
                 value={draft.deliveryWebhookUrl}
                 onChange={(event) =>
                   props.onDraftChange((current) => ({
@@ -960,7 +1022,7 @@ function SchedulerJobEditor(props: {
                 }
                 placeholder="https://example.test/hook"
               />
-            </label>
+            </Field>
           ) : null}
 
           {selectedJob ? (
@@ -985,25 +1047,25 @@ function SchedulerJobEditor(props: {
           ) : null}
 
           <div className="button-row">
-            <button
-              className="primary-button"
+            <Button
               type="button"
-              disabled={props.savePending}
+              loading={props.savePending}
+              disabled={props.saveDisabled}
               onClick={props.onSave}
             >
               {props.savePending ? 'Saving...' : 'Save job'}
-            </button>
-            <button
-              className="ghost-button"
+            </Button>
+            <Button
+              variant="ghost"
               type="button"
               disabled={props.savePending}
               onClick={props.onCancel}
             >
               Cancel
-            </button>
+            </Button>
             {selectedJob ? (
-              <button
-                className="ghost-button"
+              <Button
+                variant="ghost"
                 type="button"
                 disabled={props.pausePending}
                 onClick={props.onPauseToggle}
@@ -1013,17 +1075,18 @@ function SchedulerJobEditor(props: {
                   : selectedJob.disabled
                     ? 'Resume job'
                     : 'Pause job'}
-              </button>
+              </Button>
             ) : null}
             {selectedJob ? (
-              <button
-                className="danger-button"
+              <Button
+                variant="danger"
                 type="button"
+                loading={props.deletePending}
                 disabled={props.deletePending}
                 onClick={props.onDelete}
               >
                 {props.deletePending ? 'Deleting...' : 'Delete job'}
-              </button>
+              </Button>
             ) : null}
           </div>
         </div>
@@ -1050,6 +1113,8 @@ export function SchedulerPage() {
     [navigate],
   );
   const [draft, setDraft] = useState<SchedulerDraft>(createDraft());
+  const [everyMsError, setEveryMsError] = useState<string | null>(null);
+  const [maxRetriesError, setMaxRetriesError] = useState<string | null>(null);
 
   const schedulerQuery = useQuery({
     queryKey: ['scheduler', auth.token],
@@ -1078,7 +1143,7 @@ export function SchedulerPage() {
     channels: channelsQuery.data,
   });
 
-  const saveMutation = useMutation({
+  const saveMutation = useFormMutation({
     mutationFn: (nextDraft: SchedulerDraft) =>
       saveSchedulerJob(auth.token, normalizeDraft(nextDraft)),
     onSuccess: (payload) => {
@@ -1086,9 +1151,13 @@ export function SchedulerPage() {
       void navigate({ to: '/admin/jobs' }).catch(logNavigationError);
     },
     onError: (error) => {
-      toast.error('Save failed', getErrorMessage(error));
+      toast.error('Save failed', error.message);
     },
+    invalidates: [['overview']],
   });
+
+  const formInvalid = Boolean(everyMsError) || Boolean(maxRetriesError);
+  const saveDisabled = saveMutation.isPending || formInvalid;
 
   const deleteMutation = useMutation({
     mutationFn: () => {
@@ -1165,8 +1234,8 @@ export function SchedulerPage() {
     <div className="page-stack">
       <PageHeader
         actions={
-          <button
-            className="ghost-button"
+          <Button
+            variant="ghost"
             type="button"
             onClick={() => {
               setSelectedId(null);
@@ -1174,7 +1243,7 @@ export function SchedulerPage() {
             }}
           >
             New job
-          </button>
+          </Button>
         }
       />
 
@@ -1242,7 +1311,12 @@ export function SchedulerPage() {
             savePending={saveMutation.isPending}
             pausePending={pauseMutation.isPending}
             deletePending={deleteMutation.isPending}
+            everyMsError={everyMsError}
+            maxRetriesError={maxRetriesError}
+            saveDisabled={saveDisabled}
             onDraftChange={(update) => setDraft((current) => update(current))}
+            onEveryMsErrorChange={setEveryMsError}
+            onMaxRetriesErrorChange={setMaxRetriesError}
             onSave={() => {
               const nextDraft = prepareDraftForSave(
                 applyResolvedTarget(draft, targetControl),

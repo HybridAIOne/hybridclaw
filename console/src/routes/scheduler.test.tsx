@@ -594,14 +594,16 @@ describe('SchedulerPage', () => {
     fireEvent.change(screen.getByLabelText('Retries after failure'), {
       target: { value: '101' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save job' }));
 
-    await waitFor(() => {
-      expect(saveSchedulerJobMock).not.toHaveBeenCalled();
-      expect(
-        screen.getByText('Pick a valid retry count from 0 to 100.'),
-      ).toBeTruthy();
-    });
+    // NumberField rejects the value inline — no commit, no need to click Save.
+    expect(screen.getByText('Must be ≤ 100.')).toBeTruthy();
+
+    const save = screen.getByRole('button', {
+      name: 'Save job',
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(saveSchedulerJobMock).not.toHaveBeenCalled();
   });
 
   it('shows a dropdown with enabled channel types', async () => {
