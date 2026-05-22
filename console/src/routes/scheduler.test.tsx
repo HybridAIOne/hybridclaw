@@ -11,7 +11,7 @@ import type {
   GatewayStatus,
 } from '../api/types';
 import { ToastProvider } from '../components/toast';
-import { normalizeSchedulerAtInput, SchedulerPage } from './scheduler';
+import { SchedulerPage } from './scheduler';
 
 const fetchChannelsMock = vi.fn<() => Promise<AdminChannelsResponse>>();
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
@@ -499,7 +499,7 @@ describe('SchedulerPage', () => {
         id: 'release-notes',
         schedule: expect.objectContaining({
           kind: 'at',
-          at: normalizeSchedulerAtInput('2026-04-07T22:00'),
+          at: new Date('2026-04-07T22:00').toISOString(),
         }),
       }),
     );

@@ -31,6 +31,8 @@ import {
   FieldError,
   FieldLabel,
 } from '../components/field';
+import { Combobox } from '../components/combobox';
+import { DateField } from '../components/date-field';
 import { Form, type UseFormReturn, useForm } from '../components/form';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
@@ -98,7 +100,7 @@ interface SchedulerDraft {
   scheduleKind: ScheduleKind;
   scheduleExpr: string;
   scheduleEveryMs: number;
-  scheduleAt: string;
+  scheduleAt: Date | null;
   scheduleTz: string;
   maxRetries: number;
   actionKind: ActionKind;
@@ -149,12 +151,10 @@ function isTaskJob(
   return job?.source === 'task';
 }
 
-function toDateTimeLocal(raw: string | null): string {
-  if (!raw) return '';
-  const value = new Date(raw);
-  if (Number.isNaN(value.getTime())) return '';
-  const offsetMs = value.getTimezoneOffset() * 60_000;
-  return new Date(value.getTime() - offsetMs).toISOString().slice(0, 16);
+function parseSchedulerAt(raw: string | null): Date | null {
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function formatSchedule(job: AdminSchedulerJob): string {
@@ -209,7 +209,7 @@ function createDraft(source?: AdminSchedulerJob): SchedulerDraft {
     scheduleKind: source?.schedule.kind || 'cron',
     scheduleExpr: source?.schedule.expr || '0 * * * *',
     scheduleEveryMs: source?.schedule.everyMs ?? 60_000,
-    scheduleAt: toDateTimeLocal(source?.schedule.at || null),
+    scheduleAt: parseSchedulerAt(source?.schedule.at || null),
     scheduleTz: source?.schedule.tz || '',
     maxRetries: typeof source?.maxRetries === 'number' ? source.maxRetries : 3,
     actionKind: source?.action.kind || 'agent_turn',
@@ -479,45 +479,10 @@ function prepareDraftForSave(draft: SchedulerDraft): SchedulerDraft {
   };
 }
 
-export function normalizeSchedulerAtInput(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return null;
-
-  const localDateTimeMatch = value.match(
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/,
-  );
-  if (localDateTimeMatch) {
-    const [, year, month, day, hour, minute, second = '0'] = localDateTimeMatch;
-    const parsed = new Date(
-      Number.parseInt(year, 10),
-      Number.parseInt(month, 10) - 1,
-      Number.parseInt(day, 10),
-      Number.parseInt(hour, 10),
-      Number.parseInt(minute, 10),
-      Number.parseInt(second, 10),
-    );
-    if (
-      parsed.getFullYear() !== Number.parseInt(year, 10) ||
-      parsed.getMonth() !== Number.parseInt(month, 10) - 1 ||
-      parsed.getDate() !== Number.parseInt(day, 10) ||
-      parsed.getHours() !== Number.parseInt(hour, 10) ||
-      parsed.getMinutes() !== Number.parseInt(minute, 10) ||
-      parsed.getSeconds() !== Number.parseInt(second, 10)
-    ) {
-      return null;
-    }
-    return parsed.toISOString();
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
-}
-
 function normalizeDraft(draft: SchedulerDraft): AdminSchedulerJob {
   const at =
-    draft.scheduleKind === 'at'
-      ? normalizeSchedulerAtInput(draft.scheduleAt)
+    draft.scheduleKind === 'at' && draft.scheduleAt
+      ? draft.scheduleAt.toISOString()
       : null;
   if (draft.scheduleKind === 'at' && !at) {
     throw new Error('Pick a valid "Run at" timestamp.');
@@ -854,16 +819,17 @@ function SchedulerJobEditor(props: {
             {draft.scheduleKind === 'at' ? (
               <Field>
                 <FieldLabel>Run at</FieldLabel>
-                <Input
-                  type="datetime-local"
+                <DateField
+                  required
                   value={draft.scheduleAt}
-                  onChange={(event) =>
+                  onValueChange={(scheduleAt) =>
                     props.onDraftChange((current) => ({
                       ...current,
-                      scheduleAt: event.target.value,
+                      scheduleAt,
                     }))
                   }
                 />
+                <FieldError />
               </Field>
             ) : null}
 
@@ -979,24 +945,16 @@ function SchedulerJobEditor(props: {
                 {props.targetControl.kind === 'select' ? (
                   <Field>
                     <FieldLabel>{props.targetControl.label}</FieldLabel>
-                    <NativeSelect
+                    <Combobox
                       value={props.targetControl.value}
-                      onChange={(event) =>
+                      onValueChange={(deliveryTo) =>
                         props.onDraftChange((current) => ({
                           ...current,
-                          deliveryTo: event.target.value,
+                          deliveryTo,
                         }))
                       }
-                    >
-                      {props.targetControl.options.map((option) => (
-                        <NativeSelectOption
-                          key={option.value}
-                          value={option.value}
-                        >
-                          {option.label}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
+                      options={props.targetControl.options}
+                    />
                   </Field>
                 ) : null}
                 {props.targetControl.kind === 'input' ? (
