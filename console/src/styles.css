@@ -1659,6 +1659,12 @@ th {
   width: fit-content;
 }
 
+.brand-voice-list-note {
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .brand-voice-score-panel {
   display: grid;
   gap: 10px;

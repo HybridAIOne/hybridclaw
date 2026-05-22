@@ -1449,7 +1449,6 @@ export interface AdminBrandVoiceRevision {
 }
 
 export interface AdminBrandVoiceProfileResponse {
-  configPath: string;
   profile: AdminBrandVoiceProfile;
   revisions: AdminBrandVoiceRevision[];
 }
@@ -1469,7 +1468,6 @@ export interface AdminBrandVoicePreviewResponse {
   score: number;
   verdict: 'on_brand' | 'needs_review' | 'off_brand';
   violations: AdminBrandVoicePreviewViolation[];
-  reasons: string[];
 }
 
 export interface AdminAdaptiveSkillErrorCluster {

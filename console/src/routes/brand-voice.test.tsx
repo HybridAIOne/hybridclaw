@@ -50,7 +50,6 @@ function renderBrandVoicePage() {
 beforeEach(() => {
   useAuthMock.mockReturnValue({ token: 'admin-token' });
   fetchBrandVoiceProfileMock.mockResolvedValue({
-    configPath: '/tmp/config.json',
     profile: {
       enabled: true,
       mode: 'rewrite',
@@ -73,7 +72,6 @@ beforeEach(() => {
     ],
   });
   saveBrandVoiceProfileMock.mockResolvedValue({
-    configPath: '/tmp/config.json',
     changed: true,
     reloadMessage: 'Plugin runtime reloaded.',
     profile: {
@@ -92,7 +90,6 @@ beforeEach(() => {
     score: 58,
     verdict: 'off_brand',
     violations: [{ kind: 'banned_phrase', detail: 'game changing' }],
-    reasons: ['Contains banned phrase "game changing".'],
   });
 });
 

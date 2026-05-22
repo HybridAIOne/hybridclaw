@@ -6,6 +6,7 @@ import {
   saveRuntimeConfig,
 } from '../config/runtime-config.js';
 import { listRuntimeConfigRevisions } from '../config/runtime-config-revisions.js';
+import { logger } from '../logger.js';
 import { reloadPluginRuntime } from './gateway-plugin-service.js';
 import type {
   GatewayAdminBrandVoicePreviewResponse,
@@ -19,6 +20,15 @@ import type {
 const BRAND_VOICE_PLUGIN_ID = 'brand-voice';
 const SUPPORTED_MODES = ['block', 'rewrite', 'flag'] as const;
 const BRAND_VOICE_REVISION_ROUTE = 'api.admin.brand-voice.profile';
+const MAX_PROFILE_LIST_ITEMS = 200;
+const MAX_PREVIEW_SAMPLE_CHARS = 50_000;
+const PREVIEW_SCORE = {
+  max: 100,
+  hardViolationPenalty: 30,
+  missingRequiredPenalty: 12,
+  onBrandMin: 90,
+  needsReviewMin: 70,
+} as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
@@ -28,8 +38,13 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeStringArray(value: unknown): string[] {
+function normalizeStringArray(value: unknown, fieldLabel: string): string[] {
   if (!Array.isArray(value)) return [];
+  if (value.length > MAX_PROFILE_LIST_ITEMS) {
+    throw new Error(
+      `${fieldLabel} cannot contain more than ${MAX_PROFILE_LIST_ITEMS} entries.`,
+    );
+  }
   const out: string[] = [];
   const seen = new Set<string>();
   for (const entry of value) {
@@ -78,14 +93,8 @@ function profileFromEntry(
 ): GatewayAdminBrandVoiceProfile {
   const pluginConfig = isRecord(entry?.config) ? entry.config : {};
   return {
+    ...normalizeProfile(pluginConfig),
     enabled: entry?.enabled !== false,
-    mode: normalizeMode(pluginConfig.mode),
-    voice: normalizeString(pluginConfig.voice),
-    doList: normalizeStringArray(pluginConfig.doList),
-    dontList: normalizeStringArray(pluginConfig.dontList),
-    bannedPhrases: normalizeStringArray(pluginConfig.bannedPhrases),
-    bannedPatterns: normalizeStringArray(pluginConfig.bannedPatterns),
-    requirePhrases: normalizeStringArray(pluginConfig.requirePhrases),
   };
 }
 
@@ -95,11 +104,14 @@ function normalizeProfile(value: unknown): GatewayAdminBrandVoiceProfile {
     enabled: raw.enabled !== false,
     mode: normalizeMode(raw.mode),
     voice: normalizeString(raw.voice),
-    doList: normalizeStringArray(raw.doList),
-    dontList: normalizeStringArray(raw.dontList),
-    bannedPhrases: normalizeStringArray(raw.bannedPhrases),
-    bannedPatterns: normalizeStringArray(raw.bannedPatterns),
-    requirePhrases: normalizeStringArray(raw.requirePhrases),
+    doList: normalizeStringArray(raw.doList, 'Do list'),
+    dontList: normalizeStringArray(raw.dontList, "Don't list"),
+    bannedPhrases: normalizeStringArray(raw.bannedPhrases, 'Banned phrases'),
+    bannedPatterns: normalizeStringArray(raw.bannedPatterns, 'Banned patterns'),
+    requirePhrases: normalizeStringArray(
+      raw.requirePhrases,
+      'Required phrases',
+    ),
   };
 }
 
@@ -134,7 +146,6 @@ function buildProfileResponse(
   config: RuntimeConfig,
 ): GatewayAdminBrandVoiceProfileResponse {
   return {
-    configPath: runtimeConfigPath(),
     profile: readProfileFromConfig(config),
     revisions: listBrandVoiceRevisions(),
   };
@@ -161,6 +172,7 @@ function applyProfileToConfig(
 function compilePattern(
   source: string,
 ): { pattern: RegExp; detail: string } | null {
+  // Keep slash-pattern parsing aligned with plugins/brand-voice/src/config.js.
   const trimmed = source.trim();
   if (!trimmed) return null;
   const slashMatch = /^\/(.+)\/([gimsuy]*)$/.exec(trimmed);
@@ -223,35 +235,29 @@ function scoreBrandVoicePreview(
   sample: string,
 ): GatewayAdminBrandVoicePreviewResponse {
   const violations = scoreViolations(profile, sample);
-  let score = 100;
+  let score: number = PREVIEW_SCORE.max;
   for (const violation of violations) {
     if (
       violation.kind === 'banned_phrase' ||
       violation.kind === 'banned_pattern'
     ) {
-      score -= 30;
+      score -= PREVIEW_SCORE.hardViolationPenalty;
     } else {
-      score -= 12;
+      score -= PREVIEW_SCORE.missingRequiredPenalty;
     }
   }
-  score = Math.max(0, Math.min(100, score));
+  score = Math.max(0, Math.min(PREVIEW_SCORE.max, score));
   const verdict =
-    score >= 90 ? 'on_brand' : score >= 70 ? 'needs_review' : 'off_brand';
-  const reasons = violations.map((violation) => {
-    if (violation.kind === 'banned_phrase') {
-      return `Contains banned phrase "${violation.detail}".`;
-    }
-    if (violation.kind === 'banned_pattern') {
-      return `Matches banned pattern ${violation.detail}.`;
-    }
-    return `Missing required phrase "${violation.detail}".`;
-  });
+    score >= PREVIEW_SCORE.onBrandMin
+      ? 'on_brand'
+      : score >= PREVIEW_SCORE.needsReviewMin
+        ? 'needs_review'
+        : 'off_brand';
 
   return {
     score,
     verdict,
     violations,
-    reasons,
   };
 }
 
@@ -277,11 +283,27 @@ export async function updateGatewayAdminBrandVoiceProfile(
     });
     const reloadResult = await reloadPluginRuntime();
     if (!reloadResult.ok) {
-      saveRuntimeConfig(previousConfig, {
-        route: `${BRAND_VOICE_REVISION_ROUTE}.rollback`,
-        source: 'admin-console',
-      });
-      await reloadPluginRuntime();
+      try {
+        saveRuntimeConfig(previousConfig, {
+          route: `${BRAND_VOICE_REVISION_ROUTE}.rollback`,
+          source: 'admin-console',
+        });
+        const rollbackReloadResult = await reloadPluginRuntime();
+        if (!rollbackReloadResult.ok) {
+          logger.warn(
+            {
+              reloadMessage: reloadResult.message,
+              rollbackReloadMessage: rollbackReloadResult.message,
+            },
+            'Brand voice runtime rollback reload failed',
+          );
+        }
+      } catch (error) {
+        logger.error(
+          { error, reloadMessage: reloadResult.message },
+          'Brand voice runtime rollback failed',
+        );
+      }
       throw new Error(reloadResult.message);
     }
     return {
@@ -305,6 +327,11 @@ export function previewGatewayAdminBrandVoiceProfile(
   const sample = normalizeString(raw.sample);
   if (!sample) {
     throw new Error('Sample output is required.');
+  }
+  if (sample.length > MAX_PREVIEW_SAMPLE_CHARS) {
+    throw new Error(
+      `Sample output cannot exceed ${MAX_PREVIEW_SAMPLE_CHARS} characters.`,
+    );
   }
   const profile =
     raw.profile === undefined

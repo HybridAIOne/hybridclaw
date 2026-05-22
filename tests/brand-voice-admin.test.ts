@@ -1,16 +1,28 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
-async function importBrandVoiceAdmin(config: RuntimeConfig) {
+type ReloadResult = { ok: boolean; message: string };
+
+async function importBrandVoiceAdmin(
+  config: RuntimeConfig,
+  options: { reloadResults?: ReloadResult[] } = {},
+) {
   let currentConfig = structuredClone(config);
   const saveRuntimeConfig = vi.fn((next: RuntimeConfig) => {
     currentConfig = structuredClone(next);
     return structuredClone(next);
   });
-  const reloadPluginRuntime = vi.fn(async () => ({
-    ok: true,
-    message: 'Plugin runtime reloaded.',
-  }));
+  const reloadResults = [...(options.reloadResults ?? [])];
+  const reloadPluginRuntime = vi.fn(
+    async () =>
+      reloadResults.shift() ??
+      ({
+        ok: true,
+        message: 'Plugin runtime reloaded.',
+      } satisfies ReloadResult),
+  );
+  const loggerWarn = vi.fn();
+  const loggerError = vi.fn();
 
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => structuredClone(currentConfig),
@@ -46,9 +58,22 @@ async function importBrandVoiceAdmin(config: RuntimeConfig) {
   vi.doMock('../src/gateway/gateway-plugin-service.js', () => ({
     reloadPluginRuntime,
   }));
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: loggerWarn,
+      error: loggerError,
+    },
+  }));
 
   const mod = await import('../src/gateway/brand-voice-admin.ts');
-  return { ...mod, getCurrentConfig: () => currentConfig, reloadPluginRuntime };
+  return {
+    ...mod,
+    getCurrentConfig: () => currentConfig,
+    loggerError,
+    loggerWarn,
+    reloadPluginRuntime,
+    saveRuntimeConfig,
+  };
 }
 
 afterEach(() => {
@@ -56,6 +81,7 @@ afterEach(() => {
   vi.doUnmock('../src/config/runtime-config.js');
   vi.doUnmock('../src/config/runtime-config-revisions.js');
   vi.doUnmock('../src/gateway/gateway-plugin-service.js');
+  vi.doUnmock('../src/logger.js');
   vi.resetModules();
 });
 
@@ -79,7 +105,6 @@ describe('brand voice admin API helpers', () => {
     const admin = await importBrandVoiceAdmin(config);
 
     expect(admin.getGatewayAdminBrandVoiceProfile()).toMatchObject({
-      configPath: '/tmp/hybridclaw/config.json',
       profile: {
         enabled: true,
         mode: 'rewrite',
@@ -130,21 +155,21 @@ describe('brand voice admin API helpers', () => {
       plugins: { list: [] },
     } as RuntimeConfig);
 
-    expect(
-      admin.previewGatewayAdminBrandVoiceProfile({
-        sample: 'This is game changing and guaranteed.',
-        profile: {
-          enabled: true,
-          mode: 'rewrite',
-          voice: '',
-          doList: [],
-          dontList: ['game changing'],
-          bannedPhrases: [],
-          bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
-          requirePhrases: ['Best regards'],
-        },
-      }),
-    ).toMatchObject({
+    const preview = admin.previewGatewayAdminBrandVoiceProfile({
+      sample: 'This is game changing and guaranteed.',
+      profile: {
+        enabled: true,
+        mode: 'rewrite',
+        voice: '',
+        doList: [],
+        dontList: ['game changing'],
+        bannedPhrases: [],
+        bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
+        requirePhrases: ['Best regards'],
+      },
+    });
+
+    expect(preview).toMatchObject({
       score: 58,
       verdict: 'off_brand',
       violations: [
@@ -152,6 +177,7 @@ describe('brand voice admin API helpers', () => {
         { kind: 'missing_required', detail: 'Best regards' },
       ],
     });
+    expect(preview).not.toHaveProperty('reasons');
   });
 
   test('rejects invalid banned regex patterns', async () => {
@@ -173,5 +199,94 @@ describe('brand voice admin API helpers', () => {
         },
       }),
     ).rejects.toThrow('Invalid banned pattern');
+  });
+
+  test('caps preview sample size and profile list lengths', async () => {
+    const admin = await importBrandVoiceAdmin({
+      plugins: { list: [] },
+    } as RuntimeConfig);
+
+    expect(() =>
+      admin.previewGatewayAdminBrandVoiceProfile({
+        sample: 'x'.repeat(50_001),
+        profile: {
+          enabled: true,
+          mode: 'rewrite',
+          voice: '',
+          doList: [],
+          dontList: [],
+          bannedPhrases: [],
+          bannedPatterns: [],
+          requirePhrases: [],
+        },
+      }),
+    ).toThrow('Sample output cannot exceed 50000 characters');
+
+    expect(() =>
+      admin.previewGatewayAdminBrandVoiceProfile({
+        sample: 'Short sample',
+        profile: {
+          enabled: true,
+          mode: 'rewrite',
+          voice: '',
+          doList: Array.from({ length: 201 }, (_, index) => `Rule ${index}`),
+          dontList: [],
+          bannedPhrases: [],
+          bannedPatterns: [],
+          requirePhrases: [],
+        },
+      }),
+    ).toThrow('Do list cannot contain more than 200 entries');
+  });
+
+  test('rolls back failed runtime reloads and logs rollback reload failures', async () => {
+    const admin = await importBrandVoiceAdmin(
+      {
+        plugins: {
+          list: [
+            {
+              id: 'brand-voice',
+              enabled: true,
+              config: { voice: 'Original.' },
+            },
+          ],
+        },
+      } as RuntimeConfig,
+      {
+        reloadResults: [
+          { ok: false, message: 'Plugin runtime reload failed.' },
+          { ok: false, message: 'Rollback reload failed.' },
+        ],
+      },
+    );
+
+    await expect(
+      admin.updateGatewayAdminBrandVoiceProfile({
+        profile: {
+          enabled: true,
+          mode: 'rewrite',
+          voice: 'Changed.',
+          doList: [],
+          dontList: [],
+          bannedPhrases: [],
+          bannedPatterns: [],
+          requirePhrases: [],
+        },
+      }),
+    ).rejects.toThrow('Plugin runtime reload failed.');
+
+    expect(admin.saveRuntimeConfig).toHaveBeenCalledTimes(2);
+    expect(admin.reloadPluginRuntime).toHaveBeenCalledTimes(2);
+    expect(admin.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reloadMessage: 'Plugin runtime reload failed.',
+        rollbackReloadMessage: 'Rollback reload failed.',
+      }),
+      'Brand voice runtime rollback reload failed',
+    );
+    expect(admin.getCurrentConfig().plugins.list[0]).toMatchObject({
+      id: 'brand-voice',
+      config: { voice: 'Original.' },
+    });
   });
 });

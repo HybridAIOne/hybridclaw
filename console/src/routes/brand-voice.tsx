@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchBrandVoiceProfile,
   previewBrandVoiceProfile,
@@ -41,20 +41,6 @@ function profilesEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function updateListValue(
-  list: string[],
-  index: number,
-  value: string,
-): string[] {
-  return list.map((entry, currentIndex) =>
-    currentIndex === index ? value : entry,
-  );
-}
-
-function removeListValue(list: string[], index: number): string[] {
-  return list.filter((_, currentIndex) => currentIndex !== index);
-}
-
 function cleanProfile(profile: AdminBrandVoiceProfile): AdminBrandVoiceProfile {
   const cleanList = (list: string[]) =>
     list.map((entry) => entry.trim()).filter(Boolean);
@@ -75,28 +61,51 @@ function ListEditor(props: {
   placeholder: string;
   onChange: (values: string[]) => void;
 }) {
-  const rowIds = useRef<string[]>([]);
   const nextId = useRef(0);
-  while (rowIds.current.length < props.values.length) {
-    rowIds.current.push(`${props.label}-${nextId.current}`);
-    nextId.current += 1;
-  }
-  if (rowIds.current.length > props.values.length) {
-    rowIds.current.length = props.values.length;
-  }
+  const createRow = useCallback(
+    (value: string) => {
+      const row = { id: `${props.label}-${nextId.current}`, value };
+      nextId.current += 1;
+      return row;
+    },
+    [props.label],
+  );
+  const [rows, setRows] = useState<Array<{ id: string; value: string }>>(() =>
+    props.values.map(createRow),
+  );
+
+  const publishRows = (nextRows: Array<{ id: string; value: string }>) => {
+    setRows(nextRows);
+    props.onChange(nextRows.map((row) => row.value));
+  };
+
+  useEffect(() => {
+    setRows((currentRows) =>
+      props.values.map((value, index) => {
+        if (currentRows[index]?.value === value) return currentRows[index];
+        const currentRow = currentRows[index];
+        if (currentRow) return { ...currentRow, value };
+        return createRow(value);
+      }),
+    );
+  }, [createRow, props.values]);
 
   return (
     <div className="field brand-voice-list-field">
       <span>{props.label}</span>
       <div className="brand-voice-list">
-        {props.values.map((value, index) => (
-          <div className="brand-voice-list-row" key={rowIds.current[index]}>
+        {rows.map((row, index) => (
+          <div className="brand-voice-list-row" key={row.id}>
             <input
               aria-label={`${props.label} item ${index + 1}`}
-              value={value}
+              value={row.value}
               onChange={(event) =>
-                props.onChange(
-                  updateListValue(props.values, index, event.target.value),
+                publishRows(
+                  rows.map((currentRow, currentIndex) =>
+                    currentIndex === index
+                      ? { ...currentRow, value: event.target.value }
+                      : currentRow,
+                  ),
                 )
               }
               placeholder={props.placeholder}
@@ -107,8 +116,9 @@ function ListEditor(props: {
               aria-label={`Remove ${props.label} item ${index + 1}`}
               title="Remove"
               onClick={() => {
-                rowIds.current.splice(index, 1);
-                props.onChange(removeListValue(props.values, index));
+                publishRows(
+                  rows.filter((_, currentIndex) => currentIndex !== index),
+                );
               }}
             >
               <Trash width="16" height="16" />
@@ -120,9 +130,7 @@ function ListEditor(props: {
           type="button"
           aria-label={`Add ${props.label} item`}
           onClick={() => {
-            rowIds.current.push(`${props.label}-${nextId.current}`);
-            nextId.current += 1;
-            props.onChange([...props.values, '']);
+            publishRows([...rows, createRow('')]);
           }}
         >
           Add
@@ -136,6 +144,18 @@ function formatVerdict(verdict: AdminBrandVoicePreviewResponse['verdict']) {
   if (verdict === 'on_brand') return 'on brand';
   if (verdict === 'needs_review') return 'needs review';
   return 'off brand';
+}
+
+function formatPreviewViolation(
+  violation: AdminBrandVoicePreviewResponse['violations'][number],
+) {
+  if (violation.kind === 'banned_phrase') {
+    return `Contains banned phrase "${violation.detail}".`;
+  }
+  if (violation.kind === 'banned_pattern') {
+    return `Matches banned pattern ${violation.detail}.`;
+  }
+  return `Missing required phrase "${violation.detail}".`;
 }
 
 export function BrandVoicePage() {
@@ -212,9 +232,7 @@ export function BrandVoicePage() {
         <Card>
           <CardHeader>
             <CardTitle>Profile</CardTitle>
-            <CardDescription>
-              {profileQuery.data?.configPath || 'Runtime config'}
-            </CardDescription>
+            <CardDescription>Runtime plugin profile</CardDescription>
           </CardHeader>
           <CardContent>
             {profileQuery.isLoading ? (
@@ -280,6 +298,10 @@ export function BrandVoicePage() {
                     setProfile((current) => ({ ...current, dontList }))
                   }
                 />
+                <small className="brand-voice-list-note">
+                  Do and Don't guide rewrites; preview scores banned and
+                  required rules.
+                </small>
                 <ListEditor
                   label="Banned phrases"
                   values={profile.bannedPhrases}
@@ -342,11 +364,12 @@ export function BrandVoicePage() {
                   <div className="brand-voice-score-bar">
                     <span style={{ width: `${preview.score}%` }} />
                   </div>
-                  {preview.reasons.length > 0 ? (
+                  {preview.violations.length > 0 ? (
                     <ul className="brand-voice-reason-list">
-                      {preview.reasons.map((reason) => (
-                        <li key={reason}>{reason}</li>
-                      ))}
+                      {preview.violations.map((violation) => {
+                        const reason = formatPreviewViolation(violation);
+                        return <li key={reason}>{reason}</li>;
+                      })}
                     </ul>
                   ) : (
                     <small>No rule violations detected.</small>

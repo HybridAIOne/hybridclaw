@@ -1327,7 +1327,6 @@ export interface GatewayAdminBrandVoiceRevision {
 }
 
 export interface GatewayAdminBrandVoiceProfileResponse {
-  configPath: string;
   profile: GatewayAdminBrandVoiceProfile;
   revisions: GatewayAdminBrandVoiceRevision[];
 }
@@ -1347,7 +1346,6 @@ export interface GatewayAdminBrandVoicePreviewResponse {
   score: number;
   verdict: 'on_brand' | 'needs_review' | 'off_brand';
   violations: GatewayAdminBrandVoicePreviewViolation[];
-  reasons: string[];
 }
 
 export interface GatewayAdminToolCatalogEntry {
