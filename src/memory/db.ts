@@ -2636,7 +2636,7 @@ function migrateV37(database: Database.Database): void {
       id TEXT PRIMARY KEY,
       from_card_id TEXT NOT NULL REFERENCES board_cards(id),
       to_card_id TEXT NOT NULL REFERENCES board_cards(id),
-      kind TEXT NOT NULL CHECK (kind IN ('blocks', 'blocked_by', 'related')),
+      kind TEXT NOT NULL CHECK (kind IN ('blocks', 'related')),
       created_at TEXT NOT NULL,
       created_by TEXT NOT NULL,
       CHECK (from_card_id <> to_card_id),
@@ -2645,19 +2645,14 @@ function migrateV37(database: Database.Database): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_board_card_edges_logical_unique
       ON board_card_edges(
         CASE
-          WHEN kind = 'blocked_by' THEN to_card_id
           WHEN kind = 'related' AND from_card_id > to_card_id THEN to_card_id
           ELSE from_card_id
         END,
         CASE
-          WHEN kind = 'blocked_by' THEN from_card_id
           WHEN kind = 'related' AND from_card_id > to_card_id THEN from_card_id
           ELSE to_card_id
         END,
-        CASE
-          WHEN kind IN ('blocks', 'blocked_by') THEN 'blocks'
-          ELSE kind
-        END
+        kind
       );
     CREATE INDEX IF NOT EXISTS idx_board_card_edges_from
       ON board_card_edges(from_card_id, kind);
@@ -2771,6 +2766,8 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   db = new Database(dbPath);
   usageEventBatchInsertStatement = null;
   db.pragma('journal_mode = WAL');
+  // SQLite foreign-key enforcement is connection-scoped, so enable it before
+  // running migrations or accepting writes on this writable connection.
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
   runMigrations(db, opts);

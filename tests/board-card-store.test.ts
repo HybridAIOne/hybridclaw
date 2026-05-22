@@ -102,7 +102,7 @@ describe.sequential('board card store', () => {
     ).toThrow(/FOREIGN KEY constraint failed/);
   });
 
-  test('enforces logical edge uniqueness for direct SQLite writes', async () => {
+  test('enforces canonical edge storage constraints for direct SQLite writes', async () => {
     const { boardModule, dbModule } = await loadBoardStore();
     boardModule.createCard({
       id: 'logical-a',
@@ -141,7 +141,7 @@ describe.sequential('board card store', () => {
           actor,
         );
       }),
-    ).toThrow(/UNIQUE constraint failed/);
+    ).toThrow(/CHECK constraint failed/);
 
     expect(() =>
       dbModule.withMemoryDatabase((database) => {
@@ -553,13 +553,9 @@ describe.sequential('board card store', () => {
       '../src/skills/skill-run-events.js'
     );
     const runtimeEvents: unknown[] = [];
-    const edgeEvents: unknown[] = [];
     const skillRunEvents: unknown[] = [];
     const unsubscribeRuntime = subscribeRuntimeEvents((event) => {
       runtimeEvents.push(event);
-    });
-    const unsubscribeEdge = boardModule.subscribeBoardEdgeEvents((event) => {
-      edgeEvents.push(event);
     });
     const unsubscribeSkillRun = subscribeSkillRunEvents((event) => {
       skillRunEvents.push(event);
@@ -592,7 +588,6 @@ describe.sequential('board card store', () => {
       runId: 'board-edge-event-run',
     });
     unsubscribeRuntime();
-    unsubscribeEdge();
     unsubscribeSkillRun();
 
     expect(runtimeEvents).toMatchObject([
@@ -613,7 +608,6 @@ describe.sequential('board card store', () => {
         kind: 'blocks',
       },
     ]);
-    expect(edgeEvents).toEqual(runtimeEvents);
     expect(skillRunEvents).toHaveLength(0);
 
     const audit = dbModule.getRecentStructuredAuditForSession(

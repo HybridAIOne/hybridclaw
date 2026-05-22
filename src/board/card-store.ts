@@ -39,7 +39,7 @@ const BOARD_CARD_SELECT_COLUMNS =
 const BOARD_EDGE_SELECT_COLUMNS =
   'id, from_card_id, to_card_id, kind, created_at, created_by';
 const BOARD_EDGE_KINDS = ['blocks', 'blocked_by', 'related'] as const;
-const STORED_BOARD_EDGE_KINDS = ['blocks', 'blocked_by', 'related'] as const;
+const STORED_BOARD_EDGE_KINDS = ['blocks', 'related'] as const;
 
 export type BoardCardColumn = (typeof BOARD_CARD_COLUMNS)[number];
 export type BoardCardEdgeKind = (typeof BOARD_EDGE_KINDS)[number];
@@ -182,7 +182,6 @@ interface PersistedBoardEdgeState {
 }
 
 export type BoardCardSubscriber = (event: BoardCardMutationEvent) => unknown;
-export type BoardEdgeSubscriber = (event: BoardEdgeMutationEvent) => unknown;
 
 function isBoardCardMutationEvent(
   event: RuntimeEventPayload,
@@ -194,28 +193,11 @@ function isBoardCardMutationEvent(
   );
 }
 
-function isBoardEdgeMutationEvent(
-  event: RuntimeEventPayload,
-): event is BoardEdgeMutationEvent {
-  return (
-    event.type === 'board.edge_added' || event.type === 'board.edge_removed'
-  );
-}
-
 export function subscribeBoardCardEvents(
   subscriber: BoardCardSubscriber,
 ): () => void {
   return subscribeRuntimeEvents((event) => {
     if (!isBoardCardMutationEvent(event)) return;
-    subscriber(event);
-  });
-}
-
-export function subscribeBoardEdgeEvents(
-  subscriber: BoardEdgeSubscriber,
-): () => void {
-  return subscribeRuntimeEvents((event) => {
-    if (!isBoardEdgeMutationEvent(event)) return;
     subscriber(event);
   });
 }
@@ -322,20 +304,25 @@ function serializeActor(actor: BoardCardActor): string {
 }
 
 function parseActor(raw: string): BoardCardActor {
+  const parsed = parseJsonObject(raw, 'Board edge actor');
+  return normalizeActor(parsed as BoardCardActor);
+}
+
+function parseJsonObject(raw: string, label: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
     throw new Error(
-      `Board edge actor JSON is invalid: ${
+      `${label} JSON is invalid: ${
         error instanceof Error ? error.message : 'unknown parse error'
       }`,
     );
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Board edge actor must be an object.');
+    throw new Error(`${label} must be an object.`);
   }
-  return normalizeActor(parsed as BoardCardActor);
+  return parsed as Record<string, unknown>;
 }
 
 function normalizeSource(source: unknown): BoardCardSource {
@@ -412,10 +399,12 @@ function orientStoredEdgeForCard(
         kind: 'related',
       };
     }
-    return { ...edge, kind: 'related' };
+    throw new Error(
+      `Board card edge ${edge.id} is not connected to ${cardId}.`,
+    );
   }
 
-  if (edge.kind === 'blocks' && edge.toCardId === cardId) {
+  if (edge.toCardId === cardId) {
     return {
       ...edge,
       fromCardId: edge.toCardId,
@@ -423,15 +412,7 @@ function orientStoredEdgeForCard(
       kind: 'blocked_by',
     };
   }
-  if (edge.kind === 'blocked_by' && edge.toCardId === cardId) {
-    return {
-      ...edge,
-      fromCardId: edge.toCardId,
-      toCardId: edge.fromCardId,
-      kind: 'blocks',
-    };
-  }
-  return { ...edge, kind: edge.kind };
+  return { ...edge, kind: 'blocks' };
 }
 
 function orientStoredEdgeForInput(
@@ -465,19 +446,7 @@ function serializeEdgeState(edge: StoredBoardCardEdge): string {
 }
 
 function parseCardState(raw: string): Card {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(
-      `Board card revision JSON is invalid: ${
-        error instanceof Error ? error.message : 'unknown parse error'
-      }`,
-    );
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Board card revision must be an object.');
-  }
+  const parsed = parseJsonObject(raw, 'Board card revision');
   const state = parsed as Partial<PersistedBoardCardState>;
   if (state.version !== BOARD_CARD_STATE_VERSION) {
     throw new Error(
@@ -491,19 +460,7 @@ function parseCardState(raw: string): Card {
 }
 
 function parseEdgeState(raw: string): StoredBoardCardEdge {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(
-      `Board edge revision JSON is invalid: ${
-        error instanceof Error ? error.message : 'unknown parse error'
-      }`,
-    );
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Board edge revision must be an object.');
-  }
+  const parsed = parseJsonObject(raw, 'Board edge revision');
   const state = parsed as Partial<PersistedBoardEdgeState>;
   if (state.version !== BOARD_EDGE_STATE_VERSION) {
     throw new Error(
@@ -744,6 +701,23 @@ function selectCard(
   return mapCardRow(row);
 }
 
+function selectActiveCardIds(
+  database: Database.Database,
+  ids: [string, string],
+): Set<string> {
+  return new Set(
+    database
+      .prepare<[string, string], { id: string }>(
+        `SELECT id
+         FROM board_cards
+         WHERE id IN (?, ?)
+           AND deleted_at IS NULL`,
+      )
+      .all(ids[0], ids[1])
+      .map((row) => row.id),
+  );
+}
+
 function selectStoredEdge(
   database: Database.Database,
   id: string,
@@ -763,16 +737,17 @@ function selectStoredEdgeByLogicalKey(
   database: Database.Database,
   edge: Pick<StoredBoardCardEdge, 'fromCardId' | 'toCardId' | 'kind'>,
 ): StoredBoardCardEdge | null {
-  if (edge.kind === 'blocks' || edge.kind === 'blocked_by') {
+  if (edge.kind === 'blocks') {
     const row = database
-      .prepare<[string, string, string, string], BoardEdgeRow>(
+      .prepare<[string, string], BoardEdgeRow>(
         `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
          FROM board_card_edges
-         WHERE (from_card_id = ? AND to_card_id = ? AND kind = 'blocks')
-            OR (from_card_id = ? AND to_card_id = ? AND kind = 'blocked_by')
+         WHERE from_card_id = ?
+           AND to_card_id = ?
+           AND kind = 'blocks'
          LIMIT 1`,
       )
-      .get(edge.fromCardId, edge.toCardId, edge.toCardId, edge.fromCardId);
+      .get(edge.fromCardId, edge.toCardId);
     if (!row) return null;
     return mapStoredEdgeRow(row);
   }
@@ -788,6 +763,76 @@ function selectStoredEdgeByLogicalKey(
     .get(edge.fromCardId, edge.toCardId, edge.kind);
   if (!row) return null;
   return mapStoredEdgeRow(row);
+}
+
+function selectStoredEdgesForCard(
+  database: Database.Database,
+  cardId: string,
+  kind: BoardCardEdgeKind | null,
+): StoredBoardCardEdge[] {
+  if (kind === 'blocks') {
+    return database
+      .prepare<[string], BoardEdgeRow>(
+        `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM board_card_edges
+         WHERE from_card_id = ?
+           AND kind = 'blocks'
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(cardId)
+      .map(mapStoredEdgeRow);
+  }
+
+  if (kind === 'blocked_by') {
+    return database
+      .prepare<[string], BoardEdgeRow>(
+        `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM board_card_edges
+         WHERE to_card_id = ?
+           AND kind = 'blocks'
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(cardId)
+      .map(mapStoredEdgeRow);
+  }
+
+  if (kind === 'related') {
+    return database
+      .prepare<[string, string], BoardEdgeRow>(
+        `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM (
+           SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+           FROM board_card_edges
+           WHERE from_card_id = ?
+             AND kind = 'related'
+           UNION ALL
+           SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+           FROM board_card_edges
+           WHERE to_card_id = ?
+             AND kind = 'related'
+         )
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(cardId, cardId)
+      .map(mapStoredEdgeRow);
+  }
+
+  return database
+    .prepare<[string, string], BoardEdgeRow>(
+      `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+       FROM (
+         SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM board_card_edges
+         WHERE from_card_id = ?
+         UNION ALL
+         SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM board_card_edges
+         WHERE to_card_id = ?
+       )
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(cardId, cardId)
+    .map(mapStoredEdgeRow);
 }
 
 function insertOrReplaceStoredEdge(
@@ -884,16 +929,20 @@ export function addEdge(
 
   return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
     const stored = database.transaction(() => {
-      if (!selectCard(database, normalizedFrom)) {
-        throw new Error(`Board card not found: ${normalizedFrom}`);
-      }
-      if (!selectCard(database, normalizedTo)) {
-        throw new Error(`Board card not found: ${normalizedTo}`);
-      }
       if (selectStoredEdgeByLogicalKey(database, canonical)) {
         throw new Error(
           `Board card edge already exists: ${normalizedFrom} ${normalizedKind} ${normalizedTo}`,
         );
+      }
+      const activeCardIds = selectActiveCardIds(database, [
+        normalizedFrom,
+        normalizedTo,
+      ]);
+      if (!activeCardIds.has(normalizedFrom)) {
+        throw new Error(`Board card not found: ${normalizedFrom}`);
+      }
+      if (!activeCardIds.has(normalizedTo)) {
+        throw new Error(`Board card not found: ${normalizedTo}`);
       }
       const edge = insertOrReplaceStoredEdge(database, {
         id: randomUUID(),
@@ -931,6 +980,7 @@ export function removeEdge(
   context?: BoardCardMutationContext,
 ): Edge {
   const normalizedId = normalizeNonEmptyString(id, 'id');
+  const timestamp = new Date().toISOString();
   return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
     const removed = database.transaction(() => {
       const current = selectStoredEdge(database, normalizedId);
@@ -941,7 +991,7 @@ export function removeEdge(
         .run(normalizedId);
       syncEdgeRevisionState(database, revisionSchema, current, context, {
         exists: false,
-        timestamp: new Date().toISOString(),
+        timestamp,
       });
       return current;
     })();
@@ -954,7 +1004,7 @@ export function removeEdge(
         fromCardId: edge.fromCardId,
         toCardId: edge.toCardId,
         kind: edge.kind,
-        at: new Date().toISOString(),
+        at: timestamp,
       },
       context,
     );
@@ -966,32 +1016,9 @@ export function listEdges(cardId: string, kind?: BoardCardEdgeKind): Edge[] {
   const normalizedId = normalizeNonEmptyString(cardId, 'cardId');
   const normalizedKind = kind ? normalizeEdgeKind(kind) : null;
   return withMemoryDatabase((database) => {
-    const values: unknown[] = [];
-    let where: string;
-    if (normalizedKind === 'blocks') {
-      where = `(from_card_id = ? AND kind = 'blocks') OR (to_card_id = ? AND kind = 'blocked_by')`;
-      values.push(normalizedId, normalizedId);
-    } else if (normalizedKind === 'blocked_by') {
-      where = `(to_card_id = ? AND kind = 'blocks') OR (from_card_id = ? AND kind = 'blocked_by')`;
-      values.push(normalizedId, normalizedId);
-    } else if (normalizedKind === 'related') {
-      where = `(from_card_id = ? OR to_card_id = ?) AND kind = 'related'`;
-      values.push(normalizedId, normalizedId);
-    } else {
-      where = `from_card_id = ? OR to_card_id = ?`;
-      values.push(normalizedId, normalizedId);
-    }
-
-    return database
-      .prepare<unknown[], BoardEdgeRow>(
-        `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
-         FROM board_card_edges
-         WHERE ${where}
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all(...values)
-      .map(mapStoredEdgeRow)
-      .map((edge) => orientStoredEdgeForCard(edge, normalizedId));
+    return selectStoredEdgesForCard(database, normalizedId, normalizedKind).map(
+      (edge) => orientStoredEdgeForCard(edge, normalizedId),
+    );
   });
 }
 
@@ -999,23 +1026,18 @@ export function isBlocked(cardId: string): boolean {
   const normalizedId = normalizeNonEmptyString(cardId, 'cardId');
   return withMemoryDatabase((database) => {
     const row = database
-      .prepare<[string, string], { id: string }>(
+      .prepare<[string], { id: string }>(
         `SELECT edge.id
          FROM board_card_edges edge
          JOIN board_cards blocker
-           ON blocker.id = CASE
-             WHEN edge.kind = 'blocks' THEN edge.from_card_id
-             ELSE edge.to_card_id
-           END
-         WHERE (
-             (edge.kind = 'blocks' AND edge.to_card_id = ?)
-             OR (edge.kind = 'blocked_by' AND edge.from_card_id = ?)
-           )
+           ON blocker.id = edge.from_card_id
+         WHERE edge.kind = 'blocks'
+           AND edge.to_card_id = ?
            AND blocker.deleted_at IS NULL
            AND blocker."column" <> 'done'
          LIMIT 1`,
       )
-      .get(normalizedId, normalizedId);
+      .get(normalizedId);
     return Boolean(row);
   });
 }

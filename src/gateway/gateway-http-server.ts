@@ -23,9 +23,12 @@ import {
   addEdge,
   type BoardCardActor,
   type BoardCardEdgeKind,
+  type BoardCardMutationContext,
   isBlocked,
+  listEdgeRevisions,
   listEdges,
   removeEdge,
+  restoreEdgeRevision,
 } from '../board/card-store.js';
 import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
@@ -3242,9 +3245,39 @@ function normalizeBoardEdgeKind(value: unknown): BoardCardEdgeKind | undefined {
 }
 
 function normalizeBoardCardId(value: unknown, field: string): string {
-  const normalized = String(value || '').trim();
+  if (value == null)
+    throw new GatewayRequestError(400, `Missing \`${field}\`.`);
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `\`${field}\` must be a string.`);
+  }
+  const normalized = value.trim();
   if (!normalized) throw new GatewayRequestError(400, `Missing \`${field}\`.`);
   return normalized;
+}
+
+function normalizeBoardRevisionId(value: unknown): number {
+  if (value == null) {
+    throw new GatewayRequestError(400, 'Missing `revisionId`.');
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new GatewayRequestError(
+      400,
+      '`revisionId` must be a positive integer.',
+    );
+  }
+  return value;
+}
+
+function normalizeBoardActorField(
+  record: Record<string, unknown>,
+  field: 'system' | 'userId' | 'agentId',
+): string {
+  const value = record[field];
+  if (value == null) return '';
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `\`actor.${field}\` must be a string.`);
+  }
+  return value.trim();
 }
 
 function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
@@ -3253,9 +3286,9 @@ function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
     throw new GatewayRequestError(400, '`actor` must be an object.');
   }
   const record = value as Record<string, unknown>;
-  const system = String(record.system || '').trim();
-  const userId = String(record.userId || '').trim();
-  const agentId = String(record.agentId || '').trim();
+  const system = normalizeBoardActorField(record, 'system');
+  const userId = normalizeBoardActorField(record, 'userId');
+  const agentId = normalizeBoardActorField(record, 'agentId');
   const actorCount = [system, userId, agentId].filter(Boolean).length;
   if (actorCount !== 1) {
     throw new GatewayRequestError(
@@ -3263,9 +3296,24 @@ function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
       '`actor` must contain exactly one of system, userId, or agentId.',
     );
   }
-  if (system) return { system };
+  if (system) {
+    if (system !== 'gateway') {
+      throw new GatewayRequestError(400, '`actor.system` must be gateway.');
+    }
+    return { system };
+  }
   if (userId) return { userId };
   return { agentId };
+}
+
+function extractBoardEdgeContext(
+  body: Record<string, unknown>,
+): BoardCardMutationContext {
+  return {
+    actor: normalizeBoardEdgeActor(body.actor),
+    sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+    runId: typeof body.runId === 'string' ? body.runId : null,
+  };
 }
 
 async function handleApiAdminBoardEdges(
@@ -3290,27 +3338,40 @@ async function handleApiAdminBoardEdges(
     const kind = normalizeBoardEdgeKind(body.kind);
     if (!kind) throw new GatewayRequestError(400, 'Missing `kind`.');
     sendJson(res, 200, {
-      edge: addEdge(fromCardId, toCardId, kind, {
-        actor: normalizeBoardEdgeActor(body.actor),
-        sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
-        runId: typeof body.runId === 'string' ? body.runId : null,
-      }),
+      edge: addEdge(fromCardId, toCardId, kind, extractBoardEdgeContext(body)),
     });
     return;
   }
 
   if (req.method === 'DELETE') {
     const body = (await readJsonBody(req)) as Record<string, unknown>;
-    const id = normalizeBoardCardId(
-      body.id ?? url.searchParams.get('id'),
-      'id',
-    );
+    const id = normalizeBoardCardId(url.searchParams.get('id'), 'id');
     sendJson(res, 200, {
-      edge: removeEdge(id, {
-        actor: normalizeBoardEdgeActor(body.actor),
-        sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
-        runId: typeof body.runId === 'string' ? body.runId : null,
-      }),
+      edge: removeEdge(id, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+async function handleApiAdminBoardEdgeRevisions(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (req.method === 'GET') {
+    const id = normalizeBoardCardId(url.searchParams.get('id'), 'id');
+    sendJson(res, 200, { revisions: listEdgeRevisions(id) });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const id = normalizeBoardCardId(body.id, 'id');
+    const revisionId = normalizeBoardRevisionId(body.revisionId);
+    sendJson(res, 200, {
+      edge: restoreEdgeRevision(id, revisionId, extractBoardEdgeContext(body)),
     });
     return;
   }
@@ -5964,6 +6025,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'POST' || method === 'DELETE')
           ) {
             await handleApiAdminBoardEdges(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/board/edge-revisions' &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            await handleApiAdminBoardEdgeRevisions(req, res, url);
             return;
           }
           if (pathname === '/api/admin/board/blocked' && method === 'GET') {

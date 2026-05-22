@@ -1621,6 +1621,10 @@ async function importFreshHealth(options?: {
   const addEdge = vi.fn(() => boardEdge);
   const removeEdge = vi.fn(() => boardEdge);
   const listEdges = vi.fn(() => [boardEdge]);
+  const listEdgeRevisions = vi.fn(() => [
+    { id: 7, createdAt: '2026-05-22T10:00:00.000Z' },
+  ]);
+  const restoreEdgeRevision = vi.fn(() => boardEdge);
   const isBlocked = vi.fn(() => true);
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
@@ -1729,8 +1733,10 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/board/card-store.js', () => ({
     addEdge,
     isBlocked,
+    listEdgeRevisions,
     listEdges,
     removeEdge,
+    restoreEdgeRevision,
   }));
   vi.doMock('../src/agent/executor.js', () => ({
     stopSessionExecution,
@@ -1914,6 +1920,8 @@ async function importFreshHealth(options?: {
     addEdge,
     removeEdge,
     listEdges,
+    listEdgeRevisions,
+    restoreEdgeRevision,
     isBlocked,
     getGatewayAdminTools,
     startTerminalSession,
@@ -5895,6 +5903,84 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(deleteRes.body)).toMatchObject({
       edge: { id: 'edge-1' },
     });
+
+    const revisionsReq = makeRequest({
+      url: '/api/admin/board/edge-revisions?id=edge-1',
+    });
+    const revisionsRes = makeResponse();
+    state.handler(revisionsReq as never, revisionsRes as never);
+    await settle();
+    expect(state.listEdgeRevisions).toHaveBeenCalledWith('edge-1');
+    expect(JSON.parse(revisionsRes.body)).toMatchObject({
+      revisions: [{ id: 7 }],
+    });
+
+    const restoreReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/board/edge-revisions',
+      body: {
+        id: 'edge-1',
+        revisionId: 7,
+        actor: { userId: 'user_a' },
+        sessionId: 'board-session',
+        runId: 'board-run',
+      },
+    });
+    const restoreRes = makeResponse();
+    state.handler(restoreReq as never, restoreRes as never);
+    await settle();
+    expect(state.restoreEdgeRevision).toHaveBeenCalledWith('edge-1', 7, {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-session',
+      runId: 'board-run',
+    });
+    expect(JSON.parse(restoreRes.body)).toMatchObject({
+      edge: { id: 'edge-1' },
+    });
+  });
+
+  test('rejects unsafe board edge system actors', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/board/edges',
+      body: {
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'blocks',
+        actor: { system: 'cli' },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.addEdge).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: '`actor.system` must be gateway.',
+    });
+  });
+
+  test('requires board edge deletes to identify the edge in the query string', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/board/edges',
+      body: {
+        id: 'edge-1',
+        actor: { userId: 'user_a' },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.removeEdge).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Missing `id`.' });
   });
 
   test('starts an admin terminal session for authorized API requests', async () => {
