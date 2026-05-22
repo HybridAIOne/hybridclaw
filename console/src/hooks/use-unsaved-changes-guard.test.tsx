@@ -1,21 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '../components/toast';
+import { blockerStateMock, mockRouterBlocker } from '../test-utils';
 import { useUnsavedChangesGuard } from './use-unsaved-changes-guard';
 
-const blockerStateMock: {
-  status: 'idle' | 'blocked';
-  proceed: ReturnType<typeof vi.fn>;
-  reset: ReturnType<typeof vi.fn>;
-} = {
-  status: 'idle',
-  proceed: vi.fn(),
-  reset: vi.fn(),
-};
-
-vi.mock('@tanstack/react-router', () => ({
-  useBlocker: () => blockerStateMock,
-}));
+vi.mock('@tanstack/react-router', () => mockRouterBlocker());
 
 beforeEach(() => {
   blockerStateMock.status = 'idle';

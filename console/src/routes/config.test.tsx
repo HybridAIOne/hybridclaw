@@ -1,37 +1,18 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminBrowserPoolHealthResponse,
   AdminConfig,
   AdminConfigResponse,
 } from '../api/types';
-import { ToastProvider } from '../components/toast';
+import {
+  blockerStateMock,
+  mockRouterBlocker,
+  renderWithProviders,
+} from '../test-utils';
 import { ConfigPage } from './config';
 
-const blockerStateMock: {
-  status: 'idle' | 'blocked';
-  proceed: ReturnType<typeof vi.fn>;
-  reset: ReturnType<typeof vi.fn>;
-} = {
-  status: 'idle',
-  proceed: vi.fn(),
-  reset: vi.fn(),
-};
-
-vi.mock('@tanstack/react-router', () => ({
-  useBlocker: () => blockerStateMock,
-  Link: ({
-    to,
-    children,
-    ...rest
-  }: { to: string; children: ReactNode } & Record<string, unknown>) => (
-    <a href={to} {...rest}>
-      {children}
-    </a>
-  ),
-}));
+vi.mock('@tanstack/react-router', () => mockRouterBlocker());
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchBrowserPoolHealthMock =
@@ -140,19 +121,7 @@ function makeConfig(): AdminConfig {
 }
 
 function renderConfigPage() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <ConfigPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<ConfigPage />);
 }
 
 beforeEach(() => {
