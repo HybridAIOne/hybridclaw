@@ -34,6 +34,7 @@ import {
   required,
   useFieldError,
 } from '../components/field';
+import { Form, useForm } from '../components/form';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { NumberField } from '../components/number-field';
@@ -308,15 +309,7 @@ export function ConfigPage() {
   const [viewMode, setViewMode] = useState<'form' | 'json'>('form');
   const [rawJson, setRawJson] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
-  const [portError, setPortError] = useState<string | null>(null);
-  const [managedActionPriceError, setManagedActionPriceError] = useState<
-    string | null
-  >(null);
-  const [browserUseBrowserPriceError, setBrowserUseBrowserPriceError] =
-    useState<string | null>(null);
-  const [browserUseActionPriceError, setBrowserUseActionPriceError] = useState<
-    string | null
-  >(null);
+  const form = useForm();
 
   const configQuery = useQuery({
     queryKey: ['config', auth.token],
@@ -484,19 +477,12 @@ export function ConfigPage() {
     saveMutation.mutate(draft);
   };
 
-  const formInvalid =
-    Boolean(memoryError) ||
-    Boolean(portError) ||
-    Boolean(managedActionPriceError) ||
-    Boolean(browserUseBrowserPriceError) ||
-    Boolean(browserUseActionPriceError);
-
   const saveDisabled =
     saveMutation.isPending ||
-    (viewMode === 'json' ? Boolean(jsonError) : formInvalid);
+    (viewMode === 'json' ? Boolean(jsonError) : !form.isValid);
 
   return (
-    <div className={styles.page}>
+    <Form form={form} className={styles.page} onSubmit={save}>
       <PageHeader
         description={
           <>
@@ -583,10 +569,7 @@ export function ConfigPage() {
                     for loopback-only.
                   </FieldDescription>
                 </Field>
-                <Field
-                  controlId="ops-health-port"
-                  onErrorChange={setPortError}
-                >
+                <Field controlId="ops-health-port">
                   <FieldLabel>Health port</FieldLabel>
                   <NumberField
                     id="ops-health-port"
@@ -871,10 +854,7 @@ export function ConfigPage() {
                         Manage network policy
                       </Link>
                     </div>
-                    <Field
-                      controlId="managed-cloud-action-usd"
-                      onErrorChange={setManagedActionPriceError}
-                    >
+                    <Field controlId="managed-cloud-action-usd">
                       <FieldLabel>Action price USD</FieldLabel>
                       <NumberField
                         id="managed-cloud-action-usd"
@@ -956,10 +936,7 @@ export function ConfigPage() {
                         </FieldDescription>
                       </FieldContent>
                     </Field>
-                    <Field
-                      controlId="browser-use-browser-usd"
-                      onErrorChange={setBrowserUseBrowserPriceError}
-                    >
+                    <Field controlId="browser-use-browser-usd">
                       <FieldLabel>Browser price USD/min</FieldLabel>
                       <NumberField
                         id="browser-use-browser-usd"
@@ -976,10 +953,7 @@ export function ConfigPage() {
                       />
                       <FieldError />
                     </Field>
-                    <Field
-                      controlId="browser-use-action-usd"
-                      onErrorChange={setBrowserUseActionPriceError}
-                    >
+                    <Field controlId="browser-use-action-usd">
                       <FieldLabel>Action price USD</FieldLabel>
                       <NumberField
                         id="browser-use-action-usd"
@@ -1003,6 +977,6 @@ export function ConfigPage() {
       </div>
 
       {unsavedChangesDialog}
-    </div>
+    </Form>
   );
 }

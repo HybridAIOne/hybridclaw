@@ -31,6 +31,7 @@ import {
   FieldError,
   FieldLabel,
 } from '../components/field';
+import { Form, useForm, type UseFormReturn } from '../components/form';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { NumberField } from '../components/number-field';
@@ -663,13 +664,12 @@ function SchedulerJobEditor(props: {
   selectedJob: (AdminSchedulerJob & { source: 'job' }) | null;
   channelOptions: SchedulerChannelOption[];
   targetControl: SchedulerTargetControl;
+  form: UseFormReturn;
   savePending: boolean;
   pausePending: boolean;
   deletePending: boolean;
   saveDisabled: boolean;
   onDraftChange: (update: (current: SchedulerDraft) => SchedulerDraft) => void;
-  onEveryMsErrorChange: (error: string | null) => void;
-  onMaxRetriesErrorChange: (error: string | null) => void;
   onSave: () => void;
   onCancel: () => void;
   onPauseToggle: () => void;
@@ -678,6 +678,7 @@ function SchedulerJobEditor(props: {
   const { draft, selectedJob } = props;
 
   return (
+    <Form form={props.form} onSubmit={props.onSave}>
     <Card variant="muted">
       <CardHeader>
         <CardTitle>Job</CardTitle>
@@ -830,7 +831,7 @@ function SchedulerJobEditor(props: {
           ) : null}
 
           {draft.scheduleKind === 'every' ? (
-            <Field onErrorChange={props.onEveryMsErrorChange}>
+            <Field>
               <FieldLabel>Every ms</FieldLabel>
               <NumberField
                 integer
@@ -865,7 +866,7 @@ function SchedulerJobEditor(props: {
           ) : null}
 
           {draft.scheduleKind === 'one_shot' ? (
-            <Field onErrorChange={props.onMaxRetriesErrorChange}>
+            <Field>
               <FieldLabel>Retries after failure</FieldLabel>
               <NumberField
                 integer
@@ -1088,6 +1089,7 @@ function SchedulerJobEditor(props: {
         </div>
       </CardContent>
     </Card>
+    </Form>
   );
 }
 
@@ -1109,8 +1111,7 @@ export function SchedulerPage() {
     [navigate],
   );
   const [draft, setDraft] = useState<SchedulerDraft>(createDraft());
-  const [everyMsError, setEveryMsError] = useState<string | null>(null);
-  const [maxRetriesError, setMaxRetriesError] = useState<string | null>(null);
+  const form = useForm();
 
   const schedulerQuery = useQuery({
     queryKey: ['scheduler', auth.token],
@@ -1152,8 +1153,7 @@ export function SchedulerPage() {
     invalidates: [['overview']],
   });
 
-  const formInvalid = Boolean(everyMsError) || Boolean(maxRetriesError);
-  const saveDisabled = saveMutation.isPending || formInvalid;
+  const saveDisabled = saveMutation.isPending || !form.isValid;
 
   const deleteMutation = useMutation({
     mutationFn: () => {
@@ -1309,8 +1309,7 @@ export function SchedulerPage() {
             deletePending={deleteMutation.isPending}
             saveDisabled={saveDisabled}
             onDraftChange={(update) => setDraft((current) => update(current))}
-            onEveryMsErrorChange={setEveryMsError}
-            onMaxRetriesErrorChange={setMaxRetriesError}
+            form={form}
             onSave={() => {
               const nextDraft = prepareDraftForSave(
                 applyResolvedTarget(draft, targetControl),

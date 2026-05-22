@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { setPath } from '../lib/object-path';
 
 export type UseFormDraftOptions<T> = {
   /**
@@ -24,6 +25,12 @@ export type UseFormDraftReturn<T> = {
   /** Local edit buffer. `null` until the source becomes available. */
   draft: T | null;
   setDraft: Dispatch<SetStateAction<T | null>>;
+  /**
+   * Replace the value at a dotted path (e.g. `'ops.healthPort'`).
+   * Equivalent to `setDraft(d => d ? structuralUpdate(d, path, value) : d)`.
+   * No-op if `draft` is null.
+   */
+  setField: (path: string, value: unknown) => void;
   /** True iff `draft` differs from `source` under the configured equality. */
   isDirty: boolean;
   /** Replace `draft` with the current `source` value. */
@@ -78,5 +85,11 @@ export function useFormDraft<T>(
     setDraft(value);
   }, []);
 
-  return { draft, setDraft, isDirty, discard, commit };
+  const setField = useCallback((path: string, value: unknown) => {
+    setDraft((current) =>
+      current === null ? current : (setPath(current as object, path, value) as T),
+    );
+  }, []);
+
+  return { draft, setDraft, setField, isDirty, discard, commit };
 }

@@ -5,10 +5,12 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
 } from 'react';
-import { useStableCallback } from '../../lib/use-stable-callback';
 import { cx } from '../../lib/cx';
+import { useStableCallback } from '../../lib/use-stable-callback';
+import { useFormContext } from '../form/context';
 import { Label } from '../label';
 import { FieldContext, useFieldContext } from './context';
 import styles from './field.module.css';
@@ -129,6 +131,27 @@ export function Field({
 
   const error = errorProp !== undefined ? errorProp : internalError;
 
+  // When nested in a <Form>, report errors up so the form-level
+  // useForm().isValid selector stays in sync.
+  const form = useFormContext();
+  useEffect(() => {
+    if (form) form.registerError(id, error);
+  }, [form, id, error]);
+
+  // Clear our slot from the form on unmount only — running cleanup on
+  // every effect re-run would race against the next effect call and
+  // chase its own tail when the form re-renders.
+  const formRef = useRef(form);
+  formRef.current = form;
+  const idRef = useRef(id);
+  idRef.current = id;
+  useEffect(
+    () => () => {
+      formRef.current?.registerError(idRef.current, null);
+    },
+    [],
+  );
+
   useEffect(() => {
     reportError(error);
   }, [error, reportError]);
@@ -237,9 +260,7 @@ function resolveErrorContent(
   if (errors?.length) {
     const unique = [
       ...new Map(errors.map((error) => [error?.message, error])).values(),
-    ].filter((error): error is { message?: string } =>
-      Boolean(error?.message),
-    );
+    ].filter((error): error is { message?: string } => Boolean(error?.message));
 
     if (unique.length === 0) return contextError;
     if (unique.length === 1) return unique[0]?.message;
