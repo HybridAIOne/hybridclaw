@@ -30,34 +30,45 @@ runtime startup instructions, not general storage buckets.
 
 ## Reserved Directories
 
+Each entry includes soft naming guidance and TTL hints. These are not regular
+expressions or automatic deletion rules.
+
 ### `memory/`
 
 Use `memory/` for raw chronological memory intake, especially daily shards such
 as the daily notes described below. Put session facts, decisions, observations,
 and "remember this" notes here before they are consolidated. Do not store
-generated deliverables, scratch drafts, or imported files here.
+generated deliverables, scratch drafts, or imported files here. Name daily raw
+memory shards as `memory/YYYY-MM-DD.md`. There is no strict TTL; consolidate
+durable facts into `MEMORY.md`.
 
 ### `notes/`
 
 Use `notes/` for stable reference notes that are useful but do not belong in the
 root memory files: project notes, meeting notes, research summaries, checklists,
 and reusable explanations. Do not place unfinished drafts, output artifacts,
-uncategorized downloads, or raw memory intake here.
+uncategorized downloads, or raw memory intake here. Prefer short descriptive
+names, with date prefixes only when chronology matters. Notes are durable by
+default and should be archived only when clearly obsolete.
 
 ### `drafts/`
 
 Use `drafts/` for work in progress: unfinished writing, reply drafts,
 half-formed plans, and temporary compositions that may become final output
 later. Do not store final deliverables, durable memory, or files that arrived
-from outside without review.
+from outside without review. Name unfinished writing and plans as
+`drafts/<topic>-<YYYY-MM-DD>.md`. Drafts older than 30 days should be archived
+or promoted.
 
 ### `outputs/`
 
 Use `outputs/` for final or near-final task artifacts produced by the agent:
 reports, exports, generated files, rendered documents, and task-specific result
 bundles. Do not place raw notes, inbox items, or ongoing scratch work here.
-Generated output without enough context to choose a task grouping should be an
-`ask`, not a guessed folder name.
+Group multi-file task deliverables under `outputs/<task-id>/...`. Generated
+output without enough context to choose a task grouping should be an `ask`, not
+a guessed folder name. Outputs older than 90 days should be archived when
+inactive.
 
 ### `inbox/`
 
@@ -65,39 +76,28 @@ Use `inbox/` as the no-questions-asked landing zone for anything ambiguous:
 uncategorized files, user drops, copied snippets, files whose ownership is not
 clear, or material that needs operator review before placement. Do not treat
 `inbox/` as permanent storage and do not silently classify uncertain material
-elsewhere. Surface stale inbox items by mentioning them in the next operator
-visible audit, tidy report, or session opening before taking further action.
+elsewhere. Preserve original filenames when possible, adding a date or source
+hint only to avoid collisions. Surface inbox items older than 7 days by
+mentioning them in the next operator-visible audit, tidy report, or session
+opening before taking further action.
 
 ### `archive/`
 
 Use `archive/` for inactive material that should be retained but no longer
 belongs in active workspace areas. Do not use it for temporary scratch files or
-for hiding uncertain material that should first go through `inbox/`. Archived
-material has no default deletion TTL; deletion requires an explicit cleanup
-decision.
+for hiding uncertain material that should first go through `inbox/`. Preserve
+source context as `archive/YYYY-MM-DD/<original-path>` when moving inactive
+material out of active areas. Archived material has no default deletion TTL;
+deletion requires an explicit cleanup decision.
 
 ### `skills/`
 
 Use workspace-level `skills/` for local skill instructions, scripts, templates,
 and references that teach the agent how to perform a repeatable capability in
 this workspace. Do not store ordinary project notes, generated outputs, or
-general memory here. Skills are durable until replaced, retired, or moved into a
-shared skill distribution.
-
-## Naming and TTL Guidance
-
-These are soft placement conventions, not regular expressions or automatic
-deletion rules:
-
-| Directory | Naming Rule | TTL Hint |
-| --- | --- | --- |
-| `memory/` | Use `memory/YYYY-MM-DD.md` for daily raw memory shards. | No strict TTL; consolidate durable facts into `MEMORY.md`. |
-| `notes/` | Prefer short descriptive names; date-prefix only when chronology matters. | Durable by default; archive only when clearly obsolete. |
-| `drafts/` | Use `drafts/<topic>-<YYYY-MM-DD>.md` for unfinished writing and plans. | Older than 30 days should be archived or promoted. |
-| `outputs/` | Use `outputs/<task-id>/...` for multi-file task deliverables. | Older than 90 days should be archived when inactive. |
-| `inbox/` | Preserve original filenames when possible; add a date or source hint only to avoid collisions. | Older than 7 days should be surfaced to the operator. |
-| `archive/` | Use `archive/YYYY-MM-DD/<original-path>` when moving inactive material out of active areas. | No default deletion TTL. |
-| `skills/` | Keep each skill in its own directory with `SKILL.md` and clear helper subdirectories. | Durable until replaced, retired, or shared elsewhere. |
+general memory here. Keep each skill in its own directory with `SKILL.md` and
+clear helper subdirectories. Skills are durable until replaced, retired, or
+moved into a shared skill distribution.
 
 Prefer short, descriptive, kebab-case filenames for notes, drafts, and generated
 markdown unless the user or source system provides a meaningful original name.
@@ -111,10 +111,10 @@ Use this order when triaging a file or directory:
 2. If the path is already inside a reserved directory and its content still
    matches that directory's purpose, keep it there.
 3. If a root file clearly matches one reserved directory by name and visible
-   content, move it there using the naming guidance above.
+   content, move it there using that directory's naming guidance.
 4. If a root file is recent work in progress, prefer `drafts/` over `archive/`.
 5. If a root file is stale work in progress and exceeds the relevant TTL hint,
-   archive it under `archive/YYYY-MM-DD/<original-path>`.
+   archive it using the `archive/` naming guidance.
 6. If a root file is ambiguous, user-supplied, or missing the context needed to
    choose a durable home, move it to `inbox/` or ask the operator when moving it
    could lose important intent.
@@ -130,16 +130,16 @@ directories, and anything that may be an active operator workspace.
 ## Hard Cases
 
 - A half-finished draft at the root that was modified recently belongs in
-  `drafts/<topic>-<YYYY-MM-DD>.md`; do not archive recent active work.
+  `drafts/`; do not archive recent active work.
 - A half-finished draft at the root that has been untouched beyond the draft TTL
-  should be archived under `archive/YYYY-MM-DD/<original-path>`.
+  should be archived.
 - A generated output without a clear task ID should be an `ask`, because the
-  correct `outputs/<task-id>/...` parent cannot be guessed safely.
+  correct `outputs/` task parent cannot be guessed safely.
 - A user-supplied root file may move to `notes/` only when its visible content
   is clearly stable reference material; otherwise put it in `inbox/`.
-- Memory-shaped markdown belongs in `memory/YYYY-MM-DD.md` only when the date is
-  present in the file or otherwise explicit. If no date can be inferred, put it
-  in `inbox/`.
+- Memory-shaped markdown belongs in `memory/` only when the date is present in
+  the file or otherwise explicit. If no date can be inferred, put it in
+  `inbox/`.
 - Scratch or temporary root files belong in `drafts/` only when the operator is
   visibly mid-task. If they are stale, archive them. If their role is unclear,
   ask.
