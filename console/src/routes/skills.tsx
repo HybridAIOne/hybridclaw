@@ -27,7 +27,10 @@ import {
   CardTitle,
 } from '../components/card';
 import { Field, FieldContent, FieldLabel } from '../components/field';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import {
   BooleanPill,
@@ -484,7 +487,7 @@ export function SkillsPage() {
         description="Browse installed skills, review health, and manage amendments."
         actions={
           <>
-            <input
+            <Input
               className="compact-search"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
@@ -531,16 +534,16 @@ export function SkillsPage() {
 
             {createMode === 'zip' ? (
               <div className="stack-form" style={{ marginTop: '1rem' }}>
-                <label className="field">
-                  <span>Skill archive (.zip)</span>
-                  <input
+                <Field>
+                  <FieldLabel>Skill archive (.zip)</FieldLabel>
+                  <Input
                     type="file"
                     accept=".zip,.skill"
                     onChange={(event) =>
                       setZipFile(event.target.files?.[0] || null)
                     }
                   />
-                </label>
+                </Field>
                 <p className="supporting-text">
                   ZIP must contain a SKILL.md with a valid <code>name</code>{' '}
                   frontmatter field. May include scripts/, references/, and
@@ -556,7 +559,7 @@ export function SkillsPage() {
                     width: 'fit-content',
                   }}
                 >
-                  <input
+                  <Input
                     type="checkbox"
                     checked={zipForce}
                     onChange={(event) => setZipForce(event.target.checked)}
@@ -578,9 +581,9 @@ export function SkillsPage() {
             ) : (
               <div className="stack-form" style={{ marginTop: '1rem' }}>
                 <div className="field-grid">
-                  <label className="field">
-                    <span>Name</span>
-                    <input
+                  <Field>
+                    <FieldLabel>Name</FieldLabel>
+                    <Input
                       value={draft.name}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -590,10 +593,10 @@ export function SkillsPage() {
                       }
                       placeholder="my-skill"
                     />
-                  </label>
-                  <label className="field">
-                    <span>Category</span>
-                    <select
+                  </Field>
+                  <Field>
+                    <FieldLabel>Category</FieldLabel>
+                    <NativeSelect
                       value={draft.category}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -602,20 +605,22 @@ export function SkillsPage() {
                         }))
                       }
                     >
-                      <option value="">Select category</option>
+                      <NativeSelectOption value="">
+                        Select category
+                      </NativeSelectOption>
                       {categoryOptions.map((category) => (
-                        <option key={category} value={category}>
+                        <NativeSelectOption key={category} value={category}>
                           {category}
-                        </option>
+                        </NativeSelectOption>
                       ))}
-                    </select>
-                  </label>
+                    </NativeSelect>
+                  </Field>
                 </div>
 
                 <div className="field-grid">
-                  <label className="field">
-                    <span>Short description</span>
-                    <input
+                  <Field>
+                    <FieldLabel>Short description</FieldLabel>
+                    <Input
                       value={draft.shortDescription}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -625,10 +630,10 @@ export function SkillsPage() {
                       }
                       placeholder="One-line summary used in metadata"
                     />
-                  </label>
-                  <label className="field">
-                    <span>Tags</span>
-                    <input
+                  </Field>
+                  <Field>
+                    <FieldLabel>Tags</FieldLabel>
+                    <Input
                       value={draft.tags}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -638,12 +643,12 @@ export function SkillsPage() {
                       }
                       placeholder="tag1, tag2"
                     />
-                  </label>
+                  </Field>
                 </div>
 
-                <label className="field">
-                  <span>Description</span>
-                  <input
+                <Field>
+                  <FieldLabel>Description</FieldLabel>
+                  <Input
                     value={draft.description}
                     onChange={(event) =>
                       setDraft((current) => ({
@@ -653,7 +658,7 @@ export function SkillsPage() {
                     }
                     placeholder="Short description of what this skill does"
                   />
-                </label>
+                </Field>
 
                 <div className="field-grid">
                   <Field orientation="horizontal">
@@ -683,9 +688,9 @@ export function SkillsPage() {
                   </Field>
                 </div>
 
-                <label className="field">
-                  <span>Skill body (Markdown)</span>
-                  <textarea
+                <Field>
+                  <FieldLabel>Skill body (Markdown)</FieldLabel>
+                  <Textarea
                     rows={10}
                     value={draft.body}
                     onChange={(event) =>
@@ -698,7 +703,7 @@ export function SkillsPage() {
                       '# My Skill\n\nUse this skill when the user asks to ...\n\n## Workflow\n\n1. ...\n2. ...'
                     }
                   />
-                </label>
+                </Field>
 
                 <div className="panel-header" style={{ marginTop: '0.5rem' }}>
                   <div>
@@ -736,9 +741,9 @@ export function SkillsPage() {
                     style={{ gap: '0.25rem' }}
                   >
                     <div className="field-grid">
-                      <label className="field">
-                        <span>Path</span>
-                        <input
+                      <Field>
+                        <FieldLabel>Path</FieldLabel>
+                        <Input
                           value={file.path}
                           onChange={(event) =>
                             setDraft((current) => {
@@ -752,7 +757,7 @@ export function SkillsPage() {
                           }
                           placeholder="scripts/my-tool.mjs"
                         />
-                      </label>
+                      </Field>
                       <Button
                         variant="danger"
                         type="button"
@@ -767,9 +772,9 @@ export function SkillsPage() {
                         Remove
                       </Button>
                     </div>
-                    <label className="field">
-                      <span>Content</span>
-                      <textarea
+                    <Field>
+                      <FieldLabel>Content</FieldLabel>
+                      <Textarea
                         rows={8}
                         value={file.content}
                         onChange={(event) =>
@@ -785,7 +790,7 @@ export function SkillsPage() {
                         placeholder="// Script content..."
                         style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
                       />
-                    </label>
+                    </Field>
                   </div>
                 ))}
 

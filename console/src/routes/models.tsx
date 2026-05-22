@@ -9,6 +9,9 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Field, FieldLabel } from '../components/field';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { useToast } from '../components/toast';
 import { PageHeader, SortableHeader, useSortableRows } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -214,7 +217,7 @@ export function ModelsPage() {
     <div className="page-stack">
       <PageHeader
         actions={
-          <input
+          <Input
             className="compact-search"
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
@@ -286,9 +289,9 @@ export function ModelsPage() {
               <div className="empty-state">Loading model catalog...</div>
             ) : (
               <div className="stack-form">
-                <label className="field">
-                  <span>Default model</span>
-                  <select
+                <Field>
+                  <FieldLabel>Default model</FieldLabel>
+                  <NativeSelect
                     value={draft.defaultModel}
                     onChange={(event) =>
                       setDraft((current) => ({
@@ -297,14 +300,16 @@ export function ModelsPage() {
                       }))
                     }
                   >
-                    <option value="">Select model</option>
+                    <NativeSelectOption value="">
+                      Select model
+                    </NativeSelectOption>
                     {(modelsQuery.data?.models || []).map((model) => (
-                      <option key={model.id} value={model.id}>
+                      <NativeSelectOption key={model.id} value={model.id}>
                         {model.id}
-                      </option>
+                      </NativeSelectOption>
                     ))}
-                  </select>
-                </label>
+                  </NativeSelect>
+                </Field>
 
                 <div className="button-row">
                   <button

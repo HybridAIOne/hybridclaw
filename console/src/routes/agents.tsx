@@ -24,6 +24,9 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Field, FieldLabel } from '../components/field';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
@@ -334,9 +337,9 @@ export function AgentFilesPage() {
         ) : (
           <div className="detail-stack">
             <div className="field-grid">
-              <label className="field">
-                <span>Agent</span>
-                <select
+              <Field>
+                <FieldLabel>Agent</FieldLabel>
+                <NativeSelect
                   value={selectedAgent.id}
                   onChange={(event) => {
                     setSelectedAgentId(event.target.value);
@@ -344,16 +347,16 @@ export function AgentFilesPage() {
                   }}
                 >
                   {agentsQuery.data.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
+                    <NativeSelectOption key={agent.id} value={agent.id}>
                       {agent.name || agent.id}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
-              </label>
+                </NativeSelect>
+              </Field>
 
-              <label className="field">
-                <span>Markdown file</span>
-                <select
+              <Field>
+                <FieldLabel>Markdown file</FieldLabel>
+                <NativeSelect
                   value={selectedFileName}
                   onChange={(event) => {
                     setSelectedFileName(event.target.value);
@@ -361,12 +364,12 @@ export function AgentFilesPage() {
                   }}
                 >
                   {selectedAgent.markdownFiles.map((file) => (
-                    <option key={file.name} value={file.name}>
+                    <NativeSelectOption key={file.name} value={file.name}>
                       {file.name}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
-              </label>
+                </NativeSelect>
+              </Field>
             </div>
 
             {selectedFileSummary ? (
@@ -389,7 +392,7 @@ export function AgentFilesPage() {
                   <span className="agent-file-editor-title">
                     {selectedFileName}
                   </span>
-                  <textarea
+                  <Textarea
                     className="code-editor"
                     rows={28}
                     value={draftContent}
@@ -506,7 +509,7 @@ export function AgentFilesPage() {
                           </div>
                           <label className="field textarea-field">
                             <span>Saved content</span>
-                            <textarea
+                            <Textarea
                               className="code-editor"
                               rows={14}
                               readOnly
@@ -623,7 +626,7 @@ export function AgentFilesPage() {
                           </div>
                           <label className="field textarea-field">
                             <span>Diff</span>
-                            <textarea
+                            <Textarea
                               className="code-editor"
                               rows={10}
                               readOnly

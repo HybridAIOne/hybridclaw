@@ -19,7 +19,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { Field, FieldLabel } from '../components/field';
+import { Input } from '../components/input';
 import { InteractionResumeControls } from '../components/interaction-resume-controls';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { MetricCard, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -302,24 +306,26 @@ export function ApprovalsPage() {
     <div className="page-stack">
       <PageHeader
         actions={
-          <label className="field">
-            <span>Policy agent</span>
-            <select
+          <Field>
+            <FieldLabel>Policy agent</FieldLabel>
+            <NativeSelect
               value={activeAgentId}
               disabled={approvalsQuery.isLoading && agents.length === 0}
               onChange={(event) => setSelectedAgentId(event.target.value)}
             >
               {agents.length ? (
                 agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
+                  <NativeSelectOption key={agent.id} value={agent.id}>
                     {agent.name ? `${agent.name} (${agent.id})` : agent.id}
-                  </option>
+                  </NativeSelectOption>
                 ))
               ) : (
-                <option value={activeAgentId}>Loading agents...</option>
+                <NativeSelectOption value={activeAgentId}>
+                  Loading agents...
+                </NativeSelectOption>
               )}
-            </select>
-          </label>
+            </NativeSelect>
+          </Field>
         }
       />
 
@@ -347,7 +353,7 @@ export function ApprovalsPage() {
         <div className="metric-card">
           <span>Default policy</span>
           <div className="field">
-            <select
+            <NativeSelect
               value={displayedDefaultAction}
               disabled={!approvalsQuery.data || policyMutationPending}
               onChange={(event) =>
@@ -356,9 +362,9 @@ export function ApprovalsPage() {
                 )
               }
             >
-              <option value="deny">deny</option>
-              <option value="allow">allow</option>
-            </select>
+              <NativeSelectOption value="deny">deny</NativeSelectOption>
+              <NativeSelectOption value="allow">allow</NativeSelectOption>
+            </NativeSelect>
           </div>
         </div>
       </div>
@@ -443,7 +449,7 @@ export function ApprovalsPage() {
                   <div className="policy-template-actions">
                     <label className="policy-template-inline">
                       <span>Template:</span>
-                      <select
+                      <NativeSelect
                         value={selectedPresetName}
                         disabled={
                           policyMutationPending ||
@@ -455,14 +461,19 @@ export function ApprovalsPage() {
                       >
                         {availablePresetOptions.length > 0 ? (
                           availablePresetOptions.map((preset) => (
-                            <option key={preset.name} value={preset.name}>
+                            <NativeSelectOption
+                              key={preset.name}
+                              value={preset.name}
+                            >
                               {preset.name}
-                            </option>
+                            </NativeSelectOption>
                           ))
                         ) : (
-                          <option value="">No templates available</option>
+                          <NativeSelectOption value="">
+                            No templates available
+                          </NativeSelectOption>
                         )}
-                      </select>
+                      </NativeSelect>
                     </label>
                     <button
                       className="ghost-button"
@@ -487,9 +498,9 @@ export function ApprovalsPage() {
                     </strong>
 
                     <div className="field-grid policy-editor-grid">
-                      <label className="field">
-                        <span>Action</span>
-                        <select
+                      <Field>
+                        <FieldLabel>Action</FieldLabel>
+                        <NativeSelect
                           value={draft.action}
                           disabled={policyMutationPending}
                           onChange={(event) =>
@@ -502,14 +513,18 @@ export function ApprovalsPage() {
                             }))
                           }
                         >
-                          <option value="allow">allow</option>
-                          <option value="deny">deny</option>
-                        </select>
-                      </label>
+                          <NativeSelectOption value="allow">
+                            allow
+                          </NativeSelectOption>
+                          <NativeSelectOption value="deny">
+                            deny
+                          </NativeSelectOption>
+                        </NativeSelect>
+                      </Field>
 
-                      <label className="field">
-                        <span>Host</span>
-                        <input
+                      <Field>
+                        <FieldLabel>Host</FieldLabel>
+                        <Input
                           value={draft.host}
                           disabled={policyMutationPending}
                           placeholder="example.com"
@@ -520,11 +535,11 @@ export function ApprovalsPage() {
                             }))
                           }
                         />
-                      </label>
+                      </Field>
 
-                      <label className="field">
-                        <span>Port</span>
-                        <input
+                      <Field>
+                        <FieldLabel>Port</FieldLabel>
+                        <Input
                           value={draft.port}
                           disabled={policyMutationPending}
                           placeholder="*"
@@ -535,11 +550,11 @@ export function ApprovalsPage() {
                             }))
                           }
                         />
-                      </label>
+                      </Field>
 
-                      <label className="field">
-                        <span>Methods</span>
-                        <input
+                      <Field>
+                        <FieldLabel>Methods</FieldLabel>
+                        <Input
                           value={draft.methods}
                           disabled={policyMutationPending}
                           placeholder="*"
@@ -550,11 +565,11 @@ export function ApprovalsPage() {
                             }))
                           }
                         />
-                      </label>
+                      </Field>
 
-                      <label className="field">
-                        <span>Paths</span>
-                        <input
+                      <Field>
+                        <FieldLabel>Paths</FieldLabel>
+                        <Input
                           value={draft.paths}
                           disabled={policyMutationPending}
                           placeholder="/**"
@@ -565,11 +580,11 @@ export function ApprovalsPage() {
                             }))
                           }
                         />
-                      </label>
+                      </Field>
 
-                      <label className="field">
-                        <span>Agent</span>
-                        <input
+                      <Field>
+                        <FieldLabel>Agent</FieldLabel>
+                        <Input
                           value={draft.agent}
                           disabled={policyMutationPending}
                           placeholder="*"
@@ -580,11 +595,11 @@ export function ApprovalsPage() {
                             }))
                           }
                         />
-                      </label>
+                      </Field>
 
                       <label className="field policy-comment-field">
                         <span>Comment</span>
-                        <textarea
+                        <Textarea
                           rows={2}
                           value={draft.comment}
                           disabled={policyMutationPending}

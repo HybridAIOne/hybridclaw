@@ -17,8 +17,11 @@ import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ChannelLogo } from '../components/channel-logo';
 import { Field, FieldContent, FieldLabel } from '../components/field';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { NumberField } from '../components/number-field';
 import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { useFormMutation } from '../hooks/use-form-mutation';
 import { getErrorMessage } from '../lib/error-message';
@@ -76,7 +79,7 @@ function ListField(props: {
   return (
     <label className="field textarea-field">
       <span>{props.label}</span>
-      <textarea
+      <Textarea
         rows={props.rows ?? 3}
         value={joinStringList(props.value)}
         onChange={(event) =>
@@ -96,7 +99,7 @@ function ChannelInstructionsField(props: {
   return (
     <label className="field textarea-field">
       <span>Channel instructions</span>
-      <textarea
+      <Textarea
         rows={4}
         value={props.draft.channelInstructions[props.kind]}
         onChange={(event) =>
@@ -181,15 +184,15 @@ function ManagedSecretField(props: {
 
       {isEditing ? (
         <div className="managed-secret-editor">
-          <label className="field">
-            <span>{`New ${props.secretLabel}`}</span>
-            <input
+          <Field>
+            <FieldLabel>{`New ${props.secretLabel}`}</FieldLabel>
+            <Input
               type="password"
               value={nextValue}
               autoComplete="new-password"
               onChange={(event) => setNextValue(event.target.value)}
             />
-          </label>
+          </Field>
 
           <div className="button-row">
             <Button
@@ -268,9 +271,9 @@ function DiscordChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Prefix</span>
-          <input
+        <Field>
+          <FieldLabel>Prefix</FieldLabel>
+          <Input
             value={props.draft.discord.prefix}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -282,10 +285,10 @@ function DiscordChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
+        </Field>
+        <Field>
+          <FieldLabel>Group policy</FieldLabel>
+          <NativeSelect
             value={props.draft.discord.groupPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -298,11 +301,11 @@ function DiscordChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <Field orientation="horizontal">
@@ -324,9 +327,9 @@ function DiscordChannelEditor(props: {
       </Field>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Command mode</span>
-          <select
+        <Field>
+          <FieldLabel>Command mode</FieldLabel>
+          <NativeSelect
             value={props.draft.discord.commandMode}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -339,13 +342,15 @@ function DiscordChannelEditor(props: {
               }))
             }
           >
-            <option value="public">public</option>
-            <option value="restricted">restricted</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Send policy</span>
-          <select
+            <NativeSelectOption value="public">public</NativeSelectOption>
+            <NativeSelectOption value="restricted">
+              restricted
+            </NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Send policy</FieldLabel>
+          <NativeSelect
             value={props.draft.discord.sendPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -358,11 +363,11 @@ function DiscordChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <ListField
@@ -414,9 +419,9 @@ function DiscordChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Typing mode</span>
-          <select
+        <Field>
+          <FieldLabel>Typing mode</FieldLabel>
+          <NativeSelect
             value={props.draft.discord.typingMode}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -429,15 +434,15 @@ function DiscordChannelEditor(props: {
               }))
             }
           >
-            <option value="instant">instant</option>
-            <option value="thinking">thinking</option>
-            <option value="streaming">streaming</option>
-            <option value="never">never</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Ack reaction</span>
-          <input
+            <NativeSelectOption value="instant">instant</NativeSelectOption>
+            <NativeSelectOption value="thinking">thinking</NativeSelectOption>
+            <NativeSelectOption value="streaming">streaming</NativeSelectOption>
+            <NativeSelectOption value="never">never</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Ack reaction</FieldLabel>
+          <Input
             value={props.draft.discord.ackReaction}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -450,13 +455,13 @@ function DiscordChannelEditor(props: {
             }
             placeholder="👀"
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Ack reaction scope</span>
-          <select
+        <Field>
+          <FieldLabel>Ack reaction scope</FieldLabel>
+          <NativeSelect
             value={props.draft.discord.ackReactionScope}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -469,14 +474,16 @@ function DiscordChannelEditor(props: {
               }))
             }
           >
-            <option value="all">all</option>
-            <option value="group-mentions">group-mentions</option>
-            <option value="direct">direct</option>
-            <option value="off">off</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Text chunk limit</span>
+            <NativeSelectOption value="all">all</NativeSelectOption>
+            <NativeSelectOption value="group-mentions">
+              group-mentions
+            </NativeSelectOption>
+            <NativeSelectOption value="direct">direct</NativeSelectOption>
+            <NativeSelectOption value="off">off</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Text chunk limit</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -491,12 +498,12 @@ function DiscordChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Debounce ms</span>
+        <Field>
+          <FieldLabel>Debounce ms</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -511,9 +518,9 @@ function DiscordChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Max lines per message</span>
+        </Field>
+        <Field>
+          <FieldLabel>Max lines per message</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -528,12 +535,12 @@ function DiscordChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Rate limit per user</span>
+        <Field>
+          <FieldLabel>Rate limit per user</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -548,9 +555,9 @@ function DiscordChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Max concurrent per channel</span>
+        </Field>
+        <Field>
+          <FieldLabel>Max concurrent per channel</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -565,7 +572,7 @@ function DiscordChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <Field orientation="horizontal">
@@ -633,9 +640,9 @@ function WhatsAppChannelEditor(props: {
       </Field>
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
+        <Field>
+          <FieldLabel>DM policy</FieldLabel>
+          <NativeSelect
             value={props.draft.whatsapp.dmPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -648,15 +655,15 @@ function WhatsAppChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="pairing">pairing</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="pairing">pairing</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Group policy</FieldLabel>
+          <NativeSelect
             value={props.draft.whatsapp.groupPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -669,11 +676,11 @@ function WhatsAppChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       {isWhatsAppEnabled(props.draft) && !props.linked ? (
@@ -728,8 +735,8 @@ function WhatsAppChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Debounce ms</span>
+        <Field>
+          <FieldLabel>Debounce ms</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -744,10 +751,10 @@ function WhatsAppChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Ack reaction</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Ack reaction</FieldLabel>
+          <Input
             value={props.draft.whatsapp.ackReaction}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -759,12 +766,12 @@ function WhatsAppChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
+        <Field>
+          <FieldLabel>Text chunk limit</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -779,9 +786,9 @@ function WhatsAppChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
+        </Field>
+        <Field>
+          <FieldLabel>Media max MB</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -796,7 +803,7 @@ function WhatsAppChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <Field orientation="horizontal">
@@ -864,8 +871,8 @@ function TelegramChannelEditor(props: {
           token={props.token}
           onSecretSaved={props.onSecretSaved}
         />
-        <label className="field">
-          <span>Poll interval ms</span>
+        <Field>
+          <FieldLabel>Poll interval ms</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -880,13 +887,13 @@ function TelegramChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
+        <Field>
+          <FieldLabel>DM policy</FieldLabel>
+          <NativeSelect
             value={props.draft.telegram.dmPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -899,14 +906,14 @@ function TelegramChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Group policy</FieldLabel>
+          <NativeSelect
             value={props.draft.telegram.groupPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -919,11 +926,11 @@ function TelegramChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <Field orientation="horizontal">
@@ -977,8 +984,8 @@ function TelegramChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
+        <Field>
+          <FieldLabel>Text chunk limit</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -993,9 +1000,9 @@ function TelegramChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
+        </Field>
+        <Field>
+          <FieldLabel>Media max MB</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1010,7 +1017,7 @@ function TelegramChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <p className="muted-copy">
@@ -1061,9 +1068,9 @@ function ThreemaChannelEditor(props: {
       </Field>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Gateway identity</span>
-          <input
+        <Field>
+          <FieldLabel>Gateway identity</FieldLabel>
+          <Input
             value={props.draft.threema.identity}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1076,7 +1083,7 @@ function ThreemaChannelEditor(props: {
             }
             placeholder="*HYBRID1"
           />
-        </label>
+        </Field>
         <ManagedSecretField
           label="Gateway secret"
           secretName="THREEMA_GATEWAY_SECRET"
@@ -1090,9 +1097,9 @@ function ThreemaChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>API base URL</span>
-          <input
+        <Field>
+          <FieldLabel>API base URL</FieldLabel>
+          <Input
             value={props.draft.threema.apiBaseUrl}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1104,10 +1111,10 @@ function ThreemaChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>DM policy</span>
-          <select
+        </Field>
+        <Field>
+          <FieldLabel>DM policy</FieldLabel>
+          <NativeSelect
             value={props.draft.threema.dmPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1120,11 +1127,11 @@ function ThreemaChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <ListField
@@ -1144,8 +1151,8 @@ function ThreemaChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
+        <Field>
+          <FieldLabel>Text chunk limit</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1160,9 +1167,9 @@ function ThreemaChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Outbound delay ms</span>
+        </Field>
+        <Field>
+          <FieldLabel>Outbound delay ms</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1177,7 +1184,7 @@ function ThreemaChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <p className="muted-copy">
@@ -1253,22 +1260,22 @@ function SignalChannelEditor(props: {
       </Field>
 
       <div className="field-grid">
-        <label className="field">
-          <span>signal-cli path</span>
-          <input
+        <Field>
+          <FieldLabel>signal-cli path</FieldLabel>
+          <Input
             value={signalCliPath}
             onChange={(event) => setSignalCliPath(event.target.value)}
             placeholder="signal-cli"
           />
-        </label>
-        <label className="field">
-          <span>Device name</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Device name</FieldLabel>
+          <Input
             value={deviceName}
             onChange={(event) => setDeviceName(event.target.value)}
             placeholder="HybridClaw"
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field whatsapp-pairing-field">
@@ -1324,9 +1331,9 @@ function SignalChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Daemon URL</span>
-          <input
+        <Field>
+          <FieldLabel>Daemon URL</FieldLabel>
+          <Input
             value={props.draft.signal.daemonUrl}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1339,10 +1346,10 @@ function SignalChannelEditor(props: {
             }
             placeholder="http://127.0.0.1:8080"
           />
-        </label>
-        <label className="field">
-          <span>Account</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Account</FieldLabel>
+          <Input
             value={props.draft.signal.account}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1355,13 +1362,13 @@ function SignalChannelEditor(props: {
             }
             placeholder="+14155550123"
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
+        <Field>
+          <FieldLabel>DM policy</FieldLabel>
+          <NativeSelect
             value={props.draft.signal.dmPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1374,14 +1381,14 @@ function SignalChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Group policy</FieldLabel>
+          <NativeSelect
             value={props.draft.signal.groupPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1394,11 +1401,11 @@ function SignalChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <ListField
@@ -1434,8 +1441,8 @@ function SignalChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
+        <Field>
+          <FieldLabel>Text chunk limit</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1450,9 +1457,9 @@ function SignalChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Reconnect interval ms</span>
+        </Field>
+        <Field>
+          <FieldLabel>Reconnect interval ms</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1467,9 +1474,9 @@ function SignalChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Outbound delay ms</span>
+        </Field>
+        <Field>
+          <FieldLabel>Outbound delay ms</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1484,7 +1491,7 @@ function SignalChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <p className="muted-copy">
@@ -1620,9 +1627,9 @@ function EmailChannelEditor(props: {
       ) : null}
 
       <div className="field-grid">
-        <label className="field">
-          <span>Address</span>
-          <input
+        <Field>
+          <FieldLabel>Address</FieldLabel>
+          <Input
             value={props.draft.email.address}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1635,7 +1642,7 @@ function EmailChannelEditor(props: {
             }
             placeholder="bot@example.com"
           />
-        </label>
+        </Field>
         <ManagedSecretField
           label="Password"
           secretName="EMAIL_PASSWORD"
@@ -1649,9 +1656,9 @@ function EmailChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>IMAP host</span>
-          <input
+        <Field>
+          <FieldLabel>IMAP host</FieldLabel>
+          <Input
             value={props.draft.email.imapHost}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1663,10 +1670,10 @@ function EmailChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>SMTP host</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>SMTP host</FieldLabel>
+          <Input
             value={props.draft.email.smtpHost}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1678,12 +1685,12 @@ function EmailChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>IMAP port</span>
+        <Field>
+          <FieldLabel>IMAP port</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1698,9 +1705,9 @@ function EmailChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>SMTP port</span>
+        </Field>
+        <Field>
+          <FieldLabel>SMTP port</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1715,7 +1722,7 @@ function EmailChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
@@ -1788,8 +1795,8 @@ function EmailChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Poll interval ms</span>
+        <Field>
+          <FieldLabel>Poll interval ms</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1804,9 +1811,9 @@ function EmailChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Text chunk limit</span>
+        </Field>
+        <Field>
+          <FieldLabel>Text chunk limit</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1821,11 +1828,11 @@ function EmailChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
-      <label className="field">
-        <span>Media max MB</span>
+      <Field>
+        <FieldLabel>Media max MB</FieldLabel>
         <NumberField
           integer
           min={0}
@@ -1840,7 +1847,7 @@ function EmailChannelEditor(props: {
             }))
           }
         />
-      </label>
+      </Field>
       <ChannelInstructionsField
         kind="email"
         draft={props.draft}
@@ -1879,9 +1886,9 @@ function VoiceChannelEditor(props: {
       </Field>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Twilio account SID</span>
-          <input
+        <Field>
+          <FieldLabel>Twilio account SID</FieldLabel>
+          <Input
             value={props.draft.voice.twilio.accountSid}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1897,10 +1904,10 @@ function VoiceChannelEditor(props: {
             }
             placeholder="AC..."
           />
-        </label>
-        <label className="field">
-          <span>From number</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>From number</FieldLabel>
+          <Input
             value={props.draft.voice.twilio.fromNumber}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1916,7 +1923,7 @@ function VoiceChannelEditor(props: {
             }
             placeholder="+14155550123"
           />
-        </label>
+        </Field>
       </div>
 
       <ManagedSecretField
@@ -1931,9 +1938,9 @@ function VoiceChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Webhook path</span>
-          <input
+        <Field>
+          <FieldLabel>Webhook path</FieldLabel>
+          <Input
             value={props.draft.voice.webhookPath}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1946,9 +1953,9 @@ function VoiceChannelEditor(props: {
             }
             placeholder="/voice"
           />
-        </label>
-        <label className="field">
-          <span>Max concurrent calls</span>
+        </Field>
+        <Field>
+          <FieldLabel>Max concurrent calls</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -1963,13 +1970,13 @@ function VoiceChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>TTS provider</span>
-          <select
+        <Field>
+          <FieldLabel>TTS provider</FieldLabel>
+          <NativeSelect
             value={props.draft.voice.relay.ttsProvider}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -1985,14 +1992,14 @@ function VoiceChannelEditor(props: {
               }))
             }
           >
-            <option value="default">default</option>
-            <option value="google">google</option>
-            <option value="amazon">amazon</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Voice</span>
-          <input
+            <NativeSelectOption value="default">default</NativeSelectOption>
+            <NativeSelectOption value="google">google</NativeSelectOption>
+            <NativeSelectOption value="amazon">amazon</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Voice</FieldLabel>
+          <Input
             value={props.draft.voice.relay.voice}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2008,13 +2015,13 @@ function VoiceChannelEditor(props: {
             }
             placeholder="en-US-Journey-D"
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Transcription provider</span>
-          <select
+        <Field>
+          <FieldLabel>Transcription provider</FieldLabel>
+          <NativeSelect
             value={props.draft.voice.relay.transcriptionProvider}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2030,14 +2037,14 @@ function VoiceChannelEditor(props: {
               }))
             }
           >
-            <option value="default">default</option>
-            <option value="deepgram">deepgram</option>
-            <option value="google">google</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Language</span>
-          <input
+            <NativeSelectOption value="default">default</NativeSelectOption>
+            <NativeSelectOption value="deepgram">deepgram</NativeSelectOption>
+            <NativeSelectOption value="google">google</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Language</FieldLabel>
+          <Input
             value={props.draft.voice.relay.language}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2053,7 +2060,7 @@ function VoiceChannelEditor(props: {
             }
             placeholder="en-US"
           />
-        </label>
+        </Field>
       </div>
 
       <Field orientation="horizontal">
@@ -2079,7 +2086,7 @@ function VoiceChannelEditor(props: {
 
       <label className="field textarea-field">
         <span>Welcome greeting</span>
-        <textarea
+        <Textarea
           rows={3}
           value={props.draft.voice.relay.welcomeGreeting}
           onChange={(event) =>
@@ -2152,9 +2159,9 @@ function TeamsChannelEditor(props: {
       </Field>
 
       <div className="field-grid">
-        <label className="field">
-          <span>App ID</span>
-          <input
+        <Field>
+          <FieldLabel>App ID</FieldLabel>
+          <Input
             value={props.draft.msteams.appId}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2166,10 +2173,10 @@ function TeamsChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Tenant ID</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Tenant ID</FieldLabel>
+          <Input
             value={props.draft.msteams.tenantId}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2181,13 +2188,13 @@ function TeamsChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Webhook path</span>
-          <input
+        <Field>
+          <FieldLabel>Webhook path</FieldLabel>
+          <Input
             value={props.draft.msteams.webhook.path}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2202,9 +2209,9 @@ function TeamsChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Webhook port</span>
+        </Field>
+        <Field>
+          <FieldLabel>Webhook port</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -2223,13 +2230,13 @@ function TeamsChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
+        <Field>
+          <FieldLabel>DM policy</FieldLabel>
+          <NativeSelect
             value={props.draft.msteams.dmPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2242,14 +2249,14 @@ function TeamsChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Group policy</FieldLabel>
+          <NativeSelect
             value={props.draft.msteams.groupPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2262,11 +2269,11 @@ function TeamsChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <div className="field-grid">
@@ -2287,9 +2294,9 @@ function TeamsChannelEditor(props: {
             <FieldLabel>Require mention</FieldLabel>
           </FieldContent>
         </Field>
-        <label className="field">
-          <span>Reply style</span>
-          <select
+        <Field>
+          <FieldLabel>Reply style</FieldLabel>
+          <NativeSelect
             value={props.draft.msteams.replyStyle}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2302,10 +2309,10 @@ function TeamsChannelEditor(props: {
               }))
             }
           >
-            <option value="thread">thread</option>
-            <option value="top-level">top-level</option>
-          </select>
-        </label>
+            <NativeSelectOption value="thread">thread</NativeSelectOption>
+            <NativeSelectOption value="top-level">top-level</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <ListField
@@ -2325,8 +2332,8 @@ function TeamsChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
+        <Field>
+          <FieldLabel>Text chunk limit</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -2341,9 +2348,9 @@ function TeamsChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
+        </Field>
+        <Field>
+          <FieldLabel>Media max MB</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -2358,7 +2365,7 @@ function TeamsChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
       <ChannelInstructionsField
         kind="msteams"
@@ -2420,9 +2427,9 @@ function SlackChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
+        <Field>
+          <FieldLabel>DM policy</FieldLabel>
+          <NativeSelect
             value={props.draft.slack.dmPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2435,14 +2442,14 @@ function SlackChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Group policy</FieldLabel>
+          <NativeSelect
             value={props.draft.slack.groupPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2455,11 +2462,11 @@ function SlackChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <div className="field-grid">
@@ -2480,9 +2487,9 @@ function SlackChannelEditor(props: {
             <FieldLabel>Require mention</FieldLabel>
           </FieldContent>
         </Field>
-        <label className="field">
-          <span>Reply style</span>
-          <select
+        <Field>
+          <FieldLabel>Reply style</FieldLabel>
+          <NativeSelect
             value={props.draft.slack.replyStyle}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -2495,10 +2502,10 @@ function SlackChannelEditor(props: {
               }))
             }
           >
-            <option value="thread">thread</option>
-            <option value="top-level">top-level</option>
-          </select>
-        </label>
+            <NativeSelectOption value="thread">thread</NativeSelectOption>
+            <NativeSelectOption value="top-level">top-level</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <ListField
@@ -2534,8 +2541,8 @@ function SlackChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
+        <Field>
+          <FieldLabel>Text chunk limit</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -2550,9 +2557,9 @@ function SlackChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
+        </Field>
+        <Field>
+          <FieldLabel>Media max MB</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -2567,7 +2574,7 @@ function SlackChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <p className="muted-copy">
@@ -2651,22 +2658,22 @@ function SlackWebhookChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Target</span>
-          <input
+        <Field>
+          <FieldLabel>Target</FieldLabel>
+          <Input
             list="slack-webhook-targets"
             value={target}
             onChange={(event) => setTarget(event.target.value)}
           />
           <datalist id="slack-webhook-targets">
             {targets.map((entry) => (
-              <option key={entry} value={entry} />
+              <NativeSelectOption key={entry} value={entry} />
             ))}
           </datalist>
-        </label>
-        <label className="field">
-          <span>Webhook URL</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Webhook URL</FieldLabel>
+          <Input
             type="password"
             autoComplete="off"
             placeholder={
@@ -2675,33 +2682,33 @@ function SlackWebhookChannelEditor(props: {
             value={webhookUrl}
             onChange={(event) => setWebhookUrl(event.target.value)}
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Username</span>
-          <input
+        <Field>
+          <FieldLabel>Username</FieldLabel>
+          <Input
             value={defaultUsername}
             onChange={(event) => setDefaultUsername(event.target.value)}
           />
-        </label>
-        <label className="field">
-          <span>Icon emoji</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Icon emoji</FieldLabel>
+          <Input
             value={defaultIconEmoji}
             onChange={(event) => setDefaultIconEmoji(event.target.value)}
           />
-        </label>
+        </Field>
       </div>
 
-      <label className="field">
-        <span>Icon URL</span>
-        <input
+      <Field>
+        <FieldLabel>Icon URL</FieldLabel>
+        <Input
           value={defaultIconUrl}
           onChange={(event) => setDefaultIconUrl(event.target.value)}
         />
-      </label>
+      </Field>
 
       <div className="button-row">
         <button
@@ -2793,22 +2800,22 @@ function DiscordWebhookChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Target</span>
-          <input
+        <Field>
+          <FieldLabel>Target</FieldLabel>
+          <Input
             list="discord-webhook-targets"
             value={target}
             onChange={(event) => setTarget(event.target.value)}
           />
           <datalist id="discord-webhook-targets">
             {targets.map((entry) => (
-              <option key={entry} value={entry} />
+              <NativeSelectOption key={entry} value={entry} />
             ))}
           </datalist>
-        </label>
-        <label className="field">
-          <span>Webhook URL</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Webhook URL</FieldLabel>
+          <Input
             type="password"
             autoComplete="off"
             placeholder={
@@ -2817,24 +2824,24 @@ function DiscordWebhookChannelEditor(props: {
             value={webhookUrl}
             onChange={(event) => setWebhookUrl(event.target.value)}
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Username</span>
-          <input
+        <Field>
+          <FieldLabel>Username</FieldLabel>
+          <Input
             value={defaultUsername}
             onChange={(event) => setDefaultUsername(event.target.value)}
           />
-        </label>
-        <label className="field">
-          <span>Avatar URL</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Avatar URL</FieldLabel>
+          <Input
             value={defaultAvatarUrl}
             onChange={(event) => setDefaultAvatarUrl(event.target.value)}
           />
-        </label>
+        </Field>
       </div>
 
       <div className="button-row">
@@ -2892,9 +2899,9 @@ function IMessageChannelEditor(props: {
         </FieldContent>
       </Field>
 
-      <label className="field">
-        <span>Backend</span>
-        <select
+      <Field>
+        <FieldLabel>Backend</FieldLabel>
+        <NativeSelect
           value={props.draft.imessage.backend}
           onChange={(event) =>
             props.updateDraft((current) => ({
@@ -2907,17 +2914,17 @@ function IMessageChannelEditor(props: {
             }))
           }
         >
-          <option value="local">local</option>
-          <option value="bluebubbles">remote</option>
-        </select>
-      </label>
+          <NativeSelectOption value="local">local</NativeSelectOption>
+          <NativeSelectOption value="bluebubbles">remote</NativeSelectOption>
+        </NativeSelect>
+      </Field>
 
       {isRemote ? (
         <>
           <div className="field-grid">
-            <label className="field">
-              <span>Server URL</span>
-              <input
+            <Field>
+              <FieldLabel>Server URL</FieldLabel>
+              <Input
                 value={props.draft.imessage.serverUrl}
                 onChange={(event) =>
                   props.updateDraft((current) => ({
@@ -2929,7 +2936,7 @@ function IMessageChannelEditor(props: {
                   }))
                 }
               />
-            </label>
+            </Field>
             <ManagedSecretField
               label="Password"
               secretName="IMESSAGE_PASSWORD"
@@ -2942,9 +2949,9 @@ function IMessageChannelEditor(props: {
             />
           </div>
 
-          <label className="field">
-            <span>Webhook path</span>
-            <input
+          <Field>
+            <FieldLabel>Webhook path</FieldLabel>
+            <Input
               value={props.draft.imessage.webhookPath}
               onChange={(event) =>
                 props.updateDraft((current) => ({
@@ -2956,7 +2963,7 @@ function IMessageChannelEditor(props: {
                 }))
               }
             />
-          </label>
+          </Field>
 
           <Field orientation="horizontal">
             <Switch
@@ -2978,9 +2985,9 @@ function IMessageChannelEditor(props: {
         </>
       ) : (
         <div className="field-grid">
-          <label className="field">
-            <span>CLI path</span>
-            <input
+          <Field>
+            <FieldLabel>CLI path</FieldLabel>
+            <Input
               value={props.draft.imessage.cliPath}
               onChange={(event) =>
                 props.updateDraft((current) => ({
@@ -2992,10 +2999,10 @@ function IMessageChannelEditor(props: {
                 }))
               }
             />
-          </label>
-          <label className="field">
-            <span>Database path</span>
-            <input
+          </Field>
+          <Field>
+            <FieldLabel>Database path</FieldLabel>
+            <Input
               value={props.draft.imessage.dbPath}
               onChange={(event) =>
                 props.updateDraft((current) => ({
@@ -3007,14 +3014,14 @@ function IMessageChannelEditor(props: {
                 }))
               }
             />
-          </label>
+          </Field>
         </div>
       )}
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
+        <Field>
+          <FieldLabel>DM policy</FieldLabel>
+          <NativeSelect
             value={props.draft.imessage.dmPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -3027,14 +3034,14 @@ function IMessageChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
+        <Field>
+          <FieldLabel>Group policy</FieldLabel>
+          <NativeSelect
             value={props.draft.imessage.groupPolicy}
             onChange={(event) =>
               props.updateDraft((current) => ({
@@ -3047,11 +3054,11 @@ function IMessageChannelEditor(props: {
               }))
             }
           >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+            <NativeSelectOption value="open">open</NativeSelectOption>
+            <NativeSelectOption value="allowlist">allowlist</NativeSelectOption>
+            <NativeSelectOption value="disabled">disabled</NativeSelectOption>
+          </NativeSelect>
+        </Field>
       </div>
 
       <ListField
@@ -3087,10 +3094,10 @@ function IMessageChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>
+        <Field>
+          <FieldLabel>
             {isRemote ? 'Webhook / poll interval ms' : 'Poll interval ms'}
-          </span>
+          </FieldLabel>
           <NumberField
             integer
             min={0}
@@ -3105,9 +3112,9 @@ function IMessageChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Debounce ms</span>
+        </Field>
+        <Field>
+          <FieldLabel>Debounce ms</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -3122,12 +3129,12 @@ function IMessageChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
+        <Field>
+          <FieldLabel>Text chunk limit</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -3142,9 +3149,9 @@ function IMessageChannelEditor(props: {
               }))
             }
           />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
+        </Field>
+        <Field>
+          <FieldLabel>Media max MB</FieldLabel>
           <NumberField
             integer
             min={0}
@@ -3159,7 +3166,7 @@ function IMessageChannelEditor(props: {
               }))
             }
           />
-        </label>
+        </Field>
       </div>
       <ChannelInstructionsField
         kind="imessage"

@@ -9,6 +9,8 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Field, FieldLabel } from '../components/field';
+import { Input } from '../components/input';
 import { PageHeader } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
@@ -69,31 +71,31 @@ export function AuditPage() {
         </CardHeader>
         <CardContent>
           <div className="field-grid">
-            <label className="field">
-              <span>Search</span>
-              <input
+            <Field>
+              <FieldLabel>Search</FieldLabel>
+              <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="approval, tool, error"
               />
-            </label>
-            <label className="field">
-              <span>Session ID</span>
-              <input
+            </Field>
+            <Field>
+              <FieldLabel>Session ID</FieldLabel>
+              <Input
                 value={sessionId}
                 onChange={(event) => setSessionId(event.target.value)}
                 placeholder="web:default"
               />
-            </label>
+            </Field>
           </div>
-          <label className="field">
-            <span>Event type</span>
-            <input
+          <Field>
+            <FieldLabel>Event type</FieldLabel>
+            <Input
               value={eventType}
               onChange={(event) => setEventType(event.target.value)}
               placeholder="approval.response"
             />
-          </label>
+          </Field>
         </CardContent>
       </Card>
 

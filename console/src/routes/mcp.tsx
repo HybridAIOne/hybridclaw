@@ -12,7 +12,10 @@ import {
   CardTitle,
 } from '../components/card';
 import { Field, FieldContent, FieldLabel } from '../components/field';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -227,9 +230,9 @@ export function McpPage() {
           <CardContent>
             <div className="stack-form">
               <div className="field-grid">
-                <label className="field">
-                  <span>Name</span>
-                  <input
+                <Field>
+                  <FieldLabel>Name</FieldLabel>
+                  <Input
                     value={draft.name}
                     onChange={(event) =>
                       setDraft((current) => ({
@@ -239,10 +242,10 @@ export function McpPage() {
                     }
                     placeholder="github"
                   />
-                </label>
-                <label className="field">
-                  <span>Transport</span>
-                  <select
+                </Field>
+                <Field>
+                  <FieldLabel>Transport</FieldLabel>
+                  <NativeSelect
                     value={draft.transport}
                     onChange={(event) =>
                       setDraft((current) => ({
@@ -251,11 +254,11 @@ export function McpPage() {
                       }))
                     }
                   >
-                    <option value="stdio">stdio</option>
-                    <option value="http">http</option>
-                    <option value="sse">sse</option>
-                  </select>
-                </label>
+                    <NativeSelectOption value="stdio">stdio</NativeSelectOption>
+                    <NativeSelectOption value="http">http</NativeSelectOption>
+                    <NativeSelectOption value="sse">sse</NativeSelectOption>
+                  </NativeSelect>
+                </Field>
               </div>
 
               <Field orientation="horizontal">
@@ -272,9 +275,9 @@ export function McpPage() {
 
               {draft.transport === 'stdio' ? (
                 <>
-                  <label className="field">
-                    <span>Command</span>
-                    <input
+                  <Field>
+                    <FieldLabel>Command</FieldLabel>
+                    <Input
                       value={draft.command}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -284,11 +287,11 @@ export function McpPage() {
                       }
                       placeholder="docker"
                     />
-                  </label>
+                  </Field>
                   <div className="field-grid">
-                    <label className="field">
-                      <span>Arguments</span>
-                      <textarea
+                    <Field>
+                      <FieldLabel>Arguments</FieldLabel>
+                      <Textarea
                         rows={4}
                         value={draft.args}
                         onChange={(event) =>
@@ -299,10 +302,10 @@ export function McpPage() {
                         }
                         placeholder="One argument per line"
                       />
-                    </label>
-                    <label className="field">
-                      <span>Working directory</span>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>Working directory</FieldLabel>
+                      <Input
                         value={draft.cwd}
                         onChange={(event) =>
                           setDraft((current) => ({
@@ -312,11 +315,11 @@ export function McpPage() {
                         }
                         placeholder="/workspace"
                       />
-                    </label>
+                    </Field>
                   </div>
-                  <label className="field">
-                    <span>Environment JSON</span>
-                    <textarea
+                  <Field>
+                    <FieldLabel>Environment JSON</FieldLabel>
+                    <Textarea
                       rows={5}
                       value={draft.envJson}
                       onChange={(event) =>
@@ -327,13 +330,13 @@ export function McpPage() {
                       }
                       placeholder='{"GITHUB_TOKEN":"..."}'
                     />
-                  </label>
+                  </Field>
                 </>
               ) : (
                 <>
-                  <label className="field">
-                    <span>URL</span>
-                    <input
+                  <Field>
+                    <FieldLabel>URL</FieldLabel>
+                    <Input
                       value={draft.url}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -343,10 +346,10 @@ export function McpPage() {
                       }
                       placeholder="https://example.test/mcp"
                     />
-                  </label>
-                  <label className="field">
-                    <span>Headers JSON</span>
-                    <textarea
+                  </Field>
+                  <Field>
+                    <FieldLabel>Headers JSON</FieldLabel>
+                    <Textarea
                       rows={5}
                       value={draft.headersJson}
                       onChange={(event) =>
@@ -357,7 +360,7 @@ export function McpPage() {
                       }
                       placeholder='{"Authorization":"Bearer ..."}'
                     />
-                  </label>
+                  </Field>
                 </>
               )}
 
