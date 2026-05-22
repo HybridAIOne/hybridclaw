@@ -134,7 +134,7 @@ function fallbackUnsetSecretMetadata(name: string): RuntimeSecretMetadataEntry {
 function getRuntimeSecretMetadata(name: string): RuntimeSecretMetadataEntry {
   return (
     listRuntimeSecretMetadata({
-      declaredNames: listDeclaredRuntimeSecretNames(),
+      declaredNames: [name],
     }).find((entry) => entry.name === name) || fallbackUnsetSecretMetadata(name)
   );
 }
@@ -165,15 +165,6 @@ export function getGatewayAdminSecrets(options: {
   return response;
 }
 
-export function recordGatewayAdminSecretMutationDenied(options: {
-  type: AdminSecretMutationType;
-  name: string;
-  audit: AdminSecretAuditContext;
-  errorCode: 'forbidden';
-}): void {
-  recordGatewayAdminSecretMutationFailure(options);
-}
-
 export function recordGatewayAdminSecretMutationFailure(options: {
   type: AdminSecretMutationType;
   name: string;
@@ -190,66 +181,87 @@ export function recordGatewayAdminSecretMutationFailure(options: {
   });
 }
 
+function errorCodeForSecretMutation(
+  error: unknown,
+): 'bad_request' | 'write_failed' {
+  return error instanceof GatewayRequestError ? 'bad_request' : 'write_failed';
+}
+
+function withSecretMutationAudit<T>(
+  type: AdminSecretMutationType,
+  rawName: string,
+  audit: AdminSecretAuditContext,
+  run: (rawName: string) => {
+    fingerprint: RuntimeSecretMetadataEntry['fingerprint'];
+    name: string;
+    response: T;
+  },
+): T {
+  let auditName = rawName;
+  try {
+    const result = run(rawName);
+    auditName = result.name;
+    recordSecretMutationAudit({
+      type,
+      audit,
+      name: result.name,
+      success: true,
+      fingerprint: result.fingerprint,
+    });
+    return result.response;
+  } catch (error) {
+    recordSecretMutationAudit({
+      type,
+      audit,
+      name: auditName,
+      success: false,
+      fingerprint: null,
+      errorCode: errorCodeForSecretMutation(error),
+    });
+    throw error;
+  }
+}
+
 export function overwriteGatewayAdminSecret(options: {
   name: string;
   value: unknown;
   audit: AdminSecretAuditContext;
 }): GatewayAdminSecretMutationResponse {
-  let name = options.name.trim();
-  try {
-    name = requireWritableSecretName(name);
-    const value = requireSecretValue(options.value);
-    saveNamedRuntimeSecrets({ [name]: value });
-    const secret = getRuntimeSecretMetadata(name);
-    recordSecretMutationAudit({
-      type: 'secret.overwritten',
-      audit: options.audit,
-      name,
-      success: true,
-      fingerprint: secret.fingerprint,
-    });
-    return { secret };
-  } catch (error) {
-    recordSecretMutationAudit({
-      type: 'secret.overwritten',
-      audit: options.audit,
-      name,
-      success: false,
-      fingerprint: null,
-      errorCode:
-        error instanceof GatewayRequestError ? 'bad_request' : 'write_failed',
-    });
-    throw error;
-  }
+  return withSecretMutationAudit(
+    'secret.overwritten',
+    options.name,
+    options.audit,
+    (rawName) => {
+      const name = requireWritableSecretName(rawName);
+      const value = requireSecretValue(options.value);
+      saveNamedRuntimeSecrets({ [name]: value });
+      const secret = getRuntimeSecretMetadata(name);
+      return {
+        fingerprint: secret.fingerprint,
+        name,
+        response: { secret },
+      };
+    },
+  );
 }
 
 export function unsetGatewayAdminSecret(options: {
   name: string;
   audit: AdminSecretAuditContext;
 }): GatewayAdminSecretMutationResponse {
-  let name = options.name.trim();
-  try {
-    name = requireWritableSecretName(name);
-    saveNamedRuntimeSecrets({ [name]: null });
-    const secret = getRuntimeSecretMetadata(name);
-    recordSecretMutationAudit({
-      type: 'secret.unset',
-      audit: options.audit,
-      name,
-      success: true,
-      fingerprint: null,
-    });
-    return { secret };
-  } catch (error) {
-    recordSecretMutationAudit({
-      type: 'secret.unset',
-      audit: options.audit,
-      name,
-      success: false,
-      fingerprint: null,
-      errorCode:
-        error instanceof GatewayRequestError ? 'bad_request' : 'write_failed',
-    });
-    throw error;
-  }
+  return withSecretMutationAudit(
+    'secret.unset',
+    options.name,
+    options.audit,
+    (rawName) => {
+      const name = requireWritableSecretName(rawName);
+      saveNamedRuntimeSecrets({ [name]: null });
+      const secret = getRuntimeSecretMetadata(name);
+      return {
+        fingerprint: null,
+        name,
+        response: { secret },
+      };
+    },
+  );
 }

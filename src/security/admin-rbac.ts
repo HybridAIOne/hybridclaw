@@ -3,16 +3,11 @@ export type AdminRbacAction =
   | 'secret.overwrite'
   | 'secret.unset';
 
-function readRecordProperty(
-  record: Record<string, unknown>,
-  keys: string[],
+function readClaimValue(
+  payload: Record<string, unknown>,
+  key: 'actions' | 'scope',
 ): unknown {
-  for (const key of keys) {
-    if (Object.hasOwn(record, key)) {
-      return record[key];
-    }
-  }
-  return undefined;
+  return Object.hasOwn(payload, key) ? payload[key] : undefined;
 }
 
 export function collectAdminActionClaims(
@@ -20,38 +15,35 @@ export function collectAdminActionClaims(
 ): Set<string> | null {
   if (!payload) return null;
   const claims = new Set<string>();
-  let sawClaimField = false;
-  for (const key of ['actions', 'permissions', 'scopes', 'scope']) {
-    const value = readRecordProperty(payload, [key]);
-    if (Array.isArray(value)) {
-      sawClaimField = true;
-      for (const entry of value) {
-        if (typeof entry === 'string' && entry.trim()) {
-          claims.add(entry.trim());
-        }
+
+  const actions = readClaimValue(payload, 'actions');
+  if (Array.isArray(actions)) {
+    for (const entry of actions) {
+      if (typeof entry === 'string' && entry.trim()) {
+        claims.add(entry.trim());
       }
-      continue;
     }
-    if (typeof value === 'string') {
-      sawClaimField = true;
-      for (const entry of value.split(/[,\s]+/)) {
-        if (entry.trim()) claims.add(entry.trim());
-      }
+  } else if (typeof actions === 'string') {
+    for (const entry of actions.split(/[,\s]+/)) {
+      if (entry.trim()) claims.add(entry.trim());
     }
   }
-  return sawClaimField ? claims : null;
+
+  const scope = readClaimValue(payload, 'scope');
+  if (typeof scope === 'string') {
+    for (const entry of scope.split(/\s+/)) {
+      if (entry.trim()) claims.add(entry.trim());
+    }
+  }
+
+  return claims;
 }
 
 export function isAdminActionAllowed(
   payload: Record<string, unknown> | null,
   action: AdminRbacAction,
 ): boolean {
+  if (!payload) return true;
   const claims = collectAdminActionClaims(payload);
-  if (claims === null) return true;
-  return (
-    claims.has(action) ||
-    claims.has('secret:*') ||
-    claims.has('admin:*') ||
-    claims.has('*')
-  );
+  return claims?.has(action) === true || claims?.has('secret:*') === true;
 }

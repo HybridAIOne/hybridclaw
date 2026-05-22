@@ -135,7 +135,6 @@ import { serveDocs } from './docs.js';
 import {
   getGatewayAdminSecrets,
   overwriteGatewayAdminSecret,
-  recordGatewayAdminSecretMutationDenied,
   recordGatewayAdminSecretMutationFailure,
   unsetGatewayAdminSecret,
 } from './gateway-admin-secrets.js';
@@ -1765,12 +1764,14 @@ function resolveAdminSessionAuditId(
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function resolveAdminSecretAuditContext(req: IncomingMessage): {
+function resolveAdminSecretAuditContext(
+  req: IncomingMessage,
+  sessionPayload: Record<string, unknown> | null,
+): {
   sessionId?: string;
   actor?: string | null;
   sourceIp?: string | null;
 } {
-  const sessionPayload = getSessionAuthPayload(req);
   return {
     sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
     actor: resolveAdminSessionActor(sessionPayload),
@@ -3319,7 +3320,7 @@ function handleApiAdminSecrets(
     res,
     200,
     getGatewayAdminSecrets({
-      audit: resolveAdminSecretAuditContext(req),
+      audit: resolveAdminSecretAuditContext(req, sessionPayload),
     }),
   );
 }
@@ -3337,7 +3338,6 @@ function parseApiAdminSecretName(pathname: string): string | null {
 }
 
 function readAdminSecretBodyValue(body: unknown): unknown {
-  if (typeof body === 'string') return body;
   if (body && typeof body === 'object' && !Array.isArray(body)) {
     return (body as { value?: unknown }).value;
   }
@@ -3350,9 +3350,9 @@ async function handleApiAdminSecretOverwrite(
   name: string,
 ): Promise<void> {
   const sessionPayload = getSessionAuthPayload(req);
-  const audit = resolveAdminSecretAuditContext(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
   if (!isAdminActionAllowed(sessionPayload, 'secret.overwrite')) {
-    recordGatewayAdminSecretMutationDenied({
+    recordGatewayAdminSecretMutationFailure({
       type: 'secret.overwritten',
       name,
       audit,
@@ -3392,9 +3392,9 @@ async function handleApiAdminSecretUnset(
   name: string,
 ): Promise<void> {
   const sessionPayload = getSessionAuthPayload(req);
-  const audit = resolveAdminSecretAuditContext(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
   if (!isAdminActionAllowed(sessionPayload, 'secret.unset')) {
-    recordGatewayAdminSecretMutationDenied({
+    recordGatewayAdminSecretMutationFailure({
       type: 'secret.unset',
       name,
       audit,

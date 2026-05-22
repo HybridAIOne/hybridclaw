@@ -765,7 +765,6 @@ async function importFreshHealth(options?: {
       fingerprint: null,
     },
   }));
-  const recordGatewayAdminSecretMutationDenied = vi.fn();
   const recordGatewayAdminSecretMutationFailure = vi.fn();
   const reconnectTunnelStatus = {
     provider: 'ngrok',
@@ -1809,7 +1808,6 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/gateway-admin-secrets.js', () => ({
     getGatewayAdminSecrets,
     overwriteGatewayAdminSecret,
-    recordGatewayAdminSecretMutationDenied,
     recordGatewayAdminSecretMutationFailure,
     unsetGatewayAdminSecret,
   }));
@@ -1894,7 +1892,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminOverview,
     getGatewayAdminSecrets,
     overwriteGatewayAdminSecret,
-    recordGatewayAdminSecretMutationDenied,
     recordGatewayAdminSecretMutationFailure,
     unsetGatewayAdminSecret,
     getGatewayAdminStatistics,
@@ -4742,6 +4739,7 @@ describe('gateway HTTP server', () => {
         cookie: makeSessionCookie(authSecret, {
           sessionId: 'admin-session-1',
           actor: 'admin-user',
+          actions: ['secret.list_metadata'],
         }),
       },
     });
@@ -4781,6 +4779,27 @@ describe('gateway HTTP server', () => {
       total: 2,
     });
     expect(res.body).not.toContain('super-secret');
+  });
+
+  test('denies admin secret metadata sessions without action claims', async () => {
+    const authSecret = 'secret-list-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/secrets',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
   });
 
   test('rejects unsupported admin secret metadata methods before listing names', async () => {
@@ -4869,7 +4888,7 @@ describe('gateway HTTP server', () => {
         cookie: makeSessionCookie(authSecret, {
           sessionId: 'admin-session-1',
           actor: 'admin-user',
-          permissions: ['secret.unset'],
+          scope: 'secret.unset',
         }),
       },
     });
@@ -4936,7 +4955,7 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
-    expect(state.recordGatewayAdminSecretMutationDenied).toHaveBeenCalledWith({
+    expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
       type: 'secret.overwritten',
       name: 'SET_SECRET',
       audit: {
