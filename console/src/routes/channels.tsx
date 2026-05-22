@@ -13,10 +13,14 @@ import {
 } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ChannelLogo } from '../components/channel-logo';
+import { Field, FieldContent, FieldLabel } from '../components/field';
+import { NumberField } from '../components/number-field';
+import { Switch } from '../components/switch';
 import { useToast } from '../components/toast';
-import { BooleanField } from '../components/ui';
+import { useFormMutation } from '../hooks/use-form-mutation';
 import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
 import {
@@ -29,15 +33,6 @@ import {
 type ConfigUpdater = (updater: (current: AdminConfig) => AdminConfig) => void;
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
 type ChannelInstructionKind = keyof AdminConfig['channelInstructions'];
-
-function cloneConfig<T>(value: T): T {
-  return structuredClone(value);
-}
-
-function parseInteger(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 function isDiscordEnabled(config: AdminConfig): boolean {
   return (
@@ -170,8 +165,8 @@ function ManagedSecretField(props: {
       <span>{props.label}</span>
       {!isEditing ? (
         <div className="button-row">
-          <button
-            className="ghost-button"
+          <Button
+            variant="ghost"
             type="button"
             onClick={() => {
               saveSecretMutation.reset();
@@ -180,7 +175,7 @@ function ManagedSecretField(props: {
             }}
           >
             {actionLabel}
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -197,18 +192,18 @@ function ManagedSecretField(props: {
           </label>
 
           <div className="button-row">
-            <button
-              className="primary-button"
+            <Button
               type="button"
+              loading={saveSecretMutation.isPending}
               disabled={!nextValue.trim() || saveSecretMutation.isPending}
               onClick={() => saveSecretMutation.mutate(nextValue)}
             >
               {saveSecretMutation.isPending
                 ? 'Saving...'
                 : `Save ${props.secretLabel}`}
-            </button>
-            <button
-              className="ghost-button"
+            </Button>
+            <Button
+              variant="ghost"
               type="button"
               disabled={saveSecretMutation.isPending}
               onClick={() => {
@@ -218,7 +213,7 @@ function ManagedSecretField(props: {
               }}
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -236,29 +231,31 @@ function DiscordChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isDiscordEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discord: {
-              ...current.discord,
-              groupPolicy:
-                enabled &&
-                current.discord.groupPolicy === 'disabled' &&
-                !current.discord.commandsOnly
-                  ? 'open'
-                  : enabled
-                    ? current.discord.groupPolicy
-                    : 'disabled',
-              commandsOnly: enabled ? current.discord.commandsOnly : false,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={isDiscordEnabled(props.draft)}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              discord: {
+                ...current.discord,
+                groupPolicy:
+                  enabled &&
+                  current.discord.groupPolicy === 'disabled' &&
+                  !current.discord.commandsOnly
+                    ? 'open'
+                    : enabled
+                      ? current.discord.groupPolicy
+                      : 'disabled',
+                commandsOnly: enabled ? current.discord.commandsOnly : false,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <ManagedSecretField
         label="Bot token"
@@ -308,21 +305,23 @@ function DiscordChannelEditor(props: {
         </label>
       </div>
 
-      <BooleanField
-        label="Commands only"
-        value={props.draft.discord.commandsOnly}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(commandsOnly) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discord: {
-              ...current.discord,
-              commandsOnly,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.discord.commandsOnly}
+          onCheckedChange={(commandsOnly) =>
+            props.updateDraft((current) => ({
+              ...current,
+              discord: {
+                ...current.discord,
+                commandsOnly,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Commands only</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field-grid">
         <label className="field">
@@ -478,15 +477,16 @@ function DiscordChannelEditor(props: {
         </label>
         <label className="field">
           <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.textChunkLimit)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.discord.textChunkLimit}
+            onValueChange={(textChunkLimit) =>
               props.updateDraft((current) => ({
                 ...current,
                 discord: {
                   ...current.discord,
-                  textChunkLimit: parseInteger(event.target.value),
+                  textChunkLimit,
                 },
               }))
             }
@@ -497,15 +497,16 @@ function DiscordChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Debounce ms</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.debounceMs)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.discord.debounceMs}
+            onValueChange={(debounceMs) =>
               props.updateDraft((current) => ({
                 ...current,
                 discord: {
                   ...current.discord,
-                  debounceMs: parseInteger(event.target.value),
+                  debounceMs,
                 },
               }))
             }
@@ -513,15 +514,16 @@ function DiscordChannelEditor(props: {
         </label>
         <label className="field">
           <span>Max lines per message</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.maxLinesPerMessage)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.discord.maxLinesPerMessage}
+            onValueChange={(maxLinesPerMessage) =>
               props.updateDraft((current) => ({
                 ...current,
                 discord: {
                   ...current.discord,
-                  maxLinesPerMessage: parseInteger(event.target.value),
+                  maxLinesPerMessage,
                 },
               }))
             }
@@ -532,15 +534,16 @@ function DiscordChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Rate limit per user</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.rateLimitPerUser)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.discord.rateLimitPerUser}
+            onValueChange={(rateLimitPerUser) =>
               props.updateDraft((current) => ({
                 ...current,
                 discord: {
                   ...current.discord,
-                  rateLimitPerUser: parseInteger(event.target.value),
+                  rateLimitPerUser,
                 },
               }))
             }
@@ -548,15 +551,16 @@ function DiscordChannelEditor(props: {
         </label>
         <label className="field">
           <span>Max concurrent per channel</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.maxConcurrentPerChannel)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.discord.maxConcurrentPerChannel}
+            onValueChange={(maxConcurrentPerChannel) =>
               props.updateDraft((current) => ({
                 ...current,
                 discord: {
                   ...current.discord,
-                  maxConcurrentPerChannel: parseInteger(event.target.value),
+                  maxConcurrentPerChannel,
                 },
               }))
             }
@@ -564,21 +568,23 @@ function DiscordChannelEditor(props: {
         </label>
       </div>
 
-      <BooleanField
-        label="Remove ack after reply"
-        value={props.draft.discord.removeAckAfterReply}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(removeAckAfterReply) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discord: {
-              ...current.discord,
-              removeAckAfterReply,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.discord.removeAckAfterReply}
+          onCheckedChange={(removeAckAfterReply) =>
+            props.updateDraft((current) => ({
+              ...current,
+              discord: {
+                ...current.discord,
+                removeAckAfterReply,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Remove ack after reply</FieldLabel>
+        </FieldContent>
+      </Field>
       <ChannelInstructionsField
         kind="discord"
         draft={props.draft}
@@ -600,27 +606,31 @@ function WhatsAppChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isWhatsAppEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            whatsapp: {
-              ...current.whatsapp,
-              dmPolicy:
-                enabled && current.whatsapp.dmPolicy === 'disabled'
-                  ? 'pairing'
-                  : enabled
-                    ? current.whatsapp.dmPolicy
-                    : 'disabled',
-              groupPolicy: enabled ? current.whatsapp.groupPolicy : 'disabled',
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={isWhatsAppEnabled(props.draft)}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              whatsapp: {
+                ...current.whatsapp,
+                dmPolicy:
+                  enabled && current.whatsapp.dmPolicy === 'disabled'
+                    ? 'pairing'
+                    : enabled
+                      ? current.whatsapp.dmPolicy
+                      : 'disabled',
+                groupPolicy: enabled
+                  ? current.whatsapp.groupPolicy
+                  : 'disabled',
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field-grid">
         <label className="field">
@@ -720,15 +730,16 @@ function WhatsAppChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Debounce ms</span>
-          <input
-            type="number"
-            value={String(props.draft.whatsapp.debounceMs)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.whatsapp.debounceMs}
+            onValueChange={(debounceMs) =>
               props.updateDraft((current) => ({
                 ...current,
                 whatsapp: {
                   ...current.whatsapp,
-                  debounceMs: parseInteger(event.target.value),
+                  debounceMs,
                 },
               }))
             }
@@ -754,15 +765,16 @@ function WhatsAppChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.whatsapp.textChunkLimit)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.whatsapp.textChunkLimit}
+            onValueChange={(textChunkLimit) =>
               props.updateDraft((current) => ({
                 ...current,
                 whatsapp: {
                   ...current.whatsapp,
-                  textChunkLimit: parseInteger(event.target.value),
+                  textChunkLimit,
                 },
               }))
             }
@@ -770,15 +782,16 @@ function WhatsAppChannelEditor(props: {
         </label>
         <label className="field">
           <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.whatsapp.mediaMaxMb)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.whatsapp.mediaMaxMb}
+            onValueChange={(mediaMaxMb) =>
               props.updateDraft((current) => ({
                 ...current,
                 whatsapp: {
                   ...current.whatsapp,
-                  mediaMaxMb: parseInteger(event.target.value),
+                  mediaMaxMb,
                 },
               }))
             }
@@ -786,21 +799,23 @@ function WhatsAppChannelEditor(props: {
         </label>
       </div>
 
-      <BooleanField
-        label="Send read receipts"
-        value={props.draft.whatsapp.sendReadReceipts}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(sendReadReceipts) =>
-          props.updateDraft((current) => ({
-            ...current,
-            whatsapp: {
-              ...current.whatsapp,
-              sendReadReceipts,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.whatsapp.sendReadReceipts}
+          onCheckedChange={(sendReadReceipts) =>
+            props.updateDraft((current) => ({
+              ...current,
+              whatsapp: {
+                ...current.whatsapp,
+                sendReadReceipts,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Send read receipts</FieldLabel>
+        </FieldContent>
+      </Field>
       <ChannelInstructionsField
         kind="whatsapp"
         draft={props.draft}
@@ -820,21 +835,23 @@ function TelegramChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.telegram.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            telegram: {
-              ...current.telegram,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.telegram.enabled}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              telegram: {
+                ...current.telegram,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field-grid">
         <ManagedSecretField
@@ -849,15 +866,16 @@ function TelegramChannelEditor(props: {
         />
         <label className="field">
           <span>Poll interval ms</span>
-          <input
-            type="number"
-            value={String(props.draft.telegram.pollIntervalMs)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.telegram.pollIntervalMs}
+            onValueChange={(pollIntervalMs) =>
               props.updateDraft((current) => ({
                 ...current,
                 telegram: {
                   ...current.telegram,
-                  pollIntervalMs: parseInteger(event.target.value),
+                  pollIntervalMs,
                 },
               }))
             }
@@ -908,21 +926,23 @@ function TelegramChannelEditor(props: {
         </label>
       </div>
 
-      <BooleanField
-        label="Require mention in groups"
-        value={props.draft.telegram.requireMention}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(requireMention) =>
-          props.updateDraft((current) => ({
-            ...current,
-            telegram: {
-              ...current.telegram,
-              requireMention,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.telegram.requireMention}
+          onCheckedChange={(requireMention) =>
+            props.updateDraft((current) => ({
+              ...current,
+              telegram: {
+                ...current.telegram,
+                requireMention,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Require mention in groups</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <ListField
         label="Allowed DM senders"
@@ -959,15 +979,16 @@ function TelegramChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.telegram.textChunkLimit)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.telegram.textChunkLimit}
+            onValueChange={(textChunkLimit) =>
               props.updateDraft((current) => ({
                 ...current,
                 telegram: {
                   ...current.telegram,
-                  textChunkLimit: parseInteger(event.target.value),
+                  textChunkLimit,
                 },
               }))
             }
@@ -975,15 +996,16 @@ function TelegramChannelEditor(props: {
         </label>
         <label className="field">
           <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.telegram.mediaMaxMb)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.telegram.mediaMaxMb}
+            onValueChange={(mediaMaxMb) =>
               props.updateDraft((current) => ({
                 ...current,
                 telegram: {
                   ...current.telegram,
-                  mediaMaxMb: parseInteger(event.target.value),
+                  mediaMaxMb,
                 },
               }))
             }
@@ -1020,21 +1042,23 @@ function ThreemaChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.threema.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            threema: {
-              ...current.threema,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.threema.enabled}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              threema: {
+                ...current.threema,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field-grid">
         <label className="field">
@@ -1122,15 +1146,16 @@ function ThreemaChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.threema.textChunkLimit)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.threema.textChunkLimit}
+            onValueChange={(textChunkLimit) =>
               props.updateDraft((current) => ({
                 ...current,
                 threema: {
                   ...current.threema,
-                  textChunkLimit: parseInteger(event.target.value),
+                  textChunkLimit,
                 },
               }))
             }
@@ -1138,15 +1163,16 @@ function ThreemaChannelEditor(props: {
         </label>
         <label className="field">
           <span>Outbound delay ms</span>
-          <input
-            type="number"
-            value={String(props.draft.threema.outboundDelayMs)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.threema.outboundDelayMs}
+            onValueChange={(outboundDelayMs) =>
               props.updateDraft((current) => ({
                 ...current,
                 threema: {
                   ...current.threema,
-                  outboundDelayMs: parseInteger(event.target.value),
+                  outboundDelayMs,
                 },
               }))
             }
@@ -1208,21 +1234,23 @@ function SignalChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isSignalEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            signal: {
-              ...current.signal,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={isSignalEnabled(props.draft)}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              signal: {
+                ...current.signal,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field-grid">
         <label className="field">
@@ -1246,9 +1274,10 @@ function SignalChannelEditor(props: {
       <div className="field whatsapp-pairing-field">
         <span>Linked-device QR</span>
         <div className="button-row">
-          <button
+          <Button
             type="button"
-            className="ghost-button"
+            variant="ghost"
+            loading={signalLinkMutation.isPending}
             disabled={
               !props.cliAvailable ||
               signalLinkMutation.isPending ||
@@ -1258,7 +1287,7 @@ function SignalChannelEditor(props: {
             onClick={() => signalLinkMutation.mutate()}
           >
             {signalLinkMutation.isPending ? 'Starting...' : 'Start QR link'}
-          </button>
+          </Button>
         </div>
         {!props.cliAvailable ? (
           <p className="muted-copy">
@@ -1407,15 +1436,16 @@ function SignalChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.signal.textChunkLimit)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.signal.textChunkLimit}
+            onValueChange={(textChunkLimit) =>
               props.updateDraft((current) => ({
                 ...current,
                 signal: {
                   ...current.signal,
-                  textChunkLimit: parseInteger(event.target.value),
+                  textChunkLimit,
                 },
               }))
             }
@@ -1423,15 +1453,16 @@ function SignalChannelEditor(props: {
         </label>
         <label className="field">
           <span>Reconnect interval ms</span>
-          <input
-            type="number"
-            value={String(props.draft.signal.reconnectIntervalMs)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.signal.reconnectIntervalMs}
+            onValueChange={(reconnectIntervalMs) =>
               props.updateDraft((current) => ({
                 ...current,
                 signal: {
                   ...current.signal,
-                  reconnectIntervalMs: parseInteger(event.target.value),
+                  reconnectIntervalMs,
                 },
               }))
             }
@@ -1439,15 +1470,16 @@ function SignalChannelEditor(props: {
         </label>
         <label className="field">
           <span>Outbound delay ms</span>
-          <input
-            type="number"
-            value={String(props.draft.signal.outboundDelayMs)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.signal.outboundDelayMs}
+            onValueChange={(outboundDelayMs) =>
               props.updateDraft((current) => ({
                 ...current,
                 signal: {
                   ...current.signal,
-                  outboundDelayMs: parseInteger(event.target.value),
+                  outboundDelayMs,
                 },
               }))
             }
@@ -1555,32 +1587,35 @@ function EmailChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.email.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            email: {
-              ...current.email,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.email.enabled}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              email: {
+                ...current.email,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       {props.hybridaiApiKeyConfigured ? (
         <div className="button-row">
-          <button
+          <Button
             type="button"
-            className="ghost-button"
+            variant="ghost"
+            loading={fetchingEmailConfig}
             disabled={fetchingEmailConfig}
             onClick={handleFetchEmailConfig}
           >
             {fetchingEmailConfig ? 'Fetching…' : 'Fetch HybridAI Agent Email'}
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -1649,15 +1684,16 @@ function EmailChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>IMAP port</span>
-          <input
-            type="number"
-            value={String(props.draft.email.imapPort)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.email.imapPort}
+            onValueChange={(imapPort) =>
               props.updateDraft((current) => ({
                 ...current,
                 email: {
                   ...current.email,
-                  imapPort: parseInteger(event.target.value),
+                  imapPort,
                 },
               }))
             }
@@ -1665,15 +1701,16 @@ function EmailChannelEditor(props: {
         </label>
         <label className="field">
           <span>SMTP port</span>
-          <input
-            type="number"
-            value={String(props.draft.email.smtpPort)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.email.smtpPort}
+            onValueChange={(smtpPort) =>
               props.updateDraft((current) => ({
                 ...current,
                 email: {
                   ...current.email,
-                  smtpPort: parseInteger(event.target.value),
+                  smtpPort,
                 },
               }))
             }
@@ -1682,36 +1719,40 @@ function EmailChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <BooleanField
-          label="IMAP secure"
-          value={props.draft.email.imapSecure}
-          trueLabel="on"
-          falseLabel="off"
-          onChange={(imapSecure) =>
-            props.updateDraft((current) => ({
-              ...current,
-              email: {
-                ...current.email,
-                imapSecure,
-              },
-            }))
-          }
-        />
-        <BooleanField
-          label="SMTP secure"
-          value={props.draft.email.smtpSecure}
-          trueLabel="on"
-          falseLabel="off"
-          onChange={(smtpSecure) =>
-            props.updateDraft((current) => ({
-              ...current,
-              email: {
-                ...current.email,
-                smtpSecure,
-              },
-            }))
-          }
-        />
+        <Field orientation="horizontal">
+          <Switch
+            checked={props.draft.email.imapSecure}
+            onCheckedChange={(imapSecure) =>
+              props.updateDraft((current) => ({
+                ...current,
+                email: {
+                  ...current.email,
+                  imapSecure,
+                },
+              }))
+            }
+          />
+          <FieldContent>
+            <FieldLabel>IMAP secure</FieldLabel>
+          </FieldContent>
+        </Field>
+        <Field orientation="horizontal">
+          <Switch
+            checked={props.draft.email.smtpSecure}
+            onCheckedChange={(smtpSecure) =>
+              props.updateDraft((current) => ({
+                ...current,
+                email: {
+                  ...current.email,
+                  smtpSecure,
+                },
+              }))
+            }
+          />
+          <FieldContent>
+            <FieldLabel>SMTP secure</FieldLabel>
+          </FieldContent>
+        </Field>
       </div>
 
       <ListField
@@ -1749,15 +1790,16 @@ function EmailChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Poll interval ms</span>
-          <input
-            type="number"
-            value={String(props.draft.email.pollIntervalMs)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.email.pollIntervalMs}
+            onValueChange={(pollIntervalMs) =>
               props.updateDraft((current) => ({
                 ...current,
                 email: {
                   ...current.email,
-                  pollIntervalMs: parseInteger(event.target.value),
+                  pollIntervalMs,
                 },
               }))
             }
@@ -1765,15 +1807,16 @@ function EmailChannelEditor(props: {
         </label>
         <label className="field">
           <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.email.textChunkLimit)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.email.textChunkLimit}
+            onValueChange={(textChunkLimit) =>
               props.updateDraft((current) => ({
                 ...current,
                 email: {
                   ...current.email,
-                  textChunkLimit: parseInteger(event.target.value),
+                  textChunkLimit,
                 },
               }))
             }
@@ -1783,15 +1826,16 @@ function EmailChannelEditor(props: {
 
       <label className="field">
         <span>Media max MB</span>
-        <input
-          type="number"
-          value={String(props.draft.email.mediaMaxMb)}
-          onChange={(event) =>
+        <NumberField
+          integer
+          min={0}
+          value={props.draft.email.mediaMaxMb}
+          onValueChange={(mediaMaxMb) =>
             props.updateDraft((current) => ({
               ...current,
               email: {
                 ...current.email,
-                mediaMaxMb: parseInteger(event.target.value),
+                mediaMaxMb,
               },
             }))
           }
@@ -1816,21 +1860,23 @@ function VoiceChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isVoiceEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            voice: {
-              ...current.voice,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={isVoiceEnabled(props.draft)}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              voice: {
+                ...current.voice,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field-grid">
         <label className="field">
@@ -1903,15 +1949,16 @@ function VoiceChannelEditor(props: {
         </label>
         <label className="field">
           <span>Max concurrent calls</span>
-          <input
-            type="number"
-            value={String(props.draft.voice.maxConcurrentCalls)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.voice.maxConcurrentCalls}
+            onValueChange={(maxConcurrentCalls) =>
               props.updateDraft((current) => ({
                 ...current,
                 voice: {
                   ...current.voice,
-                  maxConcurrentCalls: parseInteger(event.target.value),
+                  maxConcurrentCalls,
                 },
               }))
             }
@@ -2009,24 +2056,26 @@ function VoiceChannelEditor(props: {
         </label>
       </div>
 
-      <BooleanField
-        label="Interruptible"
-        value={props.draft.voice.relay.interruptible}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(interruptible) =>
-          props.updateDraft((current) => ({
-            ...current,
-            voice: {
-              ...current.voice,
-              relay: {
-                ...current.voice.relay,
-                interruptible,
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.voice.relay.interruptible}
+          onCheckedChange={(interruptible) =>
+            props.updateDraft((current) => ({
+              ...current,
+              voice: {
+                ...current.voice,
+                relay: {
+                  ...current.voice.relay,
+                  interruptible,
+                },
               },
-            },
-          }))
-        }
-      />
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Interruptible</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <label className="field textarea-field">
         <span>Welcome greeting</span>
@@ -2084,21 +2133,23 @@ function TeamsChannelEditor(props: {
         </div>
       </div>
 
-      <BooleanField
-        label="Enabled"
-        value={props.draft.msteams.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            msteams: {
-              ...current.msteams,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.msteams.enabled}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              msteams: {
+                ...current.msteams,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field-grid">
         <label className="field">
@@ -2154,17 +2205,19 @@ function TeamsChannelEditor(props: {
         </label>
         <label className="field">
           <span>Webhook port</span>
-          <input
-            type="number"
-            value={String(props.draft.msteams.webhook.port)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            max={65535}
+            value={props.draft.msteams.webhook.port}
+            onValueChange={(port) =>
               props.updateDraft((current) => ({
                 ...current,
                 msteams: {
                   ...current.msteams,
                   webhook: {
                     ...current.msteams.webhook,
-                    port: parseInteger(event.target.value),
+                    port,
                   },
                 },
               }))
@@ -2217,21 +2270,23 @@ function TeamsChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <BooleanField
-          label="Require mention"
-          value={props.draft.msteams.requireMention}
-          trueLabel="on"
-          falseLabel="off"
-          onChange={(requireMention) =>
-            props.updateDraft((current) => ({
-              ...current,
-              msteams: {
-                ...current.msteams,
-                requireMention,
-              },
-            }))
-          }
-        />
+        <Field orientation="horizontal">
+          <Switch
+            checked={props.draft.msteams.requireMention}
+            onCheckedChange={(requireMention) =>
+              props.updateDraft((current) => ({
+                ...current,
+                msteams: {
+                  ...current.msteams,
+                  requireMention,
+                },
+              }))
+            }
+          />
+          <FieldContent>
+            <FieldLabel>Require mention</FieldLabel>
+          </FieldContent>
+        </Field>
         <label className="field">
           <span>Reply style</span>
           <select
@@ -2272,15 +2327,16 @@ function TeamsChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.msteams.textChunkLimit)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.msteams.textChunkLimit}
+            onValueChange={(textChunkLimit) =>
               props.updateDraft((current) => ({
                 ...current,
                 msteams: {
                   ...current.msteams,
-                  textChunkLimit: parseInteger(event.target.value),
+                  textChunkLimit,
                 },
               }))
             }
@@ -2288,15 +2344,16 @@ function TeamsChannelEditor(props: {
         </label>
         <label className="field">
           <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.msteams.mediaMaxMb)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.msteams.mediaMaxMb}
+            onValueChange={(mediaMaxMb) =>
               props.updateDraft((current) => ({
                 ...current,
                 msteams: {
                   ...current.msteams,
-                  mediaMaxMb: parseInteger(event.target.value),
+                  mediaMaxMb,
                 },
               }))
             }
@@ -2324,21 +2381,23 @@ function SlackChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isSlackEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            slack: {
-              ...current.slack,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={isSlackEnabled(props.draft)}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              slack: {
+                ...current.slack,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <ManagedSecretField
         label="Bot token"
@@ -2404,21 +2463,23 @@ function SlackChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <BooleanField
-          label="Require mention"
-          value={props.draft.slack.requireMention}
-          trueLabel="on"
-          falseLabel="off"
-          onChange={(requireMention) =>
-            props.updateDraft((current) => ({
-              ...current,
-              slack: {
-                ...current.slack,
-                requireMention,
-              },
-            }))
-          }
-        />
+        <Field orientation="horizontal">
+          <Switch
+            checked={props.draft.slack.requireMention}
+            onCheckedChange={(requireMention) =>
+              props.updateDraft((current) => ({
+                ...current,
+                slack: {
+                  ...current.slack,
+                  requireMention,
+                },
+              }))
+            }
+          />
+          <FieldContent>
+            <FieldLabel>Require mention</FieldLabel>
+          </FieldContent>
+        </Field>
         <label className="field">
           <span>Reply style</span>
           <select
@@ -2475,15 +2536,16 @@ function SlackChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.slack.textChunkLimit)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.slack.textChunkLimit}
+            onValueChange={(textChunkLimit) =>
               props.updateDraft((current) => ({
                 ...current,
                 slack: {
                   ...current.slack,
-                  textChunkLimit: parseInteger(event.target.value),
+                  textChunkLimit,
                 },
               }))
             }
@@ -2491,15 +2553,16 @@ function SlackChannelEditor(props: {
         </label>
         <label className="field">
           <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.slack.mediaMaxMb)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.slack.mediaMaxMb}
+            onValueChange={(mediaMaxMb) =>
               props.updateDraft((current) => ({
                 ...current,
                 slack: {
                   ...current.slack,
-                  mediaMaxMb: parseInteger(event.target.value),
+                  mediaMaxMb,
                 },
               }))
             }
@@ -2562,21 +2625,23 @@ function SlackWebhookChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.slackWebhook.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            slackWebhook: {
-              ...current.slackWebhook,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.slackWebhook.enabled}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              slackWebhook: {
+                ...current.slackWebhook,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field">
         <span>Webhook targets</span>
@@ -2702,21 +2767,23 @@ function DiscordWebhookChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.discordWebhook.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discordWebhook: {
-              ...current.discordWebhook,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.discordWebhook.enabled}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              discordWebhook: {
+                ...current.discordWebhook,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field">
         <span>Webhook targets</span>
@@ -2807,21 +2874,23 @@ function IMessageChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.imessage.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            imessage: {
-              ...current.imessage,
-              enabled,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={props.draft.imessage.enabled}
+          onCheckedChange={(enabled) =>
+            props.updateDraft((current) => ({
+              ...current,
+              imessage: {
+                ...current.imessage,
+                enabled,
+              },
+            }))
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <label className="field">
         <span>Backend</span>
@@ -2889,21 +2958,23 @@ function IMessageChannelEditor(props: {
             />
           </label>
 
-          <BooleanField
-            label="Allow private network"
-            value={props.draft.imessage.allowPrivateNetwork}
-            trueLabel="on"
-            falseLabel="off"
-            onChange={(allowPrivateNetwork) =>
-              props.updateDraft((current) => ({
-                ...current,
-                imessage: {
-                  ...current.imessage,
-                  allowPrivateNetwork,
-                },
-              }))
-            }
-          />
+          <Field orientation="horizontal">
+            <Switch
+              checked={props.draft.imessage.allowPrivateNetwork}
+              onCheckedChange={(allowPrivateNetwork) =>
+                props.updateDraft((current) => ({
+                  ...current,
+                  imessage: {
+                    ...current.imessage,
+                    allowPrivateNetwork,
+                  },
+                }))
+              }
+            />
+            <FieldContent>
+              <FieldLabel>Allow private network</FieldLabel>
+            </FieldContent>
+          </Field>
         </>
       ) : (
         <div className="field-grid">
@@ -3020,15 +3091,16 @@ function IMessageChannelEditor(props: {
           <span>
             {isRemote ? 'Webhook / poll interval ms' : 'Poll interval ms'}
           </span>
-          <input
-            type="number"
-            value={String(props.draft.imessage.pollIntervalMs)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.imessage.pollIntervalMs}
+            onValueChange={(pollIntervalMs) =>
               props.updateDraft((current) => ({
                 ...current,
                 imessage: {
                   ...current.imessage,
-                  pollIntervalMs: parseInteger(event.target.value),
+                  pollIntervalMs,
                 },
               }))
             }
@@ -3036,15 +3108,16 @@ function IMessageChannelEditor(props: {
         </label>
         <label className="field">
           <span>Debounce ms</span>
-          <input
-            type="number"
-            value={String(props.draft.imessage.debounceMs)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.imessage.debounceMs}
+            onValueChange={(debounceMs) =>
               props.updateDraft((current) => ({
                 ...current,
                 imessage: {
                   ...current.imessage,
-                  debounceMs: parseInteger(event.target.value),
+                  debounceMs,
                 },
               }))
             }
@@ -3055,15 +3128,16 @@ function IMessageChannelEditor(props: {
       <div className="field-grid">
         <label className="field">
           <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.imessage.textChunkLimit)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.imessage.textChunkLimit}
+            onValueChange={(textChunkLimit) =>
               props.updateDraft((current) => ({
                 ...current,
                 imessage: {
                   ...current.imessage,
-                  textChunkLimit: parseInteger(event.target.value),
+                  textChunkLimit,
                 },
               }))
             }
@@ -3071,15 +3145,16 @@ function IMessageChannelEditor(props: {
         </label>
         <label className="field">
           <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.imessage.mediaMaxMb)}
-            onChange={(event) =>
+          <NumberField
+            integer
+            min={0}
+            value={props.draft.imessage.mediaMaxMb}
+            onValueChange={(mediaMaxMb) =>
               props.updateDraft((current) => ({
                 ...current,
                 imessage: {
                   ...current.imessage,
-                  mediaMaxMb: parseInteger(event.target.value),
+                  mediaMaxMb,
                 },
               }))
             }
@@ -3287,26 +3362,22 @@ export function ChannelsPage() {
     refetchInterval: 3_000,
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async (nextConfig: AdminConfig) => {
-      return saveConfig(auth.token, nextConfig);
-    },
+  const saveMutation = useFormMutation({
+    mutationFn: (nextConfig: AdminConfig) => saveConfig(auth.token, nextConfig),
     onSuccess: (payload) => {
       queryClient.setQueryData(['config', auth.token], payload);
-      void queryClient.invalidateQueries({
-        queryKey: ['status', auth.token],
-      });
-      setDraft(cloneConfig(payload.config));
+      setDraft(structuredClone(payload.config));
       toast.success('Channel settings saved.');
     },
     onError: (error) => {
-      toast.error('Save failed', getErrorMessage(error));
+      toast.error('Save failed', error.message);
     },
+    invalidates: [['status', auth.token], ['overview']],
   });
 
   useEffect(() => {
     if (!configQuery.data || draft) return;
-    setDraft(cloneConfig(configQuery.data.config));
+    setDraft(structuredClone(configQuery.data.config));
   }, [configQuery.data, draft]);
 
   const catalog = draft
@@ -3466,7 +3537,7 @@ export function ChannelsPage() {
                         config,
                       };
                       queryClient.setQueryData(['config', auth.token], payload);
-                      setDraft(cloneConfig(config));
+                      setDraft(structuredClone(config));
                       void queryClient.invalidateQueries({
                         queryKey: ['status', auth.token],
                       });
@@ -3480,28 +3551,28 @@ export function ChannelsPage() {
                 : null}
 
               <div className="button-row">
-                <button
-                  className="primary-button"
+                <Button
                   type="button"
+                  loading={saveMutation.isPending}
                   disabled={!isDirty || saveMutation.isPending}
                   onClick={() => saveMutation.mutate(draft)}
                 >
                   {saveMutation.isPending
                     ? 'Saving...'
                     : 'Save channel settings'}
-                </button>
-                <button
-                  className="ghost-button"
+                </Button>
+                <Button
+                  variant="ghost"
                   type="button"
                   disabled={!isDirty || !configQuery.data}
                   onClick={() => {
                     if (!configQuery.data) return;
                     saveMutation.reset();
-                    setDraft(cloneConfig(configQuery.data.config));
+                    setDraft(structuredClone(configQuery.data.config));
                   }}
                 >
                   Reset changes
-                </button>
+                </Button>
               </div>
             </div>
           </CardContent>

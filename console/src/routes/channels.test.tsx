@@ -878,9 +878,7 @@ describe('ChannelsPage', () => {
     expect(panel).not.toBeNull();
 
     fireEvent.click(
-      within(
-        within(panel as HTMLElement).getByRole('group', { name: 'Enabled' }),
-      ).getByRole('button', { name: 'on' }),
+      within(panel as HTMLElement).getByRole('switch', { name: 'Enabled' }),
     );
     fireEvent.change(screen.getByLabelText('Daemon URL'), {
       target: { value: 'http://127.0.0.1:8080' },
@@ -1275,10 +1273,9 @@ describe('ChannelsPage', () => {
       .getByRole('heading', { name: 'Discord settings' })
       .closest('[data-slot="card"]');
     expect(panel).not.toBeNull();
-    const enabledToggle = within(panel as HTMLElement).getByRole('group', {
-      name: 'Enabled',
-    });
-    fireEvent.click(within(enabledToggle).getByRole('button', { name: 'off' }));
+    fireEvent.click(
+      within(panel as HTMLElement).getByRole('switch', { name: 'Enabled' }),
+    );
     fireEvent.click(
       within(panel as HTMLElement).getByRole('button', {
         name: 'Save channel settings',
@@ -1319,12 +1316,7 @@ describe('ChannelsPage', () => {
         name: /^Discord(?! Incoming Webhook)/i,
       }),
     );
-    fireEvent.click(
-      within(screen.getByRole('group', { name: 'Commands only' })).getByRole(
-        'button',
-        { name: 'on' },
-      ),
-    );
+    fireEvent.click(screen.getByRole('switch', { name: 'Commands only' }));
     fireEvent.change(screen.getByLabelText('Command mode'), {
       target: { value: 'restricted' },
     });
@@ -1347,9 +1339,7 @@ describe('ChannelsPage', () => {
       target: { value: '25' },
     });
     fireEvent.click(
-      within(
-        screen.getByRole('group', { name: 'Remove ack after reply' }),
-      ).getByRole('button', { name: 'off' }),
+      screen.getByRole('switch', { name: 'Remove ack after reply' }),
     );
     fireEvent.click(
       screen.getByRole('button', { name: 'Save channel settings' }),
@@ -1404,10 +1394,9 @@ describe('ChannelsPage', () => {
       })
     ).closest('[data-slot="card"]');
     expect(panel).not.toBeNull();
-    const enabledToggle = within(panel as HTMLElement).getByRole('group', {
-      name: 'Enabled',
-    });
-    fireEvent.click(within(enabledToggle).getByRole('button', { name: 'off' }));
+    fireEvent.click(
+      within(panel as HTMLElement).getByRole('switch', { name: 'Enabled' }),
+    );
     fireEvent.click(
       within(panel as HTMLElement).getByRole('button', {
         name: 'Save channel settings',
