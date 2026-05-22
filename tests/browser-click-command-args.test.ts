@@ -469,7 +469,7 @@ test('browser_click supports viewport coordinate clicks', async () => {
 
   const output = await executeBrowserTool(
     'browser_click',
-    { x: 1180, y: 650 },
+    { x: 1180, y: 650, disable_2fa_detection: true },
     'session-1',
   );
   const parsed = JSON.parse(output) as Record<string, unknown>;
@@ -504,7 +504,7 @@ test('browser_click treats legacy @viewport refs as coordinate clicks', async ()
 
   const output = await executeBrowserTool(
     'browser_click',
-    { ref: '@viewport-1180-650' },
+    { ref: '@viewport-1180-650', disable_2fa_detection: true },
     'session-1',
   );
   const parsed = JSON.parse(output) as Record<string, unknown>;
