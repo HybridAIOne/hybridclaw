@@ -5,7 +5,7 @@ import { Input } from '../input';
 
 export type NumberFieldProps = Omit<
   ComponentProps<typeof Input>,
-  'value' | 'onChange' | 'type' | 'inputMode' | 'min' | 'max'
+  'value' | 'onChange' | 'type' | 'inputMode' | 'min' | 'max' | 'step'
 > & {
   value: number;
   onValueChange: (value: number) => void;
@@ -18,6 +18,11 @@ export type NumberFieldProps = Omit<
   integer?: boolean;
   min?: number;
   max?: number;
+  /**
+   * Step size for browser-driven increments (ArrowUp / ArrowDown on
+   * `<input type="number">`). Has no effect in decimal mode.
+   */
+  step?: number;
   /**
    * Value committed when the user clears the input. If omitted, an empty
    * input is treated as required and surfaces `'Required.'` without
@@ -45,6 +50,7 @@ export function NumberField({
   integer,
   min,
   max,
+  step,
   emptyValue,
   requiredMessage = 'Required.',
   ...inputProps
@@ -96,6 +102,7 @@ export function NumberField({
       inputMode={integer ? 'numeric' : 'decimal'}
       min={min}
       max={max}
+      step={integer ? step : undefined}
       value={rawValue}
       onBlur={(event) => {
         // Decimal mode allows trailing "." mid-typing; on blur, if the value

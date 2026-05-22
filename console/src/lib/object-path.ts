@@ -21,7 +21,11 @@ export function getPath<T>(source: unknown, path: string): T | undefined {
  * object; siblings are kept by reference. Missing intermediates are
  * created as empty objects.
  */
-export function setPath<T extends object>(source: T, path: string, value: unknown): T {
+export function setPath<T extends object>(
+  source: T,
+  path: string,
+  value: unknown,
+): T {
   if (!path) {
     throw new Error('setPath requires a non-empty path.');
   }
@@ -41,8 +45,6 @@ function assignAt(
     cursor !== null && typeof cursor === 'object'
       ? { ...(cursor as Record<string, unknown>) }
       : {};
-  base[key] = isLast
-    ? value
-    : assignAt(base[key], segments, index + 1, value);
+  base[key] = isLast ? value : assignAt(base[key], segments, index + 1, value);
   return base;
 }

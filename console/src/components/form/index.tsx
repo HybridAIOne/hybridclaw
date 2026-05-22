@@ -8,8 +8,8 @@ import {
 } from 'react';
 import { FormContext, type FormContextValue } from './context';
 
-export { useFormContext as useFormState } from './context';
 export type { FormContextValue } from './context';
+export { useFormContext as useFormState } from './context';
 
 export type UseFormReturn = FormContextValue;
 
@@ -65,12 +65,7 @@ export type FormProps = Omit<ComponentProps<'form'>, 'onSubmit'> & {
   children: ReactNode;
 };
 
-export function Form({
-  form,
-  onSubmit,
-  children,
-  ...formProps
-}: FormProps) {
+export function Form({ form, onSubmit, children, ...formProps }: FormProps) {
   const handleSubmit = useCallback(
     (event: SyntheticEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -87,4 +82,3 @@ export function Form({
     </FormContext.Provider>
   );
 }
-

@@ -23,7 +23,9 @@ function Harness({ onSubmit }: { onSubmit?: () => void }) {
 describe('Form / useForm', () => {
   it('aggregates errors from descendant Fields', () => {
     render(<Harness />);
-    const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    const save = screen.getByRole('button', {
+      name: 'Save',
+    }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     expect(screen.getByText('Required.')).toBeTruthy();
   });

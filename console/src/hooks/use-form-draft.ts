@@ -87,7 +87,9 @@ export function useFormDraft<T>(
 
   const setField = useCallback((path: string, value: unknown) => {
     setDraft((current) =>
-      current === null ? current : (setPath(current as object, path, value) as T),
+      current === null
+        ? current
+        : (setPath(current as object, path, value) as T),
     );
   }, []);
 

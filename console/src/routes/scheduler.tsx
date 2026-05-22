@@ -31,7 +31,7 @@ import {
   FieldError,
   FieldLabel,
 } from '../components/field';
-import { Form, useForm, type UseFormReturn } from '../components/form';
+import { Form, type UseFormReturn, useForm } from '../components/form';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { NumberField } from '../components/number-field';
@@ -679,304 +679,294 @@ function SchedulerJobEditor(props: {
 
   return (
     <Form form={props.form} onSubmit={props.onSave}>
-    <Card variant="muted">
-      <CardHeader>
-        <CardTitle>Job</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="stack-form">
-          <div className="field-grid">
-            <Field>
-              <FieldLabel>ID</FieldLabel>
-              <Input
-                value={draft.id}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    id: event.target.value,
-                  }))
-                }
-                placeholder="Auto-generated from name if blank"
-              />
-            </Field>
-            <Field>
-              <FieldLabel>Name</FieldLabel>
-              <Input
-                value={draft.name}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
-                placeholder="Nightly research"
-              />
-            </Field>
-          </div>
-
-          <Field>
-            <FieldLabel>Description</FieldLabel>
-            <Input
-              value={draft.description}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  description: event.target.value,
-                }))
-              }
-              placeholder="Optional"
-            />
-          </Field>
-
-          <div className="field-grid">
-            <Field>
-              <FieldLabel>Status</FieldLabel>
-              <NativeSelect
-                value={draft.boardStatus}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    boardStatus: asBoardStatus(
-                      event.target.value,
-                      current.boardStatus,
-                    ),
-                  }))
-                }
-              >
-                <NativeSelectOption value="backlog">backlog</NativeSelectOption>
-                <NativeSelectOption value="in_progress">
-                  in progress
-                </NativeSelectOption>
-                <NativeSelectOption value="review">review</NativeSelectOption>
-                <NativeSelectOption value="done">done</NativeSelectOption>
-                <NativeSelectOption value="cancelled">
-                  cancelled
-                </NativeSelectOption>
-              </NativeSelect>
-            </Field>
-            <Field orientation="horizontal">
-              <Switch
-                checked={draft.enabled}
-                onCheckedChange={(enabled) =>
-                  props.onDraftChange((current) => ({ ...current, enabled }))
-                }
-              />
-              <FieldContent>
-                <FieldLabel>State</FieldLabel>
-              </FieldContent>
-            </Field>
-          </div>
-
-          <div className="field-grid">
-            <Field>
-              <FieldLabel>Schedule</FieldLabel>
-              <NativeSelect
-                value={draft.scheduleKind}
-                onChange={(event) =>
-                  props.onDraftChange((current) => {
-                    const nextKind = asScheduleKind(
-                      event.target.value,
-                      current.scheduleKind,
-                    );
-                    return {
-                      ...current,
-                      scheduleKind: nextKind,
-                      boardStatus:
-                        nextKind === 'one_shot'
-                          ? 'backlog'
-                          : current.boardStatus,
-                    };
-                  })
-                }
-              >
-                <NativeSelectOption value="cron">cron</NativeSelectOption>
-                <NativeSelectOption value="every">every</NativeSelectOption>
-                <NativeSelectOption value="at">at</NativeSelectOption>
-                <NativeSelectOption value="one_shot">
-                  one shot
-                </NativeSelectOption>
-              </NativeSelect>
-            </Field>
-            {draft.scheduleKind !== 'one_shot' ? (
-              <Field>
-                <FieldLabel>Timezone</FieldLabel>
-                <Input
-                  value={draft.scheduleTz}
-                  onChange={(event) =>
-                    props.onDraftChange((current) => ({
-                      ...current,
-                      scheduleTz: event.target.value,
-                    }))
-                  }
-                  placeholder="Europe/Berlin"
-                />
-              </Field>
-            ) : null}
-          </div>
-
-          {draft.scheduleKind === 'cron' ? (
-            <Field>
-              <FieldLabel>Cron</FieldLabel>
-              <Input
-                value={draft.scheduleExpr}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    scheduleExpr: event.target.value,
-                  }))
-                }
-                placeholder="0 * * * *"
-              />
-            </Field>
-          ) : null}
-
-          {draft.scheduleKind === 'every' ? (
-            <Field>
-              <FieldLabel>Every ms</FieldLabel>
-              <NumberField
-                integer
-                min={1}
-                value={draft.scheduleEveryMs}
-                onValueChange={(scheduleEveryMs) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    scheduleEveryMs,
-                  }))
-                }
-                placeholder="60000"
-              />
-              <FieldError />
-            </Field>
-          ) : null}
-
-          {draft.scheduleKind === 'at' ? (
-            <Field>
-              <FieldLabel>Run at</FieldLabel>
-              <Input
-                type="datetime-local"
-                value={draft.scheduleAt}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    scheduleAt: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-          ) : null}
-
-          {draft.scheduleKind === 'one_shot' ? (
-            <Field>
-              <FieldLabel>Retries after failure</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                max={100}
-                value={draft.maxRetries}
-                onValueChange={(maxRetries) =>
-                  props.onDraftChange((current) => ({ ...current, maxRetries }))
-                }
-                placeholder="3"
-              />
-              <FieldError />
-            </Field>
-          ) : null}
-
-          <div className="field-grid">
-            <Field>
-              <FieldLabel>Action</FieldLabel>
-              <NativeSelect
-                value={draft.actionKind}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    actionKind: asActionKind(
-                      event.target.value,
-                      current.actionKind,
-                    ),
-                  }))
-                }
-              >
-                <NativeSelectOption value="agent_turn">
-                  agent_turn
-                </NativeSelectOption>
-                <NativeSelectOption value="system_event">
-                  system_event
-                </NativeSelectOption>
-              </NativeSelect>
-            </Field>
-            <Field>
-              <FieldLabel>Delivery</FieldLabel>
-              <NativeSelect
-                value={draft.deliveryKind}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    deliveryKind: asDeliveryKind(
-                      event.target.value,
-                      current.deliveryKind,
-                    ),
-                  }))
-                }
-              >
-                <NativeSelectOption value="channel">channel</NativeSelectOption>
-                <NativeSelectOption value="last-channel">
-                  last-channel
-                </NativeSelectOption>
-                <NativeSelectOption value="webhook">webhook</NativeSelectOption>
-              </NativeSelect>
-            </Field>
-          </div>
-
-          <Field>
-            <FieldLabel>Message</FieldLabel>
-            <Textarea
-              rows={4}
-              value={draft.actionMessage}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  actionMessage: event.target.value,
-                }))
-              }
-              placeholder="Prompt or system-event message"
-            />
-          </Field>
-
-          {draft.deliveryKind === 'channel' ? (
+      <Card variant="muted">
+        <CardHeader>
+          <CardTitle>Job</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="stack-form">
             <div className="field-grid">
               <Field>
-                <FieldLabel>Channel type</FieldLabel>
-                <NativeSelect
-                  value={draft.deliveryChannel}
+                <FieldLabel>ID</FieldLabel>
+                <Input
+                  value={draft.id}
                   onChange={(event) =>
                     props.onDraftChange((current) => ({
                       ...current,
-                      deliveryChannel: event.target.value,
-                      deliveryTo: '',
+                      id: event.target.value,
+                    }))
+                  }
+                  placeholder="Auto-generated from name if blank"
+                />
+              </Field>
+              <Field>
+                <FieldLabel>Name</FieldLabel>
+                <Input
+                  value={draft.name}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="Nightly research"
+                />
+              </Field>
+            </div>
+
+            <Field>
+              <FieldLabel>Description</FieldLabel>
+              <Input
+                value={draft.description}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+                placeholder="Optional"
+              />
+            </Field>
+
+            <div className="field-grid">
+              <Field>
+                <FieldLabel>Status</FieldLabel>
+                <NativeSelect
+                  value={draft.boardStatus}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      boardStatus: asBoardStatus(
+                        event.target.value,
+                        current.boardStatus,
+                      ),
                     }))
                   }
                 >
-                  {props.channelOptions.map((option) => (
-                    <NativeSelectOption key={option.value} value={option.value}>
-                      {option.label}
-                    </NativeSelectOption>
-                  ))}
+                  <NativeSelectOption value="backlog">
+                    backlog
+                  </NativeSelectOption>
+                  <NativeSelectOption value="in_progress">
+                    in progress
+                  </NativeSelectOption>
+                  <NativeSelectOption value="review">review</NativeSelectOption>
+                  <NativeSelectOption value="done">done</NativeSelectOption>
+                  <NativeSelectOption value="cancelled">
+                    cancelled
+                  </NativeSelectOption>
                 </NativeSelect>
               </Field>
-              {props.targetControl.kind === 'select' ? (
+              <Field orientation="horizontal">
+                <Switch
+                  checked={draft.enabled}
+                  onCheckedChange={(enabled) =>
+                    props.onDraftChange((current) => ({ ...current, enabled }))
+                  }
+                />
+                <FieldContent>
+                  <FieldLabel>State</FieldLabel>
+                </FieldContent>
+              </Field>
+            </div>
+
+            <div className="field-grid">
+              <Field>
+                <FieldLabel>Schedule</FieldLabel>
+                <NativeSelect
+                  value={draft.scheduleKind}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => {
+                      const nextKind = asScheduleKind(
+                        event.target.value,
+                        current.scheduleKind,
+                      );
+                      return {
+                        ...current,
+                        scheduleKind: nextKind,
+                        boardStatus:
+                          nextKind === 'one_shot'
+                            ? 'backlog'
+                            : current.boardStatus,
+                      };
+                    })
+                  }
+                >
+                  <NativeSelectOption value="cron">cron</NativeSelectOption>
+                  <NativeSelectOption value="every">every</NativeSelectOption>
+                  <NativeSelectOption value="at">at</NativeSelectOption>
+                  <NativeSelectOption value="one_shot">
+                    one shot
+                  </NativeSelectOption>
+                </NativeSelect>
+              </Field>
+              {draft.scheduleKind !== 'one_shot' ? (
                 <Field>
-                  <FieldLabel>{props.targetControl.label}</FieldLabel>
-                  <NativeSelect
-                    value={props.targetControl.value}
+                  <FieldLabel>Timezone</FieldLabel>
+                  <Input
+                    value={draft.scheduleTz}
                     onChange={(event) =>
                       props.onDraftChange((current) => ({
                         ...current,
-                        deliveryTo: event.target.value,
+                        scheduleTz: event.target.value,
+                      }))
+                    }
+                    placeholder="Europe/Berlin"
+                  />
+                </Field>
+              ) : null}
+            </div>
+
+            {draft.scheduleKind === 'cron' ? (
+              <Field>
+                <FieldLabel>Cron</FieldLabel>
+                <Input
+                  value={draft.scheduleExpr}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      scheduleExpr: event.target.value,
+                    }))
+                  }
+                  placeholder="0 * * * *"
+                />
+              </Field>
+            ) : null}
+
+            {draft.scheduleKind === 'every' ? (
+              <Field>
+                <FieldLabel>Every ms</FieldLabel>
+                <NumberField
+                  integer
+                  min={1}
+                  value={draft.scheduleEveryMs}
+                  onValueChange={(scheduleEveryMs) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      scheduleEveryMs,
+                    }))
+                  }
+                  placeholder="60000"
+                />
+                <FieldError />
+              </Field>
+            ) : null}
+
+            {draft.scheduleKind === 'at' ? (
+              <Field>
+                <FieldLabel>Run at</FieldLabel>
+                <Input
+                  type="datetime-local"
+                  value={draft.scheduleAt}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      scheduleAt: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+            ) : null}
+
+            {draft.scheduleKind === 'one_shot' ? (
+              <Field>
+                <FieldLabel>Retries after failure</FieldLabel>
+                <NumberField
+                  integer
+                  min={0}
+                  max={100}
+                  value={draft.maxRetries}
+                  onValueChange={(maxRetries) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      maxRetries,
+                    }))
+                  }
+                  placeholder="3"
+                />
+                <FieldError />
+              </Field>
+            ) : null}
+
+            <div className="field-grid">
+              <Field>
+                <FieldLabel>Action</FieldLabel>
+                <NativeSelect
+                  value={draft.actionKind}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      actionKind: asActionKind(
+                        event.target.value,
+                        current.actionKind,
+                      ),
+                    }))
+                  }
+                >
+                  <NativeSelectOption value="agent_turn">
+                    agent_turn
+                  </NativeSelectOption>
+                  <NativeSelectOption value="system_event">
+                    system_event
+                  </NativeSelectOption>
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>Delivery</FieldLabel>
+                <NativeSelect
+                  value={draft.deliveryKind}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      deliveryKind: asDeliveryKind(
+                        event.target.value,
+                        current.deliveryKind,
+                      ),
+                    }))
+                  }
+                >
+                  <NativeSelectOption value="channel">
+                    channel
+                  </NativeSelectOption>
+                  <NativeSelectOption value="last-channel">
+                    last-channel
+                  </NativeSelectOption>
+                  <NativeSelectOption value="webhook">
+                    webhook
+                  </NativeSelectOption>
+                </NativeSelect>
+              </Field>
+            </div>
+
+            <Field>
+              <FieldLabel>Message</FieldLabel>
+              <Textarea
+                rows={4}
+                value={draft.actionMessage}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    actionMessage: event.target.value,
+                  }))
+                }
+                placeholder="Prompt or system-event message"
+              />
+            </Field>
+
+            {draft.deliveryKind === 'channel' ? (
+              <div className="field-grid">
+                <Field>
+                  <FieldLabel>Channel type</FieldLabel>
+                  <NativeSelect
+                    value={draft.deliveryChannel}
+                    onChange={(event) =>
+                      props.onDraftChange((current) => ({
+                        ...current,
+                        deliveryChannel: event.target.value,
+                        deliveryTo: '',
                       }))
                     }
                   >
-                    {props.targetControl.options.map((option) => (
+                    {props.channelOptions.map((option) => (
                       <NativeSelectOption
                         key={option.value}
                         value={option.value}
@@ -986,109 +976,131 @@ function SchedulerJobEditor(props: {
                     ))}
                   </NativeSelect>
                 </Field>
-              ) : null}
-              {props.targetControl.kind === 'input' ? (
-                <Field>
-                  <FieldLabel>{props.targetControl.label}</FieldLabel>
-                  <Input
-                    value={props.targetControl.value}
-                    onChange={(event) =>
-                      props.onDraftChange((current) => ({
-                        ...current,
-                        deliveryTo: event.target.value,
-                      }))
-                    }
-                    placeholder={props.targetControl.placeholder}
-                  />
-                </Field>
-              ) : null}
-            </div>
-          ) : null}
+                {props.targetControl.kind === 'select' ? (
+                  <Field>
+                    <FieldLabel>{props.targetControl.label}</FieldLabel>
+                    <NativeSelect
+                      value={props.targetControl.value}
+                      onChange={(event) =>
+                        props.onDraftChange((current) => ({
+                          ...current,
+                          deliveryTo: event.target.value,
+                        }))
+                      }
+                    >
+                      {props.targetControl.options.map((option) => (
+                        <NativeSelectOption
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {option.label}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                ) : null}
+                {props.targetControl.kind === 'input' ? (
+                  <Field>
+                    <FieldLabel>{props.targetControl.label}</FieldLabel>
+                    <Input
+                      value={props.targetControl.value}
+                      onChange={(event) =>
+                        props.onDraftChange((current) => ({
+                          ...current,
+                          deliveryTo: event.target.value,
+                        }))
+                      }
+                      placeholder={props.targetControl.placeholder}
+                    />
+                  </Field>
+                ) : null}
+              </div>
+            ) : null}
 
-          {draft.deliveryKind === 'webhook' ? (
-            <Field>
-              <FieldLabel>Webhook URL</FieldLabel>
-              <Input
-                type="url"
-                value={draft.deliveryWebhookUrl}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    deliveryWebhookUrl: event.target.value,
-                  }))
-                }
-                placeholder="https://example.test/hook"
-              />
-            </Field>
-          ) : null}
+            {draft.deliveryKind === 'webhook' ? (
+              <Field>
+                <FieldLabel>Webhook URL</FieldLabel>
+                <Input
+                  type="url"
+                  value={draft.deliveryWebhookUrl}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      deliveryWebhookUrl: event.target.value,
+                    }))
+                  }
+                  placeholder="https://example.test/hook"
+                />
+              </Field>
+            ) : null}
 
-          {selectedJob ? (
-            <div className="key-value-grid">
-              <div>
-                <span>Next run</span>
-                <strong>{formatDateTime(selectedJob.nextRunAt)}</strong>
-              </div>
-              <div>
-                <span>Last run</span>
-                <strong>{formatDateTime(selectedJob.lastRun)}</strong>
-              </div>
-              <div>
-                <span>Last status</span>
-                <strong>{selectedJob.lastStatus || 'n/a'}</strong>
-              </div>
-              <div>
-                <span>Errors</span>
-                <strong>{selectedJob.consecutiveErrors}</strong>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="button-row">
-            <Button
-              type="button"
-              loading={props.savePending}
-              disabled={props.saveDisabled}
-              onClick={props.onSave}
-            >
-              {props.savePending ? 'Saving...' : 'Save job'}
-            </Button>
-            <Button
-              variant="ghost"
-              type="button"
-              disabled={props.savePending}
-              onClick={props.onCancel}
-            >
-              Cancel
-            </Button>
             {selectedJob ? (
+              <div className="key-value-grid">
+                <div>
+                  <span>Next run</span>
+                  <strong>{formatDateTime(selectedJob.nextRunAt)}</strong>
+                </div>
+                <div>
+                  <span>Last run</span>
+                  <strong>{formatDateTime(selectedJob.lastRun)}</strong>
+                </div>
+                <div>
+                  <span>Last status</span>
+                  <strong>{selectedJob.lastStatus || 'n/a'}</strong>
+                </div>
+                <div>
+                  <span>Errors</span>
+                  <strong>{selectedJob.consecutiveErrors}</strong>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="button-row">
+              <Button
+                type="button"
+                loading={props.savePending}
+                disabled={props.saveDisabled}
+                onClick={props.onSave}
+              >
+                {props.savePending ? 'Saving...' : 'Save job'}
+              </Button>
               <Button
                 variant="ghost"
                 type="button"
-                disabled={props.pausePending}
-                onClick={props.onPauseToggle}
+                disabled={props.savePending}
+                onClick={props.onCancel}
               >
-                {props.pausePending
-                  ? 'Updating...'
-                  : selectedJob.disabled
-                    ? 'Resume job'
-                    : 'Pause job'}
+                Cancel
               </Button>
-            ) : null}
-            {selectedJob ? (
-              <Button
-                variant="danger"
-                type="button"
-                loading={props.deletePending}
-                disabled={props.deletePending}
-                onClick={props.onDelete}
-              >
-                {props.deletePending ? 'Deleting...' : 'Delete job'}
-              </Button>
-            ) : null}
+              {selectedJob ? (
+                <Button
+                  variant="ghost"
+                  type="button"
+                  disabled={props.pausePending}
+                  onClick={props.onPauseToggle}
+                >
+                  {props.pausePending
+                    ? 'Updating...'
+                    : selectedJob.disabled
+                      ? 'Resume job'
+                      : 'Pause job'}
+                </Button>
+              ) : null}
+              {selectedJob ? (
+                <Button
+                  variant="danger"
+                  type="button"
+                  loading={props.deletePending}
+                  disabled={props.deletePending}
+                  onClick={props.onDelete}
+                >
+                  {props.deletePending ? 'Deleting...' : 'Delete job'}
+                </Button>
+              ) : null}
+            </div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
     </Form>
   );
 }
