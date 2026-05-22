@@ -386,8 +386,11 @@ function buildRevenuePlan(args) {
 }
 
 function buildBankTransactionPlan(args) {
-  const status = popFlag(args, '--status', 'any');
-  const originalArgs = [...args, '--status', status];
+  const status = popFlag(args, '--status');
+  const originalArgs = [...args];
+  if (status && status !== 'any') {
+    originalArgs.push('--status', status);
+  }
   return {
     command: 'bank-transaction-plan',
     note: 'Lexware Office Public API exposes bank-linked payments as paymentItems with paymentItemType partPaymentFinancialTransaction on /v1/payments/{voucherId}. Fetch candidate vouchers first, then fetch payment details per voucher id.',
@@ -395,7 +398,7 @@ function buildBankTransactionPlan(args) {
       buildVoucherListRequest([...originalArgs], {
         voucherType:
           'invoice,creditnote,salesinvoice,salescreditnote,purchaseinvoice,purchasecreditnote',
-        voucherStatus: status,
+        voucherStatus: status && status !== 'any' ? status : undefined,
       }).httpRequest,
     ],
     followUpRequestTemplate: {
@@ -728,21 +731,23 @@ function voucherAmount(voucher) {
   );
 }
 
-function signedVoucherAmount(voucher, kind) {
+function voucherSign(voucher) {
   const type = String(voucher.voucherType ?? voucher.type ?? '').toLowerCase();
-  const amount = voucherAmount(voucher);
-  const isCredit = type.includes('creditnote');
-  if (kind === 'revenue') return isCredit ? -amount : amount;
-  return isCredit ? -amount : amount;
+  return type.includes('creditnote') ? -1 : 1;
+}
+
+function signedVoucherAmount(voucher) {
+  return voucherSign(voucher) * voucherAmount(voucher);
 }
 
 function categoryBreakdown(vouchers) {
   const categories = {};
   for (const voucher of vouchers) {
+    const sign = voucherSign(voucher);
     for (const item of voucher.voucherItems ?? []) {
       const categoryId = item.categoryId || 'uncategorized';
       categories[categoryId] =
-        amountValue(categories[categoryId]) + amountValue(item.amount);
+        amountValue(categories[categoryId]) + sign * amountValue(item.amount);
     }
   }
   return categories;
@@ -759,11 +764,11 @@ function buildIncomeStatement(args) {
   const revenueVouchers = normalizeContentList(loadJsonPayload(revenueFile));
   const expenseVouchers = normalizeContentList(loadJsonPayload(expenseFile));
   const totalRevenue = revenueVouchers.reduce(
-    (sum, voucher) => sum + signedVoucherAmount(voucher, 'revenue'),
+    (sum, voucher) => sum + signedVoucherAmount(voucher),
     0,
   );
   const totalExpenses = expenseVouchers.reduce(
-    (sum, voucher) => sum + signedVoucherAmount(voucher, 'expense'),
+    (sum, voucher) => sum + signedVoucherAmount(voucher),
     0,
   );
   const categories = categoriesFile ? loadJsonPayload(categoriesFile) : null;
@@ -794,7 +799,7 @@ function buildRevenueSummary(args) {
   if (!revenueFile) die('--revenue-file is required.');
   const revenueVouchers = normalizeContentList(loadJsonPayload(revenueFile));
   const totalRevenue = revenueVouchers.reduce(
-    (sum, voucher) => sum + signedVoucherAmount(voucher, 'revenue'),
+    (sum, voucher) => sum + signedVoucherAmount(voucher),
     0,
   );
   return {
@@ -815,6 +820,9 @@ function buildTransactionMatch(args) {
   const transactionRaw = popFlag(args, '--transaction-json');
   const invoicesFile = popFlag(args, '--invoices-file');
   const threshold = Number(popFlag(args, '--threshold', '0.75'));
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    die('--threshold must be a number between 0 and 1.');
+  }
   if (!transactionRaw) die('--transaction-json is required.');
   if (!invoicesFile) die('--invoices-file is required.');
   const transaction = parseJsonValue(transactionRaw, '--transaction-json');
@@ -906,10 +914,10 @@ Usage:
   node skills/lexware-office/lexware_office.cjs http-request profile
   node skills/lexware-office/lexware_office.cjs http-request list-contacts [--name NAME] [--email EMAIL] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request get-contact --id UUID
-  node skills/lexware-office/lexware_office.cjs http-request list-products [--article-number VALUE] [--type PRODUCT|SERVICE]
-  node skills/lexware-office/lexware_office.cjs http-request list-invoices [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD]
+  node skills/lexware-office/lexware_office.cjs http-request list-products [--article-number VALUE] [--type PRODUCT|SERVICE] [--page N] [--size N]
+  node skills/lexware-office/lexware_office.cjs http-request list-invoices [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request get-invoice --id UUID
-  node skills/lexware-office/lexware_office.cjs http-request list-expenses [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD]
+  node skills/lexware-office/lexware_office.cjs http-request list-expenses [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]
   node skills/lexware-office/lexware_office.cjs http-request get-voucher --id UUID
   node skills/lexware-office/lexware_office.cjs http-request get-payment --voucher-id UUID
   node skills/lexware-office/lexware_office.cjs http-request list-bank-transactions [--status any]

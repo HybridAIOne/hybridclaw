@@ -71,6 +71,15 @@ test('Lexware Office helper --help exits cleanly', () => {
   expect(result.stdout).toContain('income-statement-plan');
   expect(result.stdout).toContain('income-statement');
   expect(result.stdout).toContain('match-transaction');
+  expect(result.stdout).toContain(
+    'list-products [--article-number VALUE] [--type PRODUCT|SERVICE] [--page N] [--size N]',
+  );
+  expect(result.stdout).toContain(
+    'list-invoices [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
+  );
+  expect(result.stdout).toContain(
+    'list-expenses [--status open] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--page N] [--size N]',
+  );
   expect(result.stdout).toContain('eval-scenarios');
 });
 
@@ -191,10 +200,27 @@ test('Lexware Office helper builds bank transaction read workflow', () => {
     bearerSecretName: 'LEXWARE_OFFICE_API_KEY',
   });
   expect(payload.requestSequence[0].url).toContain('/v1/voucherlist?');
+  expect(payload.requestSequence[0].url).toContain('voucherStatus=paid');
   expect(payload.followUpRequestTemplate.url).toBe(
     'https://api.lexware.io/v1/payments/{voucherId}',
   );
   expect(payload.filterPaymentItemType).toBe('partPaymentFinancialTransaction');
+});
+
+test('Lexware Office helper omits any status filter for bank transaction scans', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-bank-transactions',
+    '--status',
+    'any',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.requestSequence[0].url).not.toContain('voucherStatus=any');
+  expect(payload.requestSequence[0].url).not.toContain('voucherStatus=');
 });
 
 test('Lexware Office helper aggregates income statements from fetched voucher pages', () => {
@@ -215,6 +241,7 @@ test('Lexware Office helper aggregates income statements from fetched voucher pa
           id: '22222222-2222-4222-8222-222222222222',
           voucherType: 'creditnote',
           totalAmount: 100,
+          voucherItems: [{ amount: 100, categoryId: 'sales' }],
         },
       ],
     }),
@@ -262,6 +289,7 @@ test('Lexware Office helper aggregates income statements from fetched voucher pa
       expenseVouchers: 1,
     },
   });
+  expect(payload.categoryBreakdown.revenue.sales).toBe(900);
   expect(payload.categoryBreakdown.expenses.travel).toBe(250);
 });
 
@@ -367,6 +395,44 @@ test('Lexware Office helper matches bank transactions against open invoices', ()
     voucherId: '11111111-1111-4111-8111-111111111111',
     score: 1,
   });
+});
+
+test('Lexware Office helper validates transaction-match threshold', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lexware-office-'));
+  const invoicesPath = path.join(tempDir, 'invoices.json');
+  fs.writeFileSync(invoicesPath, JSON.stringify({ content: [] }));
+
+  const notNumber = runHelper([
+    '--format',
+    'json',
+    'match-transaction',
+    '--transaction-json',
+    '{"id":"tx-1","amount":119}',
+    '--invoices-file',
+    invoicesPath,
+    '--threshold',
+    'not-a-number',
+  ]);
+  const outOfRange = runHelper([
+    '--format',
+    'json',
+    'match-transaction',
+    '--transaction-json',
+    '{"id":"tx-1","amount":119}',
+    '--invoices-file',
+    invoicesPath,
+    '--threshold',
+    '1.5',
+  ]);
+
+  expect(notNumber.status).not.toBe(0);
+  expect(notNumber.stderr).toContain(
+    '--threshold must be a number between 0 and 1.',
+  );
+  expect(outOfRange.status).not.toBe(0);
+  expect(outOfRange.stderr).toContain(
+    '--threshold must be a number between 0 and 1.',
+  );
 });
 
 test('Lexware Office helper emits granted transaction-match voucher annotation request', () => {
