@@ -45,6 +45,7 @@ import { useFormMutation } from '../hooks/use-form-mutation';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
+import { oneOfOr } from '../lib/oneof';
 import { buildChannelCatalog } from './channels-catalog';
 
 const BOARD_STATUSES = [
@@ -64,30 +65,6 @@ type ActionKind = (typeof ACTION_KINDS)[number];
 
 const DELIVERY_KINDS = ['channel', 'last-channel', 'webhook'] as const;
 type DeliveryKind = (typeof DELIVERY_KINDS)[number];
-
-function asBoardStatus(value: string, fallback: BoardStatus): BoardStatus {
-  return (BOARD_STATUSES as readonly string[]).includes(value)
-    ? (value as BoardStatus)
-    : fallback;
-}
-
-function asScheduleKind(value: string, fallback: ScheduleKind): ScheduleKind {
-  return (SCHEDULE_KINDS as readonly string[]).includes(value)
-    ? (value as ScheduleKind)
-    : fallback;
-}
-
-function asActionKind(value: string, fallback: ActionKind): ActionKind {
-  return (ACTION_KINDS as readonly string[]).includes(value)
-    ? (value as ActionKind)
-    : fallback;
-}
-
-function asDeliveryKind(value: string, fallback: DeliveryKind): DeliveryKind {
-  return (DELIVERY_KINDS as readonly string[]).includes(value)
-    ? (value as DeliveryKind)
-    : fallback;
-}
 
 interface SchedulerDraft {
   originalId: string | null;
@@ -591,10 +568,10 @@ function SchedulerTaskDetail(props: {
             </div>
           </div>
 
-          <label className="field">
-            <span>Message</span>
-            <textarea readOnly rows={6} value={props.job.action.message} />
-          </label>
+          <Field>
+            <FieldLabel>Message</FieldLabel>
+            <Textarea readOnly rows={6} value={props.job.action.message} />
+          </Field>
 
           <div className="button-row">
             <button
@@ -701,7 +678,8 @@ function SchedulerJobEditor(props: {
                   onChange={(event) =>
                     props.onDraftChange((current) => ({
                       ...current,
-                      boardStatus: asBoardStatus(
+                      boardStatus: oneOfOr(
+                        BOARD_STATUSES,
                         event.target.value,
                         current.boardStatus,
                       ),
@@ -741,7 +719,8 @@ function SchedulerJobEditor(props: {
                   value={draft.scheduleKind}
                   onChange={(event) =>
                     props.onDraftChange((current) => {
-                      const nextKind = asScheduleKind(
+                      const nextKind = oneOfOr(
+                        SCHEDULE_KINDS,
                         event.target.value,
                         current.scheduleKind,
                       );
@@ -861,7 +840,8 @@ function SchedulerJobEditor(props: {
                   onChange={(event) =>
                     props.onDraftChange((current) => ({
                       ...current,
-                      actionKind: asActionKind(
+                      actionKind: oneOfOr(
+                        ACTION_KINDS,
                         event.target.value,
                         current.actionKind,
                       ),
@@ -883,7 +863,8 @@ function SchedulerJobEditor(props: {
                   onChange={(event) =>
                     props.onDraftChange((current) => ({
                       ...current,
-                      deliveryKind: asDeliveryKind(
+                      deliveryKind: oneOfOr(
+                        DELIVERY_KINDS,
                         event.target.value,
                         current.deliveryKind,
                       ),

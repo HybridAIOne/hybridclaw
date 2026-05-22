@@ -1,6 +1,16 @@
 export type Validator<T> = (value: T) => string | null;
 
-export function required<T>(message = 'Required.'): Validator<T> {
+// Stateless singletons for the default-message case — these are by far the
+// most common usage, and returning a cached function spares per-render
+// allocation across pages that wire up dozens of validators.
+const requiredDefault: Validator<unknown> = (value) => {
+  if (value === null || value === undefined) return 'Required.';
+  if (typeof value === 'string' && value.trim() === '') return 'Required.';
+  return null;
+};
+
+export function required<T>(message?: string): Validator<T> {
+  if (message === undefined) return requiredDefault as Validator<T>;
   return (value) => {
     if (value === null || value === undefined) return message;
     if (typeof value === 'string' && value.trim() === '') return message;
@@ -33,7 +43,18 @@ export function oneOf<T>(
   return (value) => (allowed.includes(value) ? null : message);
 }
 
-export function url(message = 'Enter a valid URL.'): Validator<string> {
+const urlDefault: Validator<string> = (value) => {
+  if (value.trim() === '') return null;
+  try {
+    new URL(value);
+    return null;
+  } catch {
+    return 'Enter a valid URL.';
+  }
+};
+
+export function url(message?: string): Validator<string> {
+  if (message === undefined) return urlDefault;
   return (value) => {
     if (value.trim() === '') return null;
     try {
@@ -45,9 +66,21 @@ export function url(message = 'Enter a valid URL.'): Validator<string> {
   };
 }
 
-export function loopbackUrl(
-  message = 'Must be a loopback URL.',
-): Validator<string> {
+const loopbackUrlDefault: Validator<string> = (value) => {
+  if (value.trim() === '') return null;
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+      ? null
+      : 'Must be a loopback URL.';
+  } catch {
+    return 'Enter a valid URL.';
+  }
+};
+
+export function loopbackUrl(message?: string): Validator<string> {
+  if (message === undefined) return loopbackUrlDefault;
   return (value) => {
     if (value.trim() === '') return null;
     try {

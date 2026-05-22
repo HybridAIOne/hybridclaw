@@ -127,7 +127,10 @@ export function Combobox<TMeta = unknown>({
   }, [labelForSelected, open]);
 
   const filtered = useMemo(
-    () => options.filter((opt) => (open ? filter(opt, query.trim()) : true)),
+    () =>
+      open
+        ? options.filter((opt) => filter(opt, query.trim()))
+        : (options as ReadonlyArray<ComboboxOption<TMeta>>),
     [options, open, query, filter],
   );
 

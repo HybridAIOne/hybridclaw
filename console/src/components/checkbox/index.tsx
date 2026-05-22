@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, MouseEvent } from 'react';
 import { cx } from '../../lib/cx';
-import { useFieldControlProps } from '../field';
+import { useFieldContext, useFieldControlProps } from '../field';
 import { Check, Minus } from '../icons';
 import styles from './checkbox.module.css';
 
@@ -29,6 +29,7 @@ export function Checkbox({
   ...rest
 }: CheckboxProps) {
   const props = useFieldControlProps({ disabled, ...rest });
+  const field = useFieldContext();
   const isDisabled = props.disabled;
 
   const state =
@@ -45,6 +46,8 @@ export function Checkbox({
     if (isDisabled) return;
     onClick?.(event);
     if (event.defaultPrevented) return;
+    // Button-based controls don't fire native input/change events.
+    field.setTouched(true);
     onCheckedChange?.(checked !== true);
   };
 

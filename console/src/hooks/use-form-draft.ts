@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { deepEquals } from '../lib/deep-equals';
 import { setPath } from '../lib/object-path';
 
 export type UseFormDraftOptions<T> = {
@@ -15,8 +16,10 @@ export type UseFormDraftOptions<T> = {
    */
   source: T | undefined;
   /**
-   * Custom equality function for `isDirty`. Defaults to a JSON.stringify
-   * comparison, which is correct for plain data configs.
+   * Custom equality function for `isDirty`. Defaults to `deepEquals`,
+   * which handles plain JSON shapes plus `Date` values without the
+   * pitfalls of a `JSON.stringify`-based comparison (key order,
+   * `undefined` keys, NaN, etc.).
    */
   equals?: (a: T, b: T) => boolean;
 };
@@ -39,10 +42,6 @@ export type UseFormDraftReturn<T> = {
   commit: (value: T) => void;
 };
 
-function defaultEquals<T>(a: T, b: T): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
 /**
  * The canonical "query → draft → dirty → save/discard" cycle.
  *
@@ -63,8 +62,13 @@ export function useFormDraft<T>(
   opts: UseFormDraftOptions<T>,
 ): UseFormDraftReturn<T> {
   const { source } = opts;
-  const equals = opts.equals ?? defaultEquals;
-  const [draft, setDraft] = useState<T | null>(null);
+  const equals = opts.equals ?? deepEquals;
+  // Initialise from `source` when it's already available — otherwise the
+  // first render leaves controlled inputs reading `undefined`, then the
+  // hydrate effect swaps them to defined values, and React warns about
+  // uncontrolled-to-controlled transitions. The effect below still
+  // hydrates when `source` becomes available after mount.
+  const [draft, setDraft] = useState<T | null>(() => source ?? null);
 
   useEffect(() => {
     if (source !== undefined && draft === null) {

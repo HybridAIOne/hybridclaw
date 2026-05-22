@@ -10,14 +10,18 @@ import {
 } from 'react';
 import { cx } from '../../lib/cx';
 import { useStableCallback } from '../../lib/use-stable-callback';
-import { useFormRegistry } from '../form/context';
+import {
+  useFormFieldContext,
+  useFormRegistry,
+  useFormSignals,
+} from '../form/context';
 import { Label } from '../label';
 import { FieldContext, useFieldContext } from './context';
 import styles from './field.module.css';
 
 export type { FieldContextValue } from './context';
-export { useFieldContext, useFieldControlProps } from './context';
-export { useFieldError } from './use-field-error';
+export { mergeIds, useFieldContext, useFieldControlProps } from './context';
+export { validateField } from './validate-field';
 export type { Validator } from './validators';
 export {
   compose,
@@ -93,6 +97,11 @@ export type FieldProps = ComponentProps<'div'> & {
   invalid?: boolean;
   disabled?: boolean;
   /**
+   * Forwarded as `aria-required="true"` to every descendant control via
+   * `useFieldControlProps`. `<FormField required>` sets this automatically.
+   */
+  required?: boolean;
+  /**
    * Override the auto-generated control id. Useful when a single Field wraps
    * multiple controls and the consumer wants to manage the id manually.
    */
@@ -105,26 +114,55 @@ export type FieldProps = ComponentProps<'div'> & {
   /**
    * Controlled error — when provided, takes priority over any internal
    * state set by descendant controls. Useful for piping a
-   * `useFieldError` result onto a Field that wraps a raw `<Input>`.
+   * `validateField` result onto a Field that wraps a raw `<Input>`.
    */
   error?: string | null;
+  /**
+   * Force the field's touched state. When omitted, Field flips touched
+   * to true on the first blur of any descendant control. Set to `true`
+   * to force errors visible from mount, or pin to `false` to suppress
+   * blur-triggered touching (rare).
+   */
+  touched?: boolean;
+  /**
+   * Called by Field when the surrounding `<Form>` records a submit
+   * attempt. Returning a non-null string registers a field-level error
+   * even for fields the user never edited, closing the
+   * "untouched required field passes submit" gap. Identity-stable —
+   * wrap in `useCallback` if the closure depends on draft state.
+   */
+  validate?: () => string | null;
 };
 
 export function Field({
   className,
   orientation = 'vertical',
   invalid,
-  disabled,
+  disabled: disabledProp,
+  required: requiredProp,
   controlId,
   onErrorChange,
   error: errorProp,
+  touched: touchedProp,
+  validate: validateProp,
+  onBlur,
   ...props
 }: FieldProps) {
+  // Auto-wire when nested under a `<FormField>` — match its generated id
+  // (so FieldLabel.htmlFor + Input.id agree), forward its required and
+  // disabled flags, hand its validate() to Form's submit registry, and
+  // read its rules-computed error as a fallback below.
+  const formField = useFormFieldContext();
   const generatedId = useId();
-  const id = controlId ?? generatedId;
+  const id = controlId ?? formField?.id ?? generatedId;
+  const required = requiredProp ?? formField?.required;
+  const disabled = disabledProp ?? formField?.disabled;
+  const validate = validateProp ?? formField?.validate;
   const [internalError, setErrorState] = useState<string | null>(null);
+  const [internalTouched, setInternalTouched] = useState(false);
   const reportError = useStableCallback(onErrorChange ?? noop);
   const isControlled = errorProp !== undefined;
+  const touched = touchedProp ?? internalTouched;
 
   // In controlled mode the parent owns the error string; ignore writes
   // from descendant controls so we don't carry dead internal state.
@@ -136,7 +174,15 @@ export function Field({
     [isControlled],
   );
 
-  const error = isControlled ? errorProp : internalError;
+  // Resolution order: an explicit `error` prop (controlled) > a descendant
+  // control's setError write (e.g. NumberField's bounds message) >
+  // FormFieldContext's rules-computed error. The descendant path comes
+  // first because it represents the most recent user input; the FormField
+  // path is the declarative default and acts as a fallback when no
+  // descendant has written anything.
+  const error = isControlled
+    ? errorProp
+    : (internalError ?? formField?.error ?? null);
 
   // When nested in a <Form>, report errors up so the form-level
   // useForm().isValid selector stays in sync. The registry context is
@@ -147,49 +193,133 @@ export function Field({
     if (registry) registry.registerError(id, error);
   }, [registry, id, error]);
 
-  // Clear our slot from the form on unmount only.
-  const registryRef = useRef(registry);
-  registryRef.current = registry;
-  const idRef = useRef(id);
-  idRef.current = id;
-  useEffect(
-    () => () => {
-      registryRef.current?.registerError(idRef.current, null);
-    },
-    [],
-  );
+  // Cleanup is split from the registration effect so the slot transitions
+  // directly between non-null error strings without an intermediate
+  // null-clear that would tick form-level subscribers an extra time.
+  // Deps capture the registry/id used at mount; clears that exact slot
+  // when those change or on unmount.
+  useEffect(() => {
+    if (!registry) return;
+    return () => registry.registerError(id, null);
+  }, [registry, id]);
+
+  // Expose our setError so `form.setErrors(...)` can push server-side
+  // errors directly into this Field's local state. The [registry, id,
+  // error] effect above already syncs the form's errors map whenever
+  // setError ticks internalError, so we don't double-write here. An
+  // externally-pushed error is treated as touched-equivalent so the
+  // message is visible immediately — callers reach for setErrors when
+  // they have already decided the user needs to see something.
+  useEffect(() => {
+    if (!registry || isControlled) return;
+    return registry.registerErrorSetter(id, (next) => {
+      if (next !== null) setInternalTouched(true);
+      setError(next);
+    });
+  }, [registry, id, isControlled, setError]);
 
   useEffect(() => {
     reportError(error);
   }, [error, reportError]);
 
-  // Only flip aria-invalid on when there's a reason — either an explicit
-  // override or a tracked error. Otherwise leave it undefined so the
-  // attribute isn't emitted at all.
-  const derivedInvalid =
-    invalid !== undefined ? invalid : error !== null ? true : undefined;
+  // A surrounding <Form> can force errors visible once the user attempts
+  // submission, and bump resetSeq to clear touched/error after save.
+  // Outside a Form, signals stays null.
+  const signals = useFormSignals();
+  const submitAttempted = signals?.submitAttempted ?? false;
+  const resetSeq = signals?.resetSeq ?? 0;
+
+  // form.reset() — clear internal touched/error so the next edit cycle
+  // doesn't inherit stale visibility from a prior submit.
+  const prevResetSeq = useRef(resetSeq);
+  if (prevResetSeq.current !== resetSeq) {
+    prevResetSeq.current = resetSeq;
+    setInternalTouched(false);
+    setErrorState(null);
+  }
+
+  // Register the consumer's validator with the form so it can be called
+  // synchronously on submit — closing the "untouched required field
+  // passes submit-time validation" gap. The wrapper mirrors the result
+  // into local Field state so <FieldError/> can pick it up alongside
+  // the form-level errors map. Wrapped via useStableCallback so the
+  // registry entry doesn't churn when `validate` is an inline closure.
+  const validateLatest = useStableCallback(validate ?? noopValidate);
+  useEffect(() => {
+    if (validate === undefined || !registry) return;
+    return registry.registerValidator(id, () => {
+      const result = validateLatest();
+      setError(result);
+      return result;
+    });
+  }, [registry, id, validate, validateLatest, setError]);
+  // Bypass the touched gate when the caller has explicitly opted in by
+  // either passing `invalid` or controlling `error` — they've already
+  // decided to surface the message (e.g. a server-side validation
+  // result piped through). The internal, descendant-driven path is
+  // gated so unblurred required fields don't announce "invalid" before
+  // the user has had a chance to type.
+  let exposedInvalid: boolean | undefined;
+  if (invalid !== undefined) {
+    exposedInvalid = invalid;
+  } else if ((isControlled || touched || submitAttempted) && error !== null) {
+    exposedInvalid = true;
+  } else {
+    exposedInvalid = undefined;
+  }
 
   const ctx = useMemo(
     () => ({
       id,
       descriptionId: `${id}-description`,
       errorId: `${id}-error`,
-      invalid: derivedInvalid,
+      invalid: exposedInvalid,
       disabled,
+      required,
       error,
       setError,
+      touched,
+      setTouched: setInternalTouched,
     }),
-    [id, derivedInvalid, disabled, error, setError],
+    [id, exposedInvalid, disabled, required, error, setError, touched],
   );
+
+  // React onBlur is delegated to native focusout, which bubbles — any
+  // descendant control's blur is observed here. Idempotent: setInternalTouched
+  // only ticks state on the first true.
+  const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    setInternalTouched(true);
+    onBlur?.(event);
+  };
+
+  // Native `input` and `change` events bubble out of form controls, so we
+  // can centralise "user has interacted with this field" detection on the
+  // wrapper. `input` fires on every keystroke; `change` fires for selects,
+  // radios, and native checkboxes that don't emit `input`.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const touch = () => setInternalTouched(true);
+    el.addEventListener('input', touch);
+    el.addEventListener('change', touch);
+    return () => {
+      el.removeEventListener('input', touch);
+      el.removeEventListener('change', touch);
+    };
+  }, []);
 
   return (
     <FieldContext.Provider value={ctx}>
+      {/* biome-ignore lint/a11y/useSemanticElements: this div is a layout container; the onBlur listens for bubbled focusout from descendant controls to drive touched-detection, not direct interactivity. */}
       <div
+        ref={wrapperRef}
         data-slot="field"
         data-orientation={orientation}
-        data-invalid={derivedInvalid || undefined}
+        data-invalid={exposedInvalid || undefined}
         data-disabled={disabled || undefined}
         className={cx(styles.field, orientationClass[orientation], className)}
+        onBlur={handleBlur}
         {...props}
       />
     </FieldContext.Provider>
@@ -197,6 +327,9 @@ export function Field({
 }
 
 function noop(): void {}
+function noopValidate(): null {
+  return null;
+}
 
 export type FieldContentProps = ComponentProps<'div'>;
 

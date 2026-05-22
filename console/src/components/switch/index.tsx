@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, MouseEvent } from 'react';
 import { cx } from '../../lib/cx';
-import { useFieldControlProps } from '../field';
+import { useFieldContext, useFieldControlProps } from '../field';
 import styles from './switch.module.css';
 
 export type SwitchSize = 'default' | 'sm';
@@ -40,6 +40,7 @@ export function Switch({
   ...rest
 }: SwitchProps) {
   const props = useFieldControlProps({ disabled, ...rest });
+  const field = useFieldContext();
   const state = checked ? 'checked' : 'unchecked';
   const isDisabled = props.disabled;
 
@@ -47,6 +48,9 @@ export function Switch({
     if (isDisabled) return;
     onClick?.(event);
     if (event.defaultPrevented) return;
+    // Button-based controls don't fire native input/change events, so
+    // the surrounding Field's auto-touch listener misses this toggle.
+    field.setTouched(true);
     onCheckedChange?.(!checked);
   };
 

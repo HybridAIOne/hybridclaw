@@ -26,6 +26,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Checkbox } from '../components/checkbox';
 import { Field, FieldContent, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
@@ -559,12 +560,7 @@ export function SkillsPage() {
                     width: 'fit-content',
                   }}
                 >
-                  <Input
-                    type="checkbox"
-                    checked={zipForce}
-                    onChange={(event) => setZipForce(event.target.checked)}
-                    style={{ margin: 0 }}
-                  />
+                  <Checkbox checked={zipForce} onCheckedChange={setZipForce} />
                   <span>Overwrite existing skill (--force)</span>
                 </label>
                 <div className="button-row">

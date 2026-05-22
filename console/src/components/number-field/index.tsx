@@ -1,4 +1,4 @@
-import { type ComponentProps, useEffect, useState } from 'react';
+import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import { useStableCallback } from '../../lib/use-stable-callback';
 import { useFieldContext } from '../field/context';
 import { Input } from '../input';
@@ -56,6 +56,8 @@ export function NumberField({
   ...inputProps
 }: NumberFieldProps) {
   const [rawValue, setRawValue] = useState(() => String(value));
+  const rawValueRef = useRef(rawValue);
+  rawValueRef.current = rawValue;
   const field = useFieldContext();
   // useStableCallback already keeps the latest closure via a ref, so
   // wrapping the inline merger in useCallback would be redundant.
@@ -65,6 +67,13 @@ export function NumberField({
   });
 
   useEffect(() => {
+    // Skip when the external value already matches what the user has
+    // typed — otherwise our own commit (which produces the same number
+    // we already display) would clobber mid-edit characters like the
+    // trailing dot in "0." or the empty buffer behind `emptyValue`. We
+    // read the latest raw via a ref so per-keystroke rerenders don't
+    // re-run this effect.
+    if (Number(rawValueRef.current) === value) return;
     setRawValue(String(value));
     reportError(null);
   }, [value, reportError]);

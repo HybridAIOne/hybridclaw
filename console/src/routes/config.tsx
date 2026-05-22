@@ -13,11 +13,7 @@ import {
   saveConfig,
   startBrowserPool,
 } from '../api/client';
-import type {
-  AdminBrowserPoolHealthResponse,
-  AdminConfig,
-  LogLevel,
-} from '../api/types';
+import type { AdminBrowserPoolHealthResponse, AdminConfig } from '../api/types';
 import { LOG_LEVELS } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
@@ -32,9 +28,17 @@ import {
   FieldSet,
   pattern,
   required,
-  useFieldError,
 } from '../components/field';
-import { Form, useForm } from '../components/form';
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+  useForm,
+} from '../components/form';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { NumberField } from '../components/number-field';
@@ -43,35 +47,17 @@ import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
-import { useFormDraft } from '../hooks/use-form-draft';
 import { useFormMutation } from '../hooks/use-form-mutation';
 import { useUnsavedChangesGuard } from '../hooks/use-unsaved-changes-guard';
 import { getErrorMessage } from '../lib/error-message';
+import { isOneOf } from '../lib/oneof';
 import styles from './config.module.css';
 
 function serialize(config: AdminConfig): string {
   return JSON.stringify(config, null, 2);
 }
 
-type AdminConfigSections = {
-  ops: AdminConfig['ops'];
-  security: AdminConfig['security'];
-  hybridai: AdminConfig['hybridai'];
-  container: AdminConfig['container'];
-};
-
 type DraftSetter = Dispatch<SetStateAction<AdminConfig | null>>;
-
-function updateSection<K extends keyof AdminConfigSections>(
-  setDraft: DraftSetter,
-  section: K,
-  updates: Partial<AdminConfigSections[K]>,
-) {
-  setDraft((current) => {
-    if (!current) return current;
-    return { ...current, [section]: { ...current[section], ...updates } };
-  });
-}
 
 type BrowserConfig = NonNullable<AdminConfig['browser']>;
 type BrowserProvider = BrowserConfig['provider'];
@@ -89,10 +75,6 @@ const PROVIDER_OPTIONS: ReadonlyArray<{
 ];
 
 const CONTAINER_MEMORY_PATTERN = /^\d+(?:\.\d+)?[kKmMgG]?$/;
-
-function isLogLevel(value: string): value is LogLevel {
-  return (LOG_LEVELS as readonly string[]).includes(value);
-}
 
 function defaultBrowserConfig(): BrowserConfig {
   return {
@@ -309,20 +291,20 @@ export function ConfigPage() {
   const [viewMode, setViewMode] = useState<'form' | 'json'>('form');
   const [rawJson, setRawJson] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
-  const form = useForm();
 
   const configQuery = useQuery({
     queryKey: ['config', auth.token],
     queryFn: () => fetchConfig(auth.token),
   });
 
+  const form = useForm<AdminConfig>({ source: configQuery.data?.config });
   const {
     draft,
     setDraft,
     isDirty: formIsDirty,
     discard: discardDraft,
     commit: commitDraft,
-  } = useFormDraft({ source: configQuery.data?.config });
+  } = form;
 
   const savedSerialized = useMemo(
     () => (configQuery.data ? serialize(configQuery.data.config) : ''),
@@ -407,14 +389,6 @@ export function ConfigPage() {
     description:
       'You have unsaved edits to the runtime config. Leaving this page will discard them.',
   });
-
-  const memoryError = useFieldError(draft?.container.memory ?? '', [
-    required(),
-    pattern(
-      CONTAINER_MEMORY_PATTERN,
-      'Use a number with optional k, m, or g suffix.',
-    ),
-  ]);
 
   if (configQuery.isLoading && !draft) {
     return <div className="empty-state">Loading runtime config…</div>;
@@ -554,53 +528,64 @@ export function ConfigPage() {
                 Gateway listener and log verbosity.
               </FieldDescription>
               <FieldGroup>
-                <Field>
-                  <FieldLabel>Health host</FieldLabel>
-                  <Input
-                    value={draft.ops.healthHost}
-                    onChange={(event) =>
-                      updateSection(setDraft, 'ops', {
-                        healthHost: event.target.value,
-                      })
-                    }
-                  />
-                  <FieldDescription>
-                    Interface the gateway binds to. Use <code>127.0.0.1</code>{' '}
-                    for loopback-only.
-                  </FieldDescription>
-                </Field>
-                <Field controlId="ops-health-port">
-                  <FieldLabel>Health port</FieldLabel>
-                  <NumberField
-                    id="ops-health-port"
-                    integer
-                    min={1}
-                    max={65535}
-                    value={draft.ops.healthPort}
-                    onValueChange={(healthPort) =>
-                      updateSection(setDraft, 'ops', { healthPort })
-                    }
-                  />
-                  <FieldError />
-                </Field>
-                <Field>
-                  <FieldLabel>Log level</FieldLabel>
-                  <NativeSelect
-                    value={draft.ops.logLevel}
-                    onChange={(event) => {
-                      const next = event.target.value;
-                      if (isLogLevel(next)) {
-                        updateSection(setDraft, 'ops', { logLevel: next });
-                      }
-                    }}
-                  >
-                    {LOG_LEVELS.map((level) => (
-                      <NativeSelectOption key={level} value={level}>
-                        {level}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </Field>
+                <FormField
+                  name="ops.healthHost"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Health host</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Interface the gateway binds to. Use{' '}
+                        <code>127.0.0.1</code> for loopback-only.
+                      </FormDescription>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  name="ops.healthPort"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Health port</FormLabel>
+                      <FormControl>
+                        <NumberField
+                          integer
+                          min={1}
+                          max={65535}
+                          value={field.value as number}
+                          onValueChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  name="ops.logLevel"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Log level</FormLabel>
+                      <FormControl>
+                        <NativeSelect
+                          value={field.value as string}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            if (isOneOf(LOG_LEVELS, next)) {
+                              field.onChange(next);
+                            }
+                          }}
+                        >
+                          {LOG_LEVELS.map((level) => (
+                            <NativeSelectOption key={level} value={level}>
+                              {level}
+                            </NativeSelectOption>
+                          ))}
+                        </NativeSelect>
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
               </FieldGroup>
             </FieldSet>
 
@@ -610,23 +595,24 @@ export function ConfigPage() {
                 Sensitive-content guards applied to agent output.
               </FieldDescription>
               <FieldGroup>
-                <Field orientation="horizontal">
-                  <Switch
-                    checked={draft.security.confidentialRedactionEnabled}
-                    onCheckedChange={(confidentialRedactionEnabled) =>
-                      updateSection(setDraft, 'security', {
-                        confidentialRedactionEnabled,
-                      })
-                    }
-                  />
-                  <FieldContent>
-                    <FieldLabel>Confidential leak guard</FieldLabel>
-                    <FieldDescription>
-                      Redact secrets and sensitive patterns before they leave
-                      the agent.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
+                <FormField
+                  name="security.confidentialRedactionEnabled"
+                  render={({ field }) => (
+                    <FormItem orientation="horizontal">
+                      <Switch
+                        checked={Boolean(field.value)}
+                        onCheckedChange={field.onChange}
+                      />
+                      <FieldContent>
+                        <FormLabel>Confidential leak guard</FormLabel>
+                        <FormDescription>
+                          Redact secrets and sensitive patterns before they
+                          leave the agent.
+                        </FormDescription>
+                      </FieldContent>
+                    </FormItem>
+                  )}
+                />
               </FieldGroup>
             </FieldSet>
 
@@ -636,44 +622,46 @@ export function ConfigPage() {
                 HybridAI provider defaults.
               </FieldDescription>
               <FieldGroup>
-                <Field>
-                  <FieldLabel>Base URL</FieldLabel>
-                  <Input
-                    type="url"
-                    value={draft.hybridai.baseUrl}
-                    onChange={(event) =>
-                      updateSection(setDraft, 'hybridai', {
-                        baseUrl: event.target.value,
-                      })
-                    }
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel>Default model</FieldLabel>
-                  <Input
-                    value={draft.hybridai.defaultModel}
-                    onChange={(event) =>
-                      updateSection(setDraft, 'hybridai', {
-                        defaultModel: event.target.value,
-                      })
-                    }
-                  />
-                </Field>
-                <Field orientation="horizontal">
-                  <Switch
-                    checked={draft.hybridai.enableRag}
-                    onCheckedChange={(enableRag) =>
-                      updateSection(setDraft, 'hybridai', { enableRag })
-                    }
-                  />
-                  <FieldContent>
-                    <FieldLabel>RAG default</FieldLabel>
-                    <FieldDescription>
-                      Enable retrieval augmentation by default for new
-                      conversations.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
+                <FormField
+                  name="hybridai.baseUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Base URL</FormLabel>
+                      <FormControl>
+                        <Input type="url" {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  name="hybridai.defaultModel"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Default model</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  name="hybridai.enableRag"
+                  render={({ field }) => (
+                    <FormItem orientation="horizontal">
+                      <Switch
+                        checked={Boolean(field.value)}
+                        onCheckedChange={field.onChange}
+                      />
+                      <FieldContent>
+                        <FormLabel>RAG default</FormLabel>
+                        <FormDescription>
+                          Enable retrieval augmentation by default for new
+                          conversations.
+                        </FormDescription>
+                      </FieldContent>
+                    </FormItem>
+                  )}
+                />
               </FieldGroup>
             </FieldSet>
 
@@ -683,39 +671,47 @@ export function ConfigPage() {
                 Sandboxed container runtime for tool execution.
               </FieldDescription>
               <FieldGroup>
-                <Field controlId="container-memory" error={memoryError}>
-                  <FieldLabel>Memory</FieldLabel>
-                  <Input
-                    id="container-memory"
-                    value={draft.container.memory}
-                    placeholder="1024m"
-                    onChange={(event) =>
-                      updateSection(setDraft, 'container', {
-                        memory: event.target.value,
-                      })
-                    }
-                  />
-                  <FieldDescription>
-                    Docker memory limit. e.g. <code>512m</code>, <code>1g</code>
-                    , <code>2048m</code>.
-                  </FieldDescription>
-                  <FieldError />
-                </Field>
-                <Field orientation="horizontal">
-                  <Switch
-                    checked={draft.container.persistBashState}
-                    onCheckedChange={(persistBashState) =>
-                      updateSection(setDraft, 'container', { persistBashState })
-                    }
-                  />
-                  <FieldContent>
-                    <FieldLabel>Persistent bash state</FieldLabel>
-                    <FieldDescription>
-                      Reuse the same shell across tool calls so cwd, env, and
-                      aliases survive.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
+                <FormField
+                  name="container.memory"
+                  rules={[
+                    required(),
+                    pattern(
+                      CONTAINER_MEMORY_PATTERN,
+                      'Use a number with optional k, m, or g suffix.',
+                    ),
+                  ]}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Memory</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="1024m" />
+                      </FormControl>
+                      <FormDescription>
+                        Docker memory limit. e.g. <code>512m</code>,{' '}
+                        <code>1g</code>, <code>2048m</code>.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  name="container.persistBashState"
+                  render={({ field }) => (
+                    <FormItem orientation="horizontal">
+                      <Switch
+                        checked={Boolean(field.value)}
+                        onCheckedChange={field.onChange}
+                      />
+                      <FieldContent>
+                        <FormLabel>Persistent bash state</FormLabel>
+                        <FormDescription>
+                          Reuse the same shell across tool calls so cwd, env,
+                          and aliases survive.
+                        </FormDescription>
+                      </FieldContent>
+                    </FormItem>
+                  )}
+                />
               </FieldGroup>
             </FieldSet>
 

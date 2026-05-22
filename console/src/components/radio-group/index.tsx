@@ -12,7 +12,7 @@ import {
   useState,
 } from 'react';
 import { cx } from '../../lib/cx';
-import { useFieldContext } from '../field';
+import { mergeIds, useFieldContext } from '../field/context';
 import { Circle } from '../icons';
 import styles from './radio-group.module.css';
 
@@ -172,11 +172,6 @@ export function RadioGroup({
   );
 }
 
-function mergeIds(...ids: Array<string | undefined>): string | undefined {
-  const filtered = ids.filter((id): id is string => Boolean(id));
-  return filtered.length === 0 ? undefined : filtered.join(' ');
-}
-
 export type RadioGroupItemProps = Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
   'value' | 'onChange' | 'type'
@@ -193,6 +188,7 @@ export function RadioGroupItem({
   ...props
 }: RadioGroupItemProps) {
   const ctx = useRadioGroupContext('<RadioGroupItem>');
+  const field = useFieldContext();
   const { registerItem } = ctx;
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -215,6 +211,10 @@ export function RadioGroupItem({
     if (isDisabled) return;
     onClick?.(event);
     if (event.defaultPrevented) return;
+    // Button-based controls don't fire native input/change events;
+    // mark the surrounding Field touched so error visibility tracks
+    // the user's selection.
+    field.setTouched(true);
     ctx.setValue(value);
   };
 
