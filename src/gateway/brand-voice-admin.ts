@@ -109,6 +109,13 @@ function readProfileFromConfig(
   return profileFromEntry(findBrandVoiceEntry(config));
 }
 
+function profilesEqual(
+  left: GatewayAdminBrandVoiceProfile,
+  right: GatewayAdminBrandVoiceProfile,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function listBrandVoiceRevisions(): GatewayAdminBrandVoiceRevision[] {
   return listRuntimeConfigRevisions(runtimeConfigPath())
     .filter((revision) => revision.route === BRAND_VOICE_REVISION_ROUTE)
@@ -169,6 +176,20 @@ function compilePattern(
   }
 }
 
+function listInvalidPatterns(patterns: string[]): string[] {
+  return patterns.filter((source) => compilePattern(source) === null);
+}
+
+function assertValidBannedPatterns(
+  profile: GatewayAdminBrandVoiceProfile,
+): void {
+  const invalidPatterns = listInvalidPatterns(profile.bannedPatterns);
+  if (invalidPatterns.length === 0) return;
+  throw new Error(
+    `Invalid banned pattern${invalidPatterns.length === 1 ? '' : 's'}: ${invalidPatterns.join(', ')}`,
+  );
+}
+
 function phraseAppears(text: string, phrase: string): boolean {
   return text.toLowerCase().includes(phrase.toLowerCase());
 }
@@ -181,11 +202,6 @@ function scoreViolations(
   for (const phrase of profile.bannedPhrases) {
     if (phraseAppears(sample, phrase)) {
       violations.push({ kind: 'banned_phrase', detail: phrase });
-    }
-  }
-  for (const phrase of profile.dontList) {
-    if (phraseAppears(sample, phrase)) {
-      violations.push({ kind: 'dont_phrase', detail: phrase });
     }
   }
   for (const source of profile.bannedPatterns) {
@@ -214,8 +230,6 @@ function scoreBrandVoicePreview(
       violation.kind === 'banned_pattern'
     ) {
       score -= 30;
-    } else if (violation.kind === 'dont_phrase') {
-      score -= 20;
     } else {
       score -= 12;
     }
@@ -229,9 +243,6 @@ function scoreBrandVoicePreview(
     }
     if (violation.kind === 'banned_pattern') {
       return `Matches banned pattern ${violation.detail}.`;
-    }
-    if (violation.kind === 'dont_phrase') {
-      return `Matches don't-list item "${violation.detail}".`;
     }
     return `Missing required phrase "${violation.detail}".`;
   });
@@ -253,10 +264,12 @@ export async function updateGatewayAdminBrandVoiceProfile(
 ): Promise<GatewayAdminBrandVoiceProfileUpdateResponse> {
   const previousConfig = getRuntimeConfig();
   const nextConfig = structuredClone(previousConfig);
+  const previousProfile = readProfileFromConfig(previousConfig);
   const profile = normalizeProfile(isRecord(body) ? body.profile : body);
+  assertValidBannedPatterns(profile);
   applyProfileToConfig(nextConfig, profile);
 
-  const changed = JSON.stringify(previousConfig) !== JSON.stringify(nextConfig);
+  const changed = !profilesEqual(previousProfile, profile);
   if (changed) {
     saveRuntimeConfig(nextConfig, {
       route: BRAND_VOICE_REVISION_ROUTE,
@@ -297,5 +310,6 @@ export function previewGatewayAdminBrandVoiceProfile(
     raw.profile === undefined
       ? getGatewayAdminBrandVoiceProfile().profile
       : normalizeProfile(raw.profile);
+  assertValidBannedPatterns(profile);
   return scoreBrandVoicePreview(profile, sample);
 }

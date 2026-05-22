@@ -145,13 +145,33 @@ describe('brand voice admin API helpers', () => {
         },
       }),
     ).toMatchObject({
-      score: 38,
+      score: 58,
       verdict: 'off_brand',
       violations: [
-        { kind: 'dont_phrase', detail: 'game changing' },
         { kind: 'banned_pattern', detail: '/\\bguarantee[sd]?\\b/i' },
         { kind: 'missing_required', detail: 'Best regards' },
       ],
     });
+  });
+
+  test('rejects invalid banned regex patterns', async () => {
+    const admin = await importBrandVoiceAdmin({
+      plugins: { list: [] },
+    } as RuntimeConfig);
+
+    await expect(
+      admin.updateGatewayAdminBrandVoiceProfile({
+        profile: {
+          enabled: true,
+          mode: 'rewrite',
+          voice: '',
+          doList: [],
+          dontList: [],
+          bannedPhrases: [],
+          bannedPatterns: ['/[unterminated/'],
+          requirePhrases: [],
+        },
+      }),
+    ).rejects.toThrow('Invalid banned pattern');
   });
 });

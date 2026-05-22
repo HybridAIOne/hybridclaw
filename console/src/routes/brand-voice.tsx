@@ -92,6 +92,7 @@ function ListEditor(props: {
         {props.values.map((value, index) => (
           <div className="brand-voice-list-row" key={rowIds.current[index]}>
             <input
+              aria-label={`${props.label} item ${index + 1}`}
               value={value}
               onChange={(event) =>
                 props.onChange(
@@ -117,6 +118,7 @@ function ListEditor(props: {
         <button
           className="ghost-button brand-voice-add-button"
           type="button"
+          aria-label={`Add ${props.label} item`}
           onClick={() => {
             rowIds.current.push(`${props.label}-${nextId.current}`);
             nextId.current += 1;

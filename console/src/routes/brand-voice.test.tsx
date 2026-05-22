@@ -105,7 +105,7 @@ describe('BrandVoicePage', () => {
     renderBrandVoicePage();
 
     expect(await screen.findByDisplayValue('Use concrete nouns')).toBeTruthy();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Add Do item' }));
     const doInputs = screen.getAllByPlaceholderText('Use concrete nouns');
     fireEvent.change(doInputs[1], {
       target: { value: 'Prefer short sentences' },

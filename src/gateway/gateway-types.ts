@@ -1339,7 +1339,7 @@ export interface GatewayAdminBrandVoiceProfileUpdateResponse
 }
 
 export interface GatewayAdminBrandVoicePreviewViolation {
-  kind: 'banned_phrase' | 'banned_pattern' | 'missing_required' | 'dont_phrase';
+  kind: 'banned_phrase' | 'banned_pattern' | 'missing_required';
   detail: string;
 }
 
