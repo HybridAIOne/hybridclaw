@@ -88,8 +88,18 @@ beforeEach(() => {
   });
   previewBrandVoiceProfileMock.mockResolvedValue({
     score: 58,
+    ruleScore: 58,
+    scoreSource: 'rules',
     verdict: 'off_brand',
     violations: [{ kind: 'banned_phrase', detail: 'game changing' }],
+    classifier: {
+      provider: 'none',
+      status: 'not_configured',
+      verdict: null,
+      severity: null,
+      reasons: [],
+      message: 'Classifier provider is not configured; showing rules score.',
+    },
   });
 });
 
@@ -135,6 +145,9 @@ describe('BrandVoicePage', () => {
     expect(
       await screen.findByText('Contains banned phrase "game changing".'),
     ).toBeTruthy();
-    expect(screen.getByText('58/100, off brand')).toBeTruthy();
+    expect(screen.getByText('58/100, off brand (rules)')).toBeTruthy();
+    expect(
+      screen.getByText('Classifier not configured; showing rules score.'),
+    ).toBeTruthy();
   });
 });

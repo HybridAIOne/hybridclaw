@@ -1464,10 +1464,22 @@ export interface AdminBrandVoicePreviewViolation {
   detail: string;
 }
 
+export interface AdminBrandVoicePreviewClassifier {
+  provider: 'none' | 'anthropic' | 'openai' | 'openai-compat';
+  status: 'not_configured' | 'evaluated' | 'unavailable' | 'unparseable';
+  verdict: 'on_brand' | 'off_brand' | null;
+  severity: 'low' | 'medium' | 'high' | null;
+  reasons: string[];
+  message: string | null;
+}
+
 export interface AdminBrandVoicePreviewResponse {
   score: number;
+  ruleScore: number;
+  scoreSource: 'classifier' | 'rules';
   verdict: 'on_brand' | 'needs_review' | 'off_brand';
   violations: AdminBrandVoicePreviewViolation[];
+  classifier: AdminBrandVoicePreviewClassifier;
 }
 
 export interface AdminAdaptiveSkillErrorCluster {

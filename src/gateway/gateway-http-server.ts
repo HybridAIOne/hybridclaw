@@ -4877,7 +4877,7 @@ async function handleApiAdminBrandVoicePreview(
     sendJson(
       res,
       200,
-      previewGatewayAdminBrandVoiceProfile(await readJsonBody(req)),
+      await previewGatewayAdminBrandVoiceProfile(await readJsonBody(req)),
     );
   } catch (error) {
     sendJson(res, 400, {

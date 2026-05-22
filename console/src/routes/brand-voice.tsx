@@ -158,6 +158,26 @@ function formatPreviewViolation(
   return `Missing required phrase "${violation.detail}".`;
 }
 
+function formatClassifierStatus(
+  preview: AdminBrandVoicePreviewResponse,
+): string {
+  const { classifier } = preview;
+  if (classifier.status === 'evaluated' && classifier.verdict) {
+    const severity = classifier.severity ? `, ${classifier.severity}` : '';
+    return `Classifier ${classifier.provider}: ${formatVerdict(classifier.verdict)}${severity}.`;
+  }
+  if (classifier.status === 'not_configured') {
+    return 'Classifier not configured; showing rules score.';
+  }
+  if (classifier.status === 'unparseable') {
+    return 'Classifier response was not parseable; showing rules score.';
+  }
+  if (preview.scoreSource === 'classifier') {
+    return 'Classifier unavailable; failure mode blocks output.';
+  }
+  return 'Classifier unavailable; showing rules score.';
+}
+
 export function BrandVoicePage() {
   const auth = useAuth();
   const toast = useToast();
@@ -337,7 +357,7 @@ export function BrandVoicePage() {
               <CardTitle>Preview</CardTitle>
               <CardDescription>
                 {preview
-                  ? `${preview.score}/100, ${formatVerdict(preview.verdict)}`
+                  ? `${preview.score}/100, ${formatVerdict(preview.verdict)} (${preview.scoreSource})`
                   : 'No score yet'}
               </CardDescription>
             </CardHeader>
@@ -364,6 +384,7 @@ export function BrandVoicePage() {
                   <div className="brand-voice-score-bar">
                     <span style={{ width: `${preview.score}%` }} />
                   </div>
+                  <small>{formatClassifierStatus(preview)}</small>
                   {preview.violations.length > 0 ? (
                     <ul className="brand-voice-reason-list">
                       {preview.violations.map((violation) => {
@@ -374,6 +395,13 @@ export function BrandVoicePage() {
                   ) : (
                     <small>No rule violations detected.</small>
                   )}
+                  {preview.classifier.reasons.length > 0 ? (
+                    <ul className="brand-voice-reason-list">
+                      {preview.classifier.reasons.map((reason) => (
+                        <li key={`classifier-${reason}`}>{reason}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
               ) : null}
             </CardContent>

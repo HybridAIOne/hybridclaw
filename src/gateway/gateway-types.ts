@@ -1342,10 +1342,22 @@ export interface GatewayAdminBrandVoicePreviewViolation {
   detail: string;
 }
 
+export interface GatewayAdminBrandVoicePreviewClassifier {
+  provider: 'none' | 'anthropic' | 'openai' | 'openai-compat';
+  status: 'not_configured' | 'evaluated' | 'unavailable' | 'unparseable';
+  verdict: 'on_brand' | 'off_brand' | null;
+  severity: 'low' | 'medium' | 'high' | null;
+  reasons: string[];
+  message: string | null;
+}
+
 export interface GatewayAdminBrandVoicePreviewResponse {
   score: number;
+  ruleScore: number;
+  scoreSource: 'classifier' | 'rules';
   verdict: 'on_brand' | 'needs_review' | 'off_brand';
   violations: GatewayAdminBrandVoicePreviewViolation[];
+  classifier: GatewayAdminBrandVoicePreviewClassifier;
 }
 
 export interface GatewayAdminToolCatalogEntry {

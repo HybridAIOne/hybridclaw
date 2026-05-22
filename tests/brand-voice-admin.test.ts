@@ -78,6 +78,7 @@ async function importBrandVoiceAdmin(
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.doUnmock('../src/config/runtime-config.js');
   vi.doUnmock('../src/config/runtime-config-revisions.js');
   vi.doUnmock('../src/gateway/gateway-plugin-service.js');
@@ -155,7 +156,7 @@ describe('brand voice admin API helpers', () => {
       plugins: { list: [] },
     } as RuntimeConfig);
 
-    const preview = admin.previewGatewayAdminBrandVoiceProfile({
+    const preview = await admin.previewGatewayAdminBrandVoiceProfile({
       sample: 'This is game changing and guaranteed.',
       profile: {
         enabled: true,
@@ -171,13 +172,96 @@ describe('brand voice admin API helpers', () => {
 
     expect(preview).toMatchObject({
       score: 58,
+      ruleScore: 58,
+      scoreSource: 'rules',
       verdict: 'off_brand',
       violations: [
         { kind: 'banned_pattern', detail: '/\\bguarantee[sd]?\\b/i' },
         { kind: 'missing_required', detail: 'Best regards' },
       ],
+      classifier: {
+        provider: 'none',
+        status: 'not_configured',
+        verdict: null,
+      },
     });
     expect(preview).not.toHaveProperty('reasons');
+  });
+
+  test('uses the configured classifier during preview when available', async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  verdict: 'off_brand',
+                  reasons: ['Too vague for the configured voice.'],
+                  severity: 'high',
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const admin = await importBrandVoiceAdmin({
+      plugins: {
+        list: [
+          {
+            id: 'brand-voice',
+            enabled: true,
+            config: {
+              classifier: {
+                provider: 'openai-compat',
+                model: 'brand-judge',
+                baseUrl: 'http://classifier.local/v1',
+                maxRetries: 0,
+              },
+            },
+          },
+        ],
+      },
+    } as RuntimeConfig);
+
+    const preview = await admin.previewGatewayAdminBrandVoiceProfile({
+      sample: 'We might have a solution that can help.',
+      profile: {
+        enabled: true,
+        mode: 'rewrite',
+        voice: 'Direct and concrete.',
+        doList: ['Use specific claims'],
+        dontList: ['Use vague hedging'],
+        bannedPhrases: [],
+        bannedPatterns: [],
+        requirePhrases: [],
+      },
+    });
+
+    expect(preview).toMatchObject({
+      score: 0,
+      ruleScore: 100,
+      scoreSource: 'classifier',
+      verdict: 'off_brand',
+      classifier: {
+        provider: 'openai-compat',
+        status: 'evaluated',
+        verdict: 'off_brand',
+        severity: 'high',
+        reasons: ['Too vague for the configured voice.'],
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://classifier.local/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('Direct and concrete.'),
+      }),
+    );
   });
 
   test('rejects invalid banned regex patterns', async () => {
@@ -206,7 +290,7 @@ describe('brand voice admin API helpers', () => {
       plugins: { list: [] },
     } as RuntimeConfig);
 
-    expect(() =>
+    await expect(
       admin.previewGatewayAdminBrandVoiceProfile({
         sample: 'x'.repeat(50_001),
         profile: {
@@ -220,9 +304,9 @@ describe('brand voice admin API helpers', () => {
           requirePhrases: [],
         },
       }),
-    ).toThrow('Sample output cannot exceed 50000 characters');
+    ).rejects.toThrow('Sample output cannot exceed 50000 characters');
 
-    expect(() =>
+    await expect(
       admin.previewGatewayAdminBrandVoiceProfile({
         sample: 'Short sample',
         profile: {
@@ -236,7 +320,7 @@ describe('brand voice admin API helpers', () => {
           requirePhrases: [],
         },
       }),
-    ).toThrow('Do list cannot contain more than 200 entries');
+    ).rejects.toThrow('Do list cannot contain more than 200 entries');
   });
 
   test('rolls back failed runtime reloads and logs rollback reload failures', async () => {
