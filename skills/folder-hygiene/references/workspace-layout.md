@@ -16,59 +16,48 @@ runtime startup instructions, not general storage buckets.
 
 | File | Purpose | Who Writes It | Lifecycle |
 | --- | --- | --- | --- |
-| `IDENTITY.md` | Defines who the agent is in this workspace: name, self-description, tone, avatar, and other identity metadata. | The agent during onboarding, then the user or agent only when identity is explicitly changed. | Created from the bootstrap template and updated rarely. Treat changes as meaningful identity edits. |
-| `SOUL.md` | Captures the agent's core behavior, boundaries, and working style. | The product template provides the baseline; the agent or user may refine it when behavior expectations change. | Long-lived. Read as stable identity guidance and avoid casual churn. |
-| `USER.md` | Records stable facts about the human: name, preferences, timezone, work context, and durable notes. | The agent writes it during onboarding and updates it when the user provides durable personal or workflow context. | Long-lived. Keep it concise and respectful; do not turn it into an exhaustive dossier. |
-| `MEMORY.md` | Curated long-term memory for facts, decisions, and patterns that matter across sessions. | Dream consolidation or deliberate agent maintenance writes it; daily intake usually starts in `memory/YYYY-MM-DD.md`. | Long-lived and rewritten carefully. Prefer promoting stable facts into it rather than appending noisy raw notes. |
-| `BOOT.md` | Passive startup guidance loaded into the agent's system context. | The user, operator, or template author. | Long-lived. Keep it short and explicit; update when default startup behavior changes. |
-| `BOOTSTRAP.md` | One-time first-run onboarding script for a fresh workspace. | The product template creates it; the agent follows it during first run. | Temporary. Delete it after onboarding is complete. |
-| `HEARTBEAT.md` | Optional periodic tasks or reminders for heartbeat-style follow-up. | The user or agent when the user asks for periodic checks. | Long-lived but often empty. Remove stale tasks once they no longer need to run. |
-| `OPENING.md` | Instructions for the first proactive message in a fresh session. | The user, operator, or template author. | Long-lived and optional. Keep only current opening behavior here. |
-| `TOOLS.md` | Local environment notes for tool usage, device names, service aliases, and setup-specific facts. | The agent updates it as local tool knowledge is discovered; the user may add environment details. | Long-lived. Store setup-specific notes, not shared skill instructions. |
-| `README.md` | Explains the purpose of the workspace or template area for readers. | The template author, user, or agent when workspace-facing orientation changes. | Long-lived. Keep it descriptive and current. |
-| `AGENTS.md` | Workspace-level operating instructions for agents working inside the workspace. | The user, operator, or agent when durable agent rules change. | Long-lived. Follow it as local policy and update only for durable instructions. |
+| `IDENTITY.md` | Agent identity: name, self-description, tone, avatar, and related metadata. | Agent during onboarding; user or agent for explicit identity changes. | Long-lived; update rarely and intentionally. |
+| `SOUL.md` | Agent behavior, boundaries, and working style. | Template author initially; user or agent when behavior expectations change. | Long-lived; avoid casual churn. |
+| `USER.md` | Stable user facts, preferences, timezone, work context, and durable notes. | Agent during onboarding and when the user provides durable context. | Long-lived; keep concise and respectful. |
+| `MEMORY.md` | Curated long-term facts, decisions, and patterns across sessions. | Dream consolidation or deliberate agent maintenance. | Long-lived; promote stable facts from daily intake. |
+| `BOOT.md` | Passive startup guidance loaded into system context. | User, operator, or template author. | Long-lived; keep short and explicit. |
+| `BOOTSTRAP.md` | One-time first-run onboarding script. | Template author; agent follows it. | Temporary; delete after onboarding. |
+| `HEARTBEAT.md` | Optional periodic tasks or reminders. | User or agent when periodic checks are requested. | Long-lived but often empty; remove stale tasks. |
+| `OPENING.md` | First proactive message instructions for a fresh session. | User, operator, or template author. | Long-lived and optional. |
+| `TOOLS.md` | Local tool notes, device names, service aliases, and setup-specific facts. | Agent as local tool knowledge is discovered; user as needed. | Long-lived; local notes only, not shared skill instructions. |
+| `README.md` | Workspace or template orientation for readers. | Template author, user, or agent. | Long-lived; keep current. |
+| `AGENTS.md` | Workspace-level operating instructions for agents. | User, operator, or agent for durable rules. | Long-lived; follow as local policy. |
 
 ## Reserved Directories
 
 ### `memory/`
 
 Use `memory/` for raw chronological memory intake, especially daily shards such
-as `memory/YYYY-MM-DD.md`. Put session facts, decisions, observations, and
-"remember this" notes here before they are consolidated. Do not store generated
-deliverables, random scratch drafts, or imported files here. Name daily notes by
-date, and use clear headings inside the file rather than creating many small
-memory fragments. Daily memory does not have a strict TTL, but old raw intake
-should be consolidated into `MEMORY.md` when it becomes durable.
+as the daily notes described below. Put session facts, decisions, observations,
+and "remember this" notes here before they are consolidated. Do not store
+generated deliverables, scratch drafts, or imported files here.
 
 ### `notes/`
 
 Use `notes/` for stable reference notes that are useful but do not belong in the
 root memory files: project notes, meeting notes, research summaries, checklists,
-and reusable explanations. Do not place unfinished drafts, output artifacts, or
-uncategorized downloads here. Prefer descriptive kebab-case names such as
-`notes/project-alpha-context.md` or date-prefixed names when chronology matters.
-Notes are durable by default and should be archived only when they are clearly
-obsolete.
+and reusable explanations. Do not place unfinished drafts, output artifacts,
+uncategorized downloads, or raw memory intake here.
 
 ### `drafts/`
 
 Use `drafts/` for work in progress: unfinished writing, reply drafts,
 half-formed plans, and temporary compositions that may become final output
 later. Do not store final deliverables, durable memory, or files that arrived
-from outside without review. Prefer names like
-`drafts/<topic>-<YYYY-MM-DD>.md`, where the topic is short and human-readable.
-As a TTL hint, drafts older than 30 days should be reviewed and either moved to
-`archive/` or promoted to a more durable location.
+from outside without review.
 
 ### `outputs/`
 
 Use `outputs/` for final or near-final task artifacts produced by the agent:
 reports, exports, generated files, rendered documents, and task-specific result
 bundles. Do not place raw notes, inbox items, or ongoing scratch work here.
-Group task output under `outputs/<task-id>/...` when a task creates more than
-one file; otherwise use a clear filename that names the deliverable. As a TTL
-hint, outputs older than 90 days should be reviewed and archived if they are no
-longer active.
+Generated output without enough context to choose a task grouping should be an
+`ask`, not a guessed folder name.
 
 ### `inbox/`
 
@@ -76,44 +65,42 @@ Use `inbox/` as the no-questions-asked landing zone for anything ambiguous:
 uncategorized files, user drops, copied snippets, files whose ownership is not
 clear, or material that needs operator review before placement. Do not treat
 `inbox/` as permanent storage and do not silently classify uncertain material
-elsewhere. Use names that preserve the original filename when possible, adding a
-date or short source hint only to avoid collisions. As a TTL hint, inbox items
-older than 7 days should be surfaced to the operator for triage.
+elsewhere. Surface stale inbox items by mentioning them in the next operator
+visible audit, tidy report, or session opening before taking further action.
 
 ### `archive/`
 
 Use `archive/` for inactive material that should be retained but no longer
 belongs in active workspace areas. Do not use it for temporary scratch files or
-for hiding uncertain material that should first go through `inbox/`. Preserve
-source context with paths like `archive/YYYY-MM-DD/<original-path>`, where the
-date is the archive date and the original path helps explain where the file came
-from. Archived material has no default deletion TTL; deletion requires an
-explicit cleanup decision.
+for hiding uncertain material that should first go through `inbox/`. Archived
+material has no default deletion TTL; deletion requires an explicit cleanup
+decision.
 
 ### `skills/`
 
 Use workspace-level `skills/` for local skill instructions, scripts, templates,
 and references that teach the agent how to perform a repeatable capability in
 this workspace. Do not store ordinary project notes, generated outputs, or
-general memory here. Keep each skill in its own directory with a `SKILL.md` file
-and place supporting material alongside it in clear subdirectories such as
-`references/`, `scripts/`, or `templates/`. Skills are durable until replaced,
-retired, or moved into a shared skill distribution.
+general memory here. Skills are durable until replaced, retired, or moved into a
+shared skill distribution.
 
-## Naming Guidance
+## Naming and TTL Guidance
 
-These are soft placement conventions, not regular expressions:
+These are soft placement conventions, not regular expressions or automatic
+deletion rules:
 
-- Use `memory/YYYY-MM-DD.md` for daily raw memory shards.
-- Use `outputs/<task-id>/...` for multi-file task deliverables.
-- Use `drafts/<topic>-<YYYY-MM-DD>.md` for unfinished writing and plans.
-- Use `archive/YYYY-MM-DD/<original-path>` when moving inactive material out of
-  active workspace areas.
-- Prefer short, descriptive, kebab-case filenames for notes, drafts, and
-  generated markdown unless the user or source system provides a meaningful
-  original name.
-- Preserve original filenames for user-supplied files when that helps
-  traceability.
+| Directory | Naming Rule | TTL Hint |
+| --- | --- | --- |
+| `memory/` | Use `memory/YYYY-MM-DD.md` for daily raw memory shards. | No strict TTL; consolidate durable facts into `MEMORY.md`. |
+| `notes/` | Prefer short descriptive names; date-prefix only when chronology matters. | Durable by default; archive only when clearly obsolete. |
+| `drafts/` | Use `drafts/<topic>-<YYYY-MM-DD>.md` for unfinished writing and plans. | Older than 30 days should be archived or promoted. |
+| `outputs/` | Use `outputs/<task-id>/...` for multi-file task deliverables. | Older than 90 days should be archived when inactive. |
+| `inbox/` | Preserve original filenames when possible; add a date or source hint only to avoid collisions. | Older than 7 days should be surfaced to the operator. |
+| `archive/` | Use `archive/YYYY-MM-DD/<original-path>` when moving inactive material out of active areas. | No default deletion TTL. |
+| `skills/` | Keep each skill in its own directory with `SKILL.md` and clear helper subdirectories. | Durable until replaced, retired, or shared elsewhere. |
+
+Prefer short, descriptive, kebab-case filenames for notes, drafts, and generated
+markdown unless the user or source system provides a meaningful original name.
 
 ## Placement Decisions
 
@@ -124,7 +111,7 @@ Use this order when triaging a file or directory:
 2. If the path is already inside a reserved directory and its content still
    matches that directory's purpose, keep it there.
 3. If a root file clearly matches one reserved directory by name and visible
-   content, move it there using that directory's naming guidance.
+   content, move it there using the naming guidance above.
 4. If a root file is recent work in progress, prefer `drafts/` over `archive/`.
 5. If a root file is stale work in progress and exceeds the relevant TTL hint,
    archive it under `archive/YYYY-MM-DD/<original-path>`.
@@ -136,9 +123,9 @@ Use this order when triaging a file or directory:
 
 Use `ask` rather than forcing a move when the file's purpose depends on context
 not visible in the filename, modified time, or first-page content. Common `ask`
-cases include generated outputs without a clear task ID, partial copies of root
-identity files, unknown root directories, and anything that may be an active
-operator workspace.
+cases include generated outputs without a clear task ID, files that look like
+working revisions of root identity or instruction files, unknown root
+directories, and anything that may be an active operator workspace.
 
 ## Hard Cases
 
@@ -148,33 +135,16 @@ operator workspace.
   should be archived under `archive/YYYY-MM-DD/<original-path>`.
 - A generated output without a clear task ID should be an `ask`, because the
   correct `outputs/<task-id>/...` parent cannot be guessed safely.
-- A random root `.txt` file named like a note may move to `notes/` if the
-  content is clearly personal or reference material; otherwise put it in
-  `inbox/`.
+- A user-supplied root file may move to `notes/` only when its visible content
+  is clearly stable reference material; otherwise put it in `inbox/`.
 - Memory-shaped markdown belongs in `memory/YYYY-MM-DD.md` only when the date is
   present in the file or otherwise explicit. If no date can be inferred, put it
   in `inbox/`.
-- A scratch script at the root, such as `tmp.py` or `test.sh`, belongs in
-  `drafts/` only when the operator is visibly mid-task. If it is stale, archive
-  it. If its role is unclear, ask.
-- A markdown file that looks like a partial copy or revision of `IDENTITY.md`,
-  `SOUL.md`, `USER.md`, `MEMORY.md`, or `AGENTS.md` should be an `ask`; root
-  identity and instruction files are high-context.
+- Scratch or temporary root files belong in `drafts/` only when the operator is
+  visibly mid-task. If they are stale, archive them. If their role is unclear,
+  ask.
 - A root directory outside the reserved list should be an `ask`, not an
   automatic move to `inbox/` or `archive/`.
-
-## TTL Hints
-
-TTL guidance is operational judgment, not automatic deletion:
-
-- `drafts/` older than 30 days should be archived or promoted if still useful.
-- `outputs/` older than 90 days should be archived when the task is complete and
-  the artifact is no longer active.
-- `inbox/` items older than 7 days should be surfaced to the operator for
-  triage.
-- `memory/`, `notes/`, `archive/`, `skills/`, and the root bootstrap files do
-  not have default expiration. Review them when they become stale, duplicative,
-  or misleading.
 
 ## Inbox Contract
 
@@ -183,4 +153,6 @@ without asking first, and doing so is preferable to inventing a category,
 misfiling user data, or mixing raw intake with durable memory. Placement in
 `inbox/` means "needs triage," not "unimportant." When the operator later
 clarifies intent, move the item to the appropriate active directory or archive
-it with its original path preserved.
+it with its original path preserved. If a filename or visible content suggests
+credentials, PII, or secrets, choose `ask` before placement and use the
+`distil-pii-redactor` skill before summarizing or logging sensitive details.
