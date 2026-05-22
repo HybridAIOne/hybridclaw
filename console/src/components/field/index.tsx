@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { cx } from '../../lib/cx';
 import { useStableCallback } from '../../lib/use-stable-callback';
-import { useFormContext } from '../form/context';
+import { useFormRegistry } from '../form/context';
 import { Label } from '../label';
 import { FieldContext, useFieldContext } from './context';
 import styles from './field.module.css';
@@ -124,30 +124,37 @@ export function Field({
   const id = controlId ?? generatedId;
   const [internalError, setErrorState] = useState<string | null>(null);
   const reportError = useStableCallback(onErrorChange ?? noop);
+  const isControlled = errorProp !== undefined;
 
-  const setError = useCallback((next: string | null) => {
-    setErrorState((current) => (current === next ? current : next));
-  }, []);
+  // In controlled mode the parent owns the error string; ignore writes
+  // from descendant controls so we don't carry dead internal state.
+  const setError = useCallback(
+    (next: string | null) => {
+      if (isControlled) return;
+      setErrorState((current) => (current === next ? current : next));
+    },
+    [isControlled],
+  );
 
-  const error = errorProp !== undefined ? errorProp : internalError;
+  const error = isControlled ? errorProp : internalError;
 
   // When nested in a <Form>, report errors up so the form-level
-  // useForm().isValid selector stays in sync.
-  const form = useFormContext();
+  // useForm().isValid selector stays in sync. The registry context is
+  // identity-stable across renders, so this effect only re-runs when
+  // `id` or `error` actually changes — no register/clear loop.
+  const registry = useFormRegistry();
   useEffect(() => {
-    if (form) form.registerError(id, error);
-  }, [form, id, error]);
+    if (registry) registry.registerError(id, error);
+  }, [registry, id, error]);
 
-  // Clear our slot from the form on unmount only — running cleanup on
-  // every effect re-run would race against the next effect call and
-  // chase its own tail when the form re-renders.
-  const formRef = useRef(form);
-  formRef.current = form;
+  // Clear our slot from the form on unmount only.
+  const registryRef = useRef(registry);
+  registryRef.current = registry;
   const idRef = useRef(id);
   idRef.current = id;
   useEffect(
     () => () => {
-      formRef.current?.registerError(idRef.current, null);
+      registryRef.current?.registerError(idRef.current, null);
     },
     [],
   );

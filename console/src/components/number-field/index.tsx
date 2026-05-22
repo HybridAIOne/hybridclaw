@@ -1,4 +1,4 @@
-import { type ComponentProps, useCallback, useEffect, useState } from 'react';
+import { type ComponentProps, useEffect, useState } from 'react';
 import { useStableCallback } from '../../lib/use-stable-callback';
 import { useFieldContext } from '../field/context';
 import { Input } from '../input';
@@ -57,17 +57,12 @@ export function NumberField({
 }: NumberFieldProps) {
   const [rawValue, setRawValue] = useState(() => String(value));
   const field = useFieldContext();
-  const consumerOnErrorChange = onErrorChange;
-  const fieldSetError = field.setError;
-  const reportError = useStableCallback(
-    useCallback(
-      (next: string | null) => {
-        fieldSetError(next);
-        consumerOnErrorChange?.(next);
-      },
-      [fieldSetError, consumerOnErrorChange],
-    ),
-  );
+  // useStableCallback already keeps the latest closure via a ref, so
+  // wrapping the inline merger in useCallback would be redundant.
+  const reportError = useStableCallback((next: string | null) => {
+    field.setError(next);
+    onErrorChange?.(next);
+  });
 
   useEffect(() => {
     setRawValue(String(value));

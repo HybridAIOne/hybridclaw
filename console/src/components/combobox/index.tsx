@@ -115,6 +115,10 @@ export function Combobox<TMeta = unknown>({
   const [query, setQuery] = useState(labelForSelected);
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Set true by `commit` so an immediately-following blur (e.g. Tab
+  // hands focus away after commit-on-Tab) doesn't try to commit again
+  // against the stale closure value.
+  const justCommittedRef = useRef(false);
 
   // When the parent updates value externally (or the selected option's
   // label changes) re-sync the input.
@@ -133,6 +137,7 @@ export function Combobox<TMeta = unknown>({
 
   const commit = useCallback(
     (option: ComboboxOption<TMeta> | null, raw?: string) => {
+      justCommittedRef.current = true;
       if (option) {
         onValueChange(option.value, option);
         setQuery(option.label);
@@ -185,8 +190,13 @@ export function Combobox<TMeta = unknown>({
 
   const handleBlur = () => {
     setOpen(false);
-    // If we don't allow free text and there's no exact label match,
-    // snap back to the last committed option's label.
+    // commit() set this so a Tab-commit doesn't run the snap-back path
+    // against the stale `value` closure on the way out.
+    if (justCommittedRef.current) {
+      justCommittedRef.current = false;
+      onBlur?.();
+      return;
+    }
     if (!allowFreeText) {
       const match = options.find(
         (opt) => opt.label === query || opt.value === query,

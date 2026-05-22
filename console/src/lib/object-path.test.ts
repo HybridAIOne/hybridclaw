@@ -55,4 +55,14 @@ describe('setPath', () => {
   it('throws when the path is empty', () => {
     expect(() => setPath({}, '', 1)).toThrow();
   });
+
+  it('returns source unchanged when the leaf value already matches', () => {
+    const source = { a: { b: 'leaf' } };
+    expect(setPath(source, 'a.b', 'leaf')).toBe(source);
+  });
+
+  it('returns source unchanged for a no-op deep replace', () => {
+    const source = { a: { b: { c: 1 } } };
+    expect(setPath(source, 'a.b.c', 1)).toBe(source);
+  });
 });

@@ -6,12 +6,21 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { FormContext, type FormContextValue } from './context';
+import {
+  FormRegistryContext,
+  type FormRegistryContextValue,
+  FormStateContext,
+  type FormStateContextValue,
+} from './context';
 
-export type { FormContextValue } from './context';
-export { useFormContext as useFormState } from './context';
+export {
+  type FormRegistryContextValue,
+  type FormStateContextValue,
+  useFormRegistry,
+  useFormState,
+} from './context';
 
-export type UseFormReturn = FormContextValue;
+export type UseFormReturn = FormRegistryContextValue & FormStateContextValue;
 
 /**
  * Tracks form-level validity by aggregating errors from any descendant
@@ -65,7 +74,13 @@ export type FormProps = Omit<ComponentProps<'form'>, 'onSubmit'> & {
   children: ReactNode;
 };
 
-export function Form({ form, onSubmit, children, ...formProps }: FormProps) {
+export function Form({
+  form,
+  onSubmit,
+  children,
+  noValidate = true,
+  ...formProps
+}: FormProps) {
   const handleSubmit = useCallback(
     (event: SyntheticEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -74,11 +89,25 @@ export function Form({ form, onSubmit, children, ...formProps }: FormProps) {
     [onSubmit],
   );
 
+  // Stable registry context — only `registerError` reference matters here,
+  // so Fields that subscribe via useFormRegistry() don't re-render when
+  // the error map ticks (only consumers of FormStateContext do).
+  const registry = useMemo<FormRegistryContextValue>(
+    () => ({ registerError: form.registerError }),
+    [form.registerError],
+  );
+  const state = useMemo<FormStateContextValue>(
+    () => ({ isValid: form.isValid, errors: form.errors }),
+    [form.isValid, form.errors],
+  );
+
   return (
-    <FormContext.Provider value={form}>
-      <form noValidate {...formProps} onSubmit={handleSubmit}>
-        {children}
-      </form>
-    </FormContext.Provider>
+    <FormRegistryContext.Provider value={registry}>
+      <FormStateContext.Provider value={state}>
+        <form noValidate={noValidate} {...formProps} onSubmit={handleSubmit}>
+          {children}
+        </form>
+      </FormStateContext.Provider>
+    </FormRegistryContext.Provider>
   );
 }
