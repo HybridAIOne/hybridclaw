@@ -117,7 +117,8 @@ Once the gateway is running, open HybridClaw locally:
   active, so you can ask an ephemeral follow-up without interrupting the
   current run
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, statistics, config, and channel-specific instructions
+  scheduler, audit, statistics, config, A2A inbox threads, and
+  channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Discord, Discord Incoming Webhooks, Slack, Slack Incoming
   Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, Email
@@ -160,6 +161,8 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/approvals` manages approval policies from the browser.
 - Approval policy evaluation runs through a hook-fed rule pipeline, so
   workspace policy ordering and plugin tool-use hooks share one approval path.
+- `/admin/a2a-inbox` shows read-only A2A message threads across the instance,
+  with sender, recipient, timestamp, intent, and content for each message.
 - `/admin/a2a-trust` shows the local A2A public-key trust ledger for paired
   peer instances.
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
