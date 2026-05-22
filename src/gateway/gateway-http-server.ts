@@ -33,6 +33,7 @@ import {
 import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
 import type {
+  BrowserFillInput,
   BrowserProvider,
   BrowserSession,
   BrowserWaypointEvent,
@@ -98,7 +99,9 @@ import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import { isAdminActionAllowed } from '../security/admin-rbac.js';
+import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
+import { hardenSecretRef } from '../security/secret-refs.js';
 import {
   normalizeRecentChatSearchQuery,
   normalizeRecentChatSessionLimit,
@@ -253,6 +256,7 @@ import {
 import {
   consumeOperatorReturn,
   createSuspendedSession,
+  detectTwoFactorChallenge,
   emitInteractionNeededEvent,
   findPendingSuspendedSessionForOperator,
   formatInteractionRequest,
@@ -545,6 +549,190 @@ function safeGatewayBrowserUrlHost(url: string): string | null {
   }
 }
 
+function gatewayBrowserExpectsTwoFactor(
+  args: Record<string, unknown>,
+): boolean {
+  return (
+    args.expects_2fa === true ||
+    args.expects2fa === true ||
+    args.expectTwoFactor === true ||
+    args.expectsTwoFactor === true
+  );
+}
+
+function gatewayBrowserLlmTwoFactorSignal(
+  args: Record<string, unknown>,
+): boolean {
+  const signal = [
+    args.llmSignal,
+    args.llm_signal,
+    args.twoFactorSignal,
+    args.two_factor_signal,
+    args.reason,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n');
+  return /\b(stuck.+(2fa|two[- ]factor|verification code)|2fa page|two[- ]factor page|mfa page)\b/i.test(
+    signal,
+  );
+}
+
+async function readGatewayBrowserTwoFactorPageState(
+  active: GatewayBrowserSessionEntry,
+): Promise<{
+  url: string;
+  title: string;
+  preview: string;
+  selectors: string[];
+}> {
+  if (isMacCuaGatewaySession(active)) {
+    return { url: 'about:blank', title: '', preview: '', selectors: [] };
+  }
+  return active.session.evaluate(() => {
+    const bodyText = document.body ? String(document.body.innerText || '') : '';
+    const selectors = Array.from(
+      document.querySelectorAll(
+        'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[type="tel"], input[name*="otp" i], input[id*="otp" i], input[name*="code" i], input[id*="code" i]',
+      ),
+    )
+      .slice(0, 10)
+      .map((element) => {
+        const id = element.id ? `#${element.id}` : '';
+        const name = element.getAttribute('name');
+        return id || (name ? `input[name="${name}"]` : 'input');
+      });
+    return {
+      url: String(window.location.href || ''),
+      title: String(document.title || ''),
+      preview: bodyText.replace(/\s+/g, ' ').trim().slice(0, 1000),
+      selectors,
+    };
+  });
+}
+
+async function parkGatewayBrowserTwoFactor(params: {
+  active: GatewayBrowserSessionEntry;
+  activeSseResponses: Set<ServerResponse>;
+  sessionId: string;
+  agentId: string;
+  args: Record<string, unknown>;
+  pageState?: {
+    url: string;
+    title: string;
+    preview: string;
+    selectors: string[];
+  };
+}): Promise<Record<string, unknown> | null> {
+  const pageState =
+    params.pageState ||
+    (await readGatewayBrowserTwoFactorPageState(params.active));
+  const detection = detectTwoFactorChallenge({
+    title: pageState.title,
+    text: pageState.preview,
+    selectors: pageState.selectors,
+  });
+  if (gatewayBrowserExpectsTwoFactor(params.args)) {
+    detection.detected = true;
+    detection.signals.push('skill waypoint expects_2fa');
+    detection.modality ||= 'totp';
+  }
+  if (gatewayBrowserLlmTwoFactorSignal(params.args)) {
+    detection.detected = true;
+    detection.signals.push('llm 2fa signal');
+    detection.modality ||= 'totp';
+  }
+  if (!detection.detected) return null;
+
+  const modality = parseInteractionModality(
+    params.args.modality || detection.modality || 'totp',
+  );
+  const prompt =
+    normalizeOptionalString(params.args.prompt) ||
+    `A ${modality} challenge needs operator input.`;
+  const targetChannel = normalizeOptionalString(params.args.escalationChannel);
+  const targetRecipient = normalizeOptionalString(
+    params.args.escalationRecipient,
+  );
+  const escalationTarget =
+    targetChannel && targetRecipient
+      ? { channel: targetChannel, recipient: targetRecipient }
+      : undefined;
+  const image = await params.active.session.screenshot({
+    fullPage: true,
+    type: 'png',
+  });
+  const screenshotRef = `managed-browser://${params.sessionId}/two-factor-${randomUUID()}.png`;
+  const session = createSuspendedSession({
+    prompt,
+    userId:
+      normalizeOptionalString(params.args.userId) ||
+      escalationTarget?.recipient ||
+      'operator',
+    modality,
+    frameSnapshot: {
+      url: pageState.url || 'about:blank',
+      title: pageState.title || '',
+      browserSessionKey: params.sessionId,
+      screenshotRef,
+    },
+    context: {
+      host: safeGatewayBrowserUrlHost(pageState.url || ''),
+      pageTitle: pageState.title || null,
+      url: pageState.url || 'about:blank',
+      screenshotRef,
+    },
+    agentId: params.agentId,
+    skillId: normalizeOptionalString(params.args.skillId) || null,
+    escalationTarget,
+    ttlMs:
+      typeof params.args.ttlMs === 'number' &&
+      Number.isFinite(params.args.ttlMs)
+        ? params.args.ttlMs
+        : null,
+    artifacts: {
+      screenshotBase64: Buffer.from(image).toString('base64'),
+    },
+  });
+  await params.active.session.waypoint?.('browser_await_two_factor', {
+    modality,
+    prompt,
+    sessionId: session.sessionId,
+  });
+  emitInteractionNeededEvent({ session });
+  const notification = queueInteractionNotification(session);
+  const payload = { session, notification };
+  broadcastSseEvent(params.activeSseResponses, 'interaction_needed', payload);
+  return {
+    parked: true,
+    modality,
+    two_factor_detection: detection,
+    detected_selectors: pageState.selectors,
+    text_preview: pageState.preview,
+    screenshot: session.frameSnapshot.screenshotRef || screenshotRef,
+    screenshotBase64: Buffer.from(image).toString('base64'),
+    interaction: payload,
+  };
+}
+
+async function sendGatewayBrowserActionJson(
+  res: ServerResponse,
+  params: {
+    active: GatewayBrowserSessionEntry;
+    activeSseResponses: Set<ServerResponse>;
+    sessionId: string;
+    agentId: string;
+    args: Record<string, unknown>;
+    fields: Record<string, unknown>;
+  },
+): Promise<void> {
+  const parked = await parkGatewayBrowserTwoFactor(params);
+  sendJson(res, 200, {
+    success: true,
+    ...params.fields,
+    ...(parked || {}),
+  });
+}
+
 async function getGatewayBrowserSession(
   sessionId: string,
   agentId: string,
@@ -607,14 +795,20 @@ async function handleApiBrowserTool(
     });
     if (isMacCuaGatewaySession(active)) {
       await active.session.navigate(url);
-      sendJson(res, 200, {
-        success: true,
-        url,
-        title: '',
-        content_text_length: 0,
-        content_preview_truncated: false,
-        ready_state: 'native',
-        read_extraction_hint: 'native_browser',
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: {
+          url,
+          title: '',
+          content_text_length: 0,
+          content_preview_truncated: false,
+          ready_state: 'native',
+          read_extraction_hint: 'native_browser',
+        },
       });
       return;
     }
@@ -646,19 +840,25 @@ async function handleApiBrowserTool(
         readyState: String(document.readyState || ''),
       };
     });
-    sendJson(res, 200, {
-      success: true,
-      url: pageState.url || url,
-      title: pageState.title || '',
-      content_text_length: pageState.textLength || 0,
-      ...(pageState.preview ? { content_preview: pageState.preview } : {}),
-      content_preview_truncated: pageState.previewTruncated === true,
-      ready_state: pageState.readyState || '',
-      read_extraction_hint: gatewayBrowserTextPreviewHint({
-        contentLength: pageState.textLength || 0,
-        hasNoscript: pageState.hasNoscript === true,
-        rootShell: pageState.rootShell === true,
-      }),
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: {
+        url: pageState.url || url,
+        title: pageState.title || '',
+        content_text_length: pageState.textLength || 0,
+        ...(pageState.preview ? { content_preview: pageState.preview } : {}),
+        content_preview_truncated: pageState.previewTruncated === true,
+        ready_state: pageState.readyState || '',
+        read_extraction_hint: gatewayBrowserTextPreviewHint({
+          contentLength: pageState.textLength || 0,
+          hasNoscript: pageState.hasNoscript === true,
+          rootShell: pageState.rootShell === true,
+        }),
+      },
     });
     return;
   }
@@ -679,17 +879,23 @@ async function handleApiBrowserTool(
   if (toolName === 'browser_snapshot') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
     if (isMacCuaGatewaySession(active)) {
-      sendJson(res, 200, {
-        success: true,
-        snapshot:
-          'Native macOS browser provider does not expose a DOM snapshot. Use browser_screenshot for visual state and AX selectors such as ax:1 or query text for actions.',
-        truncated: false,
-        element_count: 0,
-        url: '',
-        title: '',
-        mode: String(args.mode || 'default'),
-        frames: [],
-        two_factor_detection: { detected: false, signals: [] },
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: {
+          snapshot:
+            'Native macOS browser provider does not expose a DOM snapshot. Use browser_screenshot for visual state and AX selectors such as ax:1 or query text for actions.',
+          truncated: false,
+          element_count: 0,
+          url: '',
+          title: '',
+          mode: String(args.mode || 'default'),
+          frames: [],
+          two_factor_detection: { detected: false, signals: [] },
+        },
       });
       return;
     }
@@ -742,16 +948,22 @@ async function handleApiBrowserTool(
         elementCount: elements.length,
       };
     });
-    sendJson(res, 200, {
-      success: true,
-      snapshot: pageState.snapshot,
-      truncated: pageState.truncated === true,
-      element_count: pageState.elementCount || 0,
-      url: pageState.url || '',
-      title: pageState.title || '',
-      mode: String(args.mode || 'default'),
-      frames: [],
-      two_factor_detection: { detected: false, signals: [] },
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: {
+        snapshot: pageState.snapshot,
+        truncated: pageState.truncated === true,
+        element_count: pageState.elementCount || 0,
+        url: pageState.url || '',
+        title: pageState.title || '',
+        mode: String(args.mode || 'default'),
+        frames: [],
+        two_factor_detection: { detected: false, signals: [] },
+      },
     });
     return;
   }
@@ -763,13 +975,27 @@ async function handleApiBrowserTool(
     const coordinate = parseGatewayBrowserCoordinate(args);
     if (selector) {
       await active.session.click(selector, { timeoutMs: 30_000 });
-      sendJson(res, 200, { success: true, selector });
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { selector },
+      });
       return;
     }
     if (text) {
       if (isMacCuaGatewaySession(active)) {
         await active.session.click(text, { timeoutMs: 30_000 });
-        sendJson(res, 200, { success: true, text });
+        await sendGatewayBrowserActionJson(res, {
+          active,
+          activeSseResponses,
+          sessionId,
+          agentId,
+          args,
+          fields: { text },
+        });
         return;
       }
       const clicked = await active.session.evaluate(
@@ -804,7 +1030,14 @@ async function handleApiBrowserTool(
           `No managed browser element matched text: ${text}`,
         );
       }
-      sendJson(res, 200, { success: true, text });
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { text },
+      });
       return;
     }
     if (coordinate) {
@@ -830,7 +1063,14 @@ async function handleApiBrowserTool(
           `No managed browser element found at ${coordinate.x},${coordinate.y}`,
         );
       }
-      sendJson(res, 200, { success: true, x: coordinate.x, y: coordinate.y });
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { x: coordinate.x, y: coordinate.y },
+      });
       return;
     }
     throw new GatewayRequestError(
@@ -867,13 +1107,39 @@ async function handleApiBrowserTool(
         'browser_secret_type requires secretName.',
       );
     }
+    const preFillParked = await parkGatewayBrowserTwoFactor({
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+    });
+    if (preFillParked) {
+      sendJson(res, 200, {
+        success: true,
+        selector,
+        typed_chars: 0,
+        secret_injected: false,
+        code_injected: false,
+        ...preFillParked,
+      });
+      return;
+    }
     await active.session.fill(selector, value);
-    sendJson(res, 200, {
-      success: true,
-      selector,
-      typed_chars:
-        toolName === 'browser_secret_type' ? 0 : String(args.text || '').length,
-      secret_injected: toolName === 'browser_secret_type',
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: {
+        selector,
+        typed_chars:
+          toolName === 'browser_secret_type'
+            ? 0
+            : String(args.text || '').length,
+        secret_injected: toolName === 'browser_secret_type',
+      },
     });
     return;
   }
@@ -901,7 +1167,14 @@ async function handleApiBrowserTool(
       deltaX:
         direction === 'left' ? -pixels : direction === 'right' ? pixels : 0,
     });
-    sendJson(res, 200, { success: true, direction, pixels });
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: { direction, pixels },
+    });
     return;
   }
 
@@ -909,7 +1182,14 @@ async function handleApiBrowserTool(
     const active = await getGatewayBrowserSession(sessionId, agentId);
     if (isMacCuaGatewaySession(active)) {
       await active.session.back();
-      sendJson(res, 200, { success: true, url: '' });
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { url: '' },
+      });
       return;
     }
     await active.session.back({
@@ -919,7 +1199,14 @@ async function handleApiBrowserTool(
     const url = await active.session.evaluate(() =>
       String(window.location.href || ''),
     );
-    sendJson(res, 200, { success: true, url });
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: { url },
+    });
     return;
   }
 
@@ -944,7 +1231,14 @@ async function handleApiBrowserTool(
       `),
     );
     if (!pressed) unsupportedGatewayBrowserTool(toolName);
-    sendJson(res, 200, { success: true, key });
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: { key },
+    });
     return;
   }
 
@@ -1067,96 +1361,19 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_await_two_factor') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    const waypoint = normalizeGatewayBrowserWaypoint(toolName);
-    const modality = parseInteractionModality(args.modality || 'totp');
-    const prompt =
-      normalizeOptionalString(args.prompt) ||
-      `A ${modality} challenge needs operator input.`;
-    const targetChannel = normalizeOptionalString(args.escalationChannel);
-    const targetRecipient = normalizeOptionalString(args.escalationRecipient);
-    const escalationTarget =
-      targetChannel && targetRecipient
-        ? { channel: targetChannel, recipient: targetRecipient }
-        : undefined;
-    const pageState = isMacCuaGatewaySession(active)
-      ? {
-          url: 'about:blank',
-          title: '',
-          preview: '',
-          selectors: [] as string[],
-        }
-      : await active.session.evaluate(() => {
-          const bodyText = document.body
-            ? String(document.body.innerText || '')
-            : '';
-          const selectors = Array.from(
-            document.querySelectorAll(
-              'input[autocomplete="one-time-code"], input[name*="otp" i], input[id*="otp" i], input[name*="code" i], input[id*="code" i]',
-            ),
-          )
-            .slice(0, 10)
-            .map((element) => {
-              const id = element.id ? `#${element.id}` : '';
-              const name = element.getAttribute('name');
-              return id || (name ? `input[name="${name}"]` : 'input');
-            });
-          return {
-            url: String(window.location.href || ''),
-            title: String(document.title || ''),
-            preview: bodyText.replace(/\s+/g, ' ').trim().slice(0, 1000),
-            selectors,
-          };
-        });
-    const image = await active.session.screenshot({
-      fullPage: true,
-      type: 'png',
-    });
-    const screenshotRef = `managed-browser://${sessionId}/two-factor-${randomUUID()}.png`;
-    const session = createSuspendedSession({
-      prompt,
-      userId:
-        normalizeOptionalString(args.userId) ||
-        escalationTarget?.recipient ||
-        'operator',
-      modality,
-      frameSnapshot: {
-        url: pageState.url || 'about:blank',
-        title: pageState.title || '',
-        browserSessionKey: sessionId,
-        screenshotRef,
-      },
-      context: {
-        host: safeGatewayBrowserUrlHost(pageState.url || ''),
-        pageTitle: pageState.title || null,
-        url: pageState.url || 'about:blank',
-        screenshotRef,
-      },
+    const payload = await parkGatewayBrowserTwoFactor({
+      active,
+      activeSseResponses,
+      sessionId,
       agentId,
-      skillId: normalizeOptionalString(args.skillId) || null,
-      escalationTarget,
-      ttlMs:
-        typeof args.ttlMs === 'number' && Number.isFinite(args.ttlMs)
-          ? args.ttlMs
-          : null,
+      args: { ...args, expects_2fa: true },
     });
-    await active.session.waypoint?.(waypoint, {
-      modality,
-      prompt,
-      sessionId: session.sessionId,
-    });
-    emitInteractionNeededEvent({ session });
-    const notification = queueInteractionNotification(session);
-    const payload = { session, notification };
-    broadcastSseEvent(activeSseResponses, 'interaction_needed', payload);
+    if (!payload) {
+      throw new GatewayRequestError(409, 'No 2FA challenge was detected.');
+    }
     sendJson(res, 200, {
       success: true,
-      parked: true,
-      modality,
-      detected_selectors: pageState.selectors,
-      text_preview: pageState.preview,
-      screenshot: screenshotRef,
-      screenshotBase64: Buffer.from(image).toString('base64'),
-      interaction: payload,
+      ...payload,
     });
     return;
   }
@@ -1181,7 +1398,10 @@ async function handleApiBrowserTool(
           'browser_resume_interaction requires selector for code injection with managed-cloud.',
         );
       }
-      await active.session.fill(selector, response.value);
+      await active.session.fill(
+        selector,
+        createOperatorReturnCodeHandle(response.value),
+      );
       await active.session.waypoint?.(waypoint, {
         sessionId: suspendedSessionId,
         responseKind: response.kind,
@@ -4806,6 +5026,17 @@ function parseOperatorReturn(value: unknown): OperatorReturn | null {
   return null;
 }
 
+function createOperatorReturnCodeHandle(value: string): BrowserFillInput {
+  return createSecretHandle(
+    hardenSecretRef({
+      source: 'store',
+      id: `OPERATOR_RETURN_${randomUUID().replace(/-/g, '').toUpperCase()}`,
+    }),
+    value,
+    'dom',
+  );
+}
+
 function broadcastSseEvent(
   activeSseResponses: Set<ServerResponse>,
   event: string,
@@ -5017,6 +5248,10 @@ async function handleApiCreateInteractiveEscalation(
         typeof body.ttlMs === 'number' && Number.isFinite(body.ttlMs)
           ? body.ttlMs
           : null,
+      artifacts: {
+        screenshotBase64: normalizeOptionalString(body.screenshotBase64),
+        storageStateJson: normalizeOptionalString(body.storageStateJson),
+      },
     });
     emitInteractionNeededEvent({ session });
     const notification = queueInteractionNotification(session);

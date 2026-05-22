@@ -55,6 +55,11 @@ export interface SuspendedFrameSnapshot {
   screenshotRef?: string | null;
 }
 
+export interface SuspendedSessionArtifacts {
+  screenshotBase64?: string | null;
+  storageStateJson?: string | null;
+}
+
 export interface SuspendedSessionContext {
   host?: string | null;
   pageTitle?: string | null;
@@ -110,6 +115,7 @@ export interface CreateSuspendedSessionInput {
   expectedReturnKinds?: OperatorReturnKind[];
   expiresAt?: number | null;
   ttlMs?: number | null;
+  artifacts?: SuspendedSessionArtifacts | null;
 }
 
 export interface TwoFactorDetectionInput {
@@ -226,6 +232,14 @@ const TWO_FACTOR_TEXT_PATTERNS: Array<{
 function suspendedSessionAssetPath(sessionId: string): string {
   const normalized = encodeURIComponent(sessionId.trim());
   return `${SUSPENDED_SESSION_ASSET_PREFIX}${normalized || 'session'}.json`;
+}
+
+function suspendedSessionArtifactPath(
+  sessionId: string,
+  name: 'screenshot.png.base64' | 'storage-state.json',
+): string {
+  const normalized = encodeURIComponent(sessionId.trim());
+  return `${SUSPENDED_SESSION_ASSET_PREFIX}${normalized || 'session'}/${name}`;
 }
 
 function isInteractionModality(value: unknown): value is InteractionModality {
@@ -364,6 +378,56 @@ function persistSuspendedSession(session: SuspendedSession): void {
       content: JSON.stringify(session),
     },
   );
+}
+
+function persistSuspendedSessionArtifacts(
+  sessionId: string,
+  artifacts?: SuspendedSessionArtifacts | null,
+): Partial<SuspendedFrameSnapshot> {
+  const refs: Partial<SuspendedFrameSnapshot> = {};
+  const screenshotBase64 = String(artifacts?.screenshotBase64 || '').trim();
+  if (screenshotBase64) {
+    const assetPath = suspendedSessionArtifactPath(
+      sessionId,
+      'screenshot.png.base64',
+    );
+    syncRuntimeAssetRevisionState(
+      'suspended_session',
+      assetPath,
+      {
+        route: 'interactive-escalation.screenshot',
+        source: 'gateway',
+      },
+      {
+        exists: true,
+        content: screenshotBase64,
+      },
+    );
+    refs.screenshotRef = `f4://${assetPath}`;
+  }
+
+  const storageStateJson = String(artifacts?.storageStateJson || '').trim();
+  if (storageStateJson) {
+    const assetPath = suspendedSessionArtifactPath(
+      sessionId,
+      'storage-state.json',
+    );
+    syncRuntimeAssetRevisionState(
+      'suspended_session',
+      assetPath,
+      {
+        route: 'interactive-escalation.storage-state',
+        source: 'gateway',
+      },
+      {
+        exists: true,
+        content: storageStateJson,
+      },
+    );
+    refs.storageStateRef = `f4://${assetPath}`;
+  }
+
+  return refs;
 }
 
 function storedOperatorReturn(response: OperatorReturn): StoredOperatorReturn {
@@ -556,6 +620,14 @@ export function createSuspendedSession(
   const createdAt = Date.now();
   const sessionId = input.sessionId?.trim() || randomUUID();
   assertSuspendedSessionCapacity(sessionId);
+  const artifactRefs = persistSuspendedSessionArtifacts(
+    sessionId,
+    input.artifacts,
+  );
+  const frameSnapshot = {
+    ...input.frameSnapshot,
+    ...artifactRefs,
+  };
   const expiresAt =
     typeof input.expiresAt === 'number' && Number.isFinite(input.expiresAt)
       ? Math.max(createdAt + INTERACTION_SESSION_MIN_TTL_MS, input.expiresAt)
@@ -579,7 +651,7 @@ export function createSuspendedSession(
       input.modality,
       input.expectedReturnKinds,
     ),
-    frameSnapshot: input.frameSnapshot,
+    frameSnapshot,
     context: input.context || {},
     agentId: input.agentId || null,
     skillId: input.skillId || null,
@@ -790,9 +862,28 @@ export function emitInteractionNeededEvent(input: {
   recordAudit?: (event: RecordAuditEventInput) => void;
 }): void {
   const record = input.recordAudit || recordAuditEvent;
+  const runId = input.runId || makeAuditRunId('interaction');
   record({
     sessionId: input.session.sessionId,
-    runId: input.runId || makeAuditRunId('interaction'),
+    runId,
+    ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
+    event: {
+      type: 'browser.escalation_2fa',
+      approvalId: input.session.approvalId,
+      agentId: input.session.agentId || null,
+      skillId: input.session.skillId || null,
+      modality: input.session.modality,
+      context: input.session.context,
+      frameSnapshot: input.session.frameSnapshot,
+      routing: resolveInteractionRouting(
+        input.session.modality,
+        input.session.escalationTarget,
+      ),
+    },
+  });
+  record({
+    sessionId: input.session.sessionId,
+    runId,
     ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
     event: {
       type: 'escalation.interaction_needed',

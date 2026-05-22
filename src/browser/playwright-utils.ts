@@ -7,17 +7,20 @@ import {
   recordSecretUnsafeEscaped,
 } from '../gateway/gateway-secret-injection.js';
 import type { SecretHandle } from '../security/secret-handles.js';
-import { unsafeEscapeSecretHandle } from '../security/secret-handles.js';
+import {
+  isSecretHandle,
+  unsafeEscapeSecretHandle,
+} from '../security/secret-handles.js';
 import { normalizeSecretString as normalizeString } from '../security/secret-normalization.js';
 import {
   hardenSecretRef,
   resolveSecretHandleInput,
-  type SecretInput,
   type SecretRef,
 } from '../security/secret-refs.js';
 import type {
   BrowserConsoleMessage,
   BrowserEvaluateFunction,
+  BrowserFillInput,
   BrowserSession,
   BrowserSessionMeteringContext,
   BrowserWaypointEvent,
@@ -156,7 +159,7 @@ export class PlaywrightBrowserSession<
     await this.page.click(selector, { timeout: opts?.timeoutMs });
   }
 
-  async fill(selector: string, value: SecretInput): Promise<void> {
+  async fill(selector: string, value: BrowserFillInput): Promise<void> {
     await fillBrowserField(
       this.page,
       selector,
@@ -439,12 +442,21 @@ async function fillBrowserCredentialField(
 export async function fillBrowserField(
   page: PlaywrightFillPage,
   selector: string,
-  value: SecretInput,
+  value: BrowserFillInput,
   secretAudit?: (handle: SecretHandle, reason: string) => void,
   context?: BrowserSessionMeteringContext,
 ): Promise<void> {
   if (typeof value === 'string') {
     await page.fill(selector, value);
+    return;
+  }
+  if (isSecretHandle(value)) {
+    await injectSecretIntoElement(page.locator(selector), value, {
+      selector,
+      host: resolvePageHost(page, selector),
+      context,
+      secretAudit,
+    });
     return;
   }
   await fillBrowserCredentialField(page, selector, value, secretAudit, context);

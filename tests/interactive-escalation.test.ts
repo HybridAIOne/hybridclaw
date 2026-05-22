@@ -96,6 +96,7 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-04-30T12:00:00Z'));
   const escalation = await importInteractiveEscalation();
+  const revisions = await import('../src/config/runtime-config-revisions.js');
 
   const created = escalation.createSuspendedSession({
     sessionId: 'session-2fa',
@@ -109,6 +110,10 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
       title: 'Verify sign in',
       screenshotRef: 'artifact://shot-1',
     },
+    artifacts: {
+      screenshotBase64: Buffer.from('png-bytes').toString('base64'),
+      storageStateJson: '{"cookies":[],"origins":[]}',
+    },
     context: {
       host: 'sap.example',
       pageTitle: 'Verify sign in',
@@ -117,6 +122,24 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
   });
 
   expect(created.expectedReturnKinds).toEqual(['code', 'declined', 'timeout']);
+  expect(created.frameSnapshot).toMatchObject({
+    screenshotRef:
+      'f4://interactive-escalation/session/session-2fa/screenshot.png.base64',
+    storageStateRef:
+      'f4://interactive-escalation/session/session-2fa/storage-state.json',
+  });
+  expect(
+    revisions.getRuntimeAssetRevisionState(
+      'suspended_session',
+      'interactive-escalation/session/session-2fa/screenshot.png.base64',
+    )?.content,
+  ).toBe(Buffer.from('png-bytes').toString('base64'));
+  expect(
+    revisions.getRuntimeAssetRevisionState(
+      'suspended_session',
+      'interactive-escalation/session/session-2fa/storage-state.json',
+    )?.content,
+  ).toBe('{"cookies":[],"origins":[]}');
   expect(escalation.listSuspendedSessions()).toHaveLength(1);
 
   vi.resetModules();
@@ -189,6 +212,19 @@ test('emitInteractionNeededEvent records typed F14 payload with routing hints', 
     recordAudit,
   });
 
+  expect(recordAudit).toHaveBeenCalledWith({
+    sessionId: 'session-push',
+    runId: 'run-1',
+    event: expect.objectContaining({
+      type: 'browser.escalation_2fa',
+      approvalId: 'approval-push',
+      modality: 'push',
+      routing: expect.objectContaining({
+        preferredChannels: ['push', 'mobile_admin'],
+        fallbackChannels: ['push', 'mobile_admin', 'sms', 'email'],
+      }),
+    }),
+  });
   expect(recordAudit).toHaveBeenCalledWith({
     sessionId: 'session-push',
     runId: 'run-1',

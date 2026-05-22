@@ -9,7 +9,6 @@ import {
 import {
   hardenSecretRef,
   resolveSecretHandleInput,
-  type SecretInput,
   type SecretRef,
 } from '../security/secret-refs.js';
 import {
@@ -22,6 +21,7 @@ import {
 } from './playwright-utils.js';
 import type {
   BrowserEvaluateFunction,
+  BrowserFillInput,
   BrowserProvider,
   BrowserProviderCapabilities,
   BrowserSession,
@@ -365,7 +365,7 @@ class BrowserUseCloudSession implements BrowserSession {
     await this.page.click(selector, { timeout: opts?.timeoutMs });
   }
 
-  async fill(selector: string, value: SecretInput): Promise<void> {
+  async fill(selector: string, value: BrowserFillInput): Promise<void> {
     this.recordAction('fill');
     await fillBrowserField(
       this.page,

@@ -13,10 +13,15 @@ import {
   assertSecretResolveAllowed,
   recordSecretResolved,
 } from '../gateway/gateway-secret-injection.js';
+import {
+  isSecretHandle,
+  unsafeEscapeSecretHandle,
+} from '../security/secret-handles.js';
 import { hardenSecretRef, type SecretRef } from '../security/secret-refs.js';
 import { normalizeScrollDelta } from './playwright-utils.js';
 import type {
   BrowserEvaluateFunction,
+  BrowserFillInput,
   BrowserProvider,
   BrowserProviderCapabilities,
   BrowserSession,
@@ -893,18 +898,25 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  async fill(selector: string, value: string | SecretRef): Promise<void> {
+  async fill(selector: string, value: BrowserFillInput): Promise<void> {
     const requestedTarget = parseMacCuaTarget(selector);
     await this.runAction('fill', async () => {
       const payload =
         typeof value === 'string'
           ? driverPayloadForText(value)
-          : (() => {
-              const hardened = hardenSecretRef(value);
-              return {
-                secretRef: { source: hardened.source, id: hardened.id },
-              };
-            })();
+          : isSecretHandle(value)
+            ? driverPayloadForText(
+                unsafeEscapeSecretHandle(value, {
+                  reason: `fill browser field ${selector}`,
+                  audit: () => undefined,
+                }),
+              )
+            : (() => {
+                const hardened = hardenSecretRef(value);
+                return {
+                  secretRef: { source: hardened.source, id: hardened.id },
+                };
+              })();
       const target = await this.resolveActionTarget(
         'fill',
         selector,

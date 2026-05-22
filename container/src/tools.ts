@@ -1511,6 +1511,9 @@ async function resolveCurrentBrowserHost(): Promise<string> {
       currentSessionId || 'default',
     );
     const structured = parseStructuredToolOutput(snapshot);
+    if (structured?.parked === true) {
+      throw new Error('browser session parked for 2FA');
+    }
     const url = typeof structured?.url === 'string' ? structured.url : '';
     if (!url) return '';
     return new URL(url).hostname;

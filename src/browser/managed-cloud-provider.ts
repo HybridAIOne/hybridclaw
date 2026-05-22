@@ -9,7 +9,6 @@ import {
 import {
   hardenSecretRef,
   resolveSecretHandleInput,
-  type SecretInput,
   type SecretRef,
 } from '../security/secret-refs.js';
 import {
@@ -25,6 +24,7 @@ import {
 import type {
   BrowserConsoleMessage,
   BrowserEvaluateFunction,
+  BrowserFillInput,
   BrowserProvider,
   BrowserProviderCapabilities,
   BrowserSession,
@@ -340,7 +340,7 @@ class ManagedCloudBrowserSession implements BrowserSession {
     );
   }
 
-  async fill(selector: string, value: SecretInput): Promise<void> {
+  async fill(selector: string, value: BrowserFillInput): Promise<void> {
     await this.runSessionAction('fill', () =>
       fillBrowserField(
         this.page,
