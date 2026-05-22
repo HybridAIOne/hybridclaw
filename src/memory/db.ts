@@ -2547,6 +2547,8 @@ function backfillAgentCanonicalIdentities(database: Database.Database): void {
      SET canonical_id = ?, owner_user_id = ?, updated_at = datetime('now')
      WHERE id = ?`,
   );
+  const conflictStatement =
+    prepareCanonicalAgentIdentityConflictStatement(database);
   for (const row of rows) {
     const existingCanonicalId = normalizeStoredCanonicalAgentId(
       row.canonical_id,
@@ -2560,6 +2562,7 @@ function backfillAgentCanonicalIdentities(database: Database.Database): void {
 
     const identity = allocateCanonicalAgentIdentity({
       database,
+      conflictStatement,
       agentId: row.id,
       owner: row.owner,
       ownerUserId: existingOwnerUserId || undefined,
@@ -3065,6 +3068,7 @@ function isDefaultPlaceholderIdentity(
 
 function allocateCanonicalAgentIdentity(params: {
   database: Database.Database;
+  conflictStatement?: Database.Statement | null;
   agentId: string;
   owner?: string | null;
   ownerUserId?: string | null;
@@ -3074,9 +3078,9 @@ function allocateCanonicalAgentIdentity(params: {
     owner: params.owner ?? undefined,
     ownerUserId: params.ownerUserId ?? undefined,
   });
-  const conflictStatement = prepareCanonicalAgentIdentityConflictStatement(
-    params.database,
-  );
+  const conflictStatement =
+    params.conflictStatement ??
+    prepareCanonicalAgentIdentityConflictStatement(params.database);
   if (!conflictStatement) return identity;
   if (
     !canonicalAgentIdentityExists(
