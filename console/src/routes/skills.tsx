@@ -18,6 +18,7 @@ import type {
   AdminSkill,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -25,11 +26,11 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Field, FieldContent, FieldLabel } from '../components/field';
+import { Switch } from '../components/switch';
 import { useToast } from '../components/toast';
 import {
-  BooleanField,
   BooleanPill,
-  BooleanToggle,
   MetricCard,
   PageHeader,
   SegmentedToggle,
@@ -489,8 +490,8 @@ export function SkillsPage() {
               onChange={(event) => setFilter(event.target.value)}
               placeholder="Filter skills"
             />
-            <button
-              className="ghost-button"
+            <Button
+              variant="ghost"
               type="button"
               onClick={() => {
                 setShowCreate(!showCreate);
@@ -503,7 +504,7 @@ export function SkillsPage() {
               }}
             >
               {showCreate ? 'Cancel' : 'New'}
-            </button>
+            </Button>
           </>
         }
       />
@@ -564,14 +565,14 @@ export function SkillsPage() {
                   <span>Overwrite existing skill (--force)</span>
                 </label>
                 <div className="button-row">
-                  <button
-                    className="primary-button"
+                  <Button
                     type="button"
+                    loading={uploadMutation.isPending}
                     disabled={uploadMutation.isPending || !zipFile}
                     onClick={() => uploadMutation.mutate()}
                   >
                     {uploadMutation.isPending ? 'Uploading...' : 'Upload skill'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -655,27 +656,31 @@ export function SkillsPage() {
                 </label>
 
                 <div className="field-grid">
-                  <BooleanField
-                    label="User invocable"
-                    value={draft.userInvocable}
-                    trueLabel="yes"
-                    falseLabel="no"
-                    onChange={(userInvocable) =>
-                      setDraft((current) => ({ ...current, userInvocable }))
-                    }
-                  />
-                  <BooleanField
-                    label="Model invocable"
-                    value={!draft.disableModelInvocation}
-                    trueLabel="yes"
-                    falseLabel="no"
-                    onChange={(modelInvocable) =>
-                      setDraft((current) => ({
-                        ...current,
-                        disableModelInvocation: !modelInvocable,
-                      }))
-                    }
-                  />
+                  <Field orientation="horizontal">
+                    <Switch
+                      checked={draft.userInvocable}
+                      onCheckedChange={(userInvocable) =>
+                        setDraft((current) => ({ ...current, userInvocable }))
+                      }
+                    />
+                    <FieldContent>
+                      <FieldLabel>User invocable</FieldLabel>
+                    </FieldContent>
+                  </Field>
+                  <Field orientation="horizontal">
+                    <Switch
+                      checked={!draft.disableModelInvocation}
+                      onCheckedChange={(modelInvocable) =>
+                        setDraft((current) => ({
+                          ...current,
+                          disableModelInvocation: !modelInvocable,
+                        }))
+                      }
+                    />
+                    <FieldContent>
+                      <FieldLabel>Model invocable</FieldLabel>
+                    </FieldContent>
+                  </Field>
                 </div>
 
                 <label className="field">
@@ -703,8 +708,8 @@ export function SkillsPage() {
                       references/guide.md)
                     </p>
                   </div>
-                  <button
-                    className="ghost-button"
+                  <Button
+                    variant="ghost"
                     type="button"
                     onClick={() =>
                       setDraft((current) => ({
@@ -721,7 +726,7 @@ export function SkillsPage() {
                     }
                   >
                     Add file
-                  </button>
+                  </Button>
                 </div>
 
                 {draft.files.map((file, index) => (
@@ -748,8 +753,8 @@ export function SkillsPage() {
                           placeholder="scripts/my-tool.mjs"
                         />
                       </label>
-                      <button
-                        className="danger-button"
+                      <Button
+                        variant="danger"
                         type="button"
                         style={{ alignSelf: 'end' }}
                         onClick={() =>
@@ -760,7 +765,7 @@ export function SkillsPage() {
                         }
                       >
                         Remove
-                      </button>
+                      </Button>
                     </div>
                     <label className="field">
                       <span>Content</span>
@@ -785,9 +790,9 @@ export function SkillsPage() {
                 ))}
 
                 <div className="button-row">
-                  <button
-                    className="primary-button"
+                  <Button
                     type="button"
+                    loading={createMutation.isPending}
                     disabled={
                       createMutation.isPending ||
                       !draft.name.trim() ||
@@ -797,7 +802,7 @@ export function SkillsPage() {
                     onClick={() => createMutation.mutate()}
                   >
                     {createMutation.isPending ? 'Creating...' : 'Create skill'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -969,17 +974,14 @@ export function SkillsPage() {
                               </>
                             ) : (
                               <>
-                                <BooleanToggle
-                                  value={skill.enabled}
-                                  ariaLabel={`${skill.name} status`}
-                                  size="sm"
+                                <Switch
+                                  checked={skill.enabled}
+                                  aria-label={`${skill.name} status`}
                                   disabled={
                                     toggleMutation.isPending ||
                                     (!skill.available && !skill.enabled)
                                   }
-                                  trueLabel="active"
-                                  falseLabel="inactive"
-                                  onChange={(enabled) => {
+                                  onCheckedChange={(enabled) => {
                                     if (enabled && !skill.available) {
                                       return;
                                     }
@@ -1168,18 +1170,18 @@ export function SkillsPage() {
                       </small>
                     </div>
                     <div className="skill-review-actions">
-                      <button
+                      <Button
                         type="button"
-                        className="ghost-button"
+                        variant="ghost"
                         onClick={() =>
                           setSelectedSkillName(amendment.skill_name)
                         }
                       >
                         History
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        className="primary-button"
+                        loading={reviewMutation.isPending}
                         disabled={reviewMutation.isPending}
                         onClick={() =>
                           reviewMutation.mutate({
@@ -1189,10 +1191,11 @@ export function SkillsPage() {
                         }
                       >
                         Apply
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        className="danger-button"
+                        variant="danger"
+                        loading={reviewMutation.isPending}
                         disabled={reviewMutation.isPending}
                         onClick={() =>
                           reviewMutation.mutate({
@@ -1202,7 +1205,7 @@ export function SkillsPage() {
                         }
                       >
                         Reject
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ))}

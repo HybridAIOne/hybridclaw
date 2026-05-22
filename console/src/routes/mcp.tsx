@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { deleteMcpServer, fetchMcp, saveMcpServer } from '../api/client';
 import type { AdminMcpConfig, AdminMcpServer } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -10,8 +11,10 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Field, FieldContent, FieldLabel } from '../components/field';
+import { Switch } from '../components/switch';
 import { useToast } from '../components/toast';
-import { BooleanField, BooleanPill, PageHeader } from '../components/ui';
+import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 
 interface McpDraft {
@@ -160,8 +163,8 @@ export function McpPage() {
     <div className="page-stack">
       <PageHeader
         actions={
-          <button
-            className="ghost-button"
+          <Button
+            variant="ghost"
             type="button"
             onClick={() => {
               setSelectedName(null);
@@ -169,7 +172,7 @@ export function McpPage() {
             }}
           >
             New server
-          </button>
+          </Button>
         }
       />
 
@@ -255,18 +258,17 @@ export function McpPage() {
                 </label>
               </div>
 
-              <BooleanField
-                label="Server state"
-                value={draft.enabled}
-                trueLabel="on"
-                falseLabel="off"
-                onChange={(enabled) =>
-                  setDraft((current) => ({
-                    ...current,
-                    enabled,
-                  }))
-                }
-              />
+              <Field orientation="horizontal">
+                <Switch
+                  checked={draft.enabled}
+                  onCheckedChange={(enabled) =>
+                    setDraft((current) => ({ ...current, enabled }))
+                  }
+                />
+                <FieldContent>
+                  <FieldLabel>Server state</FieldLabel>
+                </FieldContent>
+              </Field>
 
               {draft.transport === 'stdio' ? (
                 <>
@@ -360,23 +362,24 @@ export function McpPage() {
               )}
 
               <div className="button-row">
-                <button
-                  className="primary-button"
+                <Button
                   type="button"
+                  loading={saveMutation.isPending}
                   disabled={saveMutation.isPending}
                   onClick={() => saveMutation.mutate()}
                 >
                   {saveMutation.isPending ? 'Saving...' : 'Save server'}
-                </button>
+                </Button>
                 {selectedServer ? (
-                  <button
-                    className="danger-button"
+                  <Button
+                    variant="danger"
                     type="button"
+                    loading={deleteMutation.isPending}
                     disabled={deleteMutation.isPending}
                     onClick={() => deleteMutation.mutate()}
                   >
                     {deleteMutation.isPending ? 'Deleting...' : 'Delete server'}
-                  </button>
+                  </Button>
                 ) : null}
               </div>
 

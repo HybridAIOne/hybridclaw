@@ -16,6 +16,7 @@ import type {
   AdminTeamStructureFieldDiff,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -397,18 +398,18 @@ export function AgentFilesPage() {
                 </label>
 
                 <div className="button-row">
-                  <button
-                    className="primary-button"
+                  <Button
                     type="button"
+                    loading={saveMutation.isPending}
                     disabled={
                       saveMutation.isPending || !fileQuery.data || !isDirty
                     }
                     onClick={() => saveMutation.mutate()}
                   >
                     {saveMutation.isPending ? 'Saving...' : 'Save Markdown'}
-                  </button>
-                  <button
-                    className="ghost-button"
+                  </Button>
+                  <Button
+                    variant="ghost"
                     type="button"
                     disabled={
                       !fileQuery.data || saveMutation.isPending || !isDirty
@@ -423,7 +424,7 @@ export function AgentFilesPage() {
                     }}
                   >
                     Reset to Disk
-                  </button>
+                  </Button>
                   <p className="supporting-text">
                     {isDirty
                       ? 'Unsaved changes.'
@@ -513,18 +514,18 @@ export function AgentFilesPage() {
                             />
                           </label>
                           <div className="button-row">
-                            <button
-                              className="primary-button"
+                            <Button
                               type="button"
+                              loading={restoreMutation.isPending}
                               disabled={restoreMutation.isPending}
                               onClick={() => restoreMutation.mutate()}
                             >
                               {restoreMutation.isPending
                                 ? 'Restoring...'
                                 : 'Restore Version'}
-                            </button>
-                            <button
-                              className="ghost-button"
+                            </Button>
+                            <Button
+                              variant="ghost"
                               type="button"
                               onClick={() =>
                                 setDraftContent(
@@ -533,7 +534,7 @@ export function AgentFilesPage() {
                               }
                             >
                               Copy to Editor
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       )}
@@ -632,16 +633,16 @@ export function AgentFilesPage() {
                             />
                           </label>
                           <div className="button-row">
-                            <button
-                              className="primary-button"
+                            <Button
                               type="button"
+                              loading={restoreTeamMutation.isPending}
                               disabled={restoreTeamMutation.isPending}
                               onClick={() => restoreTeamMutation.mutate()}
                             >
                               {restoreTeamMutation.isPending
                                 ? 'Restoring...'
                                 : 'Restore Team'}
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       )}
