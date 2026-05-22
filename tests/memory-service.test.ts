@@ -740,6 +740,69 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('adds suffixes when migrated local agents derive duplicate canonical ids', () => {
+    const dbPath = createTempDbPath();
+    const originalInstanceId = process.env.HYBRIDCLAW_INSTANCE_ID;
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'Inst Test';
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        owner TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      INSERT INTO agents (id, name, owner)
+      VALUES
+        ('writer', 'Writer', 'Benedikt'),
+        ('writer!', 'Writer Duplicate', 'Benedikt');
+      PRAGMA user_version = 33;
+    `);
+    legacy.close();
+
+    try {
+      initDatabase({ quiet: true, dbPath });
+    } finally {
+      if (originalInstanceId === undefined) {
+        delete process.env.HYBRIDCLAW_INSTANCE_ID;
+      } else {
+        process.env.HYBRIDCLAW_INSTANCE_ID = originalInstanceId;
+      }
+    }
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const agents = inspect
+      .prepare(
+        'SELECT id, canonical_id, owner_user_id FROM agents ORDER BY id ASC',
+      )
+      .all() as Array<{
+      id: string;
+      canonical_id: string;
+      owner_user_id: string;
+    }>;
+    const uniqueCanonicalIndex = inspect
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agents_canonical_id'",
+      )
+      .get() as { name: string } | undefined;
+    inspect.close();
+
+    expect(agents).toEqual([
+      {
+        id: 'writer',
+        canonical_id: 'writer@benedikt@inst-test',
+        owner_user_id: 'benedikt@local',
+      },
+      {
+        id: 'writer!',
+        canonical_id: 'writer-2@benedikt@inst-test',
+        owner_user_id: 'benedikt@local',
+      },
+    ]);
+    expect(uniqueCanonicalIndex?.name).toBe('idx_agents_canonical_id');
+  });
+
   test('self-heals v36 agents missing the owner user index', () => {
     const dbPath = createTempDbPath();
     const legacy = new Database(dbPath);
