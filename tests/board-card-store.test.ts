@@ -102,6 +102,76 @@ describe.sequential('board card store', () => {
     ).toThrow(/FOREIGN KEY constraint failed/);
   });
 
+  test('enforces logical edge uniqueness for direct SQLite writes', async () => {
+    const { boardModule, dbModule } = await loadBoardStore();
+    boardModule.createCard({
+      id: 'logical-a',
+      title: 'Logical A',
+      owner: { agentId: 'agent_builder' },
+    });
+    boardModule.createCard({
+      id: 'logical-b',
+      title: 'Logical B',
+      owner: { agentId: 'agent_builder' },
+    });
+
+    expect(() =>
+      dbModule.withMemoryDatabase((database) => {
+        const insert = database.prepare(
+          `INSERT INTO board_card_edges (
+            id, from_card_id, to_card_id, kind, created_at, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        );
+        const now = '2026-05-22T10:00:00.000Z';
+        const actor = JSON.stringify({ system: 'test' });
+        insert.run(
+          'edge-blocks',
+          'logical-a',
+          'logical-b',
+          'blocks',
+          now,
+          actor,
+        );
+        insert.run(
+          'edge-blocked-by',
+          'logical-b',
+          'logical-a',
+          'blocked_by',
+          now,
+          actor,
+        );
+      }),
+    ).toThrow(/UNIQUE constraint failed/);
+
+    expect(() =>
+      dbModule.withMemoryDatabase((database) => {
+        const insert = database.prepare(
+          `INSERT INTO board_card_edges (
+            id, from_card_id, to_card_id, kind, created_at, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        );
+        const now = '2026-05-22T10:00:00.000Z';
+        const actor = JSON.stringify({ system: 'test' });
+        insert.run(
+          'edge-related-a',
+          'logical-a',
+          'logical-b',
+          'related',
+          now,
+          actor,
+        );
+        insert.run(
+          'edge-related-b',
+          'logical-b',
+          'logical-a',
+          'related',
+          now,
+          actor,
+        );
+      }),
+    ).toThrow(/UNIQUE constraint failed/);
+  });
+
   test('round-trips create, get, update, list, and soft-delete', async () => {
     const { boardModule } = await loadBoardStore();
 
