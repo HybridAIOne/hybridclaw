@@ -354,6 +354,67 @@ test('mac-cua provider authorizes SecretRef fills and forwards refs without clea
   );
 });
 
+test('mac-cua provider audits and disposes SecretHandle fills', async () => {
+  const root = makeTempRoot();
+  const { initDatabase, getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { createSecretHandle, unsafeEscapeSecretHandle } = await import(
+    '../src/security/secret-handles.js'
+  );
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({
+    metering: {
+      sessionId: 'session-cua-handle',
+      agentId: 'agent-cua',
+      auditRunId: 'run-cua-handle',
+      skillName: 'login-skill',
+    },
+  });
+  const handle = createSecretHandle(
+    { source: 'store', id: 'OPERATOR_RETURN_test' },
+    '654321',
+    'dom',
+  );
+
+  await session.fill('@e7', handle);
+
+  expect(driver.typeTextChars).toHaveBeenCalledWith('cua-session-1', {
+    text: '654321',
+  });
+  expect(() =>
+    unsafeEscapeSecretHandle(handle, {
+      reason: 'verify disposal',
+      audit: () => undefined,
+    }),
+  ).toThrow(/already disposed/i);
+  const auditRows = getRecentStructuredAuditForSession(
+    'session-cua-handle',
+    20,
+  );
+  expect(auditRows.map((row) => row.event_type)).toContain(
+    'secret.unsafe_escape',
+  );
+  expect(
+    auditRows.some((row) => {
+      const payload = JSON.parse(row.payload || '{}') as {
+        selector?: string;
+        secretRef?: { id?: string };
+      };
+      return (
+        row.event_type === 'secret.unsafe_escape' &&
+        payload.selector === '@e7' &&
+        payload.secretRef?.id === 'OPERATOR_RETURN_test'
+      );
+    }),
+  ).toBe(true);
+});
+
 test('mac-cua provider blocks shell-injection typed payloads before driver input', async () => {
   const { MacCuaBrowserProvider } = await import(
     '../src/browser/mac-cua-provider.js'

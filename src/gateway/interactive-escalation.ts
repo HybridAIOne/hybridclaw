@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { listAgents } from '../agents/agent-registry.js';
 import {
@@ -22,6 +23,8 @@ import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 export const INTERACTION_SESSION_DEFAULT_TTL_MS = 30 * 60_000;
 export const INTERACTION_SESSION_MIN_TTL_MS = 60_000;
 export const INTERACTION_SESSION_MAX_PENDING = 500;
+export const INTERACTION_SCREENSHOT_ARTIFACT_MAX_BYTES = 12 * 1024 * 1024;
+export const INTERACTION_STORAGE_STATE_MAX_BYTES = 2 * 1024 * 1024;
 
 export const INTERACTION_MODALITIES = [
   'totp',
@@ -385,7 +388,9 @@ function persistSuspendedSessionArtifacts(
   artifacts?: SuspendedSessionArtifacts | null,
 ): Partial<SuspendedFrameSnapshot> {
   const refs: Partial<SuspendedFrameSnapshot> = {};
-  const screenshotBase64 = String(artifacts?.screenshotBase64 || '').trim();
+  const screenshotBase64 = normalizeScreenshotArtifact(
+    artifacts?.screenshotBase64,
+  );
   if (screenshotBase64) {
     const assetPath = suspendedSessionArtifactPath(
       sessionId,
@@ -406,7 +411,9 @@ function persistSuspendedSessionArtifacts(
     refs.screenshotRef = `f4://${assetPath}`;
   }
 
-  const storageStateJson = String(artifacts?.storageStateJson || '').trim();
+  const storageStateJson = normalizeStorageStateArtifact(
+    artifacts?.storageStateJson,
+  );
   if (storageStateJson) {
     const assetPath = suspendedSessionArtifactPath(
       sessionId,
@@ -428,6 +435,50 @@ function persistSuspendedSessionArtifacts(
   }
 
   return refs;
+}
+
+function assertArtifactSize(
+  value: string,
+  maxBytes: number,
+  label: string,
+): void {
+  const size = Buffer.byteLength(value, 'utf-8');
+  if (size > maxBytes) {
+    throw new Error(
+      `${label} artifact exceeds ${maxBytes} bytes (${size} bytes).`,
+    );
+  }
+}
+
+function normalizeScreenshotArtifact(value: unknown): string {
+  const screenshotBase64 = String(value || '').trim();
+  if (!screenshotBase64) return '';
+  assertArtifactSize(
+    screenshotBase64,
+    INTERACTION_SCREENSHOT_ARTIFACT_MAX_BYTES,
+    'screenshot',
+  );
+  if (
+    screenshotBase64.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(screenshotBase64)
+  ) {
+    throw new Error('screenshot artifact must be valid base64.');
+  }
+  return screenshotBase64;
+}
+
+function normalizeStorageStateArtifact(value: unknown): string {
+  const storageStateJson = String(value || '').trim();
+  if (!storageStateJson) return '';
+  assertArtifactSize(
+    storageStateJson,
+    INTERACTION_STORAGE_STATE_MAX_BYTES,
+    'storage-state',
+  );
+  if (!parseJsonObject(storageStateJson)) {
+    throw new Error('storage-state artifact must be a valid JSON object.');
+  }
+  return storageStateJson;
 }
 
 function storedOperatorReturn(response: OperatorReturn): StoredOperatorReturn {
@@ -628,6 +679,10 @@ export function createSuspendedSession(
     ...input.frameSnapshot,
     ...artifactRefs,
   };
+  const context = { ...(input.context || {}) };
+  if (artifactRefs.screenshotRef) {
+    context.screenshotRef = artifactRefs.screenshotRef;
+  }
   const expiresAt =
     typeof input.expiresAt === 'number' && Number.isFinite(input.expiresAt)
       ? Math.max(createdAt + INTERACTION_SESSION_MIN_TTL_MS, input.expiresAt)
@@ -652,7 +707,7 @@ export function createSuspendedSession(
       input.expectedReturnKinds,
     ),
     frameSnapshot,
-    context: input.context || {},
+    context,
     agentId: input.agentId || null,
     skillId: input.skillId || null,
     ...(input.escalationTarget

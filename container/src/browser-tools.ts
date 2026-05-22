@@ -1433,85 +1433,94 @@ async function parkBrowserTwoFactorInteraction(params: {
       : null;
 
   const screenshotPath = createTempScreenshotPath('two-factor');
-  const [textEval, snapshotResult, screenshotResult] = await Promise.all([
-    runBrowserEval(
-      params.effectiveSessionId,
-      EXTRACT_TEXT_PREVIEW_SCRIPT,
-      15_000,
-    ),
-    runAgentBrowser(params.effectiveSessionId, 'snapshot', [], {
-      timeoutMs: 30_000,
-    }),
-    runAgentBrowser(params.effectiveSessionId, 'screenshot', [screenshotPath], {
-      timeoutMs: 60_000,
-    }),
-  ]);
-  const screenshotRef = screenshotResult.success
-    ? toWorkspaceRelativePath(screenshotPath)
-    : null;
-  const screenshotBase64 = screenshotResult.success
-    ? fs.readFileSync(screenshotPath).toString('base64')
-    : '';
-  const textData = asRecord(textEval.success ? textEval.result : null);
-  const snapshotData = asRecord(
-    snapshotResult.success ? snapshotResult.data : null,
-  );
-  const url =
-    String(snapshotData?.url || snapshotData?.origin || '').trim() ||
-    'about:blank';
-  const title = String(snapshotData?.title || '').trim();
-
-  const gatewayResult = await createGatewayInteractiveEscalation({
-    prompt,
-    modality,
-    ...(userId ? { userId } : {}),
-    ...(skillId ? { skillId } : {}),
-    ...(ttlMs ? { ttlMs } : {}),
-    ...(targetChannel && targetRecipient
-      ? {
-          escalationTarget: {
-            channel: targetChannel,
-            recipient: targetRecipient,
-          },
-        }
-      : {}),
-    frameSnapshot: {
-      url,
-      title,
-      browserSessionKey: params.effectiveSessionId,
-      screenshotRef,
-    },
-    ...(screenshotBase64 ? { screenshotBase64 } : {}),
-    context: {
-      host: safeUrlHost(url),
-      pageTitle: title || null,
-      url,
-      screenshotRef,
-    },
-  });
-  const gatewaySession = asRecord(gatewayResult.session);
-  const suspendedSessionId = String(gatewaySession?.sessionId || '').trim();
-  if (suspendedSessionId) {
-    suspendedSessionByBrowserSession.set(
-      params.effectiveSessionId,
-      suspendedSessionId,
+  try {
+    const [textEval, snapshotResult, screenshotResult] = await Promise.all([
+      runBrowserEval(
+        params.effectiveSessionId,
+        EXTRACT_TEXT_PREVIEW_SCRIPT,
+        15_000,
+      ),
+      runAgentBrowser(params.effectiveSessionId, 'snapshot', [], {
+        timeoutMs: 30_000,
+      }),
+      runAgentBrowser(
+        params.effectiveSessionId,
+        'screenshot',
+        [screenshotPath],
+        {
+          timeoutMs: 60_000,
+        },
+      ),
+    ]);
+    const screenshotRef = screenshotResult.success
+      ? toWorkspaceRelativePath(screenshotPath)
+      : null;
+    const screenshotBase64 = screenshotResult.success
+      ? fs.readFileSync(screenshotPath).toString('base64')
+      : '';
+    const textData = asRecord(textEval.success ? textEval.result : null);
+    const snapshotData = asRecord(
+      snapshotResult.success ? snapshotResult.data : null,
     );
+    const url =
+      String(snapshotData?.url || snapshotData?.origin || '').trim() ||
+      'about:blank';
+    const title = String(snapshotData?.title || '').trim();
+
+    const gatewayResult = await createGatewayInteractiveEscalation({
+      prompt,
+      modality,
+      ...(userId ? { userId } : {}),
+      ...(skillId ? { skillId } : {}),
+      ...(ttlMs ? { ttlMs } : {}),
+      ...(targetChannel && targetRecipient
+        ? {
+            escalationTarget: {
+              channel: targetChannel,
+              recipient: targetRecipient,
+            },
+          }
+        : {}),
+      frameSnapshot: {
+        url,
+        title,
+        browserSessionKey: params.effectiveSessionId,
+        screenshotRef,
+      },
+      ...(screenshotBase64 ? { screenshotBase64 } : {}),
+      context: {
+        host: safeUrlHost(url),
+        pageTitle: title || null,
+        url,
+        screenshotRef,
+      },
+    });
+    const gatewaySession = asRecord(gatewayResult.session);
+    const suspendedSessionId = String(gatewaySession?.sessionId || '').trim();
+    if (suspendedSessionId) {
+      suspendedSessionByBrowserSession.set(
+        params.effectiveSessionId,
+        suspendedSessionId,
+      );
+    }
+    return {
+      parked: true,
+      modality,
+      two_factor_detection: detection,
+      detected_selectors: detection.selectors,
+      text_preview: String(textData?.preview || '').slice(0, 1000),
+      screenshot:
+        typeof asRecord(gatewayResult.session)?.frameSnapshot === 'object'
+          ? String(
+              asRecord(asRecord(gatewayResult.session)?.frameSnapshot)
+                ?.screenshotRef || screenshotRef,
+            )
+          : screenshotRef,
+      interaction: gatewayResult,
+    };
+  } finally {
+    fs.rmSync(screenshotPath, { force: true });
   }
-  return {
-    parked: true,
-    modality,
-    two_factor_detection: detection,
-    detected_selectors: detection.selectors,
-    text_preview: String(textData?.preview || '').slice(0, 1000),
-    screenshot:
-      typeof asRecord(gatewayResult.session)?.frameSnapshot === 'object'
-        ? String(
-            asRecord(asRecord(gatewayResult.session)?.frameSnapshot)
-              ?.screenshotRef || screenshotRef,
-          )
-        : screenshotRef,
-    interaction: gatewayResult,
-  };
 }
 
 async function addTwoFactorAutoPark(

@@ -661,6 +661,7 @@ async function parkGatewayBrowserTwoFactor(params: {
     fullPage: true,
     type: 'png',
   });
+  const screenshotBase64 = Buffer.from(image).toString('base64');
   const screenshotRef = `managed-browser://${params.sessionId}/two-factor-${randomUUID()}.png`;
   const session = createSuspendedSession({
     prompt,
@@ -690,7 +691,7 @@ async function parkGatewayBrowserTwoFactor(params: {
         ? params.args.ttlMs
         : null,
     artifacts: {
-      screenshotBase64: Buffer.from(image).toString('base64'),
+      screenshotBase64,
     },
   });
   await params.active.session.waypoint?.('browser_await_two_factor', {
@@ -709,7 +710,6 @@ async function parkGatewayBrowserTwoFactor(params: {
     detected_selectors: pageState.selectors,
     text_preview: pageState.preview,
     screenshot: session.frameSnapshot.screenshotRef || screenshotRef,
-    screenshotBase64: Buffer.from(image).toString('base64'),
     interaction: payload,
   };
 }

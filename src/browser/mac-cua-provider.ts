@@ -12,9 +12,11 @@ import { buildCuaMacResults } from '../doctor/checks/cua-mac.js';
 import {
   assertSecretResolveAllowed,
   recordSecretResolved,
+  recordSecretUnsafeEscaped,
 } from '../gateway/gateway-secret-injection.js';
 import {
   isSecretHandle,
+  type SecretHandle,
   unsafeEscapeSecretHandle,
 } from '../security/secret-handles.js';
 import { hardenSecretRef, type SecretRef } from '../security/secret-refs.js';
@@ -901,34 +903,53 @@ class MacCuaBrowserSession implements BrowserSession {
   async fill(selector: string, value: BrowserFillInput): Promise<void> {
     const requestedTarget = parseMacCuaTarget(selector);
     await this.runAction('fill', async () => {
-      const payload =
-        typeof value === 'string'
-          ? driverPayloadForText(value)
-          : isSecretHandle(value)
-            ? driverPayloadForText(
-                unsafeEscapeSecretHandle(value, {
-                  reason: `fill browser field ${selector}`,
-                  audit: () => undefined,
-                }),
-              )
-            : (() => {
-                const hardened = hardenSecretRef(value);
-                return {
-                  secretRef: { source: hardened.source, id: hardened.id },
-                };
-              })();
-      const target = await this.resolveActionTarget(
-        'fill',
-        selector,
-        requestedTarget,
-      );
-      if ('secretRef' in payload) {
-        await this.assertSecretFillAllowed(selector, payload.secretRef);
-      }
-      await this.driver.click(this.sessionId, target);
-      await this.driver.typeTextChars(this.sessionId, payload);
-      if ('secretRef' in payload) {
-        this.recordCredentialFilled(selector, payload.secretRef);
+      let secretHandleToDispose: SecretHandle | null = null;
+      try {
+        const payload =
+          typeof value === 'string'
+            ? driverPayloadForText(value)
+            : isSecretHandle(value)
+              ? (() => {
+                  secretHandleToDispose = value;
+                  return driverPayloadForText(
+                    unsafeEscapeSecretHandle(value, {
+                      reason: `fill browser field ${selector}`,
+                      audit: (handle, reason) => {
+                        recordSecretUnsafeEscaped({
+                          sessionId: this.metering?.sessionId,
+                          runId: this.runId,
+                          skillName: this.metering?.skillName,
+                          secretSource: handle.ref.source,
+                          secretId: handle.ref.id,
+                          sinkKind: 'dom',
+                          selector,
+                          reason,
+                        });
+                      },
+                    }),
+                  );
+                })()
+              : (() => {
+                  const hardened = hardenSecretRef(value);
+                  return {
+                    secretRef: { source: hardened.source, id: hardened.id },
+                  };
+                })();
+        const target = await this.resolveActionTarget(
+          'fill',
+          selector,
+          requestedTarget,
+        );
+        if ('secretRef' in payload) {
+          await this.assertSecretFillAllowed(selector, payload.secretRef);
+        }
+        await this.driver.click(this.sessionId, target);
+        await this.driver.typeTextChars(this.sessionId, payload);
+        if ('secretRef' in payload) {
+          this.recordCredentialFilled(selector, payload.secretRef);
+        }
+      } finally {
+        secretHandleToDispose?.dispose();
       }
     });
   }

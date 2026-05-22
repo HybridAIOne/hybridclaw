@@ -128,6 +128,9 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
     storageStateRef:
       'f4://interactive-escalation/session/session-2fa/storage-state.json',
   });
+  expect(created.context.screenshotRef).toBe(
+    'f4://interactive-escalation/session/session-2fa/screenshot.png.base64',
+  );
   expect(
     revisions.getRuntimeAssetRevisionState(
       'suspended_session',
@@ -164,6 +167,40 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
     value: '123456',
   });
   expect(reloaded.consumeOperatorReturn('session-2fa')).toBeNull();
+});
+
+test('suspended session artifacts are validated before persistence', async () => {
+  const escalation = await importInteractiveEscalation();
+  const baseInput = {
+    sessionId: 'session-invalid-artifact',
+    approvalId: 'approval-invalid-artifact',
+    prompt: 'Enter the SMS verification code.',
+    userId: 'operator-1',
+    modality: 'sms' as const,
+    ttlMs: 600_000,
+    frameSnapshot: {
+      url: 'https://sap.example/login',
+    },
+  };
+
+  expect(() =>
+    escalation.createSuspendedSession({
+      ...baseInput,
+      artifacts: {
+        screenshotBase64: 'not base64',
+      },
+    }),
+  ).toThrow(/valid base64/i);
+
+  expect(() =>
+    escalation.createSuspendedSession({
+      ...baseInput,
+      sessionId: 'session-invalid-storage',
+      artifacts: {
+        storageStateJson: '[]',
+      },
+    }),
+  ).toThrow(/valid JSON object/i);
 });
 
 test('operator return cache expires unconsumed responses', async () => {
