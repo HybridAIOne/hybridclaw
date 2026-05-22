@@ -666,8 +666,6 @@ function SchedulerJobEditor(props: {
   savePending: boolean;
   pausePending: boolean;
   deletePending: boolean;
-  everyMsError: string | null;
-  maxRetriesError: string | null;
   saveDisabled: boolean;
   onDraftChange: (update: (current: SchedulerDraft) => SchedulerDraft) => void;
   onEveryMsErrorChange: (error: string | null) => void;
@@ -832,7 +830,7 @@ function SchedulerJobEditor(props: {
           ) : null}
 
           {draft.scheduleKind === 'every' ? (
-            <Field invalid={Boolean(props.everyMsError)}>
+            <Field onErrorChange={props.onEveryMsErrorChange}>
               <FieldLabel>Every ms</FieldLabel>
               <NumberField
                 integer
@@ -844,10 +842,9 @@ function SchedulerJobEditor(props: {
                     scheduleEveryMs,
                   }))
                 }
-                onErrorChange={props.onEveryMsErrorChange}
                 placeholder="60000"
               />
-              <FieldError>{props.everyMsError}</FieldError>
+              <FieldError />
             </Field>
           ) : null}
 
@@ -868,7 +865,7 @@ function SchedulerJobEditor(props: {
           ) : null}
 
           {draft.scheduleKind === 'one_shot' ? (
-            <Field invalid={Boolean(props.maxRetriesError)}>
+            <Field onErrorChange={props.onMaxRetriesErrorChange}>
               <FieldLabel>Retries after failure</FieldLabel>
               <NumberField
                 integer
@@ -878,10 +875,9 @@ function SchedulerJobEditor(props: {
                 onValueChange={(maxRetries) =>
                   props.onDraftChange((current) => ({ ...current, maxRetries }))
                 }
-                onErrorChange={props.onMaxRetriesErrorChange}
                 placeholder="3"
               />
-              <FieldError>{props.maxRetriesError}</FieldError>
+              <FieldError />
             </Field>
           ) : null}
 
@@ -1311,8 +1307,6 @@ export function SchedulerPage() {
             savePending={saveMutation.isPending}
             pausePending={pauseMutation.isPending}
             deletePending={deleteMutation.isPending}
-            everyMsError={everyMsError}
-            maxRetriesError={maxRetriesError}
             saveDisabled={saveDisabled}
             onDraftChange={(update) => setDraft((current) => update(current))}
             onEveryMsErrorChange={setEveryMsError}

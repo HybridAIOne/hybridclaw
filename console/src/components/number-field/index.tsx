@@ -1,5 +1,6 @@
-import { type ComponentProps, useEffect, useState } from 'react';
+import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { useStableCallback } from '../../lib/use-stable-callback';
+import { useFieldContext } from '../field/context';
 import { Input } from '../input';
 
 export type NumberFieldProps = Omit<
@@ -49,7 +50,18 @@ export function NumberField({
   ...inputProps
 }: NumberFieldProps) {
   const [rawValue, setRawValue] = useState(() => String(value));
-  const reportError = useStableCallback(onErrorChange ?? noop);
+  const field = useFieldContext();
+  const consumerOnErrorChange = onErrorChange;
+  const fieldSetError = field.setError;
+  const reportError = useStableCallback(
+    useCallback(
+      (next: string | null) => {
+        fieldSetError(next);
+        consumerOnErrorChange?.(next);
+      },
+      [fieldSetError, consumerOnErrorChange],
+    ),
+  );
 
   useEffect(() => {
     setRawValue(String(value));
@@ -111,4 +123,3 @@ export function NumberField({
   );
 }
 
-function noop(): void {}

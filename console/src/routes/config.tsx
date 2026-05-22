@@ -583,7 +583,10 @@ export function ConfigPage() {
                     for loopback-only.
                   </FieldDescription>
                 </Field>
-                <Field controlId="ops-health-port" invalid={Boolean(portError)}>
+                <Field
+                  controlId="ops-health-port"
+                  onErrorChange={setPortError}
+                >
                   <FieldLabel>Health port</FieldLabel>
                   <NumberField
                     id="ops-health-port"
@@ -594,9 +597,8 @@ export function ConfigPage() {
                     onValueChange={(healthPort) =>
                       updateSection(setDraft, 'ops', { healthPort })
                     }
-                    onErrorChange={setPortError}
                   />
-                  <FieldError>{portError}</FieldError>
+                  <FieldError />
                 </Field>
                 <Field>
                   <FieldLabel>Log level</FieldLabel>
@@ -698,10 +700,7 @@ export function ConfigPage() {
                 Sandboxed container runtime for tool execution.
               </FieldDescription>
               <FieldGroup>
-                <Field
-                  controlId="container-memory"
-                  invalid={Boolean(memoryError)}
-                >
+                <Field controlId="container-memory" error={memoryError}>
                   <FieldLabel>Memory</FieldLabel>
                   <Input
                     id="container-memory"
@@ -717,7 +716,7 @@ export function ConfigPage() {
                     Docker memory limit. e.g. <code>512m</code>, <code>1g</code>
                     , <code>2048m</code>.
                   </FieldDescription>
-                  <FieldError>{memoryError}</FieldError>
+                  <FieldError />
                 </Field>
                 <Field orientation="horizontal">
                   <Switch
@@ -874,7 +873,7 @@ export function ConfigPage() {
                     </div>
                     <Field
                       controlId="managed-cloud-action-usd"
-                      invalid={Boolean(managedActionPriceError)}
+                      onErrorChange={setManagedActionPriceError}
                     >
                       <FieldLabel>Action price USD</FieldLabel>
                       <NumberField
@@ -887,9 +886,8 @@ export function ConfigPage() {
                             actionUsd,
                           })
                         }
-                        onErrorChange={setManagedActionPriceError}
                       />
-                      <FieldError>{managedActionPriceError}</FieldError>
+                      <FieldError />
                     </Field>
                   </>
                 ) : null}
@@ -960,7 +958,7 @@ export function ConfigPage() {
                     </Field>
                     <Field
                       controlId="browser-use-browser-usd"
-                      invalid={Boolean(browserUseBrowserPriceError)}
+                      onErrorChange={setBrowserUseBrowserPriceError}
                     >
                       <FieldLabel>Browser price USD/min</FieldLabel>
                       <NumberField
@@ -975,13 +973,12 @@ export function ConfigPage() {
                             browserUsdPerMinute,
                           })
                         }
-                        onErrorChange={setBrowserUseBrowserPriceError}
                       />
-                      <FieldError>{browserUseBrowserPriceError}</FieldError>
+                      <FieldError />
                     </Field>
                     <Field
                       controlId="browser-use-action-usd"
-                      invalid={Boolean(browserUseActionPriceError)}
+                      onErrorChange={setBrowserUseActionPriceError}
                     >
                       <FieldLabel>Action price USD</FieldLabel>
                       <NumberField
@@ -994,9 +991,8 @@ export function ConfigPage() {
                             actionUsd,
                           })
                         }
-                        onErrorChange={setBrowserUseActionPriceError}
                       />
-                      <FieldError>{browserUseActionPriceError}</FieldError>
+                      <FieldError />
                     </Field>
                   </>
                 ) : null}

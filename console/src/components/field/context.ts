@@ -6,6 +6,16 @@ export type FieldContextValue = {
   errorId: string | undefined;
   invalid: boolean | undefined;
   disabled: boolean | undefined;
+  /**
+   * The current error message for this field, or `null` if valid.
+   * Controls write here via `setError`; `<FieldError />` reads it.
+   */
+  error: string | null;
+  /**
+   * Set or clear the field-level error. Calling with the same value as
+   * `error` is a no-op for downstream subscribers.
+   */
+  setError: (error: string | null) => void;
 };
 
 const defaultValue: FieldContextValue = {
@@ -14,6 +24,8 @@ const defaultValue: FieldContextValue = {
   errorId: undefined,
   invalid: undefined,
   disabled: undefined,
+  error: null,
+  setError: () => {},
 };
 
 export const FieldContext = createContext<FieldContextValue>(defaultValue);

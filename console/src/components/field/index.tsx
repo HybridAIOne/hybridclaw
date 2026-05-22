@@ -1,4 +1,13 @@
-import { type ComponentProps, type ReactNode, useId, useMemo } from 'react';
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from 'react';
+import { useStableCallback } from '../../lib/use-stable-callback';
 import { cx } from '../../lib/cx';
 import { Label } from '../label';
 import { FieldContext, useFieldContext } from './context';
@@ -74,6 +83,11 @@ export function FieldGroup({ className, ...props }: FieldGroupProps) {
 
 export type FieldProps = ComponentProps<'div'> & {
   orientation?: FieldOrientation;
+  /**
+   * Optional manual override. When unset, the field derives its invalid
+   * state from the most recently set error string (any descendant control
+   * that calls `useFieldContext().setError` reports here).
+   */
   invalid?: boolean;
   disabled?: boolean;
   /**
@@ -81,6 +95,17 @@ export type FieldProps = ComponentProps<'div'> & {
    * multiple controls and the consumer wants to manage the id manually.
    */
   controlId?: string;
+  /**
+   * Subscribe to error-state changes. Fires whenever the field's error
+   * string changes (including transitions to `null`).
+   */
+  onErrorChange?: (error: string | null) => void;
+  /**
+   * Controlled error — when provided, takes priority over any internal
+   * state set by descendant controls. Useful for piping a
+   * `useFieldError` result onto a Field that wraps a raw `<Input>`.
+   */
+  error?: string | null;
 };
 
 export function Field({
@@ -89,19 +114,42 @@ export function Field({
   invalid,
   disabled,
   controlId,
+  onErrorChange,
+  error: errorProp,
   ...props
 }: FieldProps) {
   const generatedId = useId();
   const id = controlId ?? generatedId;
+  const [internalError, setErrorState] = useState<string | null>(null);
+  const reportError = useStableCallback(onErrorChange ?? noop);
+
+  const setError = useCallback((next: string | null) => {
+    setErrorState((current) => (current === next ? current : next));
+  }, []);
+
+  const error = errorProp !== undefined ? errorProp : internalError;
+
+  useEffect(() => {
+    reportError(error);
+  }, [error, reportError]);
+
+  // Only flip aria-invalid on when there's a reason — either an explicit
+  // override or a tracked error. Otherwise leave it undefined so the
+  // attribute isn't emitted at all.
+  const derivedInvalid =
+    invalid !== undefined ? invalid : error !== null ? true : undefined;
+
   const ctx = useMemo(
     () => ({
       id,
       descriptionId: `${id}-description`,
       errorId: `${id}-error`,
-      invalid,
+      invalid: derivedInvalid,
       disabled,
+      error,
+      setError,
     }),
-    [id, invalid, disabled],
+    [id, derivedInvalid, disabled, error, setError],
   );
 
   return (
@@ -109,7 +157,7 @@ export function Field({
       <div
         data-slot="field"
         data-orientation={orientation}
-        data-invalid={invalid || undefined}
+        data-invalid={derivedInvalid || undefined}
         data-disabled={disabled || undefined}
         className={cx(styles.field, orientationClass[orientation], className)}
         {...props}
@@ -117,6 +165,8 @@ export function Field({
     </FieldContext.Provider>
   );
 }
+
+function noop(): void {}
 
 export type FieldContentProps = ComponentProps<'div'>;
 
@@ -181,24 +231,28 @@ export type FieldErrorProps = ComponentProps<'div'> & {
 function resolveErrorContent(
   children: ReactNode,
   errors: FieldErrorProps['errors'],
+  contextError: string | null,
 ): ReactNode {
   if (children) return children;
-  if (!errors?.length) return null;
+  if (errors?.length) {
+    const unique = [
+      ...new Map(errors.map((error) => [error?.message, error])).values(),
+    ].filter((error): error is { message?: string } =>
+      Boolean(error?.message),
+    );
 
-  const unique = [
-    ...new Map(errors.map((error) => [error?.message, error])).values(),
-  ].filter((error): error is { message?: string } => Boolean(error?.message));
+    if (unique.length === 0) return contextError;
+    if (unique.length === 1) return unique[0]?.message;
 
-  if (unique.length === 0) return null;
-  if (unique.length === 1) return unique[0]?.message;
-
-  return (
-    <ul className={styles.errorList}>
-      {unique.map((error) => (
-        <li key={error.message}>{error.message}</li>
-      ))}
-    </ul>
-  );
+    return (
+      <ul className={styles.errorList}>
+        {unique.map((error) => (
+          <li key={error.message}>{error.message}</li>
+        ))}
+      </ul>
+    );
+  }
+  return contextError;
 }
 
 export function FieldError({
@@ -209,7 +263,7 @@ export function FieldError({
   ...props
 }: FieldErrorProps) {
   const field = useFieldContext();
-  const content = resolveErrorContent(children, errors);
+  const content = resolveErrorContent(children, errors, field.error);
   // Gate rendering on the surrounding Field being marked invalid so the
   // control's aria-describedby (which only references errorId when invalid)
   // stays in sync with what's actually on screen.
