@@ -7,6 +7,7 @@ import {
   HYBRIDAI_MODEL,
 } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { deriveLocalAgentIdentity } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import {
   deleteAgentWithTeamRevision as dbDeleteAgentWithTeamRevision,
@@ -38,6 +39,7 @@ import {
   normalizeAgentBudgetConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentIdentityFields,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
@@ -159,6 +161,15 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const id = normalizeString((value as { id?: unknown }).id);
   if (!id) return null;
+  const identityFields = normalizeAgentIdentityFields({
+    canonicalId: normalizeString(
+      (value as { canonicalId?: unknown }).canonicalId,
+    ),
+    ownerUserId: normalizeString(
+      (value as { ownerUserId?: unknown }).ownerUserId,
+    ),
+    path: 'agents.list[]',
+  });
   const name = normalizeString((value as { name?: unknown }).name);
   const displayName = normalizeString(
     (value as { displayName?: unknown }).displayName,
@@ -204,6 +215,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   );
   return {
     id,
+    ...identityFields,
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
@@ -271,6 +283,8 @@ function fingerprintBudget(budget: AgentConfig['budget']): string {
 function fingerprintAgent(agent: AgentConfig): string {
   return [
     fingerprintString(agent.id),
+    fingerprintString(agent.canonicalId),
+    fingerprintString(agent.ownerUserId),
     fingerprintString(agent.name),
     fingerprintString(agent.displayName),
     fingerprintString(agent.imageAsset),
@@ -355,8 +369,20 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     agent.chatbotId ?? configuredDefaults.chatbotId,
   );
   const enableRag = agent.enableRag ?? configuredDefaults.enableRag;
+  const identity = agent.canonicalId
+    ? normalizeAgentIdentityFields({
+        canonicalId: agent.canonicalId,
+        ownerUserId: agent.ownerUserId,
+        path: 'agent',
+      })
+    : deriveLocalAgentIdentity({
+        agentId: agent.id,
+        owner: agent.owner,
+        ownerUserId: agent.ownerUserId,
+      });
   return {
     id: agent.id,
+    ...identity,
     ...(agent.name ? { name: agent.name } : {}),
     ...buildOptionalAgentPresentation(agent.displayName, agent.imageAsset),
     ...(model ? { model } : {}),
@@ -413,6 +439,8 @@ function rebuildRegistryFromDatabase(options?: { validate?: boolean }): void {
 function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
   return {
     id: agent.id,
+    canonicalId: agent.canonicalId,
+    ownerUserId: agent.ownerUserId,
     name: agent.name,
     displayName: agent.displayName,
     imageAsset: agent.imageAsset,
