@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminModelsResponse } from '../api/types';
 import { renderWithProviders } from '../test-utils';
@@ -209,5 +209,29 @@ describe('ModelsPage', () => {
     await screen.findByText('Default model');
     expect(screen.queryByText('Configured HybridAI models')).toBeNull();
     expect(screen.queryByText('Configured Codex models')).toBeNull();
+  });
+
+  it('changes the default model through NativeSelect and saves it', async () => {
+    fetchModelsMock.mockResolvedValue(makeModelsResponse());
+    saveModelsMock.mockResolvedValue(undefined);
+
+    renderModelsPage();
+
+    const select = (await screen.findByLabelText(
+      'Default model',
+    )) as HTMLSelectElement;
+    expect(select.value).toBe('gpt-5');
+
+    fireEvent.change(select, {
+      target: { value: 'openrouter/anthropic/claude-sonnet-4' },
+    });
+    expect(select.value).toBe('openrouter/anthropic/claude-sonnet-4');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save selection' }));
+
+    await waitFor(() => expect(saveModelsMock).toHaveBeenCalledTimes(1));
+    expect(saveModelsMock).toHaveBeenCalledWith('test-token', {
+      defaultModel: 'openrouter/anthropic/claude-sonnet-4',
+    });
   });
 });

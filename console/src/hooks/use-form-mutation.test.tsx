@@ -69,4 +69,66 @@ describe('useFormMutation', () => {
     expect((error as Error).message).toBe('boom');
     expect(input).toEqual({});
   });
+
+  it('normalises a non-string non-Error rejection via String(value)', async () => {
+    const { Wrapper } = wrapper();
+    const onError = vi.fn();
+    const mutationFn = vi.fn(async () => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw { code: 42 };
+    });
+
+    const { result } = renderHook(
+      () => useFormMutation({ mutationFn, onError }),
+      { wrapper: Wrapper },
+    );
+
+    act(() => {
+      result.current.mutate({});
+    });
+
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+    const [error] = onError.mock.calls[0];
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe('[object Object]');
+  });
+
+  it('passes an existing Error through without re-wrapping', async () => {
+    const { Wrapper } = wrapper();
+    const onError = vi.fn();
+    const original = new TypeError('original');
+    const mutationFn = vi.fn(async () => {
+      throw original;
+    });
+
+    const { result } = renderHook(
+      () => useFormMutation({ mutationFn, onError }),
+      { wrapper: Wrapper },
+    );
+
+    act(() => {
+      result.current.mutate({});
+    });
+
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+    const [error] = onError.mock.calls[0];
+    expect(error).toBe(original);
+  });
+
+  it('succeeds without invoking invalidateQueries when no keys are configured', async () => {
+    const { Wrapper, invalidateSpy } = wrapper();
+    const mutationFn = vi.fn(async (input: { value: number }) => ({
+      saved: input.value,
+    }));
+
+    const { result } = renderHook(() => useFormMutation({ mutationFn }), {
+      wrapper: Wrapper,
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ value: 7 });
+    });
+
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
 });

@@ -70,4 +70,31 @@ describe('useFormDraft', () => {
     });
     expect(result.current.isDirty).toBe(true);
   });
+
+  it('setField writes to a dotted path without mutating source', () => {
+    type Nested = { ops: { healthPort: number; tags: string[] } };
+    const source: Nested = { ops: { healthPort: 8080, tags: ['x'] } };
+    const sourceOps = source.ops;
+    const { result } = renderHook(() => useFormDraft({ source }));
+    act(() => {
+      result.current.setField('ops.healthPort', 9090);
+    });
+    expect(result.current.draft).toEqual({
+      ops: { healthPort: 9090, tags: ['x'] },
+    });
+    expect(result.current.isDirty).toBe(true);
+    expect(source.ops).toBe(sourceOps);
+    expect(source.ops.healthPort).toBe(8080);
+  });
+
+  it('setField is a no-op while draft is null', () => {
+    const { result } = renderHook(() =>
+      useFormDraft<Config>({ source: undefined }),
+    );
+    expect(result.current.draft).toBeNull();
+    act(() => {
+      result.current.setField('port', 9090);
+    });
+    expect(result.current.draft).toBeNull();
+  });
 });

@@ -30,6 +30,12 @@ describe('validators', () => {
         'Name is required.',
       );
     });
+
+    it('honors the custom message for null and undefined', () => {
+      const rule = required<string | null | undefined>('Pick one.');
+      expect(rule(null)).toBe('Pick one.');
+      expect(rule(undefined)).toBe('Pick one.');
+    });
   });
 
   describe('pattern', () => {
@@ -66,6 +72,13 @@ describe('validators', () => {
       expect(url()('https://example.com')).toBeNull();
       expect(url()('not a url')).toBe('Enter a valid URL.');
     });
+
+    it('uses a custom message when provided', () => {
+      const rule = url('Bad URL.');
+      expect(rule('')).toBeNull();
+      expect(rule('https://example.com')).toBeNull();
+      expect(rule('not a url')).toBe('Bad URL.');
+    });
   });
 
   describe('loopbackUrl', () => {
@@ -79,6 +92,19 @@ describe('validators', () => {
 
     it('passes empty input', () => {
       expect(loopbackUrl()('')).toBeNull();
+    });
+
+    it('returns "Enter a valid URL." when the input cannot be parsed', () => {
+      expect(loopbackUrl()('not a url')).toBe('Enter a valid URL.');
+      expect(loopbackUrl('Loopback only.')('not a url')).toBe(
+        'Enter a valid URL.',
+      );
+    });
+
+    it('uses a custom message when the host is not loopback', () => {
+      const rule = loopbackUrl('Loopback only.');
+      expect(rule('http://127.0.0.1')).toBeNull();
+      expect(rule('https://example.com')).toBe('Loopback only.');
     });
   });
 

@@ -171,12 +171,12 @@ describe('Form / useForm', () => {
     expect(screen.getByTestId('valid').textContent).toBe('yes');
   });
 
-  it('exposes isSubmitting during async onSubmit', async () => {
-    let releaseSubmit: (() => void) | undefined;
+  it('exposes isSubmitting and drops re-submits while a save is in flight', async () => {
+    const releases: Array<() => void> = [];
     const onSubmit = vi.fn(
       () =>
         new Promise<void>((resolve) => {
-          releaseSubmit = resolve;
+          releases.push(resolve);
         }),
     );
     function Inner() {
@@ -201,12 +201,73 @@ describe('Form / useForm', () => {
     expect(screen.getByTestId('state').textContent).toBe('idle');
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(screen.getByTestId('state').textContent).toBe('submitting');
-    // A repeat click while in flight is a no-op.
+    // Repeat clicks while in flight must be DROPPED, not queued — otherwise
+    // releasing the first promise would unleash a backlog of submits.
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(releases).toHaveLength(1);
     await act(async () => {
-      releaseSubmit?.();
+      releases[0]();
     });
+    expect(screen.getByTestId('state').textContent).toBe('idle');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      releases[1]();
+    });
+    expect(screen.getByTestId('state').textContent).toBe('idle');
+  });
+
+  it('focuses the first invalid control in document order on submit failure', () => {
+    function FocusTest() {
+      const form = useForm();
+      return (
+        <Form form={form} aria-label="settings">
+          <Field controlId="alpha" validate={() => 'Required.'}>
+            <FieldLabel>Alpha</FieldLabel>
+            <Input id="alpha" defaultValue="" />
+            <FieldError />
+          </Field>
+          <Field controlId="beta" validate={() => 'Required.'}>
+            <FieldLabel>Beta</FieldLabel>
+            <Input id="beta" defaultValue="" />
+            <FieldError />
+          </Field>
+          <button type="submit">Save</button>
+        </Form>
+      );
+    }
+    render(<FocusTest />);
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(document.activeElement).toBe(screen.getByLabelText('Alpha'));
+  });
+
+  it('still settles isSubmitting when the onSubmit promise rejects', async () => {
+    const onSubmit = vi.fn(() => Promise.reject(new Error('boom')));
+    function Inner() {
+      const signals = useFormSignals();
+      return (
+        <span data-testid="state">
+          {signals?.isSubmitting ? 'submitting' : 'idle'}
+        </span>
+      );
+    }
+    function App() {
+      const form = useForm();
+      return (
+        <Form form={form} onSubmit={onSubmit} aria-label="settings">
+          <Inner />
+          <button type="submit">Save</button>
+        </Form>
+      );
+    }
+    render(<App />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('state').textContent).toBe('idle');
   });
 

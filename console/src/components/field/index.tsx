@@ -311,7 +311,7 @@ export function Field({
 
   return (
     <FieldContext.Provider value={ctx}>
-      {/* biome-ignore lint/a11y/useSemanticElements: this div is a layout container; the onBlur listens for bubbled focusout from descendant controls to drive touched-detection, not direct interactivity. */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: this div is a layout container; the onBlur listens for bubbled focusout from descendant controls to drive touched-detection, not direct interactivity. */}
       <div
         ref={wrapperRef}
         data-slot="field"

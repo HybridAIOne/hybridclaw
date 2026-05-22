@@ -18,10 +18,16 @@ type Draft = {
   email: string;
   ops: { healthPort: number };
   enabled: boolean;
+  consent: boolean;
 };
 
 function makeSource(): Draft {
-  return { email: '', ops: { healthPort: 0 }, enabled: false };
+  return {
+    email: '',
+    ops: { healthPort: 0 },
+    enabled: false,
+    consent: false,
+  };
 }
 
 describe('FormField + useForm({source}) — shadcn-style composition', () => {
@@ -42,15 +48,18 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
             )}
           />
           <span data-testid="dirty">{form.isDirty ? 'dirty' : 'clean'}</span>
+          <span data-testid="value">{form.draft?.email ?? '∅'}</span>
         </Form>
       );
     }
     render(<App />);
     const input = screen.getByLabelText('Email') as HTMLInputElement;
     expect(input.value).toBe('');
+    expect(screen.getByTestId('value').textContent).toBe('');
     expect(screen.getByTestId('dirty').textContent).toBe('clean');
     fireEvent.change(input, { target: { value: 'a@b.co' } });
     expect(input.value).toBe('a@b.co');
+    expect(screen.getByTestId('value').textContent).toBe('a@b.co');
     expect(screen.getByTestId('dirty').textContent).toBe('dirty');
   });
 
@@ -75,24 +84,28 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
     }
     render(<App />);
     const input = screen.getByLabelText('Email') as HTMLInputElement;
-    // Initial render: rule fails (empty string) but field is untouched.
     expect(screen.queryByText('Must look like an email.')).toBeNull();
-    // Type something invalid — the input fires `input`, which marks touched.
     fireEvent.change(input, { target: { value: 'nope' } });
     expect(screen.getByText('Must look like an email.')).toBeTruthy();
-    // Type something valid — error clears.
     fireEvent.change(input, { target: { value: 'a@b.co' } });
     expect(screen.queryByText('Must look like an email.')).toBeNull();
   });
 
-  it('auto-required adds aria-required on the control', () => {
-    function App() {
+  it('propagates required and disabled into the rendered control', () => {
+    function App({
+      required,
+      disabled,
+    }: {
+      required?: boolean;
+      disabled?: boolean;
+    }) {
       const form = useForm({ source: makeSource() });
       return (
         <Form form={form} aria-label="settings">
           <FormField
             name="email"
-            required
+            required={required}
+            disabled={disabled}
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Email</FormLabel>
@@ -103,13 +116,16 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
         </Form>
       );
     }
-    render(<App />);
-    expect(screen.getByTestId('email').getAttribute('aria-required')).toBe(
-      'true',
-    );
+    const { rerender } = render(<App required disabled />);
+    const input = screen.getByTestId('email') as HTMLInputElement;
+    expect(input.getAttribute('aria-required')).toBe('true');
+    expect(input.disabled).toBe(true);
+    rerender(<App />);
+    expect(input.getAttribute('aria-required')).toBeNull();
+    expect(input.disabled).toBe(false);
   });
 
-  it('submit-time validate-all surfaces errors on untouched FormFields', () => {
+  it('submit-time validate-all blocks invalid submits but lets valid ones through', () => {
     const onSubmit = vi.fn();
     function App() {
       const form = useForm({ source: makeSource() });
@@ -135,9 +151,14 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByText('Required.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'a@b.co' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('value-shape primitives bind via field.value + onChange', () => {
+  it('binds value-shape primitives via field.value + onChange in both directions', () => {
     function App() {
       const form = useForm({ source: makeSource() });
       return (
@@ -165,9 +186,41 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
     expect(screen.getByTestId('enabled').textContent).toBe('off');
     fireEvent.click(screen.getByTestId('switch'));
     expect(screen.getByTestId('enabled').textContent).toBe('on');
+    fireEvent.click(screen.getByTestId('switch'));
+    expect(screen.getByTestId('enabled').textContent).toBe('off');
   });
 
-  it('reset() clears the FormField error and re-syncs draft', () => {
+  it('extracts target.checked from checkbox events instead of target.value', () => {
+    function App() {
+      const form = useForm({ source: makeSource() });
+      return (
+        <Form form={form} aria-label="settings">
+          <FormField
+            name="consent"
+            render={({ field }) => (
+              <input
+                type="checkbox"
+                data-testid="consent"
+                checked={Boolean(field.value)}
+                onChange={field.onChange}
+              />
+            )}
+          />
+          <span data-testid="consent-out">
+            {form.draft?.consent ? 'yes' : 'no'}
+          </span>
+        </Form>
+      );
+    }
+    render(<App />);
+    expect(screen.getByTestId('consent-out').textContent).toBe('no');
+    fireEvent.click(screen.getByTestId('consent'));
+    expect(screen.getByTestId('consent-out').textContent).toBe('yes');
+    fireEvent.click(screen.getByTestId('consent'));
+    expect(screen.getByTestId('consent-out').textContent).toBe('no');
+  });
+
+  it('reset() clears the error AND rehydrates the draft from source', () => {
     function App() {
       const form = useForm({ source: makeSource() });
       return (
@@ -195,14 +248,62 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
           >
             Reset
           </button>
+          <span data-testid="dirty">{form.isDirty ? 'dirty' : 'clean'}</span>
+          <span data-testid="value">{form.draft?.email ?? '∅'}</span>
         </>
       );
     }
     render(<App />);
+    // First force an error so we can prove reset() clears it.
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(screen.getByText('Required.')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'edited@example.com' },
+    });
+    expect(screen.getByTestId('dirty').textContent).toBe('dirty');
+    expect(screen.getByTestId('value').textContent).toBe('edited@example.com');
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(screen.queryByText('Required.')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('');
+    expect(screen.getByTestId('dirty').textContent).toBe('clean');
+  });
+
+  it('accepts a function as children (alternative to the render prop)', () => {
+    function App() {
+      const form = useForm({ source: makeSource() });
+      return (
+        <Form form={form} aria-label="settings">
+          <FormField name="email">
+            {({ field }) => (
+              <FormItem>
+                <FormLabel>Email</FormLabel>
+                <Input data-testid="via-children" {...field} />
+              </FormItem>
+            )}
+          </FormField>
+        </Form>
+      );
+    }
+    render(<App />);
+    const input = screen.getByTestId('via-children') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'hi@example.com' } });
+    expect(input.value).toBe('hi@example.com');
+  });
+
+  it('throws when used outside <Form> with no explicit form prop', () => {
+    function Stray() {
+      return (
+        <FormField name="email" render={({ field }) => <input {...field} />} />
+      );
+    }
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    expect(() => render(<Stray />)).toThrow(
+      /FormField requires either a `form` prop/,
+    );
+    consoleError.mockRestore();
   });
 
   it('FormDescription renders alongside the field for context', () => {
