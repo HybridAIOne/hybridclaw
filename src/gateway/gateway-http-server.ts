@@ -19,6 +19,14 @@ import {
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
+import {
+  addEdge,
+  type BoardCardActor,
+  type BoardCardEdgeKind,
+  isBlocked,
+  listEdges,
+  removeEdge,
+} from '../board/card-store.js';
 import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
 import type {
@@ -3220,6 +3228,101 @@ function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
   );
 }
 
+function normalizeBoardEdgeKind(value: unknown): BoardCardEdgeKind | undefined {
+  const normalized = String(value || '').trim();
+  if (!normalized) return undefined;
+  if (
+    normalized === 'blocks' ||
+    normalized === 'blocked_by' ||
+    normalized === 'related'
+  ) {
+    return normalized;
+  }
+  throw new GatewayRequestError(400, 'Invalid board edge kind.');
+}
+
+function normalizeBoardCardId(value: unknown, field: string): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) throw new GatewayRequestError(400, `Missing \`${field}\`.`);
+  return normalized;
+}
+
+function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
+  if (value == null) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(400, '`actor` must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const system = String(record.system || '').trim();
+  const userId = String(record.userId || '').trim();
+  const agentId = String(record.agentId || '').trim();
+  const actorCount = [system, userId, agentId].filter(Boolean).length;
+  if (actorCount !== 1) {
+    throw new GatewayRequestError(
+      400,
+      '`actor` must contain exactly one of system, userId, or agentId.',
+    );
+  }
+  if (system) return { system };
+  if (userId) return { userId };
+  return { agentId };
+}
+
+async function handleApiAdminBoardEdges(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (req.method === 'GET') {
+    const cardId = normalizeBoardCardId(
+      url.searchParams.get('cardId'),
+      'cardId',
+    );
+    const kind = normalizeBoardEdgeKind(url.searchParams.get('kind'));
+    sendJson(res, 200, { edges: listEdges(cardId, kind) });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const fromCardId = normalizeBoardCardId(body.fromCardId, 'fromCardId');
+    const toCardId = normalizeBoardCardId(body.toCardId, 'toCardId');
+    const kind = normalizeBoardEdgeKind(body.kind);
+    if (!kind) throw new GatewayRequestError(400, 'Missing `kind`.');
+    sendJson(res, 200, {
+      edge: addEdge(fromCardId, toCardId, kind, {
+        actor: normalizeBoardEdgeActor(body.actor),
+        sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+        runId: typeof body.runId === 'string' ? body.runId : null,
+      }),
+    });
+    return;
+  }
+
+  if (req.method === 'DELETE') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const id = normalizeBoardCardId(
+      body.id ?? url.searchParams.get('id'),
+      'id',
+    );
+    sendJson(res, 200, {
+      edge: removeEdge(id, {
+        actor: normalizeBoardEdgeActor(body.actor),
+        sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+        runId: typeof body.runId === 'string' ? body.runId : null,
+      }),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+function handleApiAdminBoardBlocked(res: ServerResponse, url: URL): void {
+  const cardId = normalizeBoardCardId(url.searchParams.get('cardId'), 'cardId');
+  sendJson(res, 200, { cardId, blocked: isBlocked(cardId) });
+}
+
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
   const channelId = (url.searchParams.get('channelId') || '').trim();
   if (!channelId) {
@@ -5854,6 +5957,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/board/budgets' && method === 'GET') {
             handleApiAdminBoardBudgets(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/board/edges' &&
+            (method === 'GET' || method === 'POST' || method === 'DELETE')
+          ) {
+            await handleApiAdminBoardEdges(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/board/blocked' && method === 'GET') {
+            handleApiAdminBoardBlocked(res, url);
             return;
           }
           if (

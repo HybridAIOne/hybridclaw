@@ -1610,6 +1610,18 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
+  const boardEdge = {
+    id: 'edge-1',
+    fromCardId: 'card-a',
+    toCardId: 'card-b',
+    kind: 'blocks' as const,
+    createdAt: '2026-05-22T10:00:00.000Z',
+    createdBy: { userId: 'user_a' },
+  };
+  const addEdge = vi.fn(() => boardEdge);
+  const removeEdge = vi.fn(() => boardEdge);
+  const listEdges = vi.fn(() => [boardEdge]);
+  const isBlocked = vi.fn(() => true);
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
@@ -1713,6 +1725,12 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/board/budget-chip.js', () => ({
     getBoardBudgetSummaries,
+  }));
+  vi.doMock('../src/board/card-store.js', () => ({
+    addEdge,
+    isBlocked,
+    listEdges,
+    removeEdge,
   }));
   vi.doMock('../src/agent/executor.js', () => ({
     stopSessionExecution,
@@ -1893,6 +1911,10 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
     getBoardBudgetSummaries,
+    addEdge,
+    removeEdge,
+    listEdges,
+    isBlocked,
     getGatewayAdminTools,
     startTerminalSession,
     stopTerminalSession,
@@ -5793,6 +5815,85 @@ describe('gateway HTTP server', () => {
           percent: 5.666,
         },
       ],
+    });
+  });
+
+  test('exposes board edge mutation and query APIs', async () => {
+    const state = await importFreshHealth();
+    const createReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/board/edges',
+      body: {
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'blocks',
+        actor: { userId: 'user_a' },
+        sessionId: 'board-session',
+        runId: 'board-run',
+      },
+    });
+    const createRes = makeResponse();
+
+    state.handler(createReq as never, createRes as never);
+    await settle();
+
+    expect(state.addEdge).toHaveBeenCalledWith('card-a', 'card-b', 'blocks', {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-session',
+      runId: 'board-run',
+    });
+    expect(createRes.statusCode).toBe(200);
+    expect(JSON.parse(createRes.body)).toMatchObject({
+      edge: {
+        id: 'edge-1',
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'blocks',
+      },
+    });
+
+    const listReq = makeRequest({
+      url: '/api/admin/board/edges?cardId=card-b&kind=blocked_by',
+    });
+    const listRes = makeResponse();
+    state.handler(listReq as never, listRes as never);
+    await settle();
+    expect(state.listEdges).toHaveBeenCalledWith('card-b', 'blocked_by');
+    expect(JSON.parse(listRes.body)).toMatchObject({
+      edges: [{ id: 'edge-1' }],
+    });
+
+    const blockedReq = makeRequest({
+      url: '/api/admin/board/blocked?cardId=card-b',
+    });
+    const blockedRes = makeResponse();
+    state.handler(blockedReq as never, blockedRes as never);
+    await settle();
+    expect(state.isBlocked).toHaveBeenCalledWith('card-b');
+    expect(JSON.parse(blockedRes.body)).toEqual({
+      cardId: 'card-b',
+      blocked: true,
+    });
+
+    const deleteReq = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/board/edges?id=edge-1',
+      body: {
+        actor: { userId: 'user_a' },
+        sessionId: 'board-session',
+        runId: 'board-run',
+      },
+    });
+    const deleteRes = makeResponse();
+    state.handler(deleteReq as never, deleteRes as never);
+    await settle();
+    expect(state.removeEdge).toHaveBeenCalledWith('edge-1', {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-session',
+      runId: 'board-run',
+    });
+    expect(JSON.parse(deleteRes.body)).toMatchObject({
+      edge: { id: 'edge-1' },
     });
   });
 
