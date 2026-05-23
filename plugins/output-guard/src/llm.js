@@ -1,4 +1,4 @@
-const OUTPUT_GUARD_MODEL_TIMEOUT_MS = 60_000;
+const OUTPUT_GUARD_MODEL_TIMEOUT_MS = 300_000;
 const MODEL_PROVIDER_PREFIXES = [
   'openai-codex',
   'anthropic',

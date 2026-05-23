@@ -479,7 +479,7 @@ test('output guard defaults rewrite mode to the default model', async () => {
     expect.objectContaining({
       provider: 'vllm',
       model: 'vllm/Qwen/Qwen3.6-27B-FP8',
-      timeoutMs: 60_000,
+      timeoutMs: 300_000,
     }),
   );
 });

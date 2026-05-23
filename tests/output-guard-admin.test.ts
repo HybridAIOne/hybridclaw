@@ -412,7 +412,7 @@ describe('output guard admin API helpers', () => {
         provider: 'vllm',
         model: 'vllm/Qwen/Qwen3.6-27B-FP8',
         fallbackModel: 'vllm/Qwen/Qwen3.6-27B-FP8',
-        timeoutMs: 60_000,
+        timeoutMs: 300_000,
       }),
     );
   });
