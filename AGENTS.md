@@ -212,6 +212,9 @@ npm run tui                          # tsx src/cli.ts tui
   task requires wider movement.
 - Match the existing TypeScript + ESM patterns in the touched area.
 - Update tests and docs when behavior, commands, or repo workflows change.
+- When implementing a new feature, ask before keeping any compatibility shim,
+  migration fallback, legacy alias, or feature flag solely for backward
+  compatibility.
 - Do not rename or relocate files in `templates/` without updating
   `src/workspace.ts` and the workspace bootstrap tests.
 - Do not mix container and gateway changes in one commit unless they are
