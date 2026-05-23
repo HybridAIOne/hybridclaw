@@ -46,6 +46,10 @@ function stripQuotes(value: string): string {
   if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
     return value.slice(1, -1);
   }
+  // Tolerate an unterminated leading quote (user mid-typing a quoted value).
+  if (value.startsWith('"')) {
+    return value.slice(1);
+  }
   return value;
 }
 

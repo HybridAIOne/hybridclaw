@@ -8,10 +8,14 @@ type FetchAuditParams = {
   query?: string;
   sessionId?: string;
   eventType?: string;
+  since?: string;
+  cursor?: number;
   limit?: number;
 };
 const fetchAuditMock =
-  vi.fn<(token: string, params: FetchAuditParams) => Promise<AdminAuditResponse>>();
+  vi.fn<
+    (token: string, params: FetchAuditParams) => Promise<AdminAuditResponse>
+  >();
 const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 
@@ -50,13 +54,19 @@ function makeEntry(overrides: Partial<AdminAuditEntry> = {}): AdminAuditEntry {
   };
 }
 
-function makeResponse(entries: AdminAuditEntry[]): AdminAuditResponse {
+function makeResponse(
+  entries: AdminAuditEntry[],
+  nextCursor: number | null = null,
+): AdminAuditResponse {
   return {
     query: '',
     sessionId: '',
     eventType: '',
+    since: null,
+    until: null,
     limit: 200,
     entries,
+    nextCursor,
   };
 }
 
@@ -102,12 +112,15 @@ describe('AuditPage', () => {
   });
 
   it('seeds filters from the URL on mount', async () => {
-    window.history.replaceState(null, '', '/admin/audit?q=type%3Atool&range=24h');
+    window.history.replaceState(
+      null,
+      '',
+      '/admin/audit?q=type%3Atool&range=24h',
+    );
     fetchAuditMock.mockResolvedValue(makeResponse([]));
     renderWithProviders(<AuditPage />);
-    const input = await screen.findByLabelText<HTMLInputElement>(
-      'Audit search',
-    );
+    const input =
+      await screen.findByLabelText<HTMLInputElement>('Audit search');
     expect(input.value).toBe('type:tool');
     expect(
       screen.getByRole('button', { name: '24h', pressed: true }),
@@ -150,31 +163,109 @@ describe('AuditPage', () => {
     });
   });
 
-  it('filters client-side by time range and updates the URL', async () => {
-    const now = Date.now();
-    fetchAuditMock.mockResolvedValue(
-      makeResponse([
-        makeEntry({
-          id: 1,
-          timestamp: new Date(now - 30 * 60_000).toISOString(),
-        }),
-        makeEntry({
-          id: 2,
-          timestamp: new Date(now - 2 * 60 * 60_000).toISOString(),
-        }),
-      ]),
-    );
+  it('pushes the time range to the server as `since` and updates the URL', async () => {
+    fetchAuditMock.mockResolvedValue(makeResponse([]));
     renderWithProviders(<AuditPage />);
-    expect(await screen.findByText('2 events')).toBeTruthy();
+    await screen.findByText('0 events');
+    fetchAuditMock.mockClear();
+
     fireEvent.click(screen.getByRole('button', { name: '1h' }));
+
     await waitFor(() => {
-      expect(screen.getByText('1 event')).toBeTruthy();
+      const calls = fetchAuditMock.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const lastParams = calls[calls.length - 1]?.[1];
+      expect(lastParams?.since).toBeTruthy();
+      // since ≈ now − 1h; cheap sanity check that it's a sub-1h-old ISO ts.
+      expect(Date.now() - Date.parse(lastParams?.since ?? '')).toBeGreaterThan(
+        59 * 60_000,
+      );
     });
     expect(navigateMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         search: { q: undefined, range: '1h' },
       }),
     );
+  });
+
+  it('IntersectionObserver auto-fetches the next page when the sentinel enters view', async () => {
+    // Regression guard: an earlier iteration tore the observer down on every
+    // `isFetchingNextPage` flip, so the async initial IO callback never landed
+    // and auto-fetch silently never fired. This test stubs IO with a trigger
+    // we control to assert the fetch path is wired end-to-end.
+    const observerCallbacks: Array<
+      (entries: Array<{ isIntersecting: boolean }>) => void
+    > = [];
+    class StubIntersectionObserver {
+      constructor(
+        callback: (entries: Array<{ isIntersecting: boolean }>) => void,
+      ) {
+        observerCallbacks.push(callback);
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal('IntersectionObserver', StubIntersectionObserver);
+
+    try {
+      fetchAuditMock.mockResolvedValueOnce(
+        makeResponse(
+          [makeEntry({ id: 300, eventType: 'tool.call' })],
+          /* nextCursor */ 299,
+        ),
+      );
+      renderWithProviders(<AuditPage />);
+      await screen.findByText('#300');
+
+      fetchAuditMock.mockResolvedValueOnce(
+        makeResponse([makeEntry({ id: 250, eventType: 'tool.result' })], null),
+      );
+
+      // Fire the most recent observer as if the sentinel scrolled into view.
+      expect(observerCallbacks.length).toBeGreaterThan(0);
+      observerCallbacks.at(-1)?.([{ isIntersecting: true }]);
+
+      await waitFor(() => {
+        expect(screen.getByText('#250')).toBeTruthy();
+      });
+      const calls = fetchAuditMock.mock.calls;
+      expect(calls.at(-1)?.[1]).toMatchObject({ cursor: 299 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('Load more fetches the next page and appends rows', async () => {
+    fetchAuditMock.mockResolvedValueOnce(
+      makeResponse(
+        [
+          makeEntry({ id: 200, eventType: 'tool.call' }),
+          makeEntry({ id: 199, eventType: 'tool.result' }),
+        ],
+        /* nextCursor */ 199,
+      ),
+    );
+    renderWithProviders(<AuditPage />);
+    await screen.findByText('#200');
+    expect(screen.getByText('#199')).toBeTruthy();
+    expect(screen.queryByText('#150')).toBeNull();
+
+    fetchAuditMock.mockResolvedValueOnce(
+      makeResponse([makeEntry({ id: 150, eventType: 'session.start' })], null),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('#150')).toBeTruthy();
+    });
+    // First two rows still rendered; pagination appends rather than replaces.
+    expect(screen.getByText('#200')).toBeTruthy();
+    // Cursor was passed back to the server on the second call.
+    const calls = fetchAuditMock.mock.calls;
+    expect(calls[calls.length - 1]?.[1]).toMatchObject({ cursor: 199 });
+    // No more pages → button disappears.
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
   });
 
   it('category chip click writes a type: token into the search', async () => {
@@ -281,9 +372,8 @@ describe('AuditPage', () => {
   it('"/" focuses the search input from outside an input', async () => {
     fetchAuditMock.mockResolvedValue(makeResponse([]));
     renderWithProviders(<AuditPage />);
-    const input = await screen.findByLabelText<HTMLInputElement>(
-      'Audit search',
-    );
+    const input =
+      await screen.findByLabelText<HTMLInputElement>('Audit search');
     expect(document.activeElement).not.toBe(input);
     fireEvent.keyDown(window, { key: '/' });
     expect(document.activeElement).toBe(input);
@@ -292,9 +382,8 @@ describe('AuditPage', () => {
   it('"/" is ignored when typed inside an input', async () => {
     fetchAuditMock.mockResolvedValue(makeResponse([]));
     renderWithProviders(<AuditPage />);
-    const input = await screen.findByLabelText<HTMLInputElement>(
-      'Audit search',
-    );
+    const input =
+      await screen.findByLabelText<HTMLInputElement>('Audit search');
     // Focus another input-like element so the shortcut would normally fire.
     // Use a separate input we add ad-hoc.
     const probe = document.createElement('input');

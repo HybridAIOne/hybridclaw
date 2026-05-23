@@ -439,6 +439,41 @@
   font-size: 0.875rem;
 }
 
+.loadMoreRow {
+  display: flex;
+  justify-content: center;
+  padding: 16px 24px 24px;
+}
+
+.loadMore {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--foreground);
+  border-radius: 8px;
+  padding: 8px 18px;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition:
+    background-color 80ms ease,
+    border-color 80ms ease;
+}
+
+.loadMore:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+.loadMore:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.loadMore:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
 /* Sheet drawer */
 .sheet {
   --sheet-width: min(560px, 100vw);

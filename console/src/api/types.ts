@@ -1198,8 +1198,12 @@ export interface AdminAuditResponse {
   query: string;
   sessionId: string;
   eventType: string;
+  since: string | null;
+  until: string | null;
   limit: number;
   entries: AdminAuditEntry[];
+  /** Opaque cursor for the next page; pass back as `cursor=`. null on the last page. */
+  nextCursor: number | null;
 }
 
 export interface AdminA2AIdentity {

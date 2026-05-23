@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import {
-  type KeyboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -22,22 +22,24 @@ import {
 } from '../components/sheet';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
+import { isOneOf } from '../lib/oneof';
 import styles from './audit.module.css';
 import {
   CATEGORIES,
   type Category,
   categorize,
-  KNOWN_CATEGORIES,
+  rangeToSince,
   readRange,
   TIME_RANGES,
   type TimeRange,
-  withinRange,
 } from './audit-filters';
 import {
   parseAuditSearch,
   removeAuditField,
   setAuditField,
 } from './audit-search';
+
+const PAGE_SIZE = 200;
 
 function prettifyPayload(raw: string): string {
   try {
@@ -63,6 +65,7 @@ export function AuditPage() {
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const lastSyncedQ = useRef<string | undefined>(search.q);
   const lastSyncedRange = useRef<string | undefined>(search.range);
 
@@ -110,7 +113,7 @@ export function AuditPage() {
 
   // Global `/` shortcut to focus the search input.
   useEffect(() => {
-    function handler(event: globalThis.KeyboardEvent): void {
+    function handler(event: KeyboardEvent): void {
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) {
         return;
       }
@@ -127,32 +130,67 @@ export function AuditPage() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const auditQuery = useQuery({
+  // Cutoff is computed at render time and baked into the queryKey below.
+  // For an idle admin page this is fine; any user interaction (filter
+  // change, scroll-triggered fetchNextPage) re-renders and refreshes it.
+  const since = useMemo(() => rangeToSince(range), [range]);
+
+  const auditQuery = useInfiniteQuery({
     queryKey: [
       'audit',
       auth.token,
       deferredQuery,
       deferredSessionId,
       deferredEventType,
+      since,
     ],
-    queryFn: () =>
+    initialPageParam: undefined as number | undefined,
+    queryFn: ({ pageParam }) =>
       fetchAudit(auth.token, {
         query: deferredQuery,
         sessionId: deferredSessionId,
         eventType: deferredEventType,
-        limit: 200,
+        since,
+        cursor: pageParam,
+        limit: PAGE_SIZE,
       }),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
 
-  const entries = useMemo(() => {
-    const data = auditQuery.data?.entries ?? [];
-    return data.filter((entry) => withinRange(entry.timestamp, range));
-  }, [auditQuery.data, range]);
+  // Auto-fetch the next page when the sentinel near the bottom enters view.
+  // The Load more button remains as the keyboard/screen-reader fallback and
+  // as the visible loading indicator while a fetch is in flight.
+  //
+  // Only `hasNextPage` is in the deps: re-attaching the observer on every
+  // `isFetchingNextPage` flip would tear it down before the async initial
+  // callback ever landed, silently breaking auto-fetch. The callback reads
+  // the latest state via a ref instead.
+  const auditQueryRef = useRef(auditQuery);
+  auditQueryRef.current = auditQuery;
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel || !auditQuery.hasNextPage) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const q = auditQueryRef.current;
+        if (entry?.isIntersecting && q.hasNextPage && !q.isFetchingNextPage) {
+          void q.fetchNextPage();
+        }
+      },
+      { rootMargin: '400px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [auditQuery.hasNextPage]);
+
+  const entries = useMemo<AdminAuditEntry[]>(
+    () => auditQuery.data?.pages.flatMap((page) => page.entries) ?? [],
+    [auditQuery.data],
+  );
 
   const activeCategory: Category | null = useMemo(() => {
     const v = parsed.eventType;
-    if (v && KNOWN_CATEGORIES.has(v)) return v as Category;
-    return null;
+    return v && isOneOf(CATEGORIES, v) ? v : null;
   }, [parsed.eventType]);
 
   const hasAnyFilter = Boolean(
@@ -165,7 +203,7 @@ export function AuditPage() {
   }
 
   function handleRowKeyDown(
-    event: KeyboardEvent<HTMLTableRowElement>,
+    event: ReactKeyboardEvent<HTMLTableRowElement>,
     entry: AdminAuditEntry,
   ): void {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -405,6 +443,20 @@ export function AuditPage() {
               : 'No audit entries match these filters.'}
           </div>
         ) : null}
+        {auditQuery.hasNextPage ? (
+          <div ref={loadMoreRef} className={styles.loadMoreRow}>
+            <button
+              type="button"
+              className={styles.loadMore}
+              onClick={() => {
+                void auditQuery.fetchNextPage();
+              }}
+              disabled={auditQuery.isFetchingNextPage}
+            >
+              {auditQuery.isFetchingNextPage ? 'Loading…' : 'Load more'}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
@@ -416,56 +468,76 @@ export function AuditPage() {
                 : 'Audit event'}
             </SheetTitle>
           </SheetHeader>
+          {/*
+            `selectedEntry` is deliberately retained while the sheet animates
+            closed, and across filter changes that refetch a different result
+            set — see the "drawer body survives a filter change" regression
+            test. Clearing it on close would blank the body mid-exit-animation.
+          */}
           {selectedEntry ? (
-            <>
-              <div className={styles.sheetHeader}>
-                <div className={styles.sheetHeaderMain}>
-                  <span
-                    className={styles.eventPill}
-                    data-category={categorize(selectedEntry.eventType)}
-                  >
-                    {selectedEntry.eventType}
-                  </span>
-                  <span className={styles.sheetHeaderId}>
-                    #{selectedEntry.id} ·{' '}
-                    {formatDateTime(selectedEntry.timestamp)}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className={styles.sheetClose}
-                  aria-label="Close inspector"
-                  onClick={() => setDrawerOpen(false)}
-                >
-                  ×
-                </button>
-              </div>
-              <div className={styles.sheetBody}>
-                <dl className={styles.sheetMeta}>
-                  <dt>Session</dt>
-                  <dd>{selectedEntry.sessionId}</dd>
-                  <dt>Run ID</dt>
-                  <dd>{selectedEntry.runId}</dd>
-                  <dt>Parent run</dt>
-                  <dd>{selectedEntry.parentRunId || '—'}</dd>
-                  <dt>Seq</dt>
-                  <dd>{selectedEntry.seq}</dd>
-                  <dt>Timestamp</dt>
-                  <dd>{formatDateTime(selectedEntry.timestamp)}</dd>
-                </dl>
-                <section className={styles.payloadSection}>
-                  <div className={styles.payloadHeader}>
-                    <span>Payload</span>
-                  </div>
-                  <pre className={styles.payloadBlock}>
-                    {prettifyPayload(selectedEntry.payload)}
-                  </pre>
-                </section>
-              </div>
-            </>
+            <AuditInspector
+              entry={selectedEntry}
+              onClose={() => setDrawerOpen(false)}
+            />
           ) : null}
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+function AuditInspector({
+  entry,
+  onClose,
+}: {
+  entry: AdminAuditEntry;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className={styles.sheetHeader}>
+        <div className={styles.sheetHeaderMain}>
+          <span
+            className={styles.eventPill}
+            data-category={categorize(entry.eventType)}
+          >
+            {entry.eventType}
+          </span>
+          <span className={styles.sheetHeaderId}>
+            #{entry.id} · {formatDateTime(entry.timestamp)}
+          </span>
+        </div>
+        <button
+          type="button"
+          className={styles.sheetClose}
+          aria-label="Close inspector"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <div className={styles.sheetBody}>
+        <dl className={styles.sheetMeta}>
+          <dt>Session</dt>
+          <dd>{entry.sessionId}</dd>
+          <dt>Run ID</dt>
+          <dd>{entry.runId}</dd>
+          <dt>Parent run</dt>
+          <dd>{entry.parentRunId || '—'}</dd>
+          <dt>Seq</dt>
+          <dd>{entry.seq}</dd>
+          <dt>Timestamp</dt>
+          <dd>{formatDateTime(entry.timestamp)}</dd>
+        </dl>
+        <section className={styles.payloadSection}>
+          <div className={styles.payloadHeader}>
+            <span>Payload</span>
+          </div>
+          <pre className={styles.payloadBlock}>
+            {prettifyPayload(entry.payload)}
+          </pre>
+        </section>
+      </div>
+    </>
   );
 }

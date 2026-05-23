@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { categorize, readRange, withinRange } from './audit-filters';
+import { categorize, rangeToSince, readRange } from './audit-filters';
 
 describe('categorize', () => {
   it('returns the dot-prefix for a known category', () => {
@@ -19,31 +19,23 @@ describe('categorize', () => {
   });
 });
 
-describe('withinRange', () => {
-  const now = Date.parse('2026-05-23T12:00:00Z');
+describe('rangeToSince', () => {
+  const now = Date.parse('2026-05-23T12:00:00.000Z');
 
-  it("includes everything when range is 'all'", () => {
-    expect(withinRange('1990-01-01T00:00:00Z', 'all', now)).toBe(true);
-    expect(withinRange('not-a-date', 'all', now)).toBe(true);
+  it("returns undefined when range is 'all'", () => {
+    expect(rangeToSince('all', now)).toBeUndefined();
   });
 
-  it('includes timestamps within the last hour', () => {
-    expect(withinRange('2026-05-23T11:30:00Z', '1h', now)).toBe(true);
-    expect(withinRange('2026-05-23T10:59:59Z', '1h', now)).toBe(false);
+  it('subtracts one hour for `1h`', () => {
+    expect(rangeToSince('1h', now)).toBe('2026-05-23T11:00:00.000Z');
   });
 
-  it('includes timestamps within 24 hours', () => {
-    expect(withinRange('2026-05-22T12:00:01Z', '24h', now)).toBe(true);
-    expect(withinRange('2026-05-22T11:59:59Z', '24h', now)).toBe(false);
+  it('subtracts 24 hours for `24h`', () => {
+    expect(rangeToSince('24h', now)).toBe('2026-05-22T12:00:00.000Z');
   });
 
-  it('includes timestamps within 7 days', () => {
-    expect(withinRange('2026-05-16T12:00:00Z', '7d', now)).toBe(true);
-    expect(withinRange('2026-05-15T23:59:59Z', '7d', now)).toBe(false);
-  });
-
-  it('excludes unparsable timestamps when range is set', () => {
-    expect(withinRange('not-a-date', '24h', now)).toBe(false);
+  it('subtracts 7 days for `7d`', () => {
+    expect(rangeToSince('7d', now)).toBe('2026-05-16T12:00:00.000Z');
   });
 });
 

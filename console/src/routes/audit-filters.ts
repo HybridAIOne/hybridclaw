@@ -38,18 +38,15 @@ export function categorize(eventType: string): Category | 'default' {
 }
 
 /**
- * Whether `timestamp` falls within the last N milliseconds for the given
- * range. `'all'` always returns true. Invalid timestamps are excluded.
+ * Convert a time-range pill into a `since` cutoff (ISO string) suitable for
+ * the audit API's `since=` param. `'all'` returns undefined (no cutoff).
  */
-export function withinRange(
-  timestamp: string,
+export function rangeToSince(
   range: TimeRange,
   now: number = Date.now(),
-): boolean {
-  if (range === 'all') return true;
-  const cutoff = now - RANGE_TO_MS[range];
-  const ts = Date.parse(timestamp);
-  return Number.isFinite(ts) && ts >= cutoff;
+): string | undefined {
+  if (range === 'all') return undefined;
+  return new Date(now - RANGE_TO_MS[range]).toISOString();
 }
 
 /** Validate a raw URL `range` param; fall back to 'all'. */

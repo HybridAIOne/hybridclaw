@@ -61,6 +61,34 @@ describe('parseAuditSearch', () => {
       query: '',
     });
   });
+
+  it('treats an empty field value as "clear this filter"', () => {
+    // Pins UX: typing `type:` on its own erases any prior `type:` token
+    // rather than searching for the literal string "type:".
+    expect(parseAuditSearch('type:tool type:')).toEqual({
+      sessionId: '',
+      eventType: '',
+      query: '',
+    });
+  });
+
+  it('tolerates an unterminated leading quote on a field value', () => {
+    // Mid-type state: `session:"web` should still produce a usable
+    // sessionId rather than leaking the stray `"` to the API.
+    expect(parseAuditSearch('session:"web')).toEqual({
+      sessionId: 'web',
+      eventType: '',
+      query: '',
+    });
+  });
+
+  it('tolerates an unterminated leading quote on free text', () => {
+    expect(parseAuditSearch('"hello')).toEqual({
+      sessionId: '',
+      eventType: '',
+      query: 'hello',
+    });
+  });
 });
 
 describe('removeAuditField', () => {
