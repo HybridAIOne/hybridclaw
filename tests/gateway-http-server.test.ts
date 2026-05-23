@@ -1614,6 +1614,7 @@ async function importFreshHealth(options?: {
   }));
   const getGatewayAdminJobsContext = vi.fn(() => ({
     agents: [{ id: 'main', name: 'Main Agent' }],
+    cards: [],
     sessions: [
       {
         sessionId: 'scheduler:job-1',
@@ -6062,6 +6063,7 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       agents: [{ id: 'main', name: 'Main Agent' }],
+      cards: [],
       sessions: [
         {
           sessionId: 'scheduler:job-1',

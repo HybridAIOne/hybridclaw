@@ -808,8 +808,46 @@ export interface GatewayAdminJobSession {
 
 export interface GatewayAdminJobsContextResponse {
   agents: GatewayAdminJobAgent[];
+  cards: GatewayAdminJobCard[];
   sessions: GatewayAdminJobSession[];
   suspendedSessions: GatewayAdminSuspendedSession[];
+}
+
+export interface GatewayAdminJobCardOwner {
+  type: 'agent' | 'user';
+  id: string;
+}
+
+export type GatewayAdminJobCardColumn =
+  | 'triage'
+  | 'todo'
+  | 'in_progress'
+  | 'in_review'
+  | 'done';
+
+export type GatewayAdminJobCardEdgeKind = 'blocks' | 'blocked_by' | 'related';
+
+export interface GatewayAdminJobCardEdge {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  kind: GatewayAdminJobCardEdgeKind;
+  createdAt: string;
+}
+
+export interface GatewayAdminJobCard {
+  id: string;
+  title: string;
+  body: string;
+  owner: GatewayAdminJobCardOwner;
+  column: GatewayAdminJobCardColumn;
+  status: string;
+  source: string;
+  parent: string | null;
+  createdAt: string;
+  updatedAt: string;
+  blocked: boolean;
+  edges: GatewayAdminJobCardEdge[];
 }
 
 export interface GatewayAdminBoardBudgetSummary {

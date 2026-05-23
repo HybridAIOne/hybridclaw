@@ -1157,8 +1157,44 @@ export interface JobSession {
 
 export interface AdminJobsContextResponse {
   agents: JobAgent[];
+  cards: AdminJobCard[];
   sessions: JobSession[];
   suspendedSessions: AdminSuspendedSession[];
+}
+
+export type AdminJobCardColumn =
+  | 'triage'
+  | 'todo'
+  | 'in_progress'
+  | 'in_review'
+  | 'done';
+
+export type AdminJobCardEdgeKind = 'blocks' | 'blocked_by' | 'related';
+
+export interface AdminJobCardEdge {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  kind: AdminJobCardEdgeKind;
+  createdAt: string;
+}
+
+export interface AdminJobCard {
+  id: string;
+  title: string;
+  body: string;
+  owner: {
+    type: 'agent' | 'user';
+    id: string;
+  };
+  column: AdminJobCardColumn;
+  status: string;
+  source: string;
+  parent: string | null;
+  createdAt: string;
+  updatedAt: string;
+  blocked: boolean;
+  edges: AdminJobCardEdge[];
 }
 
 export type AdminBoardBudgetCurrency = 'USD' | 'EUR';
