@@ -7,7 +7,7 @@ import {
 } from '../config/runtime-config.js';
 import { listRuntimeConfigRevisions } from '../config/runtime-config-revisions.js';
 import { logger } from '../logger.js';
-import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { reloadPluginRuntime } from './gateway-plugin-service.js';
 import type {
   GatewayAdminBrandVoiceClassifierConfig,
@@ -23,10 +23,9 @@ import type {
 const BRAND_VOICE_PLUGIN_ID = 'brand-voice';
 const SUPPORTED_MODES = ['block', 'rewrite', 'flag'] as const;
 const SUPPORTED_CLASSIFIER_PROVIDERS = [
-  'none',
-  'anthropic',
-  'openai',
-  'openai-compat',
+  'rules',
+  'default',
+  'auxiliary',
 ] as const;
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'] as const;
 const BRAND_VOICE_REVISION_ROUTE = 'api.admin.brand-voice.profile';
@@ -47,11 +46,6 @@ type BrandVoiceFailureMode = (typeof SUPPORTED_FAILURE_MODES)[number];
 
 interface BrandVoiceModelClientConfig {
   provider: BrandVoiceClassifierProvider;
-  model?: string;
-  baseUrl?: string;
-  apiKeyEnv?: string;
-  timeoutMs: number;
-  maxRetries: number;
 }
 
 interface BrandVoicePreviewRuntimeConfig
@@ -115,7 +109,7 @@ function normalizeClassifierProvider(
     normalized as BrandVoiceClassifierProvider,
   )
     ? (normalized as BrandVoiceClassifierProvider)
-    : 'none';
+    : 'rules';
 }
 
 function normalizeFailureMode(value: unknown): BrandVoiceFailureMode {
@@ -125,33 +119,9 @@ function normalizeFailureMode(value: unknown): BrandVoiceFailureMode {
     : 'allow';
 }
 
-function normalizeNumber(
-  value: unknown,
-  fallback: number,
-  range: { min: number; max: number },
-): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.max(range.min, Math.min(range.max, value));
-}
-
-function defaultApiKeyEnv(provider: BrandVoiceClassifierProvider): string {
-  if (provider === 'anthropic') return 'ANTHROPIC_API_KEY';
-  if (provider === 'openai') return 'OPENAI_API_KEY';
-  return 'BRAND_VOICE_API_KEY';
-}
-
-function defaultBaseUrl(provider: BrandVoiceClassifierProvider): string {
-  if (provider === 'anthropic') return 'https://api.anthropic.com';
-  if (provider === 'openai') return 'https://api.openai.com/v1';
-  return '';
-}
-
 function defaultClassifierConfig(): GatewayAdminBrandVoiceClassifierConfig {
   return {
-    provider: 'none',
-    model: '',
-    baseUrl: '',
-    apiKeyEnv: '',
+    provider: 'rules',
   };
 }
 
@@ -160,45 +130,16 @@ function normalizeClassifierConfig(
 ): BrandVoiceModelClientConfig {
   const raw = isRecord(value) ? value : {};
   const provider = normalizeClassifierProvider(raw.provider);
-  if (provider === 'none') {
-    return {
-      provider,
-      timeoutMs: 8000,
-      maxRetries: 1,
-    };
-  }
-  const model = normalizeString(raw.model);
-  if (!model) {
-    throw new Error(
-      `Brand voice classifier provider is "${provider}" but classifier.model is empty.`,
-    );
-  }
-  return {
-    provider,
-    model,
-    baseUrl: normalizeString(raw.baseUrl) || defaultBaseUrl(provider),
-    apiKeyEnv: normalizeString(raw.apiKeyEnv) || defaultApiKeyEnv(provider),
-    timeoutMs: normalizeNumber(raw.timeoutMs, 8000, {
-      min: 1000,
-      max: 60_000,
-    }),
-    maxRetries: normalizeNumber(raw.maxRetries, 1, { min: 0, max: 3 }),
-  };
+  return { provider };
 }
 
 function normalizeProfileClassifier(
   value: unknown,
-  fallback: GatewayAdminBrandVoiceClassifierConfig = defaultClassifierConfig(),
 ): GatewayAdminBrandVoiceClassifierConfig {
-  if (value === undefined) return fallback;
+  if (value === undefined) return defaultClassifierConfig();
   const raw = isRecord(value) ? value : {};
   const provider = normalizeClassifierProvider(raw.provider);
-  return {
-    provider,
-    model: provider === 'none' ? '' : normalizeString(raw.model),
-    baseUrl: provider === 'none' ? '' : normalizeString(raw.baseUrl),
-    apiKeyEnv: provider === 'none' ? '' : normalizeString(raw.apiKeyEnv),
-  };
+  return { provider };
 }
 
 function runtimeClassifierToProfile(
@@ -206,18 +147,7 @@ function runtimeClassifierToProfile(
 ): GatewayAdminBrandVoiceClassifierConfig {
   const raw = isRecord(value) ? value : {};
   const provider = normalizeClassifierProvider(raw.provider);
-  return {
-    provider,
-    model: provider === 'none' ? '' : normalizeString(raw.model),
-    baseUrl:
-      provider === 'none'
-        ? ''
-        : normalizeString(raw.baseUrl) || defaultBaseUrl(provider),
-    apiKeyEnv:
-      provider === 'none'
-        ? ''
-        : normalizeString(raw.apiKeyEnv) || defaultApiKeyEnv(provider),
-  };
+  return { provider };
 }
 
 function findBrandVoiceEntry(
@@ -253,10 +183,7 @@ function profileFromEntry(
   };
 }
 
-function normalizeProfile(
-  value: unknown,
-  fallback?: GatewayAdminBrandVoiceProfile,
-): GatewayAdminBrandVoiceProfile {
+function normalizeProfile(value: unknown): GatewayAdminBrandVoiceProfile {
   const raw = isRecord(value) ? value : {};
   return {
     enabled: raw.enabled !== false,
@@ -270,10 +197,7 @@ function normalizeProfile(
       raw.requirePhrases,
       'Required phrases',
     ),
-    classifier: normalizeProfileClassifier(
-      raw.classifier,
-      fallback?.classifier,
-    ),
+    classifier: normalizeProfileClassifier(raw.classifier),
   };
 }
 
@@ -329,27 +253,18 @@ function applyProfileToConfig(
     bannedPhrases: profile.bannedPhrases,
     bannedPatterns: profile.bannedPatterns,
     requirePhrases: profile.requirePhrases,
-    classifier: buildRuntimeClassifierConfig(
-      profile.classifier,
-      existingConfig.classifier,
-    ),
+    classifier: buildRuntimeClassifierConfig(profile.classifier),
   };
 }
 
 function buildRuntimeClassifierConfig(
   classifier: GatewayAdminBrandVoiceClassifierConfig,
-  existing: unknown,
 ): Record<string, unknown> {
-  if (classifier.provider === 'none') {
-    return { provider: 'none' };
+  if (classifier.provider === 'rules') {
+    return { provider: 'rules' };
   }
-  const existingConfig = isRecord(existing) ? existing : {};
   return {
-    ...existingConfig,
     provider: classifier.provider,
-    model: classifier.model,
-    baseUrl: classifier.baseUrl,
-    apiKeyEnv: classifier.apiKeyEnv,
   };
 }
 
@@ -363,7 +278,7 @@ function buildPreviewRuntimeConfig(
     ...profile,
     failureMode: normalizeFailureMode(pluginConfig.failureMode),
     classifier: normalizeClassifierConfig(
-      buildRuntimeClassifierConfig(profile.classifier, pluginConfig.classifier),
+      buildRuntimeClassifierConfig(profile.classifier),
     ),
   };
 }
@@ -431,14 +346,6 @@ function assertValidBannedPatterns(
   if (invalidPatterns.length === 0) return;
   throw new Error(
     `Invalid banned pattern${invalidPatterns.length === 1 ? '' : 's'}: ${invalidPatterns.join(', ')}`,
-  );
-}
-
-function assertValidClassifier(profile: GatewayAdminBrandVoiceProfile): void {
-  if (profile.classifier.provider === 'none') return;
-  if (profile.classifier.model) return;
-  throw new Error(
-    `Brand voice classifier provider is "${profile.classifier.provider}" but classifier model is empty.`,
   );
 }
 
@@ -515,82 +422,14 @@ function buildClassifierPrompt(
   return sections.join('\n\n');
 }
 
-function getCredentialValue(name: string | undefined): string {
-  const key = normalizeString(name);
-  if (!key) return '';
-  const envValue = process.env[key];
-  if (typeof envValue === 'string' && envValue.trim()) {
-    return envValue.trim();
-  }
-  return readStoredRuntimeSecret(key)?.trim() || '';
-}
-
-async function fetchJsonWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<unknown> {
-  const signal = AbortSignal.timeout(timeoutMs);
-  const response = await fetch(url, { ...init, signal });
-  const bodyText = await response.text();
-  if (!response.ok) {
-    throw new Error(
-      `brand-voice classifier returned ${response.status}: ${bodyText.slice(0, 400)}`,
-    );
-  }
-  if (!bodyText) return {};
-  try {
-    return JSON.parse(bodyText) as unknown;
-  } catch (error) {
-    throw new Error(
-      `brand-voice classifier returned invalid JSON: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-}
-
-function extractAnthropicText(payload: unknown): string {
-  if (!isRecord(payload) || !Array.isArray(payload.content)) return '';
-  return payload.content
-    .map((block) =>
-      isRecord(block) && typeof block.text === 'string' ? block.text : '',
-    )
-    .filter(Boolean)
-    .join('\n')
-    .trim();
-}
-
-function extractOpenAIText(payload: unknown): string {
-  if (!isRecord(payload) || !Array.isArray(payload.choices)) return '';
-  const choice = payload.choices[0];
-  if (!isRecord(choice) || !isRecord(choice.message)) return '';
-  const content = choice.message.content;
-  if (typeof content === 'string') return content.trim();
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((part) =>
-      isRecord(part) && typeof part.text === 'string' ? part.text : '',
-    )
-    .filter(Boolean)
-    .join('\n')
-    .trim();
-}
-
 async function callClassifierModel(
   client: BrandVoiceModelClientConfig,
   userPrompt: string,
-): Promise<string> {
-  if (client.provider === 'none') {
-    throw new Error('Brand voice classifier is not configured.');
+  fallbackModel: string,
+): Promise<{ content: string; model: string }> {
+  if (client.provider === 'rules') {
+    throw new Error('Brand voice classifier is in rules-only mode.');
   }
-  const apiKey = getCredentialValue(client.apiKeyEnv);
-  if (client.provider !== 'openai-compat' && !apiKey) {
-    throw new Error(
-      `Missing API key in ${client.apiKeyEnv} for brand voice classifier.`,
-    );
-  }
-
   const systemPrompt = [
     'You are a brand-voice compliance reviewer.',
     'You receive an assistant response and a brand voice brief.',
@@ -598,62 +437,21 @@ async function callClassifierModel(
     'Reply with a single JSON object on one line: {"verdict":"on_brand"|"off_brand","reasons":[string],"severity":"low"|"medium"|"high"}',
     'Do not include any prose outside the JSON.',
   ].join(' ');
-  const attempts = Math.max(1, client.maxRetries + 1);
-  let lastError: unknown = null;
-
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      if (client.provider === 'anthropic') {
-        const payload = await fetchJsonWithTimeout(
-          `${(client.baseUrl || defaultBaseUrl(client.provider)).replace(/\/+$/, '')}/v1/messages`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-              model: client.model,
-              max_tokens: 1024,
-              system: systemPrompt,
-              messages: [{ role: 'user', content: userPrompt }],
-            }),
-          },
-          client.timeoutMs,
-        );
-        return extractAnthropicText(payload);
-      }
-
-      const url = client.baseUrl
-        ? `${client.baseUrl.replace(/\/+$/, '')}/chat/completions`
-        : 'https://api.openai.com/v1/chat/completions';
-      const payload = await fetchJsonWithTimeout(
-        url,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-          },
-          body: JSON.stringify({
-            model: client.model,
-            max_tokens: 1024,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-          }),
-        },
-        client.timeoutMs,
-      );
-      return extractOpenAIText(payload);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError ?? new Error('Brand voice classifier call failed.');
+  const result = await callAuxiliaryModel({
+    task: 'skills_hub',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    provider: client.provider === 'default' ? 'auto' : undefined,
+    model: client.provider === 'default' ? fallbackModel : undefined,
+    fallbackModel,
+    fallbackEnableRag: false,
+    maxTokens: 1024,
+    temperature: 0,
+    timeoutMs: 8000,
+  });
+  return { content: result.content, model: result.model };
 }
 
 function parseClassifierVerdict(text: string): ClassifierVerdict | null {
@@ -701,22 +499,24 @@ async function runPreviewClassifier(
   violations: GatewayAdminBrandVoicePreviewViolation[],
 ): Promise<GatewayAdminBrandVoicePreviewClassifier> {
   const { classifier } = config;
-  if (classifier.provider === 'none') {
+  if (classifier.provider === 'rules') {
     return {
-      provider: 'none',
-      status: 'not_configured',
+      provider: 'rules',
+      status: 'rules_only',
       verdict: null,
       severity: null,
       reasons: [],
-      message: 'Classifier provider is not configured; showing rules score.',
+      message: 'Rules-only classifier; using deterministic rule score.',
+      model: null,
     };
   }
   try {
-    const raw = await callClassifierModel(
+    const result = await callClassifierModel(
       classifier,
       buildClassifierPrompt(config, sample, violations),
+      getRuntimeConfig().hybridai.defaultModel,
     );
-    const verdict = parseClassifierVerdict(raw);
+    const verdict = parseClassifierVerdict(result.content);
     if (!verdict) {
       return {
         provider: classifier.provider,
@@ -725,6 +525,7 @@ async function runPreviewClassifier(
         severity: null,
         reasons: [],
         message: 'Classifier returned a response that could not be parsed.',
+        model: result.model,
       };
     }
     return {
@@ -734,6 +535,7 @@ async function runPreviewClassifier(
       severity: verdict.severity,
       reasons: verdict.reasons,
       message: null,
+      model: result.model,
     };
   } catch (error) {
     return {
@@ -743,6 +545,7 @@ async function runPreviewClassifier(
       severity: null,
       reasons: [],
       message: error instanceof Error ? error.message : String(error),
+      model: null,
     };
   }
 }
@@ -817,12 +620,8 @@ export async function updateGatewayAdminBrandVoiceProfile(
   const previousConfig = getRuntimeConfig();
   const nextConfig = structuredClone(previousConfig);
   const previousProfile = readProfileFromConfig(previousConfig);
-  const profile = normalizeProfile(
-    isRecord(body) ? body.profile : body,
-    previousProfile,
-  );
+  const profile = normalizeProfile(isRecord(body) ? body.profile : body);
   assertValidBannedPatterns(profile);
-  assertValidClassifier(profile);
   applyProfileToConfig(nextConfig, profile);
 
   const changed = !profilesEqual(previousProfile, profile);
@@ -886,12 +685,8 @@ export async function previewGatewayAdminBrandVoiceProfile(
   const profile =
     raw.profile === undefined
       ? getGatewayAdminBrandVoiceProfile().profile
-      : normalizeProfile(
-          raw.profile,
-          getGatewayAdminBrandVoiceProfile().profile,
-        );
+      : normalizeProfile(raw.profile);
   assertValidBannedPatterns(profile);
-  assertValidClassifier(profile);
   const runtimeConfig = buildPreviewRuntimeConfig(getRuntimeConfig(), profile);
   const violations = scoreViolations(runtimeConfig, sample);
   const classifier = await runPreviewClassifier(

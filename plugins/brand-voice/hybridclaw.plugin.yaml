@@ -79,25 +79,8 @@ configSchema:
       properties:
         provider:
           type: string
-          enum: [none, anthropic, openai, openai-compat]
-          default: none
-        model:
-          type: string
-          default: ''
-        baseUrl:
-          type: string
-        apiKeyEnv:
-          type: string
-        timeoutMs:
-          type: number
-          default: 8000
-          minimum: 1000
-          maximum: 60000
-        maxRetries:
-          type: number
-          default: 1
-          minimum: 0
-          maximum: 3
+          enum: [rules, default, auxiliary]
+          default: rules
     rewriter:
       type: object
       additionalProperties: false
@@ -144,8 +127,7 @@ configUiHints:
     help: 'Examples: `dumb`, `/\\bguarantee[sd]?\\b/i`'
   requirePhrases:
     label: Phrases that must appear
-  classifier.apiKeyEnv:
-    label: Env var for classifier API key
-    placeholder: BRAND_VOICE_API_KEY
+  classifier.provider:
+    label: Classifier model source
   rewriter.apiKeyEnv:
     label: Env var for rewriter API key

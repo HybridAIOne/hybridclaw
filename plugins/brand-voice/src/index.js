@@ -31,11 +31,7 @@ export default {
           `  banned phrases: ${config.bannedPhrases.length}`,
           `  banned patterns: ${config.bannedPatterns.length}`,
           `  required phrases: ${config.requirePhrases.length}`,
-          `  classifier: ${config.classifier.provider}${
-            config.classifier.provider !== 'none'
-              ? ` (${config.classifier.model})`
-              : ''
-          }`,
+          `  classifier: ${config.classifier.provider}`,
           `  rewriter: ${config.rewriter.provider}${
             config.rewriter.provider !== 'none'
               ? ` (${config.rewriter.model})`

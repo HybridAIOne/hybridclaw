@@ -107,9 +107,29 @@ export async function callBrandVoiceModel({
   api,
   systemPrompt,
   userPrompt,
+  fallbackModel,
 }) {
-  if (client.provider === 'none') {
-    throw new Error('brand-voice: model client provider is "none"');
+  if (client.provider === 'rules' || client.provider === 'none') {
+    throw new Error(
+      `brand-voice: model client provider is "${client.provider}"`,
+    );
+  }
+  if (client.provider === 'default' || client.provider === 'auxiliary') {
+    const result = await api.callAuxiliaryModel({
+      task: 'skills_hub',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      provider: client.provider === 'default' ? 'auto' : undefined,
+      model: client.provider === 'default' ? fallbackModel : undefined,
+      fallbackModel,
+      fallbackEnableRag: false,
+      maxTokens: 1024,
+      temperature: 0,
+      timeoutMs: 8000,
+    });
+    return result.content;
   }
   const apiKey = api.getCredential(client.apiKeyEnv) || '';
   if (client.provider !== 'openai-compat' && !apiKey) {

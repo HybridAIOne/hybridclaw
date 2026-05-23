@@ -34,10 +34,7 @@ const EMPTY_PROFILE: AdminBrandVoiceProfile = {
   bannedPatterns: [],
   requirePhrases: [],
   classifier: {
-    provider: 'none',
-    model: '',
-    baseUrl: '',
-    apiKeyEnv: '',
+    provider: 'rules',
   },
 };
 
@@ -51,50 +48,12 @@ function profilesEqual(
 function classifierDefaults(
   provider: AdminBrandVoiceClassifierConfig['provider'],
 ): AdminBrandVoiceClassifierConfig {
-  if (provider === 'anthropic') {
-    return {
-      provider,
-      model: '',
-      baseUrl: 'https://api.anthropic.com',
-      apiKeyEnv: 'ANTHROPIC_API_KEY',
-    };
-  }
-  if (provider === 'openai') {
-    return {
-      provider,
-      model: '',
-      baseUrl: 'https://api.openai.com/v1',
-      apiKeyEnv: 'OPENAI_API_KEY',
-    };
-  }
-  if (provider === 'openai-compat') {
-    return {
-      provider,
-      model: '',
-      baseUrl: '',
-      apiKeyEnv: 'BRAND_VOICE_API_KEY',
-    };
-  }
-  return {
-    provider: 'none',
-    model: '',
-    baseUrl: '',
-    apiKeyEnv: '',
-  };
+  return { provider };
 }
 
 function cleanProfile(profile: AdminBrandVoiceProfile): AdminBrandVoiceProfile {
   const cleanList = (list: string[]) =>
     list.map((entry) => entry.trim()).filter(Boolean);
-  const classifier =
-    profile.classifier.provider === 'none'
-      ? classifierDefaults('none')
-      : {
-          ...profile.classifier,
-          model: profile.classifier.model.trim(),
-          baseUrl: profile.classifier.baseUrl.trim(),
-          apiKeyEnv: profile.classifier.apiKeyEnv.trim(),
-        };
   return {
     ...profile,
     voice: profile.voice.trim(),
@@ -103,7 +62,7 @@ function cleanProfile(profile: AdminBrandVoiceProfile): AdminBrandVoiceProfile {
     bannedPhrases: cleanList(profile.bannedPhrases),
     bannedPatterns: cleanList(profile.bannedPatterns),
     requirePhrases: cleanList(profile.requirePhrases),
-    classifier,
+    classifier: classifierDefaults(profile.classifier.provider),
   };
 }
 
@@ -216,10 +175,11 @@ function formatClassifierStatus(
   const { classifier } = preview;
   if (classifier.status === 'evaluated' && classifier.verdict) {
     const severity = classifier.severity ? `, ${classifier.severity}` : '';
-    return `Classifier ${classifier.provider}: ${formatVerdict(classifier.verdict)}${severity}.`;
+    const model = classifier.model ? ` via ${classifier.model}` : '';
+    return `Classifier ${classifier.provider}${model}: ${formatVerdict(classifier.verdict)}${severity}.`;
   }
-  if (classifier.status === 'not_configured') {
-    return 'Classifier not configured; showing rules score.';
+  if (classifier.status === 'rules_only') {
+    return 'Rules-only classifier; using deterministic rule score.';
   }
   if (classifier.status === 'unparseable') {
     return 'Classifier response was not parseable; showing rules score.';
@@ -346,88 +306,22 @@ export function BrandVoicePage() {
                     ariaLabel="Brand voice classifier provider"
                     value={profile.classifier.provider}
                     options={[
-                      { value: 'none', label: 'none' },
-                      { value: 'anthropic', label: 'anthropic' },
-                      { value: 'openai', label: 'openai' },
-                      { value: 'openai-compat', label: 'compatible' },
+                      { value: 'rules', label: 'rules only' },
+                      { value: 'default', label: 'default model' },
+                      { value: 'auxiliary', label: 'aux model' },
                     ]}
                     onChange={(provider) =>
                       setProfile((current) => {
                         const nextProvider =
                           provider as AdminBrandVoiceClassifierConfig['provider'];
-                        const defaults = classifierDefaults(nextProvider);
                         return {
                           ...current,
-                          classifier:
-                            nextProvider === 'none'
-                              ? defaults
-                              : {
-                                  ...defaults,
-                                  model: current.classifier.model,
-                                  baseUrl:
-                                    current.classifier.baseUrl ||
-                                    defaults.baseUrl,
-                                  apiKeyEnv:
-                                    current.classifier.apiKeyEnv ||
-                                    defaults.apiKeyEnv,
-                                },
+                          classifier: classifierDefaults(nextProvider),
                         };
                       })
                     }
                   />
                 </div>
-                {profile.classifier.provider !== 'none' ? (
-                  <>
-                    <label className="field">
-                      <span>Classifier model</span>
-                      <input
-                        value={profile.classifier.model}
-                        onChange={(event) =>
-                          setProfile((current) => ({
-                            ...current,
-                            classifier: {
-                              ...current.classifier,
-                              model: event.target.value,
-                            },
-                          }))
-                        }
-                        placeholder="gpt-4.1-mini"
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Classifier base URL</span>
-                      <input
-                        value={profile.classifier.baseUrl}
-                        onChange={(event) =>
-                          setProfile((current) => ({
-                            ...current,
-                            classifier: {
-                              ...current.classifier,
-                              baseUrl: event.target.value,
-                            },
-                          }))
-                        }
-                        placeholder="https://api.openai.com/v1"
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Classifier API key env</span>
-                      <input
-                        value={profile.classifier.apiKeyEnv}
-                        onChange={(event) =>
-                          setProfile((current) => ({
-                            ...current,
-                            classifier: {
-                              ...current.classifier,
-                              apiKeyEnv: event.target.value,
-                            },
-                          }))
-                        }
-                        placeholder="OPENAI_API_KEY"
-                      />
-                    </label>
-                  </>
-                ) : null}
                 <label className="field textarea-field">
                   <span>Voice</span>
                   <textarea

@@ -85,13 +85,14 @@ export function createBrandVoiceGuard({ api, config }) {
 
       const violations = detectRuleViolations(text, config);
       let classifierVerdict = null;
-      if (config.classifier.provider !== 'none') {
+      if (config.classifier.provider !== 'rules') {
         try {
           const raw = await callBrandVoiceModel({
             client: config.classifier,
             api,
             systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
             userPrompt: buildClassifierPrompt(context, voiceBrief, violations),
+            fallbackModel: context.model,
           });
           classifierVerdict = tryParseClassifierVerdict(raw);
           if (!classifierVerdict) {

@@ -1319,10 +1319,7 @@ export interface GatewayAdminBrandVoiceProfile {
 }
 
 export interface GatewayAdminBrandVoiceClassifierConfig {
-  provider: 'none' | 'anthropic' | 'openai' | 'openai-compat';
-  model: string;
-  baseUrl: string;
-  apiKeyEnv: string;
+  provider: 'rules' | 'default' | 'auxiliary';
 }
 
 export interface GatewayAdminBrandVoiceRevision {
@@ -1351,12 +1348,13 @@ export interface GatewayAdminBrandVoicePreviewViolation {
 }
 
 export interface GatewayAdminBrandVoicePreviewClassifier {
-  provider: 'none' | 'anthropic' | 'openai' | 'openai-compat';
-  status: 'not_configured' | 'evaluated' | 'unavailable' | 'unparseable';
+  provider: 'rules' | 'default' | 'auxiliary';
+  status: 'rules_only' | 'evaluated' | 'unavailable' | 'unparseable';
   verdict: 'on_brand' | 'off_brand' | null;
   severity: 'low' | 'medium' | 'high' | null;
   reasons: string[];
   message: string | null;
+  model: string | null;
 }
 
 export interface GatewayAdminBrandVoicePreviewResponse {

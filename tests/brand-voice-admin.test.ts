@@ -2,10 +2,14 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
 type ReloadResult = { ok: boolean; message: string };
+type AuxiliaryResult = { content: string; model: string; provider: string };
 
 async function importBrandVoiceAdmin(
   config: RuntimeConfig,
-  options: { reloadResults?: ReloadResult[] } = {},
+  options: {
+    reloadResults?: ReloadResult[];
+    auxiliaryResult?: AuxiliaryResult;
+  } = {},
 ) {
   let currentConfig = structuredClone(config);
   const saveRuntimeConfig = vi.fn((next: RuntimeConfig) => {
@@ -23,6 +27,15 @@ async function importBrandVoiceAdmin(
   );
   const loggerWarn = vi.fn();
   const loggerError = vi.fn();
+  const callAuxiliaryModel = vi.fn(
+    async () =>
+      options.auxiliaryResult ??
+      ({
+        content: '',
+        model: 'test-aux-model',
+        provider: 'hybridai',
+      } satisfies AuxiliaryResult),
+  );
 
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => structuredClone(currentConfig),
@@ -64,6 +77,9 @@ async function importBrandVoiceAdmin(
       error: loggerError,
     },
   }));
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel,
+  }));
 
   const mod = await import('../src/gateway/brand-voice-admin.ts');
   return {
@@ -71,6 +87,7 @@ async function importBrandVoiceAdmin(
     getCurrentConfig: () => currentConfig,
     loggerError,
     loggerWarn,
+    callAuxiliaryModel,
     reloadPluginRuntime,
     saveRuntimeConfig,
   };
@@ -83,6 +100,7 @@ afterEach(() => {
   vi.doUnmock('../src/config/runtime-config-revisions.js');
   vi.doUnmock('../src/gateway/gateway-plugin-service.js');
   vi.doUnmock('../src/logger.js');
+  vi.doUnmock('../src/providers/auxiliary.js');
   vi.resetModules();
 });
 
@@ -95,7 +113,7 @@ describe('brand voice admin API helpers', () => {
             id: 'brand-voice',
             enabled: true,
             config: {
-              classifier: { provider: 'none' },
+              classifier: { provider: 'rules' },
               voice: 'Plainspoken.',
               bannedPhrases: ['synergy'],
             },
@@ -127,10 +145,7 @@ describe('brand voice admin API helpers', () => {
           bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
           requirePhrases: ['Best regards'],
           classifier: {
-            provider: 'openai',
-            model: 'gpt-4.1-mini',
-            baseUrl: 'https://api.openai.com/v1',
-            apiKeyEnv: 'OPENAI_API_KEY',
+            provider: 'default',
           },
         },
       }),
@@ -143,8 +158,7 @@ describe('brand voice admin API helpers', () => {
         voice: 'Direct.',
         doList: ['Use facts'],
         classifier: {
-          provider: 'openai',
-          model: 'gpt-4.1-mini',
+          provider: 'default',
         },
       },
     });
@@ -157,10 +171,7 @@ describe('brand voice admin API helpers', () => {
         doList: ['Use facts'],
         bannedPhrases: ['game changing'],
         classifier: {
-          provider: 'openai',
-          model: 'gpt-4.1-mini',
-          baseUrl: 'https://api.openai.com/v1',
-          apiKeyEnv: 'OPENAI_API_KEY',
+          provider: 'default',
         },
       },
     });
@@ -195,53 +206,44 @@ describe('brand voice admin API helpers', () => {
         { kind: 'missing_required', detail: 'Best regards' },
       ],
       classifier: {
-        provider: 'none',
-        status: 'not_configured',
+        provider: 'rules',
+        status: 'rules_only',
         verdict: null,
       },
     });
     expect(preview).not.toHaveProperty('reasons');
   });
 
-  test('uses the configured classifier during preview when available', async () => {
-    const fetchMock = vi.fn(async () => {
-      return new Response(
-        JSON.stringify({
-          choices: [
+  test('uses the selected model runtime classifier during preview', async () => {
+    const admin = await importBrandVoiceAdmin(
+      {
+        hybridai: { defaultModel: 'hybridai/default-chat' },
+        plugins: {
+          list: [
             {
-              message: {
-                content: JSON.stringify({
-                  verdict: 'off_brand',
-                  reasons: ['Too vague for the configured voice.'],
-                  severity: 'high',
-                }),
+              id: 'brand-voice',
+              enabled: true,
+              config: {
+                classifier: {
+                  provider: 'auxiliary',
+                },
               },
             },
           ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const admin = await importBrandVoiceAdmin({
-      plugins: {
-        list: [
-          {
-            id: 'brand-voice',
-            enabled: true,
-            config: {
-              classifier: {
-                provider: 'openai-compat',
-                model: 'brand-judge',
-                baseUrl: 'http://classifier.local/v1',
-                maxRetries: 0,
-              },
-            },
-          },
-        ],
+        },
+      } as RuntimeConfig,
+      {
+        auxiliaryResult: {
+          provider: 'hybridai',
+          model: 'hybridai/aux-judge',
+          content: JSON.stringify({
+            verdict: 'off_brand',
+            reasons: ['Too vague for the configured voice.'],
+            severity: 'high',
+          }),
+        },
       },
-    } as RuntimeConfig);
+    );
 
     const preview = await admin.previewGatewayAdminBrandVoiceProfile({
       sample: 'We might have a solution that can help.',
@@ -254,6 +256,9 @@ describe('brand voice admin API helpers', () => {
         bannedPhrases: [],
         bannedPatterns: [],
         requirePhrases: [],
+        classifier: {
+          provider: 'auxiliary',
+        },
       },
     });
 
@@ -263,18 +268,64 @@ describe('brand voice admin API helpers', () => {
       scoreSource: 'classifier',
       verdict: 'off_brand',
       classifier: {
-        provider: 'openai-compat',
+        provider: 'auxiliary',
         status: 'evaluated',
         verdict: 'off_brand',
         severity: 'high',
         reasons: ['Too vague for the configured voice.'],
+        model: 'hybridai/aux-judge',
       },
     });
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://classifier.local/v1/chat/completions',
+    expect(admin.callAuxiliaryModel).toHaveBeenCalledWith(
       expect.objectContaining({
-        method: 'POST',
-        body: expect.stringContaining('Direct and concrete.'),
+        task: 'skills_hub',
+        fallbackModel: 'hybridai/default-chat',
+        model: undefined,
+      }),
+    );
+  });
+
+  test('routes the default model classifier through the active default model', async () => {
+    const admin = await importBrandVoiceAdmin(
+      {
+        hybridai: { defaultModel: 'hybridai/default-chat' },
+        plugins: { list: [] },
+      } as RuntimeConfig,
+      {
+        auxiliaryResult: {
+          provider: 'hybridai',
+          model: 'hybridai/default-chat',
+          content: JSON.stringify({
+            verdict: 'on_brand',
+            reasons: [],
+            severity: 'low',
+          }),
+        },
+      },
+    );
+
+    await admin.previewGatewayAdminBrandVoiceProfile({
+      sample: 'Concrete and plain.',
+      profile: {
+        enabled: true,
+        mode: 'rewrite',
+        voice: 'Concrete and plain.',
+        doList: [],
+        dontList: [],
+        bannedPhrases: [],
+        bannedPatterns: [],
+        requirePhrases: [],
+        classifier: {
+          provider: 'default',
+        },
+      },
+    });
+
+    expect(admin.callAuxiliaryModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'auto',
+        model: 'hybridai/default-chat',
+        fallbackModel: 'hybridai/default-chat',
       }),
     );
   });

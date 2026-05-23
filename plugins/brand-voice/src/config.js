@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const SUPPORTED_PROVIDERS = ['none', 'anthropic', 'openai', 'openai-compat'];
+const SUPPORTED_CLASSIFIER_PROVIDERS = ['rules', 'default', 'auxiliary'];
 const SUPPORTED_MODES = ['block', 'rewrite', 'flag'];
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'];
 
@@ -102,6 +103,15 @@ function resolveModelClientConfig(rawConfig, fallbackEnv, label) {
   };
 }
 
+function resolveClassifierConfig(rawConfig) {
+  const provider = ensureEnum(
+    rawConfig?.provider,
+    SUPPORTED_CLASSIFIER_PROVIDERS,
+    'rules',
+  );
+  return { provider };
+}
+
 function defaultApiKeyEnv(provider) {
   if (provider === 'anthropic') return 'ANTHROPIC_API_KEY';
   if (provider === 'openai') return 'OPENAI_API_KEY';
@@ -146,11 +156,7 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
     'Output blocked by brand-voice guard.';
   const minLength = ensureNumber(rawConfig?.minLength, 0, { min: 0 });
 
-  const classifier = resolveModelClientConfig(
-    rawConfig?.classifier,
-    { timeoutMs: 8000, maxTimeoutMs: 60000 },
-    'classifier',
-  );
+  const classifier = resolveClassifierConfig(rawConfig?.classifier);
   const rewriter = resolveModelClientConfig(
     rawConfig?.rewriter,
     { timeoutMs: 12000, maxTimeoutMs: 120000 },

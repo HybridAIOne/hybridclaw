@@ -60,10 +60,7 @@ beforeEach(() => {
       bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
       requirePhrases: ['Best regards'],
       classifier: {
-        provider: 'none',
-        model: '',
-        baseUrl: '',
-        apiKeyEnv: '',
+        provider: 'rules',
       },
     },
     revisions: [
@@ -90,10 +87,7 @@ beforeEach(() => {
       bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
       requirePhrases: ['Best regards'],
       classifier: {
-        provider: 'openai',
-        model: 'gpt-4.1-mini',
-        baseUrl: 'https://api.openai.com/v1',
-        apiKeyEnv: 'OPENAI_API_KEY',
+        provider: 'default',
       },
     },
     revisions: [],
@@ -105,12 +99,13 @@ beforeEach(() => {
     verdict: 'off_brand',
     violations: [{ kind: 'banned_phrase', detail: 'game changing' }],
     classifier: {
-      provider: 'none',
-      status: 'not_configured',
+      provider: 'rules',
+      status: 'rules_only',
       verdict: null,
       severity: null,
       reasons: [],
-      message: 'Classifier provider is not configured; showing rules score.',
+      message: 'Rules-only classifier; using deterministic rule score.',
+      model: null,
     },
   });
 });
@@ -129,10 +124,7 @@ describe('BrandVoicePage', () => {
     fireEvent.change(doInputs[1], {
       target: { value: 'Prefer short sentences' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'openai' }));
-    fireEvent.change(screen.getByPlaceholderText('gpt-4.1-mini'), {
-      target: { value: 'gpt-4.1-mini' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'default model' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() =>
@@ -141,8 +133,7 @@ describe('BrandVoicePage', () => {
         expect.objectContaining({
           doList: ['Use concrete nouns', 'Prefer short sentences'],
           classifier: expect.objectContaining({
-            provider: 'openai',
-            model: 'gpt-4.1-mini',
+            provider: 'default',
           }),
         }),
       ),
@@ -167,7 +158,9 @@ describe('BrandVoicePage', () => {
     ).toBeTruthy();
     expect(screen.getByText('58/100, off brand (rules)')).toBeTruthy();
     expect(
-      screen.getByText('Classifier not configured; showing rules score.'),
+      screen.getByText(
+        'Rules-only classifier; using deterministic rule score.',
+      ),
     ).toBeTruthy();
   });
 });
