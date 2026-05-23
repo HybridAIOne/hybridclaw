@@ -1455,7 +1455,9 @@ export async function handleApiHttpRequest(
     );
   }
   if (bearerSecretName) {
-    assertBearerDomainBinding(bearerSecretName, url);
+    if (requiresBearerDomainBinding(bearerSecretName)) {
+      assertBearerDomainBinding(bearerSecretName, url);
+    }
     setHeaderValue(
       headers,
       'Authorization',
