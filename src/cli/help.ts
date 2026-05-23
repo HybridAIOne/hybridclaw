@@ -13,6 +13,7 @@ export function printMainUsage(): void {
   secret     Manage encrypted runtime secrets and HTTP auth routes
   policy     Manage workspace HTTP/network access rules
   gateway    Manage core runtime (start/stop/status) or run gateway commands
+  board      Manage local board cards and dependency edges
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
@@ -32,6 +33,21 @@ export function printMainUsage(): void {
   Options:
   --resume <id>  Resume a saved TUI session
   --version, -v  Show HybridClaw CLI version`);
+}
+
+export function printBoardUsage(): void {
+  console.log(`Usage: hybridclaw board <command>
+
+Commands:
+  hybridclaw board card create --id <id> --title <title> [--body <text>] [--user <id>|--agent <id>] [--column triage|todo|in_progress|in_review|done] [--status <status>] [--json]
+  hybridclaw board card list [--json]
+  hybridclaw board card update <id> [--title <title>] [--body <text>] [--column triage|todo|in_progress|in_review|done] [--status <status>] [--json]
+  hybridclaw board edge add --from <card-id> --to <card-id> --kind blocks|blocked_by|related [--user <id>|--agent <id>|--system <name>] [--json]
+  hybridclaw board edge list --card <card-id> [--kind blocks|blocked_by|related] [--json]
+  hybridclaw board blocked --card <card-id> [--json]
+  hybridclaw board edge delete --id <edge-id> [--json]
+  hybridclaw board edge revisions --id <edge-id> [--json]
+  hybridclaw board edge restore --id <edge-id> --revision <revision-id> [--json]`);
 }
 
 export function printGatewayUsage(): void {
@@ -945,6 +961,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'backup':
       printBackupUsage();
+      return true;
+    case 'board':
+      printBoardUsage();
       return true;
     case 'gateway':
       printGatewayUsage();

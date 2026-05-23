@@ -10,6 +10,7 @@ import type { RuntimeConfig } from '../src/config/runtime-config.js';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
+const ORIGINAL_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
 const ORIGINAL_WHATSAPP_SETUP_SETTLE_MS =
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
 const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
@@ -110,6 +111,11 @@ afterEach(() => {
     process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
       ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
+  if (ORIGINAL_DATA_DIR === undefined) {
+    delete process.env.HYBRIDCLAW_DATA_DIR;
+  } else {
+    process.env.HYBRIDCLAW_DATA_DIR = ORIGINAL_DATA_DIR;
+  }
   if (ORIGINAL_WHATSAPP_SETUP_SETTLE_MS === undefined) {
     delete process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS;
   } else {
@@ -156,6 +162,104 @@ test('local configure lmstudio enables the backend and normalizes the URL', asyn
   expect(logSpy).toHaveBeenCalledWith(
     expect.stringContaining('Updated runtime config at'),
   );
+});
+
+test('board command manages cards and dependency edges without gateway or model credentials', async () => {
+  const homeDir = makeTempHome();
+  process.env.HYBRIDCLAW_DATA_DIR = path.join(homeDir, '.hybridclaw');
+  const cli = await importFreshCli(homeDir);
+  const output: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((line?: unknown) => {
+    output.push(String(line ?? ''));
+  });
+
+  await cli.main([
+    'board',
+    'card',
+    'create',
+    '--id',
+    'edge-blocker',
+    '--title',
+    'Edge blocker',
+    '--user',
+    'user_a',
+    '--json',
+  ]);
+  await cli.main([
+    'board',
+    'card',
+    'create',
+    '--id',
+    'edge-blocked',
+    '--title',
+    'Edge blocked',
+    '--user',
+    'user_a',
+    '--json',
+  ]);
+  await cli.main([
+    'board',
+    'edge',
+    'add',
+    '--from',
+    'edge-blocker',
+    '--to',
+    'edge-blocked',
+    '--kind',
+    'blocks',
+    '--user',
+    'user_a',
+    '--json',
+  ]);
+  const edge = JSON.parse(output.at(-1) || '{}').edge as { id: string };
+
+  await cli.main(['board', 'edge', 'list', '--card', 'edge-blocked', '--json']);
+  expect(JSON.parse(output.at(-1) || '{}')).toMatchObject({
+    edges: [
+      {
+        id: edge.id,
+        fromCardId: 'edge-blocked',
+        toCardId: 'edge-blocker',
+        kind: 'blocked_by',
+      },
+    ],
+  });
+
+  await cli.main(['board', 'blocked', '--card', 'edge-blocked', '--json']);
+  expect(JSON.parse(output.at(-1) || '{}')).toEqual({
+    cardId: 'edge-blocked',
+    blocked: true,
+  });
+
+  await cli.main(['board', 'edge', 'delete', '--id', edge.id, '--json']);
+  await cli.main(['board', 'blocked', '--card', 'edge-blocked', '--json']);
+  expect(JSON.parse(output.at(-1) || '{}')).toEqual({
+    cardId: 'edge-blocked',
+    blocked: false,
+  });
+
+  await cli.main(['board', 'edge', 'revisions', '--id', edge.id, '--json']);
+  const revision = JSON.parse(output.at(-1) || '{}').revisions[0] as {
+    id: number;
+  };
+  await cli.main([
+    'board',
+    'edge',
+    'restore',
+    '--id',
+    edge.id,
+    '--revision',
+    String(revision.id),
+    '--json',
+  ]);
+  expect(JSON.parse(output.at(-1) || '{}')).toMatchObject({
+    edge: {
+      id: edge.id,
+      fromCardId: 'edge-blocker',
+      toCardId: 'edge-blocked',
+      kind: 'blocks',
+    },
+  });
 });
 
 test('local configure llamacpp enables the backend and normalizes the URL', async () => {

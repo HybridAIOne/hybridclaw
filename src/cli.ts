@@ -1573,6 +1573,11 @@ async function handleBackupCommand(args: string[]): Promise<void> {
   await cliBackup.handleBackupCommand(args);
 }
 
+async function handleBoardCommand(args: string[]): Promise<void> {
+  const cliBoard = await import('./cli/board-command.js');
+  await cliBoard.handleBoardCommand(args);
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
@@ -1621,6 +1626,9 @@ export async function main(
       break;
     case 'gateway':
       await handleGatewayCommand(subargs);
+      break;
+    case 'board':
+      await handleBoardCommand(subargs);
       break;
     case '__gateway-restart-helper': {
       const payload = String(subargs[0] || '').trim();
