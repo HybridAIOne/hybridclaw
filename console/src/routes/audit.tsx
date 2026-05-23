@@ -101,18 +101,25 @@ export function AuditPage() {
   const lastSyncedQ = useRef<string | undefined>(search.q);
   const lastSyncedRange = useRef<string | undefined>(search.range);
 
-  const deferredSearchInput = useDeferredValue(searchInput);
-  const parsed = useMemo(
-    () => parseAuditSearch(deferredSearchInput),
-    [deferredSearchInput],
-  );
+  // Parse eagerly for UI (chips, active-filter row). The queryKey gets
+  // the deferred values below so typing doesn't refetch on every keystroke.
+  const parsed = useMemo(() => parseAuditSearch(searchInput), [searchInput]);
+  const deferredQuery = useDeferredValue(parsed.query);
+  const deferredSessionId = useDeferredValue(parsed.sessionId);
+  const deferredEventType = useDeferredValue(parsed.eventType);
 
-  // state → URL: skip when the URL already matches to avoid pointless
-  // history replacements on every keystroke.
+  // state → URL. Gates off `lastSynced*` refs instead of `search.*` so an
+  // external URL change (back/forward) handled by the URL→state effect
+  // below doesn't trip this one into navigating back to the stale value.
   useEffect(() => {
     const nextQ = searchInput.trim() || undefined;
     const nextRange = range === 'all' ? undefined : range;
-    if (nextQ === search.q && nextRange === search.range) return;
+    if (
+      nextQ === lastSyncedQ.current &&
+      nextRange === lastSyncedRange.current
+    ) {
+      return;
+    }
     lastSyncedQ.current = nextQ;
     lastSyncedRange.current = nextRange;
     void navigate({
@@ -120,10 +127,11 @@ export function AuditPage() {
       search: { q: nextQ, range: nextRange },
       replace: true,
     }).catch(logNavigationError);
-  }, [navigate, searchInput, range, search.q, search.range]);
+  }, [navigate, searchInput, range]);
 
   // URL → state: re-seed when the URL changes for any reason other than
-  // our own write (back/forward navigation, deep link).
+  // our own write (back/forward navigation, deep link). Updates the refs
+  // so the state→URL effect treats the new value as already-synced.
   useEffect(() => {
     if (search.q !== lastSyncedQ.current) {
       lastSyncedQ.current = search.q;
@@ -158,15 +166,15 @@ export function AuditPage() {
     queryKey: [
       'audit',
       auth.token,
-      parsed.query,
-      parsed.sessionId,
-      parsed.eventType,
+      deferredQuery,
+      deferredSessionId,
+      deferredEventType,
     ],
     queryFn: () =>
       fetchAudit(auth.token, {
-        query: parsed.query,
-        sessionId: parsed.sessionId,
-        eventType: parsed.eventType,
+        query: deferredQuery,
+        sessionId: deferredSessionId,
+        eventType: deferredEventType,
         limit: 200,
       }),
   });
