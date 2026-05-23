@@ -17,7 +17,6 @@ import { Input } from '../components/input';
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from '../components/sheet';
@@ -59,9 +58,9 @@ const RANGE_TO_MS: Record<Exclude<TimeRange, 'all'>, number> = {
   '7d': 7 * 24 * 60 * 60 * 1000,
 };
 
-function categorize(eventType: string): string {
-  const prefix = eventType.split('.', 1)[0] || '';
-  return KNOWN_CATEGORIES.has(prefix) ? prefix : 'default';
+function categorize(eventType: string): Category | 'default' {
+  const prefix = eventType.split('.', 1)[0] ?? '';
+  return KNOWN_CATEGORIES.has(prefix) ? (prefix as Category) : 'default';
 }
 
 function prettifyPayload(raw: string): string {
@@ -94,27 +93,47 @@ export function AuditPage() {
 
   const [searchInput, setSearchInput] = useState(initialQ);
   const [range, setRange] = useState<TimeRange>(initialRange);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<AdminAuditEntry | null>(
+    null,
+  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const lastSyncedQ = useRef<string | undefined>(search.q);
+  const lastSyncedRange = useRef<string | undefined>(search.range);
 
-  const parsed = useMemo(() => parseAuditSearch(searchInput), [searchInput]);
-  const deferredQuery = useDeferredValue(parsed.query);
-  const deferredSessionId = useDeferredValue(parsed.sessionId);
-  const deferredEventType = useDeferredValue(parsed.eventType);
+  const deferredSearchInput = useDeferredValue(searchInput);
+  const parsed = useMemo(
+    () => parseAuditSearch(deferredSearchInput),
+    [deferredSearchInput],
+  );
 
-  // Sync state → URL.
+  // state → URL: skip when the URL already matches to avoid pointless
+  // history replacements on every keystroke.
   useEffect(() => {
-    const next: AuditSearchParams = {
-      q: searchInput.trim() || undefined,
-      range: range === 'all' ? undefined : range,
-    };
+    const nextQ = searchInput.trim() || undefined;
+    const nextRange = range === 'all' ? undefined : range;
+    if (nextQ === search.q && nextRange === search.range) return;
+    lastSyncedQ.current = nextQ;
+    lastSyncedRange.current = nextRange;
     void navigate({
       to: '/admin/audit',
-      search: next,
+      search: { q: nextQ, range: nextRange },
       replace: true,
     }).catch(logNavigationError);
-  }, [navigate, searchInput, range]);
+  }, [navigate, searchInput, range, search.q, search.range]);
+
+  // URL → state: re-seed when the URL changes for any reason other than
+  // our own write (back/forward navigation, deep link).
+  useEffect(() => {
+    if (search.q !== lastSyncedQ.current) {
+      lastSyncedQ.current = search.q;
+      setSearchInput(search.q ?? '');
+    }
+    if (search.range !== lastSyncedRange.current) {
+      lastSyncedRange.current = search.range;
+      setRange(readRange(search.range));
+    }
+  }, [search.q, search.range]);
 
   // Global `/` shortcut to focus the search input.
   useEffect(() => {
@@ -139,27 +158,23 @@ export function AuditPage() {
     queryKey: [
       'audit',
       auth.token,
-      deferredQuery,
-      deferredSessionId,
-      deferredEventType,
+      parsed.query,
+      parsed.sessionId,
+      parsed.eventType,
     ],
     queryFn: () =>
       fetchAudit(auth.token, {
-        query: deferredQuery,
-        sessionId: deferredSessionId,
-        eventType: deferredEventType,
+        query: parsed.query,
+        sessionId: parsed.sessionId,
+        eventType: parsed.eventType,
         limit: 200,
       }),
   });
 
-  const allEntries = auditQuery.data?.entries ?? [];
-  const entries = useMemo(
-    () => allEntries.filter((entry) => withinRange(entry.timestamp, range)),
-    [allEntries, range],
-  );
-
-  const selectedEntry =
-    entries.find((entry) => entry.id === selectedId) ?? null;
+  const entries = useMemo(() => {
+    const data = auditQuery.data?.entries ?? [];
+    return data.filter((entry) => withinRange(entry.timestamp, range));
+  }, [auditQuery.data, range]);
 
   const activeCategory: Category | null = useMemo(() => {
     const v = parsed.eventType;
@@ -167,10 +182,12 @@ export function AuditPage() {
     return null;
   }, [parsed.eventType]);
 
-  const hasAnyFilter = Boolean(searchInput.trim() || range !== 'all');
+  const hasAnyFilter = Boolean(
+    parsed.query || parsed.sessionId || parsed.eventType || range !== 'all',
+  );
 
   function openEntry(entry: AdminAuditEntry): void {
-    setSelectedId(entry.id);
+    setSelectedEntry(entry);
     setDrawerOpen(true);
   }
 
@@ -231,18 +248,26 @@ export function AuditPage() {
             </span>
           </div>
 
-          <fieldset className={styles.timeRange} aria-label="Time range">
-            {TIME_RANGES.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                data-active={range === option.value || undefined}
-                onClick={() => setRange(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </fieldset>
+          <div
+            className={styles.timeRange}
+            role="toolbar"
+            aria-label="Time range"
+          >
+            {TIME_RANGES.map((option) => {
+              const active = range === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={active}
+                  data-active={active || undefined}
+                  onClick={() => setRange(option.value)}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
 
           <div className={styles.meta} aria-live="polite">
             {auditQuery.isLoading
@@ -251,29 +276,38 @@ export function AuditPage() {
           </div>
         </div>
 
-        <fieldset className={styles.chipRow} aria-label="Event category">
+        <div
+          className={styles.chipRow}
+          role="toolbar"
+          aria-label="Event category"
+        >
           <button
             type="button"
             className={styles.categoryChip}
             data-category="all"
+            aria-pressed={activeCategory === null}
             data-active={activeCategory === null || undefined}
             onClick={() => toggleCategory(null)}
           >
             all
           </button>
-          {CATEGORIES.map((category) => (
-            <button
-              key={category}
-              type="button"
-              className={styles.categoryChip}
-              data-category={category}
-              data-active={activeCategory === category || undefined}
-              onClick={() => toggleCategory(category)}
-            >
-              {category}
-            </button>
-          ))}
-        </fieldset>
+          {CATEGORIES.map((category) => {
+            const active = activeCategory === category;
+            return (
+              <button
+                key={category}
+                type="button"
+                className={styles.categoryChip}
+                data-category={category}
+                aria-pressed={active}
+                data-active={active || undefined}
+                onClick={() => toggleCategory(category)}
+              >
+                {category}
+              </button>
+            );
+          })}
+        </div>
 
         <div
           className={styles.activeRow}
@@ -344,10 +378,10 @@ export function AuditPage() {
               <th scope="col" data-col="run">
                 Run
               </th>
-              <th scope="col" style={{ textAlign: 'right' }}>
+              <th scope="col" className={styles.colSeq}>
                 Seq
               </th>
-              <th scope="col" style={{ textAlign: 'right' }}>
+              <th scope="col" className={styles.colId}>
                 ID
               </th>
             </tr>
@@ -355,7 +389,7 @@ export function AuditPage() {
           <tbody>
             {entries.map((entry) => {
               const category = categorize(entry.eventType);
-              const isSelected = entry.id === selectedId;
+              const isSelected = entry.id === selectedEntry?.id;
               return (
                 // biome-ignore lint/a11y/useSemanticElements: a <tr> must remain a <tr> to stay inside <tbody>; role=button + keyboard handlers preserve the click-to-inspect affordance.
                 <tr
@@ -367,12 +401,11 @@ export function AuditPage() {
                   onClick={() => openEntry(entry)}
                   onKeyDown={(event) => handleRowKeyDown(event, entry)}
                 >
-                  <td className={styles.colTime}>
-                    <span className={styles.timeCell}>
-                      <span title={formatDateTime(entry.timestamp)}>
-                        {formatRelativeTime(entry.timestamp)}
-                      </span>
-                    </span>
+                  <td
+                    className={styles.colTime}
+                    title={formatDateTime(entry.timestamp)}
+                  >
+                    {formatRelativeTime(entry.timestamp)}
                   </td>
                   <td className={styles.colEvent}>
                     <span className={styles.eventPill} data-category={category}>
@@ -392,13 +425,12 @@ export function AuditPage() {
             })}
           </tbody>
         </table>
-        {!auditQuery.isLoading && entries.length === 0 ? (
+        {entries.length === 0 ? (
           <div className={styles.empty}>
-            No audit entries match these filters.
+            {auditQuery.isLoading
+              ? 'Loading audit entries…'
+              : 'No audit entries match these filters.'}
           </div>
-        ) : null}
-        {auditQuery.isLoading && entries.length === 0 ? (
-          <div className={styles.empty}>Loading audit entries…</div>
         ) : null}
       </div>
 
@@ -407,12 +439,9 @@ export function AuditPage() {
           <SheetHeader>
             <SheetTitle>
               {selectedEntry
-                ? `Audit event #${selectedEntry.id}`
+                ? `Audit event #${selectedEntry.id} (${selectedEntry.eventType})`
                 : 'Audit event'}
             </SheetTitle>
-            <SheetDescription>
-              {selectedEntry?.eventType ?? ''}
-            </SheetDescription>
           </SheetHeader>
           {selectedEntry ? (
             <>

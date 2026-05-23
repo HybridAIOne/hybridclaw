@@ -432,19 +432,6 @@
   --cat-color: var(--muted-foreground);
 }
 
-.timeCell {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 1px;
-  font-size: 0.8125rem;
-  line-height: 1.2;
-}
-
-.timeAbs {
-  color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
-  font-size: 0.7rem;
-}
-
 .empty {
   padding: 48px 24px;
   text-align: center;
@@ -474,14 +461,6 @@
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-}
-
-.sheetHeaderMain h3 {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 600;
-  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
-  word-break: break-word;
 }
 
 .sheetHeaderId {

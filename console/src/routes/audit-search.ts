@@ -8,7 +8,11 @@ type Token =
   | { kind: 'field'; key: 'session' | 'type'; value: string; raw: string }
   | { kind: 'text'; value: string; raw: string };
 
-const FIELD_KEYS = new Set(['session', 'type', 'event']);
+const FIELD_ALIASES: Record<string, 'session' | 'type'> = {
+  session: 'session',
+  type: 'type',
+  event: 'type',
+};
 
 /**
  * Tokenize a search string while respecting double-quoted segments.
@@ -49,10 +53,14 @@ function classify(raw: string): Token {
   const colonIdx = raw.indexOf(':');
   if (colonIdx > 0) {
     const key = raw.slice(0, colonIdx).toLowerCase();
-    if (FIELD_KEYS.has(key)) {
-      const value = stripQuotes(raw.slice(colonIdx + 1));
-      const normalizedKey = key === 'event' ? 'type' : (key as 'session');
-      return { kind: 'field', key: normalizedKey, value, raw };
+    const normalizedKey = FIELD_ALIASES[key];
+    if (normalizedKey) {
+      return {
+        kind: 'field',
+        key: normalizedKey,
+        value: stripQuotes(raw.slice(colonIdx + 1)),
+        raw,
+      };
     }
   }
   return { kind: 'text', value: stripQuotes(raw), raw };
