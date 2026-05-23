@@ -27,7 +27,7 @@ import { formatDateTime } from '../lib/format';
 import { ModelSwitchSelect, parseModel } from './chat/model-switch-select';
 
 const EMPTY_PROFILE: AdminOutputGuardProfile = {
-  enabled: true,
+  enabled: false,
   mode: 'rewrite',
   policy: '',
   doList: [],

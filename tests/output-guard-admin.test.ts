@@ -105,6 +105,71 @@ afterEach(() => {
 });
 
 describe('output guard admin API helpers', () => {
+  test('reports missing output-guard config as disabled until saved', async () => {
+    const admin = await importOutputGuardAdmin({
+      plugins: {
+        list: [
+          {
+            id: 'brand-voice',
+            enabled: true,
+            config: {
+              mode: 'rewrite',
+              voice: 'Legacy config should not masquerade as output guard.',
+            },
+          },
+        ],
+      },
+    } as RuntimeConfig);
+
+    expect(admin.getGatewayAdminOutputGuardProfile().profile).toMatchObject({
+      enabled: false,
+      mode: 'rewrite',
+      policy: '',
+    });
+
+    await admin.updateGatewayAdminOutputGuardProfile({
+      profile: {
+        enabled: true,
+        mode: 'rewrite',
+        policy: 'Use German office phrasing.',
+        doList: ['Add German phrases'],
+        dontList: [],
+        bannedPhrases: ['Hi', 'Hey'],
+        bannedPatterns: [],
+        requirePhrases: [],
+        classifier: {
+          provider: 'auxiliary',
+          model: '',
+        },
+        rewriter: {
+          provider: 'default',
+          model: '',
+        },
+      },
+    });
+
+    expect(admin.getCurrentConfig().plugins.list).toEqual([
+      {
+        id: 'brand-voice',
+        enabled: true,
+        config: {
+          mode: 'rewrite',
+          voice: 'Legacy config should not masquerade as output guard.',
+        },
+      },
+      expect.objectContaining({
+        id: 'output-guard',
+        enabled: true,
+        config: expect.objectContaining({
+          policy: 'Use German office phrasing.',
+          classifier: { provider: 'auxiliary' },
+          rewriter: { provider: 'default' },
+        }),
+      }),
+    ]);
+    expect(admin.reloadPluginRuntime).toHaveBeenCalledTimes(1);
+  });
+
   test('reads and updates the output-guard profile in runtime plugin config', async () => {
     const config = {
       plugins: {

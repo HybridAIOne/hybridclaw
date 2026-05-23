@@ -181,7 +181,7 @@ function profileFromEntry(
   const pluginConfig = isRecord(entry?.config) ? entry.config : {};
   return {
     ...normalizeProfile(pluginConfig),
-    enabled: entry?.enabled !== false,
+    enabled: entry ? entry.enabled !== false : false,
     classifier: runtimeModelConfigToProfile(pluginConfig.classifier),
     rewriter: runtimeModelConfigToProfile(pluginConfig.rewriter),
   };
