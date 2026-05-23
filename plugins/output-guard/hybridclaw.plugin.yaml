@@ -1,13 +1,9 @@
-id: brand-voice
-name: Brand Voice Output Guard
+id: output-guard
+name: Output Guard
 version: 0.1.0
 kind: middleware
-description: Tone-and-voice guard that scans final agent responses for off-brand language, banned phrases, and rule violations, then rewrites or blocks before the message ships.
+description: Output policy guard that scans final agent responses for banned phrases and rule violations, then rewrites, blocks, or flags before the message ships.
 entrypoint: src/index.js
-credentials:
-  - ANTHROPIC_API_KEY
-  - OPENAI_API_KEY
-  - BRAND_VOICE_API_KEY
 configSchema:
   type: object
   additionalProperties: false
@@ -20,14 +16,26 @@ configSchema:
       type: string
       enum: [block, rewrite, flag]
       default: rewrite
-      description: How to handle off-brand output. `flag` only logs.
-    voice:
+      description: How to handle non-compliant output. `flag` only logs.
+    policy:
       type: string
       default: ''
-      description: One-paragraph description of the brand voice (formal, playful, …).
-    voiceFile:
+      description: One-paragraph description of the output guard (formal, playful, …).
+    doList:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Positive policy guidelines the assistant should follow.
+    dontList:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Policy guidelines the assistant should avoid.
+    policyFile:
       type: string
-      description: Path to a markdown file with the brand voice guidelines. Loaded once at registration.
+      description: Path to a markdown file with the output guard guidelines. Loaded once at registration.
     bannedPhrases:
       type: array
       items:
@@ -45,10 +53,10 @@ configSchema:
       items:
         type: string
       default: []
-      description: Phrases that must appear in output. Missing any triggers off-brand.
+      description: Phrases that must appear in output. Missing any triggers non-compliant output.
     blockMessage:
       type: string
-      default: 'Output blocked by brand-voice guard.'
+      default: 'Output blocked by output guard.'
       description: Replacement text when blocking.
     minLength:
       type: number
@@ -67,25 +75,11 @@ configSchema:
       properties:
         provider:
           type: string
-          enum: [none, anthropic, openai, openai-compat]
-          default: none
+          enum: [default, auxiliary, model]
+          default: default
         model:
           type: string
           default: ''
-        baseUrl:
-          type: string
-        apiKeyEnv:
-          type: string
-        timeoutMs:
-          type: number
-          default: 8000
-          minimum: 1000
-          maximum: 60000
-        maxRetries:
-          type: number
-          default: 1
-          minimum: 0
-          maximum: 3
     rewriter:
       type: object
       additionalProperties: false
@@ -93,31 +87,23 @@ configSchema:
       properties:
         provider:
           type: string
-          enum: [none, anthropic, openai, openai-compat]
-          default: none
+          enum: [default, auxiliary, model]
+          default: default
         model:
           type: string
           default: ''
-        baseUrl:
-          type: string
-        apiKeyEnv:
-          type: string
-        timeoutMs:
-          type: number
-          default: 12000
-          minimum: 1000
-          maximum: 120000
-        maxRetries:
-          type: number
-          default: 1
-          minimum: 0
-          maximum: 3
 configUiHints:
-  voice:
-    label: Brand voice description
+  policy:
+    label: Output guard description
     placeholder: Friendly, plainspoken, no jargon. Confident but never cocky.
-  voiceFile:
-    label: Path to brand voice markdown
+  doList:
+    label: Do
+    help: Positive policy rules, one per array entry.
+  dontList:
+    label: Don't
+    help: Policy rules to avoid, one per array entry.
+  policyFile:
+    label: Path to output guard markdown
   bannedPhrases:
     label: Banned phrases
     help: Case-insensitive substrings; one per array entry.
@@ -126,8 +112,7 @@ configUiHints:
     help: 'Examples: `dumb`, `/\\bguarantee[sd]?\\b/i`'
   requirePhrases:
     label: Phrases that must appear
-  classifier.apiKeyEnv:
-    label: Env var for classifier API key
-    placeholder: BRAND_VOICE_API_KEY
-  rewriter.apiKeyEnv:
-    label: Env var for rewriter API key
+  classifier.provider:
+    label: Classifier model source
+  rewriter.provider:
+    label: Rewriter model source

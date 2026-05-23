@@ -250,6 +250,11 @@ import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import {
+  getGatewayAdminOutputGuardProfile,
+  previewGatewayAdminOutputGuardProfile,
+  updateGatewayAdminOutputGuardProfile,
+} from './output-guard-admin.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
@@ -4830,6 +4835,57 @@ async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminPlugins());
 }
 
+async function handleApiAdminOutputGuard(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = req.method || 'GET';
+
+  if (method === 'GET') {
+    sendJson(res, 200, getGatewayAdminOutputGuardProfile());
+    return;
+  }
+
+  if (method === 'PUT') {
+    try {
+      sendJson(
+        res,
+        200,
+        await updateGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+      );
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  sendMethodNotAllowed(res);
+}
+
+async function handleApiAdminOutputGuardPreview(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') !== 'POST') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  try {
+    sendJson(
+      res,
+      200,
+      await previewGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+    );
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function handleApiAdminSkills(
   req: IncomingMessage,
   res: ServerResponse,
@@ -5834,6 +5890,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/plugins' && method === 'GET') {
             await handleApiAdminPlugins(res);
+            return;
+          }
+          if (pathname === '/api/admin/output-guard') {
+            await handleApiAdminOutputGuard(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/output-guard/preview') {
+            await handleApiAdminOutputGuardPreview(req, res);
             return;
           }
           if (pathname === '/api/admin/skills') {

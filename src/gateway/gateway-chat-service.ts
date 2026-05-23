@@ -1060,6 +1060,7 @@ async function handleGatewayMessageInner(
         req.onApprovalProgress,
     ),
   };
+  const outputGuardActive = pluginManager?.hasOutputGuards() === true;
 
   logger.debug(debugMeta, 'Gateway chat request received');
 
@@ -1494,9 +1495,12 @@ async function handleGatewayMessageInner(
           'Gateway chat emitted first text delta',
         );
       }
-      req.onTextDelta?.(delta);
+      if (!outputGuardActive) {
+        req.onTextDelta?.(delta);
+      }
     };
-    const emitTextDeltas = req.onTextDelta ? onTextDelta : undefined;
+    const emitTextDeltas =
+      req.onTextDelta && !outputGuardActive ? onTextDelta : undefined;
     const emitThinkingDeltas = req.onThinkingDelta
       ? (delta: string): void => req.onThinkingDelta?.(delta)
       : undefined;
@@ -1535,7 +1539,9 @@ async function handleGatewayMessageInner(
       'Gateway chat invoking agent',
     );
     if (routingExecutionNotice) {
-      req.onTextDelta?.(routingExecutionNotice);
+      if (!outputGuardActive) {
+        req.onTextDelta?.(routingExecutionNotice);
+      }
     }
     recordAuditEvent({
       sessionId: req.sessionId,

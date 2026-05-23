@@ -597,6 +597,62 @@ test('handleGatewayMessage forwards successful native memory writes to plugins',
   ).toBeLessThan(pluginManagerMock.notifyAgentEnd.mock.invocationCallOrder[0]);
 });
 
+test('handleGatewayMessage suppresses unguarded text streaming when output guards are active', async () => {
+  setupHome();
+
+  pluginManagerMock.hasOutputGuards.mockReturnValue(true);
+  pluginManagerMock.applyOutputGuards.mockResolvedValueOnce({
+    resultText: 'guarded reply',
+    blocked: false,
+    events: [
+      {
+        pluginId: 'output-guard',
+        guardId: 'output-guard',
+        action: 'rewrite',
+        before: 'raw reply',
+        after: 'guarded reply',
+      },
+    ],
+  });
+  runAgentMock.mockImplementation(async (params: { onTextDelta?: unknown }) => {
+    expect(params.onTextDelta).toBeUndefined();
+    return {
+      status: 'success',
+      result: 'raw reply',
+      toolsUsed: [],
+      toolExecutions: [],
+    };
+  });
+
+  const streamed: string[] = [];
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayMessage({
+    sessionId: 'session-output-guard-streaming',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'hi',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+    onTextDelta: (delta) => streamed.push(delta),
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.result).toBe('guarded reply');
+  expect(streamed).toEqual([]);
+  expect(pluginManagerMock.applyOutputGuards).toHaveBeenCalledWith(
+    expect.objectContaining({
+      resultText: 'raw reply',
+    }),
+  );
+});
+
 test('handleGatewayMessage lets a plugin memory layer replace built-in memory', async () => {
   setupHome();
 

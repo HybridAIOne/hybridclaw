@@ -334,7 +334,7 @@ async function importFreshCli(options?: {
   pluginCheckResult?: {
     pluginId: string;
     pluginDir: string;
-    source: 'home' | 'project' | 'config';
+    source: 'home' | 'project' | 'bundled' | 'config';
     requiresEnv: string[];
     missingEnv: string[];
     requiredConfigKeys: string[];
@@ -385,7 +385,7 @@ async function importFreshCli(options?: {
     name?: string;
     version?: string;
     description?: string;
-    source: 'home' | 'project' | 'config';
+    source: 'home' | 'project' | 'bundled' | 'config';
     enabled: boolean;
     error?: string;
     commands: string[];
