@@ -1315,10 +1315,11 @@ export interface GatewayAdminBrandVoiceProfile {
   bannedPhrases: string[];
   bannedPatterns: string[];
   requirePhrases: string[];
-  classifier: GatewayAdminBrandVoiceClassifierConfig;
+  classifier: GatewayAdminBrandVoiceModelConfig;
+  rewriter: GatewayAdminBrandVoiceModelConfig;
 }
 
-export interface GatewayAdminBrandVoiceClassifierConfig {
+export interface GatewayAdminBrandVoiceModelConfig {
   provider: 'default' | 'auxiliary' | 'model';
   model: string;
 }

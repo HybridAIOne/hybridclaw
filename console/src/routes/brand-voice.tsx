@@ -7,7 +7,7 @@ import {
   saveBrandVoiceProfile,
 } from '../api/client';
 import type {
-  AdminBrandVoiceClassifierConfig,
+  AdminBrandVoiceModelConfig,
   AdminBrandVoicePreviewResponse,
   AdminBrandVoiceProfile,
 } from '../api/types';
@@ -39,6 +39,10 @@ const EMPTY_PROFILE: AdminBrandVoiceProfile = {
     provider: 'default',
     model: '',
   },
+  rewriter: {
+    provider: 'default',
+    model: '',
+  },
 };
 
 function profilesEqual(
@@ -48,10 +52,10 @@ function profilesEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function classifierDefaults(
-  provider: AdminBrandVoiceClassifierConfig['provider'],
+function modelConfigDefaults(
+  provider: AdminBrandVoiceModelConfig['provider'],
   model = '',
-): AdminBrandVoiceClassifierConfig {
+): AdminBrandVoiceModelConfig {
   return { provider, model: provider === 'model' ? model.trim() : '' };
 }
 
@@ -66,9 +70,13 @@ function cleanProfile(profile: AdminBrandVoiceProfile): AdminBrandVoiceProfile {
     bannedPhrases: cleanList(profile.bannedPhrases),
     bannedPatterns: cleanList(profile.bannedPatterns),
     requirePhrases: cleanList(profile.requirePhrases),
-    classifier: classifierDefaults(
+    classifier: modelConfigDefaults(
       profile.classifier.provider,
       profile.classifier.model,
+    ),
+    rewriter: modelConfigDefaults(
+      profile.rewriter.provider,
+      profile.rewriter.model,
     ),
   };
 }
@@ -158,6 +166,58 @@ function ListEditor(props: {
   );
 }
 
+function ModelSourceControl(props: {
+  label: string;
+  ariaLabel: string;
+  value: AdminBrandVoiceModelConfig;
+  modelOptions: Awaited<ReturnType<typeof fetchModels>>['models'];
+  defaultOtherModelId: string;
+  modelsLoading: boolean;
+  onChange: (value: AdminBrandVoiceModelConfig) => void;
+}) {
+  const selectedModelId =
+    props.value.provider === 'model' ? props.value.model : '';
+  return (
+    <div className="field">
+      <span>{props.label}</span>
+      <div
+        className={`brand-voice-classifier-control ${
+          props.value.provider === 'model' ? 'has-model-select' : ''
+        }`}
+      >
+        <SegmentedToggle
+          ariaLabel={props.ariaLabel}
+          value={props.value.provider}
+          options={[
+            { value: 'default', label: 'default model' },
+            { value: 'auxiliary', label: 'aux model' },
+            { value: 'model', label: 'other model' },
+          ]}
+          onChange={(provider) => {
+            const nextProvider =
+              provider as AdminBrandVoiceModelConfig['provider'];
+            const nextModel =
+              nextProvider === 'model'
+                ? props.value.model || props.defaultOtherModelId
+                : '';
+            props.onChange(modelConfigDefaults(nextProvider, nextModel));
+          }}
+        />
+        {props.value.provider === 'model' ? (
+          <ModelSwitchSelect
+            models={props.modelOptions}
+            selectedModelId={selectedModelId}
+            disabled={props.modelsLoading}
+            onSwitch={(model) =>
+              props.onChange(modelConfigDefaults('model', model))
+            }
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function formatVerdict(verdict: AdminBrandVoicePreviewResponse['verdict']) {
   if (verdict === 'on_brand') return 'on brand';
   if (verdict === 'needs_review') return 'needs review';
@@ -228,36 +288,44 @@ export function BrandVoicePage() {
   const savedProfile = profileQuery.data?.profile ?? EMPTY_PROFILE;
   const hasChanges = !profilesEqual(cleanProfile(profile), savedProfile);
   const modelOptions = modelsQuery.data?.models ?? [];
-  const defaultClassifierModelId = modelsQuery.data?.defaultModel ?? '';
-  const defaultOtherClassifierModelId =
-    modelOptions.find((model) => model.id !== defaultClassifierModelId)?.id ??
-    defaultClassifierModelId;
-  const selectedClassifierModelId =
-    profile.classifier.provider === 'model' ? profile.classifier.model : '';
+  const defaultModelId = modelsQuery.data?.defaultModel ?? '';
+  const defaultOtherModelId =
+    modelOptions.find((model) => model.id !== defaultModelId)?.id ??
+    defaultModelId;
 
   useEffect(() => {
+    if (!defaultOtherModelId) return;
     if (
-      profile.classifier.provider !== 'model' ||
-      profile.classifier.model ||
-      !defaultOtherClassifierModelId
+      (profile.classifier.provider !== 'model' || profile.classifier.model) &&
+      (profile.rewriter.provider !== 'model' || profile.rewriter.model)
     ) {
       return;
     }
-    setProfile((current) =>
-      current.classifier.provider === 'model' && !current.classifier.model
-        ? {
-            ...current,
-            classifier: classifierDefaults(
-              'model',
-              defaultOtherClassifierModelId,
-            ),
-          }
-        : current,
-    );
+    setProfile((current) => {
+      let next = current;
+      if (
+        current.classifier.provider === 'model' &&
+        !current.classifier.model
+      ) {
+        next = {
+          ...next,
+          classifier: modelConfigDefaults('model', defaultOtherModelId),
+        };
+      }
+      if (current.rewriter.provider === 'model' && !current.rewriter.model) {
+        next = {
+          ...next,
+          rewriter: modelConfigDefaults('model', defaultOtherModelId),
+        };
+      }
+      return next;
+    });
   }, [
-    defaultOtherClassifierModelId,
+    defaultOtherModelId,
     profile.classifier.model,
     profile.classifier.provider,
+    profile.rewriter.model,
+    profile.rewriter.provider,
   ]);
 
   const saveMutation = useMutation({
@@ -346,57 +414,28 @@ export function BrandVoicePage() {
                     }
                   />
                 </div>
-                <div className="field">
-                  <span>Classifier</span>
-                  <div
-                    className={`brand-voice-classifier-control ${
-                      profile.classifier.provider === 'model'
-                        ? 'has-model-select'
-                        : ''
-                    }`}
-                  >
-                    <SegmentedToggle
-                      ariaLabel="Brand voice classifier source"
-                      value={profile.classifier.provider}
-                      options={[
-                        { value: 'default', label: 'default model' },
-                        { value: 'auxiliary', label: 'aux model' },
-                        { value: 'model', label: 'other model' },
-                      ]}
-                      onChange={(provider) =>
-                        setProfile((current) => {
-                          const nextProvider =
-                            provider as AdminBrandVoiceClassifierConfig['provider'];
-                          const nextModel =
-                            nextProvider === 'model'
-                              ? current.classifier.model ||
-                                defaultOtherClassifierModelId
-                              : '';
-                          return {
-                            ...current,
-                            classifier: classifierDefaults(
-                              nextProvider,
-                              nextModel,
-                            ),
-                          };
-                        })
-                      }
-                    />
-                    {profile.classifier.provider === 'model' ? (
-                      <ModelSwitchSelect
-                        models={modelOptions}
-                        selectedModelId={selectedClassifierModelId}
-                        disabled={modelsQuery.isLoading}
-                        onSwitch={(model) =>
-                          setProfile((current) => ({
-                            ...current,
-                            classifier: classifierDefaults('model', model),
-                          }))
-                        }
-                      />
-                    ) : null}
-                  </div>
-                </div>
+                <ModelSourceControl
+                  label="Classifier"
+                  ariaLabel="Brand voice classifier source"
+                  value={profile.classifier}
+                  modelOptions={modelOptions}
+                  defaultOtherModelId={defaultOtherModelId}
+                  modelsLoading={modelsQuery.isLoading}
+                  onChange={(classifier) =>
+                    setProfile((current) => ({ ...current, classifier }))
+                  }
+                />
+                <ModelSourceControl
+                  label="Rewriter"
+                  ariaLabel="Brand voice rewriter source"
+                  value={profile.rewriter}
+                  modelOptions={modelOptions}
+                  defaultOtherModelId={defaultOtherModelId}
+                  modelsLoading={modelsQuery.isLoading}
+                  onChange={(rewriter) =>
+                    setProfile((current) => ({ ...current, rewriter }))
+                  }
+                />
                 <label className="field textarea-field">
                   <span>Voice</span>
                   <textarea

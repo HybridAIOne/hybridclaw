@@ -114,6 +114,7 @@ describe('brand voice admin API helpers', () => {
             enabled: true,
             config: {
               classifier: { provider: 'default' },
+              rewriter: { provider: 'auxiliary' },
               voice: 'Plainspoken.',
               bannedPhrases: ['synergy'],
             },
@@ -129,6 +130,10 @@ describe('brand voice admin API helpers', () => {
         mode: 'rewrite',
         voice: 'Plainspoken.',
         bannedPhrases: ['synergy'],
+        rewriter: {
+          provider: 'auxiliary',
+          model: '',
+        },
       },
       revisions: [{ id: 7 }],
     });
@@ -148,6 +153,10 @@ describe('brand voice admin API helpers', () => {
             provider: 'default',
             model: '',
           },
+          rewriter: {
+            provider: 'model',
+            model: 'openai/gpt-5-mini',
+          },
         },
       }),
     ).resolves.toMatchObject({
@@ -162,6 +171,10 @@ describe('brand voice admin API helpers', () => {
           provider: 'default',
           model: '',
         },
+        rewriter: {
+          provider: 'model',
+          model: 'openai/gpt-5-mini',
+        },
       },
     });
     expect(admin.reloadPluginRuntime).toHaveBeenCalledTimes(1);
@@ -174,6 +187,10 @@ describe('brand voice admin API helpers', () => {
         bannedPhrases: ['game changing'],
         classifier: {
           provider: 'default',
+        },
+        rewriter: {
+          provider: 'model',
+          model: 'openai/gpt-5-mini',
         },
       },
     });

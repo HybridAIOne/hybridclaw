@@ -46,9 +46,7 @@ const baseGuardContext: Omit<PluginOutputGuardContext, 'resultText'> = {
 };
 
 afterEach(() => {
-  delete process.env.BRAND_VOICE_API_KEY;
-  delete process.env.ANTHROPIC_API_KEY;
-  delete process.env.OPENAI_API_KEY;
+  vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.resetModules();
 });
@@ -223,29 +221,29 @@ test('brand-voice guard rewrites off-brand text via the configured rewriter', as
   const cwd = makeTempDir('hybridclaw-brand-voice-project-');
   installBundledPlugin(cwd);
 
-  process.env.BRAND_VOICE_API_KEY = 'test-brand-voice-key';
-
-  const fetchMock = vi.fn(async (input: unknown) => {
-    const url = typeof input === 'string' ? input : (input as URL).toString();
-    if (url.includes('/v1/messages')) {
-      return new Response(
-        JSON.stringify({
-          content: [
-            {
-              type: 'text',
-              text: 'We hold ourselves to a high bar and we will keep you posted.',
-            },
-          ],
+  const auxiliary = await import('../src/providers/auxiliary.js');
+  vi.mocked(auxiliary.callAuxiliaryModel).mockImplementation(
+    async (request) => {
+      const systemPrompt = String(request.messages[0]?.content || '');
+      if (systemPrompt.includes('brand-voice rewriter')) {
+        return {
+          provider: 'hybridai',
+          model: 'hybridai/default-chat',
+          content:
+            'We hold ourselves to a high bar and we will keep you posted.',
+        };
+      }
+      return {
+        provider: 'hybridai',
+        model: 'hybridai/default-chat',
+        content: JSON.stringify({
+          verdict: 'on_brand',
+          reasons: [],
+          severity: 'low',
         }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
-    return new Response(JSON.stringify({}), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  });
-  vi.stubGlobal('fetch', fetchMock);
+      };
+    },
+  );
 
   const runtimeConfig = loadRuntimeConfig();
   runtimeConfig.plugins.list = [
@@ -256,10 +254,7 @@ test('brand-voice guard rewrites off-brand text via the configured rewriter', as
         mode: 'rewrite',
         bannedPhrases: ['stupid'],
         rewriter: {
-          provider: 'anthropic',
-          model: 'claude-haiku-4-5-20251001',
-          apiKeyEnv: 'BRAND_VOICE_API_KEY',
-          timeoutMs: 5000,
+          provider: 'default',
         },
       },
     },
@@ -288,23 +283,42 @@ test('brand-voice guard rewrites off-brand text via the configured rewriter', as
     pluginId: 'brand-voice',
     guardId: 'brand-voice',
   });
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-  const fetchCall = fetchMock.mock.calls[0];
-  const requestUrl =
-    typeof fetchCall[0] === 'string'
-      ? fetchCall[0]
-      : (fetchCall[0] as URL).toString();
-  expect(requestUrl).toContain('/v1/messages');
-  const fetchInit = (fetchCall[1] || {}) as RequestInit;
-  expect((fetchInit.headers as Record<string, string>)['x-api-key']).toBe(
-    'test-brand-voice-key',
+  expect(auxiliary.callAuxiliaryModel).toHaveBeenCalledTimes(2);
+  expect(auxiliary.callAuxiliaryModel).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      provider: 'auto',
+      model: undefined,
+    }),
   );
 });
 
-test('brand-voice guard falls back to block when rewriter is unconfigured', async () => {
+test('brand-voice guard defaults rewrite mode to the default model', async () => {
   const homeDir = makeTempDir('hybridclaw-brand-voice-home-');
   const cwd = makeTempDir('hybridclaw-brand-voice-project-');
   installBundledPlugin(cwd);
+
+  const auxiliary = await import('../src/providers/auxiliary.js');
+  vi.mocked(auxiliary.callAuxiliaryModel).mockImplementation(
+    async (request) => {
+      const systemPrompt = String(request.messages[0]?.content || '');
+      if (systemPrompt.includes('brand-voice rewriter')) {
+        return {
+          provider: 'hybridai',
+          model: 'hybridai/default-chat',
+          content: 'That question is not aligned with the launch plan.',
+        };
+      }
+      return {
+        provider: 'hybridai',
+        model: 'hybridai/default-chat',
+        content: JSON.stringify({
+          verdict: 'on_brand',
+          reasons: [],
+          severity: 'low',
+        }),
+      };
+    },
+  );
 
   const config = loadRuntimeConfig();
   config.plugins.list = [
@@ -331,8 +345,16 @@ test('brand-voice guard falls back to block when rewriter is unconfigured', asyn
     resultText: 'That is a stupid question.',
   });
 
-  expect(outcome.blocked).toBe(true);
-  expect(outcome.events[0]).toMatchObject({ action: 'block' });
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.resultText).toBe(
+    'That question is not aligned with the launch plan.',
+  );
+  expect(outcome.events[0]).toMatchObject({ action: 'rewrite' });
+  expect(auxiliary.callAuxiliaryModel).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      provider: 'auto',
+    }),
+  );
 });
 
 test('brand-voice guard warns and leaves output unchanged when mode=flag', async () => {

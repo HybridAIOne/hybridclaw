@@ -91,25 +91,11 @@ configSchema:
       properties:
         provider:
           type: string
-          enum: [none, anthropic, openai, openai-compat]
-          default: none
+          enum: [default, auxiliary, model]
+          default: default
         model:
           type: string
           default: ''
-        baseUrl:
-          type: string
-        apiKeyEnv:
-          type: string
-        timeoutMs:
-          type: number
-          default: 12000
-          minimum: 1000
-          maximum: 120000
-        maxRetries:
-          type: number
-          default: 1
-          minimum: 0
-          maximum: 3
 configUiHints:
   voice:
     label: Brand voice description
@@ -132,5 +118,5 @@ configUiHints:
     label: Phrases that must appear
   classifier.provider:
     label: Classifier model source
-  rewriter.apiKeyEnv:
-    label: Env var for rewriter API key
+  rewriter.provider:
+    label: Rewriter model source

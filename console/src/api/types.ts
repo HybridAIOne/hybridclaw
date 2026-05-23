@@ -1437,10 +1437,11 @@ export interface AdminBrandVoiceProfile {
   bannedPhrases: string[];
   bannedPatterns: string[];
   requirePhrases: string[];
-  classifier: AdminBrandVoiceClassifierConfig;
+  classifier: AdminBrandVoiceModelConfig;
+  rewriter: AdminBrandVoiceModelConfig;
 }
 
-export interface AdminBrandVoiceClassifierConfig {
+export interface AdminBrandVoiceModelConfig {
   provider: 'default' | 'auxiliary' | 'model';
   model: string;
 }

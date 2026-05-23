@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminBrandVoicePreviewResponse,
@@ -66,6 +72,10 @@ beforeEach(() => {
         provider: 'default',
         model: '',
       },
+      rewriter: {
+        provider: 'default',
+        model: '',
+      },
     },
     revisions: [
       {
@@ -92,6 +102,10 @@ beforeEach(() => {
       requirePhrases: ['Best regards'],
       classifier: {
         provider: 'auxiliary',
+        model: '',
+      },
+      rewriter: {
+        provider: 'default',
         model: '',
       },
     },
@@ -179,7 +193,13 @@ describe('BrandVoicePage', () => {
     fireEvent.change(doInputs[1], {
       target: { value: 'Prefer short sentences' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'aux model' }));
+    fireEvent.click(
+      within(
+        screen.getByRole('group', {
+          name: 'Brand voice classifier source',
+        }),
+      ).getByRole('button', { name: 'aux model' }),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() =>
@@ -189,6 +209,10 @@ describe('BrandVoicePage', () => {
           doList: ['Use concrete nouns', 'Prefer short sentences'],
           classifier: expect.objectContaining({
             provider: 'auxiliary',
+            model: '',
+          }),
+          rewriter: expect.objectContaining({
+            provider: 'default',
             model: '',
           }),
         }),
@@ -220,13 +244,19 @@ describe('BrandVoicePage', () => {
     ).toBeTruthy();
   });
 
-  it('shows the model selector only for other classifier model', async () => {
+  it('shows model selectors only for selected other models', async () => {
     renderBrandVoicePage();
 
     expect(await screen.findByDisplayValue('Use concrete nouns')).toBeTruthy();
     expect(screen.queryByRole('combobox', { name: 'Switch model' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'other model' }));
+    fireEvent.click(
+      within(
+        screen.getByRole('group', {
+          name: 'Brand voice classifier source',
+        }),
+      ).getByRole('button', { name: 'other model' }),
+    );
 
     expect(screen.getByRole('combobox', { name: 'Switch model' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
@@ -238,6 +268,10 @@ describe('BrandVoicePage', () => {
           classifier: {
             provider: 'model',
             model: 'openai/gpt-5-mini',
+          },
+          rewriter: {
+            provider: 'default',
+            model: '',
           },
         }),
       ),

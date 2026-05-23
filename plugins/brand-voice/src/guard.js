@@ -136,16 +136,6 @@ export function createBrandVoiceGuard({ api, config }) {
         };
       }
       // mode === 'rewrite'
-      if (config.rewriter.provider === 'none') {
-        api.logger.warn(
-          {},
-          'brand-voice: rewrite mode but rewriter.provider="none"; blocking instead',
-        );
-        return {
-          action: 'block',
-          reason,
-        };
-      }
       try {
         const rewritten = await callBrandVoiceModel({
           client: config.rewriter,
@@ -157,6 +147,7 @@ export function createBrandVoiceGuard({ api, config }) {
             violations,
             classifierVerdict?.reasons || [],
           ),
+          fallbackModel: context.model,
         });
         if (!ensureNonEmpty(rewritten)) {
           throw new Error('Rewriter returned empty text.');

@@ -33,7 +33,7 @@ export default {
           `  required phrases: ${config.requirePhrases.length}`,
           `  classifier: ${config.classifier.provider}`,
           `  rewriter: ${config.rewriter.provider}${
-            config.rewriter.provider !== 'none'
+            config.rewriter.provider === 'model'
               ? ` (${config.rewriter.model})`
               : ''
           }`,

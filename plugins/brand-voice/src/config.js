@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SUPPORTED_PROVIDERS = ['none', 'anthropic', 'openai', 'openai-compat'];
-const SUPPORTED_CLASSIFIER_PROVIDERS = ['default', 'auxiliary', 'model'];
+const SUPPORTED_MODEL_SOURCES = ['default', 'auxiliary', 'model'];
 const SUPPORTED_MODES = ['block', 'rewrite', 'flag'];
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'];
 
@@ -23,6 +22,15 @@ function normalizeStringArray(value) {
 function ensureEnum(value, allowed, fallback) {
   const normalized = normalizeString(value).toLowerCase();
   return allowed.includes(normalized) ? normalized : fallback;
+}
+
+function ensureModelSource(value, label) {
+  const normalized = normalizeString(value).toLowerCase();
+  if (!normalized) return 'default';
+  if (SUPPORTED_MODEL_SOURCES.includes(normalized)) return normalized;
+  throw new Error(
+    `brand-voice: unsupported ${label} model source "${normalized}".`,
+  );
 }
 
 function ensureNumber(value, fallback, { min, max } = {}) {
@@ -73,59 +81,15 @@ function resolveVoiceFile(voiceFile, runtime, logger) {
   }
 }
 
-function resolveModelClientConfig(rawConfig, fallbackEnv, label) {
-  const provider = ensureEnum(rawConfig?.provider, SUPPORTED_PROVIDERS, 'none');
-  if (provider === 'none') {
-    return { provider: 'none' };
-  }
-  const model = normalizeString(rawConfig?.model);
-  if (!model) {
-    throw new Error(
-      `brand-voice: ${label} provider is "${provider}" but \`${label}.model\` is empty.`,
-    );
-  }
-  const apiKeyEnv =
-    normalizeString(rawConfig?.apiKeyEnv) || defaultApiKeyEnv(provider);
-  const baseUrl =
-    normalizeString(rawConfig?.baseUrl) || defaultBaseUrl(provider);
-  const timeoutMs = ensureNumber(rawConfig?.timeoutMs, fallbackEnv.timeoutMs, {
-    min: 1000,
-    max: fallbackEnv.maxTimeoutMs,
-  });
-  const maxRetries = ensureNumber(rawConfig?.maxRetries, 1, { min: 0, max: 3 });
-  return {
-    provider,
-    model,
-    baseUrl,
-    apiKeyEnv,
-    timeoutMs,
-    maxRetries,
-  };
-}
-
-function resolveClassifierConfig(rawConfig) {
-  const provider = ensureEnum(
-    rawConfig?.provider,
-    SUPPORTED_CLASSIFIER_PROVIDERS,
-    'default',
-  );
+function resolveModelSourceConfig(rawConfig, label) {
+  const provider = ensureModelSource(rawConfig?.provider, label);
   const model = normalizeString(rawConfig?.model);
   if (provider === 'model' && !model) {
-    throw new Error('brand-voice: classifier model is required.');
+    throw new Error(
+      `brand-voice: ${label} model source is "${provider}" but \`${label}.model\` is empty.`,
+    );
   }
   return { provider, model: provider === 'model' ? model : '' };
-}
-
-function defaultApiKeyEnv(provider) {
-  if (provider === 'anthropic') return 'ANTHROPIC_API_KEY';
-  if (provider === 'openai') return 'OPENAI_API_KEY';
-  return 'BRAND_VOICE_API_KEY';
-}
-
-function defaultBaseUrl(provider) {
-  if (provider === 'anthropic') return 'https://api.anthropic.com';
-  if (provider === 'openai') return 'https://api.openai.com/v1';
-  return '';
 }
 
 export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
@@ -160,12 +124,11 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
     'Output blocked by brand-voice guard.';
   const minLength = ensureNumber(rawConfig?.minLength, 0, { min: 0 });
 
-  const classifier = resolveClassifierConfig(rawConfig?.classifier);
-  const rewriter = resolveModelClientConfig(
-    rawConfig?.rewriter,
-    { timeoutMs: 12000, maxTimeoutMs: 120000 },
-    'rewriter',
+  const classifier = resolveModelSourceConfig(
+    rawConfig?.classifier,
+    'classifier',
   );
+  const rewriter = resolveModelSourceConfig(rawConfig?.rewriter, 'rewriter');
 
   for (const error of errors) {
     logger.warn({ error }, 'brand-voice config issue');
