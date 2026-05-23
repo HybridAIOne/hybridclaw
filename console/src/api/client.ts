@@ -552,7 +552,7 @@ export function fetchBoardBudgetSummaries(
   }
   const query = params.toString();
   return requestJson<AdminBoardBudgetResponse>(
-    `/api/admin/board/budgets${query ? `?${query}` : ''}`,
+    `/api/admin/jobs/budgets${query ? `?${query}` : ''}`,
     { token },
   );
 }

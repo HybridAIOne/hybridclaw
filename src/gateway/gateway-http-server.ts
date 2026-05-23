@@ -3239,7 +3239,7 @@ function handleApiAdminJobsContext(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminJobsContext());
 }
 
-function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
+function parseJobBudgetAgentIds(url: URL): string[] | undefined {
   const values = url.searchParams
     .getAll('agentId')
     .map((value) => value.trim())
@@ -3247,12 +3247,12 @@ function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
   return values.length > 0 ? values : undefined;
 }
 
-function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
+function handleApiAdminJobsBudgets(res: ServerResponse, url: URL): void {
   sendJson(
     res,
     200,
     getBoardBudgetSummaries({
-      agentIds: parseBoardBudgetAgentIds(url),
+      agentIds: parseJobBudgetAgentIds(url),
     }),
   );
 }
@@ -3342,7 +3342,7 @@ function extractBoardEdgeContext(
   };
 }
 
-async function handleApiAdminBoardEdges(
+async function handleApiAdminJobsEdges(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
@@ -3381,7 +3381,7 @@ async function handleApiAdminBoardEdges(
   sendJson(res, 405, { error: 'Method Not Allowed' });
 }
 
-async function handleApiAdminBoardEdgeRevisions(
+async function handleApiAdminJobsEdgeRevisions(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
@@ -3405,7 +3405,7 @@ async function handleApiAdminBoardEdgeRevisions(
   sendJson(res, 405, { error: 'Method Not Allowed' });
 }
 
-function handleApiAdminBoardBlocked(res: ServerResponse, url: URL): void {
+function handleApiAdminJobsBlocked(res: ServerResponse, url: URL): void {
   const cardId = normalizeBoardCardId(url.searchParams.get('cardId'), 'cardId');
   sendJson(res, 200, { cardId, blocked: isBlocked(cardId) });
 }
@@ -6226,26 +6226,26 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminJobsContext(res);
             return;
           }
-          if (pathname === '/api/admin/board/budgets' && method === 'GET') {
-            handleApiAdminBoardBudgets(res, url);
+          if (pathname === '/api/admin/jobs/budgets' && method === 'GET') {
+            handleApiAdminJobsBudgets(res, url);
             return;
           }
           if (
-            pathname === '/api/admin/board/edges' &&
+            pathname === '/api/admin/jobs/edges' &&
             (method === 'GET' || method === 'POST' || method === 'DELETE')
           ) {
-            await handleApiAdminBoardEdges(req, res, url);
+            await handleApiAdminJobsEdges(req, res, url);
             return;
           }
           if (
-            pathname === '/api/admin/board/edge-revisions' &&
+            pathname === '/api/admin/jobs/edge-revisions' &&
             (method === 'GET' || method === 'POST')
           ) {
-            await handleApiAdminBoardEdgeRevisions(req, res, url);
+            await handleApiAdminJobsEdgeRevisions(req, res, url);
             return;
           }
-          if (pathname === '/api/admin/board/blocked' && method === 'GET') {
-            handleApiAdminBoardBlocked(res, url);
+          if (pathname === '/api/admin/jobs/blocked' && method === 'GET') {
+            handleApiAdminJobsBlocked(res, url);
             return;
           }
           if (

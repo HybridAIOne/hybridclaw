@@ -6077,10 +6077,10 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('returns board budget summaries for authorized API requests', async () => {
+  test('returns job budget summaries for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
-      url: '/api/admin/board/budgets?agentId=main&agentId=agent-a&agentId=agent-b',
+      url: '/api/admin/jobs/budgets?agentId=main&agentId=agent-a&agentId=agent-b',
     });
     const res = makeResponse();
 
@@ -6104,11 +6104,11 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('exposes board edge mutation and query APIs', async () => {
+  test('exposes job edge mutation and query APIs', async () => {
     const state = await importFreshHealth();
     const createReq = makeRequest({
       method: 'POST',
-      url: '/api/admin/board/edges',
+      url: '/api/admin/jobs/edges',
       body: {
         fromCardId: 'card-a',
         toCardId: 'card-b',
@@ -6139,7 +6139,7 @@ describe('gateway HTTP server', () => {
     });
 
     const listReq = makeRequest({
-      url: '/api/admin/board/edges?cardId=card-b&kind=blocked_by',
+      url: '/api/admin/jobs/edges?cardId=card-b&kind=blocked_by',
     });
     const listRes = makeResponse();
     state.handler(listReq as never, listRes as never);
@@ -6150,7 +6150,7 @@ describe('gateway HTTP server', () => {
     });
 
     const blockedReq = makeRequest({
-      url: '/api/admin/board/blocked?cardId=card-b',
+      url: '/api/admin/jobs/blocked?cardId=card-b',
     });
     const blockedRes = makeResponse();
     state.handler(blockedReq as never, blockedRes as never);
@@ -6163,7 +6163,7 @@ describe('gateway HTTP server', () => {
 
     const deleteReq = makeRequest({
       method: 'DELETE',
-      url: '/api/admin/board/edges?id=edge-1',
+      url: '/api/admin/jobs/edges?id=edge-1',
       body: {
         actor: { userId: 'user_a' },
         sessionId: 'board-session',
@@ -6183,7 +6183,7 @@ describe('gateway HTTP server', () => {
     });
 
     const revisionsReq = makeRequest({
-      url: '/api/admin/board/edge-revisions?id=edge-1',
+      url: '/api/admin/jobs/edge-revisions?id=edge-1',
     });
     const revisionsRes = makeResponse();
     state.handler(revisionsReq as never, revisionsRes as never);
@@ -6195,7 +6195,7 @@ describe('gateway HTTP server', () => {
 
     const restoreReq = makeRequest({
       method: 'POST',
-      url: '/api/admin/board/edge-revisions',
+      url: '/api/admin/jobs/edge-revisions',
       body: {
         id: 'edge-1',
         revisionId: 7,
@@ -6217,11 +6217,11 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('rejects unsafe board edge system actors', async () => {
+  test('rejects unsafe job edge system actors', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       method: 'POST',
-      url: '/api/admin/board/edges',
+      url: '/api/admin/jobs/edges',
       body: {
         fromCardId: 'card-a',
         toCardId: 'card-b',
@@ -6241,11 +6241,11 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('requires board edge deletes to identify the edge in the query string', async () => {
+  test('requires job edge deletes to identify the edge in the query string', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       method: 'DELETE',
-      url: '/api/admin/board/edges',
+      url: '/api/admin/jobs/edges',
       body: {
         id: 'edge-1',
         actor: { userId: 'user_a' },
