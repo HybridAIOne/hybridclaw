@@ -4408,12 +4408,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               region: {
                 type: 'string',
                 description:
-                  'Optional OTC region such as eu-de. Inferred from the endpoint host when omitted.',
+                  'Optional OTC region metadata such as eu-de. Helpers should provide this when known; the gateway does not infer it from the host and does not need it for SDK-HMAC signing.',
               },
               service: {
                 type: 'string',
                 description:
-                  'Optional OTC service signing name such as ecs, vpc, evs, cce, or iam. Inferred from the endpoint host when omitted.',
+                  'Optional OTC service metadata such as ecs, vpc, evs, cce, or iam. Helpers should provide this when known; the gateway does not infer it from the host and does not need it for SDK-HMAC signing.',
               },
             },
             required: ['accessKeyIdSecretName', 'secretAccessKeySecretName'],

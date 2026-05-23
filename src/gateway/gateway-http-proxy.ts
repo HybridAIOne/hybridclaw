@@ -897,30 +897,6 @@ function assertOtcAkSkHost(url: URL): void {
   );
 }
 
-function inferOtcServiceFromHost(url: URL): string {
-  const labels = url.hostname.toLowerCase().split('.');
-  const service = labels[0] || '';
-  if (!/^[a-z][a-z0-9-]{0,31}$/.test(service)) {
-    throw new GatewayRequestError(
-      400,
-      'Cannot infer OTC service from request host; set otcAkSk.service.',
-    );
-  }
-  return service;
-}
-
-function inferOtcRegionFromHost(url: URL): string {
-  const labels = url.hostname.toLowerCase().split('.');
-  const region = labels[1] || '';
-  if (!/^[a-z]{2}-[a-z0-9-]{2,20}$/.test(region)) {
-    throw new GatewayRequestError(
-      400,
-      'Cannot infer OTC region from request host; set otcAkSk.region.',
-    );
-  }
-  return region;
-}
-
 function encodeCanonicalQueryPart(value: string): string {
   return encodeURIComponent(value).replace(
     /[!'()*]/g,
@@ -970,6 +946,12 @@ async function applyOtcAkSkSigning(params: {
   context: SecretResolveContext;
 }): Promise<void> {
   assertOtcAkSkHost(params.url);
+  if (params.url.protocol !== 'https:') {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk signing requires an HTTPS Open Telekom Cloud URL.',
+    );
+  }
   if (hasHeaderValue(params.headers, 'Authorization')) {
     throw new GatewayRequestError(
       400,
@@ -1033,8 +1015,6 @@ async function applyOtcAkSkSigning(params: {
     '\n',
   );
   const signature = hmacSha256Hex(secretAccessKey, stringToSign);
-  if (!params.rule.service) inferOtcServiceFromHost(params.url);
-  if (!params.rule.region) inferOtcRegionFromHost(params.url);
   setHeaderValue(
     params.headers,
     'Authorization',

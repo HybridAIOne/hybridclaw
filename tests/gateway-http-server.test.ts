@@ -9441,6 +9441,55 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test('blocks Open Telekom Cloud signing over cleartext HTTP', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '80.158.59.140', family: 4 }]),
+    }));
+    const dataDir = makeTempDataDir();
+    writeRuntimeConfig(dataDir, (config) => {
+      const ops = config.ops as Record<string, unknown>;
+      ops.gatewayApiToken = 'gateway-token';
+    });
+    writeAllowAllSecretPolicy(dataDir);
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.js'
+    );
+    saveNamedRuntimeSecrets({
+      OTC_ACCESS_KEY_ID: 'test-access-key',
+      OTC_SECRET_ACCESS_KEY: 'test-secret-key',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'http://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail',
+        method: 'GET',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      'otcAkSk signing requires an HTTPS Open Telekom Cloud URL',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('forwards base64-encoded binary bodies for outbound http_request calls', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
