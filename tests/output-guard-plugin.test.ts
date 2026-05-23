@@ -466,6 +466,7 @@ test('output guard defaults rewrite mode to the default model', async () => {
 
   const outcome = await manager.applyOutputGuards({
     ...baseGuardContext,
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
     resultText: 'That is a stupid question.',
   });
 
@@ -476,7 +477,9 @@ test('output guard defaults rewrite mode to the default model', async () => {
   expect(outcome.events[0]).toMatchObject({ action: 'rewrite' });
   expect(auxiliary.callAuxiliaryModel).toHaveBeenLastCalledWith(
     expect.objectContaining({
-      provider: 'auto',
+      provider: 'vllm',
+      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+      timeoutMs: 60_000,
     }),
   );
 });

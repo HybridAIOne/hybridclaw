@@ -1,3 +1,35 @@
+const OUTPUT_GUARD_MODEL_TIMEOUT_MS = 60_000;
+const MODEL_PROVIDER_PREFIXES = [
+  'openai-codex',
+  'anthropic',
+  'openrouter',
+  'mistral',
+  'huggingface',
+  'gemini',
+  'deepseek',
+  'xai',
+  'zai',
+  'kimi',
+  'minimax',
+  'dashscope',
+  'xiaomi',
+  'kilo',
+  'ollama',
+  'lmstudio',
+  'llamacpp',
+  'vllm',
+];
+
+function inferModelProvider(model) {
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return undefined;
+  return MODEL_PROVIDER_PREFIXES.find((provider) =>
+    normalized.startsWith(`${provider}/`),
+  );
+}
+
 export async function callOutputGuardModel({
   client,
   api,
@@ -13,24 +45,30 @@ export async function callOutputGuardModel({
       `output-guard: unsupported model source "${client.provider}"`,
     );
   }
+  const model =
+    client.provider === 'default'
+      ? fallbackModel
+      : client.provider === 'model'
+        ? client.model
+        : undefined;
+  const provider =
+    client.provider === 'auxiliary'
+      ? undefined
+      : (inferModelProvider(model) ??
+        (client.provider === 'default' ? 'auto' : undefined));
   const result = await api.callAuxiliaryModel({
     task: 'skills_hub',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    provider: client.provider === 'default' ? 'auto' : undefined,
-    model:
-      client.provider === 'default'
-        ? fallbackModel
-        : client.provider === 'model'
-          ? client.model
-          : undefined,
+    provider,
+    model,
     fallbackModel,
     fallbackEnableRag: false,
     maxTokens: 1024,
     temperature: 0,
-    timeoutMs: 8000,
+    timeoutMs: OUTPUT_GUARD_MODEL_TIMEOUT_MS,
   });
   return result.content;
 }

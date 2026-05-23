@@ -373,13 +373,13 @@ describe('output guard admin API helpers', () => {
   test('routes the default model classifier through the active default model', async () => {
     const admin = await importOutputGuardAdmin(
       {
-        hybridai: { defaultModel: 'hybridai/default-chat' },
+        hybridai: { defaultModel: 'vllm/Qwen/Qwen3.6-27B-FP8' },
         plugins: { list: [] },
       } as RuntimeConfig,
       {
         auxiliaryResult: {
-          provider: 'hybridai',
-          model: 'hybridai/default-chat',
+          provider: 'vllm',
+          model: 'vllm/Qwen/Qwen3.6-27B-FP8',
           content: JSON.stringify({
             verdict: 'compliant',
             reasons: [],
@@ -409,9 +409,10 @@ describe('output guard admin API helpers', () => {
 
     expect(admin.callAuxiliaryModel).toHaveBeenCalledWith(
       expect.objectContaining({
-        provider: 'auto',
-        model: 'hybridai/default-chat',
-        fallbackModel: 'hybridai/default-chat',
+        provider: 'vllm',
+        model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+        fallbackModel: 'vllm/Qwen/Qwen3.6-27B-FP8',
+        timeoutMs: 60_000,
       }),
     );
   });

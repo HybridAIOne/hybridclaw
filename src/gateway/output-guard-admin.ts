@@ -25,6 +25,27 @@ const SUPPORTED_MODES = ['block', 'rewrite', 'flag'] as const;
 const SUPPORTED_MODEL_SOURCES = ['default', 'auxiliary', 'model'] as const;
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'] as const;
 const OUTPUT_GUARD_REVISION_ROUTE = 'api.admin.output-guard.profile';
+const OUTPUT_GUARD_MODEL_TIMEOUT_MS = 60_000;
+const MODEL_PROVIDER_PREFIXES = [
+  'openai-codex',
+  'anthropic',
+  'openrouter',
+  'mistral',
+  'huggingface',
+  'gemini',
+  'deepseek',
+  'xai',
+  'zai',
+  'kimi',
+  'minimax',
+  'dashscope',
+  'xiaomi',
+  'kilo',
+  'ollama',
+  'lmstudio',
+  'llamacpp',
+  'vllm',
+] as const;
 const MAX_PROFILE_LIST_ITEMS = 200;
 const MAX_PREVIEW_SAMPLE_CHARS = 50_000;
 const PREVIEW_SCORE = {
@@ -38,6 +59,18 @@ const PREVIEW_SCORE = {
 type OutputGuardModelSource = (typeof SUPPORTED_MODEL_SOURCES)[number];
 
 type OutputGuardFailureMode = (typeof SUPPORTED_FAILURE_MODES)[number];
+
+function inferModelProvider(
+  model: string | undefined,
+): (typeof MODEL_PROVIDER_PREFIXES)[number] | undefined {
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return undefined;
+  return MODEL_PROVIDER_PREFIXES.find((provider) =>
+    normalized.startsWith(`${provider}/`),
+  );
+}
 
 interface OutputGuardModelClientConfig {
   provider: OutputGuardModelSource;
@@ -460,24 +493,30 @@ async function callClassifierModel(
     'Reply with a single JSON object on one line: {"verdict":"compliant"|"non_compliant","reasons":[string],"severity":"low"|"medium"|"high"}',
     'Do not include any prose outside the JSON.',
   ].join(' ');
+  const model =
+    client.provider === 'default'
+      ? fallbackModel
+      : client.provider === 'model'
+        ? client.model
+        : undefined;
+  const provider =
+    client.provider === 'auxiliary'
+      ? undefined
+      : (inferModelProvider(model) ??
+        (client.provider === 'default' ? 'auto' : undefined));
   const result = await callAuxiliaryModel({
     task: 'skills_hub',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    provider: client.provider === 'default' ? 'auto' : undefined,
-    model:
-      client.provider === 'default'
-        ? fallbackModel
-        : client.provider === 'model'
-          ? client.model
-          : undefined,
+    provider,
+    model,
     fallbackModel,
     fallbackEnableRag: false,
     maxTokens: 1024,
     temperature: 0,
-    timeoutMs: 8000,
+    timeoutMs: OUTPUT_GUARD_MODEL_TIMEOUT_MS,
   });
   return { content: result.content, model: result.model };
 }
