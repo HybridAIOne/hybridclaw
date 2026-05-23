@@ -6,7 +6,7 @@ requires:
   bins:
     - node
 credentials:
-  - id: MITTWALD_API_TOKEN
+  - id: mittwald-api-token
     kind: bearer
     required: true
     secret_ref:
@@ -36,17 +36,38 @@ metadata:
         - projects
         - project
         - apps
+        - app
         - app-status
+        - app-system-software
         - databases
+        - mysql-databases
+        - redis-databases
         - domains
+        - dns-zones
+        - ingresses
         - backups
-        - containers
-        - files
-        - mail
+        - backup
+        - backup-path
+        - backup-database-dumps
+        - cronjobs
         - ssh-users
         - sftp-users
+        - mail-addresses
+        - delivery-boxes
+        - mail-settings
+        - stacks
+        - services
+        - service
+        - volumes
+        - registries
+        - service-logs
+        - file-info
+        - directory
+        - disk-usage
+        - extension-orders
         - extension-instances
-        - deploy-check
+        - extension-instance
+        - licenses
       amber:
         - create-redis-database
         - create-mysql-database

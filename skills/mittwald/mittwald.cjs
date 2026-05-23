@@ -141,6 +141,20 @@ function encodeSegment(value, label) {
   return encodeURIComponent(requireText(value, label));
 }
 
+function followUpArgv(operation, targetArgs) {
+  return [
+    'node',
+    'skills/mittwald/mittwald.cjs',
+    '--format',
+    'json',
+    'event-follow-up',
+    operation,
+    ...targetArgs,
+    '--event-id',
+    '<etag>',
+  ];
+}
+
 function parseInteger(value, label, { min, max } = {}) {
   const number = Number(value);
   if (!Number.isInteger(number)) {
@@ -269,28 +283,28 @@ function wrapHttpRequests(operation, requests, extra = {}) {
 }
 
 function projectId(args) {
-  return encodeSegment(popFlag(args, '--project-id'), '--project-id');
+  return requireText(popFlag(args, '--project-id'), '--project-id');
 }
 
 function appId(args) {
-  return encodeSegment(
+  return requireText(
     popFlag(args, '--app-installation-id') || popFlag(args, '--app-id'),
     '--app-installation-id',
   );
 }
 
 function backupId(args) {
-  return encodeSegment(popFlag(args, '--backup-id'), '--backup-id');
+  return requireText(popFlag(args, '--backup-id'), '--backup-id');
 }
 
 function domainId(args) {
-  return encodeSegment(popFlag(args, '--domain-id'), '--domain-id');
+  return requireText(popFlag(args, '--domain-id'), '--domain-id');
 }
 
 function stackAndService(args) {
   return {
-    stack: encodeSegment(popFlag(args, '--stack-id'), '--stack-id'),
-    service: encodeSegment(popFlag(args, '--service-id'), '--service-id'),
+    stack: requireText(popFlag(args, '--stack-id'), '--stack-id'),
+    service: requireText(popFlag(args, '--service-id'), '--service-id'),
   };
 }
 
@@ -339,7 +353,7 @@ function commandHttpRequest(args) {
     }
     case 'project':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${projectId(args)}`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}`,
       });
       break;
     case 'apps': {
@@ -350,7 +364,7 @@ function commandHttpRequest(args) {
       });
       payload = wrapHttpRequest(operation, {
         url: appendQuery(
-          `${API_BASE}/projects/${project}/app-installations`,
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/app-installations`,
           query,
         ),
       });
@@ -358,12 +372,12 @@ function commandHttpRequest(args) {
     }
     case 'app':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/app-installations/${appId(args)}`,
+        url: `${API_BASE}/app-installations/${encodeSegment(appId(args), '--app-installation-id')}`,
       });
       break;
     case 'app-status':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/app-installations/${appId(args)}/status`,
+        url: `${API_BASE}/app-installations/${encodeSegment(appId(args), '--app-installation-id')}/status`,
       });
       break;
     case 'app-system-software': {
@@ -371,7 +385,7 @@ function commandHttpRequest(args) {
       const tagFilter = popFlag(args, '--tag-filter');
       payload = wrapHttpRequest(operation, {
         url: appendQuery(
-          `${API_BASE}/app-installations/${app}/systemSoftware`,
+          `${API_BASE}/app-installations/${encodeSegment(app, '--app-installation-id')}/systemSoftware`,
           {
             tagFilter,
           },
@@ -382,10 +396,10 @@ function commandHttpRequest(args) {
     case 'databases': {
       const project = projectId(args);
       const mysql = wrapHttpRequest('mysql-databases', {
-        url: `${API_BASE}/projects/${project}/mysql-databases`,
+        url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/mysql-databases`,
       });
       const redis = wrapHttpRequest('redis-databases', {
-        url: `${API_BASE}/projects/${project}/redis-databases`,
+        url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/redis-databases`,
       });
       payload = wrapHttpRequests(operation, [mysql, redis], {
         note: 'Pass each httpRequests item to http_request, then merge MySQL and Redis results in the answer.',
@@ -394,12 +408,12 @@ function commandHttpRequest(args) {
     }
     case 'mysql-databases':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${projectId(args)}/mysql-databases`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/mysql-databases`,
       });
       break;
     case 'redis-databases':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${projectId(args)}/redis-databases`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/redis-databases`,
       });
       break;
     case 'domains': {
@@ -408,18 +422,21 @@ function commandHttpRequest(args) {
         '--domain-search-name': 'domainSearchName',
       });
       payload = wrapHttpRequest(operation, {
-        url: appendQuery(`${API_BASE}/projects/${project}/domains`, query),
+        url: appendQuery(
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/domains`,
+          query,
+        ),
       });
       break;
     }
     case 'dns-zones':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${projectId(args)}/dns-zones`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/dns-zones`,
       });
       break;
     case 'ingresses':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${projectId(args)}/ingresses`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/ingresses`,
       });
       break;
     case 'backups': {
@@ -435,12 +452,15 @@ function commandHttpRequest(args) {
       );
       const runningBackupsOnly = popBooleanFlag(args, '--running-backups-only');
       payload = wrapHttpRequest(operation, {
-        url: appendQuery(`${API_BASE}/projects/${project}/backups`, {
-          ...query,
-          withExportsOnly,
-          runningRestoresOnly,
-          runningBackupsOnly,
-        }),
+        url: appendQuery(
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/backups`,
+          {
+            ...query,
+            withExportsOnly,
+            runningRestoresOnly,
+            runningBackupsOnly,
+          },
+        ),
       });
       break;
     }
@@ -448,15 +468,18 @@ function commandHttpRequest(args) {
       const backup = backupId(args);
       const path = popFlag(args, '--path');
       payload = wrapHttpRequest(operation, {
-        url: appendQuery(`${API_BASE}/project-backups/${backup}/path`, {
-          path,
-        }),
+        url: appendQuery(
+          `${API_BASE}/project-backups/${encodeSegment(backup, '--backup-id')}/path`,
+          {
+            path,
+          },
+        ),
       });
       break;
     }
     case 'backup-database-dumps':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/project-backups/${backupId(args)}/database-dumps`,
+        url: `${API_BASE}/project-backups/${encodeSegment(backupId(args), '--backup-id')}/database-dumps`,
       });
       break;
     case 'cronjobs': {
@@ -467,10 +490,13 @@ function commandHttpRequest(args) {
         '--include-service-cronjobs',
       );
       payload = wrapHttpRequest(operation, {
-        url: appendQuery(`${API_BASE}/projects/${project}/cronjobs`, {
-          ...query,
-          includeServiceCronjobs,
-        }),
+        url: appendQuery(
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/cronjobs`,
+          {
+            ...query,
+            includeServiceCronjobs,
+          },
+        ),
       });
       break;
     }
@@ -482,7 +508,10 @@ function commandHttpRequest(args) {
       if (skip !== undefined)
         query.skip = parseInteger(skip, '--skip', { min: 0 });
       payload = wrapHttpRequest(operation, {
-        url: appendQuery(`${API_BASE}/projects/${project}/${operation}`, query),
+        url: appendQuery(
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/${operation}`,
+          query,
+        ),
       });
       break;
     }
@@ -491,7 +520,7 @@ function commandHttpRequest(args) {
       const query = listQuery(args, { '--search': 'search' });
       payload = wrapHttpRequest(operation, {
         url: appendQuery(
-          `${API_BASE}/projects/${project}/mail-addresses`,
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/mail-addresses`,
           query,
         ),
       });
@@ -502,7 +531,7 @@ function commandHttpRequest(args) {
       const query = listQuery(args);
       payload = wrapHttpRequest(operation, {
         url: appendQuery(
-          `${API_BASE}/projects/${project}/delivery-boxes`,
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/delivery-boxes`,
           query,
         ),
       });
@@ -510,7 +539,7 @@ function commandHttpRequest(args) {
     }
     case 'mail-settings':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${projectId(args)}/mail-settings`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/mail-settings`,
       });
       break;
     case 'stacks':
@@ -524,25 +553,24 @@ function commandHttpRequest(args) {
         '--status': 'status',
       });
       payload = wrapHttpRequest(operation, {
-        url: appendQuery(`${API_BASE}/projects/${project}/${operation}`, query),
+        url: appendQuery(
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/${operation}`,
+          query,
+        ),
       });
       break;
     }
     case 'registries':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${projectId(args)}/registries`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/registries`,
       });
       break;
     case 'service-logs': {
-      const stack = encodeSegment(popFlag(args, '--stack-id'), '--stack-id');
-      const service = encodeSegment(
-        popFlag(args, '--service-id'),
-        '--service-id',
-      );
+      const { stack, service } = stackAndService(args);
       const tail = popFlag(args, '--tail', '200');
       payload = wrapHttpRequest(operation, {
         url: appendQuery(
-          `${API_BASE}/stacks/${stack}/services/${service}/logs`,
+          `${API_BASE}/stacks/${encodeSegment(stack, '--stack-id')}/services/${encodeSegment(service, '--service-id')}/logs`,
           {
             tail: parseInteger(tail, '--tail', { min: 1, max: 2_000 }),
           },
@@ -554,9 +582,12 @@ function commandHttpRequest(args) {
       const project = projectId(args);
       const file = requireText(popFlag(args, '--file'), '--file');
       payload = wrapHttpRequest(operation, {
-        url: appendQuery(`${API_BASE}/projects/${project}/filesystem/files`, {
-          file,
-        }),
+        url: appendQuery(
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/filesystem/files`,
+          {
+            file,
+          },
+        ),
       });
       break;
     }
@@ -569,7 +600,7 @@ function commandHttpRequest(args) {
       const maxDepth = popFlag(args, '--max-depth', '1');
       payload = wrapHttpRequest(operation, {
         url: appendQuery(
-          `${API_BASE}/projects/${project}/filesystem/directories`,
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/filesystem/directories`,
           {
             directory,
             max_depth: parseInteger(maxDepth, '--max-depth', {
@@ -587,7 +618,7 @@ function commandHttpRequest(args) {
       const directory = popFlag(args, '--directory');
       payload = wrapHttpRequest(operation, {
         url: appendQuery(
-          `${API_BASE}/projects/${project}/filesystem/usages/disk`,
+          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/filesystem/usages/disk`,
           {
             directory,
           },
@@ -597,7 +628,7 @@ function commandHttpRequest(args) {
     }
     case 'extension-orders':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${projectId(args)}/extension-orders`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/extension-orders`,
       });
       break;
     case 'extension-instances': {
@@ -622,23 +653,23 @@ function commandHttpRequest(args) {
       break;
     case 'licenses':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${projectId(args)}/licenses`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/licenses`,
       });
       break;
     case 'domain':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/domains/${domainId(args)}`,
+        url: `${API_BASE}/domains/${encodeSegment(domainId(args), '--domain-id')}`,
       });
       break;
     case 'backup':
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/project-backups/${backupId(args)}`,
+        url: `${API_BASE}/project-backups/${encodeSegment(backupId(args), '--backup-id')}`,
       });
       break;
     case 'service': {
       const { stack, service } = stackAndService(args);
       payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/stacks/${stack}/services/${service}`,
+        url: `${API_BASE}/stacks/${encodeSegment(stack, '--stack-id')}/services/${encodeSegment(service, '--service-id')}`,
       });
       break;
     }
@@ -653,13 +684,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/projects/${project}/redis-databases`,
+          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/redis-databases`,
           method: 'POST',
           json: { description, version },
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --project-id ${project} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--project-id', project]),
           verifies: 'redis database appears in project database inventory',
         },
       );
@@ -680,7 +711,7 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/projects/${project}/mysql-databases`,
+          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/mysql-databases`,
           method: 'POST',
           json: {
             database: { description, version },
@@ -689,7 +720,7 @@ function commandHttpRequest(args) {
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --project-id ${project} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--project-id', project]),
           verifies: 'MySQL database appears in project database inventory',
         },
       );
@@ -702,13 +733,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/projects/${project}/app-installations`,
+          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/app-installations`,
           method: 'POST',
           json,
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --project-id ${project} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--project-id', project]),
           verifies: 'app installation appears in project app list',
         },
       );
@@ -721,13 +752,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/projects/${project}/cronjobs`,
+          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/cronjobs`,
           method: 'POST',
           json,
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --project-id ${project} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--project-id', project]),
           verifies: 'cronjob appears in project cronjob list',
         },
       );
@@ -744,12 +775,12 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/app-installations/${app}/actions/${action}`,
+          url: `${API_BASE}/app-installations/${encodeSegment(app, '--app-installation-id')}/actions/${action}`,
           method: 'POST',
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --app-installation-id ${app} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--app-installation-id', app]),
           verifies: 'app runtime status reflects requested action',
         },
       );
@@ -766,12 +797,17 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/stacks/${stack}/services/${service}/actions/${action}`,
+          url: `${API_BASE}/stacks/${encodeSegment(stack, '--stack-id')}/services/${encodeSegment(service, '--service-id')}/actions/${action}`,
           method: 'POST',
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --stack-id ${stack} --service-id ${service} --event-id <etag>`,
+          argv: followUpArgv(operation, [
+            '--stack-id',
+            stack,
+            '--service-id',
+            service,
+          ]),
           verifies: 'service status reflects requested action',
         },
       );
@@ -787,13 +823,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/domains/${domain}/project-id`,
+          url: `${API_BASE}/domains/${encodeSegment(domain, '--domain-id')}/project-id`,
           method: 'PATCH',
           json: { projectId: nextProject },
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --domain-id ${domain} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--domain-id', domain]),
           verifies: 'domain project id matches target project',
         },
       );
@@ -811,13 +847,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/domains/${domain}/nameservers`,
+          url: `${API_BASE}/domains/${encodeSegment(domain, '--domain-id')}/nameservers`,
           method: 'PATCH',
           json: { nameservers },
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --domain-id ${domain} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--domain-id', domain]),
           verifies: 'domain nameservers match requested set',
         },
       );
@@ -835,13 +871,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/domains/${domain}/scheduled-deletion`,
+          url: `${API_BASE}/domains/${encodeSegment(domain, '--domain-id')}/scheduled-deletion`,
           method: 'POST',
           json: { deletionDate, deleteIngresses },
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --domain-id ${domain} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--domain-id', domain]),
           verifies: 'domain scheduled deletion is visible',
         },
       );
@@ -853,12 +889,12 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/domains/${domain}/scheduled-deletion`,
+          url: `${API_BASE}/domains/${encodeSegment(domain, '--domain-id')}/scheduled-deletion`,
           method: 'DELETE',
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --domain-id ${domain} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--domain-id', domain]),
           verifies: 'domain scheduled deletion is absent',
         },
       );
@@ -890,13 +926,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/project-backups/${backup}/restore`,
+          url: `${API_BASE}/project-backups/${encodeSegment(backup, '--backup-id')}/restore`,
           method: 'POST',
           json,
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --backup-id ${backup} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--backup-id', backup]),
           verifies: 'backup restore status is visible on the backup',
         },
       );
@@ -917,13 +953,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/project-backups/${backup}/restore-path`,
+          url: `${API_BASE}/project-backups/${encodeSegment(backup, '--backup-id')}/restore-path`,
           method: 'POST',
           json,
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --backup-id ${backup} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--backup-id', backup]),
           verifies: 'backup path restore status is visible on the backup',
         },
       );
@@ -937,13 +973,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/projects/${project}/actions/validate-license-key`,
+          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/actions/validate-license-key`,
           method: 'POST',
           json: { key, kind },
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --project-id ${project} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--project-id', project]),
           verifies:
             'project licenses reflect validation result when applicable',
         },
@@ -951,7 +987,7 @@ function commandHttpRequest(args) {
       break;
     }
     case 'order-extension': {
-      const extension = encodeSegment(
+      const extension = requireText(
         popFlag(args, '--extension-id'),
         '--extension-id',
       );
@@ -960,13 +996,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/extensions/${extension}/order`,
+          url: `${API_BASE}/extensions/${encodeSegment(extension, '--extension-id')}/order`,
           method: 'POST',
           json,
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --extension-id ${extension} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--extension-id', extension]),
           verifies:
             'extension instance or extension order reflects the marketplace order',
         },
@@ -984,13 +1020,13 @@ function commandHttpRequest(args) {
       payload = wrapMutation(
         operation,
         {
-          url: `${API_BASE}/projects/${project}/delivery-boxes`,
+          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/delivery-boxes`,
           method: 'POST',
           json: { description, password },
         },
         requireGrant(args, operation, target),
         {
-          command: `node skills/mittwald/mittwald.cjs --format json event-follow-up ${operation} --project-id ${project} --event-id <etag>`,
+          argv: followUpArgv(operation, ['--project-id', project]),
           verifies: 'delivery box is visible in project mail resources',
         },
       );
@@ -1017,11 +1053,11 @@ function commandEventFollowUp(args) {
       const project = projectId(args);
       payload = wrapHttpRequests(operation, [
         wrapHttpRequest('mysql-databases', {
-          url: `${API_BASE}/projects/${project}/mysql-databases`,
+          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/mysql-databases`,
           headers,
         }),
         wrapHttpRequest('redis-databases', {
-          url: `${API_BASE}/projects/${project}/redis-databases`,
+          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/redis-databases`,
           headers,
         }),
       ]);
@@ -1030,7 +1066,7 @@ function commandEventFollowUp(args) {
     case 'create-app-installation':
       payload = wrapHttpRequest('apps', {
         url: appendQuery(
-          `${API_BASE}/projects/${projectId(args)}/app-installations`,
+          `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/app-installations`,
           {
             limit: DEFAULT_LIMIT,
           },
@@ -1040,22 +1076,25 @@ function commandEventFollowUp(args) {
       break;
     case 'create-cronjob':
       payload = wrapHttpRequest('cronjobs', {
-        url: appendQuery(`${API_BASE}/projects/${projectId(args)}/cronjobs`, {
-          limit: DEFAULT_LIMIT,
-        }),
+        url: appendQuery(
+          `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/cronjobs`,
+          {
+            limit: DEFAULT_LIMIT,
+          },
+        ),
         headers,
       });
       break;
     case 'app-action':
       payload = wrapHttpRequest('app-status', {
-        url: `${API_BASE}/app-installations/${appId(args)}/status`,
+        url: `${API_BASE}/app-installations/${encodeSegment(appId(args), '--app-installation-id')}/status`,
         headers,
       });
       break;
     case 'service-action': {
       const { stack, service } = stackAndService(args);
       payload = wrapHttpRequest('service', {
-        url: `${API_BASE}/stacks/${stack}/services/${service}`,
+        url: `${API_BASE}/stacks/${encodeSegment(stack, '--stack-id')}/services/${encodeSegment(service, '--service-id')}`,
         headers,
       });
       break;
@@ -1065,20 +1104,20 @@ function commandEventFollowUp(args) {
     case 'schedule-domain-deletion':
     case 'cancel-domain-deletion':
       payload = wrapHttpRequest('domain', {
-        url: `${API_BASE}/domains/${domainId(args)}`,
+        url: `${API_BASE}/domains/${encodeSegment(domainId(args), '--domain-id')}`,
         headers,
       });
       break;
     case 'restore-backup':
     case 'restore-backup-path':
       payload = wrapHttpRequest('backup', {
-        url: `${API_BASE}/project-backups/${backupId(args)}`,
+        url: `${API_BASE}/project-backups/${encodeSegment(backupId(args), '--backup-id')}`,
         headers,
       });
       break;
     case 'validate-license-key':
       payload = wrapHttpRequest('licenses', {
-        url: `${API_BASE}/projects/${projectId(args)}/licenses`,
+        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/licenses`,
         headers,
       });
       break;
@@ -1094,7 +1133,7 @@ function commandEventFollowUp(args) {
     case 'create-delivery-box':
       payload = wrapHttpRequest('delivery-boxes', {
         url: appendQuery(
-          `${API_BASE}/projects/${projectId(args)}/delivery-boxes`,
+          `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/delivery-boxes`,
           {
             limit: DEFAULT_LIMIT,
           },
@@ -1137,35 +1176,117 @@ function commandPlan(args) {
     steps: [
       {
         operation: 'project',
-        command: `node skills/mittwald/mittwald.cjs --format json http-request project --project-id ${project}`,
+        argv: [
+          'node',
+          'skills/mittwald/mittwald.cjs',
+          '--format',
+          'json',
+          'http-request',
+          'project',
+          '--project-id',
+          project,
+        ],
       },
       {
         operation: 'apps',
-        command: `node skills/mittwald/mittwald.cjs --format json http-request apps --project-id ${project} --limit ${DEFAULT_LIMIT}`,
+        argv: [
+          'node',
+          'skills/mittwald/mittwald.cjs',
+          '--format',
+          'json',
+          'http-request',
+          'apps',
+          '--project-id',
+          project,
+          '--limit',
+          String(DEFAULT_LIMIT),
+        ],
       },
       {
         operation: 'databases',
-        command: `node skills/mittwald/mittwald.cjs --format json http-request databases --project-id ${project}`,
+        argv: [
+          'node',
+          'skills/mittwald/mittwald.cjs',
+          '--format',
+          'json',
+          'http-request',
+          'databases',
+          '--project-id',
+          project,
+        ],
       },
       {
         operation: 'domains',
-        command: `node skills/mittwald/mittwald.cjs --format json http-request domains --project-id ${project} --limit ${DEFAULT_LIMIT}`,
+        argv: [
+          'node',
+          'skills/mittwald/mittwald.cjs',
+          '--format',
+          'json',
+          'http-request',
+          'domains',
+          '--project-id',
+          project,
+          '--limit',
+          String(DEFAULT_LIMIT),
+        ],
       },
       {
         operation: 'ingresses',
-        command: `node skills/mittwald/mittwald.cjs --format json http-request ingresses --project-id ${project}`,
+        argv: [
+          'node',
+          'skills/mittwald/mittwald.cjs',
+          '--format',
+          'json',
+          'http-request',
+          'ingresses',
+          '--project-id',
+          project,
+        ],
       },
       {
         operation: 'cronjobs',
-        command: `node skills/mittwald/mittwald.cjs --format json http-request cronjobs --project-id ${project} --limit ${DEFAULT_LIMIT}`,
+        argv: [
+          'node',
+          'skills/mittwald/mittwald.cjs',
+          '--format',
+          'json',
+          'http-request',
+          'cronjobs',
+          '--project-id',
+          project,
+          '--limit',
+          String(DEFAULT_LIMIT),
+        ],
       },
       {
         operation: 'backups',
-        command: `node skills/mittwald/mittwald.cjs --format json http-request backups --project-id ${project} --limit ${DEFAULT_LIMIT}`,
+        argv: [
+          'node',
+          'skills/mittwald/mittwald.cjs',
+          '--format',
+          'json',
+          'http-request',
+          'backups',
+          '--project-id',
+          project,
+          '--limit',
+          String(DEFAULT_LIMIT),
+        ],
       },
       {
         operation: 'services',
-        command: `node skills/mittwald/mittwald.cjs --format json http-request services --project-id ${project} --limit ${DEFAULT_LIMIT}`,
+        argv: [
+          'node',
+          'skills/mittwald/mittwald.cjs',
+          '--format',
+          'json',
+          'http-request',
+          'services',
+          '--project-id',
+          project,
+          '--limit',
+          String(DEFAULT_LIMIT),
+        ],
       },
     ],
     guidance:
@@ -1259,6 +1380,9 @@ Core reads:
   app --app-installation-id id
   app-status --app-installation-id id
   app-system-software --app-installation-id id [--tag-filter php]
+  domain --domain-id id
+  backup --backup-id id
+  service --stack-id id --service-id id
 
 Project resource reads:
   databases --project-id id
@@ -1292,9 +1416,16 @@ Guarded write operations require --operator-grant after exact F8/F14 approval:
   create-cronjob --project-id id --body-json '{...}'
   app-action --app-installation-id id --action start|stop|restart
   service-action --stack-id id --service-id id --action start|stop|restart
+  change-domain-project --domain-id id --target-project-id id
   update-domain-nameservers --domain-id id --nameserver ns1.example.com --nameserver ns2.example.com
-  order-extension --extension-id id --body-json '{...}'
+  schedule-domain-deletion --domain-id id --deletion-date 2026-06-01T00:00:00Z
+  cancel-domain-deletion --domain-id id
+  check-domain-availability --domain example.com
+  restore-backup --backup-id id --body-json '{...}'
   restore-backup-path --backup-id id --source-path /html --target-path /html-restore
+  validate-license-key --project-id id --kind typo3-elts --license-key-secret MITTWALD_LICENSE_KEY
+  order-extension --extension-id id --body-json '{...}'
+  create-delivery-box --project-id id --description name --password-secret MITTWALD_MAIL_PASSWORD
 `);
 }
 

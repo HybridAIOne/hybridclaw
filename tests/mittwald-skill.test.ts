@@ -44,11 +44,16 @@ test('mittwald skill manifest declares SecretRef credential metadata', () => {
       scope: 'https://api.mittwald.de Authorization bearer',
     }),
   ]);
+  expect(skill).toContain('id: mittwald-api-token');
   expect(skill).toContain('id: MITTWALD_API_TOKEN');
   expect(skill).toContain('R21.104');
   expect(skill).toContain('issue: 1068');
   expect(skill).toContain('Terraform');
   expect(skill).toContain('MCP');
+  expect(skill).not.toContain('- containers');
+  expect(skill).not.toContain('- files');
+  expect(skill).not.toContain('- mail\n');
+  expect(skill).not.toContain('- deploy-check');
 });
 
 test('mittwald helper exposes expected read commands', () => {
@@ -60,6 +65,12 @@ test('mittwald helper exposes expected read commands', () => {
   expect(result.stdout).toContain('projects');
   expect(result.stdout).toContain('databases');
   expect(result.stdout).toContain('deploy-check');
+  expect(result.stdout).toContain('restore-backup');
+  expect(result.stdout).toContain('schedule-domain-deletion');
+  expect(result.stdout).toContain('cancel-domain-deletion');
+  expect(result.stdout).toContain('change-domain-project');
+  expect(result.stdout).toContain('validate-license-key');
+  expect(result.stdout).toContain('create-delivery-box');
 });
 
 test('mittwald helper emits SecretRef-backed whoami request without secrets', () => {
@@ -215,7 +226,7 @@ test('mittwald guarded app action emits red request with target approval and fol
     'http-request',
     'app-action',
     '--app-installation-id',
-    'app-123',
+    'app/123',
     '--action',
     'restart',
     '--operator-grant',
@@ -226,7 +237,7 @@ test('mittwald guarded app action emits red request with target approval and fol
     operation: 'app-action',
     stakesTier: 'red',
     httpRequest: {
-      url: 'https://api.mittwald.de/v2/app-installations/app-123/actions/restart',
+      url: 'https://api.mittwald.de/v2/app-installations/app%2F123/actions/restart',
       method: 'POST',
       bearerSecretName: 'MITTWALD_API_TOKEN',
       stakesTier: 'red',
@@ -234,18 +245,28 @@ test('mittwald guarded app action emits red request with target approval and fol
     approval: {
       route: 'f14',
       requiredGrant:
-        'approve-mittwald-app-action:app-installation:app-123 action:restart',
-      target: 'app-installation:app-123 action:restart',
+        'approve-mittwald-app-action:app-installation:app/123 action:restart',
+      target: 'app-installation:app/123 action:restart',
     },
     eventConsistency: {
       responseEventHeader: 'etag',
       requestHeader: 'if-event-reached',
     },
   });
-  expect(payload.eventConsistency.followUp.command).toContain(
-    'event-follow-up app-action',
-  );
+  expect(payload.eventConsistency.followUp.argv).toEqual([
+    'node',
+    'skills/mittwald/mittwald.cjs',
+    '--format',
+    'json',
+    'event-follow-up',
+    'app-action',
+    '--app-installation-id',
+    'app/123',
+    '--event-id',
+    '<etag>',
+  ]);
   expect(JSON.stringify(payload)).not.toContain('Authorization');
+  expect(JSON.stringify(payload)).not.toContain('app%252F123');
 });
 
 test('mittwald guarded database creation uses secret placeholders and bounded follow-up', () => {
@@ -437,6 +458,19 @@ test('mittwald deploy-check plan is read-only and SecretRef-aware', () => {
     'backups',
     'services',
   ]);
+  expect(payload.steps[0]).toMatchObject({
+    argv: [
+      'node',
+      'skills/mittwald/mittwald.cjs',
+      '--format',
+      'json',
+      'http-request',
+      'project',
+      '--project-id',
+      'project-id',
+    ],
+  });
+  expect(payload.steps[0]).not.toHaveProperty('command');
 });
 
 test('mittwald response classifier stops auth failures and reports rate limits', () => {
