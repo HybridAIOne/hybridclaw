@@ -64,6 +64,11 @@ interface ClassifierVerdict {
   severity: 'low' | 'medium' | 'high';
 }
 
+// The gateway cannot import bundled plugin JS directly, so the admin preview
+// mirrors plugins/brand-voice/src/{config,guard,llm,rules}. Keep provider
+// defaults, prompts, verdict parsing, and rule summaries aligned with the
+// plugin runtime when either side changes.
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
