@@ -77,6 +77,7 @@ type ApiHttpRequestBody = {
   method?: unknown;
   headers?: unknown;
   body?: unknown;
+  bodyBase64?: unknown;
   json?: unknown;
   bearerSecretName?: unknown;
   bearerSecretRef?: unknown;
@@ -1169,7 +1170,19 @@ export async function handleApiHttpRequest(
     }
   }
 
-  let payloadBody: string | undefined;
+  const payloadSources = [
+    body.json !== undefined,
+    body.body !== undefined,
+    body.bodyBase64 !== undefined,
+  ].filter(Boolean).length;
+  if (payloadSources > 1) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `json`, `body`, or `bodyBase64`.',
+    );
+  }
+
+  let payloadBody: BodyInit | undefined;
   if (body.json !== undefined) {
     const jsonValue = replacePlaceholders
       ? await replaceSecretPlaceholders(body.json, {
@@ -1194,6 +1207,22 @@ export async function handleApiHttpRequest(
     throw new GatewayRequestError(
       400,
       '`body` must be a string when provided. Use `json` for structured payloads.',
+    );
+  } else if (typeof body.bodyBase64 === 'string') {
+    let payloadBuffer: Buffer;
+    try {
+      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
+    } catch {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    payloadBody = new Uint8Array(payloadBuffer);
+  } else if (body.bodyBase64 !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`bodyBase64` must be a base64 string when provided.',
     );
   }
 

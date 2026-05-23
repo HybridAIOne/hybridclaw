@@ -288,14 +288,20 @@ jobs:
           # npm 11 supply-chain hardening such as min-release-age.
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            npm-shrinkwrap.json
+            package-lock.json
+            container/npm-shrinkwrap.json
+            container/package-lock.json
+            console/package-lock.json
 
       - name: Use npm 11
-        run: npm install --global npm@11.10.0 --no-audit --fund=false
+        run: npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
 
       - name: Install dependencies
         env:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Verify npm registry signatures
         run: npm run audit:signatures

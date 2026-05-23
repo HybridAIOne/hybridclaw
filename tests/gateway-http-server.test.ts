@@ -345,6 +345,20 @@ function makeRequest(params: {
   });
 }
 
+function makeSessionCookie(
+  secret: string,
+  payload: Record<string, unknown>,
+): string {
+  return `hybridclaw_session=${signAuthPayload(
+    {
+      typ: 'session',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      ...payload,
+    },
+    secret,
+  )}`;
+}
+
 function makeResponse() {
   const headers: Record<string, string | string[]> = {};
   const resolveHeaderKey = (name: string): string => {
@@ -705,6 +719,28 @@ async function importFreshHealth(options?: {
       },
       topModels: [],
     },
+  }));
+  const getGatewayAdminSecrets = vi.fn(() => ({
+    secrets: [
+      {
+        name: 'SET_SECRET',
+        state: 'set' as const,
+        created_at: '2026-05-17T10:00:00.000Z',
+        last_rotated_at: '2026-05-17T10:00:00.000Z',
+        fingerprint: {
+          length: 12,
+          sha256_prefix: '0123456789ab',
+        },
+      },
+      {
+        name: 'OTHER_SECRET',
+        state: 'unset' as const,
+        created_at: null,
+        last_rotated_at: null,
+        fingerprint: null,
+      },
+    ],
+    total: 2,
   }));
   const reconnectTunnelStatus = {
     provider: 'ngrok',
@@ -1745,6 +1781,9 @@ async function importFreshHealth(options?: {
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
   }));
+  vi.doMock('../src/gateway/gateway-admin-secrets.js', () => ({
+    getGatewayAdminSecrets,
+  }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
   }));
@@ -1824,6 +1863,7 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     forkSessionBranch,
     getGatewayAdminOverview,
+    getGatewayAdminSecrets,
     getGatewayAdminStatistics,
     reconnectTunnelStatus,
     reconnectGatewayAdminTunnel,
@@ -4658,6 +4698,90 @@ describe('gateway HTTP server', () => {
       configPath: '/tmp/config.json',
       status: { status: 'ok', sessions: 2 },
     });
+  });
+
+  test('returns admin secret metadata without cleartext values', async () => {
+    const authSecret = 'secret-list-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/secrets',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).toHaveBeenCalledWith({
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      secrets: [
+        {
+          name: 'SET_SECRET',
+          state: 'set',
+          created_at: '2026-05-17T10:00:00.000Z',
+          last_rotated_at: '2026-05-17T10:00:00.000Z',
+          fingerprint: {
+            length: 12,
+            sha256_prefix: '0123456789ab',
+          },
+        },
+        {
+          name: 'OTHER_SECRET',
+          state: 'unset',
+          created_at: null,
+          last_rotated_at: null,
+          fingerprint: null,
+        },
+      ],
+      total: 2,
+    });
+    expect(res.body).not.toContain('super-secret');
+  });
+
+  test('rejects unsupported admin secret metadata methods before listing names', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/secrets',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(405);
+    expect(res.body).not.toContain('SET_SECRET');
+    expect(res.body).not.toContain('OTHER_SECRET');
+  });
+
+  test('rejects unauthenticated admin secret metadata requests before listing names', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/secrets',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
+    expect(res.body).not.toContain('SET_SECRET');
+    expect(res.body).not.toContain('OTHER_SECRET');
   });
 
   test('reconnects the admin tunnel for authorized API requests', async () => {
@@ -9195,6 +9319,60 @@ describe('gateway HTTP server', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer searxng-secret-token',
         }),
+      }),
+    );
+  });
+
+  test('forwards base64-encoded binary bodies for outbound http_request calls', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: 'fax-123' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const multipartBody = Buffer.from(
+      [
+        '------boundary',
+        'Content-Disposition: form-data; name="file"; filename="hello.txt"',
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        'Hallo Welt',
+        '------boundary--',
+        '',
+      ].join('\r\n'),
+      'utf8',
+    );
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/faxes',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data; boundary=----boundary',
+        },
+        bodyBase64: multipartBody.toString('base64'),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        body: new Uint8Array(multipartBody),
+        method: 'POST',
       }),
     );
   });

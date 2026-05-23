@@ -193,7 +193,8 @@ test('readOutput does not time out when inactivity and wall-clock timeouts are d
     maxWallClockMs: null,
   });
 
-  await vi.advanceTimersByTimeAsync(500);
+  // Output appears at 500ms; adaptive polling may need one capped 250ms cycle.
+  await vi.advanceTimersByTimeAsync(750);
 
   await expect(outputPromise).resolves.toEqual(
     expect.objectContaining({

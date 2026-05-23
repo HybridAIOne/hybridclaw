@@ -57,6 +57,7 @@ import {
   WEB_API_TOKEN,
 } from '../config/config.js';
 import type {
+  RuntimeBrowserProviderKind,
   RuntimeConfig,
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
@@ -130,6 +131,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
+import { getGatewayAdminSecrets } from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
@@ -335,6 +337,7 @@ type ApiAdminPolicyRequestBody = {
 
 type GatewayBrowserSessionEntry = {
   provider: BrowserProvider;
+  providerKind: RuntimeBrowserProviderKind;
   session: BrowserSession;
   skillName: string;
 };
@@ -433,8 +436,12 @@ function browserRendererFunction<T>(source: string): () => T {
 function unsupportedGatewayBrowserTool(toolName: string): never {
   throw new GatewayRequestError(
     400,
-    `${toolName} is not supported by the managed-cloud browser provider.`,
+    `${toolName} is not supported by the configured browser provider.`,
   );
+}
+
+function isMacCuaGatewaySession(active: GatewayBrowserSessionEntry): boolean {
+  return active.providerKind === 'mac-cua';
 }
 
 function sanitizeGatewayUploadName(value: unknown, index: number): string {
@@ -521,7 +528,8 @@ async function getGatewayBrowserSession(
 ): Promise<GatewayBrowserSessionEntry> {
   const existing = gatewayBrowserSessions.get(sessionId);
   if (existing) return existing;
-  const provider = createBrowserProvider(getRuntimeConfig().browser);
+  const browserConfig = getRuntimeConfig().browser;
+  const provider = createBrowserProvider(browserConfig);
   const skillName = normalizeGatewayBrowserSkillName(opts?.skillName);
   const session = await provider.launchSession({
     headed: opts?.headed,
@@ -533,7 +541,12 @@ async function getGatewayBrowserSession(
       skillName,
     },
   });
-  const entry = { provider, session, skillName };
+  const entry = {
+    provider,
+    providerKind: browserConfig.provider,
+    session,
+    skillName,
+  };
   gatewayBrowserSessions.set(sessionId, entry);
   return entry;
 }
@@ -568,6 +581,19 @@ async function handleApiBrowserTool(
     const active = await getGatewayBrowserSession(sessionId, agentId, {
       headed: args.headed === true || args.headful === true,
     });
+    if (isMacCuaGatewaySession(active)) {
+      await active.session.navigate(url);
+      sendJson(res, 200, {
+        success: true,
+        url,
+        title: '',
+        content_text_length: 0,
+        content_preview_truncated: false,
+        ready_state: 'native',
+        read_extraction_hint: 'native_browser',
+      });
+      return;
+    }
     await active.session.navigate(url, {
       timeoutMs: 60_000,
       waitUntil: 'domcontentloaded',
@@ -628,6 +654,21 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_snapshot') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isMacCuaGatewaySession(active)) {
+      sendJson(res, 200, {
+        success: true,
+        snapshot:
+          'Native macOS browser provider does not expose a DOM snapshot. Use browser_screenshot for visual state and AX selectors such as ax:1 or query text for actions.',
+        truncated: false,
+        element_count: 0,
+        url: '',
+        title: '',
+        mode: String(args.mode || 'default'),
+        frames: [],
+        two_factor_detection: { detected: false, signals: [] },
+      });
+      return;
+    }
     const pageState = await active.session.evaluate(() => {
       const bodyText = document.body
         ? String(document.body.innerText || '')
@@ -702,6 +743,11 @@ async function handleApiBrowserTool(
       return;
     }
     if (text) {
+      if (isMacCuaGatewaySession(active)) {
+        await active.session.click(text, { timeoutMs: 30_000 });
+        sendJson(res, 200, { success: true, text });
+        return;
+      }
       const clicked = await active.session.evaluate(
         browserRendererFunction<boolean>(`
           () => {
@@ -738,6 +784,12 @@ async function handleApiBrowserTool(
       return;
     }
     if (coordinate) {
+      if (isMacCuaGatewaySession(active)) {
+        throw new GatewayRequestError(
+          400,
+          'mac-cua requires AX or query targeting; raw x/y coordinates are only available as provider-controlled pixel fallback.',
+        );
+      }
       const clicked = await active.session.evaluate(
         browserRendererFunction<boolean>(`
           () => {
@@ -772,7 +824,7 @@ async function handleApiBrowserTool(
     if (!selector) {
       throw new GatewayRequestError(
         400,
-        `${toolName} requires a CSS selector when using the managed-cloud provider.`,
+        `${toolName} requires a selector when using the configured browser provider.`,
       );
     }
     const value: SecretInput =
@@ -831,6 +883,11 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_back') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isMacCuaGatewaySession(active)) {
+      await active.session.back();
+      sendJson(res, 200, { success: true, url: '' });
+      return;
+    }
     await active.session.back({
       timeoutMs: 30_000,
       waitUntil: 'domcontentloaded',
@@ -844,6 +901,9 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_press') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isMacCuaGatewaySession(active)) {
+      unsupportedGatewayBrowserTool(toolName);
+    }
     const key = String(args.key || '').trim();
     if (!key) throw new GatewayRequestError(400, 'browser_press requires key.');
     const pressed = await active.session.evaluate(
@@ -866,6 +926,9 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_get_images') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isMacCuaGatewaySession(active)) {
+      unsupportedGatewayBrowserTool(toolName);
+    }
     const images = await active.session.evaluate(() =>
       Array.from(document.images)
         .map((img) => ({
@@ -886,6 +949,9 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_network') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isMacCuaGatewaySession(active)) {
+      unsupportedGatewayBrowserTool(toolName);
+    }
     const filter = String(args.filter || '').trim();
     const entries = await active.session.evaluate(() =>
       performance
@@ -988,28 +1054,35 @@ async function handleApiBrowserTool(
       targetChannel && targetRecipient
         ? { channel: targetChannel, recipient: targetRecipient }
         : undefined;
-    const pageState = await active.session.evaluate(() => {
-      const bodyText = document.body
-        ? String(document.body.innerText || '')
-        : '';
-      const selectors = Array.from(
-        document.querySelectorAll(
-          'input[autocomplete="one-time-code"], input[name*="otp" i], input[id*="otp" i], input[name*="code" i], input[id*="code" i]',
-        ),
-      )
-        .slice(0, 10)
-        .map((element) => {
-          const id = element.id ? `#${element.id}` : '';
-          const name = element.getAttribute('name');
-          return id || (name ? `input[name="${name}"]` : 'input');
+    const pageState = isMacCuaGatewaySession(active)
+      ? {
+          url: 'about:blank',
+          title: '',
+          preview: '',
+          selectors: [] as string[],
+        }
+      : await active.session.evaluate(() => {
+          const bodyText = document.body
+            ? String(document.body.innerText || '')
+            : '';
+          const selectors = Array.from(
+            document.querySelectorAll(
+              'input[autocomplete="one-time-code"], input[name*="otp" i], input[id*="otp" i], input[name*="code" i], input[id*="code" i]',
+            ),
+          )
+            .slice(0, 10)
+            .map((element) => {
+              const id = element.id ? `#${element.id}` : '';
+              const name = element.getAttribute('name');
+              return id || (name ? `input[name="${name}"]` : 'input');
+            });
+          return {
+            url: String(window.location.href || ''),
+            title: String(document.title || ''),
+            preview: bodyText.replace(/\s+/g, ' ').trim().slice(0, 1000),
+            selectors,
+          };
         });
-      return {
-        url: String(window.location.href || ''),
-        title: String(document.title || ''),
-        preview: bodyText.replace(/\s+/g, ' ').trim().slice(0, 1000),
-        selectors,
-      };
-    });
     const image = await active.session.screenshot({
       fullPage: true,
       type: 'png',
@@ -1642,6 +1715,47 @@ function hasApiTokenValue(token: string): boolean {
   if (!trimmed) return false;
   if (WEB_API_TOKEN && trimmed === WEB_API_TOKEN) return true;
   return Boolean(GATEWAY_API_TOKEN) && trimmed === GATEWAY_API_TOKEN;
+}
+
+function readRecordProperty(
+  record: Record<string, unknown>,
+  keys: string[],
+): unknown {
+  for (const key of keys) {
+    if (Object.hasOwn(record, key)) {
+      return record[key];
+    }
+  }
+  return undefined;
+}
+
+function resolveAdminSessionActor(
+  payload: Record<string, unknown> | null,
+): string | null {
+  if (!payload) return null;
+  const value = readRecordProperty(payload, [
+    'actor',
+    'sub',
+    'email',
+    'userId',
+    'user_id',
+    'username',
+  ]);
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function resolveAdminSessionAuditId(
+  payload: Record<string, unknown> | null,
+): string | null {
+  if (!payload) return null;
+  const value = readRecordProperty(payload, [
+    'sessionId',
+    'sid',
+    'jti',
+    'sub',
+    'actor',
+  ]);
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
@@ -3169,6 +3283,25 @@ function handleApiConfigReload(res: ServerResponse): void {
 
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
+}
+
+function handleApiAdminSecrets(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  const sessionPayload = getSessionAuthPayload(req);
+
+  sendJson(
+    res,
+    200,
+    getGatewayAdminSecrets({
+      audit: {
+        sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
+        actor: resolveAdminSessionActor(sessionPayload),
+        sourceIp: req.socket.remoteAddress || null,
+      },
+    }),
+  );
 }
 
 async function handleApiAdminTunnelReconnect(
@@ -5485,6 +5618,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
             await handleApiAdminOverview(res);
+            return;
+          }
+          if (pathname === '/api/admin/secrets' && method === 'GET') {
+            handleApiAdminSecrets(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/secrets') {
+            sendMethodNotAllowed(res);
             return;
           }
           if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {

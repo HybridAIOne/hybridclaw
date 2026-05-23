@@ -258,6 +258,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
         title: 'Session Routing',
         path: 'developer-guide/session-routing.md',
       },
+      { title: 'Secret Threat Model', path: 'developer-guide/threat-model.md' },
     ],
   },
   {

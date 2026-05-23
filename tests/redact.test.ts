@@ -92,6 +92,9 @@ test('masks bearer tokens and preserves short-token hard redaction', () => {
   expect(redactSecrets('Authorization: Bearer shorttoken')).toBe(
     'Authorization: Bearer ***',
   );
+  expect(redactSecrets('Authorization: bEaReR shorttoken')).toBe(
+    'Authorization: bEaReR ***',
+  );
   expect(
     redactSecrets('Authorization: Bearer 1234567890abcdefghijklmnopqrstuv'),
   ).toBe('Authorization: Bearer 123456...stuv');

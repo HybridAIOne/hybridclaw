@@ -1,0 +1,49 @@
+name: Dependency Audit
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            npm-shrinkwrap.json
+            package-lock.json
+            container/npm-shrinkwrap.json
+            container/package-lock.json
+            console/package-lock.json
+
+      - name: Use npm 11
+        run: npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
+
+      - name: Install dependencies without lifecycle scripts
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm ci --ignore-scripts --no-audit --fund=false
+
+      - name: Install container dependencies without lifecycle scripts
+        run: npm --prefix container ci --ignore-scripts --no-audit --fund=false
+
+      - name: Audit root workspace
+        run: npm audit --audit-level=moderate
+
+      - name: Audit container workspace
+        run: npm --prefix container audit --audit-level=moderate
+
+      - name: Verify npm registry signatures
+        run: npm run audit:signatures
