@@ -4385,6 +4385,39 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               'scopes',
             ],
           },
+          otcAkSk: {
+            type: 'object',
+            description:
+              'Open Telekom Cloud AK/SK signing for otc.t-systems.com API requests. The gateway reads the named stored secrets, signs the request server-side, and injects Authorization without exposing AK/SK material.',
+            properties: {
+              accessKeyIdSecretName: {
+                type: 'string',
+                description:
+                  'Stored secret name containing the OTC access key ID, for example OTC_ACCESS_KEY_ID.',
+              },
+              secretAccessKeySecretName: {
+                type: 'string',
+                description:
+                  'Stored secret name containing the OTC secret access key, for example OTC_SECRET_ACCESS_KEY.',
+              },
+              securityTokenSecretName: {
+                type: 'string',
+                description:
+                  'Optional stored secret name containing a temporary OTC session token.',
+              },
+              region: {
+                type: 'string',
+                description:
+                  'Optional OTC region such as eu-de. Inferred from the endpoint host when omitted.',
+              },
+              service: {
+                type: 'string',
+                description:
+                  'Optional OTC service signing name such as ecs, vpc, evs, cce, or iam. Inferred from the endpoint host when omitted.',
+              },
+            },
+            required: ['accessKeyIdSecretName', 'secretAccessKeySecretName'],
+          },
           secretHeaders: {
             type: 'array',
             description:

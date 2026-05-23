@@ -9323,6 +9323,124 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('signs Open Telekom Cloud http_request calls with gateway-held AK/SK secrets', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '80.158.59.140', family: 4 }]),
+    }));
+    const dataDir = makeTempDataDir();
+    writeRuntimeConfig(dataDir, (config) => {
+      const ops = config.ops as Record<string, unknown>;
+      ops.gatewayApiToken = 'gateway-token';
+    });
+    writeAllowAllSecretPolicy(dataDir);
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.js'
+    );
+    saveNamedRuntimeSecrets({
+      OTC_ACCESS_KEY_ID: 'test-access-key',
+      OTC_SECRET_ACCESS_KEY: 'test-secret-key',
+    });
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ servers: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail?limit=50',
+        method: 'GET',
+        skillName: 'open-telekom-cloud',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
+          region: 'eu-de',
+          service: 'ecs',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(
+            /^SDK-HMAC-SHA256 Access=test-access-key, SignedHeaders=host;x-sdk-date, Signature=[a-f0-9]{64}$/,
+          ),
+          'X-Sdk-Date': expect.stringMatching(/^\d{8}T\d{6}Z$/),
+        }),
+      }),
+    );
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).not.toContain('test-secret-key');
+  });
+
+  test('blocks Open Telekom Cloud signing for non-OTC hosts', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const dataDir = makeTempDataDir();
+    writeRuntimeConfig(dataDir, (config) => {
+      const ops = config.ops as Record<string, unknown>;
+      ops.gatewayApiToken = 'gateway-token';
+    });
+    writeAllowAllSecretPolicy(dataDir);
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.js'
+    );
+    saveNamedRuntimeSecrets({
+      OTC_ACCESS_KEY_ID: 'test-access-key',
+      OTC_SECRET_ACCESS_KEY: 'test-secret-key',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/v2.1/project123/servers/detail',
+        method: 'GET',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toContain(
+      'otcAkSk can only be used for Open Telekom Cloud API hosts',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('forwards base64-encoded binary bodies for outbound http_request calls', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),

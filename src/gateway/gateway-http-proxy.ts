@@ -6,7 +6,7 @@
  * explicit response-field capture.
  */
 
-import { createSign } from 'node:crypto';
+import { createHash, createHmac, createSign } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
@@ -83,6 +83,7 @@ type ApiHttpRequestBody = {
   bearerSecretRef?: unknown;
   secretHeaders?: unknown;
   googleServiceAccount?: unknown;
+  otcAkSk?: unknown;
   replaceSecretPlaceholders?: unknown;
   captureResponseFields?: unknown;
   timeoutMs?: unknown;
@@ -103,6 +104,14 @@ type GoogleServiceAccountAuthRule = {
   privateKeySecretName: string;
   scopes: string[];
   subjectSecretName?: string;
+};
+
+type OtcAkSkAuthRule = {
+  accessKeyIdSecretName: string;
+  secretAccessKeySecretName: string;
+  securityTokenSecretName?: string;
+  region?: string;
+  service?: string;
 };
 
 type SecretResolveContext = {
@@ -808,6 +817,231 @@ function normalizeGoogleServiceAccountAuth(
   };
 }
 
+function normalizeOtcAkSkAuth(value: unknown): OtcAkSkAuthRule | null {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(400, 'otcAkSk must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const accessKeyIdSecretName =
+    typeof record.accessKeyIdSecretName === 'string'
+      ? record.accessKeyIdSecretName.trim()
+      : '';
+  const secretAccessKeySecretName =
+    typeof record.secretAccessKeySecretName === 'string'
+      ? record.secretAccessKeySecretName.trim()
+      : '';
+  const securityTokenSecretName =
+    typeof record.securityTokenSecretName === 'string'
+      ? record.securityTokenSecretName.trim()
+      : '';
+  const region =
+    typeof record.region === 'string' ? record.region.trim().toLowerCase() : '';
+  const service =
+    typeof record.service === 'string'
+      ? record.service.trim().toLowerCase()
+      : '';
+
+  if (!accessKeyIdSecretName || !isRuntimeSecretName(accessKeyIdSecretName)) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk.accessKeyIdSecretName must be a valid secret name.',
+    );
+  }
+  if (
+    !secretAccessKeySecretName ||
+    !isRuntimeSecretName(secretAccessKeySecretName)
+  ) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk.secretAccessKeySecretName must be a valid secret name.',
+    );
+  }
+  if (
+    securityTokenSecretName &&
+    !isRuntimeSecretName(securityTokenSecretName)
+  ) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk.securityTokenSecretName must be a valid secret name.',
+    );
+  }
+  if (region && !/^[a-z]{2}-[a-z0-9-]{2,20}$/.test(region)) {
+    throw new GatewayRequestError(400, 'otcAkSk.region is invalid.');
+  }
+  if (service && !/^[a-z][a-z0-9-]{0,31}$/.test(service)) {
+    throw new GatewayRequestError(400, 'otcAkSk.service is invalid.');
+  }
+
+  return {
+    accessKeyIdSecretName,
+    secretAccessKeySecretName,
+    ...(securityTokenSecretName ? { securityTokenSecretName } : {}),
+    ...(region ? { region } : {}),
+    ...(service ? { service } : {}),
+  };
+}
+
+function assertOtcAkSkHost(url: URL): void {
+  const host = url.hostname.toLowerCase();
+  if (
+    host === 'otc.t-systems.com' ||
+    host.endsWith('.otc.t-systems.com') ||
+    host.endsWith('.sc.otc.t-systems.com')
+  ) {
+    return;
+  }
+  throw new GatewayRequestError(
+    403,
+    'otcAkSk can only be used for Open Telekom Cloud API hosts.',
+  );
+}
+
+function inferOtcServiceFromHost(url: URL): string {
+  const labels = url.hostname.toLowerCase().split('.');
+  const service = labels[0] || '';
+  if (!/^[a-z][a-z0-9-]{0,31}$/.test(service)) {
+    throw new GatewayRequestError(
+      400,
+      'Cannot infer OTC service from request host; set otcAkSk.service.',
+    );
+  }
+  return service;
+}
+
+function inferOtcRegionFromHost(url: URL): string {
+  const labels = url.hostname.toLowerCase().split('.');
+  const region = labels[1] || '';
+  if (!/^[a-z]{2}-[a-z0-9-]{2,20}$/.test(region)) {
+    throw new GatewayRequestError(
+      400,
+      'Cannot infer OTC region from request host; set otcAkSk.region.',
+    );
+  }
+  return region;
+}
+
+function encodeCanonicalQueryPart(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function canonicalizeOtcQuery(url: URL): string {
+  return Array.from(url.searchParams.entries())
+    .map(([key, value]) => [
+      encodeCanonicalQueryPart(key),
+      encodeCanonicalQueryPart(value),
+    ])
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+      leftKey === rightKey
+        ? leftValue.localeCompare(rightValue)
+        : leftKey.localeCompare(rightKey),
+    )
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+}
+
+function sha256Hex(value: string | Uint8Array | undefined): string {
+  return createHash('sha256')
+    .update(value ?? '')
+    .digest('hex');
+}
+
+function hmacSha256Hex(secret: string, value: string): string {
+  return createHmac('sha256', secret).update(value).digest('hex');
+}
+
+function formatOtcSdkDate(now = new Date()): string {
+  return now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+}
+
+function normalizeCanonicalHeaderValue(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+async function applyOtcAkSkSigning(params: {
+  rule: OtcAkSkAuthRule;
+  url: URL;
+  method: string;
+  headers: Record<string, string>;
+  body: BodyInit | undefined;
+  context: SecretResolveContext;
+}): Promise<void> {
+  assertOtcAkSkHost(params.url);
+  if (hasHeaderValue(params.headers, 'Authorization')) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk cannot be combined with an explicit Authorization header.',
+    );
+  }
+
+  const accessKeyId = await resolveHttpSecretOrThrow(
+    params.rule.accessKeyIdSecretName,
+    {
+      ...params.context,
+      selector: 'otcAkSk.accessKeyId',
+    },
+  );
+  const secretAccessKey = await resolveHttpSecretOrThrow(
+    params.rule.secretAccessKeySecretName,
+    {
+      ...params.context,
+      selector: 'otcAkSk.secretAccessKey',
+    },
+  );
+  const securityToken = params.rule.securityTokenSecretName
+    ? await resolveHttpSecretOrThrow(params.rule.securityTokenSecretName, {
+        ...params.context,
+        selector: 'otcAkSk.securityToken',
+      })
+    : '';
+
+  const sdkDate = formatOtcSdkDate();
+  const bodyHash = sha256Hex(
+    typeof params.body === 'string' || params.body instanceof Uint8Array
+      ? params.body
+      : undefined,
+  );
+  setHeaderValue(params.headers, 'X-Sdk-Date', sdkDate);
+  if (securityToken) {
+    setHeaderValue(params.headers, 'X-Security-Token', securityToken);
+  }
+
+  const signedHeaderNames = ['host', 'x-sdk-date'];
+  if (securityToken) signedHeaderNames.push('x-security-token');
+  const headerValues = new Map<string, string>();
+  for (const [name, value] of Object.entries(params.headers)) {
+    headerValues.set(name.toLowerCase(), normalizeCanonicalHeaderValue(value));
+  }
+  headerValues.set('host', params.url.host);
+  const canonicalHeaders = signedHeaderNames
+    .map((name) => `${name}:${headerValues.get(name) || ''}\n`)
+    .join('');
+  const signedHeaders = signedHeaderNames.join(';');
+  const canonicalRequest = [
+    params.method.toUpperCase(),
+    params.url.pathname || '/',
+    canonicalizeOtcQuery(params.url),
+    canonicalHeaders,
+    signedHeaders,
+    bodyHash,
+  ].join('\n');
+  const algorithm = 'SDK-HMAC-SHA256';
+  const stringToSign = [algorithm, sdkDate, sha256Hex(canonicalRequest)].join(
+    '\n',
+  );
+  const signature = hmacSha256Hex(secretAccessKey, stringToSign);
+  if (!params.rule.service) inferOtcServiceFromHost(params.url);
+  if (!params.rule.region) inferOtcRegionFromHost(params.url);
+  setHeaderValue(
+    params.headers,
+    'Authorization',
+    `${algorithm} Access=${accessKeyId}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+  );
+}
+
 function extractBindingDomainFromResponse(
   responseJson: Record<string, unknown>,
   requestUrl: URL,
@@ -1080,15 +1314,17 @@ export async function handleApiHttpRequest(
   const googleServiceAccount = normalizeGoogleServiceAccountAuth(
     body.googleServiceAccount,
   );
+  const otcAkSk = normalizeOtcAkSkAuth(body.otcAkSk);
   const authModes = [
     bearerSecretName ? 'bearerSecretName' : '',
     body.bearerSecretRef !== undefined ? 'bearerSecretRef' : '',
     googleServiceAccount ? 'googleServiceAccount' : '',
+    otcAkSk ? 'otcAkSk' : '',
   ].filter(Boolean);
   if (authModes.length > 1) {
     throw new GatewayRequestError(
       400,
-      'Use only one of bearerSecretName, bearerSecretRef, or googleServiceAccount.',
+      'Use only one of bearerSecretName, bearerSecretRef, googleServiceAccount, or otcAkSk.',
     );
   }
   if (bearerSecretName) {
@@ -1224,6 +1460,17 @@ export async function handleApiHttpRequest(
       400,
       '`bodyBase64` must be a base64 string when provided.',
     );
+  }
+
+  if (otcAkSk) {
+    await applyOtcAkSkSigning({
+      rule: otcAkSk,
+      url,
+      method,
+      headers,
+      body: payloadBody,
+      context: secretContext,
+    });
   }
 
   const controller = new AbortController();
