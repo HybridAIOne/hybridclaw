@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  fetchBrandVoiceProfile,
   fetchModels,
-  previewBrandVoiceProfile,
-  saveBrandVoiceProfile,
+  fetchOutputGuardProfile,
+  previewOutputGuardProfile,
+  saveOutputGuardProfile,
 } from '../api/client';
 import type {
-  AdminBrandVoiceModelConfig,
-  AdminBrandVoicePreviewResponse,
-  AdminBrandVoiceProfile,
+  AdminOutputGuardModelConfig,
+  AdminOutputGuardPreviewResponse,
+  AdminOutputGuardProfile,
 } from '../api/types';
 import { useAuth } from '../auth';
 import {
@@ -26,10 +26,10 @@ import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 import { ModelSwitchSelect } from './chat/model-switch-select';
 
-const EMPTY_PROFILE: AdminBrandVoiceProfile = {
+const EMPTY_PROFILE: AdminOutputGuardProfile = {
   enabled: true,
   mode: 'rewrite',
-  voice: '',
+  policy: '',
   doList: [],
   dontList: [],
   bannedPhrases: [],
@@ -46,25 +46,27 @@ const EMPTY_PROFILE: AdminBrandVoiceProfile = {
 };
 
 function profilesEqual(
-  left: AdminBrandVoiceProfile,
-  right: AdminBrandVoiceProfile,
+  left: AdminOutputGuardProfile,
+  right: AdminOutputGuardProfile,
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function modelConfigDefaults(
-  provider: AdminBrandVoiceModelConfig['provider'],
+  provider: AdminOutputGuardModelConfig['provider'],
   model = '',
-): AdminBrandVoiceModelConfig {
+): AdminOutputGuardModelConfig {
   return { provider, model: provider === 'model' ? model.trim() : '' };
 }
 
-function cleanProfile(profile: AdminBrandVoiceProfile): AdminBrandVoiceProfile {
+function cleanProfile(
+  profile: AdminOutputGuardProfile,
+): AdminOutputGuardProfile {
   const cleanList = (list: string[]) =>
     list.map((entry) => entry.trim()).filter(Boolean);
   return {
     ...profile,
-    voice: profile.voice.trim(),
+    policy: profile.policy.trim(),
     doList: cleanList(profile.doList),
     dontList: cleanList(profile.dontList),
     bannedPhrases: cleanList(profile.bannedPhrases),
@@ -117,11 +119,11 @@ function ListEditor(props: {
   }, [createRow, props.values]);
 
   return (
-    <div className="field brand-voice-list-field">
+    <div className="field output-guard-list-field">
       <span>{props.label}</span>
-      <div className="brand-voice-list">
+      <div className="output-guard-list">
         {rows.map((row, index) => (
-          <div className="brand-voice-list-row" key={row.id}>
+          <div className="output-guard-list-row" key={row.id}>
             <input
               aria-label={`${props.label} item ${index + 1}`}
               value={row.value}
@@ -152,7 +154,7 @@ function ListEditor(props: {
           </div>
         ))}
         <button
-          className="ghost-button brand-voice-add-button"
+          className="ghost-button output-guard-add-button"
           type="button"
           aria-label={`Add ${props.label} item`}
           onClick={() => {
@@ -169,11 +171,11 @@ function ListEditor(props: {
 function ModelSourceControl(props: {
   label: string;
   ariaLabel: string;
-  value: AdminBrandVoiceModelConfig;
+  value: AdminOutputGuardModelConfig;
   modelOptions: Awaited<ReturnType<typeof fetchModels>>['models'];
   defaultOtherModelId: string;
   modelsLoading: boolean;
-  onChange: (value: AdminBrandVoiceModelConfig) => void;
+  onChange: (value: AdminOutputGuardModelConfig) => void;
 }) {
   const selectedModelId =
     props.value.provider === 'model' ? props.value.model : '';
@@ -181,7 +183,7 @@ function ModelSourceControl(props: {
     <div className="field">
       <span>{props.label}</span>
       <div
-        className={`brand-voice-classifier-control ${
+        className={`output-guard-classifier-control ${
           props.value.provider === 'model' ? 'has-model-select' : ''
         }`}
       >
@@ -195,7 +197,7 @@ function ModelSourceControl(props: {
           ]}
           onChange={(provider) => {
             const nextProvider =
-              provider as AdminBrandVoiceModelConfig['provider'];
+              provider as AdminOutputGuardModelConfig['provider'];
             const nextModel =
               nextProvider === 'model'
                 ? props.value.model || props.defaultOtherModelId
@@ -218,14 +220,14 @@ function ModelSourceControl(props: {
   );
 }
 
-function formatVerdict(verdict: AdminBrandVoicePreviewResponse['verdict']) {
-  if (verdict === 'on_brand') return 'on brand';
+function formatVerdict(verdict: AdminOutputGuardPreviewResponse['verdict']) {
+  if (verdict === 'compliant') return 'compliant';
   if (verdict === 'needs_review') return 'needs review';
-  return 'off brand';
+  return 'non-compliant';
 }
 
 function formatPreviewViolation(
-  violation: AdminBrandVoicePreviewResponse['violations'][number],
+  violation: AdminOutputGuardPreviewResponse['violations'][number],
 ) {
   if (violation.kind === 'banned_phrase') {
     return `Contains banned phrase "${violation.detail}".`;
@@ -237,7 +239,7 @@ function formatPreviewViolation(
 }
 
 function formatClassifierStatus(
-  preview: AdminBrandVoicePreviewResponse,
+  preview: AdminOutputGuardPreviewResponse,
 ): string {
   const { classifier } = preview;
   if (classifier.status === 'evaluated' && classifier.verdict) {
@@ -260,19 +262,19 @@ function formatClassifierStatus(
   return 'Classifier unavailable; showing rules score.';
 }
 
-export function BrandVoicePage() {
+export function OutputGuardPage() {
   const auth = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
-  const [profile, setProfile] = useState<AdminBrandVoiceProfile>(EMPTY_PROFILE);
+  const [profile, setProfile] =
+    useState<AdminOutputGuardProfile>(EMPTY_PROFILE);
   const [sample, setSample] = useState('');
-  const [preview, setPreview] = useState<AdminBrandVoicePreviewResponse | null>(
-    null,
-  );
+  const [preview, setPreview] =
+    useState<AdminOutputGuardPreviewResponse | null>(null);
 
   const profileQuery = useQuery({
-    queryKey: ['brand-voice-profile', auth.token],
-    queryFn: () => fetchBrandVoiceProfile(auth.token),
+    queryKey: ['output-guard-profile', auth.token],
+    queryFn: () => fetchOutputGuardProfile(auth.token),
   });
   const modelsQuery = useQuery({
     queryKey: ['models', auth.token],
@@ -329,16 +331,16 @@ export function BrandVoicePage() {
   ]);
 
   const saveMutation = useMutation({
-    mutationFn: () => saveBrandVoiceProfile(auth.token, cleanProfile(profile)),
+    mutationFn: () => saveOutputGuardProfile(auth.token, cleanProfile(profile)),
     onSuccess: (payload) => {
       setProfile(payload.profile);
       toast.success(
-        payload.changed ? 'Brand voice saved.' : 'Brand voice unchanged.',
+        payload.changed ? 'Output guard saved.' : 'Output guard unchanged.',
         payload.reloadMessage,
       );
-      queryClient.setQueryData(['brand-voice-profile', auth.token], payload);
+      queryClient.setQueryData(['output-guard-profile', auth.token], payload);
       queryClient.invalidateQueries({
-        queryKey: ['brand-voice-profile', auth.token],
+        queryKey: ['output-guard-profile', auth.token],
       });
     },
     onError: (error) => {
@@ -348,7 +350,7 @@ export function BrandVoicePage() {
 
   const previewMutation = useMutation({
     mutationFn: () =>
-      previewBrandVoiceProfile(auth.token, cleanProfile(profile), sample),
+      previewOutputGuardProfile(auth.token, cleanProfile(profile), sample),
     onSuccess: (payload) => {
       setPreview(payload);
     },
@@ -358,10 +360,10 @@ export function BrandVoicePage() {
   });
 
   return (
-    <div className="page-stack brand-voice-page">
+    <div className="page-stack output-guard-page">
       <PageHeader
-        title="Brand Voice"
-        description="Operator controls for the brand-voice profile and classifier preview."
+        title="Output Guard"
+        description="Operator controls for output policy, rules, classifier, and rewrite behavior."
         actions={
           <button
             className="primary-button"
@@ -382,7 +384,7 @@ export function BrandVoicePage() {
           </CardHeader>
           <CardContent>
             {profileQuery.isLoading ? (
-              <div className="empty-state">Loading brand voice...</div>
+              <div className="empty-state">Loading output guard...</div>
             ) : profileQuery.isError ? (
               <div className="empty-state">
                 {getErrorMessage(profileQuery.error)}
@@ -399,7 +401,7 @@ export function BrandVoicePage() {
                 <div className="field">
                   <span>Mode</span>
                   <SegmentedToggle
-                    ariaLabel="Brand voice mode"
+                    ariaLabel="Output guard mode"
                     value={profile.mode}
                     options={[
                       { value: 'rewrite', label: 'rewrite' },
@@ -409,14 +411,14 @@ export function BrandVoicePage() {
                     onChange={(mode) =>
                       setProfile((current) => ({
                         ...current,
-                        mode: mode as AdminBrandVoiceProfile['mode'],
+                        mode: mode as AdminOutputGuardProfile['mode'],
                       }))
                     }
                   />
                 </div>
                 <ModelSourceControl
                   label="Classifier"
-                  ariaLabel="Brand voice classifier source"
+                  ariaLabel="Output guard classifier source"
                   value={profile.classifier}
                   modelOptions={modelOptions}
                   defaultOtherModelId={defaultOtherModelId}
@@ -427,7 +429,7 @@ export function BrandVoicePage() {
                 />
                 <ModelSourceControl
                   label="Rewriter"
-                  ariaLabel="Brand voice rewriter source"
+                  ariaLabel="Output guard rewriter source"
                   value={profile.rewriter}
                   modelOptions={modelOptions}
                   defaultOtherModelId={defaultOtherModelId}
@@ -437,14 +439,14 @@ export function BrandVoicePage() {
                   }
                 />
                 <label className="field textarea-field">
-                  <span>Voice</span>
+                  <span>Policy</span>
                   <textarea
                     rows={5}
-                    value={profile.voice}
+                    value={profile.policy}
                     onChange={(event) =>
                       setProfile((current) => ({
                         ...current,
-                        voice: event.target.value,
+                        policy: event.target.value,
                       }))
                     }
                     placeholder="Clear, direct, concrete. No hype."
@@ -466,7 +468,7 @@ export function BrandVoicePage() {
                     setProfile((current) => ({ ...current, dontList }))
                   }
                 />
-                <small className="brand-voice-list-note">
+                <small className="output-guard-list-note">
                   Do and Don't guide rewrites and classifier context; banned and
                   required rules stay deterministic.
                 </small>
@@ -528,13 +530,13 @@ export function BrandVoicePage() {
                 {previewMutation.isPending ? 'Scoring...' : 'Score sample'}
               </button>
               {preview ? (
-                <div className="brand-voice-score-panel">
-                  <div className="brand-voice-score-bar">
+                <div className="output-guard-score-panel">
+                  <div className="output-guard-score-bar">
                     <span style={{ width: `${preview.score}%` }} />
                   </div>
                   <small>{formatClassifierStatus(preview)}</small>
                   {preview.violations.length > 0 ? (
-                    <ul className="brand-voice-reason-list">
+                    <ul className="output-guard-reason-list">
                       {preview.violations.map((violation) => {
                         const reason = formatPreviewViolation(violation);
                         return <li key={reason}>{reason}</li>;
@@ -544,7 +546,7 @@ export function BrandVoicePage() {
                     <small>No rule violations detected.</small>
                   )}
                   {preview.classifier.reasons.length > 0 ? (
-                    <ul className="brand-voice-reason-list">
+                    <ul className="output-guard-reason-list">
                       {preview.classifier.reasons.map((reason) => (
                         <li key={`classifier-${reason}`}>{reason}</li>
                       ))}

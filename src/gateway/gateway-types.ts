@@ -1306,25 +1306,25 @@ export interface GatewayAdminPluginsResponse {
   plugins: GatewayAdminPlugin[];
 }
 
-export interface GatewayAdminBrandVoiceProfile {
+export interface GatewayAdminOutputGuardProfile {
   enabled: boolean;
   mode: 'block' | 'rewrite' | 'flag';
-  voice: string;
+  policy: string;
   doList: string[];
   dontList: string[];
   bannedPhrases: string[];
   bannedPatterns: string[];
   requirePhrases: string[];
-  classifier: GatewayAdminBrandVoiceModelConfig;
-  rewriter: GatewayAdminBrandVoiceModelConfig;
+  classifier: GatewayAdminOutputGuardModelConfig;
+  rewriter: GatewayAdminOutputGuardModelConfig;
 }
 
-export interface GatewayAdminBrandVoiceModelConfig {
+export interface GatewayAdminOutputGuardModelConfig {
   provider: 'default' | 'auxiliary' | 'model';
   model: string;
 }
 
-export interface GatewayAdminBrandVoiceRevision {
+export interface GatewayAdminOutputGuardRevision {
   id: number;
   createdAt: string;
   actor: string;
@@ -1333,39 +1333,39 @@ export interface GatewayAdminBrandVoiceRevision {
   md5: string;
 }
 
-export interface GatewayAdminBrandVoiceProfileResponse {
-  profile: GatewayAdminBrandVoiceProfile;
-  revisions: GatewayAdminBrandVoiceRevision[];
+export interface GatewayAdminOutputGuardProfileResponse {
+  profile: GatewayAdminOutputGuardProfile;
+  revisions: GatewayAdminOutputGuardRevision[];
 }
 
-export interface GatewayAdminBrandVoiceProfileUpdateResponse
-  extends GatewayAdminBrandVoiceProfileResponse {
+export interface GatewayAdminOutputGuardProfileUpdateResponse
+  extends GatewayAdminOutputGuardProfileResponse {
   changed: boolean;
   reloadMessage: string;
 }
 
-export interface GatewayAdminBrandVoicePreviewViolation {
+export interface GatewayAdminOutputGuardPreviewViolation {
   kind: 'banned_phrase' | 'banned_pattern' | 'missing_required';
   detail: string;
 }
 
-export interface GatewayAdminBrandVoicePreviewClassifier {
+export interface GatewayAdminOutputGuardPreviewClassifier {
   provider: 'default' | 'auxiliary' | 'model';
   status: 'evaluated' | 'unavailable' | 'unparseable';
-  verdict: 'on_brand' | 'off_brand' | null;
+  verdict: 'compliant' | 'non_compliant' | null;
   severity: 'low' | 'medium' | 'high' | null;
   reasons: string[];
   message: string | null;
   model: string | null;
 }
 
-export interface GatewayAdminBrandVoicePreviewResponse {
+export interface GatewayAdminOutputGuardPreviewResponse {
   score: number;
   ruleScore: number;
   scoreSource: 'classifier' | 'rules';
-  verdict: 'on_brand' | 'needs_review' | 'off_brand';
-  violations: GatewayAdminBrandVoicePreviewViolation[];
-  classifier: GatewayAdminBrandVoicePreviewClassifier;
+  verdict: 'compliant' | 'needs_review' | 'non_compliant';
+  violations: GatewayAdminOutputGuardPreviewViolation[];
+  classifier: GatewayAdminOutputGuardPreviewClassifier;
 }
 
 export interface GatewayAdminToolCatalogEntry {

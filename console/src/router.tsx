@@ -13,7 +13,6 @@ import { AgentFilesPage } from './routes/agents';
 import { AgentsOverviewPage } from './routes/agents-overview';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
-import { BrandVoicePage } from './routes/brand-voice';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
 import { DashboardPage } from './routes/dashboard';
@@ -22,6 +21,7 @@ import { GatewayPage } from './routes/gateway';
 import { JobsPage } from './routes/jobs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
+import { OutputGuardPage } from './routes/output-guard';
 import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
 import { SessionsPage } from './routes/sessions';
@@ -209,10 +209,10 @@ const pluginsRoute = createRoute({
   component: PluginsPage,
 });
 
-const brandVoiceRoute = createRoute({
+const outputGuardRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
-  path: '/admin/brand-voice',
-  component: BrandVoicePage,
+  path: '/admin/output-guard',
+  component: OutputGuardPage,
 });
 
 const toolsRoute = createRoute({
@@ -254,7 +254,7 @@ const routeTree = rootRoute.addChildren([
     auditRoute,
     skillsRoute,
     pluginsRoute,
-    brandVoiceRoute,
+    outputGuardRoute,
     toolsRoute,
   ]),
   agentsOverviewRoute,

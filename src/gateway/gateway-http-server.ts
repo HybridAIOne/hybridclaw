@@ -120,11 +120,6 @@ import {
   verifyLaunchToken,
 } from './auth-token.js';
 import {
-  getGatewayAdminBrandVoiceProfile,
-  previewGatewayAdminBrandVoiceProfile,
-  updateGatewayAdminBrandVoiceProfile,
-} from './brand-voice-admin.js';
-import {
   extractGatewayChatApprovalEvent,
   formatGatewayChatApprovalSummary,
 } from './chat-approval.js';
@@ -255,6 +250,11 @@ import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import {
+  getGatewayAdminOutputGuardProfile,
+  previewGatewayAdminOutputGuardProfile,
+  updateGatewayAdminOutputGuardProfile,
+} from './output-guard-admin.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
@@ -4835,14 +4835,14 @@ async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminPlugins());
 }
 
-async function handleApiAdminBrandVoice(
+async function handleApiAdminOutputGuard(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
   const method = req.method || 'GET';
 
   if (method === 'GET') {
-    sendJson(res, 200, getGatewayAdminBrandVoiceProfile());
+    sendJson(res, 200, getGatewayAdminOutputGuardProfile());
     return;
   }
 
@@ -4851,7 +4851,7 @@ async function handleApiAdminBrandVoice(
       sendJson(
         res,
         200,
-        await updateGatewayAdminBrandVoiceProfile(await readJsonBody(req)),
+        await updateGatewayAdminOutputGuardProfile(await readJsonBody(req)),
       );
     } catch (error) {
       sendJson(res, 400, {
@@ -4864,7 +4864,7 @@ async function handleApiAdminBrandVoice(
   sendMethodNotAllowed(res);
 }
 
-async function handleApiAdminBrandVoicePreview(
+async function handleApiAdminOutputGuardPreview(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -4877,7 +4877,7 @@ async function handleApiAdminBrandVoicePreview(
     sendJson(
       res,
       200,
-      await previewGatewayAdminBrandVoiceProfile(await readJsonBody(req)),
+      await previewGatewayAdminOutputGuardProfile(await readJsonBody(req)),
     );
   } catch (error) {
     sendJson(res, 400, {
@@ -5892,12 +5892,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminPlugins(res);
             return;
           }
-          if (pathname === '/api/admin/brand-voice') {
-            await handleApiAdminBrandVoice(req, res);
+          if (pathname === '/api/admin/output-guard') {
+            await handleApiAdminOutputGuard(req, res);
             return;
           }
-          if (pathname === '/api/admin/brand-voice/preview') {
-            await handleApiAdminBrandVoicePreview(req, res);
+          if (pathname === '/api/admin/output-guard/preview') {
+            await handleApiAdminOutputGuardPreview(req, res);
             return;
           }
           if (pathname === '/api/admin/skills') {

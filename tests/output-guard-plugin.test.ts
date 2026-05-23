@@ -13,9 +13,9 @@ import { useTempDir } from './test-utils.ts';
 vi.mock('../src/providers/auxiliary.js', () => ({
   callAuxiliaryModel: vi.fn(async () => ({
     provider: 'hybridai',
-    model: 'test-brand-voice-classifier',
+    model: 'test-output-guard-classifier',
     content: JSON.stringify({
-      verdict: 'on_brand',
+      verdict: 'compliant',
       reasons: [],
       severity: 'low',
     }),
@@ -31,8 +31,8 @@ function loadRuntimeConfig(): RuntimeConfig {
 }
 
 function installBundledPlugin(cwd: string): void {
-  const sourceDir = path.join(process.cwd(), 'plugins', 'brand-voice');
-  const targetDir = path.join(cwd, '.hybridclaw', 'plugins', 'brand-voice');
+  const sourceDir = path.join(process.cwd(), 'plugins', 'output-guard');
+  const targetDir = path.join(cwd, '.hybridclaw', 'plugins', 'output-guard');
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
   fs.cpSync(sourceDir, targetDir, { recursive: true });
 }
@@ -51,15 +51,15 @@ afterEach(() => {
   vi.resetModules();
 });
 
-test('brand-voice rules detect banned phrases, banned patterns, and missing required phrases', async () => {
-  const { buildVoiceBrief, resolveBrandVoiceConfig } = await import(
-    '../plugins/brand-voice/src/config.js'
+test('output-guard rules detect banned phrases, banned patterns, and missing required phrases', async () => {
+  const { buildPolicyBrief, resolveOutputGuardConfig } = await import(
+    '../plugins/output-guard/src/config.js'
   );
   const { detectRuleViolations } = await import(
-    '../plugins/brand-voice/src/rules.js'
+    '../plugins/output-guard/src/rules.js'
   );
 
-  const config = resolveBrandVoiceConfig(
+  const config = resolveOutputGuardConfig(
     {
       mode: 'block',
       doList: ['Use concrete examples'],
@@ -77,34 +77,34 @@ test('brand-voice rules detect banned phrases, banned patterns, and missing requ
     } as never,
   );
 
-  const offBrand = detectRuleViolations(
+  const nonCompliant = detectRuleViolations(
     'We deliver synergy. We guarantee zero downtime.',
     config,
   );
-  expect(offBrand.map((entry) => entry.kind).sort()).toEqual([
+  expect(nonCompliant.map((entry) => entry.kind).sort()).toEqual([
     'banned_pattern',
     'banned_phrase',
     'missing_required',
   ]);
-  expect(buildVoiceBrief(config)).toContain('Do:\n- Use concrete examples');
-  expect(buildVoiceBrief(config)).toContain("Don't:\n- Use hype");
+  expect(buildPolicyBrief(config)).toContain('Do:\n- Use concrete examples');
+  expect(buildPolicyBrief(config)).toContain("Don't:\n- Use hype");
 
-  const onBrand = detectRuleViolations(
+  const compliant = detectRuleViolations(
     'Thanks for reaching out — we will follow up Tuesday.\n\nBest regards',
     config,
   );
-  expect(onBrand).toEqual([]);
+  expect(compliant).toEqual([]);
 });
 
-test('brand-voice plugin registers post-receive middleware via PluginManager', async () => {
-  const homeDir = makeTempDir('hybridclaw-brand-voice-home-');
-  const cwd = makeTempDir('hybridclaw-brand-voice-project-');
+test('output-guard plugin registers post-receive middleware via PluginManager', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
   installBundledPlugin(cwd);
 
   const config = loadRuntimeConfig();
   config.plugins.list = [
     {
-      id: 'brand-voice',
+      id: 'output-guard',
       enabled: true,
       config: {
         mode: 'block',
@@ -126,27 +126,27 @@ test('brand-voice plugin registers post-receive middleware via PluginManager', a
   expect(manager.hasOutputGuards()).toBe(true);
   expect(manager.getLoadedPlugins()).toEqual([
     expect.objectContaining({
-      id: 'brand-voice',
+      id: 'output-guard',
       enabled: true,
       status: 'loaded',
     }),
   ]);
 });
 
-test('brand-voice guard blocks responses with banned phrases when mode=block', async () => {
-  const homeDir = makeTempDir('hybridclaw-brand-voice-home-');
-  const cwd = makeTempDir('hybridclaw-brand-voice-project-');
+test('output guard blocks responses with banned phrases when mode=block', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
   installBundledPlugin(cwd);
 
   const config = loadRuntimeConfig();
   config.plugins.list = [
     {
-      id: 'brand-voice',
+      id: 'output-guard',
       enabled: true,
       config: {
         mode: 'block',
         bannedPhrases: ['stupid'],
-        blockMessage: 'Response held by brand-voice guard.',
+        blockMessage: 'Response held by output guard.',
       },
     },
   ];
@@ -166,25 +166,25 @@ test('brand-voice guard blocks responses with banned phrases when mode=block', a
 
   expect(outcome.blocked).toBe(true);
   expect(outcome.resultText).toBe(
-    'Brand-voice violations: banned phrases: "stupid"',
+    'Output guard violations: banned phrases: "stupid"',
   );
   expect(outcome.events).toHaveLength(1);
   expect(outcome.events[0]).toMatchObject({
-    pluginId: 'brand-voice',
-    guardId: 'brand-voice',
+    pluginId: 'output-guard',
+    guardId: 'output-guard',
     action: 'block',
   });
 });
 
-test('brand-voice guard allows clean output unchanged', async () => {
-  const homeDir = makeTempDir('hybridclaw-brand-voice-home-');
-  const cwd = makeTempDir('hybridclaw-brand-voice-project-');
+test('output guard allows clean output unchanged', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
   installBundledPlugin(cwd);
 
   const config = loadRuntimeConfig();
   config.plugins.list = [
     {
-      id: 'brand-voice',
+      id: 'output-guard',
       enabled: true,
       config: {
         mode: 'block',
@@ -212,20 +212,20 @@ test('brand-voice guard allows clean output unchanged', async () => {
     'Thanks for the question — the launch is on track for next Tuesday.',
   );
   expect(outcome.events).toEqual([
-    expect.objectContaining({ action: 'allow', guardId: 'brand-voice' }),
+    expect.objectContaining({ action: 'allow', guardId: 'output-guard' }),
   ]);
 });
 
-test('brand-voice guard rewrites off-brand text via the configured rewriter', async () => {
-  const homeDir = makeTempDir('hybridclaw-brand-voice-home-');
-  const cwd = makeTempDir('hybridclaw-brand-voice-project-');
+test('output guard rewrites non-compliant text via the configured rewriter', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
   installBundledPlugin(cwd);
 
   const auxiliary = await import('../src/providers/auxiliary.js');
   vi.mocked(auxiliary.callAuxiliaryModel).mockImplementation(
     async (request) => {
       const systemPrompt = String(request.messages[0]?.content || '');
-      if (systemPrompt.includes('brand-voice rewriter')) {
+      if (systemPrompt.includes('output guard rewriter')) {
         return {
           provider: 'hybridai',
           model: 'hybridai/default-chat',
@@ -237,7 +237,7 @@ test('brand-voice guard rewrites off-brand text via the configured rewriter', as
         provider: 'hybridai',
         model: 'hybridai/default-chat',
         content: JSON.stringify({
-          verdict: 'on_brand',
+          verdict: 'compliant',
           reasons: [],
           severity: 'low',
         }),
@@ -248,7 +248,7 @@ test('brand-voice guard rewrites off-brand text via the configured rewriter', as
   const runtimeConfig = loadRuntimeConfig();
   runtimeConfig.plugins.list = [
     {
-      id: 'brand-voice',
+      id: 'output-guard',
       enabled: true,
       config: {
         mode: 'rewrite',
@@ -280,8 +280,8 @@ test('brand-voice guard rewrites off-brand text via the configured rewriter', as
   expect(outcome.events).toHaveLength(1);
   expect(outcome.events[0]).toMatchObject({
     action: 'rewrite',
-    pluginId: 'brand-voice',
-    guardId: 'brand-voice',
+    pluginId: 'output-guard',
+    guardId: 'output-guard',
   });
   expect(auxiliary.callAuxiliaryModel).toHaveBeenCalledTimes(2);
   expect(auxiliary.callAuxiliaryModel).toHaveBeenLastCalledWith(
@@ -292,16 +292,16 @@ test('brand-voice guard rewrites off-brand text via the configured rewriter', as
   );
 });
 
-test('brand-voice guard defaults rewrite mode to the default model', async () => {
-  const homeDir = makeTempDir('hybridclaw-brand-voice-home-');
-  const cwd = makeTempDir('hybridclaw-brand-voice-project-');
+test('output guard defaults rewrite mode to the default model', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
   installBundledPlugin(cwd);
 
   const auxiliary = await import('../src/providers/auxiliary.js');
   vi.mocked(auxiliary.callAuxiliaryModel).mockImplementation(
     async (request) => {
       const systemPrompt = String(request.messages[0]?.content || '');
-      if (systemPrompt.includes('brand-voice rewriter')) {
+      if (systemPrompt.includes('output guard rewriter')) {
         return {
           provider: 'hybridai',
           model: 'hybridai/default-chat',
@@ -312,7 +312,7 @@ test('brand-voice guard defaults rewrite mode to the default model', async () =>
         provider: 'hybridai',
         model: 'hybridai/default-chat',
         content: JSON.stringify({
-          verdict: 'on_brand',
+          verdict: 'compliant',
           reasons: [],
           severity: 'low',
         }),
@@ -323,7 +323,7 @@ test('brand-voice guard defaults rewrite mode to the default model', async () =>
   const config = loadRuntimeConfig();
   config.plugins.list = [
     {
-      id: 'brand-voice',
+      id: 'output-guard',
       enabled: true,
       config: {
         mode: 'rewrite',
@@ -357,15 +357,15 @@ test('brand-voice guard defaults rewrite mode to the default model', async () =>
   );
 });
 
-test('brand-voice guard warns and leaves output unchanged when mode=flag', async () => {
-  const homeDir = makeTempDir('hybridclaw-brand-voice-home-');
-  const cwd = makeTempDir('hybridclaw-brand-voice-project-');
+test('output guard warns and leaves output unchanged when mode=flag', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
   installBundledPlugin(cwd);
 
   const config = loadRuntimeConfig();
   config.plugins.list = [
     {
-      id: 'brand-voice',
+      id: 'output-guard',
       enabled: true,
       config: {
         mode: 'flag',
@@ -392,9 +392,9 @@ test('brand-voice guard warns and leaves output unchanged when mode=flag', async
   expect(outcome.events).toEqual([
     expect.objectContaining({
       action: 'warn',
-      pluginId: 'brand-voice',
-      guardId: 'brand-voice',
-      reason: 'Brand-voice violations: banned phrases: "stupid"',
+      pluginId: 'output-guard',
+      guardId: 'output-guard',
+      reason: 'Output guard violations: banned phrases: "stupid"',
     }),
   ]);
 });

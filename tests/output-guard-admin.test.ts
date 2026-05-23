@@ -4,7 +4,7 @@ import type { RuntimeConfig } from '../src/config/runtime-config.js';
 type ReloadResult = { ok: boolean; message: string };
 type AuxiliaryResult = { content: string; model: string; provider: string };
 
-async function importBrandVoiceAdmin(
+async function importOutputGuardAdmin(
   config: RuntimeConfig,
   options: {
     reloadResults?: ReloadResult[];
@@ -48,7 +48,7 @@ async function importBrandVoiceAdmin(
         id: 7,
         createdAt: '2026-05-21T10:00:00.000Z',
         actor: 'operator',
-        route: 'api.admin.brand-voice.profile',
+        route: 'api.admin.output-guard.profile',
         source: 'admin-console',
         md5: 'abc123',
         byteLength: 120,
@@ -81,7 +81,7 @@ async function importBrandVoiceAdmin(
     callAuxiliaryModel,
   }));
 
-  const mod = await import('../src/gateway/brand-voice-admin.ts');
+  const mod = await import('../src/gateway/output-guard-admin.ts');
   return {
     ...mod,
     getCurrentConfig: () => currentConfig,
@@ -104,31 +104,31 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe('brand voice admin API helpers', () => {
-  test('reads and updates the brand-voice profile in runtime plugin config', async () => {
+describe('output guard admin API helpers', () => {
+  test('reads and updates the output-guard profile in runtime plugin config', async () => {
     const config = {
       plugins: {
         list: [
           {
-            id: 'brand-voice',
+            id: 'output-guard',
             enabled: true,
             config: {
               classifier: { provider: 'default' },
               rewriter: { provider: 'auxiliary' },
-              voice: 'Plainspoken.',
+              policy: 'Plainspoken.',
               bannedPhrases: ['synergy'],
             },
           },
         ],
       },
     } as RuntimeConfig;
-    const admin = await importBrandVoiceAdmin(config);
+    const admin = await importOutputGuardAdmin(config);
 
-    expect(admin.getGatewayAdminBrandVoiceProfile()).toMatchObject({
+    expect(admin.getGatewayAdminOutputGuardProfile()).toMatchObject({
       profile: {
         enabled: true,
         mode: 'rewrite',
-        voice: 'Plainspoken.',
+        policy: 'Plainspoken.',
         bannedPhrases: ['synergy'],
         rewriter: {
           provider: 'auxiliary',
@@ -139,11 +139,11 @@ describe('brand voice admin API helpers', () => {
     });
 
     await expect(
-      admin.updateGatewayAdminBrandVoiceProfile({
+      admin.updateGatewayAdminOutputGuardProfile({
         profile: {
           enabled: false,
           mode: 'block',
-          voice: 'Direct.',
+          policy: 'Direct.',
           doList: ['Use facts'],
           dontList: ['Use hype'],
           bannedPhrases: ['game changing'],
@@ -165,7 +165,7 @@ describe('brand voice admin API helpers', () => {
       profile: {
         enabled: false,
         mode: 'block',
-        voice: 'Direct.',
+        policy: 'Direct.',
         doList: ['Use facts'],
         classifier: {
           provider: 'default',
@@ -179,10 +179,10 @@ describe('brand voice admin API helpers', () => {
     });
     expect(admin.reloadPluginRuntime).toHaveBeenCalledTimes(1);
     expect(admin.getCurrentConfig().plugins.list[0]).toMatchObject({
-      id: 'brand-voice',
+      id: 'output-guard',
       enabled: false,
       config: {
-        voice: 'Direct.',
+        policy: 'Direct.',
         doList: ['Use facts'],
         bannedPhrases: ['game changing'],
         classifier: {
@@ -197,16 +197,16 @@ describe('brand voice admin API helpers', () => {
   });
 
   test('scores pasted output against the edited profile', async () => {
-    const admin = await importBrandVoiceAdmin({
+    const admin = await importOutputGuardAdmin({
       plugins: { list: [] },
     } as RuntimeConfig);
 
-    const preview = await admin.previewGatewayAdminBrandVoiceProfile({
+    const preview = await admin.previewGatewayAdminOutputGuardProfile({
       sample: 'This is game changing and guaranteed.',
       profile: {
         enabled: true,
         mode: 'rewrite',
-        voice: '',
+        policy: '',
         doList: [],
         dontList: ['game changing'],
         bannedPhrases: [],
@@ -219,7 +219,7 @@ describe('brand voice admin API helpers', () => {
       score: 58,
       ruleScore: 58,
       scoreSource: 'rules',
-      verdict: 'off_brand',
+      verdict: 'non_compliant',
       violations: [
         { kind: 'banned_pattern', detail: '/\\bguarantee[sd]?\\b/i' },
         { kind: 'missing_required', detail: 'Best regards' },
@@ -234,13 +234,13 @@ describe('brand voice admin API helpers', () => {
   });
 
   test('uses the selected model runtime classifier during preview', async () => {
-    const admin = await importBrandVoiceAdmin(
+    const admin = await importOutputGuardAdmin(
       {
         hybridai: { defaultModel: 'hybridai/default-chat' },
         plugins: {
           list: [
             {
-              id: 'brand-voice',
+              id: 'output-guard',
               enabled: true,
               config: {
                 classifier: {
@@ -256,20 +256,20 @@ describe('brand voice admin API helpers', () => {
           provider: 'hybridai',
           model: 'hybridai/aux-judge',
           content: JSON.stringify({
-            verdict: 'off_brand',
-            reasons: ['Too vague for the configured voice.'],
+            verdict: 'non_compliant',
+            reasons: ['Too vague for the configured policy.'],
             severity: 'high',
           }),
         },
       },
     );
 
-    const preview = await admin.previewGatewayAdminBrandVoiceProfile({
+    const preview = await admin.previewGatewayAdminOutputGuardProfile({
       sample: 'We might have a solution that can help.',
       profile: {
         enabled: true,
         mode: 'rewrite',
-        voice: 'Direct and concrete.',
+        policy: 'Direct and concrete.',
         doList: ['Use specific claims'],
         dontList: ['Use vague hedging'],
         bannedPhrases: [],
@@ -286,13 +286,13 @@ describe('brand voice admin API helpers', () => {
       score: 0,
       ruleScore: 100,
       scoreSource: 'classifier',
-      verdict: 'off_brand',
+      verdict: 'non_compliant',
       classifier: {
         provider: 'auxiliary',
         status: 'evaluated',
-        verdict: 'off_brand',
+        verdict: 'non_compliant',
         severity: 'high',
-        reasons: ['Too vague for the configured voice.'],
+        reasons: ['Too vague for the configured policy.'],
         model: 'hybridai/aux-judge',
       },
     });
@@ -306,7 +306,7 @@ describe('brand voice admin API helpers', () => {
   });
 
   test('routes the default model classifier through the active default model', async () => {
-    const admin = await importBrandVoiceAdmin(
+    const admin = await importOutputGuardAdmin(
       {
         hybridai: { defaultModel: 'hybridai/default-chat' },
         plugins: { list: [] },
@@ -316,7 +316,7 @@ describe('brand voice admin API helpers', () => {
           provider: 'hybridai',
           model: 'hybridai/default-chat',
           content: JSON.stringify({
-            verdict: 'on_brand',
+            verdict: 'compliant',
             reasons: [],
             severity: 'low',
           }),
@@ -324,12 +324,12 @@ describe('brand voice admin API helpers', () => {
       },
     );
 
-    await admin.previewGatewayAdminBrandVoiceProfile({
+    await admin.previewGatewayAdminOutputGuardProfile({
       sample: 'Concrete and plain.',
       profile: {
         enabled: true,
         mode: 'rewrite',
-        voice: 'Concrete and plain.',
+        policy: 'Concrete and plain.',
         doList: [],
         dontList: [],
         bannedPhrases: [],
@@ -352,7 +352,7 @@ describe('brand voice admin API helpers', () => {
   });
 
   test('routes explicit classifier model selections through that model', async () => {
-    const admin = await importBrandVoiceAdmin(
+    const admin = await importOutputGuardAdmin(
       {
         hybridai: { defaultModel: 'hybridai/default-chat' },
         plugins: { list: [] },
@@ -362,7 +362,7 @@ describe('brand voice admin API helpers', () => {
           provider: 'hybridai',
           model: 'openai/gpt-5-mini',
           content: JSON.stringify({
-            verdict: 'on_brand',
+            verdict: 'compliant',
             reasons: [],
             severity: 'low',
           }),
@@ -370,12 +370,12 @@ describe('brand voice admin API helpers', () => {
       },
     );
 
-    await admin.previewGatewayAdminBrandVoiceProfile({
+    await admin.previewGatewayAdminOutputGuardProfile({
       sample: 'Concrete and plain.',
       profile: {
         enabled: true,
         mode: 'rewrite',
-        voice: 'Concrete and plain.',
+        policy: 'Concrete and plain.',
         doList: [],
         dontList: [],
         bannedPhrases: [],
@@ -398,16 +398,16 @@ describe('brand voice admin API helpers', () => {
   });
 
   test('rejects invalid banned regex patterns', async () => {
-    const admin = await importBrandVoiceAdmin({
+    const admin = await importOutputGuardAdmin({
       plugins: { list: [] },
     } as RuntimeConfig);
 
     await expect(
-      admin.updateGatewayAdminBrandVoiceProfile({
+      admin.updateGatewayAdminOutputGuardProfile({
         profile: {
           enabled: true,
           mode: 'rewrite',
-          voice: '',
+          policy: '',
           doList: [],
           dontList: [],
           bannedPhrases: [],
@@ -419,17 +419,17 @@ describe('brand voice admin API helpers', () => {
   });
 
   test('caps preview sample size and profile list lengths', async () => {
-    const admin = await importBrandVoiceAdmin({
+    const admin = await importOutputGuardAdmin({
       plugins: { list: [] },
     } as RuntimeConfig);
 
     await expect(
-      admin.previewGatewayAdminBrandVoiceProfile({
+      admin.previewGatewayAdminOutputGuardProfile({
         sample: 'x'.repeat(50_001),
         profile: {
           enabled: true,
           mode: 'rewrite',
-          voice: '',
+          policy: '',
           doList: [],
           dontList: [],
           bannedPhrases: [],
@@ -440,12 +440,12 @@ describe('brand voice admin API helpers', () => {
     ).rejects.toThrow('Sample output cannot exceed 50000 characters');
 
     await expect(
-      admin.previewGatewayAdminBrandVoiceProfile({
+      admin.previewGatewayAdminOutputGuardProfile({
         sample: 'Short sample',
         profile: {
           enabled: true,
           mode: 'rewrite',
-          voice: '',
+          policy: '',
           doList: Array.from({ length: 201 }, (_, index) => `Rule ${index}`),
           dontList: [],
           bannedPhrases: [],
@@ -457,14 +457,14 @@ describe('brand voice admin API helpers', () => {
   });
 
   test('rolls back failed runtime reloads and logs rollback reload failures', async () => {
-    const admin = await importBrandVoiceAdmin(
+    const admin = await importOutputGuardAdmin(
       {
         plugins: {
           list: [
             {
-              id: 'brand-voice',
+              id: 'output-guard',
               enabled: true,
-              config: { voice: 'Original.' },
+              config: { policy: 'Original.' },
             },
           ],
         },
@@ -478,11 +478,11 @@ describe('brand voice admin API helpers', () => {
     );
 
     await expect(
-      admin.updateGatewayAdminBrandVoiceProfile({
+      admin.updateGatewayAdminOutputGuardProfile({
         profile: {
           enabled: true,
           mode: 'rewrite',
-          voice: 'Changed.',
+          policy: 'Changed.',
           doList: [],
           dontList: [],
           bannedPhrases: [],
@@ -499,11 +499,11 @@ describe('brand voice admin API helpers', () => {
         reloadMessage: 'Plugin runtime reload failed.',
         rollbackReloadMessage: 'Rollback reload failed.',
       }),
-      'Brand voice runtime rollback reload failed',
+      'Output guard runtime rollback reload failed',
     );
     expect(admin.getCurrentConfig().plugins.list[0]).toMatchObject({
-      id: 'brand-voice',
-      config: { voice: 'Original.' },
+      id: 'output-guard',
+      config: { policy: 'Original.' },
     });
   });
 });

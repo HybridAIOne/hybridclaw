@@ -1639,43 +1639,43 @@ th {
   animation: button-spinner-rotate 0.75s linear infinite;
 }
 
-.brand-voice-list-field {
+.output-guard-list-field {
   display: grid;
 }
 
-.brand-voice-list {
+.output-guard-list {
   display: grid;
   gap: 8px;
 }
 
-.brand-voice-list-row {
+.output-guard-list-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
 }
 
-.brand-voice-add-button {
+.output-guard-add-button {
   width: fit-content;
 }
 
-.brand-voice-list-note {
+.output-guard-list-note {
   color: var(--muted-foreground);
   font-size: 0.82rem;
   line-height: 1.45;
 }
 
-.brand-voice-classifier-control {
+.output-guard-classifier-control {
   display: grid;
   gap: 8px;
   align-items: center;
 }
 
-.brand-voice-classifier-control.has-model-select {
+.output-guard-classifier-control.has-model-select {
   grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
 }
 
-.brand-voice-score-panel {
+.output-guard-score-panel {
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -1684,21 +1684,21 @@ th {
   background: var(--panel-muted);
 }
 
-.brand-voice-score-bar {
+.output-guard-score-bar {
   overflow: hidden;
   height: 10px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
 }
 
-.brand-voice-score-bar span {
+.output-guard-score-bar span {
   display: block;
   height: 100%;
   border-radius: inherit;
   background: var(--success);
 }
 
-.brand-voice-reason-list {
+.output-guard-reason-list {
   margin: 0;
   padding-left: 18px;
   color: var(--muted-foreground);
@@ -2965,11 +2965,11 @@ th {
     justify-items: stretch;
   }
 
-  .brand-voice-classifier-control {
+  .output-guard-classifier-control {
     grid-template-columns: 1fr;
   }
 
-  .brand-voice-classifier-control.has-model-select {
+  .output-guard-classifier-control.has-model-select {
     grid-template-columns: 1fr;
   }
 

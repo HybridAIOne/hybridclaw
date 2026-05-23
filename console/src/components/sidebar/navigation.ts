@@ -68,7 +68,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/agent-scoreboard', label: 'Agents', icon: AgentGroup },
       { to: '/admin/skills', label: 'Skills', icon: Skills },
       { to: '/admin/plugins', label: 'Plugins', icon: Plugins },
-      { to: '/admin/brand-voice', label: 'Brand Voice', icon: SquarePen },
+      { to: '/admin/output-guard', label: 'Output Guard', icon: SquarePen },
       { to: '/admin/tools', label: 'Tools', icon: Tools },
       { to: '/admin/config', label: 'Config', icon: Config },
     ],

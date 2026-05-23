@@ -29,7 +29,7 @@ function ensureModelSource(value, label) {
   if (!normalized) return 'default';
   if (SUPPORTED_MODEL_SOURCES.includes(normalized)) return normalized;
   throw new Error(
-    `brand-voice: unsupported ${label} model source "${normalized}".`,
+    `output-guard: unsupported ${label} model source "${normalized}".`,
   );
 }
 
@@ -53,7 +53,7 @@ function compileRegexEntry(entry, errors) {
     return new RegExp(trimmed, 'i');
   } catch (error) {
     errors.push(
-      `brand-voice: invalid regex pattern ${JSON.stringify(entry)}: ${
+      `output-guard: invalid regex pattern ${JSON.stringify(entry)}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -61,9 +61,9 @@ function compileRegexEntry(entry, errors) {
   }
 }
 
-function resolveVoiceFile(voiceFile, runtime, logger) {
-  if (!voiceFile) return '';
-  let resolved = voiceFile;
+function resolvePolicyFile(policyFile, runtime, logger) {
+  if (!policyFile) return '';
+  let resolved = policyFile;
   if (resolved.startsWith('~/')) {
     resolved = path.join(runtime.homeDir, resolved.slice(2));
   } else if (!path.isAbsolute(resolved)) {
@@ -74,8 +74,8 @@ function resolveVoiceFile(voiceFile, runtime, logger) {
     return String(text || '').trim();
   } catch (error) {
     logger.warn(
-      { voiceFile, resolvedPath: resolved, error },
-      'brand-voice: voiceFile not readable; ignoring',
+      { policyFile, resolvedPath: resolved, error },
+      'output-guard: policyFile not readable; ignoring',
     );
     return '';
   }
@@ -86,13 +86,13 @@ function resolveModelSourceConfig(rawConfig, label) {
   const model = normalizeString(rawConfig?.model);
   if (provider === 'model' && !model) {
     throw new Error(
-      `brand-voice: ${label} model source is "${provider}" but \`${label}.model\` is empty.`,
+      `output-guard: ${label} model source is "${provider}" but \`${label}.model\` is empty.`,
     );
   }
   return { provider, model: provider === 'model' ? model : '' };
 }
 
-export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
+export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
   const errors = [];
   const enabled = rawConfig?.enabled !== false;
   const mode = ensureEnum(rawConfig?.mode, SUPPORTED_MODES, 'rewrite');
@@ -101,11 +101,11 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
     SUPPORTED_FAILURE_MODES,
     'allow',
   );
-  const voice = normalizeString(rawConfig?.voice);
+  const policy = normalizeString(rawConfig?.policy);
   const doList = normalizeStringArray(rawConfig?.doList);
   const dontList = normalizeStringArray(rawConfig?.dontList);
-  const voiceFileText = resolveVoiceFile(
-    normalizeString(rawConfig?.voiceFile),
+  const policyFileText = resolvePolicyFile(
+    normalizeString(rawConfig?.policyFile),
     runtime,
     logger,
   );
@@ -121,7 +121,7 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
   const requirePhrases = normalizeStringArray(rawConfig?.requirePhrases);
   const blockMessage =
     normalizeString(rawConfig?.blockMessage) ||
-    'Output blocked by brand-voice guard.';
+    'Output blocked by output guard.';
   const minLength = ensureNumber(rawConfig?.minLength, 0, { min: 0 });
 
   const classifier = resolveModelSourceConfig(
@@ -131,17 +131,17 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
   const rewriter = resolveModelSourceConfig(rawConfig?.rewriter, 'rewriter');
 
   for (const error of errors) {
-    logger.warn({ error }, 'brand-voice config issue');
+    logger.warn({ error }, 'output-guard config issue');
   }
 
   return Object.freeze({
     enabled,
     mode,
     failureMode,
-    voice,
+    policy,
     doList: Object.freeze(doList),
     dontList: Object.freeze(dontList),
-    voiceFileText,
+    policyFileText,
     bannedPhrases: Object.freeze(bannedPhrases),
     bannedPatterns: Object.freeze(
       bannedPatternEntries.map((entry) => Object.freeze(entry)),
@@ -154,10 +154,10 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
   });
 }
 
-export function buildVoiceBrief(config) {
+export function buildPolicyBrief(config) {
   const sections = [];
-  if (config.voice) sections.push(`Brand voice: ${config.voice}`);
-  if (config.voiceFileText) sections.push(config.voiceFileText);
+  if (config.policy) sections.push(`Output policy: ${config.policy}`);
+  if (config.policyFileText) sections.push(config.policyFileText);
   if (config.doList.length > 0) {
     sections.push(
       `Do:\n${config.doList.map((entry) => `- ${entry}`).join('\n')}`,

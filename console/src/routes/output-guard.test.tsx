@@ -8,39 +8,39 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  AdminBrandVoicePreviewResponse,
-  AdminBrandVoiceProfileResponse,
-  AdminBrandVoiceProfileUpdateResponse,
   AdminModelsResponse,
+  AdminOutputGuardPreviewResponse,
+  AdminOutputGuardProfileResponse,
+  AdminOutputGuardProfileUpdateResponse,
 } from '../api/types';
 import { ToastProvider } from '../components/toast';
-import { BrandVoicePage } from './brand-voice';
+import { OutputGuardPage } from './output-guard';
 
-const fetchBrandVoiceProfileMock =
-  vi.fn<() => Promise<AdminBrandVoiceProfileResponse>>();
+const fetchOutputGuardProfileMock =
+  vi.fn<() => Promise<AdminOutputGuardProfileResponse>>();
 const fetchModelsMock = vi.fn<() => Promise<AdminModelsResponse>>();
-const saveBrandVoiceProfileMock =
+const saveOutputGuardProfileMock =
   vi.fn<
-    (...args: unknown[]) => Promise<AdminBrandVoiceProfileUpdateResponse>
+    (...args: unknown[]) => Promise<AdminOutputGuardProfileUpdateResponse>
   >();
-const previewBrandVoiceProfileMock =
-  vi.fn<(...args: unknown[]) => Promise<AdminBrandVoicePreviewResponse>>();
+const previewOutputGuardProfileMock =
+  vi.fn<(...args: unknown[]) => Promise<AdminOutputGuardPreviewResponse>>();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
-  fetchBrandVoiceProfile: () => fetchBrandVoiceProfileMock(),
+  fetchOutputGuardProfile: () => fetchOutputGuardProfileMock(),
   fetchModels: () => fetchModelsMock(),
-  previewBrandVoiceProfile: (...args: unknown[]) =>
-    previewBrandVoiceProfileMock(...args),
-  saveBrandVoiceProfile: (...args: unknown[]) =>
-    saveBrandVoiceProfileMock(...args),
+  previewOutputGuardProfile: (...args: unknown[]) =>
+    previewOutputGuardProfileMock(...args),
+  saveOutputGuardProfile: (...args: unknown[]) =>
+    saveOutputGuardProfileMock(...args),
 }));
 
 vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
 
-function renderBrandVoicePage() {
+function renderOutputGuardPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -50,7 +50,7 @@ function renderBrandVoicePage() {
   render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <BrandVoicePage />
+        <OutputGuardPage />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -58,11 +58,11 @@ function renderBrandVoicePage() {
 
 beforeEach(() => {
   useAuthMock.mockReturnValue({ token: 'admin-token' });
-  fetchBrandVoiceProfileMock.mockResolvedValue({
+  fetchOutputGuardProfileMock.mockResolvedValue({
     profile: {
       enabled: true,
       mode: 'rewrite',
-      voice: 'Clear, direct, concrete. No hype.',
+      policy: 'Clear, direct, concrete. No hype.',
       doList: ['Use concrete nouns'],
       dontList: ['Use vague claims'],
       bannedPhrases: ['game changing'],
@@ -82,19 +82,19 @@ beforeEach(() => {
         id: 7,
         createdAt: '2026-05-21T10:00:00.000Z',
         actor: 'operator',
-        route: 'api.admin.brand-voice.profile',
+        route: 'api.admin.output-guard.profile',
         source: 'admin-console',
         md5: 'abc123',
       },
     ],
   });
-  saveBrandVoiceProfileMock.mockResolvedValue({
+  saveOutputGuardProfileMock.mockResolvedValue({
     changed: true,
     reloadMessage: 'Plugin runtime reloaded.',
     profile: {
       enabled: true,
       mode: 'rewrite',
-      voice: 'Clear, direct, concrete. No hype.',
+      policy: 'Clear, direct, concrete. No hype.',
       doList: ['Use concrete nouns', 'Prefer short sentences'],
       dontList: ['Use vague claims'],
       bannedPhrases: ['game changing'],
@@ -161,16 +161,16 @@ beforeEach(() => {
       },
     ],
   });
-  previewBrandVoiceProfileMock.mockResolvedValue({
+  previewOutputGuardProfileMock.mockResolvedValue({
     score: 58,
     ruleScore: 58,
     scoreSource: 'rules',
-    verdict: 'off_brand',
+    verdict: 'non_compliant',
     violations: [{ kind: 'banned_phrase', detail: 'game changing' }],
     classifier: {
       provider: 'default',
       status: 'evaluated',
-      verdict: 'on_brand',
+      verdict: 'compliant',
       severity: 'low',
       reasons: [],
       message: null,
@@ -183,9 +183,9 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('BrandVoicePage', () => {
+describe('OutputGuardPage', () => {
   it('edits profile lists and scores a pasted sample', async () => {
-    renderBrandVoicePage();
+    renderOutputGuardPage();
 
     expect(await screen.findByDisplayValue('Use concrete nouns')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Add Do item' }));
@@ -196,14 +196,14 @@ describe('BrandVoicePage', () => {
     fireEvent.click(
       within(
         screen.getByRole('group', {
-          name: 'Brand voice classifier source',
+          name: 'Output guard classifier source',
         }),
       ).getByRole('button', { name: 'aux model' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() =>
-      expect(saveBrandVoiceProfileMock).toHaveBeenCalledWith(
+      expect(saveOutputGuardProfileMock).toHaveBeenCalledWith(
         'admin-token',
         expect.objectContaining({
           doList: ['Use concrete nouns', 'Prefer short sentences'],
@@ -225,7 +225,7 @@ describe('BrandVoicePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Score sample' }));
 
     await waitFor(() =>
-      expect(previewBrandVoiceProfileMock).toHaveBeenCalledWith(
+      expect(previewOutputGuardProfileMock).toHaveBeenCalledWith(
         'admin-token',
         expect.objectContaining({
           bannedPhrases: ['game changing'],
@@ -236,16 +236,16 @@ describe('BrandVoicePage', () => {
     expect(
       await screen.findByText('Contains banned phrase "game changing".'),
     ).toBeTruthy();
-    expect(screen.getByText('58/100, off brand (rules)')).toBeTruthy();
+    expect(screen.getByText('58/100, non-compliant (rules)')).toBeTruthy();
     expect(
       screen.getByText(
-        'Classifier default model via hybridai/default-chat: on brand, low.',
+        'Classifier default model via hybridai/default-chat: compliant, low.',
       ),
     ).toBeTruthy();
   });
 
   it('shows model selectors only for selected other models', async () => {
-    renderBrandVoicePage();
+    renderOutputGuardPage();
 
     expect(await screen.findByDisplayValue('Use concrete nouns')).toBeTruthy();
     expect(screen.queryByRole('combobox', { name: 'Switch model' })).toBeNull();
@@ -253,7 +253,7 @@ describe('BrandVoicePage', () => {
     fireEvent.click(
       within(
         screen.getByRole('group', {
-          name: 'Brand voice classifier source',
+          name: 'Output guard classifier source',
         }),
       ).getByRole('button', { name: 'other model' }),
     );
@@ -262,7 +262,7 @@ describe('BrandVoicePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() =>
-      expect(saveBrandVoiceProfileMock).toHaveBeenCalledWith(
+      expect(saveOutputGuardProfileMock).toHaveBeenCalledWith(
         'admin-token',
         expect.objectContaining({
           classifier: {

@@ -1,13 +1,9 @@
-id: brand-voice
-name: Brand Voice Output Guard
+id: output-guard
+name: Output Guard
 version: 0.1.0
 kind: middleware
-description: Tone-and-voice guard that scans final agent responses for off-brand language, banned phrases, and rule violations, then rewrites or blocks before the message ships.
+description: Output policy guard that scans final agent responses for banned phrases and rule violations, then rewrites, blocks, or flags before the message ships.
 entrypoint: src/index.js
-credentials:
-  - ANTHROPIC_API_KEY
-  - OPENAI_API_KEY
-  - BRAND_VOICE_API_KEY
 configSchema:
   type: object
   additionalProperties: false
@@ -20,26 +16,26 @@ configSchema:
       type: string
       enum: [block, rewrite, flag]
       default: rewrite
-      description: How to handle off-brand output. `flag` only logs.
-    voice:
+      description: How to handle non-compliant output. `flag` only logs.
+    policy:
       type: string
       default: ''
-      description: One-paragraph description of the brand voice (formal, playful, …).
+      description: One-paragraph description of the output guard (formal, playful, …).
     doList:
       type: array
       items:
         type: string
       default: []
-      description: Positive voice guidelines the assistant should follow.
+      description: Positive policy guidelines the assistant should follow.
     dontList:
       type: array
       items:
         type: string
       default: []
-      description: Voice guidelines the assistant should avoid.
-    voiceFile:
+      description: Policy guidelines the assistant should avoid.
+    policyFile:
       type: string
-      description: Path to a markdown file with the brand voice guidelines. Loaded once at registration.
+      description: Path to a markdown file with the output guard guidelines. Loaded once at registration.
     bannedPhrases:
       type: array
       items:
@@ -57,10 +53,10 @@ configSchema:
       items:
         type: string
       default: []
-      description: Phrases that must appear in output. Missing any triggers off-brand.
+      description: Phrases that must appear in output. Missing any triggers non-compliant output.
     blockMessage:
       type: string
-      default: 'Output blocked by brand-voice guard.'
+      default: 'Output blocked by output guard.'
       description: Replacement text when blocking.
     minLength:
       type: number
@@ -97,17 +93,17 @@ configSchema:
           type: string
           default: ''
 configUiHints:
-  voice:
-    label: Brand voice description
+  policy:
+    label: Output guard description
     placeholder: Friendly, plainspoken, no jargon. Confident but never cocky.
   doList:
     label: Do
-    help: Positive voice rules, one per array entry.
+    help: Positive policy rules, one per array entry.
   dontList:
     label: Don't
-    help: Voice rules to avoid, one per array entry.
-  voiceFile:
-    label: Path to brand voice markdown
+    help: Policy rules to avoid, one per array entry.
+  policyFile:
+    label: Path to output guard markdown
   bannedPhrases:
     label: Banned phrases
     help: Case-insensitive substrings; one per array entry.

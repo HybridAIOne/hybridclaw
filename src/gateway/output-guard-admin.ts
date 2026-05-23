@@ -10,55 +10,55 @@ import { logger } from '../logger.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { reloadPluginRuntime } from './gateway-plugin-service.js';
 import type {
-  GatewayAdminBrandVoiceModelConfig,
-  GatewayAdminBrandVoicePreviewClassifier,
-  GatewayAdminBrandVoicePreviewResponse,
-  GatewayAdminBrandVoicePreviewViolation,
-  GatewayAdminBrandVoiceProfile,
-  GatewayAdminBrandVoiceProfileResponse,
-  GatewayAdminBrandVoiceProfileUpdateResponse,
-  GatewayAdminBrandVoiceRevision,
+  GatewayAdminOutputGuardModelConfig,
+  GatewayAdminOutputGuardPreviewClassifier,
+  GatewayAdminOutputGuardPreviewResponse,
+  GatewayAdminOutputGuardPreviewViolation,
+  GatewayAdminOutputGuardProfile,
+  GatewayAdminOutputGuardProfileResponse,
+  GatewayAdminOutputGuardProfileUpdateResponse,
+  GatewayAdminOutputGuardRevision,
 } from './gateway-types.js';
 
-const BRAND_VOICE_PLUGIN_ID = 'brand-voice';
+const OUTPUT_GUARD_PLUGIN_ID = 'output-guard';
 const SUPPORTED_MODES = ['block', 'rewrite', 'flag'] as const;
 const SUPPORTED_MODEL_SOURCES = ['default', 'auxiliary', 'model'] as const;
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'] as const;
-const BRAND_VOICE_REVISION_ROUTE = 'api.admin.brand-voice.profile';
+const OUTPUT_GUARD_REVISION_ROUTE = 'api.admin.output-guard.profile';
 const MAX_PROFILE_LIST_ITEMS = 200;
 const MAX_PREVIEW_SAMPLE_CHARS = 50_000;
 const PREVIEW_SCORE = {
   max: 100,
   hardViolationPenalty: 30,
   missingRequiredPenalty: 12,
-  onBrandMin: 90,
+  compliantMin: 90,
   needsReviewMin: 70,
 } as const;
 
-type BrandVoiceModelSource = (typeof SUPPORTED_MODEL_SOURCES)[number];
+type OutputGuardModelSource = (typeof SUPPORTED_MODEL_SOURCES)[number];
 
-type BrandVoiceFailureMode = (typeof SUPPORTED_FAILURE_MODES)[number];
+type OutputGuardFailureMode = (typeof SUPPORTED_FAILURE_MODES)[number];
 
-interface BrandVoiceModelClientConfig {
-  provider: BrandVoiceModelSource;
+interface OutputGuardModelClientConfig {
+  provider: OutputGuardModelSource;
   model: string;
 }
 
-interface BrandVoicePreviewRuntimeConfig
-  extends Omit<GatewayAdminBrandVoiceProfile, 'classifier' | 'rewriter'> {
-  failureMode: BrandVoiceFailureMode;
-  classifier: BrandVoiceModelClientConfig;
-  rewriter: BrandVoiceModelClientConfig;
+interface OutputGuardPreviewRuntimeConfig
+  extends Omit<GatewayAdminOutputGuardProfile, 'classifier' | 'rewriter'> {
+  failureMode: OutputGuardFailureMode;
+  classifier: OutputGuardModelClientConfig;
+  rewriter: OutputGuardModelClientConfig;
 }
 
 interface ClassifierVerdict {
-  verdict: 'on_brand' | 'off_brand';
+  verdict: 'compliant' | 'non_compliant';
   reasons: string[];
   severity: 'low' | 'medium' | 'high';
 }
 
 // The gateway cannot import bundled plugin JS directly, so the admin preview
-// mirrors plugins/brand-voice/src/{config,guard,llm,rules}. Keep provider
+// mirrors plugins/output-guard/src/{config,guard,llm,rules}. Keep provider
 // defaults, prompts, verdict parsing, and rule summaries aligned with the
 // plugin runtime when either side changes.
 
@@ -89,32 +89,32 @@ function normalizeStringArray(value: unknown, fieldLabel: string): string[] {
   return out;
 }
 
-function normalizeMode(value: unknown): GatewayAdminBrandVoiceProfile['mode'] {
+function normalizeMode(value: unknown): GatewayAdminOutputGuardProfile['mode'] {
   const normalized = normalizeString(value).toLowerCase();
   return SUPPORTED_MODES.includes(
-    normalized as GatewayAdminBrandVoiceProfile['mode'],
+    normalized as GatewayAdminOutputGuardProfile['mode'],
   )
-    ? (normalized as GatewayAdminBrandVoiceProfile['mode'])
+    ? (normalized as GatewayAdminOutputGuardProfile['mode'])
     : 'rewrite';
 }
 
-function normalizeModelSource(value: unknown): BrandVoiceModelSource {
+function normalizeModelSource(value: unknown): OutputGuardModelSource {
   const normalized = normalizeString(value).toLowerCase();
   if (!normalized) return 'default';
-  if (SUPPORTED_MODEL_SOURCES.includes(normalized as BrandVoiceModelSource)) {
-    return normalized as BrandVoiceModelSource;
+  if (SUPPORTED_MODEL_SOURCES.includes(normalized as OutputGuardModelSource)) {
+    return normalized as OutputGuardModelSource;
   }
-  throw new Error(`Unsupported brand voice model source: ${normalized}`);
+  throw new Error(`Unsupported output guard model source: ${normalized}`);
 }
 
-function normalizeFailureMode(value: unknown): BrandVoiceFailureMode {
+function normalizeFailureMode(value: unknown): OutputGuardFailureMode {
   const normalized = normalizeString(value).toLowerCase();
-  return SUPPORTED_FAILURE_MODES.includes(normalized as BrandVoiceFailureMode)
-    ? (normalized as BrandVoiceFailureMode)
+  return SUPPORTED_FAILURE_MODES.includes(normalized as OutputGuardFailureMode)
+    ? (normalized as OutputGuardFailureMode)
     : 'allow';
 }
 
-function defaultModelConfig(): GatewayAdminBrandVoiceModelConfig {
+function defaultModelConfig(): GatewayAdminOutputGuardModelConfig {
   return {
     provider: 'default',
     model: '',
@@ -124,19 +124,19 @@ function defaultModelConfig(): GatewayAdminBrandVoiceModelConfig {
 function normalizeModelConfig(
   value: unknown,
   label: string,
-): BrandVoiceModelClientConfig {
+): OutputGuardModelClientConfig {
   const raw = isRecord(value) ? value : {};
   const provider = normalizeModelSource(raw.provider);
   const model = normalizeString(raw.model);
   if (provider === 'model' && !model) {
-    throw new Error(`Brand voice ${label} model is required.`);
+    throw new Error(`Output guard ${label} model is required.`);
   }
   return { provider, model: provider === 'model' ? model : '' };
 }
 
 function normalizeProfileModelConfig(
   value: unknown,
-): GatewayAdminBrandVoiceModelConfig {
+): GatewayAdminOutputGuardModelConfig {
   if (value === undefined) return defaultModelConfig();
   const raw = isRecord(value) ? value : {};
   const provider = normalizeModelSource(raw.provider);
@@ -146,28 +146,28 @@ function normalizeProfileModelConfig(
 
 function runtimeModelConfigToProfile(
   value: unknown,
-): GatewayAdminBrandVoiceModelConfig {
+): GatewayAdminOutputGuardModelConfig {
   const raw = isRecord(value) ? value : {};
   const provider = normalizeModelSource(raw.provider);
   const model = normalizeString(raw.model);
   return { provider, model: provider === 'model' ? model : '' };
 }
 
-function findBrandVoiceEntry(
+function findOutputGuardEntry(
   config: RuntimeConfig,
 ): RuntimePluginConfigEntry | undefined {
   return config.plugins.list.find(
-    (entry) => entry.id === BRAND_VOICE_PLUGIN_ID,
+    (entry) => entry.id === OUTPUT_GUARD_PLUGIN_ID,
   );
 }
 
-function ensureBrandVoiceEntry(
+function ensureOutputGuardEntry(
   config: RuntimeConfig,
 ): RuntimePluginConfigEntry {
-  const existing = findBrandVoiceEntry(config);
+  const existing = findOutputGuardEntry(config);
   if (existing) return existing;
   const entry: RuntimePluginConfigEntry = {
-    id: BRAND_VOICE_PLUGIN_ID,
+    id: OUTPUT_GUARD_PLUGIN_ID,
     enabled: true,
     config: {},
   };
@@ -177,7 +177,7 @@ function ensureBrandVoiceEntry(
 
 function profileFromEntry(
   entry: RuntimePluginConfigEntry | undefined,
-): GatewayAdminBrandVoiceProfile {
+): GatewayAdminOutputGuardProfile {
   const pluginConfig = isRecord(entry?.config) ? entry.config : {};
   return {
     ...normalizeProfile(pluginConfig),
@@ -187,12 +187,12 @@ function profileFromEntry(
   };
 }
 
-function normalizeProfile(value: unknown): GatewayAdminBrandVoiceProfile {
+function normalizeProfile(value: unknown): GatewayAdminOutputGuardProfile {
   const raw = isRecord(value) ? value : {};
   return {
     enabled: raw.enabled !== false,
     mode: normalizeMode(raw.mode),
-    voice: normalizeString(raw.voice),
+    policy: normalizeString(raw.policy),
     doList: normalizeStringArray(raw.doList, 'Do list'),
     dontList: normalizeStringArray(raw.dontList, "Don't list"),
     bannedPhrases: normalizeStringArray(raw.bannedPhrases, 'Banned phrases'),
@@ -208,20 +208,20 @@ function normalizeProfile(value: unknown): GatewayAdminBrandVoiceProfile {
 
 function readProfileFromConfig(
   config: RuntimeConfig,
-): GatewayAdminBrandVoiceProfile {
-  return profileFromEntry(findBrandVoiceEntry(config));
+): GatewayAdminOutputGuardProfile {
+  return profileFromEntry(findOutputGuardEntry(config));
 }
 
 function profilesEqual(
-  left: GatewayAdminBrandVoiceProfile,
-  right: GatewayAdminBrandVoiceProfile,
+  left: GatewayAdminOutputGuardProfile,
+  right: GatewayAdminOutputGuardProfile,
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function listBrandVoiceRevisions(): GatewayAdminBrandVoiceRevision[] {
+function listOutputGuardRevisions(): GatewayAdminOutputGuardRevision[] {
   return listRuntimeConfigRevisions(runtimeConfigPath())
-    .filter((revision) => revision.route === BRAND_VOICE_REVISION_ROUTE)
+    .filter((revision) => revision.route === OUTPUT_GUARD_REVISION_ROUTE)
     .slice(0, 12)
     .map((revision) => ({
       id: revision.id,
@@ -235,24 +235,24 @@ function listBrandVoiceRevisions(): GatewayAdminBrandVoiceRevision[] {
 
 function buildProfileResponse(
   config: RuntimeConfig,
-): GatewayAdminBrandVoiceProfileResponse {
+): GatewayAdminOutputGuardProfileResponse {
   return {
     profile: readProfileFromConfig(config),
-    revisions: listBrandVoiceRevisions(),
+    revisions: listOutputGuardRevisions(),
   };
 }
 
 function applyProfileToConfig(
   config: RuntimeConfig,
-  profile: GatewayAdminBrandVoiceProfile,
+  profile: GatewayAdminOutputGuardProfile,
 ): void {
-  const entry = ensureBrandVoiceEntry(config);
+  const entry = ensureOutputGuardEntry(config);
   const existingConfig = isRecord(entry.config) ? entry.config : {};
   entry.enabled = profile.enabled;
   entry.config = {
     ...existingConfig,
     mode: profile.mode,
-    voice: profile.voice,
+    policy: profile.policy,
     doList: profile.doList,
     dontList: profile.dontList,
     bannedPhrases: profile.bannedPhrases,
@@ -264,7 +264,7 @@ function applyProfileToConfig(
 }
 
 function buildRuntimeModelConfig(
-  modelConfig: GatewayAdminBrandVoiceModelConfig,
+  modelConfig: GatewayAdminOutputGuardModelConfig,
 ): Record<string, unknown> {
   if (modelConfig.provider === 'model') {
     return {
@@ -279,9 +279,9 @@ function buildRuntimeModelConfig(
 
 function buildPreviewRuntimeConfig(
   baseConfig: RuntimeConfig,
-  profile: GatewayAdminBrandVoiceProfile,
-): BrandVoicePreviewRuntimeConfig {
-  const entry = findBrandVoiceEntry(baseConfig);
+  profile: GatewayAdminOutputGuardProfile,
+): OutputGuardPreviewRuntimeConfig {
+  const entry = findOutputGuardEntry(baseConfig);
   const pluginConfig = isRecord(entry?.config) ? entry.config : {};
   return {
     ...profile,
@@ -297,9 +297,9 @@ function buildPreviewRuntimeConfig(
   };
 }
 
-function buildVoiceBrief(profile: BrandVoicePreviewRuntimeConfig): string {
+function buildPolicyBrief(profile: OutputGuardPreviewRuntimeConfig): string {
   const sections: string[] = [];
-  if (profile.voice) sections.push(`Brand voice: ${profile.voice}`);
+  if (profile.policy) sections.push(`Output policy: ${profile.policy}`);
   if (profile.doList.length > 0) {
     sections.push(
       `Do:\n${profile.doList.map((entry) => `- ${entry}`).join('\n')}`,
@@ -331,7 +331,7 @@ function buildVoiceBrief(profile: BrandVoicePreviewRuntimeConfig): string {
 function compilePattern(
   source: string,
 ): { pattern: RegExp; detail: string } | null {
-  // Keep slash-pattern parsing aligned with plugins/brand-voice/src/config.js.
+  // Keep slash-pattern parsing aligned with plugins/output-guard/src/config.js.
   const trimmed = source.trim();
   if (!trimmed) return null;
   const slashMatch = /^\/(.+)\/([gimsuy]*)$/.exec(trimmed);
@@ -352,7 +352,7 @@ function listInvalidPatterns(patterns: string[]): string[] {
 }
 
 function assertValidBannedPatterns(
-  profile: GatewayAdminBrandVoiceProfile,
+  profile: GatewayAdminOutputGuardProfile,
 ): void {
   const invalidPatterns = listInvalidPatterns(profile.bannedPatterns);
   if (invalidPatterns.length === 0) return;
@@ -362,13 +362,13 @@ function assertValidBannedPatterns(
 }
 
 function assertValidModelConfig(
-  config: GatewayAdminBrandVoiceModelConfig,
+  config: GatewayAdminOutputGuardModelConfig,
   label: string,
 ): void {
   if (config.provider !== 'model' || config.model) {
     return;
   }
-  throw new Error(`Brand voice ${label} model is required.`);
+  throw new Error(`Output guard ${label} model is required.`);
 }
 
 function phraseAppears(text: string, phrase: string): boolean {
@@ -376,10 +376,10 @@ function phraseAppears(text: string, phrase: string): boolean {
 }
 
 function scoreViolations(
-  profile: BrandVoicePreviewRuntimeConfig,
+  profile: OutputGuardPreviewRuntimeConfig,
   sample: string,
-): GatewayAdminBrandVoicePreviewViolation[] {
-  const violations: GatewayAdminBrandVoicePreviewViolation[] = [];
+): GatewayAdminOutputGuardPreviewViolation[] {
+  const violations: GatewayAdminOutputGuardPreviewViolation[] = [];
   for (const phrase of profile.bannedPhrases) {
     if (phraseAppears(sample, phrase)) {
       violations.push({ kind: 'banned_phrase', detail: phrase });
@@ -400,7 +400,7 @@ function scoreViolations(
 }
 
 function summarizeViolations(
-  violations: GatewayAdminBrandVoicePreviewViolation[],
+  violations: GatewayAdminOutputGuardPreviewViolation[],
 ): string {
   if (violations.length === 0) return '';
   const grouped = new Map<string, string[]>();
@@ -427,12 +427,12 @@ function summarizeViolations(
 }
 
 function buildClassifierPrompt(
-  profile: BrandVoicePreviewRuntimeConfig,
+  profile: OutputGuardPreviewRuntimeConfig,
   sample: string,
-  violations: GatewayAdminBrandVoicePreviewViolation[],
+  violations: GatewayAdminOutputGuardPreviewViolation[],
 ): string {
   const sections = [
-    `Brand voice brief:\n${buildVoiceBrief(profile) || '(none provided)'}`,
+    `Output guard brief:\n${buildPolicyBrief(profile) || '(none provided)'}`,
   ];
   if (violations.length > 0) {
     sections.push(
@@ -445,18 +445,18 @@ function buildClassifierPrompt(
 }
 
 async function callClassifierModel(
-  client: BrandVoiceModelClientConfig,
+  client: OutputGuardModelClientConfig,
   userPrompt: string,
   fallbackModel: string,
 ): Promise<{ content: string; model: string }> {
   if (client.provider === 'model' && !client.model) {
-    throw new Error('Brand voice classifier model is required.');
+    throw new Error('Output guard classifier model is required.');
   }
   const systemPrompt = [
-    'You are a brand-voice compliance reviewer.',
-    'You receive an assistant response and a brand voice brief.',
-    'Decide whether the response is on-brand or off-brand.',
-    'Reply with a single JSON object on one line: {"verdict":"on_brand"|"off_brand","reasons":[string],"severity":"low"|"medium"|"high"}',
+    'You are an output guard compliance reviewer.',
+    'You receive an assistant response and an output guard brief.',
+    'Decide whether the response is compliant or non-compliant.',
+    'Reply with a single JSON object on one line: {"verdict":"compliant"|"non_compliant","reasons":[string],"severity":"low"|"medium"|"high"}',
     'Do not include any prose outside the JSON.',
   ].join(' ');
   const result = await callAuxiliaryModel({
@@ -496,7 +496,7 @@ function parseClassifierVerdict(text: string): ClassifierVerdict | null {
   }
   if (!isRecord(parsed)) return null;
   const verdict = normalizeString(parsed.verdict).toLowerCase();
-  if (verdict !== 'on_brand' && verdict !== 'off_brand') return null;
+  if (verdict !== 'compliant' && verdict !== 'non_compliant') return null;
   const reasons = Array.isArray(parsed.reasons)
     ? parsed.reasons.filter(
         (entry): entry is string => typeof entry === 'string',
@@ -514,17 +514,17 @@ function parseClassifierVerdict(text: string): ClassifierVerdict | null {
 }
 
 function scoreClassifierVerdict(verdict: ClassifierVerdict): number {
-  if (verdict.verdict === 'on_brand') return PREVIEW_SCORE.max;
+  if (verdict.verdict === 'compliant') return PREVIEW_SCORE.max;
   if (verdict.severity === 'low') return 65;
   if (verdict.severity === 'medium') return 35;
   return 0;
 }
 
 async function runPreviewClassifier(
-  config: BrandVoicePreviewRuntimeConfig,
+  config: OutputGuardPreviewRuntimeConfig,
   sample: string,
-  violations: GatewayAdminBrandVoicePreviewViolation[],
-): Promise<GatewayAdminBrandVoicePreviewClassifier> {
+  violations: GatewayAdminOutputGuardPreviewViolation[],
+): Promise<GatewayAdminOutputGuardPreviewClassifier> {
   const { classifier } = config;
   try {
     const result = await callClassifierModel(
@@ -566,11 +566,11 @@ async function runPreviewClassifier(
   }
 }
 
-function scoreBrandVoicePreview(
-  config: BrandVoicePreviewRuntimeConfig,
+function scoreOutputGuardPreview(
+  config: OutputGuardPreviewRuntimeConfig,
   sample: string,
-  classifier: GatewayAdminBrandVoicePreviewClassifier,
-): GatewayAdminBrandVoicePreviewResponse {
+  classifier: GatewayAdminOutputGuardPreviewClassifier,
+): GatewayAdminOutputGuardPreviewResponse {
   const violations = scoreViolations(config, sample);
   let score: number = PREVIEW_SCORE.max;
   for (const violation of violations) {
@@ -604,14 +604,14 @@ function scoreBrandVoicePreview(
       : Math.min(ruleScore, classifierScore);
   const verdict =
     violations.length > 0 ||
-    classifier.verdict === 'off_brand' ||
+    classifier.verdict === 'non_compliant' ||
     failureModeScore === 0
-      ? 'off_brand'
-      : score >= PREVIEW_SCORE.onBrandMin
-        ? 'on_brand'
+      ? 'non_compliant'
+      : score >= PREVIEW_SCORE.compliantMin
+        ? 'compliant'
         : score >= PREVIEW_SCORE.needsReviewMin
           ? 'needs_review'
-          : 'off_brand';
+          : 'non_compliant';
 
   return {
     score,
@@ -626,13 +626,13 @@ function scoreBrandVoicePreview(
   };
 }
 
-export function getGatewayAdminBrandVoiceProfile(): GatewayAdminBrandVoiceProfileResponse {
+export function getGatewayAdminOutputGuardProfile(): GatewayAdminOutputGuardProfileResponse {
   return buildProfileResponse(getRuntimeConfig());
 }
 
-export async function updateGatewayAdminBrandVoiceProfile(
+export async function updateGatewayAdminOutputGuardProfile(
   body: unknown,
-): Promise<GatewayAdminBrandVoiceProfileUpdateResponse> {
+): Promise<GatewayAdminOutputGuardProfileUpdateResponse> {
   const previousConfig = getRuntimeConfig();
   const nextConfig = structuredClone(previousConfig);
   const previousProfile = readProfileFromConfig(previousConfig);
@@ -645,14 +645,14 @@ export async function updateGatewayAdminBrandVoiceProfile(
   const changed = !profilesEqual(previousProfile, profile);
   if (changed) {
     saveRuntimeConfig(nextConfig, {
-      route: BRAND_VOICE_REVISION_ROUTE,
+      route: OUTPUT_GUARD_REVISION_ROUTE,
       source: 'admin-console',
     });
     const reloadResult = await reloadPluginRuntime();
     if (!reloadResult.ok) {
       try {
         saveRuntimeConfig(previousConfig, {
-          route: `${BRAND_VOICE_REVISION_ROUTE}.rollback`,
+          route: `${OUTPUT_GUARD_REVISION_ROUTE}.rollback`,
           source: 'admin-console',
         });
         const rollbackReloadResult = await reloadPluginRuntime();
@@ -662,13 +662,13 @@ export async function updateGatewayAdminBrandVoiceProfile(
               reloadMessage: reloadResult.message,
               rollbackReloadMessage: rollbackReloadResult.message,
             },
-            'Brand voice runtime rollback reload failed',
+            'Output guard runtime rollback reload failed',
           );
         }
       } catch (error) {
         logger.error(
           { error, reloadMessage: reloadResult.message },
-          'Brand voice runtime rollback failed',
+          'Output guard runtime rollback failed',
         );
       }
       throw new Error(reloadResult.message);
@@ -687,9 +687,9 @@ export async function updateGatewayAdminBrandVoiceProfile(
   };
 }
 
-export async function previewGatewayAdminBrandVoiceProfile(
+export async function previewGatewayAdminOutputGuardProfile(
   body: unknown,
-): Promise<GatewayAdminBrandVoicePreviewResponse> {
+): Promise<GatewayAdminOutputGuardPreviewResponse> {
   const raw = isRecord(body) ? body : {};
   const sample = normalizeString(raw.sample);
   if (!sample) {
@@ -702,7 +702,7 @@ export async function previewGatewayAdminBrandVoiceProfile(
   }
   const profile =
     raw.profile === undefined
-      ? getGatewayAdminBrandVoiceProfile().profile
+      ? getGatewayAdminOutputGuardProfile().profile
       : normalizeProfile(raw.profile);
   assertValidBannedPatterns(profile);
   assertValidModelConfig(profile.classifier, 'classifier');
@@ -714,5 +714,5 @@ export async function previewGatewayAdminBrandVoiceProfile(
     sample,
     violations,
   );
-  return scoreBrandVoicePreview(runtimeConfig, sample, classifier);
+  return scoreOutputGuardPreview(runtimeConfig, sample, classifier);
 }

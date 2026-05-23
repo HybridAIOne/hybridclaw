@@ -1,4 +1,4 @@
-export async function callBrandVoiceModel({
+export async function callOutputGuardModel({
   client,
   api,
   systemPrompt,
@@ -6,11 +6,11 @@ export async function callBrandVoiceModel({
   fallbackModel,
 }) {
   if (client.provider === 'model' && !client.model) {
-    throw new Error('brand-voice: selected model source requires a model id.');
+    throw new Error('output-guard: selected model source requires a model id.');
   }
   if (!['default', 'auxiliary', 'model'].includes(client.provider)) {
     throw new Error(
-      `brand-voice: unsupported model source "${client.provider}"`,
+      `output-guard: unsupported model source "${client.provider}"`,
     );
   }
   const result = await api.callAuxiliaryModel({
@@ -51,7 +51,7 @@ export function tryParseClassifierVerdict(text) {
   }
   if (!parsed || typeof parsed !== 'object') return null;
   const verdict = String(parsed.verdict || '').toLowerCase();
-  if (verdict !== 'on_brand' && verdict !== 'off_brand') return null;
+  if (verdict !== 'compliant' && verdict !== 'non_compliant') return null;
   const reasons = Array.isArray(parsed.reasons)
     ? parsed.reasons.filter((entry) => typeof entry === 'string')
     : [];

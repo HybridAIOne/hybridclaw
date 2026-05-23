@@ -1428,25 +1428,25 @@ export interface AdminPluginsResponse {
   plugins: AdminPlugin[];
 }
 
-export interface AdminBrandVoiceProfile {
+export interface AdminOutputGuardProfile {
   enabled: boolean;
   mode: 'block' | 'rewrite' | 'flag';
-  voice: string;
+  policy: string;
   doList: string[];
   dontList: string[];
   bannedPhrases: string[];
   bannedPatterns: string[];
   requirePhrases: string[];
-  classifier: AdminBrandVoiceModelConfig;
-  rewriter: AdminBrandVoiceModelConfig;
+  classifier: AdminOutputGuardModelConfig;
+  rewriter: AdminOutputGuardModelConfig;
 }
 
-export interface AdminBrandVoiceModelConfig {
+export interface AdminOutputGuardModelConfig {
   provider: 'default' | 'auxiliary' | 'model';
   model: string;
 }
 
-export interface AdminBrandVoiceRevision {
+export interface AdminOutputGuardRevision {
   id: number;
   createdAt: string;
   actor: string;
@@ -1455,39 +1455,39 @@ export interface AdminBrandVoiceRevision {
   md5: string;
 }
 
-export interface AdminBrandVoiceProfileResponse {
-  profile: AdminBrandVoiceProfile;
-  revisions: AdminBrandVoiceRevision[];
+export interface AdminOutputGuardProfileResponse {
+  profile: AdminOutputGuardProfile;
+  revisions: AdminOutputGuardRevision[];
 }
 
-export interface AdminBrandVoiceProfileUpdateResponse
-  extends AdminBrandVoiceProfileResponse {
+export interface AdminOutputGuardProfileUpdateResponse
+  extends AdminOutputGuardProfileResponse {
   changed: boolean;
   reloadMessage: string;
 }
 
-export interface AdminBrandVoicePreviewViolation {
+export interface AdminOutputGuardPreviewViolation {
   kind: 'banned_phrase' | 'banned_pattern' | 'missing_required';
   detail: string;
 }
 
-export interface AdminBrandVoicePreviewClassifier {
+export interface AdminOutputGuardPreviewClassifier {
   provider: 'default' | 'auxiliary' | 'model';
   status: 'evaluated' | 'unavailable' | 'unparseable';
-  verdict: 'on_brand' | 'off_brand' | null;
+  verdict: 'compliant' | 'non_compliant' | null;
   severity: 'low' | 'medium' | 'high' | null;
   reasons: string[];
   message: string | null;
   model: string | null;
 }
 
-export interface AdminBrandVoicePreviewResponse {
+export interface AdminOutputGuardPreviewResponse {
   score: number;
   ruleScore: number;
   scoreSource: 'classifier' | 'rules';
-  verdict: 'on_brand' | 'needs_review' | 'off_brand';
-  violations: AdminBrandVoicePreviewViolation[];
-  classifier: AdminBrandVoicePreviewClassifier;
+  verdict: 'compliant' | 'needs_review' | 'non_compliant';
+  violations: AdminOutputGuardPreviewViolation[];
+  classifier: AdminOutputGuardPreviewClassifier;
 }
 
 export interface AdminAdaptiveSkillErrorCluster {

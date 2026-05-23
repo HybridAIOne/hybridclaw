@@ -1,25 +1,25 @@
-import { buildVoiceBrief } from './config.js';
-import { callBrandVoiceModel, tryParseClassifierVerdict } from './llm.js';
+import { buildPolicyBrief } from './config.js';
+import { callOutputGuardModel, tryParseClassifierVerdict } from './llm.js';
 import { detectRuleViolations, summarizeViolations } from './rules.js';
 
 const CLASSIFIER_SYSTEM_PROMPT = [
-  'You are a brand-voice compliance reviewer.',
-  'You receive an assistant response and a brand voice brief.',
-  'Decide whether the response is on-brand or off-brand.',
-  'Reply with a single JSON object on one line: {"verdict":"on_brand"|"off_brand","reasons":[string],"severity":"low"|"medium"|"high"}',
+  'You are an output guard compliance reviewer.',
+  'You receive an assistant response and an output guard brief.',
+  'Decide whether the response is compliant or non-compliant.',
+  'Reply with a single JSON object on one line: {"verdict":"compliant"|"non_compliant","reasons":[string],"severity":"low"|"medium"|"high"}',
   'Do not include any prose outside the JSON.',
 ].join(' ');
 
 const REWRITER_SYSTEM_PROMPT = [
-  'You are a brand-voice rewriter.',
-  'You receive an assistant response and a brand voice brief.',
-  'Rewrite the response so it is on-brand while preserving every fact, instruction, citation, list, and code block.',
+  'You are an output guard rewriter.',
+  'You receive an assistant response and an output guard brief.',
+  'Rewrite the response so it follows the output guard policy while preserving every fact, instruction, citation, list, and code block.',
   'Do not invent new claims, do not omit content, and do not add disclaimers.',
   'Return only the rewritten response text.',
 ].join(' ');
 
-function buildClassifierPrompt(context, voiceBrief, violations) {
-  const sections = [`Brand voice brief:\n${voiceBrief || '(none provided)'}`];
+function buildClassifierPrompt(context, policyBrief, violations) {
+  const sections = [`Output guard brief:\n${policyBrief || '(none provided)'}`];
   if (violations.length > 0) {
     sections.push(
       `Detected rule violations: ${summarizeViolations(violations)}`,
@@ -35,11 +35,11 @@ function buildClassifierPrompt(context, voiceBrief, violations) {
 
 function buildRewriterPrompt(
   context,
-  voiceBrief,
+  policyBrief,
   violations,
   classifierReasons,
 ) {
-  const sections = [`Brand voice brief:\n${voiceBrief || '(none provided)'}`];
+  const sections = [`Output guard brief:\n${policyBrief || '(none provided)'}`];
   if (violations.length > 0) {
     sections.push(`Rule violations to fix: ${summarizeViolations(violations)}`);
   }
@@ -56,23 +56,23 @@ function buildRewriterPrompt(
 
 function buildBlockReason(violations, classifierVerdict) {
   if (violations.length > 0) {
-    return `Brand-voice violations: ${summarizeViolations(violations)}`;
+    return `Output guard violations: ${summarizeViolations(violations)}`;
   }
   if (classifierVerdict?.reasons?.length) {
-    return `Brand-voice reviewer flagged: ${classifierVerdict.reasons.join('; ')}`;
+    return `Output guard reviewer flagged: ${classifierVerdict.reasons.join('; ')}`;
   }
-  return 'Brand-voice violations detected.';
+  return 'Output guard violations detected.';
 }
 
 function ensureNonEmpty(text) {
   return typeof text === 'string' && text.trim().length > 0;
 }
 
-export function createBrandVoiceGuard({ api, config }) {
-  const voiceBrief = buildVoiceBrief(config);
+export function createOutputGuardGuard({ api, config }) {
+  const policyBrief = buildPolicyBrief(config);
 
   return {
-    id: 'brand-voice',
+    id: 'output-guard',
     priority: 100,
     async inspect(context) {
       if (!config.enabled) {
@@ -86,33 +86,33 @@ export function createBrandVoiceGuard({ api, config }) {
       const violations = detectRuleViolations(text, config);
       let classifierVerdict = null;
       try {
-        const raw = await callBrandVoiceModel({
+        const raw = await callOutputGuardModel({
           client: config.classifier,
           api,
           systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
-          userPrompt: buildClassifierPrompt(context, voiceBrief, violations),
+          userPrompt: buildClassifierPrompt(context, policyBrief, violations),
           fallbackModel: context.model,
         });
         classifierVerdict = tryParseClassifierVerdict(raw);
         if (!classifierVerdict) {
           api.logger.warn(
             { rawSnippet: String(raw || '').slice(0, 200) },
-            'brand-voice: classifier returned non-parseable verdict; ignoring',
+            'output-guard: classifier returned non-parseable verdict; ignoring',
           );
         }
       } catch (error) {
-        api.logger.warn({ error }, 'brand-voice: classifier call failed');
+        api.logger.warn({ error }, 'output-guard: classifier call failed');
         if (config.failureMode === 'block') {
           return {
             action: 'block',
-            reason: 'Brand-voice classifier unavailable.',
+            reason: 'Output guard classifier unavailable.',
           };
         }
       }
 
-      const offBrand =
-        violations.length > 0 || classifierVerdict?.verdict === 'off_brand';
-      if (!offBrand) {
+      const nonCompliant =
+        violations.length > 0 || classifierVerdict?.verdict === 'non_compliant';
+      if (!nonCompliant) {
         return { action: 'allow' };
       }
 
@@ -123,7 +123,7 @@ export function createBrandVoiceGuard({ api, config }) {
           classifierVerdict,
           mode: config.mode,
         },
-        'brand-voice: response flagged off-brand',
+        'output-guard: response flagged non-compliant',
       );
 
       if (config.mode === 'flag') {
@@ -137,13 +137,13 @@ export function createBrandVoiceGuard({ api, config }) {
       }
       // mode === 'rewrite'
       try {
-        const rewritten = await callBrandVoiceModel({
+        const rewritten = await callOutputGuardModel({
           client: config.rewriter,
           api,
           systemPrompt: REWRITER_SYSTEM_PROMPT,
           userPrompt: buildRewriterPrompt(
             context,
-            voiceBrief,
+            policyBrief,
             violations,
             classifierVerdict?.reasons || [],
           ),
@@ -156,11 +156,11 @@ export function createBrandVoiceGuard({ api, config }) {
         if (remainingViolations.length > 0) {
           api.logger.warn(
             { remainingViolations },
-            'brand-voice: rewrite still violated rules; blocking',
+            'output-guard: rewrite still violated rules; blocking',
           );
           return {
             action: 'block',
-            reason: `Rewrite still violated brand voice (${summarizeViolations(remainingViolations)}).`,
+            reason: `Rewrite still violated output guard (${summarizeViolations(remainingViolations)}).`,
           };
         }
         return {
@@ -169,11 +169,11 @@ export function createBrandVoiceGuard({ api, config }) {
           reason,
         };
       } catch (error) {
-        api.logger.warn({ error }, 'brand-voice: rewriter call failed');
+        api.logger.warn({ error }, 'output-guard: rewriter call failed');
         if (config.failureMode === 'block') {
           return {
             action: 'block',
-            reason: 'Brand-voice rewriter unavailable.',
+            reason: 'Output guard rewriter unavailable.',
           };
         }
         return { action: 'allow' };
@@ -182,11 +182,11 @@ export function createBrandVoiceGuard({ api, config }) {
   };
 }
 
-export function createBrandVoiceMiddleware({ api, config }) {
-  const guard = createBrandVoiceGuard({ api, config });
+export function createOutputGuardMiddleware({ api, config }) {
+  const guard = createOutputGuardGuard({ api, config });
 
   return {
-    id: 'brand-voice',
+    id: 'output-guard',
     priority: guard.priority,
     async post_receive(context) {
       const decision = await guard.inspect({
@@ -205,13 +205,13 @@ export function createBrandVoiceMiddleware({ api, config }) {
         return {
           action: 'transform',
           payload: decision.text,
-          reason: decision.reason || 'Brand-voice middleware rewrote output.',
+          reason: decision.reason || 'Output guard middleware rewrote output.',
         };
       }
       if (decision.action === 'warn') {
         return {
           action: 'warn',
-          reason: decision.reason || 'Brand-voice middleware flagged output.',
+          reason: decision.reason || 'Output guard middleware flagged output.',
         };
       }
       return {

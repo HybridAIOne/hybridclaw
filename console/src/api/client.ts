@@ -12,10 +12,6 @@ import type {
   AdminApprovalsResponse,
   AdminAuditResponse,
   AdminBoardBudgetResponse,
-  AdminBrandVoicePreviewResponse,
-  AdminBrandVoiceProfile,
-  AdminBrandVoiceProfileResponse,
-  AdminBrandVoiceProfileUpdateResponse,
   AdminBrowserPoolHealthResponse,
   AdminBrowserPoolLaunchResponse,
   AdminChannelConfig,
@@ -35,6 +31,10 @@ import type {
   AdminMcpConfig,
   AdminMcpResponse,
   AdminModelsResponse,
+  AdminOutputGuardPreviewResponse,
+  AdminOutputGuardProfile,
+  AdminOutputGuardProfileResponse,
+  AdminOutputGuardProfileUpdateResponse,
   AdminOverview,
   AdminPluginsResponse,
   AdminPolicyRuleInput,
@@ -1077,20 +1077,23 @@ export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {
   return requestJson<AdminPluginsResponse>('/api/admin/plugins', { token });
 }
 
-export function fetchBrandVoiceProfile(
+export function fetchOutputGuardProfile(
   token: string,
-): Promise<AdminBrandVoiceProfileResponse> {
-  return requestJson<AdminBrandVoiceProfileResponse>('/api/admin/brand-voice', {
-    token,
-  });
+): Promise<AdminOutputGuardProfileResponse> {
+  return requestJson<AdminOutputGuardProfileResponse>(
+    '/api/admin/output-guard',
+    {
+      token,
+    },
+  );
 }
 
-export function saveBrandVoiceProfile(
+export function saveOutputGuardProfile(
   token: string,
-  profile: AdminBrandVoiceProfile,
-): Promise<AdminBrandVoiceProfileUpdateResponse> {
-  return requestJson<AdminBrandVoiceProfileUpdateResponse>(
-    '/api/admin/brand-voice',
+  profile: AdminOutputGuardProfile,
+): Promise<AdminOutputGuardProfileUpdateResponse> {
+  return requestJson<AdminOutputGuardProfileUpdateResponse>(
+    '/api/admin/output-guard',
     {
       token,
       method: 'PUT',
@@ -1099,13 +1102,13 @@ export function saveBrandVoiceProfile(
   );
 }
 
-export function previewBrandVoiceProfile(
+export function previewOutputGuardProfile(
   token: string,
-  profile: AdminBrandVoiceProfile,
+  profile: AdminOutputGuardProfile,
   sample: string,
-): Promise<AdminBrandVoicePreviewResponse> {
-  return requestJson<AdminBrandVoicePreviewResponse>(
-    '/api/admin/brand-voice/preview',
+): Promise<AdminOutputGuardPreviewResponse> {
+  return requestJson<AdminOutputGuardPreviewResponse>(
+    '/api/admin/output-guard/preview',
     {
       token,
       method: 'POST',
