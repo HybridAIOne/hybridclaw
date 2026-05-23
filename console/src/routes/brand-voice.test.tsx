@@ -123,6 +123,28 @@ beforeEach(() => {
         usageDaily: null,
         usageMonthly: null,
       },
+      {
+        id: 'openai/gpt-5-mini',
+        provider: 'openai',
+        backend: null,
+        contextWindow: 128000,
+        isReasoning: false,
+        family: 'gpt',
+        parameterSize: null,
+        discovered: true,
+        maxTokens: null,
+        pricingUsdPerToken: { input: null, output: null },
+        capabilities: {
+          vision: false,
+          tools: true,
+          jsonMode: true,
+          reasoning: false,
+        },
+        metadataSources: [],
+        thinkingFormat: null,
+        usageDaily: null,
+        usageMonthly: null,
+      },
     ],
   });
   previewBrandVoiceProfileMock.mockResolvedValue({
@@ -196,5 +218,29 @@ describe('BrandVoicePage', () => {
         'Classifier default model via hybridai/default-chat: on brand, low.',
       ),
     ).toBeTruthy();
+  });
+
+  it('shows the model selector only for other classifier model', async () => {
+    renderBrandVoicePage();
+
+    expect(await screen.findByDisplayValue('Use concrete nouns')).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: 'Switch model' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'other model' }));
+
+    expect(screen.getByRole('combobox', { name: 'Switch model' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+
+    await waitFor(() =>
+      expect(saveBrandVoiceProfileMock).toHaveBeenCalledWith(
+        'admin-token',
+        expect.objectContaining({
+          classifier: {
+            provider: 'model',
+            model: 'openai/gpt-5-mini',
+          },
+        }),
+      ),
+    );
   });
 });

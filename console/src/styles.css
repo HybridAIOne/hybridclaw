@@ -1667,9 +1667,12 @@ th {
 
 .brand-voice-classifier-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
   gap: 8px;
   align-items: center;
+}
+
+.brand-voice-classifier-control.has-model-select {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
 }
 
 .brand-voice-score-panel {
@@ -2963,6 +2966,10 @@ th {
   }
 
   .brand-voice-classifier-control {
+    grid-template-columns: 1fr;
+  }
+
+  .brand-voice-classifier-control.has-model-select {
     grid-template-columns: 1fr;
   }
 
