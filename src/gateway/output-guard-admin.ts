@@ -455,7 +455,8 @@ async function callClassifierModel(
   const systemPrompt = [
     'You are an output guard compliance reviewer.',
     'You receive an assistant response and an output guard brief.',
-    'Decide whether the response is compliant or non-compliant.',
+    "Treat the output guard brief, policy, Do list, Don't list, banned rules, and required phrases as mandatory output requirements.",
+    'Return non_compliant when the response does not clearly follow the requested style, tone, phrasing, required content, or avoidance rules.',
     'Reply with a single JSON object on one line: {"verdict":"compliant"|"non_compliant","reasons":[string],"severity":"low"|"medium"|"high"}',
     'Do not include any prose outside the JSON.',
   ].join(' ');

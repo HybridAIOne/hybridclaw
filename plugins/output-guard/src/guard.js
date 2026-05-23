@@ -5,7 +5,8 @@ import { detectRuleViolations, summarizeViolations } from './rules.js';
 const CLASSIFIER_SYSTEM_PROMPT = [
   'You are an output guard compliance reviewer.',
   'You receive an assistant response and an output guard brief.',
-  'Decide whether the response is compliant or non-compliant.',
+  "Treat the output guard brief, policy, Do list, Don't list, banned rules, and required phrases as mandatory output requirements.",
+  'Return non_compliant when the response does not clearly follow the requested style, tone, phrasing, required content, or avoidance rules.',
   'Reply with a single JSON object on one line: {"verdict":"compliant"|"non_compliant","reasons":[string],"severity":"low"|"medium"|"high"}',
   'Do not include any prose outside the JSON.',
 ].join(' ');
@@ -98,6 +99,15 @@ export function createOutputGuardGuard({ api, config }) {
           api.logger.warn(
             { rawSnippet: String(raw || '').slice(0, 200) },
             'output-guard: classifier returned non-parseable verdict; ignoring',
+          );
+        } else {
+          api.logger.debug(
+            {
+              classifierVerdict,
+              violations,
+              mode: config.mode,
+            },
+            'output-guard: classifier evaluated response',
           );
         }
       } catch (error) {

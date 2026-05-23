@@ -292,6 +292,76 @@ test('output guard rewrites non-compliant text via the configured rewriter', asy
   );
 });
 
+test('output guard rewrites when the classifier flags policy-only non-compliance', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
+  installBundledPlugin(cwd);
+
+  const auxiliary = await import('../src/providers/auxiliary.js');
+  vi.mocked(auxiliary.callAuxiliaryModel).mockImplementation(
+    async (request) => {
+      const systemPrompt = String(request.messages[0]?.content || '');
+      if (systemPrompt.includes('output guard rewriter')) {
+        return {
+          provider: 'hybridai',
+          model: 'hybridai/default-chat',
+          content:
+            'Alles klar, Mein Herr. Selbstverstaendlich laeuft alles stabil.',
+        };
+      }
+      expect(systemPrompt).toContain('mandatory output requirements');
+      return {
+        provider: 'hybridai',
+        model: 'hybridai/default-chat',
+        content: JSON.stringify({
+          verdict: 'non_compliant',
+          reasons: ['Does not use the requested German office style.'],
+          severity: 'medium',
+        }),
+      };
+    },
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'output-guard',
+      enabled: true,
+      config: {
+        mode: 'rewrite',
+        policy: 'Speak English like a German Verwaltungsbeamter',
+        doList: ['Say "Alles klar", "Mein Herr", "Selbstverstaendlich"'],
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const outcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    resultText: 'Hey Ben, running fine. What can I do for you?',
+  });
+
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.resultText).toBe(
+    'Alles klar, Mein Herr. Selbstverstaendlich laeuft alles stabil.',
+  );
+  expect(outcome.events[0]).toMatchObject({
+    action: 'rewrite',
+    pluginId: 'output-guard',
+    guardId: 'output-guard',
+    reason:
+      'Output guard reviewer flagged: Does not use the requested German office style.',
+  });
+  expect(auxiliary.callAuxiliaryModel).toHaveBeenCalledTimes(2);
+});
+
 test('output guard defaults rewrite mode to the default model', async () => {
   const homeDir = makeTempDir('hybridclaw-output-guard-home-');
   const cwd = makeTempDir('hybridclaw-output-guard-project-');
