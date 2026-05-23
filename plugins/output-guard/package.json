@@ -1,0 +1,10 @@
+{
+  "name": "hybridclaw-plugin-output-guard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw plugin: output policy classifier and rewriter",
+  "engines": {
+    "node": "22.x"
+  }
+}

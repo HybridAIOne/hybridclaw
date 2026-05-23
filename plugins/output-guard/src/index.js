@@ -1,41 +1,39 @@
-import { resolveBrandVoiceConfig } from './config.js';
-import { createBrandVoiceMiddleware } from './guard.js';
+import { resolveOutputGuardConfig } from './config.js';
+import { createOutputGuardMiddleware } from './guard.js';
 
 export default {
-  id: 'brand-voice',
+  id: 'output-guard',
   kind: 'output-guard',
   register(api) {
-    const config = resolveBrandVoiceConfig(
+    const config = resolveOutputGuardConfig(
       api.pluginConfig || {},
       api.runtime,
       api.logger,
     );
     if (!config.enabled) {
-      api.logger.info({}, 'brand-voice plugin disabled by config');
+      api.logger.info({}, 'output-guard plugin disabled by config');
       return;
     }
-    api.registerMiddleware(createBrandVoiceMiddleware({ api, config }));
+    api.registerMiddleware(createOutputGuardMiddleware({ api, config }));
 
     api.registerCommand({
-      name: 'brand-voice',
-      description: 'Show brand-voice guard status and configured rules.',
+      name: 'output-guard',
+      description: 'Show output guard status and configured rules.',
       handler() {
         return [
-          'Brand-voice guard status:',
+          'Output guard status:',
           `  mode: ${config.mode}`,
           `  failure mode: ${config.failureMode}`,
-          `  voice brief: ${config.voice ? 'configured' : '(none)'}`,
-          `  voice file: ${config.voiceFileText ? 'loaded' : '(none)'}`,
+          `  policy brief: ${config.policy ? 'configured' : '(none)'}`,
+          `  policy file: ${config.policyFileText ? 'loaded' : '(none)'}`,
+          `  do list: ${config.doList.length}`,
+          `  don't list: ${config.dontList.length}`,
           `  banned phrases: ${config.bannedPhrases.length}`,
           `  banned patterns: ${config.bannedPatterns.length}`,
           `  required phrases: ${config.requirePhrases.length}`,
-          `  classifier: ${config.classifier.provider}${
-            config.classifier.provider !== 'none'
-              ? ` (${config.classifier.model})`
-              : ''
-          }`,
+          `  classifier: ${config.classifier.provider}`,
           `  rewriter: ${config.rewriter.provider}${
-            config.rewriter.provider !== 'none'
+            config.rewriter.provider === 'model'
               ? ` (${config.rewriter.model})`
               : ''
           }`,
@@ -47,12 +45,14 @@ export default {
       {
         mode: config.mode,
         bannedPhrases: config.bannedPhrases.length,
+        doList: config.doList.length,
+        dontList: config.dontList.length,
         bannedPatterns: config.bannedPatterns.length,
         requirePhrases: config.requirePhrases.length,
         classifierProvider: config.classifier.provider,
         rewriterProvider: config.rewriter.provider,
       },
-      'brand-voice plugin registered',
+      'output-guard plugin registered',
     );
   },
 };

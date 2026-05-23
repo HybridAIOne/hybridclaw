@@ -1,11 +1,11 @@
 import { findAgentConfig, listAgents } from '../agents/agent-registry.js';
-import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import type { AgentConfig } from '../agents/agent-types.js';
 import {
-  formatAgentIdentity,
+  deriveLocalAgentIdentity,
   parseAgentIdentity,
   resolveLocalInstanceId,
-  slugifyAgentIdentityComponent,
 } from '../identity/agent-id.js';
+import { logger } from '../logger.js';
 import {
   type A2AEnvelope,
   A2AEnvelopeValidationError,
@@ -32,6 +32,20 @@ function findLocalAgent(agentId: string): AgentConfig {
   ]);
 }
 
+function resolveLocalAgentOwnerFallback(agent: AgentConfig): string {
+  if (agent.owner) return agent.owner;
+  if (process.env.HYBRIDCLAW_USER_ID) return process.env.HYBRIDCLAW_USER_ID;
+
+  const osOwner = process.env.USER || process.env.LOGNAME || '';
+  if (osOwner) {
+    logger.warn(
+      { agentId: agent.id },
+      'Deriving transient local agent identity from OS user environment',
+    );
+  }
+  return osOwner;
+}
+
 export function resolveA2AAgentId(agentId: string): string {
   const normalized = agentId.trim();
   const kind = classifyA2AAgentId(normalized);
@@ -43,16 +57,23 @@ export function resolveA2AAgentId(agentId: string): string {
   }
 
   const agent = findLocalAgent(normalized);
-  const agentSlug = slugifyAgentIdentityComponent(agent.id, DEFAULT_AGENT_ID);
-  const userSlug = slugifyAgentIdentityComponent(
-    agent.owner ||
-      process.env.HYBRIDCLAW_USER_ID ||
-      process.env.USER ||
-      process.env.LOGNAME ||
-      '',
-    'local',
-  );
-  return formatAgentIdentity(agentSlug, userSlug, resolveLocalInstanceId());
+  if (agent.canonicalId) {
+    try {
+      return parseAgentIdentity(agent.canonicalId).id;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new A2AEnvelopeValidationError([
+        `canonical id for local agent ${agent.id} is invalid: ${detail}`,
+      ]);
+    }
+  }
+
+  return deriveLocalAgentIdentity({
+    agentId: agent.id,
+    owner: resolveLocalAgentOwnerFallback(agent),
+    ownerUserId: agent.ownerUserId,
+    instanceId: resolveLocalInstanceId(),
+  }).canonicalId;
 }
 
 export function resolveA2AEnvelopeAgentIds(envelope: unknown): A2AEnvelope {

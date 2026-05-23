@@ -108,6 +108,26 @@ describe('docs viewer helpers', () => {
     ).toBe(true);
   });
 
+  test('exposes the secret threat model in the developer guide', () => {
+    const developerGuide = DEVELOPMENT_DOCS_SECTIONS.find(
+      (section) => section.title === 'Developer Guide',
+    );
+    const threatModelPath = path.join(
+      process.cwd(),
+      'docs',
+      'content',
+      'developer-guide',
+      'threat-model.md',
+    );
+
+    expect(
+      developerGuide?.pages.some(
+        (page) => page.path === 'developer-guide/threat-model.md',
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(threatModelPath)).toBe(true);
+  });
+
   test('orders tutorials immediately after skills in the top-level docs nav', () => {
     const titles = DEVELOPMENT_DOCS_SECTIONS.map((section) => section.title);
     expect(titles.indexOf('Tutorials')).toBe(titles.indexOf('Skills') + 1);

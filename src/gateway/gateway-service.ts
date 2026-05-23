@@ -295,7 +295,12 @@ import {
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
 import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
+import { isRuntimeProviderId } from '../providers/provider-ids.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
+import {
+  normalizeAuxiliaryProviderModel,
+  resolveDefaultAuxiliaryModelForProvider,
+} from '../providers/task-routing.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
 import {
@@ -5501,6 +5506,25 @@ function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
   return 'hybridai';
 }
 
+function resolveSkillsHubAuxiliaryModel(
+  runtimeConfig: RuntimeConfig,
+): string | null {
+  const policy = runtimeConfig.auxiliaryModels.skills_hub;
+  const model = policy.model.trim();
+  if (policy.provider === 'disabled') return null;
+  if (policy.provider === 'auto') return model || null;
+  if (!isRuntimeProviderId(policy.provider)) return model || null;
+  try {
+    return normalizeAuxiliaryProviderModel({
+      provider: policy.provider,
+      model:
+        model || resolveDefaultAuxiliaryModelForProvider(policy.provider) || '',
+    });
+  } catch {
+    return model || null;
+  }
+}
+
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
   await refreshAvailableModelCatalogs({ includeHybridAI: true });
 
@@ -5512,8 +5536,10 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     listUsageByModel({ window: 'monthly' }).map((row) => [row.model, row]),
   );
 
+  const skillsHubAuxiliaryModel = resolveSkillsHubAuxiliaryModel(runtimeConfig);
   const modelIds = dedupeStrings([
     runtimeConfig.hybridai.defaultModel,
+    ...(skillsHubAuxiliaryModel ? [skillsHubAuxiliaryModel] : []),
     ...getAvailableModelList(),
   ]);
   const defaultModel = resolveRequestedCatalogModelName(
@@ -5564,6 +5590,12 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
 
   return {
     defaultModel,
+    auxiliaryModels: {
+      skillsHub: {
+        provider: runtimeConfig.auxiliaryModels.skills_hub.provider,
+        model: skillsHubAuxiliaryModel,
+      },
+    },
     providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {

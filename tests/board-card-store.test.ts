@@ -45,9 +45,10 @@ describe.sequential('board card store', () => {
     const columns = inspect
       .prepare(`PRAGMA table_info(board_cards)`)
       .all() as Array<{ name: string }>;
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
     inspect.close();
 
-    expect(dbModule.DATABASE_SCHEMA_VERSION).toBe(35);
+    expect(Number(schemaVersion)).toBe(dbModule.DATABASE_SCHEMA_VERSION);
     expect(columns.map((column) => column.name)).toEqual(
       expect.arrayContaining([
         'id',
