@@ -24,44 +24,20 @@ import { formatDateTime, formatRelativeTime } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
 import styles from './audit.module.css';
 import {
+  CATEGORIES,
+  type Category,
+  categorize,
+  KNOWN_CATEGORIES,
+  readRange,
+  TIME_RANGES,
+  type TimeRange,
+  withinRange,
+} from './audit-filters';
+import {
   parseAuditSearch,
   removeAuditField,
   setAuditField,
 } from './audit-search';
-
-const CATEGORIES = [
-  'session',
-  'turn',
-  'model',
-  'tool',
-  'autonomy',
-  'authorization',
-  'approval',
-  'a2a',
-] as const;
-type Category = (typeof CATEGORIES)[number];
-
-const KNOWN_CATEGORIES = new Set<string>(CATEGORIES);
-
-const TIME_RANGES = [
-  { value: 'all', label: 'All' },
-  { value: '1h', label: '1h' },
-  { value: '24h', label: '24h' },
-  { value: '7d', label: '7d' },
-] as const;
-type TimeRange = (typeof TIME_RANGES)[number]['value'];
-const TIME_RANGE_VALUES = new Set<string>(TIME_RANGES.map((r) => r.value));
-
-const RANGE_TO_MS: Record<Exclude<TimeRange, 'all'>, number> = {
-  '1h': 60 * 60 * 1000,
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-};
-
-function categorize(eventType: string): Category | 'default' {
-  const prefix = eventType.split('.', 1)[0] ?? '';
-  return KNOWN_CATEGORIES.has(prefix) ? (prefix as Category) : 'default';
-}
 
 function prettifyPayload(raw: string): string {
   try {
@@ -71,18 +47,7 @@ function prettifyPayload(raw: string): string {
   }
 }
 
-function withinRange(timestamp: string, range: TimeRange): boolean {
-  if (range === 'all') return true;
-  const cutoff = Date.now() - RANGE_TO_MS[range];
-  const ts = Date.parse(timestamp);
-  return Number.isFinite(ts) && ts >= cutoff;
-}
-
 type AuditSearchParams = { q: string | undefined; range: string | undefined };
-
-function readRange(value: string | undefined): TimeRange {
-  return value && TIME_RANGE_VALUES.has(value) ? (value as TimeRange) : 'all';
-}
 
 export function AuditPage() {
   const auth = useAuth();
