@@ -126,6 +126,12 @@ describe('brand voice admin API helpers', () => {
           bannedPhrases: ['game changing'],
           bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
           requirePhrases: ['Best regards'],
+          classifier: {
+            provider: 'openai',
+            model: 'gpt-4.1-mini',
+            baseUrl: 'https://api.openai.com/v1',
+            apiKeyEnv: 'OPENAI_API_KEY',
+          },
         },
       }),
     ).resolves.toMatchObject({
@@ -136,6 +142,10 @@ describe('brand voice admin API helpers', () => {
         mode: 'block',
         voice: 'Direct.',
         doList: ['Use facts'],
+        classifier: {
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+        },
       },
     });
     expect(admin.reloadPluginRuntime).toHaveBeenCalledTimes(1);
@@ -143,10 +153,15 @@ describe('brand voice admin API helpers', () => {
       id: 'brand-voice',
       enabled: false,
       config: {
-        classifier: { provider: 'none' },
         voice: 'Direct.',
         doList: ['Use facts'],
         bannedPhrases: ['game changing'],
+        classifier: {
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+          baseUrl: 'https://api.openai.com/v1',
+          apiKeyEnv: 'OPENAI_API_KEY',
+        },
       },
     });
   });

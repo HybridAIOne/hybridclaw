@@ -1315,6 +1315,14 @@ export interface GatewayAdminBrandVoiceProfile {
   bannedPhrases: string[];
   bannedPatterns: string[];
   requirePhrases: string[];
+  classifier: GatewayAdminBrandVoiceClassifierConfig;
+}
+
+export interface GatewayAdminBrandVoiceClassifierConfig {
+  provider: 'none' | 'anthropic' | 'openai' | 'openai-compat';
+  model: string;
+  baseUrl: string;
+  apiKeyEnv: string;
 }
 
 export interface GatewayAdminBrandVoiceRevision {

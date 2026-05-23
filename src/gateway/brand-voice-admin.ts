@@ -10,6 +10,7 @@ import { logger } from '../logger.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { reloadPluginRuntime } from './gateway-plugin-service.js';
 import type {
+  GatewayAdminBrandVoiceClassifierConfig,
   GatewayAdminBrandVoicePreviewClassifier,
   GatewayAdminBrandVoicePreviewResponse,
   GatewayAdminBrandVoicePreviewViolation,
@@ -53,7 +54,8 @@ interface BrandVoiceModelClientConfig {
   maxRetries: number;
 }
 
-interface BrandVoicePreviewRuntimeConfig extends GatewayAdminBrandVoiceProfile {
+interface BrandVoicePreviewRuntimeConfig
+  extends Omit<GatewayAdminBrandVoiceProfile, 'classifier'> {
   failureMode: BrandVoiceFailureMode;
   classifier: BrandVoiceModelClientConfig;
 }
@@ -144,6 +146,15 @@ function defaultBaseUrl(provider: BrandVoiceClassifierProvider): string {
   return '';
 }
 
+function defaultClassifierConfig(): GatewayAdminBrandVoiceClassifierConfig {
+  return {
+    provider: 'none',
+    model: '',
+    baseUrl: '',
+    apiKeyEnv: '',
+  };
+}
+
 function normalizeClassifierConfig(
   value: unknown,
 ): BrandVoiceModelClientConfig {
@@ -172,6 +183,40 @@ function normalizeClassifierConfig(
       max: 60_000,
     }),
     maxRetries: normalizeNumber(raw.maxRetries, 1, { min: 0, max: 3 }),
+  };
+}
+
+function normalizeProfileClassifier(
+  value: unknown,
+  fallback: GatewayAdminBrandVoiceClassifierConfig = defaultClassifierConfig(),
+): GatewayAdminBrandVoiceClassifierConfig {
+  if (value === undefined) return fallback;
+  const raw = isRecord(value) ? value : {};
+  const provider = normalizeClassifierProvider(raw.provider);
+  return {
+    provider,
+    model: provider === 'none' ? '' : normalizeString(raw.model),
+    baseUrl: provider === 'none' ? '' : normalizeString(raw.baseUrl),
+    apiKeyEnv: provider === 'none' ? '' : normalizeString(raw.apiKeyEnv),
+  };
+}
+
+function runtimeClassifierToProfile(
+  value: unknown,
+): GatewayAdminBrandVoiceClassifierConfig {
+  const raw = isRecord(value) ? value : {};
+  const provider = normalizeClassifierProvider(raw.provider);
+  return {
+    provider,
+    model: provider === 'none' ? '' : normalizeString(raw.model),
+    baseUrl:
+      provider === 'none'
+        ? ''
+        : normalizeString(raw.baseUrl) || defaultBaseUrl(provider),
+    apiKeyEnv:
+      provider === 'none'
+        ? ''
+        : normalizeString(raw.apiKeyEnv) || defaultApiKeyEnv(provider),
   };
 }
 
@@ -204,10 +249,14 @@ function profileFromEntry(
   return {
     ...normalizeProfile(pluginConfig),
     enabled: entry?.enabled !== false,
+    classifier: runtimeClassifierToProfile(pluginConfig.classifier),
   };
 }
 
-function normalizeProfile(value: unknown): GatewayAdminBrandVoiceProfile {
+function normalizeProfile(
+  value: unknown,
+  fallback?: GatewayAdminBrandVoiceProfile,
+): GatewayAdminBrandVoiceProfile {
   const raw = isRecord(value) ? value : {};
   return {
     enabled: raw.enabled !== false,
@@ -220,6 +269,10 @@ function normalizeProfile(value: unknown): GatewayAdminBrandVoiceProfile {
     requirePhrases: normalizeStringArray(
       raw.requirePhrases,
       'Required phrases',
+    ),
+    classifier: normalizeProfileClassifier(
+      raw.classifier,
+      fallback?.classifier,
     ),
   };
 }
@@ -265,9 +318,10 @@ function applyProfileToConfig(
   profile: GatewayAdminBrandVoiceProfile,
 ): void {
   const entry = ensureBrandVoiceEntry(config);
+  const existingConfig = isRecord(entry.config) ? entry.config : {};
   entry.enabled = profile.enabled;
   entry.config = {
-    ...entry.config,
+    ...existingConfig,
     mode: profile.mode,
     voice: profile.voice,
     doList: profile.doList,
@@ -275,6 +329,27 @@ function applyProfileToConfig(
     bannedPhrases: profile.bannedPhrases,
     bannedPatterns: profile.bannedPatterns,
     requirePhrases: profile.requirePhrases,
+    classifier: buildRuntimeClassifierConfig(
+      profile.classifier,
+      existingConfig.classifier,
+    ),
+  };
+}
+
+function buildRuntimeClassifierConfig(
+  classifier: GatewayAdminBrandVoiceClassifierConfig,
+  existing: unknown,
+): Record<string, unknown> {
+  if (classifier.provider === 'none') {
+    return { provider: 'none' };
+  }
+  const existingConfig = isRecord(existing) ? existing : {};
+  return {
+    ...existingConfig,
+    provider: classifier.provider,
+    model: classifier.model,
+    baseUrl: classifier.baseUrl,
+    apiKeyEnv: classifier.apiKeyEnv,
   };
 }
 
@@ -287,11 +362,15 @@ function buildPreviewRuntimeConfig(
   return {
     ...profile,
     failureMode: normalizeFailureMode(pluginConfig.failureMode),
-    classifier: normalizeClassifierConfig(pluginConfig.classifier),
+    classifier: normalizeClassifierConfig(
+      buildRuntimeClassifierConfig(profile.classifier, pluginConfig.classifier),
+    ),
   };
 }
 
-function buildVoiceBrief(profile: GatewayAdminBrandVoiceProfile): string {
+function buildVoiceBrief(
+  profile: Omit<GatewayAdminBrandVoiceProfile, 'classifier'>,
+): string {
   const sections: string[] = [];
   if (profile.voice) sections.push(`Brand voice: ${profile.voice}`);
   if (profile.doList.length > 0) {
@@ -355,12 +434,20 @@ function assertValidBannedPatterns(
   );
 }
 
+function assertValidClassifier(profile: GatewayAdminBrandVoiceProfile): void {
+  if (profile.classifier.provider === 'none') return;
+  if (profile.classifier.model) return;
+  throw new Error(
+    `Brand voice classifier provider is "${profile.classifier.provider}" but classifier model is empty.`,
+  );
+}
+
 function phraseAppears(text: string, phrase: string): boolean {
   return text.toLowerCase().includes(phrase.toLowerCase());
 }
 
 function scoreViolations(
-  profile: GatewayAdminBrandVoiceProfile,
+  profile: Omit<GatewayAdminBrandVoiceProfile, 'classifier'>,
   sample: string,
 ): GatewayAdminBrandVoicePreviewViolation[] {
   const violations: GatewayAdminBrandVoicePreviewViolation[] = [];
@@ -411,7 +498,7 @@ function summarizeViolations(
 }
 
 function buildClassifierPrompt(
-  profile: GatewayAdminBrandVoiceProfile,
+  profile: Omit<GatewayAdminBrandVoiceProfile, 'classifier'>,
   sample: string,
   violations: GatewayAdminBrandVoicePreviewViolation[],
 ): string {
@@ -730,8 +817,12 @@ export async function updateGatewayAdminBrandVoiceProfile(
   const previousConfig = getRuntimeConfig();
   const nextConfig = structuredClone(previousConfig);
   const previousProfile = readProfileFromConfig(previousConfig);
-  const profile = normalizeProfile(isRecord(body) ? body.profile : body);
+  const profile = normalizeProfile(
+    isRecord(body) ? body.profile : body,
+    previousProfile,
+  );
   assertValidBannedPatterns(profile);
+  assertValidClassifier(profile);
   applyProfileToConfig(nextConfig, profile);
 
   const changed = !profilesEqual(previousProfile, profile);
@@ -795,8 +886,12 @@ export async function previewGatewayAdminBrandVoiceProfile(
   const profile =
     raw.profile === undefined
       ? getGatewayAdminBrandVoiceProfile().profile
-      : normalizeProfile(raw.profile);
+      : normalizeProfile(
+          raw.profile,
+          getGatewayAdminBrandVoiceProfile().profile,
+        );
   assertValidBannedPatterns(profile);
+  assertValidClassifier(profile);
   const runtimeConfig = buildPreviewRuntimeConfig(getRuntimeConfig(), profile);
   const violations = scoreViolations(runtimeConfig, sample);
   const classifier = await runPreviewClassifier(

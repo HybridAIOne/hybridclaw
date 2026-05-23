@@ -59,6 +59,12 @@ beforeEach(() => {
       bannedPhrases: ['game changing'],
       bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
       requirePhrases: ['Best regards'],
+      classifier: {
+        provider: 'none',
+        model: '',
+        baseUrl: '',
+        apiKeyEnv: '',
+      },
     },
     revisions: [
       {
@@ -83,6 +89,12 @@ beforeEach(() => {
       bannedPhrases: ['game changing'],
       bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
       requirePhrases: ['Best regards'],
+      classifier: {
+        provider: 'openai',
+        model: 'gpt-4.1-mini',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKeyEnv: 'OPENAI_API_KEY',
+      },
     },
     revisions: [],
   });
@@ -117,6 +129,10 @@ describe('BrandVoicePage', () => {
     fireEvent.change(doInputs[1], {
       target: { value: 'Prefer short sentences' },
     });
+    fireEvent.click(screen.getByRole('button', { name: 'openai' }));
+    fireEvent.change(screen.getByPlaceholderText('gpt-4.1-mini'), {
+      target: { value: 'gpt-4.1-mini' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() =>
@@ -124,6 +140,10 @@ describe('BrandVoicePage', () => {
         'admin-token',
         expect.objectContaining({
           doList: ['Use concrete nouns', 'Prefer short sentences'],
+          classifier: expect.objectContaining({
+            provider: 'openai',
+            model: 'gpt-4.1-mini',
+          }),
         }),
       ),
     );

@@ -1437,6 +1437,14 @@ export interface AdminBrandVoiceProfile {
   bannedPhrases: string[];
   bannedPatterns: string[];
   requirePhrases: string[];
+  classifier: AdminBrandVoiceClassifierConfig;
+}
+
+export interface AdminBrandVoiceClassifierConfig {
+  provider: 'none' | 'anthropic' | 'openai' | 'openai-compat';
+  model: string;
+  baseUrl: string;
+  apiKeyEnv: string;
 }
 
 export interface AdminBrandVoiceRevision {
