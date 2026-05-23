@@ -76,6 +76,7 @@ describe('gateway admin secrets metadata', () => {
     expect(setEntry).toMatchObject({
       name: 'SET_SECRET',
       state: 'set',
+      length: Buffer.byteLength('super-secret-value', 'utf-8'),
       fingerprint: {
         length: Buffer.byteLength('super-secret-value', 'utf-8'),
         sha256_prefix: createHash('sha256')
@@ -89,6 +90,7 @@ describe('gateway admin secrets metadata', () => {
     expect(unsetEntry).toMatchObject({
       name: 'OPENAI_API_KEY',
       state: 'unset',
+      length: null,
       fingerprint: null,
     });
     expect(unsetEntry?.created_at).toBeNull();
@@ -145,6 +147,7 @@ describe('gateway admin secrets metadata', () => {
     expect(declaredEntry).toMatchObject({
       name: 'DECLARED_SECRET',
       state: 'unset',
+      length: null,
       fingerprint: null,
     });
     expect(declaredEntry?.created_at).toBeNull();
@@ -153,6 +156,7 @@ describe('gateway admin secrets metadata', () => {
       expect.objectContaining({
         name: 'ROUTE_DECLARED_SECRET',
         state: 'unset',
+        length: null,
         fingerprint: null,
       }),
     );
@@ -209,6 +213,7 @@ describe('gateway admin secrets metadata', () => {
         state: 'set',
         created_at: '2026-05-17T10:00:00.000Z',
         last_rotated_at: '2026-05-17T10:10:00.000Z',
+        length: Buffer.byteLength('new-secret-value', 'utf-8'),
         fingerprint: {
           length: Buffer.byteLength('new-secret-value', 'utf-8'),
           sha256_prefix: createHash('sha256')
@@ -274,6 +279,7 @@ describe('gateway admin secrets metadata', () => {
       state: 'unset',
       created_at: null,
       last_rotated_at: null,
+      length: null,
       fingerprint: null,
     });
     expect(recordAuditEvent).toHaveBeenCalledWith({
@@ -325,6 +331,7 @@ describe('gateway admin secrets metadata', () => {
     expect(second.secret).toMatchObject({
       name: 'DECLARED_SECRET',
       state: 'unset',
+      length: null,
       fingerprint: null,
     });
   });

@@ -108,6 +108,7 @@ export interface RuntimeSecretMetadataEntry {
   state: 'set' | 'unset';
   created_at: string | null;
   last_rotated_at: string | null;
+  length: number | null;
   fingerprint: RuntimeSecretFingerprint | null;
 }
 
@@ -897,12 +898,14 @@ export function listRuntimeSecretMetadata(options?: {
       const lastRotatedAt = value
         ? metadata?.lastRotatedAt || metadata?.createdAt || fallbackTimestamp
         : null;
+      const fingerprint = value ? fingerprintRuntimeSecretValue(value) : null;
       return {
         name,
         state: value ? 'set' : 'unset',
         created_at: createdAt,
         last_rotated_at: lastRotatedAt,
-        fingerprint: value ? fingerprintRuntimeSecretValue(value) : null,
+        length: fingerprint?.length ?? null,
+        fingerprint,
       };
     });
 }

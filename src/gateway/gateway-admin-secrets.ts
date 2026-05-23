@@ -127,6 +127,7 @@ function fallbackUnsetSecretMetadata(name: string): RuntimeSecretMetadataEntry {
     state: 'unset',
     created_at: null,
     last_rotated_at: null,
+    length: null,
     fingerprint: null,
   };
 }

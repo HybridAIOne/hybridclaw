@@ -727,6 +727,7 @@ async function importFreshHealth(options?: {
         state: 'set' as const,
         created_at: '2026-05-17T10:00:00.000Z',
         last_rotated_at: '2026-05-17T10:00:00.000Z',
+        length: 12,
         fingerprint: {
           length: 12,
           sha256_prefix: '0123456789ab',
@@ -737,6 +738,7 @@ async function importFreshHealth(options?: {
         state: 'unset' as const,
         created_at: null,
         last_rotated_at: null,
+        length: null,
         fingerprint: null,
       },
     ],
@@ -749,6 +751,7 @@ async function importFreshHealth(options?: {
         state: 'set' as const,
         created_at: '2026-05-17T10:00:00.000Z',
         last_rotated_at: '2026-05-17T10:10:00.000Z',
+        length: String(params.value || '').length,
         fingerprint: {
           length: String(params.value || '').length,
           sha256_prefix: 'fedcba987654',
@@ -762,6 +765,7 @@ async function importFreshHealth(options?: {
       state: 'unset' as const,
       created_at: null,
       last_rotated_at: null,
+      length: null,
       fingerprint: null,
     },
   }));
@@ -4763,6 +4767,7 @@ describe('gateway HTTP server', () => {
           state: 'set',
           created_at: '2026-05-17T10:00:00.000Z',
           last_rotated_at: '2026-05-17T10:00:00.000Z',
+          length: 12,
           fingerprint: {
             length: 12,
             sha256_prefix: '0123456789ab',
@@ -4773,6 +4778,7 @@ describe('gateway HTTP server', () => {
           state: 'unset',
           created_at: null,
           last_rotated_at: null,
+          length: null,
           fingerprint: null,
         },
       ],
@@ -4870,6 +4876,7 @@ describe('gateway HTTP server', () => {
       secret: {
         name: 'SET_SECRET',
         state: 'set',
+        length: 'rotated-super-secret'.length,
         fingerprint: {
           sha256_prefix: 'fedcba987654',
         },
@@ -4912,6 +4919,7 @@ describe('gateway HTTP server', () => {
         state: 'unset',
         created_at: null,
         last_rotated_at: null,
+        length: null,
         fingerprint: null,
       },
     });
