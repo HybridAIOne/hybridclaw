@@ -97,4 +97,34 @@ describe('useFormDraft', () => {
     });
     expect(result.current.draft).toBeNull();
   });
+
+  it('re-hydrates draft when source changes and user has not edited', () => {
+    const initial: Config = { name: 'gw', port: 9090 };
+    const { result, rerender } = renderHook(
+      ({ source }: { source: Config }) => useFormDraft({ source }),
+      { initialProps: { source: initial } },
+    );
+    expect(result.current.draft).toEqual(initial);
+
+    const refreshed: Config = { name: 'gw', port: 9091 };
+    rerender({ source: refreshed });
+    expect(result.current.draft).toEqual(refreshed);
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it('preserves draft edits when source changes underneath', () => {
+    const initial: Config = { name: 'gw', port: 9090 };
+    const { result, rerender } = renderHook(
+      ({ source }: { source: Config }) => useFormDraft({ source }),
+      { initialProps: { source: initial } },
+    );
+    act(() => {
+      result.current.setField('port', 8080);
+    });
+    expect(result.current.draft).toEqual({ name: 'gw', port: 8080 });
+
+    rerender({ source: { name: 'gw', port: 9091 } });
+    expect(result.current.draft).toEqual({ name: 'gw', port: 8080 });
+    expect(result.current.isDirty).toBe(true);
+  });
 });

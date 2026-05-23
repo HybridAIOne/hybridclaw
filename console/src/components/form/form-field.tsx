@@ -62,7 +62,13 @@ export type FormFieldProps<TDraft = unknown, V = unknown> = {
   form?: UseFormControllerReturn<TDraft>;
   /** Dotted path into `form.draft` (e.g. `'ops.healthPort'`). */
   name: string;
-  /** Validation rules. Run on every value change AND on submit. */
+  /**
+   * Validation rules. Composed once per `[required, rules]` array identity,
+   * but the resulting validator runs on every render of this FormField —
+   * so each rule must be pure and cheap. Avoid network calls or O(n) work
+   * over large strings; surface anything heavier through a dedicated
+   * onBlur path or a debounced effect instead.
+   */
   rules?: ReadonlyArray<Validator<V> | undefined | false | null>;
   /**
    * When `true`, auto-prepends a `required()` validator and propagates

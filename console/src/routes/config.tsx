@@ -489,9 +489,9 @@ export function ConfigPage() {
             ) : null}
             {isDirty || saveMutation.isPending ? (
               <Button
+                type="submit"
                 loading={saveMutation.isPending}
                 disabled={saveDisabled}
-                onClick={save}
               >
                 {saveMutation.isPending ? 'Saving…' : 'Save changes'}
               </Button>

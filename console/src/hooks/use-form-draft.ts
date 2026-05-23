@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { deepEquals } from '../lib/deep-equals';
@@ -70,11 +71,24 @@ export function useFormDraft<T>(
   // hydrates when `source` becomes available after mount.
   const [draft, setDraft] = useState<T | null>(() => source ?? null);
 
+  // Track the prior `source` so we can re-hydrate on background refetches
+  // without clobbering edits. When the source changes underneath us and
+  // the draft is still equal to the prior snapshot (i.e. the user hasn't
+  // diverged), we adopt the new source — avoiding the surprise where
+  // "unsaved changes" appears after a refetch the user didn't trigger.
+  const prevSourceRef = useRef<T | undefined>(source);
   useEffect(() => {
-    if (source !== undefined && draft === null) {
+    if (source === undefined) return;
+    const prev = prevSourceRef.current;
+    prevSourceRef.current = source;
+    if (draft === null) {
+      setDraft(source);
+      return;
+    }
+    if (prev !== undefined && !Object.is(prev, source) && equals(draft, prev)) {
       setDraft(source);
     }
-  }, [source, draft]);
+  }, [source, draft, equals]);
 
   const isDirty = useMemo(() => {
     if (draft === null || source === undefined) return false;

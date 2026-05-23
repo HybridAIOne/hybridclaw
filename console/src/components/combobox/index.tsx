@@ -221,7 +221,9 @@ export function Combobox<TMeta = unknown>({
           type="text"
           role="combobox"
           aria-expanded={open}
-          aria-controls={listboxId}
+          // `PopoverContent` unmounts when closed — only point at the
+          // listbox while it actually exists in the DOM.
+          aria-controls={open ? listboxId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={
             open && filtered[activeIndex]

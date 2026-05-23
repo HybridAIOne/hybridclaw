@@ -45,7 +45,9 @@ export function useFormMutation<TInput, TOutput>(
     },
     onError: (error, input) => {
       const normalized =
-        error instanceof Error ? error : new Error(String(error));
+        error instanceof Error
+          ? error
+          : new Error(String(error), { cause: error });
       opts.onError?.(normalized, input);
     },
   });
