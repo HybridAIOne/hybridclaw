@@ -413,6 +413,7 @@ hybridclaw secret route remove <url-prefix> [header]
 - `/secret route ...` is a convenience surface for editing
   `tools.httpRequest.authRules[]` without hand-editing `config.json`
 - `secret: { "source": "google-oauth" }` routes mint and inject the Google OAuth access token from `hybridclaw auth login google` for matching `*.googleapis.com` requests
+- bearer tokens injected with `bearerSecretName` require a companion `<NAME>_BOUND_DOMAIN` secret containing the exact hostname they may be sent to
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 Trust-model acceptance is persisted in `config.json` under `security.*` and is
@@ -434,7 +435,7 @@ credential checks run.
   text in `config.json`
 - In `host` sandbox mode, the agent can access the user home directory, the
   gateway working directory, `/tmp`, and any host paths explicitly added
-  through `container.binds` or `container.additionalMounts`
+  through `container.binds`
 - prefer storing BlueBubbles credentials as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext `imessage.password`
 - prefer storing email passwords as `EMAIL_PASSWORD` or a SecretRef-backed

@@ -65,7 +65,7 @@ describe('mount config parsing', () => {
     });
   });
 
-  test('merges binds with legacy additionalMounts JSON', () => {
+  test('ignores legacy additionalMounts JSON', () => {
     const resolved = resolveConfiguredAdditionalMounts({
       binds: ['/host/data:/docs:ro'],
       additionalMounts:
@@ -78,11 +78,6 @@ describe('mount config parsing', () => {
         hostPath: '/host/data',
         containerPath: 'docs',
         readonly: true,
-      },
-      {
-        hostPath: '/legacy/path',
-        containerPath: 'legacy',
-        readonly: false,
       },
     ]);
   });

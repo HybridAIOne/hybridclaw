@@ -109,65 +109,6 @@ export function parseBindSpecs(specs: string[]): ConfiguredMountParseResult {
   };
 }
 
-export function parseLegacyAdditionalMounts(
-  raw: string,
-): ConfiguredMountParseResult {
-  const trimmed = String(raw || '').trim();
-  if (!trimmed) return { mounts: [], warnings: [] };
-
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(parsed)) {
-      return {
-        mounts: [],
-        warnings: ['container.additionalMounts must be a JSON array'],
-      };
-    }
-
-    const mounts: AdditionalMount[] = [];
-    const warnings: string[] = [];
-    for (const item of parsed) {
-      if (!item || typeof item !== 'object') {
-        warnings.push('container.additionalMounts contains a non-object entry');
-        continue;
-      }
-      const mount = item as Partial<AdditionalMount>;
-      if (typeof mount.hostPath !== 'string' || !mount.hostPath.trim()) {
-        warnings.push(
-          'container.additionalMounts contains an entry without hostPath',
-        );
-        continue;
-      }
-      if (
-        mount.containerPath != null &&
-        (typeof mount.containerPath !== 'string' || !mount.containerPath.trim())
-      ) {
-        warnings.push(
-          `container.additionalMounts entry for "${mount.hostPath}" has an invalid containerPath`,
-        );
-        continue;
-      }
-      mounts.push({
-        hostPath: mount.hostPath.trim(),
-        containerPath: mount.containerPath?.trim(),
-        readonly: mount.readonly !== false,
-      });
-    }
-
-    return {
-      mounts: dedupeMounts(mounts),
-      warnings,
-    };
-  } catch (err) {
-    return {
-      mounts: [],
-      warnings: [
-        `Failed to parse container.additionalMounts JSON: ${err instanceof Error ? err.message : String(err)}`,
-      ],
-    };
-  }
-}
-
 export function resolveConfiguredAdditionalMounts(
   containerConfig: Pick<
     RuntimeConfig['container'],
@@ -175,11 +116,8 @@ export function resolveConfiguredAdditionalMounts(
   >,
 ): ConfiguredMountParseResult {
   const bindResult = parseBindSpecs(containerConfig.binds || []);
-  const legacyResult = parseLegacyAdditionalMounts(
-    containerConfig.additionalMounts || '',
-  );
   return {
-    mounts: dedupeMounts([...bindResult.mounts, ...legacyResult.mounts]),
-    warnings: [...bindResult.warnings, ...legacyResult.warnings],
+    mounts: bindResult.mounts,
+    warnings: bindResult.warnings,
   };
 }

@@ -99,13 +99,13 @@ afterEach(() => {
 });
 
 describe('bluebubbles iMessage backend', () => {
-  test('rejects unauthorized webhook requests', async () => {
+  test('rejects query-param webhook passwords', async () => {
     const { createBlueBubblesIMessageBackend } =
       await importFreshBlueBubblesBackend();
     const onInbound = vi.fn(async () => {});
     const backend = createBlueBubblesIMessageBackend({ onInbound });
     const req = makeRequest({
-      url: '/api/imessage/webhook?password=wrong',
+      url: '/api/imessage/webhook?password=test-password',
       body: { type: 'new-message' },
     });
     const res = makeResponse();
@@ -122,7 +122,7 @@ describe('bluebubbles iMessage backend', () => {
     const onInbound = vi.fn(async () => {});
     const backend = createBlueBubblesIMessageBackend({ onInbound });
     const req = makeRequest({
-      url: '/api/imessage/webhook?password=test-password',
+      url: '/api/imessage/webhook',
       body: {
         type: 'new-message',
         data: {
@@ -142,6 +142,7 @@ describe('bluebubbles iMessage backend', () => {
         },
       },
     });
+    req.headers['x-hybridclaw-imessage-password'] = 'test-password';
     const res = makeResponse();
 
     await backend.handleWebhook?.(req as never, res as never);
@@ -162,9 +163,10 @@ describe('bluebubbles iMessage backend', () => {
     const onInbound = vi.fn(async () => {});
     const backend = createBlueBubblesIMessageBackend({ onInbound });
     const req = makeRequest({
-      url: '/api/imessage/webhook?password=test-password',
+      url: '/api/imessage/webhook',
       body: '{not-valid-json',
     });
+    req.headers['x-hybridclaw-imessage-password'] = 'test-password';
     const res = makeResponse();
 
     await backend.handleWebhook?.(req as never, res as never);
@@ -180,9 +182,10 @@ describe('bluebubbles iMessage backend', () => {
     const onInbound = vi.fn(async () => {});
     const backend = createBlueBubblesIMessageBackend({ onInbound });
     const req = makeRequest({
-      url: '/api/imessage/webhook?password=test-password',
+      url: '/api/imessage/webhook',
       body: [{ type: 'new-message' }],
     });
+    req.headers['x-hybridclaw-imessage-password'] = 'test-password';
     const res = makeResponse();
 
     await backend.handleWebhook?.(req as never, res as never);

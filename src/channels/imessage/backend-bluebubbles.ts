@@ -119,19 +119,10 @@ function safeEqual(value: string, expected: string): boolean {
   return timingSafeEqual(valueBuffer, expectedBuffer);
 }
 
-function readWebhookPassword(
-  req: IncomingMessage,
-  url: URL,
-): string | undefined {
+function readWebhookPassword(req: IncomingMessage): string | undefined {
   const headerValue = req.headers['x-hybridclaw-imessage-password'];
   if (typeof headerValue === 'string' && headerValue.trim()) {
     return headerValue.trim();
-  }
-  // Header auth is preferred. Query-param secrets remain as a compatibility
-  // fallback because some relay/proxy setups cannot inject custom headers.
-  for (const key of ['password', 'guid', 'token']) {
-    const value = url.searchParams.get(key);
-    if (value?.trim()) return value.trim();
   }
   return undefined;
 }
@@ -291,7 +282,6 @@ export function createBlueBubblesIMessageBackend(
       req: IncomingMessage,
       res: ServerResponse,
     ): Promise<boolean> {
-      const url = new URL(req.url || '/', 'http://localhost');
       const decision = webhookRateLimiter.check(
         req.socket.remoteAddress || 'unknown',
         WEBHOOK_RATE_LIMIT,
@@ -304,9 +294,7 @@ export function createBlueBubblesIMessageBackend(
       }
 
       const expectedPassword = IMESSAGE_PASSWORD.trim();
-      const suppliedPassword = String(
-        readWebhookPassword(req, url) || '',
-      ).trim();
+      const suppliedPassword = String(readWebhookPassword(req) || '').trim();
       if (
         !expectedPassword ||
         !suppliedPassword ||

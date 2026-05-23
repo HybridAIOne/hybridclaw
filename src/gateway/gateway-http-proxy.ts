@@ -498,6 +498,13 @@ function isHubSpotApiHost(host?: string): boolean {
   );
 }
 
+function requiresBearerDomainBinding(secretName: string): boolean {
+  return (
+    !isGoogleWorkspaceRuntimeTokenName(secretName) &&
+    secretName !== HUBSPOT_ACCESS_TOKEN_SECRET
+  );
+}
+
 function isGoogleOAuthHttpAuthRuleSecret(
   value: unknown,
 ): value is RuntimeHttpRequestGoogleOAuthSecretRef {
@@ -800,15 +807,21 @@ function extractBaseDomain(hostname: string): string {
  *
  * When a captured value is stored as a bearer secret, the gateway stores a
  * domain binding as `{SECRET_NAME}_BOUND_DOMAIN`. If a binding exists, the
- * target URL's hostname must match (exact or subdomain). If no binding exists,
- * any URL is allowed for backward compatibility.
+ * target URL's hostname must match (exact or subdomain).
  */
 function assertBearerDomainBinding(secretName: string, targetUrl: URL): void {
+  if (!requiresBearerDomainBinding(secretName)) return;
+
   const bindingKey = `${secretName}${BOUND_DOMAIN_SUFFIX}`;
   const boundDomain = readStoredRuntimeSecret(bindingKey);
-  if (!boundDomain) return; // no binding → unrestricted
-
   const targetHost = targetUrl.hostname.toLowerCase();
+  if (!boundDomain) {
+    throw new GatewayRequestError(
+      403,
+      `Secret ${secretName} is missing ${bindingKey}; request to ${targetHost} is blocked.`,
+    );
+  }
+
   const allowed = boundDomain.toLowerCase();
   if (targetHost === allowed || targetHost.endsWith(`.${allowed}`)) {
     return;

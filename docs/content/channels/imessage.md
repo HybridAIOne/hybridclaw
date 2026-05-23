@@ -205,6 +205,9 @@ For headless or container deployments, provide the master key through
 `HYBRIDCLAW_MASTER_KEY` or `/run/secrets/hybridclaw_master_key`. Do not rely on
 plaintext `imessage.password` in config unless you have a very good reason.
 
+Inbound BlueBubbles webhooks must send the password in the
+`x-hybridclaw-imessage-password` header.
+
 ### Step 4: Add the iMessage Config
 
 Open `~/.hybridclaw/config.json` and add or update:

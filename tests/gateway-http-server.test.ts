@@ -9733,6 +9733,50 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  test('blocks bearerSecretName when stored secret is unbound', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-unbound-bearer-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      EXTERNAL_ACCESS_TOKEN: 'external-access-token',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.example.com/v1/items',
+        bearerSecretName: 'EXTERNAL_ACCESS_TOKEN',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toContain(
+      'EXTERNAL_ACCESS_TOKEN_BOUND_DOMAIN',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('captures explicit bearer token fields without exposing the response body', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-');
     process.env.HOME = homeDir;
