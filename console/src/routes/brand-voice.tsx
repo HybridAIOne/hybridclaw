@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchBrandVoiceProfile,
+  fetchModels,
   previewBrandVoiceProfile,
   saveBrandVoiceProfile,
 } from '../api/client';
@@ -23,6 +24,7 @@ import { useToast } from '../components/toast';
 import { BooleanField, PageHeader, SegmentedToggle } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
+import { ModelSwitchSelect } from './chat/model-switch-select';
 
 const EMPTY_PROFILE: AdminBrandVoiceProfile = {
   enabled: true,
@@ -34,7 +36,8 @@ const EMPTY_PROFILE: AdminBrandVoiceProfile = {
   bannedPatterns: [],
   requirePhrases: [],
   classifier: {
-    provider: 'rules',
+    provider: 'default',
+    model: '',
   },
 };
 
@@ -47,8 +50,9 @@ function profilesEqual(
 
 function classifierDefaults(
   provider: AdminBrandVoiceClassifierConfig['provider'],
+  model = '',
 ): AdminBrandVoiceClassifierConfig {
-  return { provider };
+  return { provider, model: provider === 'model' ? model.trim() : '' };
 }
 
 function cleanProfile(profile: AdminBrandVoiceProfile): AdminBrandVoiceProfile {
@@ -62,7 +66,10 @@ function cleanProfile(profile: AdminBrandVoiceProfile): AdminBrandVoiceProfile {
     bannedPhrases: cleanList(profile.bannedPhrases),
     bannedPatterns: cleanList(profile.bannedPatterns),
     requirePhrases: cleanList(profile.requirePhrases),
-    classifier: classifierDefaults(profile.classifier.provider),
+    classifier: classifierDefaults(
+      profile.classifier.provider,
+      profile.classifier.model,
+    ),
   };
 }
 
@@ -176,10 +183,13 @@ function formatClassifierStatus(
   if (classifier.status === 'evaluated' && classifier.verdict) {
     const severity = classifier.severity ? `, ${classifier.severity}` : '';
     const model = classifier.model ? ` via ${classifier.model}` : '';
-    return `Classifier ${classifier.provider}${model}: ${formatVerdict(classifier.verdict)}${severity}.`;
-  }
-  if (classifier.status === 'rules_only') {
-    return 'Rules-only classifier; using deterministic rule score.';
+    const source =
+      classifier.provider === 'default'
+        ? 'default model'
+        : classifier.provider === 'auxiliary'
+          ? 'aux model'
+          : 'selected model';
+    return `Classifier ${source}${model}: ${formatVerdict(classifier.verdict)}${severity}.`;
   }
   if (classifier.status === 'unparseable') {
     return 'Classifier response was not parseable; showing rules score.';
@@ -204,6 +214,10 @@ export function BrandVoicePage() {
     queryKey: ['brand-voice-profile', auth.token],
     queryFn: () => fetchBrandVoiceProfile(auth.token),
   });
+  const modelsQuery = useQuery({
+    queryKey: ['models', auth.token],
+    queryFn: () => fetchModels(auth.token),
+  });
 
   useEffect(() => {
     if (profileQuery.data?.profile) {
@@ -213,6 +227,13 @@ export function BrandVoicePage() {
 
   const savedProfile = profileQuery.data?.profile ?? EMPTY_PROFILE;
   const hasChanges = !profilesEqual(cleanProfile(profile), savedProfile);
+  const modelOptions = modelsQuery.data?.models ?? [];
+  const selectedClassifierModelId =
+    profile.classifier.provider === 'model'
+      ? profile.classifier.model
+      : profile.classifier.provider === 'default'
+        ? (modelsQuery.data?.defaultModel ?? '')
+        : '';
 
   const saveMutation = useMutation({
     mutationFn: () => saveBrandVoiceProfile(auth.token, cleanProfile(profile)),
@@ -302,25 +323,43 @@ export function BrandVoicePage() {
                 </div>
                 <div className="field">
                   <span>Classifier</span>
-                  <SegmentedToggle
-                    ariaLabel="Brand voice classifier provider"
-                    value={profile.classifier.provider}
-                    options={[
-                      { value: 'rules', label: 'rules only' },
-                      { value: 'default', label: 'default model' },
-                      { value: 'auxiliary', label: 'aux model' },
-                    ]}
-                    onChange={(provider) =>
-                      setProfile((current) => {
-                        const nextProvider =
-                          provider as AdminBrandVoiceClassifierConfig['provider'];
-                        return {
+                  <div className="brand-voice-classifier-control">
+                    <SegmentedToggle
+                      ariaLabel="Brand voice classifier source"
+                      value={
+                        profile.classifier.provider === 'auxiliary'
+                          ? 'auxiliary'
+                          : profile.classifier.provider === 'default'
+                            ? 'default'
+                            : ''
+                      }
+                      options={[
+                        { value: 'default', label: 'default model' },
+                        { value: 'auxiliary', label: 'aux model' },
+                      ]}
+                      onChange={(provider) =>
+                        setProfile((current) => {
+                          const nextProvider =
+                            provider as AdminBrandVoiceClassifierConfig['provider'];
+                          return {
+                            ...current,
+                            classifier: classifierDefaults(nextProvider),
+                          };
+                        })
+                      }
+                    />
+                    <ModelSwitchSelect
+                      models={modelOptions}
+                      selectedModelId={selectedClassifierModelId}
+                      disabled={modelsQuery.isLoading}
+                      onSwitch={(model) =>
+                        setProfile((current) => ({
                           ...current,
-                          classifier: classifierDefaults(nextProvider),
-                        };
-                      })
-                    }
-                  />
+                          classifier: classifierDefaults('model', model),
+                        }))
+                      }
+                    />
+                  </div>
                 </div>
                 <label className="field textarea-field">
                   <span>Voice</span>
@@ -353,8 +392,8 @@ export function BrandVoicePage() {
                   }
                 />
                 <small className="brand-voice-list-note">
-                  Do and Don't guide rewrites; preview scores banned and
-                  required rules.
+                  Do and Don't guide rewrites and classifier context; banned and
+                  required rules stay deterministic.
                 </small>
                 <ListEditor
                   label="Banned phrases"

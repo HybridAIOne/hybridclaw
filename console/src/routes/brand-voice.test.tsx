@@ -5,12 +5,14 @@ import type {
   AdminBrandVoicePreviewResponse,
   AdminBrandVoiceProfileResponse,
   AdminBrandVoiceProfileUpdateResponse,
+  AdminModelsResponse,
 } from '../api/types';
 import { ToastProvider } from '../components/toast';
 import { BrandVoicePage } from './brand-voice';
 
 const fetchBrandVoiceProfileMock =
   vi.fn<() => Promise<AdminBrandVoiceProfileResponse>>();
+const fetchModelsMock = vi.fn<() => Promise<AdminModelsResponse>>();
 const saveBrandVoiceProfileMock =
   vi.fn<
     (...args: unknown[]) => Promise<AdminBrandVoiceProfileUpdateResponse>
@@ -21,6 +23,7 @@ const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
   fetchBrandVoiceProfile: () => fetchBrandVoiceProfileMock(),
+  fetchModels: () => fetchModelsMock(),
   previewBrandVoiceProfile: (...args: unknown[]) =>
     previewBrandVoiceProfileMock(...args),
   saveBrandVoiceProfile: (...args: unknown[]) =>
@@ -60,7 +63,8 @@ beforeEach(() => {
       bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
       requirePhrases: ['Best regards'],
       classifier: {
-        provider: 'rules',
+        provider: 'default',
+        model: '',
       },
     },
     revisions: [
@@ -87,10 +91,39 @@ beforeEach(() => {
       bannedPatterns: ['/\\bguarantee[sd]?\\b/i'],
       requirePhrases: ['Best regards'],
       classifier: {
-        provider: 'default',
+        provider: 'auxiliary',
+        model: '',
       },
     },
     revisions: [],
+  });
+  fetchModelsMock.mockResolvedValue({
+    defaultModel: 'hybridai/default-chat',
+    providerStatus: {},
+    models: [
+      {
+        id: 'hybridai/default-chat',
+        provider: 'hybridai',
+        backend: null,
+        contextWindow: 128000,
+        isReasoning: false,
+        family: 'gpt',
+        parameterSize: null,
+        discovered: true,
+        maxTokens: null,
+        pricingUsdPerToken: { input: null, output: null },
+        capabilities: {
+          vision: false,
+          tools: true,
+          jsonMode: true,
+          reasoning: false,
+        },
+        metadataSources: [],
+        thinkingFormat: null,
+        usageDaily: null,
+        usageMonthly: null,
+      },
+    ],
   });
   previewBrandVoiceProfileMock.mockResolvedValue({
     score: 58,
@@ -99,13 +132,13 @@ beforeEach(() => {
     verdict: 'off_brand',
     violations: [{ kind: 'banned_phrase', detail: 'game changing' }],
     classifier: {
-      provider: 'rules',
-      status: 'rules_only',
-      verdict: null,
-      severity: null,
+      provider: 'default',
+      status: 'evaluated',
+      verdict: 'on_brand',
+      severity: 'low',
       reasons: [],
-      message: 'Rules-only classifier; using deterministic rule score.',
-      model: null,
+      message: null,
+      model: 'hybridai/default-chat',
     },
   });
 });
@@ -124,7 +157,7 @@ describe('BrandVoicePage', () => {
     fireEvent.change(doInputs[1], {
       target: { value: 'Prefer short sentences' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'default model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'aux model' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() =>
@@ -133,7 +166,8 @@ describe('BrandVoicePage', () => {
         expect.objectContaining({
           doList: ['Use concrete nouns', 'Prefer short sentences'],
           classifier: expect.objectContaining({
-            provider: 'default',
+            provider: 'auxiliary',
+            model: '',
           }),
         }),
       ),
@@ -159,7 +193,7 @@ describe('BrandVoicePage', () => {
     expect(screen.getByText('58/100, off brand (rules)')).toBeTruthy();
     expect(
       screen.getByText(
-        'Rules-only classifier; using deterministic rule score.',
+        'Classifier default model via hybridai/default-chat: on brand, low.',
       ),
     ).toBeTruthy();
   });

@@ -23,9 +23,9 @@ import type {
 const BRAND_VOICE_PLUGIN_ID = 'brand-voice';
 const SUPPORTED_MODES = ['block', 'rewrite', 'flag'] as const;
 const SUPPORTED_CLASSIFIER_PROVIDERS = [
-  'rules',
   'default',
   'auxiliary',
+  'model',
 ] as const;
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'] as const;
 const BRAND_VOICE_REVISION_ROUTE = 'api.admin.brand-voice.profile';
@@ -46,6 +46,7 @@ type BrandVoiceFailureMode = (typeof SUPPORTED_FAILURE_MODES)[number];
 
 interface BrandVoiceModelClientConfig {
   provider: BrandVoiceClassifierProvider;
+  model: string;
 }
 
 interface BrandVoicePreviewRuntimeConfig
@@ -109,7 +110,7 @@ function normalizeClassifierProvider(
     normalized as BrandVoiceClassifierProvider,
   )
     ? (normalized as BrandVoiceClassifierProvider)
-    : 'rules';
+    : 'default';
 }
 
 function normalizeFailureMode(value: unknown): BrandVoiceFailureMode {
@@ -121,7 +122,8 @@ function normalizeFailureMode(value: unknown): BrandVoiceFailureMode {
 
 function defaultClassifierConfig(): GatewayAdminBrandVoiceClassifierConfig {
   return {
-    provider: 'rules',
+    provider: 'default',
+    model: '',
   };
 }
 
@@ -130,7 +132,11 @@ function normalizeClassifierConfig(
 ): BrandVoiceModelClientConfig {
   const raw = isRecord(value) ? value : {};
   const provider = normalizeClassifierProvider(raw.provider);
-  return { provider };
+  const model = normalizeString(raw.model);
+  if (provider === 'model' && !model) {
+    throw new Error('Brand voice classifier model is required.');
+  }
+  return { provider, model: provider === 'model' ? model : '' };
 }
 
 function normalizeProfileClassifier(
@@ -139,7 +145,8 @@ function normalizeProfileClassifier(
   if (value === undefined) return defaultClassifierConfig();
   const raw = isRecord(value) ? value : {};
   const provider = normalizeClassifierProvider(raw.provider);
-  return { provider };
+  const model = normalizeString(raw.model);
+  return { provider, model: provider === 'model' ? model : '' };
 }
 
 function runtimeClassifierToProfile(
@@ -147,7 +154,8 @@ function runtimeClassifierToProfile(
 ): GatewayAdminBrandVoiceClassifierConfig {
   const raw = isRecord(value) ? value : {};
   const provider = normalizeClassifierProvider(raw.provider);
-  return { provider };
+  const model = normalizeString(raw.model);
+  return { provider, model: provider === 'model' ? model : '' };
 }
 
 function findBrandVoiceEntry(
@@ -260,8 +268,11 @@ function applyProfileToConfig(
 function buildRuntimeClassifierConfig(
   classifier: GatewayAdminBrandVoiceClassifierConfig,
 ): Record<string, unknown> {
-  if (classifier.provider === 'rules') {
-    return { provider: 'rules' };
+  if (classifier.provider === 'model') {
+    return {
+      provider: 'model',
+      model: classifier.model,
+    };
   }
   return {
     provider: classifier.provider,
@@ -349,6 +360,13 @@ function assertValidBannedPatterns(
   );
 }
 
+function assertValidClassifier(profile: GatewayAdminBrandVoiceProfile): void {
+  if (profile.classifier.provider !== 'model' || profile.classifier.model) {
+    return;
+  }
+  throw new Error('Brand voice classifier model is required.');
+}
+
 function phraseAppears(text: string, phrase: string): boolean {
   return text.toLowerCase().includes(phrase.toLowerCase());
 }
@@ -427,8 +445,8 @@ async function callClassifierModel(
   userPrompt: string,
   fallbackModel: string,
 ): Promise<{ content: string; model: string }> {
-  if (client.provider === 'rules') {
-    throw new Error('Brand voice classifier is in rules-only mode.');
+  if (client.provider === 'model' && !client.model) {
+    throw new Error('Brand voice classifier model is required.');
   }
   const systemPrompt = [
     'You are a brand-voice compliance reviewer.',
@@ -444,7 +462,12 @@ async function callClassifierModel(
       { role: 'user', content: userPrompt },
     ],
     provider: client.provider === 'default' ? 'auto' : undefined,
-    model: client.provider === 'default' ? fallbackModel : undefined,
+    model:
+      client.provider === 'default'
+        ? fallbackModel
+        : client.provider === 'model'
+          ? client.model
+          : undefined,
     fallbackModel,
     fallbackEnableRag: false,
     maxTokens: 1024,
@@ -499,22 +522,11 @@ async function runPreviewClassifier(
   violations: GatewayAdminBrandVoicePreviewViolation[],
 ): Promise<GatewayAdminBrandVoicePreviewClassifier> {
   const { classifier } = config;
-  if (classifier.provider === 'rules') {
-    return {
-      provider: 'rules',
-      status: 'rules_only',
-      verdict: null,
-      severity: null,
-      reasons: [],
-      message: 'Rules-only classifier; using deterministic rule score.',
-      model: null,
-    };
-  }
   try {
     const result = await callClassifierModel(
       classifier,
       buildClassifierPrompt(config, sample, violations),
-      getRuntimeConfig().hybridai.defaultModel,
+      getRuntimeConfig().hybridai?.defaultModel ?? '',
     );
     const verdict = parseClassifierVerdict(result.content);
     if (!verdict) {
@@ -622,6 +634,7 @@ export async function updateGatewayAdminBrandVoiceProfile(
   const previousProfile = readProfileFromConfig(previousConfig);
   const profile = normalizeProfile(isRecord(body) ? body.profile : body);
   assertValidBannedPatterns(profile);
+  assertValidClassifier(profile);
   applyProfileToConfig(nextConfig, profile);
 
   const changed = !profilesEqual(previousProfile, profile);
@@ -687,6 +700,7 @@ export async function previewGatewayAdminBrandVoiceProfile(
       ? getGatewayAdminBrandVoiceProfile().profile
       : normalizeProfile(raw.profile);
   assertValidBannedPatterns(profile);
+  assertValidClassifier(profile);
   const runtimeConfig = buildPreviewRuntimeConfig(getRuntimeConfig(), profile);
   const violations = scoreViolations(runtimeConfig, sample);
   const classifier = await runPreviewClassifier(

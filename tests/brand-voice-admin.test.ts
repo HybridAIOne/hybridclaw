@@ -113,7 +113,7 @@ describe('brand voice admin API helpers', () => {
             id: 'brand-voice',
             enabled: true,
             config: {
-              classifier: { provider: 'rules' },
+              classifier: { provider: 'default' },
               voice: 'Plainspoken.',
               bannedPhrases: ['synergy'],
             },
@@ -146,6 +146,7 @@ describe('brand voice admin API helpers', () => {
           requirePhrases: ['Best regards'],
           classifier: {
             provider: 'default',
+            model: '',
           },
         },
       }),
@@ -159,6 +160,7 @@ describe('brand voice admin API helpers', () => {
         doList: ['Use facts'],
         classifier: {
           provider: 'default',
+          model: '',
         },
       },
     });
@@ -206,8 +208,8 @@ describe('brand voice admin API helpers', () => {
         { kind: 'missing_required', detail: 'Best regards' },
       ],
       classifier: {
-        provider: 'rules',
-        status: 'rules_only',
+        provider: 'default',
+        status: 'unparseable',
         verdict: null,
       },
     });
@@ -258,6 +260,7 @@ describe('brand voice admin API helpers', () => {
         requirePhrases: [],
         classifier: {
           provider: 'auxiliary',
+          model: '',
         },
       },
     });
@@ -317,6 +320,7 @@ describe('brand voice admin API helpers', () => {
         requirePhrases: [],
         classifier: {
           provider: 'default',
+          model: '',
         },
       },
     });
@@ -325,6 +329,52 @@ describe('brand voice admin API helpers', () => {
       expect.objectContaining({
         provider: 'auto',
         model: 'hybridai/default-chat',
+        fallbackModel: 'hybridai/default-chat',
+      }),
+    );
+  });
+
+  test('routes explicit classifier model selections through that model', async () => {
+    const admin = await importBrandVoiceAdmin(
+      {
+        hybridai: { defaultModel: 'hybridai/default-chat' },
+        plugins: { list: [] },
+      } as RuntimeConfig,
+      {
+        auxiliaryResult: {
+          provider: 'hybridai',
+          model: 'openai/gpt-5-mini',
+          content: JSON.stringify({
+            verdict: 'on_brand',
+            reasons: [],
+            severity: 'low',
+          }),
+        },
+      },
+    );
+
+    await admin.previewGatewayAdminBrandVoiceProfile({
+      sample: 'Concrete and plain.',
+      profile: {
+        enabled: true,
+        mode: 'rewrite',
+        voice: 'Concrete and plain.',
+        doList: [],
+        dontList: [],
+        bannedPhrases: [],
+        bannedPatterns: [],
+        requirePhrases: [],
+        classifier: {
+          provider: 'model',
+          model: 'openai/gpt-5-mini',
+        },
+      },
+    });
+
+    expect(admin.callAuxiliaryModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: undefined,
+        model: 'openai/gpt-5-mini',
         fallbackModel: 'hybridai/default-chat',
       }),
     );

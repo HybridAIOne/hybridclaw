@@ -10,6 +10,18 @@ import type {
 } from '../src/plugins/plugin-types.js';
 import { useTempDir } from './test-utils.ts';
 
+vi.mock('../src/providers/auxiliary.js', () => ({
+  callAuxiliaryModel: vi.fn(async () => ({
+    provider: 'hybridai',
+    model: 'test-brand-voice-classifier',
+    content: JSON.stringify({
+      verdict: 'on_brand',
+      reasons: [],
+      severity: 'low',
+    }),
+  })),
+}));
+
 const makeTempDir = useTempDir();
 
 function loadRuntimeConfig(): RuntimeConfig {

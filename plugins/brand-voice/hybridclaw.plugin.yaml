@@ -79,8 +79,11 @@ configSchema:
       properties:
         provider:
           type: string
-          enum: [rules, default, auxiliary]
-          default: rules
+          enum: [default, auxiliary, model]
+          default: default
+        model:
+          type: string
+          default: ''
     rewriter:
       type: object
       additionalProperties: false

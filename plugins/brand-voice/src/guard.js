@@ -85,30 +85,28 @@ export function createBrandVoiceGuard({ api, config }) {
 
       const violations = detectRuleViolations(text, config);
       let classifierVerdict = null;
-      if (config.classifier.provider !== 'rules') {
-        try {
-          const raw = await callBrandVoiceModel({
-            client: config.classifier,
-            api,
-            systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
-            userPrompt: buildClassifierPrompt(context, voiceBrief, violations),
-            fallbackModel: context.model,
-          });
-          classifierVerdict = tryParseClassifierVerdict(raw);
-          if (!classifierVerdict) {
-            api.logger.warn(
-              { rawSnippet: String(raw || '').slice(0, 200) },
-              'brand-voice: classifier returned non-parseable verdict; ignoring',
-            );
-          }
-        } catch (error) {
-          api.logger.warn({ error }, 'brand-voice: classifier call failed');
-          if (config.failureMode === 'block') {
-            return {
-              action: 'block',
-              reason: 'Brand-voice classifier unavailable.',
-            };
-          }
+      try {
+        const raw = await callBrandVoiceModel({
+          client: config.classifier,
+          api,
+          systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
+          userPrompt: buildClassifierPrompt(context, voiceBrief, violations),
+          fallbackModel: context.model,
+        });
+        classifierVerdict = tryParseClassifierVerdict(raw);
+        if (!classifierVerdict) {
+          api.logger.warn(
+            { rawSnippet: String(raw || '').slice(0, 200) },
+            'brand-voice: classifier returned non-parseable verdict; ignoring',
+          );
+        }
+      } catch (error) {
+        api.logger.warn({ error }, 'brand-voice: classifier call failed');
+        if (config.failureMode === 'block') {
+          return {
+            action: 'block',
+            reason: 'Brand-voice classifier unavailable.',
+          };
         }
       }
 

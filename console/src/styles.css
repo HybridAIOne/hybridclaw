@@ -1665,6 +1665,13 @@ th {
   line-height: 1.45;
 }
 
+.brand-voice-classifier-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
+  gap: 8px;
+  align-items: center;
+}
+
 .brand-voice-score-panel {
   display: grid;
   gap: 10px;
@@ -2953,6 +2960,10 @@ th {
 
   .tunnel-action-stack {
     justify-items: stretch;
+  }
+
+  .brand-voice-classifier-control {
+    grid-template-columns: 1fr;
   }
 
   /* Sticky topbar on mobile */

@@ -1319,7 +1319,8 @@ export interface GatewayAdminBrandVoiceProfile {
 }
 
 export interface GatewayAdminBrandVoiceClassifierConfig {
-  provider: 'rules' | 'default' | 'auxiliary';
+  provider: 'default' | 'auxiliary' | 'model';
+  model: string;
 }
 
 export interface GatewayAdminBrandVoiceRevision {
@@ -1348,8 +1349,8 @@ export interface GatewayAdminBrandVoicePreviewViolation {
 }
 
 export interface GatewayAdminBrandVoicePreviewClassifier {
-  provider: 'rules' | 'default' | 'auxiliary';
-  status: 'rules_only' | 'evaluated' | 'unavailable' | 'unparseable';
+  provider: 'default' | 'auxiliary' | 'model';
+  status: 'evaluated' | 'unavailable' | 'unparseable';
   verdict: 'on_brand' | 'off_brand' | null;
   severity: 'low' | 'medium' | 'high' | null;
   reasons: string[];

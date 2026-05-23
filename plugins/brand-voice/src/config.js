@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const SUPPORTED_PROVIDERS = ['none', 'anthropic', 'openai', 'openai-compat'];
-const SUPPORTED_CLASSIFIER_PROVIDERS = ['rules', 'default', 'auxiliary'];
+const SUPPORTED_CLASSIFIER_PROVIDERS = ['default', 'auxiliary', 'model'];
 const SUPPORTED_MODES = ['block', 'rewrite', 'flag'];
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'];
 
@@ -107,9 +107,13 @@ function resolveClassifierConfig(rawConfig) {
   const provider = ensureEnum(
     rawConfig?.provider,
     SUPPORTED_CLASSIFIER_PROVIDERS,
-    'rules',
+    'default',
   );
-  return { provider };
+  const model = normalizeString(rawConfig?.model);
+  if (provider === 'model' && !model) {
+    throw new Error('brand-voice: classifier model is required.');
+  }
+  return { provider, model: provider === 'model' ? model : '' };
 }
 
 function defaultApiKeyEnv(provider) {

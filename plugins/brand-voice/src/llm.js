@@ -109,12 +109,16 @@ export async function callBrandVoiceModel({
   userPrompt,
   fallbackModel,
 }) {
-  if (client.provider === 'rules' || client.provider === 'none') {
+  if (client.provider === 'none') {
     throw new Error(
       `brand-voice: model client provider is "${client.provider}"`,
     );
   }
-  if (client.provider === 'default' || client.provider === 'auxiliary') {
+  if (
+    client.provider === 'default' ||
+    client.provider === 'auxiliary' ||
+    client.provider === 'model'
+  ) {
     const result = await api.callAuxiliaryModel({
       task: 'skills_hub',
       messages: [
@@ -122,7 +126,12 @@ export async function callBrandVoiceModel({
         { role: 'user', content: userPrompt },
       ],
       provider: client.provider === 'default' ? 'auto' : undefined,
-      model: client.provider === 'default' ? fallbackModel : undefined,
+      model:
+        client.provider === 'default'
+          ? fallbackModel
+          : client.provider === 'model'
+            ? client.model
+            : undefined,
       fallbackModel,
       fallbackEnableRag: false,
       maxTokens: 1024,
