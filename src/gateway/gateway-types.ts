@@ -1312,7 +1312,7 @@ export interface GatewayAdminPlugin {
   name: string | null;
   version: string | null;
   description: string | null;
-  source: 'home' | 'project' | 'config';
+  source: 'home' | 'project' | 'bundled' | 'config';
   enabled: boolean;
   status: 'loaded' | 'failed';
   error: string | null;

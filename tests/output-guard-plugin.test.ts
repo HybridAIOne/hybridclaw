@@ -99,7 +99,6 @@ test('output-guard rules detect banned phrases, banned patterns, and missing req
 test('output-guard plugin registers post-receive middleware via PluginManager', async () => {
   const homeDir = makeTempDir('hybridclaw-output-guard-home-');
   const cwd = makeTempDir('hybridclaw-output-guard-project-');
-  installBundledPlugin(cwd);
 
   const config = loadRuntimeConfig();
   config.plugins.list = [
@@ -129,6 +128,61 @@ test('output-guard plugin registers post-receive middleware via PluginManager', 
       id: 'output-guard',
       enabled: true,
       status: 'loaded',
+      candidate: expect.objectContaining({
+        source: 'bundled',
+      }),
+    }),
+  ]);
+});
+
+test('configured bundled output guard applies without local plugin install', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'output-guard',
+      enabled: true,
+      config: {
+        mode: 'block',
+        bannedPhrases: ['stupid'],
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  expect(manager.getLoadedPlugins()).toEqual([
+    expect.objectContaining({
+      id: 'output-guard',
+      status: 'loaded',
+      candidate: expect.objectContaining({
+        source: 'bundled',
+      }),
+    }),
+  ]);
+
+  const outcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    resultText: 'That is a stupid response.',
+  });
+
+  expect(outcome.blocked).toBe(true);
+  expect(outcome.resultText).toBe(
+    'Output guard violations: banned phrases: "stupid"',
+  );
+  expect(outcome.events).toEqual([
+    expect.objectContaining({
+      pluginId: 'output-guard',
+      guardId: 'output-guard',
+      action: 'block',
     }),
   ]);
 });
