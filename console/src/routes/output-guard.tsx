@@ -24,7 +24,7 @@ import { useToast } from '../components/toast';
 import { BooleanField, PageHeader, SegmentedToggle } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
-import { ModelSwitchSelect } from './chat/model-switch-select';
+import { ModelSwitchSelect, parseModel } from './chat/model-switch-select';
 
 const EMPTY_PROFILE: AdminOutputGuardProfile = {
   enabled: true,
@@ -57,6 +57,16 @@ function modelConfigDefaults(
   model = '',
 ): AdminOutputGuardModelConfig {
   return { provider, model: provider === 'model' ? model.trim() : '' };
+}
+
+function formatModelLabel(
+  modelId: string | null | undefined,
+  models: Awaited<ReturnType<typeof fetchModels>>['models'],
+): string {
+  const normalized = modelId?.trim() ?? '';
+  if (!normalized) return '';
+  const entry = models.find((model) => model.id === normalized);
+  return entry ? parseModel(entry).displayName : normalized;
 }
 
 function cleanProfile(
@@ -174,16 +184,23 @@ function ModelSourceControl(props: {
   value: AdminOutputGuardModelConfig;
   modelOptions: Awaited<ReturnType<typeof fetchModels>>['models'];
   defaultOtherModelId: string;
+  activeModelId: string | null;
+  activeModelFallback: string;
   modelsLoading: boolean;
   onChange: (value: AdminOutputGuardModelConfig) => void;
 }) {
   const selectedModelId =
     props.value.provider === 'model' ? props.value.model : '';
+  const activeModelLabel = formatModelLabel(
+    props.activeModelId,
+    props.modelOptions,
+  );
+  const readoutLabel = activeModelLabel || props.activeModelFallback;
   return (
     <div className="field">
       <span>{props.label}</span>
       <div
-        className={`output-guard-classifier-control ${
+        className={`output-guard-model-source-control has-model-readout ${
           props.value.provider === 'model' ? 'has-model-select' : ''
         }`}
       >
@@ -214,7 +231,14 @@ function ModelSourceControl(props: {
               props.onChange(modelConfigDefaults('model', model))
             }
           />
-        ) : null}
+        ) : (
+          <div
+            className="output-guard-model-readout"
+            title={props.activeModelId || readoutLabel}
+          >
+            {readoutLabel}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -291,6 +315,10 @@ export function OutputGuardPage() {
   const hasChanges = !profilesEqual(cleanProfile(profile), savedProfile);
   const modelOptions = modelsQuery.data?.models ?? [];
   const defaultModelId = modelsQuery.data?.defaultModel ?? '';
+  const auxiliaryModelId =
+    modelsQuery.data?.auxiliaryModels?.skillsHub.model ?? null;
+  const auxiliaryProvider =
+    modelsQuery.data?.auxiliaryModels?.skillsHub.provider ?? 'auto';
   const defaultOtherModelId =
     modelOptions.find((model) => model.id !== defaultModelId)?.id ??
     defaultModelId;
@@ -422,6 +450,18 @@ export function OutputGuardPage() {
                   value={profile.classifier}
                   modelOptions={modelOptions}
                   defaultOtherModelId={defaultOtherModelId}
+                  activeModelId={
+                    profile.classifier.provider === 'default'
+                      ? defaultModelId
+                      : auxiliaryModelId
+                  }
+                  activeModelFallback={
+                    profile.classifier.provider === 'default'
+                      ? 'No default model'
+                      : auxiliaryProvider === 'disabled'
+                        ? 'Aux model disabled'
+                        : 'Auto routing'
+                  }
                   modelsLoading={modelsQuery.isLoading}
                   onChange={(classifier) =>
                     setProfile((current) => ({ ...current, classifier }))
@@ -433,6 +473,18 @@ export function OutputGuardPage() {
                   value={profile.rewriter}
                   modelOptions={modelOptions}
                   defaultOtherModelId={defaultOtherModelId}
+                  activeModelId={
+                    profile.rewriter.provider === 'default'
+                      ? defaultModelId
+                      : auxiliaryModelId
+                  }
+                  activeModelFallback={
+                    profile.rewriter.provider === 'default'
+                      ? 'No default model'
+                      : auxiliaryProvider === 'disabled'
+                        ? 'Aux model disabled'
+                        : 'Auto routing'
+                  }
                   modelsLoading={modelsQuery.isLoading}
                   onChange={(rewriter) =>
                     setProfile((current) => ({ ...current, rewriter }))

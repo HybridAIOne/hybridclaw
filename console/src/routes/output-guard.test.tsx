@@ -113,6 +113,12 @@ beforeEach(() => {
   });
   fetchModelsMock.mockResolvedValue({
     defaultModel: 'hybridai/default-chat',
+    auxiliaryModels: {
+      skillsHub: {
+        provider: 'openrouter',
+        model: 'openrouter/openai/gpt-5-mini',
+      },
+    },
     providerStatus: {},
     models: [
       {
@@ -138,8 +144,8 @@ beforeEach(() => {
         usageMonthly: null,
       },
       {
-        id: 'openai/gpt-5-mini',
-        provider: 'openai',
+        id: 'openrouter/openai/gpt-5-mini',
+        provider: 'openrouter',
         backend: null,
         contextWindow: 128000,
         isReasoning: false,
@@ -188,6 +194,7 @@ describe('OutputGuardPage', () => {
     renderOutputGuardPage();
 
     expect(await screen.findByDisplayValue('Use concrete nouns')).toBeTruthy();
+    expect(screen.getAllByText('Default Chat')).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Add Do item' }));
     const doInputs = screen.getAllByPlaceholderText('Use concrete nouns');
     fireEvent.change(doInputs[1], {
@@ -200,6 +207,7 @@ describe('OutputGuardPage', () => {
         }),
       ).getByRole('button', { name: 'aux model' }),
     );
+    expect(screen.getByText('GPT-5 Mini')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() =>
@@ -267,7 +275,7 @@ describe('OutputGuardPage', () => {
         expect.objectContaining({
           classifier: {
             provider: 'model',
-            model: 'openai/gpt-5-mini',
+            model: 'openrouter/openai/gpt-5-mini',
           },
           rewriter: {
             provider: 'default',

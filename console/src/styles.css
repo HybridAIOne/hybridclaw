@@ -1665,14 +1665,30 @@ th {
   line-height: 1.45;
 }
 
-.output-guard-classifier-control {
+.output-guard-model-source-control {
   display: grid;
   gap: 8px;
   align-items: center;
 }
 
-.output-guard-classifier-control.has-model-select {
+.output-guard-model-source-control.has-model-readout {
   grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
+}
+
+.output-guard-model-readout {
+  min-height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  background: var(--panel-muted);
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .output-guard-score-panel {
@@ -2965,11 +2981,11 @@ th {
     justify-items: stretch;
   }
 
-  .output-guard-classifier-control {
+  .output-guard-model-source-control {
     grid-template-columns: 1fr;
   }
 
-  .output-guard-classifier-control.has-model-select {
+  .output-guard-model-source-control.has-model-readout {
     grid-template-columns: 1fr;
   }
 

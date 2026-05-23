@@ -1097,6 +1097,33 @@ export interface GatewayAdminModelCatalogEntry {
 
 export interface GatewayAdminModelsResponse {
   defaultModel: string;
+  auxiliaryModels?: {
+    skillsHub: {
+      provider:
+        | 'auto'
+        | 'disabled'
+        | 'hybridai'
+        | 'openai-codex'
+        | 'anthropic'
+        | 'openrouter'
+        | 'mistral'
+        | 'huggingface'
+        | 'gemini'
+        | 'deepseek'
+        | 'xai'
+        | 'zai'
+        | 'kimi'
+        | 'minimax'
+        | 'dashscope'
+        | 'xiaomi'
+        | 'kilo'
+        | 'ollama'
+        | 'lmstudio'
+        | 'llamacpp'
+        | 'vllm';
+      model: string | null;
+    };
+  };
   providerStatus: GatewayStatus['providerHealth'];
   models: GatewayAdminModelCatalogEntry[];
 }
