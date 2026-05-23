@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SUPPORTED_PROVIDERS = ['none', 'anthropic', 'openai', 'openai-compat'];
+const SUPPORTED_MODEL_SOURCES = ['default', 'auxiliary', 'model'];
 const SUPPORTED_MODES = ['block', 'rewrite', 'flag'];
 const SUPPORTED_FAILURE_MODES = ['allow', 'block'];
 
@@ -24,6 +24,15 @@ function ensureEnum(value, allowed, fallback) {
   return allowed.includes(normalized) ? normalized : fallback;
 }
 
+function ensureModelSource(value, label) {
+  const normalized = normalizeString(value).toLowerCase();
+  if (!normalized) return 'default';
+  if (SUPPORTED_MODEL_SOURCES.includes(normalized)) return normalized;
+  throw new Error(
+    `output-guard: unsupported ${label} model source "${normalized}".`,
+  );
+}
+
 function ensureNumber(value, fallback, { min, max } = {}) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   let next = value;
@@ -44,7 +53,7 @@ function compileRegexEntry(entry, errors) {
     return new RegExp(trimmed, 'i');
   } catch (error) {
     errors.push(
-      `brand-voice: invalid regex pattern ${JSON.stringify(entry)}: ${
+      `output-guard: invalid regex pattern ${JSON.stringify(entry)}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -52,9 +61,9 @@ function compileRegexEntry(entry, errors) {
   }
 }
 
-function resolveVoiceFile(voiceFile, runtime, logger) {
-  if (!voiceFile) return '';
-  let resolved = voiceFile;
+function resolvePolicyFile(policyFile, runtime, logger) {
+  if (!policyFile) return '';
+  let resolved = policyFile;
   if (resolved.startsWith('~/')) {
     resolved = path.join(runtime.homeDir, resolved.slice(2));
   } else if (!path.isAbsolute(resolved)) {
@@ -65,56 +74,25 @@ function resolveVoiceFile(voiceFile, runtime, logger) {
     return String(text || '').trim();
   } catch (error) {
     logger.warn(
-      { voiceFile, resolvedPath: resolved, error },
-      'brand-voice: voiceFile not readable; ignoring',
+      { policyFile, resolvedPath: resolved, error },
+      'output-guard: policyFile not readable; ignoring',
     );
     return '';
   }
 }
 
-function resolveModelClientConfig(rawConfig, fallbackEnv, label) {
-  const provider = ensureEnum(rawConfig?.provider, SUPPORTED_PROVIDERS, 'none');
-  if (provider === 'none') {
-    return { provider: 'none' };
-  }
+function resolveModelSourceConfig(rawConfig, label) {
+  const provider = ensureModelSource(rawConfig?.provider, label);
   const model = normalizeString(rawConfig?.model);
-  if (!model) {
+  if (provider === 'model' && !model) {
     throw new Error(
-      `brand-voice: ${label} provider is "${provider}" but \`${label}.model\` is empty.`,
+      `output-guard: ${label} model source is "${provider}" but \`${label}.model\` is empty.`,
     );
   }
-  const apiKeyEnv =
-    normalizeString(rawConfig?.apiKeyEnv) || defaultApiKeyEnv(provider);
-  const baseUrl =
-    normalizeString(rawConfig?.baseUrl) || defaultBaseUrl(provider);
-  const timeoutMs = ensureNumber(rawConfig?.timeoutMs, fallbackEnv.timeoutMs, {
-    min: 1000,
-    max: fallbackEnv.maxTimeoutMs,
-  });
-  const maxRetries = ensureNumber(rawConfig?.maxRetries, 1, { min: 0, max: 3 });
-  return {
-    provider,
-    model,
-    baseUrl,
-    apiKeyEnv,
-    timeoutMs,
-    maxRetries,
-  };
+  return { provider, model: provider === 'model' ? model : '' };
 }
 
-function defaultApiKeyEnv(provider) {
-  if (provider === 'anthropic') return 'ANTHROPIC_API_KEY';
-  if (provider === 'openai') return 'OPENAI_API_KEY';
-  return 'BRAND_VOICE_API_KEY';
-}
-
-function defaultBaseUrl(provider) {
-  if (provider === 'anthropic') return 'https://api.anthropic.com';
-  if (provider === 'openai') return 'https://api.openai.com/v1';
-  return '';
-}
-
-export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
+export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
   const errors = [];
   const enabled = rawConfig?.enabled !== false;
   const mode = ensureEnum(rawConfig?.mode, SUPPORTED_MODES, 'rewrite');
@@ -123,9 +101,11 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
     SUPPORTED_FAILURE_MODES,
     'allow',
   );
-  const voice = normalizeString(rawConfig?.voice);
-  const voiceFileText = resolveVoiceFile(
-    normalizeString(rawConfig?.voiceFile),
+  const policy = normalizeString(rawConfig?.policy);
+  const doList = normalizeStringArray(rawConfig?.doList);
+  const dontList = normalizeStringArray(rawConfig?.dontList);
+  const policyFileText = resolvePolicyFile(
+    normalizeString(rawConfig?.policyFile),
     runtime,
     logger,
   );
@@ -141,30 +121,27 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
   const requirePhrases = normalizeStringArray(rawConfig?.requirePhrases);
   const blockMessage =
     normalizeString(rawConfig?.blockMessage) ||
-    'Output blocked by brand-voice guard.';
+    'Output blocked by output guard.';
   const minLength = ensureNumber(rawConfig?.minLength, 0, { min: 0 });
 
-  const classifier = resolveModelClientConfig(
+  const classifier = resolveModelSourceConfig(
     rawConfig?.classifier,
-    { timeoutMs: 8000, maxTimeoutMs: 60000 },
     'classifier',
   );
-  const rewriter = resolveModelClientConfig(
-    rawConfig?.rewriter,
-    { timeoutMs: 12000, maxTimeoutMs: 120000 },
-    'rewriter',
-  );
+  const rewriter = resolveModelSourceConfig(rawConfig?.rewriter, 'rewriter');
 
   for (const error of errors) {
-    logger.warn({ error }, 'brand-voice config issue');
+    logger.warn({ error }, 'output-guard config issue');
   }
 
   return Object.freeze({
     enabled,
     mode,
     failureMode,
-    voice,
-    voiceFileText,
+    policy,
+    doList: Object.freeze(doList),
+    dontList: Object.freeze(dontList),
+    policyFileText,
     bannedPhrases: Object.freeze(bannedPhrases),
     bannedPatterns: Object.freeze(
       bannedPatternEntries.map((entry) => Object.freeze(entry)),
@@ -177,10 +154,20 @@ export function resolveBrandVoiceConfig(rawConfig, runtime, logger) {
   });
 }
 
-export function buildVoiceBrief(config) {
+export function buildPolicyBrief(config) {
   const sections = [];
-  if (config.voice) sections.push(`Brand voice: ${config.voice}`);
-  if (config.voiceFileText) sections.push(config.voiceFileText);
+  if (config.policy) sections.push(`Output policy: ${config.policy}`);
+  if (config.policyFileText) sections.push(config.policyFileText);
+  if (config.doList.length > 0) {
+    sections.push(
+      `Do:\n${config.doList.map((entry) => `- ${entry}`).join('\n')}`,
+    );
+  }
+  if (config.dontList.length > 0) {
+    sections.push(
+      `Don't:\n${config.dontList.map((entry) => `- ${entry}`).join('\n')}`,
+    );
+  }
   if (config.bannedPhrases.length > 0) {
     sections.push(
       `Never use these phrases: ${config.bannedPhrases

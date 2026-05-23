@@ -1609,6 +1609,21 @@ th {
   opacity: 0.72;
 }
 
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
 .button-with-spinner {
   display: inline-flex;
   align-items: center;
@@ -1622,6 +1637,89 @@ th {
   border-right-color: transparent;
   border-radius: 999px;
   animation: button-spinner-rotate 0.75s linear infinite;
+}
+
+.output-guard-list-field {
+  display: grid;
+}
+
+.output-guard-list {
+  display: grid;
+  gap: 8px;
+}
+
+.output-guard-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.output-guard-add-button {
+  width: fit-content;
+}
+
+.output-guard-list-note {
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.output-guard-model-source-control {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+}
+
+.output-guard-model-source-control.has-model-readout {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
+}
+
+.output-guard-model-readout {
+  min-height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  background: var(--panel-muted);
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-guard-score-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted);
+}
+
+.output-guard-score-bar {
+  overflow: hidden;
+  height: 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
+}
+
+.output-guard-score-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
+}
+
+.output-guard-reason-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 @keyframes button-spinner-rotate {
@@ -2881,6 +2979,14 @@ th {
 
   .tunnel-action-stack {
     justify-items: stretch;
+  }
+
+  .output-guard-model-source-control {
+    grid-template-columns: 1fr;
+  }
+
+  .output-guard-model-source-control.has-model-readout {
+    grid-template-columns: 1fr;
   }
 
   /* Sticky topbar on mobile */

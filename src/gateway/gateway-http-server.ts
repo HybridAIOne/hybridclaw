@@ -97,6 +97,7 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { isAdminActionAllowed } from '../security/admin-rbac.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import {
   normalizeRecentChatSearchQuery,
@@ -142,7 +143,12 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
-import { getGatewayAdminSecrets } from './gateway-admin-secrets.js';
+import {
+  getGatewayAdminSecrets,
+  overwriteGatewayAdminSecret,
+  recordGatewayAdminSecretMutationFailure,
+  unsetGatewayAdminSecret,
+} from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
@@ -261,6 +267,11 @@ import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import {
+  getGatewayAdminOutputGuardProfile,
+  previewGatewayAdminOutputGuardProfile,
+  updateGatewayAdminOutputGuardProfile,
+} from './output-guard-admin.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
@@ -1767,6 +1778,21 @@ function resolveAdminSessionAuditId(
     'actor',
   ]);
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function resolveAdminSecretAuditContext(
+  req: IncomingMessage,
+  sessionPayload: Record<string, unknown> | null,
+): {
+  sessionId?: string;
+  actor?: string | null;
+  sourceIp?: string | null;
+} {
+  return {
+    sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
+    actor: resolveAdminSessionActor(sessionPayload),
+    sourceIp: req.socket.remoteAddress || null,
+  };
 }
 
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
@@ -3454,18 +3480,123 @@ function handleApiAdminSecrets(
   res: ServerResponse,
 ): void {
   const sessionPayload = getSessionAuthPayload(req);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.list_metadata')) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
 
   sendJson(
     res,
     200,
     getGatewayAdminSecrets({
-      audit: {
-        sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
-        actor: resolveAdminSessionActor(sessionPayload),
-        sourceIp: req.socket.remoteAddress || null,
-      },
+      audit: resolveAdminSecretAuditContext(req, sessionPayload),
     }),
   );
+}
+
+function parseApiAdminSecretName(pathname: string): string | null {
+  const prefix = '/api/admin/secrets/';
+  if (!pathname.startsWith(prefix)) return null;
+  const encoded = pathname.slice(prefix.length);
+  if (!encoded || encoded.includes('/')) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new GatewayRequestError(400, 'Invalid secret name in request path.');
+  }
+}
+
+function readAdminSecretBodyValue(body: unknown): unknown {
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    return (body as { value?: unknown }).value;
+  }
+  return undefined;
+}
+
+async function handleApiAdminSecretOverwrite(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+): Promise<void> {
+  const sessionPayload = getSessionAuthPayload(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.overwrite')) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.overwritten',
+      name,
+      audit,
+      errorCode: 'forbidden',
+    });
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.overwritten',
+      name,
+      audit,
+      errorCode:
+        error instanceof GatewayRequestError ? 'bad_request' : 'write_failed',
+    });
+    throw error;
+  }
+  sendJson(
+    res,
+    200,
+    overwriteGatewayAdminSecret({
+      name,
+      value: readAdminSecretBodyValue(body),
+      audit,
+    }),
+  );
+}
+
+async function handleApiAdminSecretUnset(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+): Promise<void> {
+  const sessionPayload = getSessionAuthPayload(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.unset')) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.unset',
+      name,
+      audit,
+      errorCode: 'forbidden',
+    });
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  sendJson(res, 200, unsetGatewayAdminSecret({ name, audit }));
+}
+
+function recordUnauthenticatedAdminSecretMutation(
+  req: IncomingMessage,
+  pathname: string,
+  method: string,
+): void {
+  if (method !== 'PUT' && method !== 'DELETE') return;
+  let name: string | null = null;
+  try {
+    name = parseApiAdminSecretName(pathname);
+  } catch {
+    return;
+  }
+  if (name === null) return;
+  recordGatewayAdminSecretMutationFailure({
+    type: method === 'PUT' ? 'secret.overwritten' : 'secret.unset',
+    name,
+    audit: {
+      sourceIp: req.socket.remoteAddress || null,
+    },
+    errorCode: 'unauthorized',
+  });
 }
 
 async function handleApiAdminTunnelReconnect(
@@ -4994,6 +5125,57 @@ async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminPlugins());
 }
 
+async function handleApiAdminOutputGuard(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = req.method || 'GET';
+
+  if (method === 'GET') {
+    sendJson(res, 200, getGatewayAdminOutputGuardProfile());
+    return;
+  }
+
+  if (method === 'PUT') {
+    try {
+      sendJson(
+        res,
+        200,
+        await updateGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+      );
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  sendMethodNotAllowed(res);
+}
+
+async function handleApiAdminOutputGuardPreview(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') !== 'POST') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  try {
+    sendJson(
+      res,
+      200,
+      await previewGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+    );
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function handleApiAdminSkills(
   req: IncomingMessage,
   res: ServerResponse,
@@ -5755,6 +5937,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           requireSameOrigin: method !== 'GET',
         })
       ) {
+        recordUnauthenticatedAdminSecretMutation(req, pathname, method);
         sendJson(res, 401, {
           error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
         });
@@ -5786,6 +5969,25 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/secrets' && method === 'GET') {
             handleApiAdminSecrets(req, res);
+            return;
+          }
+          const adminSecretName = parseApiAdminSecretName(pathname);
+          if (adminSecretName !== null) {
+            if (method === 'GET') {
+              sendJson(res, 405, {
+                error: 'Secret values are write-only on this route.',
+              });
+              return;
+            }
+            if (method === 'PUT') {
+              await handleApiAdminSecretOverwrite(req, res, adminSecretName);
+              return;
+            }
+            if (method === 'DELETE') {
+              await handleApiAdminSecretUnset(req, res, adminSecretName);
+              return;
+            }
+            sendMethodNotAllowed(res);
             return;
           }
           if (pathname === '/api/admin/secrets') {
@@ -5998,6 +6200,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/plugins' && method === 'GET') {
             await handleApiAdminPlugins(res);
+            return;
+          }
+          if (pathname === '/api/admin/output-guard') {
+            await handleApiAdminOutputGuard(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/output-guard/preview') {
+            await handleApiAdminOutputGuardPreview(req, res);
             return;
           }
           if (pathname === '/api/admin/skills') {

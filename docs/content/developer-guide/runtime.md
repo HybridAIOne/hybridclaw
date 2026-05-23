@@ -100,6 +100,10 @@ Core details:
   persist acceptance automatically before credential validation runs.
 - `ops.webApiToken` (and the `WEB_API_TOKEN` env var) gate the built-in
   `/chat`, `/agents`, `/admin`, and admin API surfaces when set.
+  Treat this bearer token as an operator master token: admin API calls
+  authenticated with it are not narrowed by session-scoped admin action claims.
+  Session claims such as `secret.overwrite` and `secret.unset` apply to
+  browser/session-authenticated admin requests.
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` let local clients such as the
   TUI, eval runner, and gateway command client target a different
   already-running HybridClaw gateway.
