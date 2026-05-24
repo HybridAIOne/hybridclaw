@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { expect, test } from 'vitest';
@@ -13,6 +14,25 @@ const helperPath = path.join(
   'mittwald.cjs',
 );
 const skillPath = path.join(process.cwd(), 'skills', 'mittwald', 'SKILL.md');
+const require = createRequire(import.meta.url);
+type LoosePayload = Record<string, unknown> & {
+  approval: Record<string, unknown>;
+  costMeasurement: Record<string, unknown>;
+  eventConsistency: Record<string, unknown> & {
+    followUp: Record<string, unknown>;
+  };
+  httpRequest: Record<string, unknown>;
+  httpRequests: Array<Record<string, unknown>>;
+  rateLimit: Record<string, unknown>;
+  secretPolicy: Record<string, unknown>;
+  steps: Array<Record<string, unknown>>;
+};
+const mittwald = require('../skills/mittwald/mittwald.cjs') as {
+  commandClassifyResponse: (args: string[]) => LoosePayload;
+  commandEventFollowUp: (args: string[]) => LoosePayload;
+  commandHttpRequest: (args: string[]) => LoosePayload;
+  commandPlan: (args: string[]) => LoosePayload;
+};
 
 function runHelper(args: string[]) {
   return spawnSync('node', [helperPath, ...args], {
@@ -20,10 +40,20 @@ function runHelper(args: string[]) {
   });
 }
 
-function runJson(args: string[]) {
-  const result = runHelper(['--format', 'json', ...args]);
-  expect(result.status).toBe(0);
-  return JSON.parse(result.stdout);
+function buildHttp(args: string[]) {
+  return mittwald.commandHttpRequest([...args]);
+}
+
+function buildPlan(args: string[]) {
+  return mittwald.commandPlan([...args]);
+}
+
+function buildFollowUp(args: string[]) {
+  return mittwald.commandEventFollowUp([...args]);
+}
+
+function classify(args: string[]) {
+  return mittwald.commandClassifyResponse([...args]);
 }
 
 test('mittwald skill manifest declares SecretRef credential metadata', () => {
@@ -74,7 +104,7 @@ test('mittwald helper exposes expected read commands', () => {
 });
 
 test('mittwald helper emits SecretRef-backed whoami request without secrets', () => {
-  const payload = runJson(['http-request', 'whoami']);
+  const payload = buildHttp(['whoami']);
 
   expect(payload).toMatchObject({
     command: 'http-request',
@@ -98,8 +128,7 @@ test('mittwald helper emits SecretRef-backed whoami request without secrets', ()
 });
 
 test('mittwald helper builds bounded project list requests', () => {
-  const payload = runJson([
-    'http-request',
+  const payload = buildHttp([
     'projects',
     '--limit',
     '25',
@@ -125,24 +154,21 @@ test('mittwald helper builds bounded project list requests', () => {
 });
 
 test('mittwald helper builds project-scoped endpoint URLs safely', () => {
-  const apps = runJson([
-    'http-request',
+  const apps = buildHttp([
     'apps',
     '--project-id',
     'project/with spaces',
     '--limit',
     '10',
   ]);
-  const domains = runJson([
-    'http-request',
+  const domains = buildHttp([
     'domains',
     '--project-id',
     'project-id',
     '--domain-search-name',
     'example.com',
   ]);
-  const serviceLogs = runJson([
-    'http-request',
+  const serviceLogs = buildHttp([
     'service-logs',
     '--stack-id',
     'stack id',
@@ -164,12 +190,7 @@ test('mittwald helper builds project-scoped endpoint URLs safely', () => {
 });
 
 test('mittwald databases command emits MySQL and Redis httpRequest payloads', () => {
-  const payload = runJson([
-    'http-request',
-    'databases',
-    '--project-id',
-    'project-id',
-  ]);
+  const payload = buildHttp(['databases', '--project-id', 'project-id']);
 
   expect(payload).toMatchObject({
     command: 'http-request',
@@ -222,8 +243,7 @@ test('mittwald guarded writes require exact operator grant', () => {
 });
 
 test('mittwald guarded app action emits red request with target approval and follow-up', () => {
-  const payload = runJson([
-    'http-request',
+  const payload = buildHttp([
     'app-action',
     '--app-installation-id',
     'app/123',
@@ -270,8 +290,7 @@ test('mittwald guarded app action emits red request with target approval and fol
 });
 
 test('mittwald guarded database creation uses secret placeholders and bounded follow-up', () => {
-  const payload = runJson([
-    'http-request',
+  const payload = buildHttp([
     'create-mysql-database',
     '--project-id',
     'project-id',
@@ -283,8 +302,7 @@ test('mittwald guarded database creation uses secret placeholders and bounded fo
     'MITTWALD_MYSQL_PASSWORD',
     '--operator-grant',
   ]);
-  const followUp = runJson([
-    'event-follow-up',
+  const followUp = buildFollowUp([
     'create-mysql-database',
     '--project-id',
     'project-id',
@@ -331,8 +349,7 @@ test('mittwald guarded database creation uses secret placeholders and bounded fo
 });
 
 test('mittwald guarded backup restore and marketplace order are red operations', () => {
-  const restore = runJson([
-    'http-request',
+  const restore = buildHttp([
     'restore-backup-path',
     '--backup-id',
     'backup-123',
@@ -342,8 +359,7 @@ test('mittwald guarded backup restore and marketplace order are red operations',
     '/html-restore',
     '--operator-grant',
   ]);
-  const marketplace = runJson([
-    'http-request',
+  const marketplace = buildHttp([
     'order-extension',
     '--extension-id',
     'extension-123',
@@ -384,8 +400,7 @@ test('mittwald guarded backup restore and marketplace order are red operations',
 });
 
 test('mittwald guarded domain changes include target ids and consistency reads', () => {
-  const payload = runJson([
-    'http-request',
+  const payload = buildHttp([
     'update-domain-nameservers',
     '--domain-id',
     'domain-123',
@@ -395,8 +410,7 @@ test('mittwald guarded domain changes include target ids and consistency reads',
     'ns2.example.com',
     '--operator-grant',
   ]);
-  const followUp = runJson([
-    'event-follow-up',
+  const followUp = buildFollowUp([
     'update-domain-nameservers',
     '--domain-id',
     'domain-123',
@@ -428,13 +442,107 @@ test('mittwald guarded domain changes include target ids and consistency reads',
   });
 });
 
-test('mittwald deploy-check plan is read-only and SecretRef-aware', () => {
-  const payload = runJson([
-    'plan',
-    'deploy-check',
+test('mittwald non-mutating domain availability does not require grant or follow-up', () => {
+  const payload = buildHttp([
+    'check-domain-availability',
+    '--domain',
+    'example.com',
+  ]);
+
+  expect(payload).toMatchObject({
+    command: 'http-request',
+    operation: 'check-domain-availability',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'https://api.mittwald.de/v2/domains',
+      method: 'POST',
+      json: {
+        domain: 'example.com',
+      },
+    },
+  });
+  expect(payload).not.toHaveProperty('approval');
+  expect(payload).not.toHaveProperty('eventConsistency');
+});
+
+test('mittwald validates risky write bodies and deletion timestamps early', () => {
+  const invalidDate = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'schedule-domain-deletion',
+    '--domain-id',
+    'domain-123',
+    '--deletion-date',
+    'tomorrow',
+    '--operator-grant',
+  ]);
+  const invalidOrder = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'order-extension',
+    '--extension-id',
+    'extension-123',
+    '--body-json',
+    '{"consentedScopes":[]}',
+    '--operator-grant',
+  ]);
+  const invalidRestore = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'restore-backup',
+    '--backup-id',
+    'backup-123',
+    '--body-json',
+    '{"restoreType":"surprise"}',
+    '--operator-grant',
+  ]);
+
+  expect(invalidDate.status).toBe(1);
+  expect(invalidDate.stderr).toContain('ISO 8601 UTC timestamp');
+  expect(invalidOrder.status).toBe(1);
+  expect(invalidOrder.stderr).toContain('requires projectId or customerId');
+  expect(invalidRestore.status).toBe(1);
+  expect(invalidRestore.stderr).toContain(
+    'requires pathRestore or databaseRestores',
+  );
+});
+
+test('mittwald app id fallback has explicit error label', () => {
+  const result = runHelper(['--format', 'json', 'http-request', 'app-status']);
+
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('--app-installation-id (or --app-id)');
+});
+
+test('mittwald ssh and sftp list operations share pagination parsing', () => {
+  const ssh = buildHttp([
+    'ssh-users',
     '--project-id',
     'project-id',
+    '--limit',
+    '10',
+    '--page',
+    '2',
   ]);
+  const sftp = buildHttp([
+    'sftp-users',
+    '--project-id',
+    'project-id',
+    '--limit',
+    '10',
+    '--page',
+    '3',
+  ]);
+
+  expect(new URL(ssh.httpRequest.url).searchParams.get('page')).toBe('2');
+  expect(new URL(sftp.httpRequest.url).searchParams.get('page')).toBe('3');
+});
+
+test('mittwald deploy-check plan is read-only and SecretRef-aware', () => {
+  const payload = buildPlan(['deploy-check', '--project-id', 'project-id']);
 
   expect(payload).toMatchObject({
     command: 'plan',
@@ -474,9 +582,8 @@ test('mittwald deploy-check plan is read-only and SecretRef-aware', () => {
 });
 
 test('mittwald response classifier stops auth failures and reports rate limits', () => {
-  const unauthorized = runJson(['classify-response', '--status', '403']);
-  const rateLimited = runJson([
-    'classify-response',
+  const unauthorized = classify(['--status', '403']);
+  const rateLimited = classify([
     '--status',
     '429',
     '--headers-json',

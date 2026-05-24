@@ -14,14 +14,10 @@ const COST_MEASUREMENT = {
 const LIVE_EXECUTION = {
   mode: 'live-mittwald-api',
   requiresConfiguredSecrets: [SECRET_NAME],
-  dryRunSafe:
-    'For prompt/user testing, stop after producing this payload; do not call http_request.',
   callPolicy:
-    'For live mittwald reads, pass the emitted httpRequest object unchanged to http_request so the gateway injects the bearer token server-side.',
+    'Pass the emitted httpRequest object unchanged to http_request so the gateway injects the bearer token server-side.',
   secretRefPolicy:
     'Do not preflight, inspect, print, or ask the model for MITTWALD_API_TOKEN. bearerSecretName is the credential reference.',
-  requestShape:
-    'Do not handcraft mittwald API calls. The helper owns endpoint selection, method, payload, stakes tier, and bearerSecretName.',
   unauthorizedPolicy:
     'If a live call returns 401 or 403, stop after the first failure. Do not retry or call additional mittwald endpoints; ask the operator to set or verify MITTWALD_API_TOKEN.',
   rateLimitPolicy:
@@ -73,7 +69,7 @@ const OPERATION_TIERS = {
   'change-domain-project': 'amber',
   'update-domain-nameservers': 'amber',
   'cancel-domain-deletion': 'amber',
-  'check-domain-availability': 'amber',
+  'check-domain-availability': 'green',
   'validate-license-key': 'amber',
   'create-delivery-box': 'amber',
   'app-action': 'red',
@@ -84,8 +80,7 @@ const OPERATION_TIERS = {
   'schedule-domain-deletion': 'red',
 };
 const HTTP_OPERATIONS = new Set(Object.keys(OPERATION_TIERS));
-const APP_ACTIONS = new Set(['start', 'stop', 'restart']);
-const SERVICE_ACTIONS = new Set(['start', 'stop', 'restart']);
+const LIFECYCLE_ACTIONS = new Set(['start', 'stop', 'restart']);
 
 function die(message) {
   process.stderr.write(`${message}\n`);
@@ -141,6 +136,46 @@ function encodeSegment(value, label) {
   return encodeURIComponent(requireText(value, label));
 }
 
+function projectPath(project) {
+  return `${API_BASE}/projects/${encodeSegment(project, '--project-id')}`;
+}
+
+function projectResourcePath(project, resource) {
+  return `${projectPath(project)}/${resource}`;
+}
+
+function appInstallationPath(app) {
+  return `${API_BASE}/app-installations/${encodeSegment(app, '--app-installation-id')}`;
+}
+
+function appInstallationResourcePath(app, resource) {
+  return `${appInstallationPath(app)}/${resource}`;
+}
+
+function domainPath(domain) {
+  return `${API_BASE}/domains/${encodeSegment(domain, '--domain-id')}`;
+}
+
+function domainResourcePath(domain, resource) {
+  return `${domainPath(domain)}/${resource}`;
+}
+
+function backupPath(backup) {
+  return `${API_BASE}/project-backups/${encodeSegment(backup, '--backup-id')}`;
+}
+
+function backupResourcePath(backup, resource) {
+  return `${backupPath(backup)}/${resource}`;
+}
+
+function servicePath(stack, service) {
+  return `${API_BASE}/stacks/${encodeSegment(stack, '--stack-id')}/services/${encodeSegment(service, '--service-id')}`;
+}
+
+function serviceResourcePath(stack, service, resource) {
+  return `${servicePath(stack, service)}/${resource}`;
+}
+
 function followUpArgv(operation, targetArgs) {
   return [
     'node',
@@ -153,6 +188,21 @@ function followUpArgv(operation, targetArgs) {
     '--event-id',
     '<etag>',
   ];
+}
+
+function planStep(operation, ...flags) {
+  return {
+    operation,
+    argv: [
+      'node',
+      'skills/mittwald/mittwald.cjs',
+      '--format',
+      'json',
+      'http-request',
+      operation,
+      ...flags,
+    ],
+  };
 }
 
 function parseInteger(value, label, { min, max } = {}) {
@@ -211,6 +261,88 @@ function parseJsonFlag(args, name) {
   } catch (error) {
     die(`Could not parse ${name}: ${error.message}`);
   }
+}
+
+function requireObjectFields(object, operation, fields) {
+  for (const field of fields) {
+    if (
+      object[field] === undefined ||
+      object[field] === null ||
+      object[field] === ''
+    ) {
+      die(`${operation} --body-json requires ${field}.`);
+    }
+  }
+}
+
+function validateAppInstallationBody(json) {
+  requireObjectFields(json, 'create-app-installation', [
+    'appVersionId',
+    'description',
+    'updatePolicy',
+    'userInputs',
+  ]);
+  if (!Array.isArray(json.userInputs)) {
+    die('create-app-installation --body-json userInputs must be an array.');
+  }
+  return json;
+}
+
+function validateCronjobBody(json) {
+  requireObjectFields(json, 'create-cronjob', [
+    'description',
+    'interval',
+    'target',
+  ]);
+  if (typeof json.target !== 'object' || Array.isArray(json.target)) {
+    die('create-cronjob --body-json target must be an object.');
+  }
+  return json;
+}
+
+function validateBackupRestoreBody(json) {
+  if (json.pathRestore === undefined && json.databaseRestores === undefined) {
+    die('restore-backup --body-json requires pathRestore or databaseRestores.');
+  }
+  if (
+    json.databaseRestores !== undefined &&
+    !Array.isArray(json.databaseRestores)
+  ) {
+    die('restore-backup --body-json databaseRestores must be an array.');
+  }
+  if (
+    json.pathRestore !== undefined &&
+    (typeof json.pathRestore !== 'object' || Array.isArray(json.pathRestore))
+  ) {
+    die('restore-backup --body-json pathRestore must be an object.');
+  }
+  return json;
+}
+
+function validateExtensionOrderBody(json) {
+  requireObjectFields(json, 'order-extension', ['consentedScopes']);
+  if (!Array.isArray(json.consentedScopes)) {
+    die('order-extension --body-json consentedScopes must be an array.');
+  }
+  if (!json.projectId && !json.customerId) {
+    die('order-extension --body-json requires projectId or customerId.');
+  }
+  if (json.projectId && json.customerId) {
+    die(
+      'order-extension --body-json accepts projectId or customerId, not both.',
+    );
+  }
+  return json;
+}
+
+function validateIsoDateTime(value, label) {
+  const date = requireText(value, label);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(date)) {
+    die(
+      `${label} must be an ISO 8601 UTC timestamp such as 2026-06-01T00:00:00Z.`,
+    );
+  }
+  return date;
 }
 
 function secretPlaceholder(args, flag) {
@@ -287,9 +419,13 @@ function projectId(args) {
 }
 
 function appId(args) {
+  const value = popFlag(args, '--app-installation-id');
+  if (value !== undefined) {
+    return requireText(value, '--app-installation-id');
+  }
   return requireText(
-    popFlag(args, '--app-installation-id') || popFlag(args, '--app-id'),
-    '--app-installation-id',
+    popFlag(args, '--app-id'),
+    '--app-installation-id (or --app-id)',
   );
 }
 
@@ -326,716 +462,589 @@ function listQuery(args, allowed = {}) {
   return query;
 }
 
+function projectListRequest(operation, args, resource, allowed = {}) {
+  const project = projectId(args);
+  const query = listQuery(args, allowed);
+  return wrapHttpRequest(operation, {
+    url: appendQuery(projectResourcePath(project, resource), query),
+  });
+}
+
+const OPERATION_HANDLERS = {
+  whoami: (operation) =>
+    wrapHttpRequest(operation, { url: `${API_BASE}/user` }),
+  projects: (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: appendQuery(
+        `${API_BASE}/projects`,
+        listQuery(args, {
+          '--customer-id': 'customerId',
+          '--server-id': 'serverId',
+          '--search-term': 'searchTerm',
+          '--sort': 'sort',
+          '--order': 'order',
+        }),
+      ),
+    }),
+  project: (operation, args) =>
+    wrapHttpRequest(operation, { url: projectPath(projectId(args)) }),
+  apps: (operation, args) =>
+    projectListRequest(operation, args, 'app-installations', {
+      '--search-term': 'searchTerm',
+      '--sort-order': 'sortOrder',
+    }),
+  app: (operation, args) =>
+    wrapHttpRequest(operation, { url: appInstallationPath(appId(args)) }),
+  'app-status': (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: appInstallationResourcePath(appId(args), 'status'),
+    }),
+  'app-system-software': (operation, args) => {
+    const app = appId(args);
+    const tagFilter = popFlag(args, '--tag-filter');
+    return wrapHttpRequest(operation, {
+      url: appendQuery(appInstallationResourcePath(app, 'systemSoftware'), {
+        tagFilter,
+      }),
+    });
+  },
+  databases: (operation, args) => {
+    const project = projectId(args);
+    const mysql = wrapHttpRequest('mysql-databases', {
+      url: projectResourcePath(project, 'mysql-databases'),
+    });
+    const redis = wrapHttpRequest('redis-databases', {
+      url: projectResourcePath(project, 'redis-databases'),
+    });
+    return wrapHttpRequests(operation, [mysql, redis], {
+      note: 'Pass each httpRequests item to http_request, then merge MySQL and Redis results in the answer.',
+    });
+  },
+  'mysql-databases': (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: projectResourcePath(projectId(args), 'mysql-databases'),
+    }),
+  'redis-databases': (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: projectResourcePath(projectId(args), 'redis-databases'),
+    }),
+  domains: (operation, args) =>
+    projectListRequest(operation, args, 'domains', {
+      '--domain-search-name': 'domainSearchName',
+    }),
+  'dns-zones': (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: projectResourcePath(projectId(args), 'dns-zones'),
+    }),
+  ingresses: (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: projectResourcePath(projectId(args), 'ingresses'),
+    }),
+  backups: (operation, args) => {
+    const project = projectId(args);
+    const query = listQuery(args, {
+      '--search-term': 'searchTerm',
+      '--sort-order': 'sortOrder',
+    });
+    const withExportsOnly = popBooleanFlag(args, '--with-exports-only');
+    const runningRestoresOnly = popBooleanFlag(args, '--running-restores-only');
+    const runningBackupsOnly = popBooleanFlag(args, '--running-backups-only');
+    return wrapHttpRequest(operation, {
+      url: appendQuery(projectResourcePath(project, 'backups'), {
+        ...query,
+        withExportsOnly,
+        runningRestoresOnly,
+        runningBackupsOnly,
+      }),
+    });
+  },
+  'backup-path': (operation, args) => {
+    const backup = backupId(args);
+    const path = popFlag(args, '--path');
+    return wrapHttpRequest(operation, {
+      url: appendQuery(backupResourcePath(backup, 'path'), { path }),
+    });
+  },
+  'backup-database-dumps': (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: backupResourcePath(backupId(args), 'database-dumps'),
+    }),
+  cronjobs: (operation, args) => {
+    const project = projectId(args);
+    const query = listQuery(args);
+    const includeServiceCronjobs = popBooleanFlag(
+      args,
+      '--include-service-cronjobs',
+    );
+    return wrapHttpRequest(operation, {
+      url: appendQuery(projectResourcePath(project, 'cronjobs'), {
+        ...query,
+        includeServiceCronjobs,
+      }),
+    });
+  },
+  'ssh-users': (operation, args) =>
+    projectListRequest(operation, args, operation),
+  'sftp-users': (operation, args) =>
+    projectListRequest(operation, args, operation),
+  'mail-addresses': (operation, args) =>
+    projectListRequest(operation, args, 'mail-addresses', {
+      '--search': 'search',
+    }),
+  'delivery-boxes': (operation, args) =>
+    projectListRequest(operation, args, 'delivery-boxes'),
+  'mail-settings': (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: projectResourcePath(projectId(args), 'mail-settings'),
+    }),
+  stacks: (operation, args) =>
+    projectListRequest(operation, args, operation, {
+      '--search-term': 'searchTerm',
+      '--sort-order': 'sortOrder',
+      '--stack-id': 'stackId',
+      '--status': 'status',
+    }),
+  services: (operation, args) =>
+    projectListRequest(operation, args, operation, {
+      '--search-term': 'searchTerm',
+      '--sort-order': 'sortOrder',
+      '--stack-id': 'stackId',
+      '--status': 'status',
+    }),
+  volumes: (operation, args) =>
+    projectListRequest(operation, args, operation, {
+      '--search-term': 'searchTerm',
+      '--sort-order': 'sortOrder',
+      '--stack-id': 'stackId',
+      '--status': 'status',
+    }),
+  registries: (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: projectResourcePath(projectId(args), 'registries'),
+    }),
+  'service-logs': (operation, args) => {
+    const { stack, service } = stackAndService(args);
+    const tail = popFlag(args, '--tail', '200');
+    return wrapHttpRequest(operation, {
+      url: appendQuery(serviceResourcePath(stack, service, 'logs'), {
+        tail: parseInteger(tail, '--tail', { min: 1, max: 2_000 }),
+      }),
+    });
+  },
+  'file-info': (operation, args) => {
+    const project = projectId(args);
+    const file = requireText(popFlag(args, '--file'), '--file');
+    return wrapHttpRequest(operation, {
+      url: appendQuery(projectResourcePath(project, 'filesystem/files'), {
+        file,
+      }),
+    });
+  },
+  directory: (operation, args) => {
+    const project = projectId(args);
+    const directory = requireText(popFlag(args, '--directory'), '--directory');
+    const maxDepth = popFlag(args, '--max-depth', '1');
+    return wrapHttpRequest(operation, {
+      url: appendQuery(projectResourcePath(project, 'filesystem/directories'), {
+        directory,
+        max_depth: parseInteger(maxDepth, '--max-depth', {
+          min: 0,
+          max: 5,
+        }),
+        name: popFlag(args, '--name'),
+      }),
+    });
+  },
+  'disk-usage': (operation, args) => {
+    const project = projectId(args);
+    const directory = popFlag(args, '--directory');
+    return wrapHttpRequest(operation, {
+      url: appendQuery(projectResourcePath(project, 'filesystem/usages/disk'), {
+        directory,
+      }),
+    });
+  },
+  'extension-orders': (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: projectResourcePath(projectId(args), 'extension-orders'),
+    }),
+  'extension-instances': (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: appendQuery(
+        `${API_BASE}/extension-instances`,
+        listQuery(args, {
+          '--context': 'context',
+          '--context-id': 'contextId',
+          '--extension-id': 'extensionId',
+          '--search-term': 'searchTerm',
+        }),
+      ),
+    }),
+  'extension-instance': (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: `${API_BASE}/extension-instances/${encodeSegment(
+        popFlag(args, '--extension-instance-id'),
+        '--extension-instance-id',
+      )}`,
+    }),
+  licenses: (operation, args) =>
+    wrapHttpRequest(operation, {
+      url: projectResourcePath(projectId(args), 'licenses'),
+    }),
+  domain: (operation, args) =>
+    wrapHttpRequest(operation, { url: domainPath(domainId(args)) }),
+  backup: (operation, args) =>
+    wrapHttpRequest(operation, { url: backupPath(backupId(args)) }),
+  service: (operation, args) => {
+    const { stack, service } = stackAndService(args);
+    return wrapHttpRequest(operation, { url: servicePath(stack, service) });
+  },
+  'create-redis-database': (operation, args) => {
+    const project = projectId(args);
+    const description = requireText(
+      popFlag(args, '--description'),
+      '--description',
+    );
+    const version = requireText(popFlag(args, '--version'), '--version');
+    const target = `project:${project} redis:${description}`;
+    return wrapMutation(
+      operation,
+      {
+        url: projectResourcePath(project, 'redis-databases'),
+        method: 'POST',
+        json: { description, version },
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--project-id', project]),
+        verifies: 'redis database appears in project database inventory',
+      },
+    );
+  },
+  'create-mysql-database': (operation, args) => {
+    const project = projectId(args);
+    const description = requireText(
+      popFlag(args, '--description'),
+      '--description',
+    );
+    const version = requireText(popFlag(args, '--version'), '--version');
+    const password = secretPlaceholder(args, '--password-secret');
+    const externalAccess = popBooleanFlag(args, '--external-access');
+    const target = `project:${project} mysql:${description}`;
+    const user = { accessLevel: 'full', password };
+    if (externalAccess !== undefined) user.externalAccess = true;
+    return wrapMutation(
+      operation,
+      {
+        url: projectResourcePath(project, 'mysql-databases'),
+        method: 'POST',
+        json: {
+          database: { description, version },
+          user,
+        },
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--project-id', project]),
+        verifies: 'MySQL database appears in project database inventory',
+      },
+    );
+  },
+  'create-app-installation': (operation, args) => {
+    const project = projectId(args);
+    const json = validateAppInstallationBody(
+      parseJsonFlag(args, '--body-json'),
+    );
+    const target = `project:${project} appVersion:${json.appVersionId || 'unknown'}`;
+    return wrapMutation(
+      operation,
+      {
+        url: projectResourcePath(project, 'app-installations'),
+        method: 'POST',
+        json,
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--project-id', project]),
+        verifies: 'app installation appears in project app list',
+      },
+    );
+  },
+  'create-cronjob': (operation, args) => {
+    const project = projectId(args);
+    const json = validateCronjobBody(parseJsonFlag(args, '--body-json'));
+    const target = `project:${project} cronjob:${json.description || json.interval || 'new'}`;
+    return wrapMutation(
+      operation,
+      {
+        url: projectResourcePath(project, 'cronjobs'),
+        method: 'POST',
+        json,
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--project-id', project]),
+        verifies: 'cronjob appears in project cronjob list',
+      },
+    );
+  },
+  'app-action': (operation, args) => {
+    const app = appId(args);
+    const action = assertAllowedAction(
+      popFlag(args, '--action'),
+      LIFECYCLE_ACTIONS,
+      '--action',
+    );
+    const target = `app-installation:${app} action:${action}`;
+    return wrapMutation(
+      operation,
+      {
+        url: appInstallationResourcePath(app, `actions/${action}`),
+        method: 'POST',
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--app-installation-id', app]),
+        verifies: 'app runtime status reflects requested action',
+      },
+    );
+  },
+  'service-action': (operation, args) => {
+    const { stack, service } = stackAndService(args);
+    const action = assertAllowedAction(
+      popFlag(args, '--action'),
+      LIFECYCLE_ACTIONS,
+      '--action',
+    );
+    const target = `stack:${stack} service:${service} action:${action}`;
+    return wrapMutation(
+      operation,
+      {
+        url: serviceResourcePath(stack, service, `actions/${action}`),
+        method: 'POST',
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, [
+          '--stack-id',
+          stack,
+          '--service-id',
+          service,
+        ]),
+        verifies: 'service status reflects requested action',
+      },
+    );
+  },
+  'change-domain-project': (operation, args) => {
+    const domain = domainId(args);
+    const nextProject = requireText(
+      popFlag(args, '--target-project-id'),
+      '--target-project-id',
+    );
+    const target = `domain:${domain} target-project:${nextProject}`;
+    return wrapMutation(
+      operation,
+      {
+        url: domainResourcePath(domain, 'project-id'),
+        method: 'PATCH',
+        json: { projectId: nextProject },
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--domain-id', domain]),
+        verifies: 'domain project id matches target project',
+      },
+    );
+  },
+  'update-domain-nameservers': (operation, args) => {
+    const domain = domainId(args);
+    const nameservers = popRepeatedFlag(args, '--nameserver');
+    if (nameservers.length < 2) {
+      die(
+        'update-domain-nameservers requires at least two --nameserver values.',
+      );
+    }
+    const target = `domain:${domain} nameservers:${nameservers.join(',')}`;
+    return wrapMutation(
+      operation,
+      {
+        url: domainResourcePath(domain, 'nameservers'),
+        method: 'PATCH',
+        json: { nameservers },
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--domain-id', domain]),
+        verifies: 'domain nameservers match requested set',
+      },
+    );
+  },
+  'schedule-domain-deletion': (operation, args) => {
+    const domain = domainId(args);
+    const deletionDate = validateIsoDateTime(
+      popFlag(args, '--deletion-date'),
+      '--deletion-date',
+    );
+    const deleteIngresses = popBooleanFlag(args, '--delete-ingresses') === true;
+    const target = `domain:${domain} deletion-date:${deletionDate}`;
+    return wrapMutation(
+      operation,
+      {
+        url: domainResourcePath(domain, 'scheduled-deletion'),
+        method: 'POST',
+        json: { deletionDate, deleteIngresses },
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--domain-id', domain]),
+        verifies: 'domain scheduled deletion is visible',
+      },
+    );
+  },
+  'cancel-domain-deletion': (operation, args) => {
+    const domain = domainId(args);
+    const target = `domain:${domain} scheduled-deletion`;
+    return wrapMutation(
+      operation,
+      {
+        url: domainResourcePath(domain, 'scheduled-deletion'),
+        method: 'DELETE',
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--domain-id', domain]),
+        verifies: 'domain scheduled deletion is absent',
+      },
+    );
+  },
+  'check-domain-availability': (operation, args) => {
+    const domain = requireText(popFlag(args, '--domain'), '--domain');
+    return wrapHttpRequest(operation, {
+      url: `${API_BASE}/domains`,
+      method: 'POST',
+      json: { domain },
+    });
+  },
+  'restore-backup': (operation, args) => {
+    const backup = backupId(args);
+    const json = validateBackupRestoreBody(parseJsonFlag(args, '--body-json'));
+    const target = `project-backup:${backup}`;
+    return wrapMutation(
+      operation,
+      {
+        url: backupResourcePath(backup, 'restore'),
+        method: 'POST',
+        json,
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--backup-id', backup]),
+        verifies: 'backup restore status is visible on the backup',
+      },
+    );
+  },
+  'restore-backup-path': (operation, args) => {
+    const backup = backupId(args);
+    const sourcePath = requireText(
+      popFlag(args, '--source-path'),
+      '--source-path',
+    );
+    const targetPath = popFlag(args, '--target-path');
+    const clearTargetPath =
+      popBooleanFlag(args, '--clear-target-path') === true;
+    const target = `project-backup:${backup} source:${sourcePath} target:${targetPath || sourcePath}`;
+    const json = { sourcePath, clearTargetPath };
+    if (targetPath !== undefined) json.targetPath = targetPath;
+    return wrapMutation(
+      operation,
+      {
+        url: backupResourcePath(backup, 'restore-path'),
+        method: 'POST',
+        json,
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--backup-id', backup]),
+        verifies: 'backup path restore status is visible on the backup',
+      },
+    );
+  },
+  'validate-license-key': (operation, args) => {
+    const project = projectId(args);
+    const key = secretPlaceholder(args, '--license-key-secret');
+    const kind = requireText(popFlag(args, '--kind'), '--kind');
+    const target = `project:${project} license-kind:${kind}`;
+    return wrapMutation(
+      operation,
+      {
+        url: projectResourcePath(project, 'actions/validate-license-key'),
+        method: 'POST',
+        json: { key, kind },
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--project-id', project]),
+        verifies: 'project licenses reflect validation result when applicable',
+      },
+    );
+  },
+  'order-extension': (operation, args) => {
+    const extension = requireText(
+      popFlag(args, '--extension-id'),
+      '--extension-id',
+    );
+    const json = validateExtensionOrderBody(parseJsonFlag(args, '--body-json'));
+    const target = `extension:${extension} context:${json.projectId || json.customerId || 'unknown'}`;
+    return wrapMutation(
+      operation,
+      {
+        url: `${API_BASE}/extensions/${encodeSegment(extension, '--extension-id')}/order`,
+        method: 'POST',
+        json,
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--extension-id', extension]),
+        verifies:
+          'extension instance or extension order reflects the marketplace order',
+      },
+    );
+  },
+  'create-delivery-box': (operation, args) => {
+    const project = projectId(args);
+    const description = requireText(
+      popFlag(args, '--description'),
+      '--description',
+    );
+    const password = secretPlaceholder(args, '--password-secret');
+    const target = `project:${project} delivery-box:${description}`;
+    return wrapMutation(
+      operation,
+      {
+        url: projectResourcePath(project, 'delivery-boxes'),
+        method: 'POST',
+        json: { description, password },
+      },
+      requireGrant(args, operation, target),
+      {
+        argv: followUpArgv(operation, ['--project-id', project]),
+        verifies: 'delivery box is visible in project mail resources',
+      },
+    );
+  },
+};
+
 function commandHttpRequest(args) {
   const operation = args.shift();
   if (!operation) die('http-request requires an operation.');
   if (!HTTP_OPERATIONS.has(operation)) {
     die(`Unknown mittwald http-request operation: ${operation}`);
   }
-
-  let payload;
-  switch (operation) {
-    case 'whoami':
-      payload = wrapHttpRequest(operation, { url: `${API_BASE}/user` });
-      break;
-    case 'projects': {
-      const query = listQuery(args, {
-        '--customer-id': 'customerId',
-        '--server-id': 'serverId',
-        '--search-term': 'searchTerm',
-        '--sort': 'sort',
-        '--order': 'order',
-      });
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(`${API_BASE}/projects`, query),
-      });
-      break;
-    }
-    case 'project':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}`,
-      });
-      break;
-    case 'apps': {
-      const project = projectId(args);
-      const query = listQuery(args, {
-        '--search-term': 'searchTerm',
-        '--sort-order': 'sortOrder',
-      });
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/app-installations`,
-          query,
-        ),
-      });
-      break;
-    }
-    case 'app':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/app-installations/${encodeSegment(appId(args), '--app-installation-id')}`,
-      });
-      break;
-    case 'app-status':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/app-installations/${encodeSegment(appId(args), '--app-installation-id')}/status`,
-      });
-      break;
-    case 'app-system-software': {
-      const app = appId(args);
-      const tagFilter = popFlag(args, '--tag-filter');
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/app-installations/${encodeSegment(app, '--app-installation-id')}/systemSoftware`,
-          {
-            tagFilter,
-          },
-        ),
-      });
-      break;
-    }
-    case 'databases': {
-      const project = projectId(args);
-      const mysql = wrapHttpRequest('mysql-databases', {
-        url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/mysql-databases`,
-      });
-      const redis = wrapHttpRequest('redis-databases', {
-        url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/redis-databases`,
-      });
-      payload = wrapHttpRequests(operation, [mysql, redis], {
-        note: 'Pass each httpRequests item to http_request, then merge MySQL and Redis results in the answer.',
-      });
-      break;
-    }
-    case 'mysql-databases':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/mysql-databases`,
-      });
-      break;
-    case 'redis-databases':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/redis-databases`,
-      });
-      break;
-    case 'domains': {
-      const project = projectId(args);
-      const query = listQuery(args, {
-        '--domain-search-name': 'domainSearchName',
-      });
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/domains`,
-          query,
-        ),
-      });
-      break;
-    }
-    case 'dns-zones':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/dns-zones`,
-      });
-      break;
-    case 'ingresses':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/ingresses`,
-      });
-      break;
-    case 'backups': {
-      const project = projectId(args);
-      const query = listQuery(args, {
-        '--search-term': 'searchTerm',
-        '--sort-order': 'sortOrder',
-      });
-      const withExportsOnly = popBooleanFlag(args, '--with-exports-only');
-      const runningRestoresOnly = popBooleanFlag(
-        args,
-        '--running-restores-only',
-      );
-      const runningBackupsOnly = popBooleanFlag(args, '--running-backups-only');
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/backups`,
-          {
-            ...query,
-            withExportsOnly,
-            runningRestoresOnly,
-            runningBackupsOnly,
-          },
-        ),
-      });
-      break;
-    }
-    case 'backup-path': {
-      const backup = backupId(args);
-      const path = popFlag(args, '--path');
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/project-backups/${encodeSegment(backup, '--backup-id')}/path`,
-          {
-            path,
-          },
-        ),
-      });
-      break;
-    }
-    case 'backup-database-dumps':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/project-backups/${encodeSegment(backupId(args), '--backup-id')}/database-dumps`,
-      });
-      break;
-    case 'cronjobs': {
-      const project = projectId(args);
-      const query = listQuery(args);
-      const includeServiceCronjobs = popBooleanFlag(
-        args,
-        '--include-service-cronjobs',
-      );
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/cronjobs`,
-          {
-            ...query,
-            includeServiceCronjobs,
-          },
-        ),
-      });
-      break;
-    }
-    case 'ssh-users':
-    case 'sftp-users': {
-      const project = projectId(args);
-      const query = { limit: parseLimit(args) };
-      const skip = popFlag(args, '--skip');
-      if (skip !== undefined)
-        query.skip = parseInteger(skip, '--skip', { min: 0 });
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/${operation}`,
-          query,
-        ),
-      });
-      break;
-    }
-    case 'mail-addresses': {
-      const project = projectId(args);
-      const query = listQuery(args, { '--search': 'search' });
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/mail-addresses`,
-          query,
-        ),
-      });
-      break;
-    }
-    case 'delivery-boxes': {
-      const project = projectId(args);
-      const query = listQuery(args);
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/delivery-boxes`,
-          query,
-        ),
-      });
-      break;
-    }
-    case 'mail-settings':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/mail-settings`,
-      });
-      break;
-    case 'stacks':
-    case 'services':
-    case 'volumes': {
-      const project = projectId(args);
-      const query = listQuery(args, {
-        '--search-term': 'searchTerm',
-        '--sort-order': 'sortOrder',
-        '--stack-id': 'stackId',
-        '--status': 'status',
-      });
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/${operation}`,
-          query,
-        ),
-      });
-      break;
-    }
-    case 'registries':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/registries`,
-      });
-      break;
-    case 'service-logs': {
-      const { stack, service } = stackAndService(args);
-      const tail = popFlag(args, '--tail', '200');
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/stacks/${encodeSegment(stack, '--stack-id')}/services/${encodeSegment(service, '--service-id')}/logs`,
-          {
-            tail: parseInteger(tail, '--tail', { min: 1, max: 2_000 }),
-          },
-        ),
-      });
-      break;
-    }
-    case 'file-info': {
-      const project = projectId(args);
-      const file = requireText(popFlag(args, '--file'), '--file');
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/filesystem/files`,
-          {
-            file,
-          },
-        ),
-      });
-      break;
-    }
-    case 'directory': {
-      const project = projectId(args);
-      const directory = requireText(
-        popFlag(args, '--directory'),
-        '--directory',
-      );
-      const maxDepth = popFlag(args, '--max-depth', '1');
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/filesystem/directories`,
-          {
-            directory,
-            max_depth: parseInteger(maxDepth, '--max-depth', {
-              min: 0,
-              max: 5,
-            }),
-            name: popFlag(args, '--name'),
-          },
-        ),
-      });
-      break;
-    }
-    case 'disk-usage': {
-      const project = projectId(args);
-      const directory = popFlag(args, '--directory');
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/filesystem/usages/disk`,
-          {
-            directory,
-          },
-        ),
-      });
-      break;
-    }
-    case 'extension-orders':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/extension-orders`,
-      });
-      break;
-    case 'extension-instances': {
-      const query = listQuery(args, {
-        '--context': 'context',
-        '--context-id': 'contextId',
-        '--extension-id': 'extensionId',
-        '--search-term': 'searchTerm',
-      });
-      payload = wrapHttpRequest(operation, {
-        url: appendQuery(`${API_BASE}/extension-instances`, query),
-      });
-      break;
-    }
-    case 'extension-instance':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/extension-instances/${encodeSegment(
-          popFlag(args, '--extension-instance-id'),
-          '--extension-instance-id',
-        )}`,
-      });
-      break;
-    case 'licenses':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/licenses`,
-      });
-      break;
-    case 'domain':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/domains/${encodeSegment(domainId(args), '--domain-id')}`,
-      });
-      break;
-    case 'backup':
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/project-backups/${encodeSegment(backupId(args), '--backup-id')}`,
-      });
-      break;
-    case 'service': {
-      const { stack, service } = stackAndService(args);
-      payload = wrapHttpRequest(operation, {
-        url: `${API_BASE}/stacks/${encodeSegment(stack, '--stack-id')}/services/${encodeSegment(service, '--service-id')}`,
-      });
-      break;
-    }
-    case 'create-redis-database': {
-      const project = projectId(args);
-      const description = requireText(
-        popFlag(args, '--description'),
-        '--description',
-      );
-      const version = requireText(popFlag(args, '--version'), '--version');
-      const target = `project:${project} redis:${description}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/redis-databases`,
-          method: 'POST',
-          json: { description, version },
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--project-id', project]),
-          verifies: 'redis database appears in project database inventory',
-        },
-      );
-      break;
-    }
-    case 'create-mysql-database': {
-      const project = projectId(args);
-      const description = requireText(
-        popFlag(args, '--description'),
-        '--description',
-      );
-      const version = requireText(popFlag(args, '--version'), '--version');
-      const password = secretPlaceholder(args, '--password-secret');
-      const externalAccess = popBooleanFlag(args, '--external-access');
-      const target = `project:${project} mysql:${description}`;
-      const user = { accessLevel: 'full', password };
-      if (externalAccess !== undefined) user.externalAccess = true;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/mysql-databases`,
-          method: 'POST',
-          json: {
-            database: { description, version },
-            user,
-          },
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--project-id', project]),
-          verifies: 'MySQL database appears in project database inventory',
-        },
-      );
-      break;
-    }
-    case 'create-app-installation': {
-      const project = projectId(args);
-      const json = parseJsonFlag(args, '--body-json');
-      const target = `project:${project} appVersion:${json.appVersionId || 'unknown'}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/app-installations`,
-          method: 'POST',
-          json,
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--project-id', project]),
-          verifies: 'app installation appears in project app list',
-        },
-      );
-      break;
-    }
-    case 'create-cronjob': {
-      const project = projectId(args);
-      const json = parseJsonFlag(args, '--body-json');
-      const target = `project:${project} cronjob:${json.description || json.interval || 'new'}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/cronjobs`,
-          method: 'POST',
-          json,
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--project-id', project]),
-          verifies: 'cronjob appears in project cronjob list',
-        },
-      );
-      break;
-    }
-    case 'app-action': {
-      const app = appId(args);
-      const action = assertAllowedAction(
-        popFlag(args, '--action'),
-        APP_ACTIONS,
-        '--action',
-      );
-      const target = `app-installation:${app} action:${action}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/app-installations/${encodeSegment(app, '--app-installation-id')}/actions/${action}`,
-          method: 'POST',
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--app-installation-id', app]),
-          verifies: 'app runtime status reflects requested action',
-        },
-      );
-      break;
-    }
-    case 'service-action': {
-      const { stack, service } = stackAndService(args);
-      const action = assertAllowedAction(
-        popFlag(args, '--action'),
-        SERVICE_ACTIONS,
-        '--action',
-      );
-      const target = `stack:${stack} service:${service} action:${action}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/stacks/${encodeSegment(stack, '--stack-id')}/services/${encodeSegment(service, '--service-id')}/actions/${action}`,
-          method: 'POST',
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, [
-            '--stack-id',
-            stack,
-            '--service-id',
-            service,
-          ]),
-          verifies: 'service status reflects requested action',
-        },
-      );
-      break;
-    }
-    case 'change-domain-project': {
-      const domain = domainId(args);
-      const nextProject = requireText(
-        popFlag(args, '--target-project-id'),
-        '--target-project-id',
-      );
-      const target = `domain:${domain} target-project:${nextProject}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/domains/${encodeSegment(domain, '--domain-id')}/project-id`,
-          method: 'PATCH',
-          json: { projectId: nextProject },
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--domain-id', domain]),
-          verifies: 'domain project id matches target project',
-        },
-      );
-      break;
-    }
-    case 'update-domain-nameservers': {
-      const domain = domainId(args);
-      const nameservers = popRepeatedFlag(args, '--nameserver');
-      if (nameservers.length < 2) {
-        die(
-          'update-domain-nameservers requires at least two --nameserver values.',
-        );
-      }
-      const target = `domain:${domain} nameservers:${nameservers.join(',')}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/domains/${encodeSegment(domain, '--domain-id')}/nameservers`,
-          method: 'PATCH',
-          json: { nameservers },
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--domain-id', domain]),
-          verifies: 'domain nameservers match requested set',
-        },
-      );
-      break;
-    }
-    case 'schedule-domain-deletion': {
-      const domain = domainId(args);
-      const deletionDate = requireText(
-        popFlag(args, '--deletion-date'),
-        '--deletion-date',
-      );
-      const deleteIngresses =
-        popBooleanFlag(args, '--delete-ingresses') === true;
-      const target = `domain:${domain} deletion-date:${deletionDate}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/domains/${encodeSegment(domain, '--domain-id')}/scheduled-deletion`,
-          method: 'POST',
-          json: { deletionDate, deleteIngresses },
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--domain-id', domain]),
-          verifies: 'domain scheduled deletion is visible',
-        },
-      );
-      break;
-    }
-    case 'cancel-domain-deletion': {
-      const domain = domainId(args);
-      const target = `domain:${domain} scheduled-deletion`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/domains/${encodeSegment(domain, '--domain-id')}/scheduled-deletion`,
-          method: 'DELETE',
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--domain-id', domain]),
-          verifies: 'domain scheduled deletion is absent',
-        },
-      );
-      break;
-    }
-    case 'check-domain-availability': {
-      const domain = requireText(popFlag(args, '--domain'), '--domain');
-      const target = `domain:${domain}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/domains`,
-          method: 'POST',
-          json: { domain },
-        },
-        requireGrant(args, operation, target),
-        {
-          command: null,
-          verifies:
-            'availability check response is reviewed; no follow-up read is required',
-        },
-      );
-      break;
-    }
-    case 'restore-backup': {
-      const backup = backupId(args);
-      const json = parseJsonFlag(args, '--body-json');
-      const target = `project-backup:${backup}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/project-backups/${encodeSegment(backup, '--backup-id')}/restore`,
-          method: 'POST',
-          json,
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--backup-id', backup]),
-          verifies: 'backup restore status is visible on the backup',
-        },
-      );
-      break;
-    }
-    case 'restore-backup-path': {
-      const backup = backupId(args);
-      const sourcePath = requireText(
-        popFlag(args, '--source-path'),
-        '--source-path',
-      );
-      const targetPath = popFlag(args, '--target-path');
-      const clearTargetPath =
-        popBooleanFlag(args, '--clear-target-path') === true;
-      const target = `project-backup:${backup} source:${sourcePath} target:${targetPath || sourcePath}`;
-      const json = { sourcePath, clearTargetPath };
-      if (targetPath !== undefined) json.targetPath = targetPath;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/project-backups/${encodeSegment(backup, '--backup-id')}/restore-path`,
-          method: 'POST',
-          json,
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--backup-id', backup]),
-          verifies: 'backup path restore status is visible on the backup',
-        },
-      );
-      break;
-    }
-    case 'validate-license-key': {
-      const project = projectId(args);
-      const key = secretPlaceholder(args, '--license-key-secret');
-      const kind = requireText(popFlag(args, '--kind'), '--kind');
-      const target = `project:${project} license-kind:${kind}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/actions/validate-license-key`,
-          method: 'POST',
-          json: { key, kind },
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--project-id', project]),
-          verifies:
-            'project licenses reflect validation result when applicable',
-        },
-      );
-      break;
-    }
-    case 'order-extension': {
-      const extension = requireText(
-        popFlag(args, '--extension-id'),
-        '--extension-id',
-      );
-      const json = parseJsonFlag(args, '--body-json');
-      const target = `extension:${extension} context:${json.projectId || json.customerId || 'unknown'}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/extensions/${encodeSegment(extension, '--extension-id')}/order`,
-          method: 'POST',
-          json,
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--extension-id', extension]),
-          verifies:
-            'extension instance or extension order reflects the marketplace order',
-        },
-      );
-      break;
-    }
-    case 'create-delivery-box': {
-      const project = projectId(args);
-      const description = requireText(
-        popFlag(args, '--description'),
-        '--description',
-      );
-      const password = secretPlaceholder(args, '--password-secret');
-      const target = `project:${project} delivery-box:${description}`;
-      payload = wrapMutation(
-        operation,
-        {
-          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/delivery-boxes`,
-          method: 'POST',
-          json: { description, password },
-        },
-        requireGrant(args, operation, target),
-        {
-          argv: followUpArgv(operation, ['--project-id', project]),
-          verifies: 'delivery box is visible in project mail resources',
-        },
-      );
-      break;
-    }
-    default:
-      die(`Unknown mittwald operation: ${operation}`);
+  const handler = OPERATION_HANDLERS[operation];
+  if (!handler) {
+    die(`Unsupported mittwald http-request operation: ${operation}`);
   }
-
+  const payload = handler(operation, args);
   assertNoUnexpectedArgs(args);
   return payload;
 }
@@ -1053,11 +1062,11 @@ function commandEventFollowUp(args) {
       const project = projectId(args);
       payload = wrapHttpRequests(operation, [
         wrapHttpRequest('mysql-databases', {
-          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/mysql-databases`,
+          url: projectResourcePath(project, 'mysql-databases'),
           headers,
         }),
         wrapHttpRequest('redis-databases', {
-          url: `${API_BASE}/projects/${encodeSegment(project, '--project-id')}/redis-databases`,
+          url: projectResourcePath(project, 'redis-databases'),
           headers,
         }),
       ]);
@@ -1066,7 +1075,7 @@ function commandEventFollowUp(args) {
     case 'create-app-installation':
       payload = wrapHttpRequest('apps', {
         url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/app-installations`,
+          projectResourcePath(projectId(args), 'app-installations'),
           {
             limit: DEFAULT_LIMIT,
           },
@@ -1076,25 +1085,22 @@ function commandEventFollowUp(args) {
       break;
     case 'create-cronjob':
       payload = wrapHttpRequest('cronjobs', {
-        url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/cronjobs`,
-          {
-            limit: DEFAULT_LIMIT,
-          },
-        ),
+        url: appendQuery(projectResourcePath(projectId(args), 'cronjobs'), {
+          limit: DEFAULT_LIMIT,
+        }),
         headers,
       });
       break;
     case 'app-action':
       payload = wrapHttpRequest('app-status', {
-        url: `${API_BASE}/app-installations/${encodeSegment(appId(args), '--app-installation-id')}/status`,
+        url: appInstallationResourcePath(appId(args), 'status'),
         headers,
       });
       break;
     case 'service-action': {
       const { stack, service } = stackAndService(args);
       payload = wrapHttpRequest('service', {
-        url: `${API_BASE}/stacks/${encodeSegment(stack, '--stack-id')}/services/${encodeSegment(service, '--service-id')}`,
+        url: servicePath(stack, service),
         headers,
       });
       break;
@@ -1104,20 +1110,20 @@ function commandEventFollowUp(args) {
     case 'schedule-domain-deletion':
     case 'cancel-domain-deletion':
       payload = wrapHttpRequest('domain', {
-        url: `${API_BASE}/domains/${encodeSegment(domainId(args), '--domain-id')}`,
+        url: domainPath(domainId(args)),
         headers,
       });
       break;
     case 'restore-backup':
     case 'restore-backup-path':
       payload = wrapHttpRequest('backup', {
-        url: `${API_BASE}/project-backups/${encodeSegment(backupId(args), '--backup-id')}`,
+        url: backupPath(backupId(args)),
         headers,
       });
       break;
     case 'validate-license-key':
       payload = wrapHttpRequest('licenses', {
-        url: `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/licenses`,
+        url: projectResourcePath(projectId(args), 'licenses'),
         headers,
       });
       break;
@@ -1133,7 +1139,7 @@ function commandEventFollowUp(args) {
     case 'create-delivery-box':
       payload = wrapHttpRequest('delivery-boxes', {
         url: appendQuery(
-          `${API_BASE}/projects/${encodeSegment(projectId(args), '--project-id')}/delivery-boxes`,
+          projectResourcePath(projectId(args), 'delivery-boxes'),
           {
             limit: DEFAULT_LIMIT,
           },
@@ -1174,120 +1180,44 @@ function commandPlan(args) {
       modelSeesToken: false,
     },
     steps: [
-      {
-        operation: 'project',
-        argv: [
-          'node',
-          'skills/mittwald/mittwald.cjs',
-          '--format',
-          'json',
-          'http-request',
-          'project',
-          '--project-id',
-          project,
-        ],
-      },
-      {
-        operation: 'apps',
-        argv: [
-          'node',
-          'skills/mittwald/mittwald.cjs',
-          '--format',
-          'json',
-          'http-request',
-          'apps',
-          '--project-id',
-          project,
-          '--limit',
-          String(DEFAULT_LIMIT),
-        ],
-      },
-      {
-        operation: 'databases',
-        argv: [
-          'node',
-          'skills/mittwald/mittwald.cjs',
-          '--format',
-          'json',
-          'http-request',
-          'databases',
-          '--project-id',
-          project,
-        ],
-      },
-      {
-        operation: 'domains',
-        argv: [
-          'node',
-          'skills/mittwald/mittwald.cjs',
-          '--format',
-          'json',
-          'http-request',
-          'domains',
-          '--project-id',
-          project,
-          '--limit',
-          String(DEFAULT_LIMIT),
-        ],
-      },
-      {
-        operation: 'ingresses',
-        argv: [
-          'node',
-          'skills/mittwald/mittwald.cjs',
-          '--format',
-          'json',
-          'http-request',
-          'ingresses',
-          '--project-id',
-          project,
-        ],
-      },
-      {
-        operation: 'cronjobs',
-        argv: [
-          'node',
-          'skills/mittwald/mittwald.cjs',
-          '--format',
-          'json',
-          'http-request',
-          'cronjobs',
-          '--project-id',
-          project,
-          '--limit',
-          String(DEFAULT_LIMIT),
-        ],
-      },
-      {
-        operation: 'backups',
-        argv: [
-          'node',
-          'skills/mittwald/mittwald.cjs',
-          '--format',
-          'json',
-          'http-request',
-          'backups',
-          '--project-id',
-          project,
-          '--limit',
-          String(DEFAULT_LIMIT),
-        ],
-      },
-      {
-        operation: 'services',
-        argv: [
-          'node',
-          'skills/mittwald/mittwald.cjs',
-          '--format',
-          'json',
-          'http-request',
-          'services',
-          '--project-id',
-          project,
-          '--limit',
-          String(DEFAULT_LIMIT),
-        ],
-      },
+      planStep('project', '--project-id', project),
+      planStep(
+        'apps',
+        '--project-id',
+        project,
+        '--limit',
+        String(DEFAULT_LIMIT),
+      ),
+      planStep('databases', '--project-id', project),
+      planStep(
+        'domains',
+        '--project-id',
+        project,
+        '--limit',
+        String(DEFAULT_LIMIT),
+      ),
+      planStep('ingresses', '--project-id', project),
+      planStep(
+        'cronjobs',
+        '--project-id',
+        project,
+        '--limit',
+        String(DEFAULT_LIMIT),
+      ),
+      planStep(
+        'backups',
+        '--project-id',
+        project,
+        '--limit',
+        String(DEFAULT_LIMIT),
+      ),
+      planStep(
+        'services',
+        '--project-id',
+        project,
+        '--limit',
+        String(DEFAULT_LIMIT),
+      ),
     ],
     guidance:
       'Execute the generated read requests through http_request, stop on the first 401/403, and summarize readiness, drift, failed app phases, runtime states, ingress/domain/DNS health, stale backups, cron failures, and container service status.',
@@ -1402,6 +1332,7 @@ Project resource reads:
   extension-instances [--extension-id id] [--context project] [--context-id id] [--limit 50]
   licenses --project-id id
   delivery-boxes --project-id id [--limit 50]
+  check-domain-availability --domain example.com
 
 Filesystem and diagnostics:
   directory --project-id id --directory /html [--max-depth 1]
@@ -1420,7 +1351,6 @@ Guarded write operations require --operator-grant after exact F8/F14 approval:
   update-domain-nameservers --domain-id id --nameserver ns1.example.com --nameserver ns2.example.com
   schedule-domain-deletion --domain-id id --deletion-date 2026-06-01T00:00:00Z
   cancel-domain-deletion --domain-id id
-  check-domain-availability --domain example.com
   restore-backup --backup-id id --body-json '{...}'
   restore-backup-path --backup-id id --source-path /html --target-path /html-restore
   validate-license-key --project-id id --kind typo3-elts --license-key-secret MITTWALD_LICENSE_KEY
@@ -1456,7 +1386,7 @@ function main() {
   }
 
   if (format === 'json') {
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
   } else {
     process.stdout.write(`${JSON.stringify(result)}\n`);
   }

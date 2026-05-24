@@ -68,6 +68,7 @@ metadata:
         - extension-instances
         - extension-instance
         - licenses
+        - check-domain-availability
       amber:
         - create-redis-database
         - create-mysql-database
@@ -76,7 +77,6 @@ metadata:
         - change-domain-project
         - update-domain-nameservers
         - cancel-domain-deletion
-        - check-domain-availability
         - validate-license-key
         - create-delivery-box
       red:
@@ -243,9 +243,14 @@ node skills/mittwald/mittwald.cjs --format json classify-response \
   and license visibility. `order-extension` and license-key validation are
   guarded mutations and require exact F8/F14 approval.
 - For mutating operations that need complex request bodies, use `--body-json`
-  only on that allowlisted operation. Use `<secret:NAME>`-style placeholders via
-  flags such as `--password-secret` and `--license-key-secret`; never put raw
-  credentials in command arguments.
+  only on that allowlisted operation. `create-app-installation` requires
+  `appVersionId`, `description`, `updatePolicy`, and `userInputs[]`.
+  `create-cronjob` requires `description`, `interval`, and `target`.
+  `restore-backup` requires `pathRestore` or `databaseRestores[]`.
+  `order-extension` requires `consentedScopes[]` plus exactly one of
+  `projectId` or `customerId`.
+- Use `<secret:NAME>`-style placeholders via flags such as `--password-secret`
+  and `--license-key-secret`; never put raw credentials in command arguments.
 - Optional companion workflows: the official mittwald CLI, SDKs, Terraform
   provider, and mittwald MCP docs can inform operator guidance, but they are
   not runtime dependencies for this bundled skill.
