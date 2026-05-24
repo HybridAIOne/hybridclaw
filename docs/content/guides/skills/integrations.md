@@ -135,6 +135,50 @@ providers need a reusable billing-portal login profile.
 
 ---
 
+## lexware-office
+
+Work with Lexware Office contacts, invoice articles, invoices, bookkeeping
+vouchers, receipt files, posting categories, payment status, and guarded
+invoice or expense writes through the Lexware Public API.
+
+**Prerequisites** — a Lexware Office plan with Public API access and an API key
+stored in the encrypted HybridClaw runtime secret store.
+
+```bash
+hybridclaw secret set LEXWARE_OFFICE_API_KEY "<api-key>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> The helper emits `bearerSecretName: "LEXWARE_OFFICE_API_KEY"` so the gateway injects the API key server-side.
+>
+> Start with read-only calls such as `profile`, `list-contacts`, `list-invoices`, `list-expenses`, `get-payment`, and `posting-categories`.
+>
+> Invoice creation, contact creation, voucher updates, receipt uploads, and expense logging require explicit operator grant.
+>
+> Public API payment reads show payment items. The skill can score bank transactions against open invoices and write an operator-approved reconciliation note, while making clear that the public docs do not expose a direct banking-module assignment mutation.
+
+> 🎯 **Try it yourself**
+>
+> `Show the open invoices in Lexware Office`
+>
+> `Generate a draft invoice for Acme GmbH for last month's consulting hours`
+>
+> `Sync this receipt as a Reisekosten expense in Lexware Office`
+>
+> `Export a Q4 income statement plan from Lexware Office data`
+
+**Troubleshooting**
+
+- **401 or 403** — verify the key belongs to the active Lexware Office
+  organization and that Public API access is enabled.
+- **429** — reduce request rate; Lexware documents a 2-request-per-second
+  resource endpoint limit.
+- **voucher update conflict** — read the voucher again and include the current
+  `version` value before retrying with operator approval.
+
+---
+
 ## google-ads
 
 Use the Google Ads skill for GAQL performance reporting, MCC account

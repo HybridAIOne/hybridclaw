@@ -1,0 +1,287 @@
+[
+  {
+    "id": "invoice-read-open",
+    "category": "invoice_read",
+    "prompt": "Show the open invoices in Lexware Office.",
+    "expected": {
+      "operation": "list-invoices",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "invoice-read-overdue",
+    "category": "invoice_read",
+    "prompt": "Pull the outstanding invoices and find any over 30 days late.",
+    "expected": {
+      "operation": "get-payment",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "invoice-read-number",
+    "category": "invoice_read",
+    "prompt": "Look up invoice 2026-042 and summarize it.",
+    "expected": {
+      "operation": "list-invoices",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "invoice-create-consulting",
+    "category": "invoice_write",
+    "prompt": "Generate an invoice for Acme GmbH for last month's consulting hours.",
+    "expected": {
+      "operation": "create-invoice",
+      "requiresEscalation": true,
+      "requiredGrant": "approve-lexware-office-create-invoice",
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "invoice-create-send",
+    "category": "invoice_write",
+    "prompt": "Create and send the final Lexware invoice for customer 123.",
+    "expected": {
+      "operation": "create-invoice",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "invoice-draft",
+    "category": "invoice_write",
+    "prompt": "Draft a Lexware Office invoice with two line items.",
+    "expected": {
+      "operation": "create-invoice",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "customer-list",
+    "category": "customer_read",
+    "prompt": "Find the Lexware customer record for Acme.",
+    "expected": {
+      "operation": "list-contacts",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "customer-create",
+    "category": "customer_write",
+    "prompt": "Create a customer in Lexware Office for Acme GmbH.",
+    "expected": {
+      "operation": "create-contact",
+      "requiresEscalation": true,
+      "requiredGrant": "approve-lexware-office-create-contact",
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "customer-add-private",
+    "category": "customer_write",
+    "prompt": "Add a new private client contact for Jane Rivera.",
+    "expected": {
+      "operation": "create-contact",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "product-list",
+    "category": "product_read",
+    "prompt": "List Lexware Office products I can use as invoice articles.",
+    "expected": {
+      "operation": "list-products",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "service-list",
+    "category": "product_read",
+    "prompt": "Show the service articles configured in Lexware.",
+    "expected": {
+      "operation": "list-products",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "expense-list",
+    "category": "expense_read",
+    "prompt": "Show expense receipts in the Lexware Belege module.",
+    "expected": {
+      "operation": "list-expenses",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "expense-log-travel",
+    "category": "expense_write",
+    "prompt": "Sync this expense receipt with Lexware Office under category Reisekosten.",
+    "expected": {
+      "operation": "log-expense",
+      "requiresEscalation": true,
+      "requiredGrant": "approve-lexware-office-log-expense",
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "expense-upload",
+    "category": "expense_write",
+    "prompt": "Upload this receipt PDF and log it as a travel expense.",
+    "expected": {
+      "operation": "log-expense",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "payment-status",
+    "category": "payment_read",
+    "prompt": "What is the payment status for the invoice?",
+    "expected": {
+      "operation": "get-payment",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "bank-transaction-read",
+    "category": "payment_read",
+    "prompt": "Show the payment items linked to this bank transaction.",
+    "expected": {
+      "operation": "list-bank-transactions",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "bank-transaction-match",
+    "category": "payment_write",
+    "prompt": "Match the incoming bank transaction with the open invoice in Lexware Office.",
+    "expected": {
+      "operation": "match-transaction",
+      "requiresEscalation": true,
+      "requiredGrant": "approve-lexware-office-transaction-match",
+      "executable": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "payment-reminder",
+    "category": "invoice_read",
+    "prompt": "Find invoices that need a payment reminder.",
+    "expected": {
+      "operation": "get-payment",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "posting-categories",
+    "category": "accounting_read",
+    "prompt": "Which posting categories are available for travel expenses?",
+    "expected": {
+      "operation": "posting-categories",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "income-statement-q4",
+    "category": "report_read",
+    "prompt": "Export the Q4 income statement from Lexware Office.",
+    "expected": {
+      "operation": "income-statement-plan",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "revenue-quarter",
+    "category": "report_read",
+    "prompt": "What's our current revenue this quarter according to Lexware?",
+    "expected": {
+      "operation": "revenue-summary-plan",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "profile-read",
+    "category": "profile_read",
+    "prompt": "Show the connected Lexware Office profile.",
+    "expected": {
+      "operation": "profile",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "voucher-read",
+    "category": "expense_read",
+    "prompt": "Read the receipt voucher details.",
+    "expected": {
+      "operation": "list-expenses",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "invoice-file",
+    "category": "invoice_read",
+    "prompt": "Download the invoice file from Lexware Office.",
+    "expected": {
+      "operation": "download-invoice-file",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "expense-correct",
+    "category": "expense_write",
+    "prompt": "Correct the booked travel receipt category.",
+    "expected": {
+      "operation": "log-expense",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "customer-read-kunde",
+    "category": "customer_read",
+    "prompt": "Finde den Kunden Acme in Lexware Office.",
+    "expected": {
+      "operation": "list-contacts",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "invoice-create-german",
+    "category": "invoice_write",
+    "prompt": "Erstelle eine Rechnung fuer Beratungsstunden in Lexware.",
+    "expected": {
+      "operation": "create-invoice",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "expense-read-german",
+    "category": "expense_read",
+    "prompt": "Zeige offene Belege in Lexware Office.",
+    "expected": {
+      "operation": "list-expenses",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  }
+]
