@@ -535,7 +535,7 @@ function summarizeResponse(response) {
     credentialProblem,
     rateLimited,
     guidance: credentialProblem
-      ? 'Stop after this failed OTC call. Verify OTC_ACCESS_KEY_ID, OTC_SECRET_ACCESS_KEY, OTC_PROJECT_ID, OTC_REGION, IAM permissions, clock skew, and endpoint region.'
+      ? 'Stop after this failed OTC call. Verify OTC_ACCESS_KEY_ID, OTC_SECRET_ACCESS_KEY, OTC_PROJECT_ID, selected region, IAM permissions, clock skew, and endpoint region.'
       : rateLimited
         ? 'Stop fan-out and retry later using Retry-After or rate-limit response headers when available.'
         : null,

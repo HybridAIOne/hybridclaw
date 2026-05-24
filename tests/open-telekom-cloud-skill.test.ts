@@ -367,7 +367,8 @@ test('T Cloud Public helper run posts to gateway and summarizes auth and rate-li
     ]);
 
     expect(authResult.status).toBe(0);
-    expect(JSON.parse(authResult.stdout)).toMatchObject({
+    const authPayload = JSON.parse(authResult.stdout);
+    expect(authPayload).toMatchObject({
       command: 'run',
       operation: 'servers',
       responseSummary: {
@@ -376,6 +377,7 @@ test('T Cloud Public helper run posts to gateway and summarizes auth and rate-li
         guidance: expect.stringContaining('Stop after this failed OTC call'),
       },
     });
+    expect(authPayload.responseSummary.guidance).not.toContain('OTC_REGION');
     expect(rateLimitResult.status).toBe(0);
     expect(JSON.parse(rateLimitResult.stdout)).toMatchObject({
       command: 'run',
