@@ -19,6 +19,10 @@ function normalizeStringArray(value) {
   return out;
 }
 
+function isRecord(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function ensureEnum(value, allowed, fallback) {
   const normalized = normalizeString(value).toLowerCase();
   return allowed.includes(normalized) ? normalized : fallback;
@@ -41,7 +45,7 @@ function ensureNumber(value, fallback, { min, max } = {}) {
   return next;
 }
 
-function compileRegexEntry(entry, errors) {
+function compileRegexEntry(entry, errors, profileId) {
   if (!entry) return null;
   const trimmed = entry.trim();
   if (!trimmed) return null;
@@ -52,16 +56,17 @@ function compileRegexEntry(entry, errors) {
     }
     return new RegExp(trimmed, 'i');
   } catch (error) {
-    errors.push(
-      `output-guard: invalid regex pattern ${JSON.stringify(entry)}: ${
+    errors.push({
+      profileId,
+      error: `output-guard: invalid regex pattern ${JSON.stringify(entry)}: ${
         error instanceof Error ? error.message : String(error)
       }`,
-    );
+    });
     return null;
   }
 }
 
-function resolvePolicyFile(policyFile, runtime, logger) {
+function resolvePolicyFile(policyFile, runtime, logger, profileId) {
   if (!policyFile) return '';
   let resolved = policyFile;
   if (resolved.startsWith('~/')) {
@@ -74,7 +79,7 @@ function resolvePolicyFile(policyFile, runtime, logger) {
     return String(text || '').trim();
   } catch (error) {
     logger.warn(
-      { policyFile, resolvedPath: resolved, error },
+      { profileId, policyFile, resolvedPath: resolved, error },
       'output-guard: policyFile not readable; ignoring',
     );
     return '';
@@ -92,27 +97,30 @@ function resolveModelSourceConfig(rawConfig, label) {
   return { provider, model: provider === 'model' ? model : '' };
 }
 
-function resolveOutputGuardProfile(rawConfig, runtime, logger, errors) {
-  const policy = normalizeString(rawConfig?.policy);
-  const doList = normalizeStringArray(rawConfig?.doList);
-  const dontList = normalizeStringArray(rawConfig?.dontList);
+function resolveOutputGuardProfile(rawConfig, runtime, logger, errors, id) {
+  const raw = isRecord(rawConfig) ? rawConfig : {};
+  const policy = normalizeString(raw.policy);
+  const doList = normalizeStringArray(raw.doList);
+  const dontList = normalizeStringArray(raw.dontList);
   const policyFileText = resolvePolicyFile(
-    normalizeString(rawConfig?.policyFile),
+    normalizeString(raw.policyFile),
     runtime,
     logger,
+    id,
   );
-  const bannedPhrases = normalizeStringArray(rawConfig?.bannedPhrases).map(
-    (entry) => entry.toLowerCase(),
+  const bannedPhrases = normalizeStringArray(raw.bannedPhrases).map((entry) =>
+    entry.toLowerCase(),
   );
-  const bannedPatternEntries = normalizeStringArray(rawConfig?.bannedPatterns)
+  const bannedPatternEntries = normalizeStringArray(raw.bannedPatterns)
     .map((source) => {
-      const pattern = compileRegexEntry(source, errors);
+      const pattern = compileRegexEntry(source, errors, id);
       return pattern === null ? null : { source, pattern };
     })
     .filter((value) => value !== null);
-  const requirePhrases = normalizeStringArray(rawConfig?.requirePhrases);
+  const requirePhrases = normalizeStringArray(raw.requirePhrases);
 
-  return Object.freeze({
+  const profile = {
+    id,
     policy,
     doList: Object.freeze(doList),
     dontList: Object.freeze(dontList),
@@ -122,11 +130,16 @@ function resolveOutputGuardProfile(rawConfig, runtime, logger, errors) {
       bannedPatternEntries.map((entry) => Object.freeze(entry)),
     ),
     requirePhrases: Object.freeze(requirePhrases),
+  };
+
+  return Object.freeze({
+    ...profile,
+    policyBrief: buildPolicyBrief(profile),
   });
 }
 
 function resolveNamedProfiles(rawConfig, runtime, logger, errors) {
-  if (!rawConfig?.profiles || typeof rawConfig.profiles !== 'object') {
+  if (!isRecord(rawConfig?.profiles)) {
     return Object.freeze({});
   }
   const profiles = {};
@@ -140,16 +153,14 @@ function resolveNamedProfiles(rawConfig, runtime, logger, errors) {
       runtime,
       logger,
       errors,
+      profileId,
     );
   }
   return Object.freeze(profiles);
 }
 
 function resolveChannelProfiles(rawConfig) {
-  if (
-    !rawConfig?.channelProfiles ||
-    typeof rawConfig.channelProfiles !== 'object'
-  ) {
+  if (!isRecord(rawConfig?.channelProfiles)) {
     return Object.freeze({});
   }
   const channelProfiles = {};
@@ -164,13 +175,38 @@ function resolveChannelProfiles(rawConfig) {
   return Object.freeze(channelProfiles);
 }
 
-export function resolveOutputGuardProfileForChannel(config, channelId) {
+export function resolveOutputGuardProfileSelection(config, channelId) {
   const normalizedChannelId = normalizeString(channelId);
-  const profileId = normalizedChannelId
+  const requestedProfileId = normalizedChannelId
     ? config.channelProfiles[normalizedChannelId]
     : '';
-  if (!profileId) return config.defaultProfile;
-  return config.profiles[profileId] || config.defaultProfile;
+  if (!requestedProfileId) {
+    return {
+      profile: config.defaultProfile,
+      profileId: config.defaultProfile.id,
+      requestedProfileId: '',
+      fellBack: false,
+    };
+  }
+  const profile = config.profiles[requestedProfileId];
+  if (profile) {
+    return {
+      profile,
+      profileId: profile.id,
+      requestedProfileId,
+      fellBack: false,
+    };
+  }
+  return {
+    profile: config.defaultProfile,
+    profileId: config.defaultProfile.id,
+    requestedProfileId,
+    fellBack: true,
+  };
+}
+
+export function resolveOutputGuardProfileForChannel(config, channelId) {
+  return resolveOutputGuardProfileSelection(config, channelId).profile;
 }
 
 export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
@@ -187,6 +223,7 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
     runtime,
     logger,
     errors,
+    'default',
   );
   const profiles = resolveNamedProfiles(rawConfig, runtime, logger, errors);
   const channelProfiles = resolveChannelProfiles(rawConfig);
@@ -201,8 +238,8 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
   );
   const rewriter = resolveModelSourceConfig(rawConfig?.rewriter, 'rewriter');
 
-  for (const error of errors) {
-    logger.warn({ error }, 'output-guard config issue');
+  for (const entry of errors) {
+    logger.warn(entry, 'output-guard config issue');
   }
 
   return Object.freeze({

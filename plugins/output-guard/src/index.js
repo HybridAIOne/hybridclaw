@@ -1,6 +1,6 @@
 import {
   resolveOutputGuardConfig,
-  resolveOutputGuardProfileForChannel,
+  resolveOutputGuardProfileSelection,
 } from './config.js';
 import { createOutputGuardMiddleware } from './guard.js';
 
@@ -23,17 +23,19 @@ export default {
       name: 'output-guard',
       description: 'Show output guard status and configured rules.',
       handler(_args, context) {
-        const activeProfile = resolveOutputGuardProfileForChannel(
+        const selection = resolveOutputGuardProfileSelection(
           config,
           context.channelId,
         );
-        const channelProfileId =
-          config.channelProfiles[String(context.channelId || '').trim()] || '';
+        const activeProfile = selection.profile;
+        const channelProfile = selection.fellBack
+          ? `${selection.requestedProfileId} (missing -> default)`
+          : selection.profileId;
         return [
           'Output guard status:',
           `  mode: ${config.mode}`,
           `  failure mode: ${config.failureMode}`,
-          `  channel profile: ${channelProfileId || 'default'}`,
+          `  channel profile: ${channelProfile}`,
           `  named profiles: ${Object.keys(config.profiles).length}`,
           `  channel mappings: ${Object.keys(config.channelProfiles).length}`,
           `  policy brief: ${activeProfile.policy ? 'configured' : '(none)'}`,

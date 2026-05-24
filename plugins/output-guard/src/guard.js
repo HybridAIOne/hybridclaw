@@ -1,7 +1,4 @@
-import {
-  buildPolicyBrief,
-  resolveOutputGuardProfileForChannel,
-} from './config.js';
+import { resolveOutputGuardProfileForChannel } from './config.js';
 import { callOutputGuardModel, tryParseClassifierVerdict } from './llm.js';
 import { detectRuleViolations, summarizeViolations } from './rules.js';
 
@@ -89,7 +86,7 @@ export function createOutputGuardGuard({ api, config }) {
         config,
         context.channelId,
       );
-      const policyBrief = buildPolicyBrief(profile);
+      const policyBrief = profile.policyBrief;
       const violations = detectRuleViolations(text, profile);
       let classifierVerdict = null;
       try {

@@ -96,6 +96,60 @@ test('output-guard rules detect banned phrases, banned patterns, and missing req
   expect(compliant).toEqual([]);
 });
 
+test('output-guard profile config ignores malformed arrays and labels warnings', async () => {
+  const { resolveOutputGuardConfig } = await import(
+    '../plugins/output-guard/src/config.js'
+  );
+  const logger = {
+    warn: vi.fn(),
+    info: () => {},
+    debug: () => {},
+    error: () => {},
+  };
+
+  const config = resolveOutputGuardConfig(
+    {
+      bannedPatterns: ['/['],
+      profiles: {
+        support: {
+          policyFile: 'missing-policy.md',
+          bannedPatterns: ['/[also-bad'],
+        },
+      },
+      channelProfiles: [],
+    },
+    { cwd: process.cwd(), homeDir: process.cwd() },
+    logger as never,
+  );
+
+  expect(config.channelProfiles).toEqual({});
+  expect(config.profiles.support.policyBrief).toBe('');
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ profileId: 'support' }),
+    'output-guard: policyFile not readable; ignoring',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ profileId: 'default' }),
+    'output-guard config issue',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ profileId: 'support' }),
+    'output-guard config issue',
+  );
+
+  const arrayConfig = resolveOutputGuardConfig(
+    {
+      profiles: [{ bannedPhrases: ['array-profile'] }],
+      channelProfiles: ['array-channel'],
+    },
+    { cwd: process.cwd(), homeDir: process.cwd() },
+    logger as never,
+  );
+
+  expect(arrayConfig.profiles).toEqual({});
+  expect(arrayConfig.channelProfiles).toEqual({});
+});
+
 test('output-guard plugin registers post-receive middleware via PluginManager', async () => {
   const homeDir = makeTempDir('hybridclaw-output-guard-home-');
   const cwd = makeTempDir('hybridclaw-output-guard-project-');
@@ -381,6 +435,18 @@ test('output guard falls back to the default profile without a channel match', a
   expect(missingProfileOutcome.blocked).toBe(true);
   expect(missingProfileOutcome.resultText).toBe(
     'Output guard violations: banned phrases: "default-only"',
+  );
+
+  const statusCommand = manager.findCommand('output-guard');
+  const status = await statusCommand?.handler([], {
+    sessionId: 'session-output-guard-status',
+    channelId: 'slack:C404',
+    userId: 'user-1',
+    username: 'alice',
+    guildId: null,
+  });
+  expect(String(status)).toContain(
+    'channel profile: missing-profile (missing -> default)',
   );
 });
 
