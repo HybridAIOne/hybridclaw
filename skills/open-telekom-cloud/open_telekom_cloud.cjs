@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { URL } = require('node:url');
 
-const SKILL_NAME = 'open-telekom-cloud';
+const SKILL_NAME = 't-cloud-public';
 const DEFAULT_REGION = 'eu-de';
 const DEFAULT_PROJECT_SECRET = 'OTC_PROJECT_ID';
 const DEFAULT_ACCESS_KEY_SECRET = 'OTC_ACCESS_KEY_ID';
@@ -431,7 +431,7 @@ function liveExecutionMetadata(operation) {
   const publicOperation = OPERATION_DEFS[operation]?.auth === false;
   const requiresConfiguredSecrets = publicOperation ? [] : REQUIRED_SECRET_NAMES;
   return {
-    mode: 'live-open-telekom-cloud-api',
+    mode: 'live-t-cloud-public-api',
     requiresConfiguredSecrets,
     optionalConfiguredSecrets: publicOperation ? [] : ['OTC_SECURITY_TOKEN'],
     callPolicy: publicOperation
@@ -494,7 +494,7 @@ function buildPlan(args = []) {
     requiresEscalation,
     requiredGrant:
       stakesTier === 'red'
-        ? 'approve-open-telekom-cloud-exact-f8-f14-mutation'
+        ? 'approve-t-cloud-public-exact-f8-f14-mutation'
         : null,
     region: common.region,
     projectId: common.projectId ? 'provided' : `<secret:${common.projectIdSecretName}>`,

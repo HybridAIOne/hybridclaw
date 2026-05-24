@@ -1,5 +1,5 @@
 ---
-name: open-telekom-cloud
+name: t-cloud-public
 description: "Read T Cloud Public (formerly Open Telekom Cloud) infrastructure inventory and prepare guarded DevOps operations through gateway-managed OTC API signing."
 user-invocable: true
 requires:
@@ -33,7 +33,7 @@ credentials:
 metadata:
   hybridclaw:
     category: infrastructure
-    short_description: "OTC infrastructure inventory, readiness checks, and guarded operation planning."
+    short_description: "T Cloud Public infrastructure inventory, readiness checks, and guarded operation planning."
     tags:
       - t-cloud-public
       - open-telekom-cloud
@@ -87,16 +87,17 @@ metadata:
       route: f14
     cost_measurement:
       system: UsageTotals
-      sub_limit_key: open-telekom-cloud
+      sub_limit_key: t-cloud-public
 ---
 
 # T Cloud Public
 
 Use this skill for T Cloud Public, formerly Open Telekom Cloud, infrastructure
 inventory, deployment-readiness checks, incident summaries, and guarded DevOps
-request planning. The helper and credential names intentionally keep the
-established `open-telekom-cloud` and `OTC_*` identifiers because the public API
-docs, domains, and customer terminology still use OTC/Open Telekom Cloud names.
+request planning. Invoke it as `t-cloud-public`. The helper path and credential
+names intentionally keep established `open-telekom-cloud` and `OTC_*`
+identifiers because the original issue, public API docs, domains, and customer
+terminology still use OTC/Open Telekom Cloud names.
 
 ## Default Workflow
 

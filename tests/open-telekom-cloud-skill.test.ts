@@ -38,10 +38,10 @@ function runHelperAsync(
   });
 }
 
-test('Open Telekom Cloud skill manifest declares infrastructure metadata and SecretRefs', () => {
+test('T Cloud Public skill manifest declares infrastructure metadata and SecretRefs', () => {
   const raw = fs.readFileSync(path.join(skillRoot, 'SKILL.md'), 'utf-8');
 
-  expect(raw).toContain('name: open-telekom-cloud');
+  expect(raw).toContain('name: t-cloud-public');
   expect(raw).toContain('category: infrastructure');
   expect(raw).toContain('OTC_ACCESS_KEY_ID');
   expect(raw).toContain('OTC_SECRET_ACCESS_KEY');
@@ -62,7 +62,7 @@ test('Open Telekom Cloud skill manifest declares infrastructure metadata and Sec
   expect(operatorSetup).toContain('OTC_SECURITY_TOKEN');
 });
 
-test('Open Telekom Cloud helper exposes expected commands', () => {
+test('T Cloud Public helper exposes expected commands', () => {
   const result = runHelper(['--help']);
 
   expect(result.status).toBe(0);
@@ -82,7 +82,7 @@ test('Open Telekom Cloud helper exposes expected commands', () => {
   }
 });
 
-test('Open Telekom Cloud helper builds allowlisted signed read payloads', () => {
+test('T Cloud Public helper builds allowlisted signed read payloads', () => {
   const servers = runHelper([
     '--format',
     'json',
@@ -163,7 +163,7 @@ test('Open Telekom Cloud helper builds allowlisted signed read payloads', () => 
   expect(payload.httpRequest).toMatchObject({
     method: 'GET',
     url: 'https://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail?limit=50&status=ACTIVE',
-    skillName: 'open-telekom-cloud',
+    skillName: 't-cloud-public',
     stakesTier: 'green',
     otcAkSk: {
       accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
@@ -212,7 +212,7 @@ test('Open Telekom Cloud helper builds allowlisted signed read payloads', () => 
   expect(JSON.parse(serviceStatus.stdout).httpRequest).toMatchObject({
     url: 'https://status.otc-service.com/',
     method: 'GET',
-    skillName: 'open-telekom-cloud',
+    skillName: 't-cloud-public',
   });
   expect(JSON.parse(serviceStatus.stdout).httpRequest).not.toHaveProperty(
     'otcAkSk',
@@ -222,7 +222,7 @@ test('Open Telekom Cloud helper builds allowlisted signed read payloads', () => 
   });
 });
 
-test('Open Telekom Cloud helper keeps project IDs and signing material secret-backed by default', () => {
+test('T Cloud Public helper keeps project IDs and signing material secret-backed by default', () => {
   const result = runHelper(
     ['--format', 'json', 'http-request', 'servers', '--region', 'eu-de'],
     {
@@ -241,7 +241,7 @@ test('Open Telekom Cloud helper keeps project IDs and signing material secret-ba
   expect(result.stdout).not.toContain('Authorization');
 });
 
-test('Open Telekom Cloud helper rejects invalid region and limit bounds', () => {
+test('T Cloud Public helper rejects invalid region and limit bounds', () => {
   const badRegion = runHelper([
     '--format',
     'json',
@@ -267,7 +267,7 @@ test('Open Telekom Cloud helper rejects invalid region and limit bounds', () => 
   expect(badLimit.stderr).toContain('--limit must be between 1 and 1000');
 });
 
-test('Open Telekom Cloud helper rejects arbitrary endpoints and plans mutations as red', () => {
+test('T Cloud Public helper rejects arbitrary endpoints and plans mutations as red', () => {
   const unknown = runHelper([
     '--format',
     'json',
@@ -284,18 +284,20 @@ test('Open Telekom Cloud helper rejects arbitrary endpoints and plans mutations 
   ]);
 
   expect(unknown.status).not.toBe(0);
-  expect(unknown.stderr).toContain('Unknown T Cloud Public / Open Telekom Cloud operation');
+  expect(unknown.stderr).toContain(
+    'Unknown T Cloud Public / Open Telekom Cloud operation',
+  );
   expect(mutation.status).toBe(0);
   expect(JSON.parse(mutation.stdout)).toMatchObject({
     command: 'plan',
     operation: 'guarded-mutation-request',
     stakesTier: 'red',
     requiresEscalation: true,
-    requiredGrant: 'approve-open-telekom-cloud-exact-f8-f14-mutation',
+    requiredGrant: 'approve-t-cloud-public-exact-f8-f14-mutation',
   });
 });
 
-test('Open Telekom Cloud helper run posts to gateway and summarizes auth and rate-limit failures', async () => {
+test('T Cloud Public helper run posts to gateway and summarizes auth and rate-limit failures', async () => {
   const receivedBodies: Record<string, unknown>[] = [];
   let mode: 'auth' | 'rate-limit' = 'auth';
   const server = http.createServer((req, res) => {
@@ -386,7 +388,7 @@ test('Open Telekom Cloud helper run posts to gateway and summarizes auth and rat
     });
     expect(receivedBodies).toHaveLength(2);
     expect(receivedBodies[0]).toMatchObject({
-      skillName: 'open-telekom-cloud',
+      skillName: 't-cloud-public',
       otcAkSk: {
         accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
         secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',

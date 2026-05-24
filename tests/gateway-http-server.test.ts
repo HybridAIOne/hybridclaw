@@ -9726,14 +9726,15 @@ describe('gateway HTTP server', () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
     }));
-    const dataDir = makeTempDataDir();
-    writeRuntimeConfig(dataDir, (config) => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-secret-ref-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir, (config) => {
       const ops = config.ops as Record<string, unknown>;
       ops.gatewayApiToken = 'gateway-token';
     });
-    writeAllowAllSecretPolicy(dataDir);
+    writeAllowAllSecretPolicy(homeDir);
     const state = await importFreshHealth({
-      dataDir,
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
       gatewayApiToken: 'gateway-token',
     });
     const { saveNamedRuntimeSecrets } = await import(
@@ -9800,28 +9801,29 @@ describe('gateway HTTP server', () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: dnsAddress, family: 4 }]),
     }));
-    const dataDir = makeTempDataDir();
-    writeRuntimeConfig(dataDir, (config) => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-otc-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir, (config) => {
       const ops = config.ops as Record<string, unknown>;
       ops.gatewayApiToken = 'gateway-token';
     });
-    writeAllowAllSecretPolicy(dataDir);
+    writeAllowAllSecretPolicy(homeDir);
     const state = await importFreshHealth({
-      dataDir,
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
       gatewayApiToken: 'gateway-token',
     });
     const { saveNamedRuntimeSecrets } = await import(
       '../src/security/runtime-secrets.js'
     );
     saveNamedRuntimeSecrets({
-      OTC_ACCESS_KEY_ID: 'test-access-key',
-      OTC_SECRET_ACCESS_KEY: 'test-secret-key',
+      OTC_ACCESS_KEY_ID: 'ak-live-example-123',
+      OTC_SECRET_ACCESS_KEY: 'sk-live-example-456',
     });
     vi.stubGlobal('fetch', fetchMock);
     return { fetchMock, state };
   }
 
-  test('signs Open Telekom Cloud http_request calls with gateway-held AK/SK secrets', async () => {
+  test('signs T Cloud Public http_request calls with gateway-held AK/SK secrets', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ servers: [] }), {
@@ -9841,7 +9843,7 @@ describe('gateway HTTP server', () => {
       body: {
         url: 'https://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail?limit=50',
         method: 'GET',
-        skillName: 'open-telekom-cloud',
+        skillName: 't-cloud-public',
         otcAkSk: {
           accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
           secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
@@ -9859,7 +9861,7 @@ describe('gateway HTTP server', () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: expect.stringMatching(
-            /^SDK-HMAC-SHA256 Access=test-access-key, SignedHeaders=host;x-sdk-date, Signature=[a-f0-9]{64}$/,
+            /^SDK-HMAC-SHA256 Access=ak-live-example-123, SignedHeaders=host;x-sdk-date, Signature=[a-f0-9]{64}$/,
           ),
           'X-Sdk-Date': expect.stringMatching(/^\d{8}T\d{6}Z$/),
         }),
@@ -9881,16 +9883,67 @@ describe('gateway HTTP server', () => {
       sdkDate,
       createHash('sha256').update(canonicalRequest).digest('hex'),
     ].join('\n');
-    const expectedSignature = createHmac('sha256', 'test-secret-key')
+    const expectedSignature = createHmac('sha256', 'sk-live-example-456')
       .update(stringToSign)
       .digest('hex');
     expect(headers.Authorization).toBe(
-      `SDK-HMAC-SHA256 Access=test-access-key, SignedHeaders=host;x-sdk-date, Signature=${expectedSignature}`,
+      `SDK-HMAC-SHA256 Access=ak-live-example-123, SignedHeaders=host;x-sdk-date, Signature=${expectedSignature}`,
     );
-    expect(headers.Authorization).not.toContain('test-secret-key');
+    expect(headers.Authorization).not.toContain('sk-live-example-456');
   });
 
-  test('blocks Open Telekom Cloud signing for non-OTC hosts', async () => {
+  test('rejects placeholder T Cloud Public AK/SK secrets before signing', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '80.158.59.140', family: 4 }]),
+    }));
+    const homeDir = makeTempDocsRoot('hybridclaw-http-otc-placeholder-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir, (config) => {
+      const ops = config.ops as Record<string, unknown>;
+      ops.gatewayApiToken = 'gateway-token';
+    });
+    writeAllowAllSecretPolicy(homeDir);
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.js'
+    );
+    saveNamedRuntimeSecrets({
+      OTC_ACCESS_KEY_ID: 'test-access-key',
+      OTC_SECRET_ACCESS_KEY: 'test-secret-key',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail?limit=50',
+        method: 'GET',
+        skillName: 't-cloud-public',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      'OTC_ACCESS_KEY_ID contains a placeholder value',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('blocks T Cloud Public signing for non-OTC hosts', async () => {
     const fetchMock = vi.fn();
     const { state } = await setupOtcGatewayRequestTest({
       dnsAddress: '93.184.216.34',
@@ -9922,7 +9975,7 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test('blocks Open Telekom Cloud signing over cleartext HTTP', async () => {
+  test('blocks T Cloud Public signing over cleartext HTTP', async () => {
     const fetchMock = vi.fn();
     const { state } = await setupOtcGatewayRequestTest({
       dnsAddress: '80.158.59.140',

@@ -937,6 +937,27 @@ function normalizeCanonicalHeaderValue(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
 }
 
+function assertOtcSecretIsNotPlaceholder(
+  secretName: string,
+  value: string,
+): void {
+  const normalized = value.trim().toLowerCase();
+  const placeholders = new Set([
+    'test-access-key',
+    'test-secret-key',
+    '<your-real-access-key-id>',
+    '<your-real-secret-access-key>',
+    'your-real-access-key-id',
+    'your-real-secret-access-key',
+  ]);
+  if (placeholders.has(normalized)) {
+    throw new GatewayRequestError(
+      400,
+      `${secretName} contains a placeholder value. Replace it with the real T Cloud Public / Open Telekom Cloud credential before retrying.`,
+    );
+  }
+}
+
 async function applyOtcAkSkSigning(params: {
   rule: OtcAkSkAuthRule;
   url: URL;
@@ -966,12 +987,20 @@ async function applyOtcAkSkSigning(params: {
       selector: 'otcAkSk.accessKeyId',
     },
   );
+  assertOtcSecretIsNotPlaceholder(
+    params.rule.accessKeyIdSecretName,
+    accessKeyId,
+  );
   const secretAccessKey = await resolveHttpSecretOrThrow(
     params.rule.secretAccessKeySecretName,
     {
       ...params.context,
       selector: 'otcAkSk.secretAccessKey',
     },
+  );
+  assertOtcSecretIsNotPlaceholder(
+    params.rule.secretAccessKeySecretName,
+    secretAccessKey,
   );
   const securityToken = params.rule.securityTokenSecretName
     ? await resolveHttpSecretOrThrow(params.rule.securityTokenSecretName, {
