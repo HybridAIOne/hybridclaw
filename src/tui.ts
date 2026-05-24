@@ -1180,24 +1180,6 @@ function parseTuiMarkdownTableAt(
   return rows.length > 1 ? { rows, endLine } : null;
 }
 
-function hasTuiMarkdownFormatting(text: string): boolean {
-  const lines = String(text || '')
-    .replace(/\r\n?/g, '\n')
-    .split('\n');
-  let inFence = false;
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] || '';
-    if (/^\s*```/u.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) continue;
-    if (/\*\*[^*\n]+\*\*|__[^_\n]+__/u.test(line)) return true;
-    if (parseTuiMarkdownTableAt(lines, index)) return true;
-  }
-  return false;
-}
-
 function wrapAnsiTuiVisibleLine(value: string, width: number): string[] {
   const safeWidth = Math.max(1, Math.floor(width || 1));
   if (visibleTuiLength(value) <= safeWidth) return [value];
@@ -2893,13 +2875,9 @@ async function processMessage(
       resolveCachedApprovalDetails(tuiPendingApproval),
     );
     const interrupted = isInterruptedResult(result);
-    const shouldReplayFormattedText =
-      !pendingApproval &&
-      !interrupted &&
-      result.status !== 'error' &&
-      sawVisibleTextDelta &&
-      process.stdout.isTTY &&
-      hasTuiMarkdownFormatting(finalText);
+    // Do not replay the final formatted answer after visible streaming; in
+    // real terminals the erase sequence is not reliable enough across wraps.
+    const shouldReplayFormattedText = false;
 
     s.flushVisibleText();
     if (shouldReplayFormattedText) {
