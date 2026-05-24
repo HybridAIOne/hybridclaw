@@ -92,15 +92,7 @@ function resolveModelSourceConfig(rawConfig, label) {
   return { provider, model: provider === 'model' ? model : '' };
 }
 
-export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
-  const errors = [];
-  const enabled = rawConfig?.enabled !== false;
-  const mode = ensureEnum(rawConfig?.mode, SUPPORTED_MODES, 'rewrite');
-  const failureMode = ensureEnum(
-    rawConfig?.failureMode,
-    SUPPORTED_FAILURE_MODES,
-    'allow',
-  );
+function resolveOutputGuardProfile(rawConfig, runtime, logger, errors) {
   const policy = normalizeString(rawConfig?.policy);
   const doList = normalizeStringArray(rawConfig?.doList);
   const dontList = normalizeStringArray(rawConfig?.dontList);
@@ -119,6 +111,85 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
     })
     .filter((value) => value !== null);
   const requirePhrases = normalizeStringArray(rawConfig?.requirePhrases);
+
+  return Object.freeze({
+    policy,
+    doList: Object.freeze(doList),
+    dontList: Object.freeze(dontList),
+    policyFileText,
+    bannedPhrases: Object.freeze(bannedPhrases),
+    bannedPatterns: Object.freeze(
+      bannedPatternEntries.map((entry) => Object.freeze(entry)),
+    ),
+    requirePhrases: Object.freeze(requirePhrases),
+  });
+}
+
+function resolveNamedProfiles(rawConfig, runtime, logger, errors) {
+  if (!rawConfig?.profiles || typeof rawConfig.profiles !== 'object') {
+    return Object.freeze({});
+  }
+  const profiles = {};
+  for (const [rawProfileId, rawProfileConfig] of Object.entries(
+    rawConfig.profiles,
+  )) {
+    const profileId = normalizeString(rawProfileId);
+    if (!profileId) continue;
+    profiles[profileId] = resolveOutputGuardProfile(
+      rawProfileConfig,
+      runtime,
+      logger,
+      errors,
+    );
+  }
+  return Object.freeze(profiles);
+}
+
+function resolveChannelProfiles(rawConfig) {
+  if (
+    !rawConfig?.channelProfiles ||
+    typeof rawConfig.channelProfiles !== 'object'
+  ) {
+    return Object.freeze({});
+  }
+  const channelProfiles = {};
+  for (const [rawChannelId, rawProfileId] of Object.entries(
+    rawConfig.channelProfiles,
+  )) {
+    const channelId = normalizeString(rawChannelId);
+    const profileId = normalizeString(rawProfileId);
+    if (!channelId || !profileId) continue;
+    channelProfiles[channelId] = profileId;
+  }
+  return Object.freeze(channelProfiles);
+}
+
+export function resolveOutputGuardProfileForChannel(config, channelId) {
+  const normalizedChannelId = normalizeString(channelId);
+  const profileId = normalizedChannelId
+    ? config.channelProfiles[normalizedChannelId]
+    : '';
+  if (!profileId) return config.defaultProfile;
+  return config.profiles[profileId] || config.defaultProfile;
+}
+
+export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
+  const errors = [];
+  const enabled = rawConfig?.enabled !== false;
+  const mode = ensureEnum(rawConfig?.mode, SUPPORTED_MODES, 'rewrite');
+  const failureMode = ensureEnum(
+    rawConfig?.failureMode,
+    SUPPORTED_FAILURE_MODES,
+    'allow',
+  );
+  const defaultProfile = resolveOutputGuardProfile(
+    rawConfig,
+    runtime,
+    logger,
+    errors,
+  );
+  const profiles = resolveNamedProfiles(rawConfig, runtime, logger, errors);
+  const channelProfiles = resolveChannelProfiles(rawConfig);
   const blockMessage =
     normalizeString(rawConfig?.blockMessage) ||
     'Output blocked by output guard.';
@@ -138,15 +209,10 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
     enabled,
     mode,
     failureMode,
-    policy,
-    doList: Object.freeze(doList),
-    dontList: Object.freeze(dontList),
-    policyFileText,
-    bannedPhrases: Object.freeze(bannedPhrases),
-    bannedPatterns: Object.freeze(
-      bannedPatternEntries.map((entry) => Object.freeze(entry)),
-    ),
-    requirePhrases: Object.freeze(requirePhrases),
+    defaultProfile,
+    profiles,
+    channelProfiles,
+    ...defaultProfile,
     blockMessage,
     minLength,
     classifier: Object.freeze(classifier),

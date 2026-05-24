@@ -270,6 +270,120 @@ test('output guard allows clean output unchanged', async () => {
   ]);
 });
 
+test('output guard applies a named profile selected by channel id', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
+  installBundledPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'output-guard',
+      enabled: true,
+      config: {
+        mode: 'block',
+        bannedPhrases: ['default-only'],
+        profiles: {
+          support: {
+            policy: 'Use the support voice.',
+            bannedPhrases: ['dear customer'],
+          },
+        },
+        channelProfiles: {
+          'email:support@example.com': 'support',
+        },
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const channelSpecificOutcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    channelId: 'email:support@example.com',
+    resultText: 'Dear customer, the launch remains on track.',
+  });
+
+  expect(channelSpecificOutcome.blocked).toBe(true);
+  expect(channelSpecificOutcome.resultText).toBe(
+    'Output guard violations: banned phrases: "dear customer"',
+  );
+
+  const defaultOutcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    channelId: 'web',
+    resultText: 'Dear customer, the launch remains on track.',
+  });
+
+  expect(defaultOutcome.blocked).toBe(false);
+  expect(defaultOutcome.resultText).toBe(
+    'Dear customer, the launch remains on track.',
+  );
+});
+
+test('output guard falls back to the default profile without a channel match', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
+  installBundledPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'output-guard',
+      enabled: true,
+      config: {
+        mode: 'block',
+        bannedPhrases: ['default-only'],
+        profiles: {
+          sales: {
+            bannedPhrases: ['sales-only'],
+          },
+        },
+        channelProfiles: {
+          'slack:C123': 'sales',
+          'slack:C404': 'missing-profile',
+        },
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const unmappedOutcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    channelId: 'email:support@example.com',
+    resultText: 'This default-only phrase should be blocked.',
+  });
+
+  expect(unmappedOutcome.blocked).toBe(true);
+  expect(unmappedOutcome.resultText).toBe(
+    'Output guard violations: banned phrases: "default-only"',
+  );
+
+  const missingProfileOutcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    channelId: 'slack:C404',
+    resultText: 'This default-only phrase should also be blocked.',
+  });
+
+  expect(missingProfileOutcome.blocked).toBe(true);
+  expect(missingProfileOutcome.resultText).toBe(
+    'Output guard violations: banned phrases: "default-only"',
+  );
+});
+
 test('output guard rewrites non-compliant text via the configured rewriter', async () => {
   const homeDir = makeTempDir('hybridclaw-output-guard-home-');
   const cwd = makeTempDir('hybridclaw-output-guard-project-');
