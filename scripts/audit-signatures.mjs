@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
 
 const BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT = Date.parse(
   '2026-05-20T08:35:12.000Z',
@@ -15,24 +17,29 @@ const retryDelayMs = Number.parseInt(
   10,
 );
 
-const baseArgs = [];
+const auditPolicyArgs = [];
 
 // Baileys 7.0.0-rc11 was published on 2026-05-13T08:35:11Z. Until npm's
 // seven-day age gate expires, signature audit needs the same resolver bypass
 // as install-time CI. After that date, use the repo-wide .npmrc policy again.
 if (Date.now() < BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT) {
-  baseArgs.push('--min-release-age=0');
+  auditPolicyArgs.push('--min-release-age=0');
 }
 
-const audits = [
-  { label: 'root', args: [...baseArgs, 'audit', 'signatures'] },
+const targets = [
+  {
+    label: 'root',
+    args: [...auditPolicyArgs, 'audit', 'signatures'],
+  },
   {
     label: 'container',
-    args: ['--prefix', 'container', ...baseArgs, 'audit', 'signatures'],
+    args: ['--prefix', 'container', ...auditPolicyArgs, 'audit', 'signatures'],
   },
 ];
 
 const transientPatterns = [
+  /E404[\s\S]*\/-\/npm\/v1\/attestations\//u,
+  /E5\d\d/u,
   'ECONNRESET',
   'ECONNREFUSED',
   'ETIMEDOUT',
@@ -42,28 +49,37 @@ const transientPatterns = [
   'aborted',
   'Invalid response body',
   'network connectivity',
+  'socket hang up',
 ];
+
+function auditCacheDir(label) {
+  return path.join(os.tmpdir(), `hybridclaw-npm-cache-${label}`);
+}
 
 function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function isTransientFailure(output) {
-  return transientPatterns.some((pattern) => output.includes(pattern));
+  return transientPatterns.some((pattern) =>
+    typeof pattern === 'string'
+      ? output.includes(pattern)
+      : pattern.test(output),
+  );
 }
 
-function runAudit(audit) {
+function runAudit(target) {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     console.error(
-      `Running npm registry signature audit for ${audit.label} (${attempt}/${maxAttempts})`,
+      `Running npm registry signature audit for ${target.label} (${attempt}/${maxAttempts})`,
     );
 
-    const result = spawnSync('npm', audit.args, {
+    const result = spawnSync('npm', target.args, {
       encoding: 'utf8',
       env: {
         ...process.env,
         NPM_CONFIG_CACHE:
-          process.env.NPM_CONFIG_CACHE || '/tmp/hybridclaw-npm-cache',
+          process.env.NPM_CONFIG_CACHE || auditCacheDir(target.label),
       },
     });
 
@@ -85,7 +101,7 @@ function runAudit(audit) {
     }
 
     console.error(
-      `npm registry signature audit for ${audit.label} failed with a transient network error; retrying in ${retryDelayMs}ms.`,
+      `npm registry signature audit for ${target.label} failed with a transient network error; retrying in ${retryDelayMs}ms.`,
     );
     sleep(retryDelayMs);
   }
@@ -93,8 +109,8 @@ function runAudit(audit) {
   return 1;
 }
 
-for (const audit of audits) {
-  const status = runAudit(audit);
+for (const target of targets) {
+  const status = runAudit(target);
   if (status !== 0) {
     process.exit(status);
   }
