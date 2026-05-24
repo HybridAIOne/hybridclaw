@@ -277,7 +277,9 @@ function fingerprintWebSearch(webSearch: AgentConfig['webSearch']): string {
 
 function fingerprintBudget(budget: AgentConfig['budget']): string {
   if (!budget) return '';
-  return `${budget.currency}:${budget.cap}`;
+  return budget.unit === 'tokens'
+    ? `${budget.unit}:${budget.currency}:${budget.cap}`
+    : `${budget.currency}:${budget.cap}`;
 }
 
 function fingerprintAgent(agent: AgentConfig): string {
