@@ -54,7 +54,6 @@ export interface SuspendedFrameSnapshot {
   url: string;
   title?: string | null;
   browserSessionKey?: string | null;
-  storageStateRef?: string | null;
   screenshotRef?: string | null;
 }
 
@@ -312,10 +311,6 @@ function normalizeSuspendedSession(value: unknown): SuspendedSession | null {
       browserSessionKey:
         typeof frameSnapshot?.browserSessionKey === 'string'
           ? frameSnapshot.browserSessionKey
-          : null,
-      storageStateRef:
-        typeof frameSnapshot?.storageStateRef === 'string'
-          ? frameSnapshot.storageStateRef
           : null,
       screenshotRef:
         typeof frameSnapshot?.screenshotRef === 'string'

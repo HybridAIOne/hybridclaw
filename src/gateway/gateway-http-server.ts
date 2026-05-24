@@ -4911,7 +4911,6 @@ function parseInteractionFrameSnapshot(value: unknown): {
   url: string;
   title?: string | null;
   browserSessionKey?: string | null;
-  storageStateRef?: string | null;
   screenshotRef?: string | null;
 } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -4929,7 +4928,6 @@ function parseInteractionFrameSnapshot(value: unknown): {
     url,
     title: normalizeOptionalString(raw.title) || null,
     browserSessionKey: normalizeOptionalString(raw.browserSessionKey) || null,
-    storageStateRef: normalizeOptionalString(raw.storageStateRef) || null,
     screenshotRef: normalizeOptionalString(raw.screenshotRef) || null,
   };
 }
