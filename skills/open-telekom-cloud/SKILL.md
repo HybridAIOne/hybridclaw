@@ -1,6 +1,6 @@
 ---
 name: open-telekom-cloud
-description: "Read Open Telekom Cloud / T-Systems infrastructure inventory and prepare guarded DevOps operations through gateway-managed OTC API signing."
+description: "Read T Cloud Public (formerly Open Telekom Cloud) infrastructure inventory and prepare guarded DevOps operations through gateway-managed OTC API signing."
 user-invocable: true
 requires:
   bins:
@@ -12,7 +12,7 @@ credentials:
     secret_ref:
       source: store
       id: OTC_ACCESS_KEY_ID
-    scope: "Open Telekom Cloud AK/SK request signing"
+    scope: "T Cloud Public / Open Telekom Cloud AK/SK request signing"
     how_to_obtain: "Create an OTC access key in My Credentials > Access Keys and store the Access Key Id as OTC_ACCESS_KEY_ID. Use a least-privilege IAM user for inventory work."
   - id: otc-secret-access-key
     kind: header
@@ -20,7 +20,7 @@ credentials:
     secret_ref:
       source: store
       id: OTC_SECRET_ACCESS_KEY
-    scope: "Open Telekom Cloud AK/SK request signing"
+    scope: "T Cloud Public / Open Telekom Cloud AK/SK request signing"
     how_to_obtain: "Save the Secret Access Key from the OTC access key CSV as OTC_SECRET_ACCESS_KEY. Never paste it into chat or project files."
   - id: otc-project-id
     kind: header
@@ -28,7 +28,7 @@ credentials:
     secret_ref:
       source: store
       id: OTC_PROJECT_ID
-    scope: "Open Telekom Cloud regional project paths"
+    scope: "T Cloud Public / Open Telekom Cloud regional project paths"
     how_to_obtain: "Copy the target regional project ID from My Credentials > API Credentials and store it as OTC_PROJECT_ID."
   - id: otc-region
     kind: header
@@ -36,13 +36,14 @@ credentials:
     secret_ref:
       source: store
       id: OTC_REGION
-    scope: "Default Open Telekom Cloud region"
+    scope: "Default T Cloud Public / Open Telekom Cloud region"
     how_to_obtain: "Store the default region, for example eu-de, as OTC_REGION or pass --region explicitly."
 metadata:
   hybridclaw:
     category: infrastructure
     short_description: "OTC infrastructure inventory, readiness checks, and guarded operation planning."
     tags:
+      - t-cloud-public
       - open-telekom-cloud
       - t-systems
       - devops
@@ -97,11 +98,13 @@ metadata:
       sub_limit_key: open-telekom-cloud
 ---
 
-# Open Telekom Cloud
+# T Cloud Public
 
-Use this skill for Open Telekom Cloud / T-Systems infrastructure inventory,
-deployment-readiness checks, incident summaries, and guarded DevOps request
-planning.
+Use this skill for T Cloud Public, formerly Open Telekom Cloud, infrastructure
+inventory, deployment-readiness checks, incident summaries, and guarded DevOps
+request planning. The helper and credential names intentionally keep the
+established `open-telekom-cloud` and `OTC_*` identifiers because the public API
+docs, domains, and customer terminology still use OTC/Open Telekom Cloud names.
 
 ## Default Workflow
 

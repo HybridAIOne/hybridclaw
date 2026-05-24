@@ -275,7 +275,7 @@ test('Open Telekom Cloud helper rejects arbitrary endpoints and plans mutations 
   ]);
 
   expect(unknown.status).not.toBe(0);
-  expect(unknown.stderr).toContain('Unknown Open Telekom Cloud operation');
+  expect(unknown.stderr).toContain('Unknown T Cloud Public / Open Telekom Cloud operation');
   expect(mutation.status).toBe(0);
   expect(JSON.parse(mutation.stdout)).toMatchObject({
     command: 'plan',

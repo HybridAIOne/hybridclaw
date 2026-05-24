@@ -4388,7 +4388,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           otcAkSk: {
             type: 'object',
             description:
-              'Open Telekom Cloud AK/SK signing for otc.t-systems.com API requests. The gateway reads the named stored secrets, signs the request server-side, and injects Authorization without exposing AK/SK material.',
+              'T Cloud Public / Open Telekom Cloud AK/SK signing for otc.t-systems.com API requests. The gateway reads the named stored secrets, signs the request server-side, and injects Authorization without exposing AK/SK material.',
             properties: {
               accessKeyIdSecretName: {
                 type: 'string',

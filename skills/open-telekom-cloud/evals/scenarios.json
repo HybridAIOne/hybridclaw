@@ -15,7 +15,7 @@
   },
   {
     "category": "platform",
-    "prompt": "Check the public Open Telekom Cloud service status dashboard before deploy.",
+    "prompt": "Check the public T Cloud Public service status dashboard before deploy.",
     "expectedOperation": "service-status",
     "expectedTier": "green",
     "costMeasurement": { "system": "UsageTotals" }

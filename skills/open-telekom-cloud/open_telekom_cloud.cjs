@@ -370,7 +370,7 @@ function collectJson(args, names) {
 
 function buildHttpRequest(operation, args) {
   const def = OPERATION_DEFS[operation];
-  if (!def) die(`Unknown Open Telekom Cloud operation: ${operation}`);
+  if (!def) die(`Unknown T Cloud Public / Open Telekom Cloud operation: ${operation}`);
   const common = readCommonFlags(args);
   const params = {};
   for (const required of def.required || []) {
@@ -634,7 +634,7 @@ function commandHttpRequest(args) {
   const operation = args.shift();
   if (!operation) die('http-request requires an operation.');
   if (!READ_OPERATIONS.has(operation)) {
-    die(`Unknown Open Telekom Cloud operation: ${operation}`);
+    die(`Unknown T Cloud Public / Open Telekom Cloud operation: ${operation}`);
   }
   return buildHttpRequest(operation, args);
 }
@@ -699,7 +699,7 @@ async function main() {
 }
 
 function showHelp() {
-  process.stdout.write(`Open Telekom Cloud skill helper
+  process.stdout.write(`T Cloud Public (formerly Open Telekom Cloud) skill helper
 
 Usage:
   node skills/open-telekom-cloud/open_telekom_cloud.cjs [--format json] plan <request> [--region eu-de]

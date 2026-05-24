@@ -9897,7 +9897,7 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.body).error).toContain(
-      'otcAkSk can only be used for Open Telekom Cloud API hosts',
+      'otcAkSk can only be used for T Cloud Public / Open Telekom Cloud API hosts',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -9929,7 +9929,7 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body).error).toContain(
-      'otcAkSk signing requires an HTTPS Open Telekom Cloud URL',
+      'otcAkSk signing requires an HTTPS T Cloud Public / Open Telekom Cloud URL',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

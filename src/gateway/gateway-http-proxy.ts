@@ -876,7 +876,7 @@ function assertOtcAkSkHost(url: URL): void {
   }
   throw new GatewayRequestError(
     403,
-    'otcAkSk can only be used for Open Telekom Cloud API hosts.',
+    'otcAkSk can only be used for T Cloud Public / Open Telekom Cloud API hosts.',
   );
 }
 
@@ -932,7 +932,7 @@ async function applyOtcAkSkSigning(params: {
   if (params.url.protocol !== 'https:') {
     throw new GatewayRequestError(
       400,
-      'otcAkSk signing requires an HTTPS Open Telekom Cloud URL.',
+      'otcAkSk signing requires an HTTPS T Cloud Public / Open Telekom Cloud URL.',
     );
   }
   if (hasHeaderValue(params.headers, 'Authorization')) {

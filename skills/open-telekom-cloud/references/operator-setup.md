@@ -1,4 +1,8 @@
-# Open Telekom Cloud Operator Setup
+# T Cloud Public Operator Setup
+
+T Cloud Public was formerly named Open Telekom Cloud. The setup steps still use
+the established `OTC_*` secret names and OTC API terminology because those names
+match the provider's credentials, API docs, and endpoint domains.
 
 ## Secrets
 
