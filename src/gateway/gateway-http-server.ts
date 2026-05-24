@@ -19,6 +19,17 @@ import {
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
+import {
+  addEdge,
+  type BoardCardActor,
+  type BoardCardEdgeKind,
+  type BoardCardMutationContext,
+  isBlocked,
+  listEdgeRevisions,
+  listEdges,
+  removeEdge,
+  restoreEdgeRevision,
+} from '../board/card-store.js';
 import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
 import type {
@@ -86,6 +97,7 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { isAdminActionAllowed } from '../security/admin-rbac.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import {
   normalizeRecentChatSearchQuery,
@@ -131,7 +143,12 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
-import { getGatewayAdminSecrets } from './gateway-admin-secrets.js';
+import {
+  getGatewayAdminSecrets,
+  overwriteGatewayAdminSecret,
+  recordGatewayAdminSecretMutationFailure,
+  unsetGatewayAdminSecret,
+} from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
@@ -250,6 +267,11 @@ import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import {
+  getGatewayAdminOutputGuardProfile,
+  previewGatewayAdminOutputGuardProfile,
+  updateGatewayAdminOutputGuardProfile,
+} from './output-guard-admin.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
@@ -1758,6 +1780,21 @@ function resolveAdminSessionAuditId(
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function resolveAdminSecretAuditContext(
+  req: IncomingMessage,
+  sessionPayload: Record<string, unknown> | null,
+): {
+  sessionId?: string;
+  actor?: string | null;
+  sourceIp?: string | null;
+} {
+  return {
+    sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
+    actor: resolveAdminSessionActor(sessionPayload),
+    sourceIp: req.socket.remoteAddress || null,
+  };
+}
+
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   const authHeader = req.headers.authorization || '';
   if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
@@ -3202,7 +3239,7 @@ function handleApiAdminJobsContext(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminJobsContext());
 }
 
-function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
+function parseJobBudgetAgentIds(url: URL): string[] | undefined {
   const values = url.searchParams
     .getAll('agentId')
     .map((value) => value.trim())
@@ -3210,14 +3247,167 @@ function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
   return values.length > 0 ? values : undefined;
 }
 
-function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
+function handleApiAdminJobsBudgets(res: ServerResponse, url: URL): void {
   sendJson(
     res,
     200,
     getBoardBudgetSummaries({
-      agentIds: parseBoardBudgetAgentIds(url),
+      agentIds: parseJobBudgetAgentIds(url),
     }),
   );
+}
+
+function normalizeBoardEdgeKind(value: unknown): BoardCardEdgeKind | undefined {
+  const normalized = String(value || '').trim();
+  if (!normalized) return undefined;
+  if (
+    normalized === 'blocks' ||
+    normalized === 'blocked_by' ||
+    normalized === 'related'
+  ) {
+    return normalized;
+  }
+  throw new GatewayRequestError(400, 'Invalid board edge kind.');
+}
+
+function normalizeBoardCardId(value: unknown, field: string): string {
+  if (value == null)
+    throw new GatewayRequestError(400, `Missing \`${field}\`.`);
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `\`${field}\` must be a string.`);
+  }
+  const normalized = value.trim();
+  if (!normalized) throw new GatewayRequestError(400, `Missing \`${field}\`.`);
+  return normalized;
+}
+
+function normalizeBoardRevisionId(value: unknown): number {
+  if (value == null) {
+    throw new GatewayRequestError(400, 'Missing `revisionId`.');
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new GatewayRequestError(
+      400,
+      '`revisionId` must be a positive integer.',
+    );
+  }
+  return value;
+}
+
+function normalizeBoardActorField(
+  record: Record<string, unknown>,
+  field: 'system' | 'userId' | 'agentId',
+): string {
+  const value = record[field];
+  if (value == null) return '';
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `\`actor.${field}\` must be a string.`);
+  }
+  return value.trim();
+}
+
+function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
+  if (value == null) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(400, '`actor` must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const system = normalizeBoardActorField(record, 'system');
+  const userId = normalizeBoardActorField(record, 'userId');
+  const agentId = normalizeBoardActorField(record, 'agentId');
+  const actorCount = [system, userId, agentId].filter(Boolean).length;
+  if (actorCount !== 1) {
+    throw new GatewayRequestError(
+      400,
+      '`actor` must contain exactly one of system, userId, or agentId.',
+    );
+  }
+  if (system) {
+    if (system !== 'gateway') {
+      throw new GatewayRequestError(400, '`actor.system` must be gateway.');
+    }
+    return { system };
+  }
+  if (userId) return { userId };
+  return { agentId };
+}
+
+function extractBoardEdgeContext(
+  body: Record<string, unknown>,
+): BoardCardMutationContext {
+  return {
+    actor: normalizeBoardEdgeActor(body.actor),
+    sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+    runId: typeof body.runId === 'string' ? body.runId : null,
+  };
+}
+
+async function handleApiAdminJobsEdges(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (req.method === 'GET') {
+    const cardId = normalizeBoardCardId(
+      url.searchParams.get('cardId'),
+      'cardId',
+    );
+    const kind = normalizeBoardEdgeKind(url.searchParams.get('kind'));
+    sendJson(res, 200, { edges: listEdges(cardId, kind) });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const fromCardId = normalizeBoardCardId(body.fromCardId, 'fromCardId');
+    const toCardId = normalizeBoardCardId(body.toCardId, 'toCardId');
+    const kind = normalizeBoardEdgeKind(body.kind);
+    if (!kind) throw new GatewayRequestError(400, 'Missing `kind`.');
+    sendJson(res, 200, {
+      edge: addEdge(fromCardId, toCardId, kind, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  if (req.method === 'DELETE') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const id = normalizeBoardCardId(url.searchParams.get('id'), 'id');
+    sendJson(res, 200, {
+      edge: removeEdge(id, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+async function handleApiAdminJobsEdgeRevisions(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (req.method === 'GET') {
+    const id = normalizeBoardCardId(url.searchParams.get('id'), 'id');
+    sendJson(res, 200, { revisions: listEdgeRevisions(id) });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const id = normalizeBoardCardId(body.id, 'id');
+    const revisionId = normalizeBoardRevisionId(body.revisionId);
+    sendJson(res, 200, {
+      edge: restoreEdgeRevision(id, revisionId, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+function handleApiAdminJobsBlocked(res: ServerResponse, url: URL): void {
+  const cardId = normalizeBoardCardId(url.searchParams.get('cardId'), 'cardId');
+  sendJson(res, 200, { cardId, blocked: isBlocked(cardId) });
 }
 
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
@@ -3290,18 +3480,123 @@ function handleApiAdminSecrets(
   res: ServerResponse,
 ): void {
   const sessionPayload = getSessionAuthPayload(req);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.list_metadata')) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
 
   sendJson(
     res,
     200,
     getGatewayAdminSecrets({
-      audit: {
-        sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
-        actor: resolveAdminSessionActor(sessionPayload),
-        sourceIp: req.socket.remoteAddress || null,
-      },
+      audit: resolveAdminSecretAuditContext(req, sessionPayload),
     }),
   );
+}
+
+function parseApiAdminSecretName(pathname: string): string | null {
+  const prefix = '/api/admin/secrets/';
+  if (!pathname.startsWith(prefix)) return null;
+  const encoded = pathname.slice(prefix.length);
+  if (!encoded || encoded.includes('/')) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new GatewayRequestError(400, 'Invalid secret name in request path.');
+  }
+}
+
+function readAdminSecretBodyValue(body: unknown): unknown {
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    return (body as { value?: unknown }).value;
+  }
+  return undefined;
+}
+
+async function handleApiAdminSecretOverwrite(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+): Promise<void> {
+  const sessionPayload = getSessionAuthPayload(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.overwrite')) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.overwritten',
+      name,
+      audit,
+      errorCode: 'forbidden',
+    });
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.overwritten',
+      name,
+      audit,
+      errorCode:
+        error instanceof GatewayRequestError ? 'bad_request' : 'write_failed',
+    });
+    throw error;
+  }
+  sendJson(
+    res,
+    200,
+    overwriteGatewayAdminSecret({
+      name,
+      value: readAdminSecretBodyValue(body),
+      audit,
+    }),
+  );
+}
+
+async function handleApiAdminSecretUnset(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+): Promise<void> {
+  const sessionPayload = getSessionAuthPayload(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.unset')) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.unset',
+      name,
+      audit,
+      errorCode: 'forbidden',
+    });
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  sendJson(res, 200, unsetGatewayAdminSecret({ name, audit }));
+}
+
+function recordUnauthenticatedAdminSecretMutation(
+  req: IncomingMessage,
+  pathname: string,
+  method: string,
+): void {
+  if (method !== 'PUT' && method !== 'DELETE') return;
+  let name: string | null = null;
+  try {
+    name = parseApiAdminSecretName(pathname);
+  } catch {
+    return;
+  }
+  if (name === null) return;
+  recordGatewayAdminSecretMutationFailure({
+    type: method === 'PUT' ? 'secret.overwritten' : 'secret.unset',
+    name,
+    audit: {
+      sourceIp: req.socket.remoteAddress || null,
+    },
+    errorCode: 'unauthorized',
+  });
 }
 
 async function handleApiAdminTunnelReconnect(
@@ -4830,6 +5125,57 @@ async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminPlugins());
 }
 
+async function handleApiAdminOutputGuard(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = req.method || 'GET';
+
+  if (method === 'GET') {
+    sendJson(res, 200, getGatewayAdminOutputGuardProfile());
+    return;
+  }
+
+  if (method === 'PUT') {
+    try {
+      sendJson(
+        res,
+        200,
+        await updateGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+      );
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  sendMethodNotAllowed(res);
+}
+
+async function handleApiAdminOutputGuardPreview(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') !== 'POST') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  try {
+    sendJson(
+      res,
+      200,
+      await previewGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+    );
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function handleApiAdminSkills(
   req: IncomingMessage,
   res: ServerResponse,
@@ -5591,6 +5937,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           requireSameOrigin: method !== 'GET',
         })
       ) {
+        recordUnauthenticatedAdminSecretMutation(req, pathname, method);
         sendJson(res, 401, {
           error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
         });
@@ -5622,6 +5969,25 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/secrets' && method === 'GET') {
             handleApiAdminSecrets(req, res);
+            return;
+          }
+          const adminSecretName = parseApiAdminSecretName(pathname);
+          if (adminSecretName !== null) {
+            if (method === 'GET') {
+              sendJson(res, 405, {
+                error: 'Secret values are write-only on this route.',
+              });
+              return;
+            }
+            if (method === 'PUT') {
+              await handleApiAdminSecretOverwrite(req, res, adminSecretName);
+              return;
+            }
+            if (method === 'DELETE') {
+              await handleApiAdminSecretUnset(req, res, adminSecretName);
+              return;
+            }
+            sendMethodNotAllowed(res);
             return;
           }
           if (pathname === '/api/admin/secrets') {
@@ -5836,6 +6202,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminPlugins(res);
             return;
           }
+          if (pathname === '/api/admin/output-guard') {
+            await handleApiAdminOutputGuard(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/output-guard/preview') {
+            await handleApiAdminOutputGuardPreview(req, res);
+            return;
+          }
           if (pathname === '/api/admin/skills') {
             await handleApiAdminSkills(req, res);
             return;
@@ -5852,8 +6226,26 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminJobsContext(res);
             return;
           }
-          if (pathname === '/api/admin/board/budgets' && method === 'GET') {
-            handleApiAdminBoardBudgets(res, url);
+          if (pathname === '/api/admin/jobs/budgets' && method === 'GET') {
+            handleApiAdminJobsBudgets(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/jobs/edges' &&
+            (method === 'GET' || method === 'POST' || method === 'DELETE')
+          ) {
+            await handleApiAdminJobsEdges(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/jobs/edge-revisions' &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            await handleApiAdminJobsEdgeRevisions(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/jobs/blocked' && method === 'GET') {
+            handleApiAdminJobsBlocked(res, url);
             return;
           }
           if (

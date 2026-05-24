@@ -71,6 +71,13 @@ import {
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import {
+  type Card as BoardCard,
+  type Edge as BoardCardEdge,
+  isBlocked as isBoardCardBlocked,
+  listCards,
+  listEdges,
+} from '../board/card-store.js';
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
@@ -295,7 +302,12 @@ import {
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
 import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
+import { isRuntimeProviderId } from '../providers/provider-ids.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
+import {
+  normalizeAuxiliaryProviderModel,
+  resolveDefaultAuxiliaryModelForProvider,
+} from '../providers/task-routing.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
 import {
@@ -476,6 +488,8 @@ import {
   type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
   type GatewayAdminEmailMessageResponse,
+  type GatewayAdminJobCard,
+  type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
@@ -4546,6 +4560,7 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
   const allSessions = getAllSessions();
+  const cards = listCards().map(mapGatewayAdminJobCard);
   const sessions = allSessions
     .map((session) =>
       mapSessionCard({
@@ -4584,6 +4599,9 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const agentIds = Array.from(
     new Set([
       ...listAgents().map((agent) => agent.id),
+      ...cards
+        .map((card) => (card.owner.type === 'agent' ? card.owner.id : null))
+        .filter((agentId): agentId is string => Boolean(agentId)),
       ...sessions.map((session) => session.agentId),
       ...suspendedSessions
         .map(
@@ -4602,10 +4620,48 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
         name: agent.name || null,
       };
     }),
+    cards,
     sessions,
     suspendedSessions: suspendedSessions.map((session) =>
       mapGatewayAdminSuspendedSession(session, sessionAgentIds),
     ),
+  };
+}
+
+function mapGatewayAdminJobCard(card: BoardCard): GatewayAdminJobCard {
+  let owner: GatewayAdminJobCard['owner'];
+  if ('agentId' in card.owner && card.owner.agentId) {
+    owner = { type: 'agent', id: card.owner.agentId };
+  } else if ('userId' in card.owner && card.owner.userId) {
+    owner = { type: 'user', id: card.owner.userId };
+  } else {
+    throw new Error(`Board card ${card.id} has an invalid owner.`);
+  }
+  return {
+    id: card.id,
+    title: card.title,
+    body: card.body,
+    owner,
+    column: card.column,
+    status: card.status,
+    source: card.source,
+    parent: card.parent,
+    createdAt: card.createdAt,
+    updatedAt: card.updatedAt,
+    blocked: isBoardCardBlocked(card.id),
+    edges: listEdges(card.id).map(mapGatewayAdminJobCardEdge),
+  };
+}
+
+function mapGatewayAdminJobCardEdge(
+  edge: BoardCardEdge,
+): GatewayAdminJobCardEdge {
+  return {
+    id: edge.id,
+    fromCardId: edge.fromCardId,
+    toCardId: edge.toCardId,
+    kind: edge.kind,
+    createdAt: edge.createdAt,
   };
 }
 
@@ -5501,6 +5557,25 @@ function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
   return 'hybridai';
 }
 
+function resolveSkillsHubAuxiliaryModel(
+  runtimeConfig: RuntimeConfig,
+): string | null {
+  const policy = runtimeConfig.auxiliaryModels.skills_hub;
+  const model = policy.model.trim();
+  if (policy.provider === 'disabled') return null;
+  if (policy.provider === 'auto') return model || null;
+  if (!isRuntimeProviderId(policy.provider)) return model || null;
+  try {
+    return normalizeAuxiliaryProviderModel({
+      provider: policy.provider,
+      model:
+        model || resolveDefaultAuxiliaryModelForProvider(policy.provider) || '',
+    });
+  } catch {
+    return model || null;
+  }
+}
+
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
   await refreshAvailableModelCatalogs({ includeHybridAI: true });
 
@@ -5512,8 +5587,10 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     listUsageByModel({ window: 'monthly' }).map((row) => [row.model, row]),
   );
 
+  const skillsHubAuxiliaryModel = resolveSkillsHubAuxiliaryModel(runtimeConfig);
   const modelIds = dedupeStrings([
     runtimeConfig.hybridai.defaultModel,
+    ...(skillsHubAuxiliaryModel ? [skillsHubAuxiliaryModel] : []),
     ...getAvailableModelList(),
   ]);
   const defaultModel = resolveRequestedCatalogModelName(
@@ -5564,6 +5641,12 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
 
   return {
     defaultModel,
+    auxiliaryModels: {
+      skillsHub: {
+        provider: runtimeConfig.auxiliaryModels.skills_hub.provider,
+        model: skillsHubAuxiliaryModel,
+      },
+    },
     providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {

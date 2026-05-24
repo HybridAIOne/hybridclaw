@@ -429,6 +429,60 @@ test('admin jobs context includes suspended sessions for the jobs board', async 
   ]);
 });
 
+test('admin jobs context includes board cards and dependency edges', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { createCard, addEdge } = await import('../src/board/card-store.ts');
+  const { getGatewayAdminJobsContext } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  createCard({
+    id: 'edge-blocker',
+    title: 'Edge blocker',
+    owner: { agentId: 'main' },
+  });
+  createCard({
+    id: 'edge-blocked',
+    title: 'Edge blocked',
+    body: 'Waiting on another card.',
+    owner: { agentId: 'main' },
+    column: 'in_review',
+  });
+  addEdge('edge-blocker', 'edge-blocked', 'blocks');
+
+  expect(getGatewayAdminJobsContext().cards).toEqual([
+    expect.objectContaining({
+      id: 'edge-blocker',
+      title: 'Edge blocker',
+      blocked: false,
+      edges: [
+        expect.objectContaining({
+          fromCardId: 'edge-blocker',
+          toCardId: 'edge-blocked',
+          kind: 'blocks',
+        }),
+      ],
+    }),
+    expect.objectContaining({
+      id: 'edge-blocked',
+      title: 'Edge blocked',
+      blocked: true,
+      edges: [
+        expect.objectContaining({
+          fromCardId: 'edge-blocked',
+          toCardId: 'edge-blocker',
+          kind: 'blocked_by',
+        }),
+      ],
+    }),
+  ]);
+});
+
 test('scheduled agent turns persist outputs for admin jobs detail', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
