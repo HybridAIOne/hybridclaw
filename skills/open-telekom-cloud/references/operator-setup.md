@@ -12,7 +12,6 @@ Store OTC credentials in HybridClaw encrypted runtime secrets:
 hybridclaw secret set OTC_ACCESS_KEY_ID "<access-key-id>"
 hybridclaw secret set OTC_SECRET_ACCESS_KEY "<secret-access-key>"
 hybridclaw secret set OTC_PROJECT_ID "<project-id>"
-hybridclaw secret set OTC_REGION "eu-de"
 ```
 
 If the access key is temporary, also store:
@@ -23,6 +22,21 @@ hybridclaw secret set OTC_SECURITY_TOKEN "<session-token>"
 
 Do not paste AK/SK material, IAM passwords, project IDs intended to stay
 private, bearer tokens, or session tokens into chat or project files.
+
+## Region
+
+Region is plain configuration, not a secret. Pass it per command:
+
+```bash
+node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run servers --region eu-de
+```
+
+For a local shell default, export it instead of putting it in the encrypted
+secret store:
+
+```bash
+export OTC_REGION=eu-de
+```
 
 ## Recommended Autonomy
 

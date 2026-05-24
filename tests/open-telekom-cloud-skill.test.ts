@@ -172,11 +172,20 @@ test('Open Telekom Cloud helper builds allowlisted signed read payloads', () => 
   });
   expect(payload.httpRequest).not.toHaveProperty('headers.Authorization');
   expect(payload.liveExecution).toMatchObject({
+    requiresConfiguredSecrets: [
+      'OTC_ACCESS_KEY_ID',
+      'OTC_SECRET_ACCESS_KEY',
+      'OTC_PROJECT_ID',
+    ],
+    optionalConfiguredSecrets: ['OTC_SECURITY_TOKEN'],
     callPolicy: expect.stringContaining('gateway-managed OTC AK/SK signing'),
     secretRefPolicy: expect.stringContaining('otcAkSk'),
     unauthorizedPolicy: expect.stringContaining('stop after the first failure'),
     rateLimitPolicy: expect.stringContaining('429'),
   });
+  expect(payload.liveExecution.requiresConfiguredSecrets).not.toContain(
+    'OTC_REGION',
+  );
 
   expect(networks.status).toBe(0);
   expect(JSON.parse(networks.stdout).httpRequest.url).toBe(

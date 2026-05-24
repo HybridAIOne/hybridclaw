@@ -30,14 +30,6 @@ credentials:
       id: OTC_PROJECT_ID
     scope: "T Cloud Public / Open Telekom Cloud regional project paths"
     how_to_obtain: "Copy the target regional project ID from My Credentials > API Credentials and store it as OTC_PROJECT_ID."
-  - id: otc-region
-    kind: header
-    required: false
-    secret_ref:
-      source: store
-      id: OTC_REGION
-    scope: "Default T Cloud Public / Open Telekom Cloud region"
-    how_to_obtain: "Store the default region, for example eu-de, as OTC_REGION or pass --region explicitly."
 metadata:
   hybridclaw:
     category: infrastructure
@@ -135,6 +127,9 @@ docs, domains, and customer terminology still use OTC/Open Telekom Cloud names.
    operator approval text. Do not execute the mutation.
 9. Never paste, print, inspect, or ask for OTC signing material, passwords, API
    tokens, AK/SK pairs, project IDs stored as secrets, or session tokens.
+10. Treat region as plain configuration. Pass `--region eu-de` explicitly or
+    set `OTC_REGION=eu-de` in the helper environment; do not store region in the
+    encrypted secret store.
 
 See [references/operator-setup.md](references/operator-setup.md) for operator
 setup, credential scope, companion tooling, autonomy defaults, and rate-limit

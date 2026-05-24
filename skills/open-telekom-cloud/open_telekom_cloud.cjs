@@ -21,12 +21,10 @@ const COST_MEASUREMENT = {
   scope: 'per assistant run/session',
 };
 
-const SECRET_NAMES = [
+const REQUIRED_SECRET_NAMES = [
   DEFAULT_ACCESS_KEY_SECRET,
   DEFAULT_SECRET_KEY_SECRET,
   DEFAULT_PROJECT_SECRET,
-  'OTC_REGION',
-  'OTC_SECURITY_TOKEN',
 ];
 
 const ENDPOINT_SERVICES = new Set([
@@ -431,16 +429,17 @@ function buildHttpRequest(operation, args) {
 
 function liveExecutionMetadata(operation) {
   const publicOperation = OPERATION_DEFS[operation]?.auth === false;
-  const requiresConfiguredSecrets = publicOperation ? [] : SECRET_NAMES;
+  const requiresConfiguredSecrets = publicOperation ? [] : REQUIRED_SECRET_NAMES;
   return {
     mode: 'live-open-telekom-cloud-api',
     requiresConfiguredSecrets,
+    optionalConfiguredSecrets: publicOperation ? [] : ['OTC_SECURITY_TOKEN'],
     callPolicy: publicOperation
       ? 'Use this CJS helper as the API wrapper. For public OTC status reads, use run so the helper sends the allowlisted request through the HybridClaw gateway http_request route without credentials.'
       : 'Use this CJS helper as the API wrapper. For live OTC reads, use run so the helper sends the allowlisted request through the HybridClaw gateway http_request route with gateway-managed OTC AK/SK signing.',
     secretRefPolicy: publicOperation
       ? 'This operation does not require OTC credentials. Do not add signing material or secret headers to the public status-dashboard request.'
-      : 'Do not preflight, inspect, print, or ask the model for OTC_ACCESS_KEY_ID, OTC_SECRET_ACCESS_KEY, OTC_PROJECT_ID, OTC_REGION, or OTC_SECURITY_TOKEN. The otcAkSk and <secret:...> fields are credential references.',
+      : 'Do not preflight, inspect, print, or ask the model for OTC_ACCESS_KEY_ID, OTC_SECRET_ACCESS_KEY, OTC_PROJECT_ID, or OTC_SECURITY_TOKEN. The otcAkSk and <secret:...> fields are credential references. OTC_REGION is plain configuration, not signing material.',
     requestShape:
       `Operation ${operation} is allowlisted. Do not handcraft OTC API calls or expose arbitrary service/path passthrough in v1.`,
     unauthorizedPolicy:
