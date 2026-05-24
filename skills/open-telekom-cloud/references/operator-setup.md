@@ -14,6 +14,13 @@ hybridclaw secret set OTC_SECRET_ACCESS_KEY "<secret-access-key>"
 hybridclaw secret set OTC_PROJECT_ID "<project-id>"
 ```
 
+For Enterprise Dashboard billing and spend data, create an Enterprise Dashboard
+API key with Admin security level and store it separately:
+
+```bash
+hybridclaw secret set OTC_ENTERPRISE_DASHBOARD_TOKEN "<enterprise-dashboard-api-token>"
+```
+
 If the access key is temporary, also store:
 
 ```bash
@@ -21,7 +28,8 @@ hybridclaw secret set OTC_SECURITY_TOKEN "<session-token>"
 ```
 
 Do not paste AK/SK material, IAM passwords, project IDs intended to stay
-private, bearer tokens, or session tokens into chat or project files.
+private, Enterprise Dashboard API tokens, bearer tokens, or session tokens into
+chat or project files.
 
 ## Region
 
@@ -57,10 +65,13 @@ maintenance window and only for the services being changed.
 ## Live Call Path
 
 `open_telekom_cloud.cjs run ...` posts an allowlisted `httpRequest` payload to
-the HybridClaw gateway. The payload contains `otcAkSk` metadata with secret
-names only. The gateway resolves the secrets and signs the request server-side.
-The model should never see the access key, secret key, security token, or
-computed Authorization header.
+the HybridClaw gateway. IaaS inventory payloads contain `otcAkSk` metadata with
+secret names only. The gateway resolves the secrets and signs the request
+server-side. Enterprise Dashboard billing payloads use `bearerSecretName:
+OTC_ENTERPRISE_DASHBOARD_TOKEN` for the documented
+`api-enterprise-dashboard.otc-service.com` API. The model should never see the
+access key, secret key, Enterprise Dashboard token, security token, or computed
+Authorization header.
 
 The helper defaults to `http://127.0.0.1:9090` for local gateway access. That
 default is loopback-only, but a configured gateway bearer token still travels
@@ -73,6 +84,9 @@ cleartext networks.
 - 401, 403, and signature errors are terminal for the current run. Stop after
   the first failed live call and ask the operator to verify credentials, IAM
   scope, project ID, region, endpoint, and system clock.
+- Enterprise Dashboard 401/403 errors are terminal for the current billing run.
+  Verify token validity, organization permissions, product tier with API access,
+  and token security level.
 - 429 responses should stop fan-out. Report `Retry-After` or rate-limit headers
   when present.
 - Do not retry mutating actions automatically.

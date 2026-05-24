@@ -46,6 +46,7 @@ test('T Cloud Public skill manifest declares infrastructure metadata and SecretR
   expect(raw).toContain('OTC_ACCESS_KEY_ID');
   expect(raw).toContain('OTC_SECRET_ACCESS_KEY');
   expect(raw).toContain('OTC_PROJECT_ID');
+  expect(raw).toContain('OTC_ENTERPRISE_DASHBOARD_TOKEN');
   expect(raw).toContain('stakes_tiers:');
   expect(raw).toContain('confirm-each');
   expect(raw).toContain('UsageTotals');
@@ -60,6 +61,7 @@ test('T Cloud Public skill manifest declares infrastructure metadata and SecretR
   expect(operatorSetup).toContain('Recommended Autonomy');
   expect(operatorSetup).toContain('confirm-each');
   expect(operatorSetup).toContain('OTC_SECURITY_TOKEN');
+  expect(operatorSetup).toContain('api-enterprise-dashboard.otc-service.com');
 });
 
 test('T Cloud Public helper exposes expected commands', () => {
@@ -77,6 +79,8 @@ test('T Cloud Public helper exposes expected commands', () => {
     'cloud-eye-alarms',
     'rds-instances',
     'kms-keys',
+    'billing-daily-consumption',
+    'billing-hourly-consumption',
   ]) {
     expect(result.stdout).toContain(expected);
   }
@@ -222,6 +226,65 @@ test('T Cloud Public helper builds allowlisted signed read payloads', () => {
   });
 });
 
+test('T Cloud Public helper builds Enterprise Dashboard billing payloads', () => {
+  const daily = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'billing-daily-consumption',
+    '--date',
+    '2026-05-24',
+    '--project-name',
+    'eu-de',
+    '--consumption-type',
+    'EL',
+  ]);
+  const hourly = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'billing-hourly-consumption',
+    '--date',
+    '2026-05-24',
+    '--hour',
+    '13',
+    '--enterprise-dashboard-token-secret',
+    'OTC_ED_TOKEN',
+  ]);
+
+  expect(daily.status).toBe(0);
+  expect(JSON.parse(daily.stdout)).toMatchObject({
+    command: 'http-request',
+    operation: 'billing-daily-consumption',
+    stakesTier: 'amber',
+    httpRequest: {
+      method: 'GET',
+      url: 'https://api-enterprise-dashboard.otc-service.com/v2/daily/consumption/?consumption_type=EL&date=2026-05-24&project_name=eu-de',
+      skillName: 't-cloud-public',
+      stakesTier: 'amber',
+      bearerSecretName: 'OTC_ENTERPRISE_DASHBOARD_TOKEN',
+      headers: {
+        'Content-Type': 'application/x-ndjson',
+      },
+    },
+    liveExecution: {
+      mode: 'live-t-cloud-public-enterprise-dashboard-api',
+      requiresConfiguredSecrets: ['OTC_ENTERPRISE_DASHBOARD_TOKEN'],
+      callPolicy: expect.stringContaining('Enterprise Dashboard billing reads'),
+      secretRefPolicy: expect.stringContaining(
+        'OTC_ENTERPRISE_DASHBOARD_TOKEN',
+      ),
+      requestShape: expect.stringContaining('NDJSON'),
+    },
+  });
+  expect(JSON.parse(daily.stdout).httpRequest).not.toHaveProperty('otcAkSk');
+  expect(hourly.status).toBe(0);
+  expect(JSON.parse(hourly.stdout).httpRequest).toMatchObject({
+    url: 'https://api-enterprise-dashboard.otc-service.com/v2/hourly/consumption/?date=2026-05-24&hour=13',
+    bearerSecretName: 'OTC_ED_TOKEN',
+  });
+});
+
 test('T Cloud Public helper keeps project IDs and signing material secret-backed by default', () => {
   const result = runHelper(
     ['--format', 'json', 'http-request', 'servers', '--region', 'eu-de'],
@@ -295,6 +358,157 @@ test('T Cloud Public helper rejects arbitrary endpoints and plans mutations as r
     requiresEscalation: true,
     requiredGrant: 'approve-t-cloud-public-exact-f8-f14-mutation',
   });
+});
+
+test('T Cloud Public helper plans account billing through Enterprise Dashboard', () => {
+  const billing = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'show billing charges and orders for this account',
+    '--region',
+    'eu-de',
+  ]);
+
+  expect(billing.status).toBe(0);
+  const payload = JSON.parse(billing.stdout);
+  expect(payload).toMatchObject({
+    command: 'plan',
+    operation: 'billing-daily-consumption',
+    stakesTier: 'amber',
+    requiresEscalation: false,
+    requiredGrant: null,
+  });
+  expect(payload.nextStep).toContain('http-request billing-daily-consumption');
+  expect(payload.nextStep).toContain('Enterprise Dashboard API');
+});
+
+test('T Cloud Public helper treats current cost prompts as Enterprise Dashboard billing', () => {
+  const costToday = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Can you show how much cost have been caused today?',
+    '--region',
+    'eu-de',
+  ]);
+  const germanCost = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Zeig mir die Kosten und Rechnungen von heute.',
+    '--region',
+    'eu-de',
+  ]);
+
+  expect(costToday.status).toBe(0);
+  expect(germanCost.status).toBe(0);
+  for (const result of [costToday, germanCost]) {
+    const payload = JSON.parse(result.stdout);
+    expect(payload).toMatchObject({
+      command: 'plan',
+      operation: 'billing-daily-consumption',
+      stakesTier: 'amber',
+    });
+    expect(payload.nextStep).toContain('parse NDJSON rows');
+    expect(payload.nextStep).toContain('sum amount fields');
+  }
+  const hourly = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Show hourly billing cost today',
+    '--region',
+    'eu-de',
+  ]);
+  expect(JSON.parse(hourly.stdout)).toMatchObject({
+    operation: 'billing-hourly-consumption',
+    stakesTier: 'amber',
+  });
+});
+
+test('T Cloud Public helper summarizes Enterprise Dashboard NDJSON billing responses', async () => {
+  const receivedBodies: Record<string, unknown>[] = [];
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.setEncoding('utf-8');
+    req.on('data', (chunk) => {
+      raw += chunk;
+    });
+    req.on('end', () => {
+      receivedBodies.push(raw ? JSON.parse(raw) : {});
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          body: [
+            JSON.stringify({
+              amount: 1.25,
+              product_description: 'Elastic Cloud Server',
+            }),
+            JSON.stringify({
+              amount: 0.75,
+              product_description: 'Elastic Cloud Server',
+            }),
+            JSON.stringify({
+              amount: 0.5,
+              product: 'OTC_EVS',
+            }),
+            'not-json',
+          ].join('\n'),
+          headers: { 'content-type': 'application/x-ndjson' },
+        }),
+      );
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected TCP test server address.');
+    }
+    const result = await runHelperAsync([
+      '--format',
+      'json',
+      'run',
+      'billing-daily-consumption',
+      '--date',
+      '2026-05-24',
+      '--gateway-url',
+      `http://127.0.0.1:${address.port}`,
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      command: 'run',
+      operation: 'billing-daily-consumption',
+      stakesTier: 'amber',
+      billingSummary: {
+        rowCount: 3,
+        amountTotal: 2.5,
+        skippedRows: 1,
+        products: {
+          'Elastic Cloud Server': 2,
+          OTC_EVS: 0.5,
+        },
+      },
+    });
+    expect(receivedBodies).toHaveLength(1);
+    expect(receivedBodies[0]).toMatchObject({
+      skillName: 't-cloud-public',
+      bearerSecretName: 'OTC_ENTERPRISE_DASHBOARD_TOKEN',
+    });
+    expect(receivedBodies[0]).not.toHaveProperty('otcAkSk');
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
 });
 
 test('T Cloud Public helper run posts to gateway and summarizes auth and rate-limit failures', async () => {

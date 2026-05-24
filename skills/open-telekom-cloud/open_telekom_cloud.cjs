@@ -10,6 +10,8 @@ const DEFAULT_REGION = 'eu-de';
 const DEFAULT_PROJECT_SECRET = 'OTC_PROJECT_ID';
 const DEFAULT_ACCESS_KEY_SECRET = 'OTC_ACCESS_KEY_ID';
 const DEFAULT_SECRET_KEY_SECRET = 'OTC_SECRET_ACCESS_KEY';
+const DEFAULT_ENTERPRISE_DASHBOARD_TOKEN_SECRET =
+  'OTC_ENTERPRISE_DASHBOARD_TOKEN';
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
@@ -25,6 +27,9 @@ const REQUIRED_SECRET_NAMES = [
   DEFAULT_ACCESS_KEY_SECRET,
   DEFAULT_SECRET_KEY_SECRET,
   DEFAULT_PROJECT_SECRET,
+];
+const ENTERPRISE_DASHBOARD_SECRET_NAMES = [
+  DEFAULT_ENTERPRISE_DASHBOARD_TOKEN_SECRET,
 ];
 
 const ENDPOINT_SERVICES = new Set([
@@ -75,6 +80,51 @@ const OPERATION_DEFS = {
     url: 'https://status.otc-service.com/',
     auth: false,
     query: [],
+  },
+  'billing-daily-consumption': {
+    service: 'enterprise-dashboard',
+    url: 'https://api-enterprise-dashboard.otc-service.com/v2/daily/consumption/',
+    auth: 'bearer',
+    stakesTier: 'amber',
+    defaultDate: true,
+    query: [
+      'consumption_type',
+      'contract',
+      'date',
+      'month',
+      'product',
+      'product_description',
+      'project_name',
+      'resource_id',
+      'show_tag',
+      'tag_key',
+      'tag_value',
+      'week',
+      'year',
+    ],
+  },
+  'billing-hourly-consumption': {
+    service: 'enterprise-dashboard',
+    url: 'https://api-enterprise-dashboard.otc-service.com/v2/hourly/consumption/',
+    auth: 'bearer',
+    stakesTier: 'amber',
+    defaultDate: true,
+    query: [
+      'consumption_type',
+      'contract',
+      'date',
+      'hour',
+      'month',
+      'product',
+      'product_description',
+      'project_name',
+      'resource_id',
+      'show_tag',
+      'tag_key',
+      'tag_value',
+      'week',
+      'year',
+    ],
   },
   quotas: {
     service: 'ecs',
@@ -208,6 +258,8 @@ validateOperationDefinitions();
 const READ_OPERATIONS = new Set(Object.keys(OPERATION_DEFS));
 const WRITE_KEYWORDS =
   /\b(create|delete|destroy|remove|reboot|restart|start|stop|resize|restore|attach|detach|modify|update|change|open port|close port|grant|revoke|rotate|encrypt|decrypt)\b/i;
+const ACCOUNT_BILLING_KEYWORDS =
+  /\b(billing|bill|invoice|invoices|charge|charges|charged|costs?|spend|usage cost|account cost|orders?|kosten|rechnung|rechnungen|geb[uü]hren|ausgaben|bestellungen)\b/i;
 
 function die(message, code = 2) {
   process.stderr.write(`${message}\n`);
@@ -257,6 +309,40 @@ function parseLimit(raw, fallback = undefined) {
   const value = Number.parseInt(String(raw), 10);
   if (value < 1 || value > 1000) die('--limit must be between 1 and 1000.');
   return String(value);
+}
+
+function todayLocalIsoDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function validateDate(value, label) {
+  const normalized = requireText(value, label);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    die(`${label} must use YYYY-MM-DD.`);
+  }
+  return normalized;
+}
+
+function validateBoolean(value, label) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!['true', 'false'].includes(normalized)) {
+    die(`${label} must be true or false.`);
+  }
+  return normalized;
+}
+
+function validateIntegerRange(value, label, min, max) {
+  const normalized = requireText(value, label);
+  if (!/^\d+$/.test(normalized)) die(`${label} must be an integer.`);
+  const parsed = Number.parseInt(normalized, 10);
+  if (parsed < min || parsed > max) {
+    die(`${label} must be between ${min} and ${max}.`);
+  }
+  return normalized;
 }
 
 function validateRegion(region) {
@@ -327,6 +413,11 @@ function readCommonFlags(args) {
   if (securityTokenSecretName) {
     validateSecretName(securityTokenSecretName, '--security-token-secret');
   }
+  const enterpriseDashboardTokenSecretName = validateSecretName(
+    popFlag(args, '--enterprise-dashboard-token-secret') ||
+      DEFAULT_ENTERPRISE_DASHBOARD_TOKEN_SECRET,
+    '--enterprise-dashboard-token-secret',
+  );
   return {
     region,
     projectId,
@@ -334,6 +425,7 @@ function readCommonFlags(args) {
     accessKeyIdSecretName,
     secretAccessKeySecretName,
     securityTokenSecretName,
+    enterpriseDashboardTokenSecretName,
   };
 }
 
@@ -350,7 +442,16 @@ function collectQuery(args, names) {
     const flag = `--${name.replaceAll('_', '-')}`;
     const raw = popFlag(args, flag, undefined, { allowDashValue: true });
     if (raw === undefined) continue;
-    query[name] = name === 'limit' || name === 'pagesize' ? parseLimit(raw) : raw;
+    if (name === 'limit' || name === 'pagesize') query[name] = parseLimit(raw);
+    else if (name === 'date') query[name] = validateDate(raw, flag);
+    else if (name === 'show_tag') query[name] = validateBoolean(raw, flag);
+    else if (name === 'hour') query[name] = validateIntegerRange(raw, flag, 0, 23);
+    else if (name === 'month') query[name] = validateIntegerRange(raw, flag, 1, 12);
+    else if (name === 'week') query[name] = validateIntegerRange(raw, flag, 1, 53);
+    else if (name === 'year') query[name] = validateIntegerRange(raw, flag, 2020, 2100);
+    else if (name === 'contract' || name === 'product') {
+      query[name] = validateIntegerRange(raw, flag, 1, 9_999_999_999);
+    } else query[name] = raw;
   }
   return query;
 }
@@ -397,7 +498,17 @@ function buildHttpRequest(operation, args) {
   if (def.bodyFromQuery) {
     json = collectJson(args, def.bodyFromQuery);
   }
-  url = appendQuery(url, collectQuery(args, def.query || []));
+  const query = collectQuery(args, def.query || []);
+  if (
+    def.defaultDate &&
+    !query.date &&
+    !query.month &&
+    !query.week &&
+    !query.year
+  ) {
+    query.date = todayLocalIsoDate();
+  }
+  url = appendQuery(url, query);
   assertNoUnexpectedArgs(args);
 
   const request = {
@@ -405,9 +516,14 @@ function buildHttpRequest(operation, args) {
     method: def.method || 'GET',
     timeoutMs: DEFAULT_TIMEOUT_MS,
     skillName: SKILL_NAME,
-    stakesTier: 'green',
+    stakesTier: def.stakesTier || 'green',
   };
-  if (def.auth !== false) {
+  if (def.auth === 'bearer') {
+    request.headers = {
+      'Content-Type': 'application/x-ndjson',
+    };
+    request.bearerSecretName = common.enterpriseDashboardTokenSecretName;
+  } else if (def.auth !== false) {
     request.otcAkSk = {
       accessKeyIdSecretName: common.accessKeyIdSecretName,
       secretAccessKeySecretName: common.secretAccessKeySecretName,
@@ -420,7 +536,7 @@ function buildHttpRequest(operation, args) {
   return {
     command: 'http-request',
     operation,
-    stakesTier: 'green',
+    stakesTier: def.stakesTier || 'green',
     httpRequest: request,
     costMeasurement: COST_MEASUREMENT,
     liveExecution: liveExecutionMetadata(operation),
@@ -428,22 +544,39 @@ function buildHttpRequest(operation, args) {
 }
 
 function liveExecutionMetadata(operation) {
-  const publicOperation = OPERATION_DEFS[operation]?.auth === false;
-  const requiresConfiguredSecrets = publicOperation ? [] : REQUIRED_SECRET_NAMES;
+  const def = OPERATION_DEFS[operation] || {};
+  const publicOperation = def.auth === false;
+  const enterpriseDashboardOperation = def.auth === 'bearer';
+  const requiresConfiguredSecrets = publicOperation
+    ? []
+    : enterpriseDashboardOperation
+      ? ENTERPRISE_DASHBOARD_SECRET_NAMES
+      : REQUIRED_SECRET_NAMES;
   return {
-    mode: 'live-t-cloud-public-api',
+    mode: enterpriseDashboardOperation
+      ? 'live-t-cloud-public-enterprise-dashboard-api'
+      : 'live-t-cloud-public-api',
     requiresConfiguredSecrets,
-    optionalConfiguredSecrets: publicOperation ? [] : ['OTC_SECURITY_TOKEN'],
+    optionalConfiguredSecrets:
+      publicOperation || enterpriseDashboardOperation ? [] : ['OTC_SECURITY_TOKEN'],
     callPolicy: publicOperation
       ? 'Use this CJS helper as the API wrapper. For public OTC status reads, use run so the helper sends the allowlisted request through the HybridClaw gateway http_request route without credentials.'
+      : enterpriseDashboardOperation
+      ? 'Use this CJS helper as the API wrapper. For Enterprise Dashboard billing reads, use run so the helper sends the documented bearer-token request through the HybridClaw gateway http_request route.'
       : 'Use this CJS helper as the API wrapper. For live OTC reads, use run so the helper sends the allowlisted request through the HybridClaw gateway http_request route with gateway-managed OTC AK/SK signing.',
     secretRefPolicy: publicOperation
       ? 'This operation does not require OTC credentials. Do not add signing material or secret headers to the public status-dashboard request.'
+      : enterpriseDashboardOperation
+      ? 'Do not preflight, inspect, print, or ask the model for OTC_ENTERPRISE_DASHBOARD_TOKEN. The bearerSecretName field is a credential reference resolved by the gateway.'
       : 'Do not preflight, inspect, print, or ask the model for OTC_ACCESS_KEY_ID, OTC_SECRET_ACCESS_KEY, OTC_PROJECT_ID, or OTC_SECURITY_TOKEN. The otcAkSk and <secret:...> fields are credential references. OTC_REGION is plain configuration, not signing material.',
     requestShape:
-      `Operation ${operation} is allowlisted. Do not handcraft OTC API calls or expose arbitrary service/path passthrough in v1.`,
+      enterpriseDashboardOperation
+        ? `Operation ${operation} uses the documented Enterprise Dashboard v2 consumption API. Responses are NDJSON; parse each line and sum amount fields for totals.`
+        : `Operation ${operation} is allowlisted. Do not handcraft OTC API calls or expose arbitrary service/path passthrough in v1.`,
     unauthorizedPolicy:
-      'If a live call returns 401, 403, or a signature error, stop after the first failure and ask the operator to verify OTC credential, project, region, IAM, and signing setup.',
+      enterpriseDashboardOperation
+        ? 'If a live billing call returns 401 or 403, stop after the first failure and ask the operator to verify Enterprise Dashboard API access, token validity, organization permissions, and token security level.'
+        : 'If a live call returns 401, 403, or a signature error, stop after the first failure and ask the operator to verify OTC credential, project, region, IAM, and signing setup.',
     rateLimitPolicy:
       'If a live call returns 429, report the rate limit and include Retry-After or rate-limit response headers when present.',
   };
@@ -455,7 +588,12 @@ function buildPlan(args = []) {
   const text = planArgs.join(' ');
   const normalized = String(text || '').toLowerCase();
   let operation = null;
-  if (WRITE_KEYWORDS.test(normalized)) operation = 'guarded-mutation-request';
+  if (ACCOUNT_BILLING_KEYWORDS.test(normalized)) {
+    operation = /\b(hourly|hour|stunde|stunden)\b/i.test(normalized)
+      ? 'billing-hourly-consumption'
+      : 'billing-daily-consumption';
+  }
+  else if (WRITE_KEYWORDS.test(normalized)) operation = 'guarded-mutation-request';
   else if (/\b(status dashboard|service status|outage|availability status|platform status)\b/.test(normalized)) operation = 'service-status';
   else if (/\b(endpoint|service catalog|api catalog|service list)\b/.test(normalized)) operation = 'service-endpoints';
   else if (/\b(region|availability zone|az)\b/.test(normalized)) operation = 'regions';
@@ -485,6 +623,8 @@ function buildPlan(args = []) {
       ? 'red'
       : operation === 'unrecognized-request'
         ? 'amber'
+        : operation.startsWith('billing-')
+        ? 'amber'
         : 'green';
   const requiresEscalation = stakesTier === 'red';
   return {
@@ -501,6 +641,8 @@ function buildPlan(args = []) {
     nextStep:
       operation === 'unrecognized-request'
         ? 'Ask for the target OTC service, region, project, and desired read-only inventory or readiness check before building an API request.'
+        : operation.startsWith('billing-')
+        ? `Build a dry-run payload with http-request ${operation}. Use run for live billing reads through the documented Enterprise Dashboard API, then parse NDJSON rows and sum amount fields for the requested period.`
         : stakesTier === 'green'
         ? `Build a dry-run payload with http-request ${operation}.`
         : 'Do not build a write request in v1. Collect exact region, project, service, resource id, action, rollback, and F8/F14 operator approval.',
@@ -508,13 +650,17 @@ function buildPlan(args = []) {
       accessKeyIdSecretName: common.accessKeyIdSecretName,
       secretAccessKeySecretName: common.secretAccessKeySecretName,
       projectIdSecretName: common.projectIdSecretName,
+      enterpriseDashboardTokenSecretName:
+        common.enterpriseDashboardTokenSecretName,
       modelSeesSecrets: false,
     },
     costMeasurement: COST_MEASUREMENT,
   };
 }
 
-function summarizeResponse(response) {
+function summarizeResponse(response, operation) {
+  const enterpriseDashboardOperation =
+    OPERATION_DEFS[operation]?.auth === 'bearer';
   const status = Number(response?.status || 0);
   const headers =
     response?.headers && typeof response.headers === 'object'
@@ -535,12 +681,51 @@ function summarizeResponse(response) {
     credentialProblem,
     rateLimited,
     guidance: credentialProblem
-      ? 'Stop after this failed OTC call. Verify OTC_ACCESS_KEY_ID, OTC_SECRET_ACCESS_KEY, OTC_PROJECT_ID, selected region, IAM permissions, clock skew, and endpoint region.'
+      ? enterpriseDashboardOperation
+        ? 'Stop after this failed Enterprise Dashboard billing call. Verify OTC_ENTERPRISE_DASHBOARD_TOKEN, token validity, organization permissions, product tier with API access, and token security level.'
+        : 'Stop after this failed OTC call. Verify OTC_ACCESS_KEY_ID, OTC_SECRET_ACCESS_KEY, OTC_PROJECT_ID, selected region, IAM permissions, clock skew, and endpoint region.'
       : rateLimited
         ? 'Stop fan-out and retry later using Retry-After or rate-limit response headers when available.'
         : null,
     retryAfter: headers['retry-after'] || headers['x-ratelimit-reset'] || null,
   };
+}
+
+function summarizeBillingResponse(response) {
+  const bodyText = typeof response?.body === 'string' ? response.body : '';
+  const summary = {
+    rowCount: 0,
+    amountTotal: 0,
+    skippedRows: 0,
+    products: {},
+  };
+  for (const line of bodyText.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let row;
+    try {
+      row = JSON.parse(trimmed);
+    } catch {
+      summary.skippedRows += 1;
+      continue;
+    }
+    summary.rowCount += 1;
+    const amount = Number(row.amount);
+    if (Number.isFinite(amount)) {
+      summary.amountTotal += amount;
+      const product =
+        String(row.product_description || row.product || 'unknown').trim() ||
+        'unknown';
+      summary.products[product] = (summary.products[product] || 0) + amount;
+    }
+  }
+  summary.amountTotal = Number(summary.amountTotal.toFixed(12));
+  summary.products = Object.fromEntries(
+    Object.entries(summary.products)
+      .sort((left, right) => right[1] - left[1])
+      .map(([key, value]) => [key, Number(value.toFixed(12))]),
+  );
+  return summary;
 }
 
 function resolveGatewayUrl(raw) {
@@ -617,13 +802,16 @@ async function commandRun(args) {
     gatewayUrl,
     gatewayToken,
   });
-  const responseSummary = summarizeResponse(response);
+  const responseSummary = summarizeResponse(response, payload.operation);
   return {
     command: 'run',
     operation: payload.operation,
     stakesTier: payload.stakesTier,
     response,
     responseSummary,
+    ...(payload.operation.startsWith('billing-')
+      ? { billingSummary: summarizeBillingResponse(response) }
+      : {}),
     costMeasurement: COST_MEASUREMENT,
     liveExecution: payload.liveExecution,
   };
@@ -713,6 +901,7 @@ Common flags:
   --access-key-id-secret OTC_ACCESS_KEY_ID
   --secret-access-key-secret OTC_SECRET_ACCESS_KEY
   --security-token-secret OTC_SECURITY_TOKEN
+  --enterprise-dashboard-token-secret OTC_ENTERPRISE_DASHBOARD_TOKEN
 
 Read operations:
   regions
@@ -720,6 +909,8 @@ Read operations:
   service-endpoints [--service-id id] [--interface public] [--region eu-de] [--enabled true]
   services [--name name] [--type compute]
   service-status
+  billing-daily-consumption [--date YYYY-MM-DD] [--project-name eu-de] [--consumption-type EL|RC]
+  billing-hourly-consumption [--date YYYY-MM-DD] [--hour 0-23] [--project-name eu-de]
   quotas --region eu-de [--project-id id]
   servers --region eu-de [--limit 50] [--name name] [--status ACTIVE]
   server --server-id id
@@ -750,6 +941,7 @@ Examples:
   node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request networks --region eu-de --limit 50
   node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request volumes --region eu-de --limit 50
   node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request cloud-eye-alarms --region eu-de --limit 50
+  node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request billing-daily-consumption --date ${todayLocalIsoDate()}
   node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json plan deploy-check --region eu-de --project-id <project-id>
 
 V1 is read/list/describe only. Mutating OTC actions require exact F8/F14

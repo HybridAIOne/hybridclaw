@@ -30,6 +30,14 @@ credentials:
       id: OTC_PROJECT_ID
     scope: "T Cloud Public / Open Telekom Cloud regional project paths"
     how_to_obtain: "Copy the target regional project ID from My Credentials > API Credentials and store it as OTC_PROJECT_ID."
+  - id: otc-enterprise-dashboard-token
+    kind: header
+    required: false
+    secret_ref:
+      source: store
+      id: OTC_ENTERPRISE_DASHBOARD_TOKEN
+    scope: "T Cloud Public Enterprise Dashboard consumption and spend data"
+    how_to_obtain: "Create an Enterprise Dashboard API key with Admin security level in the organization settings and store it as OTC_ENTERPRISE_DASHBOARD_TOKEN."
 metadata:
   hybridclaw:
     category: infrastructure
@@ -71,6 +79,8 @@ metadata:
         - kms-keys
         - waf-policies
       amber:
+        - billing-daily-consumption
+        - billing-hourly-consumption
         - create-or-update-compute
         - create-or-update-network
         - create-or-update-storage
@@ -110,9 +120,9 @@ terminology still use OTC/Open Telekom Cloud names.
    generation. Do not call helper `run` or the built-in `http_request` tool.
 4. For real user requests that need live OTC data, use helper `run`. The helper
    constructs an allowlisted request and sends it through the HybridClaw gateway
-   `http_request` route. The gateway resolves `OTC_ACCESS_KEY_ID`,
-   `OTC_SECRET_ACCESS_KEY`, optional `OTC_SECURITY_TOKEN`, and
-   `OTC_PROJECT_ID`, then signs the request server-side.
+   `http_request` route. For IaaS/API inventory, the gateway resolves
+   `OTC_ACCESS_KEY_ID`, `OTC_SECRET_ACCESS_KEY`, optional `OTC_SECURITY_TOKEN`,
+   and `OTC_PROJECT_ID`, then signs the request server-side.
 5. Use `http-request` only to inspect the generated gateway payload or when
    the active runtime cannot give the helper gateway access.
 6. If a live helper `run` or `http_request` call returns 401, 403, or a
@@ -121,14 +131,20 @@ terminology still use OTC/Open Telekom Cloud names.
    credentials, project ID, region, IAM permissions, and clock skew.
 7. If a live call returns 429, stop fan-out and report retry guidance from
    `Retry-After` or rate-limit response headers when present.
-8. Mutating actions are outside v1 execution. For create/delete/reboot,
+8. For account billing, current spend, charges, and consumption, use the
+   documented Enterprise Dashboard API v2 through helper operations
+   `billing-daily-consumption` and `billing-hourly-consumption`. These calls use
+   `https://api-enterprise-dashboard.otc-service.com/`, bearer secret
+   `OTC_ENTERPRISE_DASHBOARD_TOKEN`, and NDJSON responses from
+   `/v2/daily/consumption/` or `/v2/hourly/consumption/`.
+9. Mutating actions are outside v1 execution. For create/delete/reboot,
    network/security group, volume/backup restore, DNS/load-balancer, IAM/KMS,
    database, or container mutations, produce a plan with exact region, project,
    resource IDs, intended action, rollback, blast radius, and the required F8/F14
    operator approval text. Do not execute the mutation.
-9. Never paste, print, inspect, or ask for OTC signing material, passwords, API
+10. Never paste, print, inspect, or ask for OTC signing material, passwords, API
    tokens, AK/SK pairs, project IDs stored as secrets, or session tokens.
-10. Treat region as plain configuration. Pass `--region eu-de` explicitly or
+11. Treat region as plain configuration. Pass `--region eu-de` explicitly or
     set `OTC_REGION=eu-de` in the helper environment; do not store region in the
     encrypted secret store.
 
@@ -162,6 +178,8 @@ node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request
 node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request networks --region eu-de --limit 50
 node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request volumes --region eu-de --limit 50
 node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request cloud-eye-alarms --region eu-de --limit 50
+node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request billing-daily-consumption --date 2026-05-24
+node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request billing-hourly-consumption --date 2026-05-24 --hour 13
 ```
 
 Run live read requests through the gateway:
@@ -171,6 +189,7 @@ node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run servers 
 node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run security-groups --region eu-de
 node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run backups --region eu-de --limit 50
 node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run rds-instances --region eu-de --limit 50
+node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run billing-daily-consumption --date 2026-05-24
 ```
 
 ## Inventory Coverage
@@ -185,6 +204,8 @@ node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run rds-inst
 - Security/platform checks: IAM regions/projects, IAM service endpoints and
   service catalog, public status dashboard checks, KMS keys, WAF policies,
   regional endpoints, and service-status oriented readiness summaries
+- Billing/spend: Enterprise Dashboard daily and hourly consumption streams.
+  Parse each NDJSON line, then sum `amount` for the requested period.
 
 ## Readiness Checks
 
