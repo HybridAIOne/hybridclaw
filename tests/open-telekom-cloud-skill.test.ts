@@ -297,6 +297,28 @@ test('T Cloud Public helper rejects arbitrary endpoints and plans mutations as r
   });
 });
 
+test('T Cloud Public helper reports account billing as unsupported instead of guessing BSS endpoints', () => {
+  const billing = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'show billing charges and orders for this account',
+    '--region',
+    'eu-de',
+  ]);
+
+  expect(billing.status).toBe(0);
+  const payload = JSON.parse(billing.stdout);
+  expect(payload).toMatchObject({
+    command: 'plan',
+    operation: 'unsupported-account-billing',
+    stakesTier: 'amber',
+    requiresEscalation: false,
+    requiredGrant: null,
+  });
+  expect(payload.nextStep).toContain('Do not call guessed bss.* endpoints');
+});
+
 test('T Cloud Public helper run posts to gateway and summarizes auth and rate-limit failures', async () => {
   const receivedBodies: Record<string, unknown>[] = [];
   let mode: 'auth' | 'rate-limit' = 'auth';

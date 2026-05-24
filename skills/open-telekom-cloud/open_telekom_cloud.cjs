@@ -208,6 +208,8 @@ validateOperationDefinitions();
 const READ_OPERATIONS = new Set(Object.keys(OPERATION_DEFS));
 const WRITE_KEYWORDS =
   /\b(create|delete|destroy|remove|reboot|restart|start|stop|resize|restore|attach|detach|modify|update|change|open port|close port|grant|revoke|rotate|encrypt|decrypt)\b/i;
+const ACCOUNT_BILLING_KEYWORDS =
+  /\b(billing|bill|invoice|invoices|charge|charges|charged|costs?|spend|usage cost|account cost|orders?|bss)\b/i;
 
 function die(message, code = 2) {
   process.stderr.write(`${message}\n`);
@@ -455,7 +457,8 @@ function buildPlan(args = []) {
   const text = planArgs.join(' ');
   const normalized = String(text || '').toLowerCase();
   let operation = null;
-  if (WRITE_KEYWORDS.test(normalized)) operation = 'guarded-mutation-request';
+  if (ACCOUNT_BILLING_KEYWORDS.test(normalized)) operation = 'unsupported-account-billing';
+  else if (WRITE_KEYWORDS.test(normalized)) operation = 'guarded-mutation-request';
   else if (/\b(status dashboard|service status|outage|availability status|platform status)\b/.test(normalized)) operation = 'service-status';
   else if (/\b(endpoint|service catalog|api catalog|service list)\b/.test(normalized)) operation = 'service-endpoints';
   else if (/\b(region|availability zone|az)\b/.test(normalized)) operation = 'regions';
@@ -485,6 +488,8 @@ function buildPlan(args = []) {
       ? 'red'
       : operation === 'unrecognized-request'
         ? 'amber'
+        : operation === 'unsupported-account-billing'
+        ? 'amber'
         : 'green';
   const requiresEscalation = stakesTier === 'red';
   return {
@@ -501,6 +506,8 @@ function buildPlan(args = []) {
     nextStep:
       operation === 'unrecognized-request'
         ? 'Ask for the target OTC service, region, project, and desired read-only inventory or readiness check before building an API request.'
+        : operation === 'unsupported-account-billing'
+        ? 'Account billing, charges, invoices, and orders are outside the v1 helper allowlist. Do not call guessed bss.* endpoints or direct http_request; use the T Cloud Public console or a documented pricing reference.'
         : stakesTier === 'green'
         ? `Build a dry-run payload with http-request ${operation}.`
         : 'Do not build a write request in v1. Collect exact region, project, service, resource id, action, rollback, and F8/F14 operator approval.',

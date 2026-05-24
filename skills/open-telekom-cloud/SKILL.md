@@ -121,14 +121,19 @@ terminology still use OTC/Open Telekom Cloud names.
    credentials, project ID, region, IAM permissions, and clock skew.
 7. If a live call returns 429, stop fan-out and report retry guidance from
    `Retry-After` or rate-limit response headers when present.
-8. Mutating actions are outside v1 execution. For create/delete/reboot,
+8. Account billing, charges, invoices, and orders are outside v1 execution.
+   Do not guess or call `bss.*` endpoints and do not call `http_request`
+   directly for billing. Return a plan for `unsupported-account-billing` and
+   direct the operator to the T Cloud Public console or a documented pricing
+   reference.
+9. Mutating actions are outside v1 execution. For create/delete/reboot,
    network/security group, volume/backup restore, DNS/load-balancer, IAM/KMS,
    database, or container mutations, produce a plan with exact region, project,
    resource IDs, intended action, rollback, blast radius, and the required F8/F14
    operator approval text. Do not execute the mutation.
-9. Never paste, print, inspect, or ask for OTC signing material, passwords, API
+10. Never paste, print, inspect, or ask for OTC signing material, passwords, API
    tokens, AK/SK pairs, project IDs stored as secrets, or session tokens.
-10. Treat region as plain configuration. Pass `--region eu-de` explicitly or
+11. Treat region as plain configuration. Pass `--region eu-de` explicitly or
     set `OTC_REGION=eu-de` in the helper environment; do not store region in the
     encrypted secret store.
 
