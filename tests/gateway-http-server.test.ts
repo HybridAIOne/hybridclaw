@@ -1614,6 +1614,7 @@ async function importFreshHealth(options?: {
   }));
   const getGatewayAdminJobsContext = vi.fn(() => ({
     agents: [{ id: 'main', name: 'Main Agent' }],
+    cards: [],
     sessions: [
       {
         sessionId: 'scheduler:job-1',
@@ -1638,6 +1639,22 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
+  const boardEdge = {
+    id: 'edge-1',
+    fromCardId: 'card-a',
+    toCardId: 'card-b',
+    kind: 'blocks' as const,
+    createdAt: '2026-05-22T10:00:00.000Z',
+    createdBy: { userId: 'user_a' },
+  };
+  const addEdge = vi.fn(() => boardEdge);
+  const removeEdge = vi.fn(() => boardEdge);
+  const listEdges = vi.fn(() => [boardEdge]);
+  const listEdgeRevisions = vi.fn(() => [
+    { id: 7, createdAt: '2026-05-22T10:00:00.000Z' },
+  ]);
+  const restoreEdgeRevision = vi.fn(() => boardEdge);
+  const isBlocked = vi.fn(() => true);
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
@@ -1741,6 +1758,14 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/board/budget-chip.js', () => ({
     getBoardBudgetSummaries,
+  }));
+  vi.doMock('../src/board/card-store.js', () => ({
+    addEdge,
+    isBlocked,
+    listEdgeRevisions,
+    listEdges,
+    removeEdge,
+    restoreEdgeRevision,
   }));
   vi.doMock('../src/agent/executor.js', () => ({
     stopSessionExecution,
@@ -1927,6 +1952,12 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
     getBoardBudgetSummaries,
+    addEdge,
+    removeEdge,
+    listEdges,
+    listEdgeRevisions,
+    restoreEdgeRevision,
+    isBlocked,
     getGatewayAdminTools,
     startTerminalSession,
     stopTerminalSession,
@@ -6032,6 +6063,7 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       agents: [{ id: 'main', name: 'Main Agent' }],
+      cards: [],
       sessions: [
         {
           sessionId: 'scheduler:job-1',
@@ -6047,10 +6079,10 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('returns board budget summaries for authorized API requests', async () => {
+  test('returns job budget summaries for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
-      url: '/api/admin/board/budgets?agentId=main&agentId=agent-a&agentId=agent-b',
+      url: '/api/admin/jobs/budgets?agentId=main&agentId=agent-a&agentId=agent-b',
     });
     const res = makeResponse();
 
@@ -6072,6 +6104,163 @@ describe('gateway HTTP server', () => {
         },
       ],
     });
+  });
+
+  test('exposes job edge mutation and query APIs', async () => {
+    const state = await importFreshHealth();
+    const createReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/jobs/edges',
+      body: {
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'blocks',
+        actor: { userId: 'user_a' },
+        sessionId: 'board-session',
+        runId: 'board-run',
+      },
+    });
+    const createRes = makeResponse();
+
+    state.handler(createReq as never, createRes as never);
+    await settle();
+
+    expect(state.addEdge).toHaveBeenCalledWith('card-a', 'card-b', 'blocks', {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-session',
+      runId: 'board-run',
+    });
+    expect(createRes.statusCode).toBe(200);
+    expect(JSON.parse(createRes.body)).toMatchObject({
+      edge: {
+        id: 'edge-1',
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'blocks',
+      },
+    });
+
+    const listReq = makeRequest({
+      url: '/api/admin/jobs/edges?cardId=card-b&kind=blocked_by',
+    });
+    const listRes = makeResponse();
+    state.handler(listReq as never, listRes as never);
+    await settle();
+    expect(state.listEdges).toHaveBeenCalledWith('card-b', 'blocked_by');
+    expect(JSON.parse(listRes.body)).toMatchObject({
+      edges: [{ id: 'edge-1' }],
+    });
+
+    const blockedReq = makeRequest({
+      url: '/api/admin/jobs/blocked?cardId=card-b',
+    });
+    const blockedRes = makeResponse();
+    state.handler(blockedReq as never, blockedRes as never);
+    await settle();
+    expect(state.isBlocked).toHaveBeenCalledWith('card-b');
+    expect(JSON.parse(blockedRes.body)).toEqual({
+      cardId: 'card-b',
+      blocked: true,
+    });
+
+    const deleteReq = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/jobs/edges?id=edge-1',
+      body: {
+        actor: { userId: 'user_a' },
+        sessionId: 'board-session',
+        runId: 'board-run',
+      },
+    });
+    const deleteRes = makeResponse();
+    state.handler(deleteReq as never, deleteRes as never);
+    await settle();
+    expect(state.removeEdge).toHaveBeenCalledWith('edge-1', {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-session',
+      runId: 'board-run',
+    });
+    expect(JSON.parse(deleteRes.body)).toMatchObject({
+      edge: { id: 'edge-1' },
+    });
+
+    const revisionsReq = makeRequest({
+      url: '/api/admin/jobs/edge-revisions?id=edge-1',
+    });
+    const revisionsRes = makeResponse();
+    state.handler(revisionsReq as never, revisionsRes as never);
+    await settle();
+    expect(state.listEdgeRevisions).toHaveBeenCalledWith('edge-1');
+    expect(JSON.parse(revisionsRes.body)).toMatchObject({
+      revisions: [{ id: 7 }],
+    });
+
+    const restoreReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/jobs/edge-revisions',
+      body: {
+        id: 'edge-1',
+        revisionId: 7,
+        actor: { userId: 'user_a' },
+        sessionId: 'board-session',
+        runId: 'board-run',
+      },
+    });
+    const restoreRes = makeResponse();
+    state.handler(restoreReq as never, restoreRes as never);
+    await settle();
+    expect(state.restoreEdgeRevision).toHaveBeenCalledWith('edge-1', 7, {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-session',
+      runId: 'board-run',
+    });
+    expect(JSON.parse(restoreRes.body)).toMatchObject({
+      edge: { id: 'edge-1' },
+    });
+  });
+
+  test('rejects unsafe job edge system actors', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/jobs/edges',
+      body: {
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'blocks',
+        actor: { system: 'cli' },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.addEdge).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: '`actor.system` must be gateway.',
+    });
+  });
+
+  test('requires job edge deletes to identify the edge in the query string', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/jobs/edges',
+      body: {
+        id: 'edge-1',
+        actor: { userId: 'user_a' },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.removeEdge).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Missing `id`.' });
   });
 
   test('starts an admin terminal session for authorized API requests', async () => {

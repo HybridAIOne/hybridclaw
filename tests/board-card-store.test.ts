@@ -37,13 +37,16 @@ afterEach(() => {
 });
 
 describe.sequential('board card store', () => {
-  test('migrates the board card table', async () => {
+  test('migrates the board card and edge tables', async () => {
     const { dbModule } = await loadBoardStore();
     const inspect = new Database(path.join(tmpDir, 'data', 'hybridclaw.db'), {
       readonly: true,
     });
     const columns = inspect
       .prepare(`PRAGMA table_info(board_cards)`)
+      .all() as Array<{ name: string }>;
+    const edgeColumns = inspect
+      .prepare(`PRAGMA table_info(board_card_edges)`)
       .all() as Array<{ name: string }>;
     const schemaVersion = inspect.pragma('user_version', { simple: true });
     inspect.close();
@@ -64,6 +67,109 @@ describe.sequential('board card store', () => {
         'deleted_at',
       ]),
     );
+    expect(edgeColumns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        'id',
+        'from_card_id',
+        'to_card_id',
+        'kind',
+        'created_at',
+        'created_by',
+      ]),
+    );
+  });
+
+  test('enforces edge card foreign keys for direct SQLite writes', async () => {
+    const { dbModule } = await loadBoardStore();
+
+    expect(() =>
+      dbModule.withMemoryDatabase((database) => {
+        database
+          .prepare(
+            `INSERT INTO board_card_edges (
+              id, from_card_id, to_card_id, kind, created_at, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            'edge-missing-card',
+            'missing-from',
+            'missing-to',
+            'related',
+            '2026-05-22T10:00:00.000Z',
+            JSON.stringify({ system: 'test' }),
+          );
+      }),
+    ).toThrow(/FOREIGN KEY constraint failed/);
+  });
+
+  test('enforces canonical edge storage constraints for direct SQLite writes', async () => {
+    const { boardModule, dbModule } = await loadBoardStore();
+    boardModule.createCard({
+      id: 'logical-a',
+      title: 'Logical A',
+      owner: { agentId: 'agent_builder' },
+    });
+    boardModule.createCard({
+      id: 'logical-b',
+      title: 'Logical B',
+      owner: { agentId: 'agent_builder' },
+    });
+
+    expect(() =>
+      dbModule.withMemoryDatabase((database) => {
+        const insert = database.prepare(
+          `INSERT INTO board_card_edges (
+            id, from_card_id, to_card_id, kind, created_at, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        );
+        const now = '2026-05-22T10:00:00.000Z';
+        const actor = JSON.stringify({ system: 'test' });
+        insert.run(
+          'edge-blocks',
+          'logical-a',
+          'logical-b',
+          'blocks',
+          now,
+          actor,
+        );
+        insert.run(
+          'edge-blocked-by',
+          'logical-b',
+          'logical-a',
+          'blocked_by',
+          now,
+          actor,
+        );
+      }),
+    ).toThrow(/CHECK constraint failed/);
+
+    expect(() =>
+      dbModule.withMemoryDatabase((database) => {
+        const insert = database.prepare(
+          `INSERT INTO board_card_edges (
+            id, from_card_id, to_card_id, kind, created_at, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        );
+        const now = '2026-05-22T10:00:00.000Z';
+        const actor = JSON.stringify({ system: 'test' });
+        insert.run(
+          'edge-related-a',
+          'logical-a',
+          'logical-b',
+          'related',
+          now,
+          actor,
+        );
+        insert.run(
+          'edge-related-b',
+          'logical-b',
+          'logical-a',
+          'related',
+          now,
+          actor,
+        );
+      }),
+    ).toThrow(/UNIQUE constraint failed/);
   });
 
   test('round-trips create, get, update, list, and soft-delete', async () => {
@@ -314,5 +420,251 @@ describe.sequential('board card store', () => {
       cardId: 'card-event',
       diff: expect.any(Object),
     });
+  });
+
+  test('round-trips blocks and blocked_by as one stored logical edge', async () => {
+    const { boardModule } = await loadBoardStore();
+    boardModule.createCard({
+      id: 'blocker',
+      title: 'Blocking work',
+      owner: { agentId: 'agent_builder' },
+    });
+    boardModule.createCard({
+      id: 'blocked',
+      title: 'Blocked work',
+      owner: { agentId: 'agent_builder' },
+    });
+
+    const edge = boardModule.addEdge('blocker', 'blocked', 'blocks', {
+      actor: { userId: 'user_a' },
+    });
+
+    expect(edge).toMatchObject({
+      fromCardId: 'blocker',
+      toCardId: 'blocked',
+      kind: 'blocks',
+      createdBy: { userId: 'user_a' },
+    });
+    expect(boardModule.listEdges('blocker')).toMatchObject([
+      {
+        id: edge.id,
+        fromCardId: 'blocker',
+        toCardId: 'blocked',
+        kind: 'blocks',
+      },
+    ]);
+    expect(boardModule.listEdges('blocked')).toMatchObject([
+      {
+        id: edge.id,
+        fromCardId: 'blocked',
+        toCardId: 'blocker',
+        kind: 'blocked_by',
+      },
+    ]);
+    expect(boardModule.listEdges('blocked', 'blocked_by')).toHaveLength(1);
+    expect(boardModule.listEdges('blocked', 'blocks')).toHaveLength(0);
+  });
+
+  test('related edges are symmetric regardless of insertion direction', async () => {
+    const { boardModule } = await loadBoardStore();
+    boardModule.createCard({
+      id: 'card-a',
+      title: 'Card A',
+      owner: { agentId: 'agent_builder' },
+    });
+    boardModule.createCard({
+      id: 'card-b',
+      title: 'Card B',
+      owner: { agentId: 'agent_builder' },
+    });
+
+    const edge = boardModule.addEdge('card-b', 'card-a', 'related');
+
+    expect(edge).toMatchObject({
+      fromCardId: 'card-b',
+      toCardId: 'card-a',
+      kind: 'related',
+    });
+    expect(boardModule.listEdges('card-a', 'related')).toMatchObject([
+      {
+        id: edge.id,
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'related',
+      },
+    ]);
+    expect(boardModule.listEdges('card-b', 'related')).toMatchObject([
+      {
+        id: edge.id,
+        fromCardId: 'card-b',
+        toCardId: 'card-a',
+        kind: 'related',
+      },
+    ]);
+  });
+
+  test('isBlocked returns false once every blocker moves to done', async () => {
+    const { boardModule } = await loadBoardStore();
+    boardModule.createCard({
+      id: 'dependency',
+      title: 'Dependency',
+      owner: { agentId: 'agent_builder' },
+      column: 'in_progress',
+    });
+    boardModule.createCard({
+      id: 'dependent',
+      title: 'Dependent',
+      owner: { agentId: 'agent_builder' },
+      column: 'todo',
+    });
+    boardModule.addEdge('dependent', 'dependency', 'blocked_by');
+
+    expect(boardModule.isBlocked('dependent')).toBe(true);
+
+    boardModule.updateCard('dependency', { status: 'complete' });
+    expect(boardModule.isBlocked('dependent')).toBe(true);
+
+    boardModule.updateCard('dependency', { column: 'done' });
+    expect(boardModule.isBlocked('dependent')).toBe(false);
+  });
+
+  test('rejects inverse-direction insertion with a clear error', async () => {
+    const { boardModule } = await loadBoardStore();
+    boardModule.createCard({
+      id: 'card-one',
+      title: 'Card One',
+      owner: { agentId: 'agent_builder' },
+    });
+    boardModule.createCard({
+      id: 'card-two',
+      title: 'Card Two',
+      owner: { agentId: 'agent_builder' },
+    });
+    boardModule.addEdge('card-one', 'card-two', 'blocks');
+
+    expect(() =>
+      boardModule.addEdge('card-two', 'card-one', 'blocked_by'),
+    ).toThrow('Board card edge already exists: card-two blocked_by card-one');
+  });
+
+  test('emits board edge mutations through F2 runtime events and structured audit', async () => {
+    const { boardModule, dbModule } = await loadBoardStore();
+    const { subscribeRuntimeEvents, subscribeSkillRunEvents } = await import(
+      '../src/skills/skill-run-events.js'
+    );
+    const runtimeEvents: unknown[] = [];
+    const skillRunEvents: unknown[] = [];
+    const unsubscribeRuntime = subscribeRuntimeEvents((event) => {
+      runtimeEvents.push(event);
+    });
+    const unsubscribeSkillRun = subscribeSkillRunEvents((event) => {
+      skillRunEvents.push(event);
+    });
+
+    boardModule.createCard({
+      id: 'event-blocker',
+      title: 'Event blocker',
+      owner: { userId: 'user_a' },
+    });
+    boardModule.createCard({
+      id: 'event-blocked',
+      title: 'Event blocked',
+      owner: { userId: 'user_a' },
+    });
+    runtimeEvents.length = 0;
+    const edge = boardModule.addEdge(
+      'event-blocker',
+      'event-blocked',
+      'blocks',
+      {
+        actor: { userId: 'user_a' },
+        sessionId: 'board-edge-event-session',
+        runId: 'board-edge-event-run',
+      },
+    );
+    boardModule.removeEdge(edge.id, {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-edge-event-session',
+      runId: 'board-edge-event-run',
+    });
+    unsubscribeRuntime();
+    unsubscribeSkillRun();
+
+    expect(runtimeEvents).toMatchObject([
+      {
+        type: 'board.edge_added',
+        actor: { userId: 'user_a' },
+        edgeId: edge.id,
+        fromCardId: 'event-blocker',
+        toCardId: 'event-blocked',
+        kind: 'blocks',
+      },
+      {
+        type: 'board.edge_removed',
+        actor: { userId: 'user_a' },
+        edgeId: edge.id,
+        fromCardId: 'event-blocker',
+        toCardId: 'event-blocked',
+        kind: 'blocks',
+      },
+    ]);
+    expect(skillRunEvents).toHaveLength(0);
+
+    const audit = dbModule.getRecentStructuredAuditForSession(
+      'board-edge-event-session',
+      10,
+    );
+    expect(audit.map((entry) => entry.event_type)).toEqual([
+      'board.edge_removed',
+      'board.edge_added',
+    ]);
+    expect(JSON.parse(audit[0]?.payload || '{}')).toMatchObject({
+      actor: { userId: 'user_a' },
+      edgeId: edge.id,
+      fromCardId: 'event-blocker',
+      toCardId: 'event-blocked',
+      kind: 'blocks',
+    });
+  });
+
+  test('restores removed edges through F4 revisions', async () => {
+    const { boardModule } = await loadBoardStore();
+    boardModule.createCard({
+      id: 'restore-blocker',
+      title: 'Restore blocker',
+      owner: { userId: 'user_a' },
+    });
+    boardModule.createCard({
+      id: 'restore-blocked',
+      title: 'Restore blocked',
+      owner: { userId: 'user_a' },
+    });
+    const edge = boardModule.addEdge(
+      'restore-blocked',
+      'restore-blocker',
+      'blocked_by',
+    );
+    boardModule.removeEdge(edge.id);
+    expect(boardModule.listEdges('restore-blocked')).toHaveLength(0);
+
+    const revision = boardModule.listEdgeRevisions(edge.id)[0];
+    expect(revision).toBeTruthy();
+    if (!revision) throw new Error('Expected edge revision.');
+
+    const restored = boardModule.restoreEdgeRevision(edge.id, revision.id);
+    expect(restored).toMatchObject({
+      id: edge.id,
+      fromCardId: 'restore-blocker',
+      toCardId: 'restore-blocked',
+      kind: 'blocks',
+    });
+    expect(boardModule.listEdges('restore-blocked')).toMatchObject([
+      {
+        id: edge.id,
+        fromCardId: 'restore-blocked',
+        toCardId: 'restore-blocker',
+        kind: 'blocked_by',
+      },
+    ]);
   });
 });

@@ -71,6 +71,13 @@ import {
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import {
+  type Card as BoardCard,
+  type Edge as BoardCardEdge,
+  isBlocked as isBoardCardBlocked,
+  listCards,
+  listEdges,
+} from '../board/card-store.js';
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
@@ -481,6 +488,8 @@ import {
   type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
   type GatewayAdminEmailMessageResponse,
+  type GatewayAdminJobCard,
+  type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
@@ -4551,6 +4560,7 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
   const allSessions = getAllSessions();
+  const cards = listCards().map(mapGatewayAdminJobCard);
   const sessions = allSessions
     .map((session) =>
       mapSessionCard({
@@ -4589,6 +4599,9 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const agentIds = Array.from(
     new Set([
       ...listAgents().map((agent) => agent.id),
+      ...cards
+        .map((card) => (card.owner.type === 'agent' ? card.owner.id : null))
+        .filter((agentId): agentId is string => Boolean(agentId)),
       ...sessions.map((session) => session.agentId),
       ...suspendedSessions
         .map(
@@ -4607,10 +4620,48 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
         name: agent.name || null,
       };
     }),
+    cards,
     sessions,
     suspendedSessions: suspendedSessions.map((session) =>
       mapGatewayAdminSuspendedSession(session, sessionAgentIds),
     ),
+  };
+}
+
+function mapGatewayAdminJobCard(card: BoardCard): GatewayAdminJobCard {
+  let owner: GatewayAdminJobCard['owner'];
+  if ('agentId' in card.owner && card.owner.agentId) {
+    owner = { type: 'agent', id: card.owner.agentId };
+  } else if ('userId' in card.owner && card.owner.userId) {
+    owner = { type: 'user', id: card.owner.userId };
+  } else {
+    throw new Error(`Board card ${card.id} has an invalid owner.`);
+  }
+  return {
+    id: card.id,
+    title: card.title,
+    body: card.body,
+    owner,
+    column: card.column,
+    status: card.status,
+    source: card.source,
+    parent: card.parent,
+    createdAt: card.createdAt,
+    updatedAt: card.updatedAt,
+    blocked: isBoardCardBlocked(card.id),
+    edges: listEdges(card.id).map(mapGatewayAdminJobCardEdge),
+  };
+}
+
+function mapGatewayAdminJobCardEdge(
+  edge: BoardCardEdge,
+): GatewayAdminJobCardEdge {
+  return {
+    id: edge.id,
+    fromCardId: edge.fromCardId,
+    toCardId: edge.toCardId,
+    kind: edge.kind,
+    createdAt: edge.createdAt,
   };
 }
 

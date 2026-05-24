@@ -2764,6 +2764,33 @@ th {
   letter-spacing: 0.04em;
 }
 
+.jobs-card-edge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jobs-edge-chip {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted);
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+  font-weight: 650;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+.jobs-edge-chip.blocked {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .jobs-card-agent-row {
   display: flex;
   align-items: center;

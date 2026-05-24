@@ -29,13 +29,21 @@ export const BOARD_CARD_COLUMNS = [
 ] as const;
 
 const BOARD_CARD_STATE_VERSION = 1;
+const BOARD_EDGE_STATE_VERSION = 1;
 const BOARD_CARD_ASSET_PREFIX = 'board/cards';
+const BOARD_EDGE_ASSET_PREFIX = 'board/edges';
 const SOURCE_PREFIXES = ['autopilot', 'a2a', 'workflow'] as const;
 const SOURCE_ID_RE = /^(?!.*\.\.)[a-zA-Z0-9_.-]+$/;
 const BOARD_CARD_SELECT_COLUMNS =
   'id, title, body, owner_type, owner_id, "column", status, source, parent, created_at, updated_at, deleted_at';
+const BOARD_EDGE_SELECT_COLUMNS =
+  'id, from_card_id, to_card_id, kind, created_at, created_by';
+const BOARD_EDGE_KINDS = ['blocks', 'blocked_by', 'related'] as const;
+const STORED_BOARD_EDGE_KINDS = ['blocks', 'related'] as const;
 
 export type BoardCardColumn = (typeof BOARD_CARD_COLUMNS)[number];
+export type BoardCardEdgeKind = (typeof BOARD_EDGE_KINDS)[number];
+type StoredBoardCardEdgeKind = (typeof STORED_BOARD_EDGE_KINDS)[number];
 
 export type BoardCardOwner =
   | { userId: string; agentId?: never }
@@ -64,6 +72,15 @@ export interface Card {
   deletedAt: string | null;
 }
 
+export interface Edge {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  kind: BoardCardEdgeKind;
+  createdAt: string;
+  createdBy: BoardCardActor;
+}
+
 export interface CreateCardInput {
   id?: string;
   title: string;
@@ -76,7 +93,7 @@ export interface CreateCardInput {
 }
 
 export type UpdateCardPatch = Partial<
-  Pick<Card, 'title' | 'body' | 'owner' | 'status' | 'source'> & {
+  Pick<Card, 'title' | 'body' | 'owner' | 'column' | 'status' | 'source'> & {
     parent: string | null;
   }
 >;
@@ -111,6 +128,16 @@ export interface BoardCardMutationEvent extends AuditEventPayload {
   at: string;
 }
 
+export interface BoardEdgeMutationEvent extends AuditEventPayload {
+  type: 'board.edge_added' | 'board.edge_removed';
+  actor: BoardCardActor;
+  edgeId: string;
+  fromCardId: string;
+  toCardId: string;
+  kind: BoardCardEdgeKind;
+  at: string;
+}
+
 interface BoardCardRow {
   id: string;
   title: string;
@@ -126,9 +153,32 @@ interface BoardCardRow {
   deleted_at: string | null;
 }
 
+interface BoardEdgeRow {
+  id: string;
+  from_card_id: string;
+  to_card_id: string;
+  kind: string;
+  created_at: string;
+  created_by: string;
+}
+
 interface PersistedBoardCardState {
   version: typeof BOARD_CARD_STATE_VERSION;
   card: Card;
+}
+
+interface StoredBoardCardEdge {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  kind: StoredBoardCardEdgeKind;
+  createdAt: string;
+  createdBy: BoardCardActor;
+}
+
+interface PersistedBoardEdgeState {
+  version: typeof BOARD_EDGE_STATE_VERSION;
+  edge: StoredBoardCardEdge;
 }
 
 export type BoardCardSubscriber = (event: BoardCardMutationEvent) => unknown;
@@ -154,6 +204,10 @@ export function subscribeBoardCardEvents(
 
 function boardCardAssetPath(id: string): string {
   return path.join(BOARD_CARD_ASSET_PREFIX, `${encodeURIComponent(id)}.json`);
+}
+
+function boardEdgeAssetPath(id: string): string {
+  return path.join(BOARD_EDGE_ASSET_PREFIX, `${encodeURIComponent(id)}.json`);
 }
 
 function normalizeNonEmptyString(value: unknown, field: string): string {
@@ -187,6 +241,22 @@ function normalizeColumn(value: unknown): BoardCardColumn {
     return normalized as BoardCardColumn;
   }
   throw new Error(`Unsupported board card column: ${normalized}`);
+}
+
+function normalizeEdgeKind(value: unknown): BoardCardEdgeKind {
+  const normalized = normalizeNonEmptyString(value, 'kind');
+  if (BOARD_EDGE_KINDS.includes(normalized as BoardCardEdgeKind)) {
+    return normalized as BoardCardEdgeKind;
+  }
+  throw new Error(`Unsupported board card edge kind: ${normalized}`);
+}
+
+function normalizeStoredEdgeKind(value: unknown): StoredBoardCardEdgeKind {
+  const normalized = normalizeNonEmptyString(value, 'kind');
+  if (STORED_BOARD_EDGE_KINDS.includes(normalized as StoredBoardCardEdgeKind)) {
+    return normalized as StoredBoardCardEdgeKind;
+  }
+  throw new Error(`Unsupported persisted board card edge kind: ${normalized}`);
 }
 
 function normalizeOwner(owner: BoardCardOwner): {
@@ -227,6 +297,32 @@ function normalizeActor(actor?: BoardCardActor | null): BoardCardActor {
     return { system: normalizeNonEmptyString(actor.system, 'actor.system') };
   }
   return normalizeOwner(actor).owner;
+}
+
+function serializeActor(actor: BoardCardActor): string {
+  return JSON.stringify(normalizeActor(actor));
+}
+
+function parseActor(raw: string): BoardCardActor {
+  const parsed = parseJsonObject(raw, 'Board edge actor');
+  return normalizeActor(parsed as BoardCardActor);
+}
+
+function parseJsonObject(raw: string, label: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `${label} JSON is invalid: ${
+        error instanceof Error ? error.message : 'unknown parse error'
+      }`,
+    );
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function normalizeSource(source: unknown): BoardCardSource {
@@ -276,6 +372,65 @@ function mapCardRow(row: BoardCardRow): Card {
   };
 }
 
+function mapStoredEdgeRow(row: BoardEdgeRow): StoredBoardCardEdge {
+  return normalizeStoredEdgeForPersistence({
+    id: row.id,
+    fromCardId: row.from_card_id,
+    toCardId: row.to_card_id,
+    kind: normalizeStoredEdgeKind(row.kind),
+    createdAt: row.created_at,
+    createdBy: parseActor(row.created_by),
+  });
+}
+
+function orientStoredEdgeForCard(
+  edge: StoredBoardCardEdge,
+  cardId: string,
+): Edge {
+  if (edge.kind === 'related') {
+    if (edge.fromCardId === cardId) {
+      return { ...edge, kind: 'related' };
+    }
+    if (edge.toCardId === cardId) {
+      return {
+        ...edge,
+        fromCardId: edge.toCardId,
+        toCardId: edge.fromCardId,
+        kind: 'related',
+      };
+    }
+    throw new Error(
+      `Board card edge ${edge.id} is not connected to ${cardId}.`,
+    );
+  }
+
+  if (edge.toCardId === cardId) {
+    return {
+      ...edge,
+      fromCardId: edge.toCardId,
+      toCardId: edge.fromCardId,
+      kind: 'blocked_by',
+    };
+  }
+  return { ...edge, kind: 'blocks' };
+}
+
+function orientStoredEdgeForInput(
+  edge: StoredBoardCardEdge,
+  fromCardId: string,
+  toCardId: string,
+  kind: BoardCardEdgeKind,
+): Edge {
+  return {
+    id: edge.id,
+    fromCardId,
+    toCardId,
+    kind,
+    createdAt: edge.createdAt,
+    createdBy: edge.createdBy,
+  };
+}
+
 function serializeCardState(card: Card): string {
   return JSON.stringify({
     version: BOARD_CARD_STATE_VERSION,
@@ -283,20 +438,15 @@ function serializeCardState(card: Card): string {
   } satisfies PersistedBoardCardState);
 }
 
+function serializeEdgeState(edge: StoredBoardCardEdge): string {
+  return JSON.stringify({
+    version: BOARD_EDGE_STATE_VERSION,
+    edge,
+  } satisfies PersistedBoardEdgeState);
+}
+
 function parseCardState(raw: string): Card {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(
-      `Board card revision JSON is invalid: ${
-        error instanceof Error ? error.message : 'unknown parse error'
-      }`,
-    );
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Board card revision must be an object.');
-  }
+  const parsed = parseJsonObject(raw, 'Board card revision');
   const state = parsed as Partial<PersistedBoardCardState>;
   if (state.version !== BOARD_CARD_STATE_VERSION) {
     throw new Error(
@@ -307,6 +457,20 @@ function parseCardState(raw: string): Card {
     throw new Error('Board card revision card is required.');
   }
   return normalizeCardForPersistence(state.card as Card);
+}
+
+function parseEdgeState(raw: string): StoredBoardCardEdge {
+  const parsed = parseJsonObject(raw, 'Board edge revision');
+  const state = parsed as Partial<PersistedBoardEdgeState>;
+  if (state.version !== BOARD_EDGE_STATE_VERSION) {
+    throw new Error(
+      `Board edge revision version must be ${BOARD_EDGE_STATE_VERSION}.`,
+    );
+  }
+  if (!state.edge || typeof state.edge !== 'object') {
+    throw new Error('Board edge revision edge is required.');
+  }
+  return normalizeStoredEdgeForPersistence(state.edge as StoredBoardCardEdge);
 }
 
 function normalizeCardForPersistence(card: Card): Card {
@@ -325,6 +489,47 @@ function normalizeCardForPersistence(card: Card): Card {
       ? normalizeNonEmptyString(card.deletedAt, 'deletedAt')
       : null,
   };
+}
+
+function normalizeStoredEdgeForPersistence(
+  edge: StoredBoardCardEdge,
+): StoredBoardCardEdge {
+  const fromCardId = normalizeNonEmptyString(edge.fromCardId, 'fromCardId');
+  const toCardId = normalizeNonEmptyString(edge.toCardId, 'toCardId');
+  if (fromCardId === toCardId) {
+    throw new Error('Board card edge cannot point to the same card.');
+  }
+  return {
+    id: normalizeNonEmptyString(edge.id, 'id'),
+    fromCardId,
+    toCardId,
+    kind: normalizeStoredEdgeKind(edge.kind),
+    createdAt: normalizeNonEmptyString(edge.createdAt, 'createdAt'),
+    createdBy: normalizeActor(edge.createdBy),
+  };
+}
+
+function canonicalizeEdgeInput(
+  fromCardId: string,
+  toCardId: string,
+  kind: BoardCardEdgeKind,
+): Pick<StoredBoardCardEdge, 'fromCardId' | 'toCardId' | 'kind'> {
+  if (fromCardId === toCardId) {
+    throw new Error('Board card edge cannot point to the same card.');
+  }
+  if (kind === 'blocked_by') {
+    return {
+      fromCardId: toCardId,
+      toCardId: fromCardId,
+      kind: 'blocks',
+    };
+  }
+  if (kind === 'related') {
+    const [first, second] =
+      fromCardId < toCardId ? [fromCardId, toCardId] : [toCardId, fromCardId];
+    return { fromCardId: first, toCardId: second, kind };
+  }
+  return { fromCardId, toCardId, kind };
 }
 
 function diffCards(
@@ -370,6 +575,18 @@ function emitBoardCardEvent(
   });
 }
 
+function emitBoardEdgeEvent(
+  event: BoardEdgeMutationEvent,
+  context?: BoardCardMutationContext,
+): void {
+  emitRuntimeEvent(event);
+  recordAuditEvent({
+    sessionId: context?.sessionId?.trim() || 'board',
+    runId: context?.runId?.trim() || makeAuditRunId('board-edge'),
+    event,
+  });
+}
+
 function syncCardRevisionState(
   database: Database.Database,
   revisionSchemaName: string,
@@ -390,6 +607,33 @@ function syncCardRevisionState(
       content: serializeCardState(card),
     },
     card.updatedAt,
+    { schemaName: revisionSchemaName },
+  );
+}
+
+function syncEdgeRevisionState(
+  database: Database.Database,
+  revisionSchemaName: string,
+  edge: StoredBoardCardEdge,
+  context: BoardCardMutationContext | undefined,
+  opts?: { exists?: boolean; timestamp?: string },
+): void {
+  syncRuntimeAssetRevisionStateInOpenDatabase(
+    database,
+    'board_edge',
+    boardEdgeAssetPath(edge.id),
+    {
+      actor: formatActorForRevision(context?.actor),
+      route: context?.meta?.route || 'board.edge-store',
+      source: context?.meta?.source || edge.kind,
+    },
+    opts?.exists === false
+      ? { exists: false, content: null }
+      : {
+          exists: true,
+          content: serializeEdgeState(edge),
+        },
+    opts?.timestamp || edge.createdAt,
     { schemaName: revisionSchemaName },
   );
 }
@@ -457,6 +701,168 @@ function selectCard(
   return mapCardRow(row);
 }
 
+function selectActiveCardIds(
+  database: Database.Database,
+  ids: [string, string],
+): Set<string> {
+  return new Set(
+    database
+      .prepare<[string, string], { id: string }>(
+        `SELECT id
+         FROM board_cards
+         WHERE id IN (?, ?)
+           AND deleted_at IS NULL`,
+      )
+      .all(ids[0], ids[1])
+      .map((row) => row.id),
+  );
+}
+
+function selectStoredEdge(
+  database: Database.Database,
+  id: string,
+): StoredBoardCardEdge | null {
+  const row = database
+    .prepare<[string], BoardEdgeRow>(
+      `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+       FROM board_card_edges
+       WHERE id = ?`,
+    )
+    .get(id);
+  if (!row) return null;
+  return mapStoredEdgeRow(row);
+}
+
+function selectStoredEdgeByLogicalKey(
+  database: Database.Database,
+  edge: Pick<StoredBoardCardEdge, 'fromCardId' | 'toCardId' | 'kind'>,
+): StoredBoardCardEdge | null {
+  if (edge.kind === 'blocks') {
+    const row = database
+      .prepare<[string, string], BoardEdgeRow>(
+        `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM board_card_edges
+         WHERE from_card_id = ?
+           AND to_card_id = ?
+           AND kind = 'blocks'
+         LIMIT 1`,
+      )
+      .get(edge.fromCardId, edge.toCardId);
+    if (!row) return null;
+    return mapStoredEdgeRow(row);
+  }
+
+  const row = database
+    .prepare<[string, string, string], BoardEdgeRow>(
+      `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+       FROM board_card_edges
+       WHERE from_card_id = ?
+         AND to_card_id = ?
+         AND kind = ?`,
+    )
+    .get(edge.fromCardId, edge.toCardId, edge.kind);
+  if (!row) return null;
+  return mapStoredEdgeRow(row);
+}
+
+function selectStoredEdgesForCard(
+  database: Database.Database,
+  cardId: string,
+  kind: BoardCardEdgeKind | null,
+): StoredBoardCardEdge[] {
+  if (kind === 'blocks') {
+    return database
+      .prepare<[string], BoardEdgeRow>(
+        `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM board_card_edges
+         WHERE from_card_id = ?
+           AND kind = 'blocks'
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(cardId)
+      .map(mapStoredEdgeRow);
+  }
+
+  if (kind === 'blocked_by') {
+    return database
+      .prepare<[string], BoardEdgeRow>(
+        `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM board_card_edges
+         WHERE to_card_id = ?
+           AND kind = 'blocks'
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(cardId)
+      .map(mapStoredEdgeRow);
+  }
+
+  if (kind === 'related') {
+    return database
+      .prepare<[string, string], BoardEdgeRow>(
+        `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM (
+           SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+           FROM board_card_edges
+           WHERE from_card_id = ?
+             AND kind = 'related'
+           UNION ALL
+           SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+           FROM board_card_edges
+           WHERE to_card_id = ?
+             AND kind = 'related'
+         )
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(cardId, cardId)
+      .map(mapStoredEdgeRow);
+  }
+
+  return database
+    .prepare<[string, string], BoardEdgeRow>(
+      `SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+       FROM (
+         SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM board_card_edges
+         WHERE from_card_id = ?
+         UNION ALL
+         SELECT ${BOARD_EDGE_SELECT_COLUMNS}
+         FROM board_card_edges
+         WHERE to_card_id = ?
+       )
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(cardId, cardId)
+    .map(mapStoredEdgeRow);
+}
+
+function insertOrReplaceStoredEdge(
+  database: Database.Database,
+  edge: StoredBoardCardEdge,
+): StoredBoardCardEdge {
+  const normalized = normalizeStoredEdgeForPersistence(edge);
+  database
+    .prepare(
+      `INSERT INTO board_card_edges (
+         id, from_card_id, to_card_id, kind, created_at, created_by
+       ) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         from_card_id = excluded.from_card_id,
+         to_card_id = excluded.to_card_id,
+         kind = excluded.kind,
+         created_at = excluded.created_at,
+         created_by = excluded.created_by`,
+    )
+    .run(
+      normalized.id,
+      normalized.fromCardId,
+      normalized.toCardId,
+      normalized.kind,
+      normalized.createdAt,
+      serializeActor(normalized.createdBy),
+    );
+  return normalized;
+}
+
 export function createCard(
   input: CreateCardInput,
   context?: BoardCardMutationContext,
@@ -502,6 +908,138 @@ export function createCard(
 export function getCard(id: string): Card | null {
   const normalizedId = normalizeNonEmptyString(id, 'id');
   return withMemoryDatabase((database) => selectCard(database, normalizedId));
+}
+
+export function addEdge(
+  fromCardId: string,
+  toCardId: string,
+  kind: BoardCardEdgeKind,
+  context?: BoardCardMutationContext,
+): Edge {
+  const normalizedFrom = normalizeNonEmptyString(fromCardId, 'fromCardId');
+  const normalizedTo = normalizeNonEmptyString(toCardId, 'toCardId');
+  const normalizedKind = normalizeEdgeKind(kind);
+  const canonical = canonicalizeEdgeInput(
+    normalizedFrom,
+    normalizedTo,
+    normalizedKind,
+  );
+  const timestamp = new Date().toISOString();
+  const actor = normalizeActor(context?.actor);
+
+  return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
+    const stored = database.transaction(() => {
+      if (selectStoredEdgeByLogicalKey(database, canonical)) {
+        throw new Error(
+          `Board card edge already exists: ${normalizedFrom} ${normalizedKind} ${normalizedTo}`,
+        );
+      }
+      const activeCardIds = selectActiveCardIds(database, [
+        normalizedFrom,
+        normalizedTo,
+      ]);
+      if (!activeCardIds.has(normalizedFrom)) {
+        throw new Error(`Board card not found: ${normalizedFrom}`);
+      }
+      if (!activeCardIds.has(normalizedTo)) {
+        throw new Error(`Board card not found: ${normalizedTo}`);
+      }
+      const edge = insertOrReplaceStoredEdge(database, {
+        id: randomUUID(),
+        ...canonical,
+        createdAt: timestamp,
+        createdBy: actor,
+      });
+      syncEdgeRevisionState(database, revisionSchema, edge, context);
+      return edge;
+    })();
+    const edge = orientStoredEdgeForInput(
+      stored,
+      normalizedFrom,
+      normalizedTo,
+      normalizedKind,
+    );
+    emitBoardEdgeEvent(
+      {
+        type: 'board.edge_added',
+        actor,
+        edgeId: edge.id,
+        fromCardId: edge.fromCardId,
+        toCardId: edge.toCardId,
+        kind: edge.kind,
+        at: edge.createdAt,
+      },
+      context,
+    );
+    return edge;
+  });
+}
+
+export function removeEdge(
+  id: string,
+  context?: BoardCardMutationContext,
+): Edge {
+  const normalizedId = normalizeNonEmptyString(id, 'id');
+  const timestamp = new Date().toISOString();
+  return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
+    const removed = database.transaction(() => {
+      const current = selectStoredEdge(database, normalizedId);
+      if (!current)
+        throw new Error(`Board card edge not found: ${normalizedId}`);
+      database
+        .prepare(`DELETE FROM board_card_edges WHERE id = ?`)
+        .run(normalizedId);
+      syncEdgeRevisionState(database, revisionSchema, current, context, {
+        exists: false,
+        timestamp,
+      });
+      return current;
+    })();
+    const edge = orientStoredEdgeForCard(removed, removed.fromCardId);
+    emitBoardEdgeEvent(
+      {
+        type: 'board.edge_removed',
+        actor: normalizeActor(context?.actor),
+        edgeId: edge.id,
+        fromCardId: edge.fromCardId,
+        toCardId: edge.toCardId,
+        kind: edge.kind,
+        at: timestamp,
+      },
+      context,
+    );
+    return edge;
+  });
+}
+
+export function listEdges(cardId: string, kind?: BoardCardEdgeKind): Edge[] {
+  const normalizedId = normalizeNonEmptyString(cardId, 'cardId');
+  const normalizedKind = kind ? normalizeEdgeKind(kind) : null;
+  return withMemoryDatabase((database) => {
+    return selectStoredEdgesForCard(database, normalizedId, normalizedKind).map(
+      (edge) => orientStoredEdgeForCard(edge, normalizedId),
+    );
+  });
+}
+
+export function isBlocked(cardId: string): boolean {
+  const normalizedId = normalizeNonEmptyString(cardId, 'cardId');
+  return withMemoryDatabase((database) => {
+    const row = database
+      .prepare<[string], { id: string }>(
+        `SELECT edge.id
+         FROM board_card_edges edge
+         JOIN board_cards blocker
+           ON blocker.id = edge.from_card_id
+         WHERE edge.kind = 'blocks'
+           AND edge.to_card_id = ?
+           AND blocker.deleted_at IS NULL
+           AND blocker."column" <> 'done'
+         LIMIT 1`,
+      )
+      .get(normalizedId);
+    return Boolean(row);
+  });
 }
 
 // This store is intentionally last-write-wins. R29.9 owns column/state-machine
@@ -643,6 +1181,13 @@ export function listCardRevisions(id: string) {
   );
 }
 
+export function listEdgeRevisions(id: string) {
+  return listRuntimeAssetRevisions(
+    'board_edge',
+    boardEdgeAssetPath(normalizeNonEmptyString(id, 'id')),
+  );
+}
+
 export function restoreCardRevision(
   id: string,
   revisionId: number,
@@ -698,5 +1243,62 @@ export function restoreCardRevision(
       context,
     );
     return after;
+  });
+}
+
+export function restoreEdgeRevision(
+  id: string,
+  revisionId: number,
+  context?: BoardCardMutationContext,
+): Edge {
+  const normalizedId = normalizeNonEmptyString(id, 'id');
+  const revision = getRuntimeAssetRevision(
+    'board_edge',
+    boardEdgeAssetPath(normalizedId),
+    revisionId,
+  );
+  if (!revision) {
+    throw new Error(
+      `Board edge revision ${revisionId} was not found for ${normalizedId}.`,
+    );
+  }
+  const restored = parseEdgeState(revision.content);
+  if (restored.id !== normalizedId) {
+    throw new Error(`Board edge revision belongs to ${restored.id}.`);
+  }
+
+  return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
+    const stored = database.transaction(() => {
+      if (!selectCard(database, restored.fromCardId)) {
+        throw new Error(`Board card not found: ${restored.fromCardId}`);
+      }
+      if (!selectCard(database, restored.toCardId)) {
+        throw new Error(`Board card not found: ${restored.toCardId}`);
+      }
+      const edge = insertOrReplaceStoredEdge(database, restored);
+      syncEdgeRevisionState(database, revisionSchema, edge, {
+        ...context,
+        meta: {
+          actor: context?.meta?.actor,
+          route: context?.meta?.route || `board.edge.rollback#${revisionId}`,
+          source: context?.meta?.source || 'rollback',
+        },
+      });
+      return edge;
+    })();
+    const edge = orientStoredEdgeForCard(stored, stored.fromCardId);
+    emitBoardEdgeEvent(
+      {
+        type: 'board.edge_added',
+        actor: normalizeActor(context?.actor),
+        edgeId: edge.id,
+        fromCardId: edge.fromCardId,
+        toCardId: edge.toCardId,
+        kind: edge.kind,
+        at: new Date().toISOString(),
+      },
+      context,
+    );
+    return edge;
   });
 }
