@@ -44,8 +44,9 @@ warehouse, analytics database, or TPC-H-style reporting dataset.
    ```bash
    python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json review "SELECT c_name FROM customer LIMIT 10"
    ```
-   To make the helper invoke HybridClaw's OpenAI-compatible gateway for the
-   business-meaning review, pass `--model-review` with the original question:
+   For review-only commands, pass `--model-review` with the original question
+   to invoke HybridClaw's OpenAI-compatible gateway for the business-meaning
+   review:
    ```bash
    python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json review --model-review --question "Show the first 10 customers" "SELECT c_name FROM customer LIMIT 10"
    ```
@@ -56,6 +57,10 @@ warehouse, analytics database, or TPC-H-style reporting dataset.
    ```bash
    python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json query --backend sqlite --database ./warehouse.db --execute "SELECT c_name FROM customer LIMIT 10"
    ```
+   `query --execute` always invokes model review before running SQL. Configure
+   model review with `HYBRIDCLAW_GATEWAY_URL` / `GATEWAY_BASE_URL` and
+   `HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN`, `HYBRIDCLAW_GATEWAY_TOKEN`, or
+   `GATEWAY_API_TOKEN`.
 
 ## Backend Contract
 
@@ -126,10 +131,11 @@ Before execution, check:
 - date and tenant filters are present when the question implies scope
 
 The helper emits a `review` object with safety status and findings. Treat that
-as a deterministic guardrail. Pass `--model-review` on `review` or `query` to
+as a deterministic guardrail. Pass `--model-review` on review-only commands to
 have the helper invoke the configured OpenAI-compatible model endpoint and add
-that verdict to `review.modelReview`; execution is blocked unless both the
-deterministic guardrail and requested model review pass.
+that verdict to `review.modelReview`; `query --execute` invokes model review
+automatically. Execution is blocked unless both the deterministic guardrail and
+model review pass.
 
 Model review defaults to `HYBRIDCLAW_GATEWAY_URL` / `GATEWAY_BASE_URL` plus
 `/v1/chat/completions`, with authentication from
