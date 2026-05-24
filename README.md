@@ -189,6 +189,10 @@ Once the gateway is running, open HybridClaw locally:
   Cloudflare Tunnel providers read `NGROK_AUTHTOKEN`, `TS_AUTHKEY`,
   `CLOUDFLARE_TUNNEL_TOKEN`, and Cloudflare certificate credentials from the
   encrypted runtime secret store.
+- A2A cross-instance delivery resolves canonical peer IDs in order from the
+  local deployment URL or active tunnel URL, the A2A public-key trust ledger,
+  then DNS-style discovery when `HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE` is
+  configured.
 - `container.warmPool` keeps a bounded adaptive pool of idle host/container
   runtimes for recently active agents when low cold-start latency matters.
 - `container.persistBashState` controls whether bash tool calls share shell
