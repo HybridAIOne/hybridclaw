@@ -17,6 +17,7 @@ import {
   printDoctorUsage,
   printEvalUsage,
   printGatewayUsage,
+  printHarnessEvolutionUsage,
   printHelpTopic,
   printHelpUsage,
   printMainUsage,
@@ -1217,6 +1218,210 @@ async function handleEvalCommand(args: string[]): Promise<void> {
   if (result.kind === 'error') process.exitCode = 1;
 }
 
+function parseHarnessEvolutionValueFlag(
+  args: string[],
+  index: number,
+  name: string,
+): { value: string; nextIndex: number } | null {
+  const arg = args[index] || '';
+  if (arg === name) {
+    const value = String(args[index + 1] || '').trim();
+    if (!value) throw new Error(`Missing value for ${name}.`);
+    return { value, nextIndex: index + 1 };
+  }
+  if (arg.startsWith(`${name}=`)) {
+    const value = arg.slice(name.length + 1).trim();
+    if (!value) throw new Error(`Missing value for ${name}.`);
+    return { value, nextIndex: index };
+  }
+  return null;
+}
+
+function parsePositiveHarnessInteger(value: string, label: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+interface HarnessEvolutionFlags {
+  target: string;
+  suite: string;
+  summary: string;
+  rounds?: number;
+  rolloutsPerTask?: number;
+  freshSeed: boolean;
+  dryRun: boolean;
+  commit: boolean;
+}
+
+function parseHarnessEvolutionFlags(args: string[]): HarnessEvolutionFlags {
+  const flags: HarnessEvolutionFlags = {
+    target: '',
+    suite: '',
+    summary: '',
+    freshSeed: false,
+    dryRun: false,
+    commit: false,
+  };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const targetFlag = parseHarnessEvolutionValueFlag(args, index, '--target');
+    if (targetFlag) {
+      flags.target = targetFlag.value;
+      index = targetFlag.nextIndex;
+      continue;
+    }
+    const suiteFlag = parseHarnessEvolutionValueFlag(args, index, '--suite');
+    if (suiteFlag) {
+      flags.suite = suiteFlag.value;
+      index = suiteFlag.nextIndex;
+      continue;
+    }
+    const summaryFlag = parseHarnessEvolutionValueFlag(
+      args,
+      index,
+      '--summary',
+    );
+    if (summaryFlag) {
+      flags.summary = summaryFlag.value;
+      index = summaryFlag.nextIndex;
+      continue;
+    }
+    const roundsFlag = parseHarnessEvolutionValueFlag(args, index, '--rounds');
+    if (roundsFlag) {
+      flags.rounds = parsePositiveHarnessInteger(roundsFlag.value, '--rounds');
+      index = roundsFlag.nextIndex;
+      continue;
+    }
+    const kFlag = parseHarnessEvolutionValueFlag(args, index, '--k');
+    if (kFlag) {
+      flags.rolloutsPerTask = parsePositiveHarnessInteger(kFlag.value, '--k');
+      index = kFlag.nextIndex;
+      continue;
+    }
+    if (arg === '--fresh-seed') {
+      flags.freshSeed = true;
+      continue;
+    }
+    if (arg === '--dry-run') {
+      flags.dryRun = true;
+      continue;
+    }
+    if (arg === '--commit') {
+      flags.commit = true;
+      continue;
+    }
+    throw new Error(`Unknown harness-evolve flag: ${arg}`);
+  }
+  return flags;
+}
+
+async function handleHarnessEvolutionCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printHarnessEvolutionUsage();
+    return;
+  }
+
+  const {
+    EVOLVE_AGENT_SYSTEM_PROMPT,
+    EVOLVE_AGENT_TOOLS,
+    initializeHarnessWorkspace,
+    readHarnessEvolutionSummary,
+    renderEvolutionChart,
+    runHarnessEvolutionLoop,
+    validateBashOnlySeed,
+  } = await import('./evolution/harness-evolution.js');
+
+  const sub = normalized[0]?.toLowerCase();
+  const flags = parseHarnessEvolutionFlags(normalized.slice(1));
+
+  if (sub === 'init') {
+    if (!flags.target) {
+      throw new Error('Usage: hybridclaw harness-evolve init --target <dir>');
+    }
+    initializeHarnessWorkspace(flags.target);
+    console.log(
+      `Initialized harness evolution workspace at ${path.resolve(flags.target)}.`,
+    );
+    return;
+  }
+
+  if (sub === 'validate-seed') {
+    if (!flags.target) {
+      throw new Error(
+        'Usage: hybridclaw harness-evolve validate-seed --target <dir>',
+      );
+    }
+    const validation = validateBashOnlySeed(flags.target);
+    for (const warning of validation.warnings) {
+      console.log(`warning: ${warning}`);
+    }
+    if (!validation.ok) {
+      for (const error of validation.errors) {
+        console.error(`error: ${error}`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+    console.log('Seed is a minimal bash-only harness.');
+    return;
+  }
+
+  if (sub === 'run') {
+    if (!flags.target || !flags.suite) {
+      throw new Error(
+        'Usage: hybridclaw harness-evolve run --target <dir> --suite <suite.json>',
+      );
+    }
+    const result = await runHarnessEvolutionLoop({
+      targetRoot: flags.target,
+      suitePath: flags.suite,
+      rounds: flags.rounds,
+      rolloutsPerTask: flags.rolloutsPerTask,
+      freshSeed: flags.freshSeed,
+      dryRun: flags.dryRun,
+      commit: flags.commit,
+    });
+    console.log(renderEvolutionChart(result));
+    console.log(`Summary: ${result.summaryPath}`);
+    if (!result.costGate.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (sub === 'status') {
+    if (!flags.summary) {
+      throw new Error(
+        'Usage: hybridclaw harness-evolve status --summary <runs/.../summary.json>',
+      );
+    }
+    console.log(
+      renderEvolutionChart(readHarnessEvolutionSummary(flags.summary)),
+    );
+    return;
+  }
+
+  if (sub === 'contract') {
+    console.log(
+      JSON.stringify(
+        {
+          systemPrompt: EVOLVE_AGENT_SYSTEM_PROMPT,
+          tools: EVOLVE_AGENT_TOOLS,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  throw new Error(
+    `Unknown harness-evolve subcommand: ${sub}. Use init, validate-seed, run, status, or contract.`,
+  );
+}
+
 async function handleConfigCommand(args: string[]): Promise<void> {
   function parseRevisionId(raw: string): number {
     const parsed = Number.parseInt(raw, 10);
@@ -1635,6 +1840,9 @@ export async function main(
     }
     case 'eval':
       await handleEvalCommand(subargs);
+      break;
+    case 'harness-evolve':
+      await handleHarnessEvolutionCommand(subargs);
       break;
     case '__eval-terminal-bench-native': {
       const { initDatabase, isDatabaseInitialized } = await import(
