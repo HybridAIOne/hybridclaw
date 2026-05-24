@@ -232,6 +232,32 @@ test('Open Telekom Cloud helper keeps project IDs and signing material secret-ba
   expect(result.stdout).not.toContain('Authorization');
 });
 
+test('Open Telekom Cloud helper rejects invalid region and limit bounds', () => {
+  const badRegion = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'servers',
+    '--region',
+    'not_a_region!!',
+  ]);
+  const badLimit = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'servers',
+    '--region',
+    'eu-de',
+    '--limit',
+    '99999',
+  ]);
+
+  expect(badRegion.status).toBe(2);
+  expect(badRegion.stderr).toContain('Invalid OTC region');
+  expect(badLimit.status).toBe(2);
+  expect(badLimit.stderr).toContain('--limit must be between 1 and 1000');
+});
+
 test('Open Telekom Cloud helper rejects arbitrary endpoints and plans mutations as red', () => {
   const unknown = runHelper([
     '--format',
