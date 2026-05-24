@@ -7,6 +7,13 @@ import { promisify } from 'node:util';
 import { parseOptionalBoolean } from '../shared/boolean-utils.js';
 import { assertBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../shared/browser-profile.js';
+import {
+  detectTwoFactorChallenge,
+  EXTRACT_TEXT_PREVIEW_SCRIPT,
+  normalizeTwoFactorModality,
+  TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
+  type TwoFactorDetectionResult,
+} from '../shared/two-factor-detection.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import type { RuntimeProvider } from './providers/provider-ids.js';
 import {
@@ -32,6 +39,7 @@ const BROWSER_DEFAULT_TIMEOUT_MS = 45_000;
 const BROWSER_DOWNLOAD_TIMEOUT_MS = 120_000;
 const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 const BROWSER_MAX_SNAPSHOT_CHARS = 12_000;
+const TWO_FACTOR_SCREENSHOT_MAX_BYTES = 12 * 1024 * 1024;
 const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
 const BROWSER_TMP_HOME = path.join(BROWSER_RUNTIME_ROOT, 'home');
 const BROWSER_NPM_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'npm-cache');
@@ -78,24 +86,6 @@ const EXTRACT_IFRAMES_SCRIPT = `(() => {
     title: frame.getAttribute('title') || null,
     src: frame.getAttribute('src') || '',
   }));
-})()`;
-
-const EXTRACT_TEXT_PREVIEW_SCRIPT = `(() => {
-  const bodyText = document.body ? String(document.body.innerText || '') : '';
-  const normalized = bodyText
-    .replace(/\\r/g, '')
-    .replace(/[ \\t]+\\n/g, '\\n')
-    .replace(/\\n{3,}/g, '\\n\\n')
-    .trim();
-  const previewLimit = 6000;
-  return {
-    text_length: normalized.length,
-    preview: normalized.slice(0, previewLimit),
-    preview_truncated: normalized.length > previewLimit,
-    has_noscript: Boolean(document.querySelector('noscript')),
-    root_shell: Boolean(document.querySelector('div#root:empty, div#app:empty, div#__next:empty')),
-    ready_state: String(document.readyState || ''),
-  };
 })()`;
 
 const NETWORK_TIMINGS_SCRIPT = `(() => {
@@ -156,19 +146,6 @@ const FIND_FILE_INPUT_SELECTORS_SCRIPT = `(() => {
   return selectors.slice(0, 10);
 })()`;
 
-const TWO_FACTOR_SELECTOR_HINTS_SCRIPT = `(() => {
-  const selectors = [
-    'input[autocomplete="one-time-code"]',
-    'input[inputmode="numeric"]',
-    'input[type="tel"]',
-    'input[name*="otp" i]',
-    'input[id*="otp" i]',
-    'input[name*="code" i]',
-    'input[id*="code" i]',
-  ];
-  return selectors.filter((selector) => document.querySelector(selector));
-})()`;
-
 type SnapshotMode = 'default' | 'interactive' | 'full';
 type FrameTarget = {
   raw: string;
@@ -196,48 +173,6 @@ type BrowserModelContext = {
   maxTokens?: number;
   debugModelResponses?: boolean;
 };
-
-type TwoFactorModality = 'totp' | 'push' | 'qr' | 'sms' | 'recovery_code';
-
-type BrowserTwoFactorDetection = {
-  detected: boolean;
-  modality: TwoFactorModality | null;
-  signals: string[];
-  selectors: string[];
-  text_signal: boolean;
-};
-
-const TWO_FACTOR_MODALITIES = new Set<TwoFactorModality>([
-  'totp',
-  'push',
-  'qr',
-  'sms',
-  'recovery_code',
-]);
-
-const TWO_FACTOR_TEXT_PATTERNS: Array<{
-  modality: TwoFactorModality;
-  pattern: RegExp;
-  signal: string;
-}> = [
-  {
-    modality: 'totp',
-    pattern: /\b(authenticator|totp)\b/i,
-    signal: 'totp text',
-  },
-  {
-    modality: 'push',
-    pattern: /\b(push|approve.+device)\b/i,
-    signal: 'push text',
-  },
-  { modality: 'qr', pattern: /\b(qr|scan.+code)\b/i, signal: 'qr text' },
-  { modality: 'sms', pattern: /\b(sms|text message)\b/i, signal: 'sms text' },
-  {
-    modality: 'recovery_code',
-    pattern: /\b(recovery code|backup code)\b/i,
-    signal: 'recovery-code text',
-  },
-];
 
 type BrowserRunner = {
   cmd: string;
@@ -1227,111 +1162,10 @@ function safeUrlHost(url: string): string | null {
   }
 }
 
-function normalizeTwoFactorModality(value: unknown): TwoFactorModality | null {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  return TWO_FACTOR_MODALITIES.has(normalized as TwoFactorModality)
-    ? (normalized as TwoFactorModality)
-    : null;
-}
-
-function hasExpectedTwoFactorWaypoint(args: Record<string, unknown>): boolean {
-  return (
-    args.expects_2fa === true ||
-    args.expects2fa === true ||
-    args.expectTwoFactor === true ||
-    args.expectsTwoFactor === true
-  );
-}
-
-function llmSignaledTwoFactor(args: Record<string, unknown>): boolean {
-  const signal = [
-    args.llmSignal,
-    args.llm_signal,
-    args.twoFactorSignal,
-    args.two_factor_signal,
-    args.reason,
-  ]
-    .filter((value): value is string => typeof value === 'string')
-    .join('\n');
-  return /\b(stuck.+(2fa|two[- ]factor|verification code)|2fa page|two[- ]factor page|mfa page)\b/i.test(
-    signal,
-  );
-}
-
-function detectTwoFactorFromState(input: {
-  args?: Record<string, unknown>;
-  title?: string;
-  text?: string;
-  selectors?: string[];
-}): BrowserTwoFactorDetection {
-  const args = input.args || {};
-  const signals: string[] = [];
-  const selectors = input.selectors || [];
-  for (const selector of selectors) {
-    const normalized = selector.toLowerCase();
-    if (
-      normalized.includes('autocomplete="one-time-code"') ||
-      normalized.includes("autocomplete='one-time-code'") ||
-      normalized.includes('input[autocomplete=one-time-code]') ||
-      normalized.includes('input[type="tel"]') ||
-      normalized.includes('input[type=tel]') ||
-      normalized.includes('inputmode="numeric"') ||
-      normalized.includes('inputmode=numeric') ||
-      normalized.includes('name*="otp"') ||
-      normalized.includes("name*='otp'") ||
-      normalized.includes('id*="otp"') ||
-      normalized.includes("id*='otp'") ||
-      normalized.includes('name*="code"') ||
-      normalized.includes("name*='code'") ||
-      normalized.includes('id*="code"') ||
-      normalized.includes("id*='code'")
-    ) {
-      signals.push(`selector:${selector}`);
-    }
-  }
-
-  const text = [input.title, input.text].filter(Boolean).join('\n');
-  let modality: TwoFactorModality | null = normalizeTwoFactorModality(
-    args.modality,
-  );
-  for (const entry of TWO_FACTOR_TEXT_PATTERNS) {
-    if (entry.pattern.test(text)) {
-      signals.push(entry.signal);
-      modality ||= entry.modality;
-      break;
-    }
-  }
-  if (
-    /\b(verification code|one[- ]time code|two[- ]factor|2fa|multi[- ]factor)\b/i.test(
-      text,
-    )
-  ) {
-    signals.push('generic 2fa text');
-  }
-  if (hasExpectedTwoFactorWaypoint(args)) {
-    signals.push('skill waypoint expects_2fa');
-  }
-  if (llmSignaledTwoFactor(args)) {
-    signals.push('llm 2fa signal');
-  }
-
-  return {
-    detected: signals.length > 0,
-    modality: signals.length > 0 ? modality || 'totp' : null,
-    signals,
-    selectors,
-    text_signal: signals.some(
-      (signal) => !signal.startsWith('selector:') && signal !== '',
-    ),
-  };
-}
-
 async function detectBrowserTwoFactorChallenge(
   effectiveSessionId: string,
   args: Record<string, unknown> = {},
-): Promise<BrowserTwoFactorDetection> {
+): Promise<TwoFactorDetectionResult> {
   const [textEval, selectorEval] = await Promise.all([
     runBrowserEval(effectiveSessionId, EXTRACT_TEXT_PREVIEW_SCRIPT, 10_000),
     runBrowserEval(
@@ -1346,7 +1180,7 @@ async function detectBrowserTwoFactorChallenge(
         (selector): selector is string => typeof selector === 'string',
       )
     : [];
-  return detectTwoFactorFromState({
+  return detectTwoFactorChallenge({
     args,
     text: typeof textData?.preview === 'string' ? textData.preview : '',
     selectors,
@@ -1407,7 +1241,7 @@ async function consumeGatewayInteractiveEscalation(
 async function parkBrowserTwoFactorInteraction(params: {
   effectiveSessionId: string;
   args?: Record<string, unknown>;
-  detection?: BrowserTwoFactorDetection;
+  detection?: TwoFactorDetectionResult;
 }): Promise<Record<string, unknown>> {
   assertGatewayInteractiveEscalationConfigured();
   const args = params.args || {};
@@ -1434,12 +1268,7 @@ async function parkBrowserTwoFactorInteraction(params: {
 
   const screenshotPath = createTempScreenshotPath('two-factor');
   try {
-    const [textEval, snapshotResult, screenshotResult] = await Promise.all([
-      runBrowserEval(
-        params.effectiveSessionId,
-        EXTRACT_TEXT_PREVIEW_SCRIPT,
-        15_000,
-      ),
+    const [snapshotResult, screenshotResult] = await Promise.all([
       runAgentBrowser(params.effectiveSessionId, 'snapshot', [], {
         timeoutMs: 30_000,
       }),
@@ -1455,10 +1284,16 @@ async function parkBrowserTwoFactorInteraction(params: {
     const screenshotRef = screenshotResult.success
       ? toWorkspaceRelativePath(screenshotPath)
       : null;
-    const screenshotBase64 = screenshotResult.success
-      ? fs.readFileSync(screenshotPath).toString('base64')
-      : '';
-    const textData = asRecord(textEval.success ? textEval.result : null);
+    let screenshotBase64 = '';
+    if (screenshotResult.success) {
+      const screenshotSize = fs.statSync(screenshotPath).size;
+      if (screenshotSize > TWO_FACTOR_SCREENSHOT_MAX_BYTES) {
+        throw new Error(
+          `2FA screenshot exceeds ${TWO_FACTOR_SCREENSHOT_MAX_BYTES} bytes (${screenshotSize} bytes).`,
+        );
+      }
+      screenshotBase64 = fs.readFileSync(screenshotPath).toString('base64');
+    }
     const snapshotData = asRecord(
       snapshotResult.success ? snapshotResult.data : null,
     );
@@ -1503,19 +1338,18 @@ async function parkBrowserTwoFactorInteraction(params: {
         suspendedSessionId,
       );
     }
+    const gatewayFrameSnapshot = asRecord(gatewaySession?.frameSnapshot);
+    const persistedScreenshotRef =
+      typeof gatewayFrameSnapshot?.screenshotRef === 'string'
+        ? gatewayFrameSnapshot.screenshotRef
+        : screenshotRef;
     return {
       parked: true,
       modality,
       two_factor_detection: detection,
       detected_selectors: detection.selectors,
-      text_preview: String(textData?.preview || '').slice(0, 1000),
-      screenshot:
-        typeof asRecord(gatewayResult.session)?.frameSnapshot === 'object'
-          ? String(
-              asRecord(asRecord(gatewayResult.session)?.frameSnapshot)
-                ?.screenshotRef || screenshotRef,
-            )
-          : screenshotRef,
+      text_preview: String(detection.textPreview || '').slice(0, 1000),
+      screenshot: persistedScreenshotRef,
       interaction: gatewayResult,
     };
   } finally {
@@ -2762,10 +2596,11 @@ export async function executeBrowserTool(
               (selector): selector is string => typeof selector === 'string',
             )
           : [];
-        const twoFactorTextSignal =
-          /\b(verification code|one[- ]time code|two[- ]factor|2fa|multi[- ]factor|authenticator|sms|text message|recovery code|backup code|scan.+code|qr)\b/i.test(
-            rawSnapshot,
-          );
+        const snapshotTwoFactorDetection = detectTwoFactorChallenge({
+          args,
+          text: rawSnapshot,
+          selectors: twoFactorSelectors,
+        });
         return success(
           await addTwoFactorAutoPark(effectiveSessionId, args, {
             snapshot: truncated.text,
@@ -2780,14 +2615,8 @@ export async function executeBrowserTool(
             ...(frames.length > 0
               ? { frames, frame_count: frames.length }
               : {}),
-            ...(twoFactorSelectors.length > 0 || twoFactorTextSignal
-              ? {
-                  two_factor_detection: {
-                    detected: true,
-                    selectors: twoFactorSelectors,
-                    text_signal: twoFactorTextSignal,
-                  },
-                }
+            ...(snapshotTwoFactorDetection.detected
+              ? { two_factor_detection: snapshotTwoFactorDetection }
               : {}),
           }),
         );

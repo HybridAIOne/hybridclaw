@@ -1,5 +1,12 @@
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
+import {
+  detectTwoFactorChallenge as detectSharedTwoFactorChallenge,
+  TWO_FACTOR_MODALITIES,
+  type TwoFactorDetectionInput,
+  type TwoFactorDetectionResult,
+  type TwoFactorModality,
+} from '../../container/shared/two-factor-detection.js';
 import { listAgents } from '../agents/agent-registry.js';
 import {
   makeAuditRunId,
@@ -24,17 +31,10 @@ export const INTERACTION_SESSION_DEFAULT_TTL_MS = 30 * 60_000;
 export const INTERACTION_SESSION_MIN_TTL_MS = 60_000;
 export const INTERACTION_SESSION_MAX_PENDING = 500;
 export const INTERACTION_SCREENSHOT_ARTIFACT_MAX_BYTES = 12 * 1024 * 1024;
-export const INTERACTION_STORAGE_STATE_MAX_BYTES = 2 * 1024 * 1024;
 
-export const INTERACTION_MODALITIES = [
-  'totp',
-  'push',
-  'qr',
-  'sms',
-  'recovery_code',
-] as const;
+export const INTERACTION_MODALITIES = TWO_FACTOR_MODALITIES;
 
-export type InteractionModality = (typeof INTERACTION_MODALITIES)[number];
+export type InteractionModality = TwoFactorModality;
 
 export type OperatorReturnKind =
   | 'code'
@@ -60,7 +60,6 @@ export interface SuspendedFrameSnapshot {
 
 export interface SuspendedSessionArtifacts {
   screenshotBase64?: string | null;
-  storageStateJson?: string | null;
 }
 
 export interface SuspendedSessionContext {
@@ -121,18 +120,7 @@ export interface CreateSuspendedSessionInput {
   artifacts?: SuspendedSessionArtifacts | null;
 }
 
-export interface TwoFactorDetectionInput {
-  url?: string | null;
-  title?: string | null;
-  text?: string | null;
-  selectors?: string[];
-}
-
-export interface TwoFactorDetectionResult {
-  detected: boolean;
-  modality: InteractionModality | null;
-  signals: string[];
-}
+export type { TwoFactorDetectionInput, TwoFactorDetectionResult };
 
 export interface InteractionRoutingPlan {
   modality: InteractionModality;
@@ -208,29 +196,6 @@ const PREFERRED_CHANNELS_BY_MODALITY: Record<InteractionModality, string[]> = {
   sms: ['sms', 'mobile_admin'],
   recovery_code: ['mobile_admin', 'sms'],
 };
-const TWO_FACTOR_TEXT_PATTERNS: Array<{
-  modality: InteractionModality;
-  pattern: RegExp;
-  signal: string;
-}> = [
-  {
-    modality: 'totp',
-    pattern: /\b(authenticator|totp)\b/i,
-    signal: 'totp text',
-  },
-  {
-    modality: 'push',
-    pattern: /\b(push|approve.+device)\b/i,
-    signal: 'push text',
-  },
-  { modality: 'qr', pattern: /\b(qr|scan.+code)\b/i, signal: 'qr text' },
-  { modality: 'sms', pattern: /\b(sms|text message)\b/i, signal: 'sms text' },
-  {
-    modality: 'recovery_code',
-    pattern: /\b(recovery code|backup code)\b/i,
-    signal: 'recovery-code text',
-  },
-];
 
 function suspendedSessionAssetPath(sessionId: string): string {
   const normalized = encodeURIComponent(sessionId.trim());
@@ -239,7 +204,7 @@ function suspendedSessionAssetPath(sessionId: string): string {
 
 function suspendedSessionArtifactPath(
   sessionId: string,
-  name: 'screenshot.png.base64' | 'storage-state.json',
+  name: 'screenshot.png.base64',
 ): string {
   const normalized = encodeURIComponent(sessionId.trim());
   return `${SUSPENDED_SESSION_ASSET_PREFIX}${normalized || 'session'}/${name}`;
@@ -411,29 +376,6 @@ function persistSuspendedSessionArtifacts(
     refs.screenshotRef = `f4://${assetPath}`;
   }
 
-  const storageStateJson = normalizeStorageStateArtifact(
-    artifacts?.storageStateJson,
-  );
-  if (storageStateJson) {
-    const assetPath = suspendedSessionArtifactPath(
-      sessionId,
-      'storage-state.json',
-    );
-    syncRuntimeAssetRevisionState(
-      'suspended_session',
-      assetPath,
-      {
-        route: 'interactive-escalation.storage-state',
-        source: 'gateway',
-      },
-      {
-        exists: true,
-        content: storageStateJson,
-      },
-    );
-    refs.storageStateRef = `f4://${assetPath}`;
-  }
-
   return refs;
 }
 
@@ -458,27 +400,17 @@ function normalizeScreenshotArtifact(value: unknown): string {
     INTERACTION_SCREENSHOT_ARTIFACT_MAX_BYTES,
     'screenshot',
   );
+  const validationSample =
+    screenshotBase64.length > 8192
+      ? `${screenshotBase64.slice(0, 4096)}${screenshotBase64.slice(-4096)}`
+      : screenshotBase64;
   if (
     screenshotBase64.length % 4 !== 0 ||
-    !/^[A-Za-z0-9+/]+={0,2}$/.test(screenshotBase64)
+    /[^A-Za-z0-9+/=]/.test(validationSample)
   ) {
     throw new Error('screenshot artifact must be valid base64.');
   }
   return screenshotBase64;
-}
-
-function normalizeStorageStateArtifact(value: unknown): string {
-  const storageStateJson = String(value || '').trim();
-  if (!storageStateJson) return '';
-  assertArtifactSize(
-    storageStateJson,
-    INTERACTION_STORAGE_STATE_MAX_BYTES,
-    'storage-state',
-  );
-  if (!parseJsonObject(storageStateJson)) {
-    throw new Error('storage-state artifact must be a valid JSON object.');
-  }
-  return storageStateJson;
 }
 
 function storedOperatorReturn(response: OperatorReturn): StoredOperatorReturn {
@@ -633,12 +565,23 @@ function expireSuspendedSession(session: SuspendedSession, now: number): void {
 export function getSuspendedSession(
   sessionId: string,
 ): SuspendedSession | null {
+  return loadSuspendedSession(sessionId, { failOnMalformed: false });
+}
+
+function loadSuspendedSession(
+  sessionId: string,
+  options: { failOnMalformed: boolean },
+): SuspendedSession | null {
   const state = getRuntimeAssetRevisionState(
     'suspended_session',
     suspendedSessionAssetPath(sessionId),
   );
   if (!state) return null;
-  return normalizeSuspendedSession(parseJsonObject(state.content));
+  const session = normalizeSuspendedSession(parseJsonObject(state.content));
+  if (!session && options.failOnMalformed) {
+    throw new Error(`Suspended session is malformed: ${sessionId}`);
+  }
+  return session;
 }
 
 export function listSuspendedSessions(options?: {
@@ -734,7 +677,7 @@ export function resumeWith(
   sessionId: string,
   response: OperatorReturn,
 ): SuspendedSession {
-  const session = getSuspendedSession(sessionId);
+  const session = loadSuspendedSession(sessionId, { failOnMalformed: true });
   if (!session) {
     throw new Error(`Suspended session not found: ${sessionId}`);
   }
@@ -788,7 +731,7 @@ export function resumeWithText(
   sessionId: string,
   text: string,
 ): ResumeWithTextResult {
-  const session = getSuspendedSession(sessionId);
+  const session = loadSuspendedSession(sessionId, { failOnMalformed: true });
   if (!session) {
     throw new Error(`Suspended session not found: ${sessionId}`);
   }
@@ -827,54 +770,7 @@ export function findPendingSuspendedSessionForOperator(params: {
 export function detectTwoFactorChallenge(
   input: TwoFactorDetectionInput,
 ): TwoFactorDetectionResult {
-  const signals: string[] = [];
-  const selectors = input.selectors || [];
-  for (const selector of selectors) {
-    const normalized = selector.toLowerCase();
-    if (
-      normalized.includes('autocomplete="one-time-code"') ||
-      normalized.includes("autocomplete='one-time-code'") ||
-      normalized.includes('input[autocomplete=one-time-code]') ||
-      normalized.includes('input[type=tel]') ||
-      normalized.includes('inputmode=numeric') ||
-      normalized.includes('name*="otp"') ||
-      normalized.includes("name*='otp'") ||
-      normalized.includes('id*="otp"') ||
-      normalized.includes("id*='otp'") ||
-      normalized.includes('name*="code"') ||
-      normalized.includes("name*='code'") ||
-      normalized.includes('id*="code"') ||
-      normalized.includes("id*='code'")
-    ) {
-      signals.push(`selector:${selector}`);
-    }
-  }
-
-  const text = [input.title, input.text].filter(Boolean).join('\n');
-  for (const entry of TWO_FACTOR_TEXT_PATTERNS) {
-    if (entry.pattern.test(text)) {
-      signals.push(entry.signal);
-      return {
-        detected: true,
-        modality: entry.modality,
-        signals,
-      };
-    }
-  }
-
-  if (
-    /\b(verification code|one[- ]time code|two[- ]factor|2fa|multi[- ]factor)\b/i.test(
-      text,
-    )
-  ) {
-    signals.push('generic 2fa text');
-  }
-
-  return {
-    detected: signals.length > 0,
-    modality: signals.length > 0 ? 'totp' : null,
-    signals,
-  };
+  return detectSharedTwoFactorChallenge(input);
 }
 
 export function resolveInteractionRouting(

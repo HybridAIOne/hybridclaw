@@ -70,7 +70,10 @@ test('detectTwoFactorChallenge recognizes selector and page text signals', async
       'selector:input[autocomplete="one-time-code"]',
       'selector:input[name*="otp" i]',
       'totp text',
+      'generic 2fa text',
     ],
+    selectors: ['input[autocomplete="one-time-code"]', 'input[name*="otp" i]'],
+    textPreview: 'Enter the code from your authenticator app.',
   });
 });
 
@@ -112,7 +115,6 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
     },
     artifacts: {
       screenshotBase64: Buffer.from('png-bytes').toString('base64'),
-      storageStateJson: '{"cookies":[],"origins":[]}',
     },
     context: {
       host: 'sap.example',
@@ -125,8 +127,6 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
   expect(created.frameSnapshot).toMatchObject({
     screenshotRef:
       'f4://interactive-escalation/session/session-2fa/screenshot.png.base64',
-    storageStateRef:
-      'f4://interactive-escalation/session/session-2fa/storage-state.json',
   });
   expect(created.context.screenshotRef).toBe(
     'f4://interactive-escalation/session/session-2fa/screenshot.png.base64',
@@ -137,12 +137,6 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
       'interactive-escalation/session/session-2fa/screenshot.png.base64',
     )?.content,
   ).toBe(Buffer.from('png-bytes').toString('base64'));
-  expect(
-    revisions.getRuntimeAssetRevisionState(
-      'suspended_session',
-      'interactive-escalation/session/session-2fa/storage-state.json',
-    )?.content,
-  ).toBe('{"cookies":[],"origins":[]}');
   expect(escalation.listSuspendedSessions()).toHaveLength(1);
 
   vi.resetModules();
@@ -191,16 +185,32 @@ test('suspended session artifacts are validated before persistence', async () =>
       },
     }),
   ).toThrow(/valid base64/i);
+});
 
+test('resumeWith reports malformed suspended session records distinctly', async () => {
+  const escalation = await importInteractiveEscalation();
+  const revisions = await import('../src/config/runtime-config-revisions.js');
+
+  revisions.syncRuntimeAssetRevisionState(
+    'suspended_session',
+    'interactive-escalation/session/session-malformed.json',
+    {
+      route: 'interactive-escalation.session',
+      source: 'test',
+    },
+    {
+      exists: true,
+      content: '{"sessionId":"session-malformed"}',
+    },
+  );
+
+  expect(escalation.getSuspendedSession('session-malformed')).toBeNull();
   expect(() =>
-    escalation.createSuspendedSession({
-      ...baseInput,
-      sessionId: 'session-invalid-storage',
-      artifacts: {
-        storageStateJson: '[]',
-      },
+    escalation.resumeWith('session-malformed', {
+      kind: 'code',
+      value: '123456',
     }),
-  ).toThrow(/valid JSON object/i);
+  ).toThrow(/malformed/i);
 });
 
 test('operator return cache expires unconsumed responses', async () => {

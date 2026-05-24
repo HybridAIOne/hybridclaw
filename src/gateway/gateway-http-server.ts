@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import {
+  EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE,
+  EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE,
+} from '../../container/shared/two-factor-detection.js';
+import {
   extractA2AMtlsPublicKeyPem,
   handleA2AJsonRpcInbound,
   resolveA2AAgentCardPeerTrust,
@@ -458,7 +462,7 @@ function parseGatewayBrowserCoordinate(
 }
 
 function browserRendererFunction<T>(source: string): () => T {
-  return new Function(`return (${source});`) as () => T;
+  return new Function(`return (${source});`)() as () => T;
 }
 
 function unsupportedGatewayBrowserTool(toolName: string): never {
@@ -549,34 +553,6 @@ function safeGatewayBrowserUrlHost(url: string): string | null {
   }
 }
 
-function gatewayBrowserExpectsTwoFactor(
-  args: Record<string, unknown>,
-): boolean {
-  return (
-    args.expects_2fa === true ||
-    args.expects2fa === true ||
-    args.expectTwoFactor === true ||
-    args.expectsTwoFactor === true
-  );
-}
-
-function gatewayBrowserLlmTwoFactorSignal(
-  args: Record<string, unknown>,
-): boolean {
-  const signal = [
-    args.llmSignal,
-    args.llm_signal,
-    args.twoFactorSignal,
-    args.two_factor_signal,
-    args.reason,
-  ]
-    .filter((value): value is string => typeof value === 'string')
-    .join('\n');
-  return /\b(stuck.+(2fa|two[- ]factor|verification code)|2fa page|two[- ]factor page|mfa page)\b/i.test(
-    signal,
-  );
-}
-
 async function readGatewayBrowserTwoFactorPageState(
   active: GatewayBrowserSessionEntry,
 ): Promise<{
@@ -588,26 +564,20 @@ async function readGatewayBrowserTwoFactorPageState(
   if (isMacCuaGatewaySession(active)) {
     return { url: 'about:blank', title: '', preview: '', selectors: [] };
   }
-  return active.session.evaluate(() => {
-    const bodyText = document.body ? String(document.body.innerText || '') : '';
-    const selectors = Array.from(
-      document.querySelectorAll(
-        'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[type="tel"], input[name*="otp" i], input[id*="otp" i], input[name*="code" i], input[id*="code" i]',
-      ),
-    )
-      .slice(0, 10)
-      .map((element) => {
-        const id = element.id ? `#${element.id}` : '';
-        const name = element.getAttribute('name');
-        return id || (name ? `input[name="${name}"]` : 'input');
-      });
-    return {
-      url: String(window.location.href || ''),
-      title: String(document.title || ''),
-      preview: bodyText.replace(/\s+/g, ' ').trim().slice(0, 1000),
-      selectors,
-    };
-  });
+  const pageState = await active.session.evaluate(
+    browserRendererFunction<{
+      url: string;
+      title: string;
+      preview: string;
+      selectors: string[];
+    }>(EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE),
+  );
+  return {
+    url: pageState.url,
+    title: pageState.title,
+    preview: pageState.preview,
+    selectors: pageState.selectors,
+  };
 }
 
 async function parkGatewayBrowserTwoFactor(params: {
@@ -627,20 +597,11 @@ async function parkGatewayBrowserTwoFactor(params: {
     params.pageState ||
     (await readGatewayBrowserTwoFactorPageState(params.active));
   const detection = detectTwoFactorChallenge({
+    args: params.args,
     title: pageState.title,
     text: pageState.preview,
     selectors: pageState.selectors,
   });
-  if (gatewayBrowserExpectsTwoFactor(params.args)) {
-    detection.detected = true;
-    detection.signals.push('skill waypoint expects_2fa');
-    detection.modality ||= 'totp';
-  }
-  if (gatewayBrowserLlmTwoFactorSignal(params.args)) {
-    detection.detected = true;
-    detection.signals.push('llm 2fa signal');
-    detection.modality ||= 'totp';
-  }
   if (!detection.detected) return null;
 
   const modality = parseInteractionModality(
@@ -680,7 +641,6 @@ async function parkGatewayBrowserTwoFactor(params: {
       host: safeGatewayBrowserUrlHost(pageState.url || ''),
       pageTitle: pageState.title || null,
       url: pageState.url || 'about:blank',
-      screenshotRef,
     },
     agentId: params.agentId,
     skillId: normalizeOptionalString(params.args.skillId) || null,
@@ -709,7 +669,7 @@ async function parkGatewayBrowserTwoFactor(params: {
     two_factor_detection: detection,
     detected_selectors: pageState.selectors,
     text_preview: pageState.preview,
-    screenshot: session.frameSnapshot.screenshotRef || screenshotRef,
+    screenshot: session.frameSnapshot.screenshotRef || null,
     interaction: payload,
   };
 }
@@ -816,30 +776,18 @@ async function handleApiBrowserTool(
       timeoutMs: 60_000,
       waitUntil: 'domcontentloaded',
     });
-    const pageState = await active.session.evaluate(() => {
-      const bodyText = document.body
-        ? String(document.body.innerText || '')
-        : '';
-      const normalized = bodyText
-        .replace(/\r/g, '')
-        .replace(/[ \t]+\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-      return {
-        url: String(window.location.href || ''),
-        title: String(document.title || ''),
-        preview: normalized.slice(0, 6000),
-        textLength: normalized.length,
-        previewTruncated: normalized.length > 6000,
-        hasNoscript: Boolean(document.querySelector('noscript')),
-        rootShell: Boolean(
-          document.querySelector(
-            'div#root:empty, div#app:empty, div#__next:empty',
-          ),
-        ),
-        readyState: String(document.readyState || ''),
-      };
-    });
+    const pageState = await active.session.evaluate(
+      browserRendererFunction<{
+        url: string;
+        title: string;
+        text_length: number;
+        preview: string;
+        preview_truncated: boolean;
+        has_noscript: boolean;
+        root_shell: boolean;
+        ready_state: string;
+      }>(EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE),
+    );
     await sendGatewayBrowserActionJson(res, {
       active,
       activeSseResponses,
@@ -849,14 +797,14 @@ async function handleApiBrowserTool(
       fields: {
         url: pageState.url || url,
         title: pageState.title || '',
-        content_text_length: pageState.textLength || 0,
+        content_text_length: pageState.text_length || 0,
         ...(pageState.preview ? { content_preview: pageState.preview } : {}),
-        content_preview_truncated: pageState.previewTruncated === true,
-        ready_state: pageState.readyState || '',
+        content_preview_truncated: pageState.preview_truncated === true,
+        ready_state: pageState.ready_state || '',
         read_extraction_hint: gatewayBrowserTextPreviewHint({
-          contentLength: pageState.textLength || 0,
-          hasNoscript: pageState.hasNoscript === true,
-          rootShell: pageState.rootShell === true,
+          contentLength: pageState.text_length || 0,
+          hasNoscript: pageState.has_noscript === true,
+          rootShell: pageState.root_shell === true,
         }),
       },
     });
@@ -5250,7 +5198,6 @@ async function handleApiCreateInteractiveEscalation(
           : null,
       artifacts: {
         screenshotBase64: normalizeOptionalString(body.screenshotBase64),
-        storageStateJson: normalizeOptionalString(body.storageStateJson),
       },
     });
     emitInteractionNeededEvent({ session });
