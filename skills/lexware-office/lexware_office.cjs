@@ -899,9 +899,6 @@ function handleHttpRequest(args) {
   if (READ_OPERATIONS.has(operation)) return buildReadRequest(operation, args);
   if (WRITE_OPERATIONS.has(operation))
     return buildWriteRequest(operation, args);
-  if (operation === 'match-transaction') {
-    return buildWriteRequest(operation, args);
-  }
   die(`Unknown Lexware Office operation: ${operation}`);
 }
 
