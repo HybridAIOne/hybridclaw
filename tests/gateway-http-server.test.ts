@@ -9323,9 +9323,15 @@ describe('gateway HTTP server', () => {
     );
   });
 
-  test('signs Open Telekom Cloud http_request calls with gateway-held AK/SK secrets', async () => {
+  async function setupOtcGatewayRequestTest({
+    dnsAddress,
+    fetchMock,
+  }: {
+    dnsAddress: string;
+    fetchMock: ReturnType<typeof vi.fn>;
+  }) {
     vi.doMock('node:dns/promises', () => ({
-      lookup: vi.fn(async () => [{ address: '80.158.59.140', family: 4 }]),
+      lookup: vi.fn(async () => [{ address: dnsAddress, family: 4 }]),
     }));
     const dataDir = makeTempDataDir();
     writeRuntimeConfig(dataDir, (config) => {
@@ -9344,7 +9350,11 @@ describe('gateway HTTP server', () => {
       OTC_ACCESS_KEY_ID: 'test-access-key',
       OTC_SECRET_ACCESS_KEY: 'test-secret-key',
     });
+    vi.stubGlobal('fetch', fetchMock);
+    return { fetchMock, state };
+  }
 
+  test('signs Open Telekom Cloud http_request calls with gateway-held AK/SK secrets', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ servers: [] }), {
@@ -9352,7 +9362,10 @@ describe('gateway HTTP server', () => {
           headers: { 'content-type': 'application/json' },
         }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    const { state } = await setupOtcGatewayRequestTest({
+      dnsAddress: '80.158.59.140',
+      fetchMock,
+    });
 
     const req = makeRequest({
       method: 'POST',
@@ -9365,8 +9378,6 @@ describe('gateway HTTP server', () => {
         otcAkSk: {
           accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
           secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
-          region: 'eu-de',
-          service: 'ecs',
         },
       },
     });
@@ -9393,28 +9404,11 @@ describe('gateway HTTP server', () => {
   });
 
   test('blocks Open Telekom Cloud signing for non-OTC hosts', async () => {
-    vi.doMock('node:dns/promises', () => ({
-      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
-    }));
-    const dataDir = makeTempDataDir();
-    writeRuntimeConfig(dataDir, (config) => {
-      const ops = config.ops as Record<string, unknown>;
-      ops.gatewayApiToken = 'gateway-token';
-    });
-    writeAllowAllSecretPolicy(dataDir);
-    const state = await importFreshHealth({
-      dataDir,
-      gatewayApiToken: 'gateway-token',
-    });
-    const { saveNamedRuntimeSecrets } = await import(
-      '../src/security/runtime-secrets.js'
-    );
-    saveNamedRuntimeSecrets({
-      OTC_ACCESS_KEY_ID: 'test-access-key',
-      OTC_SECRET_ACCESS_KEY: 'test-secret-key',
-    });
     const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    const { state } = await setupOtcGatewayRequestTest({
+      dnsAddress: '93.184.216.34',
+      fetchMock,
+    });
 
     const req = makeRequest({
       method: 'POST',
@@ -9442,28 +9436,11 @@ describe('gateway HTTP server', () => {
   });
 
   test('blocks Open Telekom Cloud signing over cleartext HTTP', async () => {
-    vi.doMock('node:dns/promises', () => ({
-      lookup: vi.fn(async () => [{ address: '80.158.59.140', family: 4 }]),
-    }));
-    const dataDir = makeTempDataDir();
-    writeRuntimeConfig(dataDir, (config) => {
-      const ops = config.ops as Record<string, unknown>;
-      ops.gatewayApiToken = 'gateway-token';
-    });
-    writeAllowAllSecretPolicy(dataDir);
-    const state = await importFreshHealth({
-      dataDir,
-      gatewayApiToken: 'gateway-token',
-    });
-    const { saveNamedRuntimeSecrets } = await import(
-      '../src/security/runtime-secrets.js'
-    );
-    saveNamedRuntimeSecrets({
-      OTC_ACCESS_KEY_ID: 'test-access-key',
-      OTC_SECRET_ACCESS_KEY: 'test-secret-key',
-    });
     const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    const { state } = await setupOtcGatewayRequestTest({
+      dnsAddress: '80.158.59.140',
+      fetchMock,
+    });
 
     const req = makeRequest({
       method: 'POST',

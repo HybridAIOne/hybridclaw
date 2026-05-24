@@ -29,7 +29,7 @@
   },
   {
     "category": "storage",
-    "prompt": "Check EVS volumes, snapshots, backups, OBS bucket contents, and SFS shares.",
+    "prompt": "Check EVS volume inventory first as part of storage readiness.",
     "expectedOperation": "volumes",
     "expectedTier": "green",
     "costMeasurement": { "system": "UsageTotals" }

@@ -168,8 +168,6 @@ test('Open Telekom Cloud helper builds allowlisted signed read payloads', () => 
     otcAkSk: {
       accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
       secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
-      region: 'eu-de',
-      service: 'ecs',
     },
   });
   expect(payload.httpRequest).not.toHaveProperty('headers.Authorization');
@@ -199,7 +197,6 @@ test('Open Telekom Cloud helper builds allowlisted signed read payloads', () => 
     otcAkSk: {
       accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
       secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
-      service: 'iam',
     },
   });
   expect(serviceStatus.status).toBe(0);

@@ -110,8 +110,6 @@ type OtcAkSkAuthRule = {
   accessKeyIdSecretName: string;
   secretAccessKeySecretName: string;
   securityTokenSecretName?: string;
-  region?: string;
-  service?: string;
 };
 
 type SecretResolveContext = {
@@ -835,12 +833,6 @@ function normalizeOtcAkSkAuth(value: unknown): OtcAkSkAuthRule | null {
     typeof record.securityTokenSecretName === 'string'
       ? record.securityTokenSecretName.trim()
       : '';
-  const region =
-    typeof record.region === 'string' ? record.region.trim().toLowerCase() : '';
-  const service =
-    typeof record.service === 'string'
-      ? record.service.trim().toLowerCase()
-      : '';
 
   if (!accessKeyIdSecretName || !isRuntimeSecretName(accessKeyIdSecretName)) {
     throw new GatewayRequestError(
@@ -866,19 +858,10 @@ function normalizeOtcAkSkAuth(value: unknown): OtcAkSkAuthRule | null {
       'otcAkSk.securityTokenSecretName must be a valid secret name.',
     );
   }
-  if (region && !/^[a-z]{2}-[a-z0-9-]{2,20}$/.test(region)) {
-    throw new GatewayRequestError(400, 'otcAkSk.region is invalid.');
-  }
-  if (service && !/^[a-z][a-z0-9-]{0,31}$/.test(service)) {
-    throw new GatewayRequestError(400, 'otcAkSk.service is invalid.');
-  }
-
   return {
     accessKeyIdSecretName,
     secretAccessKeySecretName,
     ...(securityTokenSecretName ? { securityTokenSecretName } : {}),
-    ...(region ? { region } : {}),
-    ...(service ? { service } : {}),
   };
 }
 

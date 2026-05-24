@@ -4405,16 +4405,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
                 description:
                   'Optional stored secret name containing a temporary OTC session token.',
               },
-              region: {
-                type: 'string',
-                description:
-                  'Optional OTC region metadata such as eu-de. Helpers should provide this when known; the gateway does not infer it from the host and does not need it for SDK-HMAC signing.',
-              },
-              service: {
-                type: 'string',
-                description:
-                  'Optional OTC service metadata such as ecs, vpc, evs, cce, or iam. Helpers should provide this when known; the gateway does not infer it from the host and does not need it for SDK-HMAC signing.',
-              },
             },
             required: ['accessKeyIdSecretName', 'secretAccessKeySecretName'],
           },

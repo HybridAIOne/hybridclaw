@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-const http = require('node:http');
-const https = require('node:https');
+const fs = require('node:fs');
+const path = require('node:path');
 const { URL } = require('node:url');
 
 const SKILL_NAME = 'open-telekom-cloud';
@@ -13,6 +13,7 @@ const DEFAULT_SECRET_KEY_SECRET = 'OTC_SECRET_ACCESS_KEY';
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
+const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
 
 const COST_MEASUREMENT = {
   system: 'UsageTotals',
@@ -28,23 +29,23 @@ const SECRET_NAMES = [
   'OTC_SECURITY_TOKEN',
 ];
 
-const ENDPOINT_HOSTS = {
-  cbr: 'cbr',
-  cce: 'cce',
-  ces: 'ces',
-  cts: 'cts',
-  ecs: 'ecs',
-  elb: 'elb',
-  evs: 'evs',
-  iam: 'iam',
-  kms: 'kms',
-  lts: 'lts',
-  obs: 'obs',
-  rds: 'rds',
-  sfs: 'sfs',
-  vpc: 'vpc',
-  waf: 'waf',
-};
+const ENDPOINT_SERVICES = new Set([
+  'cbr',
+  'cce',
+  'ces',
+  'cts',
+  'ecs',
+  'elb',
+  'evs',
+  'iam',
+  'kms',
+  'lts',
+  'obs',
+  'rds',
+  'sfs',
+  'vpc',
+  'waf',
+]);
 
 const OPERATION_DEFS = {
   regions: {
@@ -99,11 +100,6 @@ const OPERATION_DEFS = {
     query: ['limit', 'marker', 'minDisk', 'minRam'],
   },
   networks: {
-    service: 'vpc',
-    path: '/v1/{project_id}/vpcs',
-    query: ['limit', 'marker', 'id'],
-  },
-  vpcs: {
     service: 'vpc',
     path: '/v1/{project_id}/vpcs',
     query: ['limit', 'marker', 'id'],
@@ -197,6 +193,19 @@ const OPERATION_DEFS = {
     query: ['page', 'pagesize', 'name'],
   },
 };
+OPERATION_DEFS.vpcs = OPERATION_DEFS.networks;
+
+function validateOperationDefinitions() {
+  for (const [operation, def] of Object.entries(OPERATION_DEFS)) {
+    if (def.url) continue;
+    if (!ENDPOINT_SERVICES.has(def.service)) {
+      die(
+        `Invalid ${SKILL_NAME} operation "${operation}": unsupported service ${def.service}.`,
+      );
+    }
+  }
+}
+validateOperationDefinitions();
 
 const READ_OPERATIONS = new Set(Object.keys(OPERATION_DEFS));
 const WRITE_KEYWORDS =
@@ -275,9 +284,10 @@ function validatePathValue(value, label) {
 }
 
 function endpointHost(service, region) {
-  const prefix = ENDPOINT_HOSTS[service];
-  if (!prefix) die(`No OTC endpoint mapping for service: ${service}`);
-  return `${prefix}.${region}.otc.t-systems.com`;
+  if (!ENDPOINT_SERVICES.has(service)) {
+    die(`No OTC endpoint mapping for service: ${service}`);
+  }
+  return `${service}.${region}.otc.t-systems.com`;
 }
 
 function replacePathParams(pathTemplate, params) {
@@ -406,8 +416,6 @@ function buildHttpRequest(operation, args) {
       ...(common.securityTokenSecretName
         ? { securityTokenSecretName: common.securityTokenSecretName }
         : {}),
-      region: common.region,
-      service: def.service,
     };
   }
   if (json && Object.keys(json).length > 0) request.json = json;
@@ -427,8 +435,6 @@ function liveExecutionMetadata(operation) {
   return {
     mode: 'live-open-telekom-cloud-api',
     requiresConfiguredSecrets,
-    dryRunSafe:
-      'For prompt/user testing, use http-request and stop after producing this payload; do not call run or http_request.',
     callPolicy: publicOperation
       ? 'Use this CJS helper as the API wrapper. For public OTC status reads, use run so the helper sends the allowlisted request through the HybridClaw gateway http_request route without credentials.'
       : 'Use this CJS helper as the API wrapper. For live OTC reads, use run so the helper sends the allowlisted request through the HybridClaw gateway http_request route with gateway-managed OTC AK/SK signing.',
@@ -449,7 +455,7 @@ function buildPlan(args = []) {
   const common = readCommonFlags(planArgs);
   const text = planArgs.join(' ');
   const normalized = String(text || '').toLowerCase();
-  let operation = 'servers';
+  let operation = null;
   if (WRITE_KEYWORDS.test(normalized)) operation = 'guarded-mutation-request';
   else if (/\b(status dashboard|service status|outage|availability status|platform status)\b/.test(normalized)) operation = 'service-status';
   else if (/\b(endpoint|service catalog|api catalog|service list)\b/.test(normalized)) operation = 'service-endpoints';
@@ -473,21 +479,30 @@ function buildPlan(args = []) {
   else if (/\b(log|lts|log tank)\b/.test(normalized)) operation = 'log-groups';
   else if (/\b(kms|key)\b/.test(normalized)) operation = 'kms-keys';
   else if (/\b(waf|web application firewall)\b/.test(normalized)) operation = 'waf-policies';
+  else operation = 'unrecognized-request';
 
-  const stakesTier = operation === 'guarded-mutation-request' ? 'red' : 'green';
+  const stakesTier =
+    operation === 'guarded-mutation-request'
+      ? 'red'
+      : operation === 'unrecognized-request'
+        ? 'amber'
+        : 'green';
+  const requiresEscalation = stakesTier === 'red';
   return {
     command: 'plan',
     operation,
     stakesTier,
-    requiresEscalation: stakesTier !== 'green',
+    requiresEscalation,
     requiredGrant:
-      stakesTier === 'green'
-        ? null
-        : 'approve-open-telekom-cloud-exact-f8-f14-mutation',
+      stakesTier === 'red'
+        ? 'approve-open-telekom-cloud-exact-f8-f14-mutation'
+        : null,
     region: common.region,
     projectId: common.projectId ? 'provided' : `<secret:${common.projectIdSecretName}>`,
     nextStep:
-      stakesTier === 'green'
+      operation === 'unrecognized-request'
+        ? 'Ask for the target OTC service, region, project, and desired read-only inventory or readiness check before building an API request.'
+        : stakesTier === 'green'
         ? `Build a dry-run payload with http-request ${operation}.`
         : 'Do not build a write request in v1. Collect exact region, project, service, resource id, action, rollback, and F8/F14 operator approval.',
     secretPolicy: {
@@ -502,9 +517,15 @@ function buildPlan(args = []) {
 
 function summarizeResponse(response) {
   const status = Number(response?.status || 0);
-  const headers = response?.headers && typeof response.headers === 'object'
-    ? response.headers
-    : {};
+  const headers =
+    response?.headers && typeof response.headers === 'object'
+      ? Object.fromEntries(
+          Object.entries(response.headers).map(([key, value]) => [
+            key.toLowerCase(),
+            value,
+          ]),
+        )
+      : {};
   const bodyText = typeof response?.body === 'string' ? response.body : '';
   const credentialProblem =
     status === 401 ||
@@ -519,8 +540,7 @@ function summarizeResponse(response) {
       : rateLimited
         ? 'Stop fan-out and retry later using Retry-After or rate-limit response headers when available.'
         : null,
-    retryAfter:
-      headers['retry-after'] || headers['Retry-After'] || headers['x-ratelimit-reset'] || null,
+    retryAfter: headers['retry-after'] || headers['x-ratelimit-reset'] || null,
   };
 }
 
@@ -551,52 +571,43 @@ function resolveGatewayToken(raw) {
   );
 }
 
-function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
+async function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
   const url = new URL(`${gatewayUrl}/api/http/request`);
   const body = JSON.stringify(httpRequest);
   const headers = {
     'Content-Type': 'application/json',
-    'Content-Length': Buffer.byteLength(body),
   };
   if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
-  const client = url.protocol === 'https:' ? https : http;
-
-  return new Promise((resolve, reject) => {
-    const req = client.request(
-      url,
-      {
-        method: 'POST',
-        headers,
-        timeout: (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
-      },
-      (res) => {
-        let raw = '';
-        res.setEncoding('utf-8');
-        res.on('data', (chunk) => {
-          raw += chunk;
-        });
-        res.on('end', () => {
-          let parsed = {};
-          try {
-            parsed = raw ? JSON.parse(raw) : {};
-          } catch {
-            reject(new Error(`Gateway returned non-JSON response: ${raw.slice(0, 500)}`));
-            return;
-          }
-          if ((res.statusCode || 0) < 200 || (res.statusCode || 0) >= 300) {
-            reject(new Error(`Gateway request failed with HTTP ${res.statusCode}: ${raw.slice(0, 500)}`));
-            return;
-          }
-          resolve(parsed);
-        });
-      },
-    );
-    req.on('timeout', () => {
-      req.destroy(new Error('Gateway request timed out.'));
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      signal: controller.signal,
     });
-    req.on('error', reject);
-    req.end(body);
-  });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const text = await response.text();
+  let parsed = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Gateway returned non-JSON response: ${text.slice(0, 500)}`);
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Gateway request failed with HTTP ${response.status}: ${text.slice(0, 500)}`,
+    );
+  }
+  return parsed;
 }
 
 async function commandRun(args) {
@@ -629,36 +640,25 @@ function commandHttpRequest(args) {
 }
 
 function commandEvalScenarios() {
-  const scenarios = [
-    ['inventory', 'servers', 'green'],
-    ['network', 'security-groups', 'green'],
-    ['platform', 'service-endpoints', 'green'],
-    ['platform', 'service-status', 'green'],
-    ['storage', 'volumes', 'green'],
-    ['storage', 'backups', 'green'],
-    ['containers', 'cce-clusters', 'green'],
-    ['databases', 'rds-instances', 'green'],
-    ['monitoring', 'cloud-eye-alarms', 'green'],
-    ['audit', 'traces', 'green'],
-    ['security', 'kms-keys', 'green'],
-    ['guardrails', 'guarded-mutation-request', 'red'],
-  ];
+  const scenarios = JSON.parse(fs.readFileSync(EVAL_SCENARIOS_PATH, 'utf-8'));
+  const categories = {};
+  let failed = 0;
+  for (const scenario of scenarios) {
+    categories[scenario.category] = (categories[scenario.category] || 0) + 1;
+    if (
+      !scenario.expectedOperation ||
+      !scenario.expectedTier ||
+      scenario.costMeasurement?.system !== 'UsageTotals'
+    ) {
+      failed += 1;
+    }
+  }
   return {
     command: 'eval-scenarios',
     scenarioCount: scenarios.length,
-    failed: 0,
-    categories: Object.fromEntries(
-      scenarios.map(([category]) => [
-        category,
-        scenarios.filter((entry) => entry[0] === category).length,
-      ]),
-    ),
-    scenarios: scenarios.map(([category, operation, stakesTier]) => ({
-      category,
-      expectedOperation: operation,
-      expectedTier: stakesTier,
-      costMeasurement: COST_MEASUREMENT,
-    })),
+    failed,
+    categories,
+    scenarios,
     costMeasurement: COST_MEASUREMENT,
   };
 }

@@ -44,6 +44,12 @@ names only. The gateway resolves the secrets and signs the request server-side.
 The model should never see the access key, secret key, security token, or
 computed Authorization header.
 
+The helper defaults to `http://127.0.0.1:9090` for local gateway access. That
+default is loopback-only, but a configured gateway bearer token still travels
+over that local connection. For any non-loopback or remote gateway deployment,
+set `HYBRIDCLAW_GATEWAY_URL` to an HTTPS endpoint and keep gateway tokens off
+cleartext networks.
+
 ## Failure Handling
 
 - 401, 403, and signature errors are terminal for the current run. Stop after
