@@ -1,4 +1,4 @@
-import { createHmac, generateKeyPairSync } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -9867,6 +9867,26 @@ describe('gateway HTTP server', () => {
     );
     const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     const headers = init.headers as Record<string, string>;
+    const sdkDate = headers['X-Sdk-Date'];
+    const canonicalRequest = [
+      'GET',
+      '/v2.1/project123/servers/detail/',
+      'limit=50',
+      `host:ecs.eu-de.otc.t-systems.com\nx-sdk-date:${sdkDate}\n`,
+      'host;x-sdk-date',
+      createHash('sha256').update('').digest('hex'),
+    ].join('\n');
+    const stringToSign = [
+      'SDK-HMAC-SHA256',
+      sdkDate,
+      createHash('sha256').update(canonicalRequest).digest('hex'),
+    ].join('\n');
+    const expectedSignature = createHmac('sha256', 'test-secret-key')
+      .update(stringToSign)
+      .digest('hex');
+    expect(headers.Authorization).toBe(
+      `SDK-HMAC-SHA256 Access=test-access-key, SignedHeaders=host;x-sdk-date, Signature=${expectedSignature}`,
+    );
     expect(headers.Authorization).not.toContain('test-secret-key');
   });
 

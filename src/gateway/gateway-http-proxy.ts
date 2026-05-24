@@ -902,6 +902,23 @@ function canonicalizeOtcQuery(url: URL): string {
     .join('&');
 }
 
+function decodePathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function canonicalizeOtcPath(url: URL): string {
+  const path = url.pathname || '/';
+  const canonical = path
+    .split('/')
+    .map((segment) => encodeCanonicalQueryPart(decodePathSegment(segment)))
+    .join('/');
+  return canonical.endsWith('/') ? canonical : `${canonical}/`;
+}
+
 function sha256Hex(value: string | Uint8Array | undefined): string {
   return createHash('sha256')
     .update(value ?? '')
@@ -987,7 +1004,7 @@ async function applyOtcAkSkSigning(params: {
   const signedHeaders = signedHeaderNames.join(';');
   const canonicalRequest = [
     params.method.toUpperCase(),
-    params.url.pathname || '/',
+    canonicalizeOtcPath(params.url),
     canonicalizeOtcQuery(params.url),
     canonicalHeaders,
     signedHeaders,
