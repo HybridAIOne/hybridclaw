@@ -68,6 +68,8 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('OAuth/Bearer\n  access-token authentication');
   expect(skill).toContain('OAuth Token Acquisition');
   expect(skill).toContain('cloud-oauth-token');
+  expect(skill).toContain('Pipedream RequestBin');
+  expect(skill).toContain('redirect_uri=<request-bin-url>');
   expect(skill).toContain('captureResponseFields');
   expect(skill).toContain(
     "mirrors the Salesforce skill's\ngateway capture pattern",

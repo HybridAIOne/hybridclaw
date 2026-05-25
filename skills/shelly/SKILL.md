@@ -128,11 +128,14 @@ into chat.
 
 1. Send the user to Shelly's authorization page:
    `https://my.shelly.cloud/oauth_login.html?client_id=shelly-diy&state=<opaque-state>`.
-   Include `redirect_uri` only when the operator has a registered callback for
-   the client id.
+   For DIY setup without a hosted app callback, create a temporary request-capture
+   URL such as a Pipedream RequestBin endpoint and pass it as `redirect_uri`:
+   `https://my.shelly.cloud/oauth_login.html?client_id=shelly-diy&redirect_uri=<request-bin-url>`.
+   Use a callback URL the operator controls and can inspect.
 2. After consent, the browser redirects to the callback with a `code` query
-   parameter. Ask the user to store that one-time code as a temporary runtime
-   secret:
+   parameter. In a RequestBin flow, open the captured request and copy the
+   `code` query parameter. Ask the user to store that one-time code as a
+   temporary runtime secret:
    ```bash
    hybridclaw secret set SHELLY_OAUTH_CODE "<authorization-code>"
    ```
