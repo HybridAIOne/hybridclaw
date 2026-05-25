@@ -31,7 +31,9 @@ import {
   gatewayChatStream,
   gatewayCommand,
   gatewayHistory,
+  gatewayListInteractiveEscalations,
   gatewayPullProactive,
+  gatewayResumeInteractiveEscalation,
   gatewayStatus,
   gatewayUploadMedia,
   renderGatewayCommand,
@@ -2093,6 +2095,54 @@ function restorePendingMedia(
   refreshPrompt(rl);
 }
 
+function looksLikeTuiInteractiveReply(input: string): boolean {
+  const trimmed = input.trim();
+  return (
+    /^\d{4,10}$/u.test(trimmed) ||
+    /^(?:approved|approve|done|scanned|declined|decline|cancel|timeout)$/iu.test(
+      trimmed,
+    )
+  );
+}
+
+async function tryRouteTuiInteractiveReply(
+  input: string,
+  rl: readline.Interface,
+): Promise<boolean> {
+  const trimmed = input.trim();
+  if (!looksLikeTuiInteractiveReply(trimmed)) return false;
+  const pending = await gatewayListInteractiveEscalations().catch(() => null);
+  const session = pending?.sessions
+    .filter(
+      (entry) =>
+        entry.status === 'pending' &&
+        entry.userId === TUI_USER_ID &&
+        entry.expectedReturnKinds.includes('code'),
+    )
+    .sort(
+      (left, right) =>
+        Date.parse(right.createdAt) - Date.parse(left.createdAt),
+    )[0];
+  if (!session) return false;
+
+  await gatewayResumeInteractiveEscalation({
+    sessionId: session.sessionId,
+    text: trimmed,
+  });
+  printInfo(
+    `Captured operator response for suspended session ${session.sessionId}.`,
+  );
+  await processMessage(
+    [
+      `Operator response has been captured for suspended session ${session.sessionId}.`,
+      'Resume the browser interaction now with browser_resume_interaction.',
+      'Do not ask for the code again and do not use browser_type for the code.',
+    ].join(' '),
+    rl,
+  );
+  return true;
+}
+
 function buildGatewayChatRequest(
   content: string,
   media?: GatewayMediaItem[],
@@ -3441,6 +3491,14 @@ async function main(): Promise<void> {
             promptTuiInput(rl);
             return;
           }
+        }
+        if (
+          !input.includes('\n') &&
+          !hasPendingMedia &&
+          (await tryRouteTuiInteractiveReply(input, rl))
+        ) {
+          promptTuiInput(rl);
+          return;
         }
         if (shouldRouteTuiInputToFullAuto(tuiFullAutoState)) {
           const liveFullAutoState = await syncFullAutoStateFromGateway(rl);

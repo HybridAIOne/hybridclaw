@@ -434,13 +434,35 @@ function normalizeGatewayBrowserSkillName(value: unknown): string {
   return normalized || 'browser';
 }
 
-function getGatewayBrowserSelector(args: Record<string, unknown>): string {
+function getGatewayBrowserSelector(
+  args: Record<string, unknown>,
+  opts?: { allowAtRef?: boolean },
+): string {
   const selector = String(args.selector || '').trim();
   if (selector) return selector;
   const ref = String(args.ref || '').trim();
   if (!ref) return '';
-  if (ref.startsWith('@')) return '';
+  if (ref.startsWith('@') && opts?.allowAtRef !== true) return '';
   return ref;
+}
+
+function getGatewayBrowserActionSelector(
+  active: GatewayBrowserSessionEntry,
+  args: Record<string, unknown>,
+): string {
+  return getGatewayBrowserSelector(args, {
+    allowAtRef: isMacCuaGatewaySession(active),
+  });
+}
+
+function getGatewayBrowserResumeSelector(
+  active: GatewayBrowserSessionEntry,
+  args: Record<string, unknown>,
+): string {
+  return (
+    getGatewayBrowserActionSelector(active, args) ||
+    (isMacCuaGatewaySession(active) ? 'verification code' : '')
+  );
 }
 
 function parseGatewayBrowserCoordinate(
@@ -936,7 +958,7 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_click') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    const selector = getGatewayBrowserSelector(args);
+    const selector = getGatewayBrowserActionSelector(active, args);
     const text = String(args.text || '').trim();
     const coordinate = parseGatewayBrowserCoordinate(args);
     if (selector) {
@@ -1050,7 +1072,7 @@ async function handleApiBrowserTool(
     const active = await getGatewayBrowserSession(sessionId, agentId, {
       skillName,
     });
-    const selector = getGatewayBrowserSelector(args);
+    const selector = getGatewayBrowserActionSelector(active, args);
     if (!selector) {
       throw new GatewayRequestError(
         400,
@@ -1357,7 +1379,7 @@ async function handleApiBrowserTool(
       );
     }
     if (response.kind === 'code') {
-      const selector = getGatewayBrowserSelector(args);
+      const selector = getGatewayBrowserResumeSelector(active, args);
       if (!selector) {
         throw new GatewayRequestError(
           400,
