@@ -5748,25 +5748,49 @@ export function getGatewayAdminAudit(params?: {
   query?: string;
   sessionId?: string;
   eventType?: string;
+  since?: string;
+  until?: string;
+  cursor?: number;
   limit?: number;
 }): GatewayAdminAuditResponse {
   const query = String(params?.query || '').trim();
   const sessionId = String(params?.sessionId || '').trim();
   const eventType = String(params?.eventType || '').trim();
+  const since = String(params?.since || '').trim();
+  const until = String(params?.until || '').trim();
+  const cursor =
+    typeof params?.cursor === 'number' && Number.isFinite(params.cursor)
+      ? Math.max(0, Math.floor(params.cursor))
+      : 0;
   const limit = Math.max(1, Math.min(params?.limit ?? 60, 200));
+
+  // Fetch one extra row so we can detect a next page without a separate count.
+  // `maxLimit` must also be lifted past the default 200 cap, or the +1 row gets
+  // silently clamped away and `hasMore` is wrong at the page boundary.
+  const rows = listStructuredAuditEntries({
+    query,
+    sessionId,
+    eventType,
+    eventTypeMatch: 'prefix',
+    since: since || undefined,
+    until: until || undefined,
+    beforeId: cursor > 0 ? cursor : undefined,
+    limit: limit + 1,
+    maxLimit: limit + 1,
+  });
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const nextCursor = hasMore ? (page[page.length - 1]?.id ?? null) : null;
 
   return {
     query,
     sessionId,
     eventType,
+    since: since || null,
+    until: until || null,
     limit,
-    entries: listStructuredAuditEntries({
-      query,
-      sessionId,
-      eventType,
-      eventTypeMatch: 'prefix',
-      limit,
-    }).map(mapAdminAuditEntry),
+    entries: page.map(mapAdminAuditEntry),
+    nextCursor,
   };
 }
 

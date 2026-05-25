@@ -148,7 +148,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 37;
+export const DATABASE_SCHEMA_VERSION = 38;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -2662,6 +2662,33 @@ function migrateV37(database: Database.Database): void {
   recordMigration(database, 37, 'Persist typed board card dependency edges');
 }
 
+function auditTimestampIndexNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'audit_events') &&
+    !indexExists(database, 'idx_audit_events_timestamp')
+  );
+}
+
+function migrateV38(database: Database.Database): void {
+  // Lets the admin audit list seek by timestamp (range pills) and id
+  // (cursor paging) when there's no event_type/session predicate to lean
+  // on; without it the query table-scans audit_events. Added as its own
+  // migration (not folded into migrateV1) so existing databases — which
+  // never re-run migrateV1 — actually pick the index up.
+  if (tableExists(database, 'audit_events')) {
+    database.exec(
+      'CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events(timestamp)',
+    );
+  }
+  recordMigration(
+    database,
+    38,
+    'Index audit_events(timestamp) for admin audit range + cursor paging',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2748,6 +2775,9 @@ function runMigrations(
   }
   if (currentVersion < 37 || boardCardEdgesNeedMigration(database)) {
     migrateV37(database);
+  }
+  if (currentVersion < 38 || auditTimestampIndexNeedMigration(database)) {
+    migrateV38(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -9576,6 +9606,9 @@ function queryStructuredAuditEntries(params?: {
   eventType?: string;
   eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
+  since?: string;
+  until?: string;
+  beforeId?: number;
   limit?: number;
   maxLimit?: number;
   orderBy?: 'id' | 'seq';
@@ -9584,6 +9617,12 @@ function queryStructuredAuditEntries(params?: {
   const sessionId = String(params?.sessionId || '').trim();
   const eventType = String(params?.eventType || '').trim();
   const query = String(params?.query || '').trim();
+  const since = String(params?.since || '').trim();
+  const until = String(params?.until || '').trim();
+  const beforeId =
+    typeof params?.beforeId === 'number' && Number.isFinite(params.beforeId)
+      ? Math.max(0, Math.floor(params.beforeId))
+      : 0;
   const orderBy = params?.orderBy === 'seq' ? 'seq' : 'id';
   const sortDirection = params?.sortDirection === 'ASC' ? 'ASC' : 'DESC';
   ensureDatabaseReady();
@@ -9610,6 +9649,18 @@ function queryStructuredAuditEntries(params?: {
       '(event_type LIKE ? OR payload LIKE ? OR session_id LIKE ? OR run_id LIKE ?)',
     );
     values.push(like, like, like, like);
+  }
+  if (since) {
+    clauses.push('timestamp >= ?');
+    values.push(since);
+  }
+  if (until) {
+    clauses.push('timestamp <= ?');
+    values.push(until);
+  }
+  if (beforeId > 0) {
+    clauses.push('id < ?');
+    values.push(beforeId);
   }
 
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -9737,14 +9788,22 @@ export function listStructuredAuditEntries(params?: {
   eventType?: string;
   eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
+  since?: string;
+  until?: string;
+  beforeId?: number;
   limit?: number;
+  maxLimit?: number;
 }): StructuredAuditEntry[] {
   return queryStructuredAuditEntries({
     sessionId: params?.sessionId,
     eventType: params?.eventType,
     eventTypeMatch: params?.eventTypeMatch,
     query: params?.query,
+    since: params?.since,
+    until: params?.until,
+    beforeId: params?.beforeId,
     limit: params?.limit ?? 50,
+    maxLimit: params?.maxLimit,
     orderBy: 'id',
     sortDirection: 'DESC',
   });
