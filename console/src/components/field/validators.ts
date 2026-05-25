@@ -1,21 +1,23 @@
 export type Validator<T> = (value: T) => string | null;
 
-// Stateless singletons for the default-message case — these are by far the
-// most common usage, and returning a cached function spares per-render
-// allocation across pages that wire up dozens of validators.
-const requiredDefault: Validator<unknown> = (value) => {
-  if (value === null || value === undefined) return 'Required.';
-  if (typeof value === 'string' && value.trim() === '') return 'Required.';
-  return null;
-};
-
-export function required<T>(message?: string): Validator<T> {
-  if (message === undefined) return requiredDefault as Validator<T>;
+// Each `make*` holds the single copy of the validation logic. The
+// default-message case is cached as a stateless singleton — by far the most
+// common usage — sparing per-render allocation across pages that wire up
+// dozens of validators.
+function makeRequired(message: string): Validator<unknown> {
   return (value) => {
     if (value === null || value === undefined) return message;
     if (typeof value === 'string' && value.trim() === '') return message;
     return null;
   };
+}
+
+const requiredDefault = makeRequired('Required.');
+
+export function required<T>(message?: string): Validator<T> {
+  return (
+    message === undefined ? requiredDefault : makeRequired(message)
+  ) as Validator<T>;
 }
 
 export function pattern(re: RegExp, message: string): Validator<string> {
@@ -43,18 +45,7 @@ export function oneOf<T>(
   return (value) => (allowed.includes(value) ? null : message);
 }
 
-const urlDefault: Validator<string> = (value) => {
-  if (value.trim() === '') return null;
-  try {
-    new URL(value);
-    return null;
-  } catch {
-    return 'Enter a valid URL.';
-  }
-};
-
-export function url(message?: string): Validator<string> {
-  if (message === undefined) return urlDefault;
+function makeUrl(message: string): Validator<string> {
   return (value) => {
     if (value.trim() === '') return null;
     try {
@@ -66,21 +57,13 @@ export function url(message?: string): Validator<string> {
   };
 }
 
-const loopbackUrlDefault: Validator<string> = (value) => {
-  if (value.trim() === '') return null;
-  try {
-    const parsed = new URL(value);
-    const host = parsed.hostname.toLowerCase();
-    return host === 'localhost' || host === '127.0.0.1' || host === '::1'
-      ? null
-      : 'Must be a loopback URL.';
-  } catch {
-    return 'Enter a valid URL.';
-  }
-};
+const urlDefault = makeUrl('Enter a valid URL.');
 
-export function loopbackUrl(message?: string): Validator<string> {
-  if (message === undefined) return loopbackUrlDefault;
+export function url(message?: string): Validator<string> {
+  return message === undefined ? urlDefault : makeUrl(message);
+}
+
+function makeLoopbackUrl(message: string): Validator<string> {
   return (value) => {
     if (value.trim() === '') return null;
     try {
@@ -90,9 +73,17 @@ export function loopbackUrl(message?: string): Validator<string> {
         ? null
         : message;
     } catch {
+      // A value that doesn't parse is reported as a malformed URL regardless
+      // of the (loopback-specific) override message.
       return 'Enter a valid URL.';
     }
   };
+}
+
+const loopbackUrlDefault = makeLoopbackUrl('Must be a loopback URL.');
+
+export function loopbackUrl(message?: string): Validator<string> {
+  return message === undefined ? loopbackUrlDefault : makeLoopbackUrl(message);
 }
 
 export function compose<T>(

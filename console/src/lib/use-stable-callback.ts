@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
 
 /**
  * Returns an identity-stable wrapper around a callback. The wrapper always
@@ -12,7 +12,9 @@ export function useStableCallback<Args extends unknown[], R>(
   callback: (...args: Args) => R,
 ): (...args: Args) => R {
   const ref = useRef(callback);
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so the latest closure is installed before
+  // any child effects or synchronously-fired event handlers can read it.
+  useLayoutEffect(() => {
     ref.current = callback;
   });
   return useCallback((...args: Args) => ref.current(...args), []);

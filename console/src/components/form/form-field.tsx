@@ -133,9 +133,6 @@ export function FormField<TDraft = unknown, V = unknown>(
 
   const generatedId = useId();
 
-  // Merge auto-required with caller rules. Memoised so the array identity
-  // only changes when the actual inputs do — keeps downstream effects
-  // (validate, error) from re-running on every render.
   // Merge auto-required with caller rules into a single composed validator
   // — memoised so the closure identity only changes when `required`/`rules`
   // do, keeping the per-render error compute and the captured `validate`

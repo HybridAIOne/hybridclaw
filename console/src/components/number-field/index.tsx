@@ -127,6 +127,15 @@ export function NumberField({
             setRawValue(String(value));
             reportError(null);
           }
+        } else if (
+          rawValue.trim() !== '' &&
+          Number(rawValue) === value &&
+          rawValue !== String(value)
+        ) {
+          // Integer mode: snap a non-canonical but numerically-equal entry
+          // (e.g. "007", which the resync effect skips because Number("007")
+          // === value) back to the committed value's canonical form on blur.
+          setRawValue(String(value));
         }
         inputProps.onBlur?.(event);
       }}

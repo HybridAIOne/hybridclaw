@@ -72,7 +72,7 @@ export function Checkbox({
         </span>
       </button>
       {name && checked === true ? (
-        <input type="hidden" name={name} value={value} />
+        <input type="hidden" name={name} value={value} disabled={isDisabled} />
       ) : null}
     </>
   );

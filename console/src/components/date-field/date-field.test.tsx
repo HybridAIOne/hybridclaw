@@ -92,4 +92,35 @@ describe('DateField', () => {
       'Date is earlier than the minimum allowed.',
     );
   });
+
+  it('clears a stale error when value is reset to a valid date externally', () => {
+    const onError = vi.fn();
+    const min = new Date('2026-01-01T00:00:00');
+    const { rerender } = render(
+      <DateField
+        aria-label="date"
+        value={null}
+        onValueChange={() => {}}
+        onErrorChange={onError}
+        min={min}
+      />,
+    );
+    const input = document.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '2025-12-31T23:59' } });
+    expect(onError).toHaveBeenLastCalledWith(
+      'Date is earlier than the minimum allowed.',
+    );
+    // A programmatic reset to a valid value must retire the stale error even
+    // though the user never edited the field again.
+    rerender(
+      <DateField
+        aria-label="date"
+        value={new Date('2026-06-01T10:00:00')}
+        onValueChange={() => {}}
+        onErrorChange={onError}
+        min={min}
+      />,
+    );
+    expect(onError).toHaveBeenLastCalledWith(null);
+  });
 });

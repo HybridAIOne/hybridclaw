@@ -1,4 +1,5 @@
-import { type ComponentProps, useCallback, useMemo } from 'react';
+import { type ComponentProps, useEffect, useMemo } from 'react';
+import { useStableCallback } from '../../lib/use-stable-callback';
 import { useFieldContext } from '../field/context';
 import { Input } from '../input';
 
@@ -88,13 +89,28 @@ export function DateField({
   const currentDate = useMemo(() => toDate(value), [value]);
   const inputValue = formatForInput(currentDate, granularity);
 
-  const report = useCallback(
-    (error: string | null) => {
-      field.setError(error);
-      onErrorChange?.(error);
-    },
-    [field.setError, onErrorChange],
-  );
+  // useStableCallback keeps the latest closure via a ref (matching
+  // NumberField), so the reporter has a constant identity and is safe to
+  // depend on from the resync effect below.
+  const report = useStableCallback((error: string | null) => {
+    field.setError(error);
+    onErrorChange?.(error);
+  });
+
+  useEffect(() => {
+    // Only user input ever *sets* an error. When the committed value changes
+    // externally (form reset, server commit) to something valid — or to empty
+    // while optional — clear any stale error left from earlier invalid input.
+    // A bad value the user just typed never reaches here because invalid input
+    // doesn't call onValueChange, so `value` (and thus currentDate) is unchanged.
+    if (currentDate === null) {
+      if (!required) report(null);
+      return;
+    }
+    if (minDate && currentDate < minDate) return;
+    if (maxDate && currentDate > maxDate) return;
+    report(null);
+  }, [currentDate, minDate, maxDate, required, report]);
 
   return (
     <Input

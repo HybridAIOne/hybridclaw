@@ -75,7 +75,7 @@ export function Switch({
         />
       </button>
       {name && checked ? (
-        <input type="hidden" name={name} value={value} />
+        <input type="hidden" name={name} value={value} disabled={isDisabled} />
       ) : null}
     </>
   );

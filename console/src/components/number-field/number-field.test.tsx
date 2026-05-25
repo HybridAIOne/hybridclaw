@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { NumberField } from './index';
 
@@ -129,5 +130,28 @@ describe('NumberField', () => {
       />,
     );
     expect(input.value).toBe('99');
+  });
+
+  it('normalizes a non-canonical integer entry to canonical form on blur', () => {
+    // A controlled parent commits the parsed number; the raw display keeps
+    // what was typed. "007" parses to 7 (=== committed value), so the resync
+    // effect leaves it alone — blur must reconcile it to the canonical "7".
+    function Controlled() {
+      const [value, setValue] = useState(0);
+      return (
+        <NumberField
+          aria-label="amount"
+          integer
+          value={value}
+          onValueChange={setValue}
+        />
+      );
+    }
+    render(<Controlled />);
+    const input = screen.getByRole('spinbutton') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '007' } });
+    expect(Number(input.value)).toBe(7);
+    fireEvent.blur(input);
+    expect(input.value).toBe('7');
   });
 });

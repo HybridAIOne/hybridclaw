@@ -92,12 +92,7 @@ export function Combobox<TMeta = unknown>({
   id,
   onBlur,
 }: ComboboxProps<TMeta>) {
-  const fieldProps = useFieldControlProps({
-    id,
-    disabled,
-    'aria-invalid': undefined,
-    'aria-describedby': undefined,
-  });
+  const fieldProps = useFieldControlProps({ id, disabled });
   const generatedId = useId();
   const listboxId = `${fieldProps.id ?? generatedId}-listbox`;
 
