@@ -99,13 +99,26 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
     'Do not say Shelly App names or room names are unset',
   );
   expect(skill).toContain('this endpoint did not return names');
+  expect(skill).toContain('negative evidence only for that specific API field');
+  expect(skill).toContain(
+    'If the user supplies app UI evidence or says the device has a name, accept',
+  );
+  expect(skill).toContain(
+    'firmware/local RPC reads can return null even though the app visibly\n  has a name.',
+  );
+  expect(skill).toContain(
+    'Never answer "no", "not set", "default id only", or "no custom name in the\n  Shelly app"',
+  );
   expect(skill).toContain('Do not promise app names from Real Time Events.');
   expect(skill).toContain(
     '`Cover.GetConfig` exposes the cover component `name`',
   );
   expect(skill).toContain('sys.device.name');
   expect(skill).toContain(
-    'Do not claim that nobody named the devices in\n  the Shelly app.',
+    'Do not claim that nobody named the devices in\n  the Shelly app,',
+  );
+  expect(skill).toContain(
+    'do not offer to rename the app-visible device unless the\n  user explicitly asks',
   );
   expect(skill).toContain('Evidence and Reporting Rules');
   expect(skill).toContain(

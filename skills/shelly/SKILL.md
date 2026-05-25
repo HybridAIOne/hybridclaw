@@ -338,6 +338,20 @@ Shelly has multiple naming layers. Firmware configuration, cloud device
 metadata, app display names, and room assignments can be exposed by different
 API surfaces. When the user asks for names:
 
+- A null, empty, or id-like value from `DeviceInfo.name`, `cover:<id>.name`,
+  `sys.device.name`, `_dev_info`, Real Time Events, or v2 `settings` is
+  negative evidence only for that specific API field. It is not evidence that
+  the Shelly Smart Control app has no display name.
+- If the user supplies app UI evidence or says the device has a name, accept
+  that as the app-visible name unless a later live API response from the same
+  app-level surface contradicts it. Do not argue from firmware fields.
+- The Shelly Smart Control setting for synchronizing names can leave app-visible
+  names and firmware/component names out of sync when it is disabled. In that
+  state, firmware/local RPC reads can return null even though the app visibly
+  has a name.
+- Never answer "no", "not set", "default id only", or "no custom name in the
+  Shelly app" from missing API name fields alone. Say which API fields were
+  checked and that those fields did not expose the app-visible name.
 - For cloud account discovery, use `cloud-all-status` with `show_info=true`.
   Inspect `_dev_info` and top-level fields, but expect only id, generation,
   product code, and online state unless the actual response includes more.
@@ -355,7 +369,9 @@ API surfaces. When the user asks for names:
   by that endpoint.
 - If no name-like or room-like field is returned, ask the user for a mapping or
   for LAN/local-config discovery. Do not claim that nobody named the devices in
-  the Shelly app.
+  the Shelly app, and do not offer to rename the app-visible device unless the
+  user explicitly asks for a rename operation and a documented API for that
+  naming layer is available.
 
 ## Credentials
 
