@@ -1,0 +1,204 @@
+---
+name: shelly
+description: "Read and control Shelly smart relays, plugs, lights, covers, sensors, and energy devices through local Gen1/Gen2 HTTP APIs or the Shelly Cloud Control API with guarded output changes."
+user-invocable: true
+requires:
+  bins:
+    - node
+credentials:
+  - id: shelly-cloud-auth-key
+    kind: api_key
+    required: false
+    secret_ref:
+      source: store
+      id: SHELLY_CLOUD_AUTH_KEY
+    scope: "Shelly Cloud Control API tenant host auth_key query parameter"
+    how_to_obtain: "Generate an Authorization cloud key in Shelly Smart Control user settings and store it with `hybridclaw secret set SHELLY_CLOUD_AUTH_KEY \"<key>\"`."
+metadata:
+  hybridclaw:
+    category: home-automation
+    short_description: "Shelly local and cloud device reads plus guarded output control."
+    tags:
+      - shelly
+      - smart-home
+      - iot
+      - energy
+      - relay
+    stakes_tiers:
+      green:
+        - local-gen1-shelly
+        - local-gen1-status
+        - local-gen1-relay-status
+        - local-gen2-info
+        - local-gen2-status
+        - local-gen2-config
+        - local-gen2-methods
+        - local-gen2-components
+        - local-gen2-switch-status
+        - cloud-get-state
+      amber:
+        - local-gen1-relay-set
+        - local-gen2-switch-set
+        - local-gen2-switch-toggle
+        - cloud-set-switch
+        - cloud-set-light
+        - cloud-set-cover
+      red:
+        - factory-reset
+        - reboot
+        - firmware-update
+    escalation:
+      writes: confirm-each
+      route: f14
+    cost_measurement:
+      system: UsageTotals
+      sub_limit_key: shelly
+---
+
+# Shelly
+
+Use this skill for Shelly device inspection and guarded control. Prefer local
+LAN calls when the gateway can reach the device. Use the Cloud Control API when
+the device is remote, when local discovery is unavailable, or when the user
+provides the Shelly cloud tenant host and device id.
+
+## API Surface
+
+Shelly has three relevant HTTP surfaces:
+
+- Gen2+ local RPC uses `/rpc` methods such as `Shelly.GetStatus`,
+  `Shelly.GetConfig`, `Shelly.GetDeviceInfo`, `Shelly.GetComponents`, and
+  `Switch.Set`.
+- Gen1 local devices use classic endpoints such as `/shelly`, `/status`, and
+  `/relay/{id}`.
+- Shelly Cloud Control API v2 uses the tenant server URI from the Shelly app,
+  an `auth_key`, and `/v2/devices/api/...` endpoints.
+
+Official references:
+[Gen2+ Shelly service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Shelly/),
+[Gen2+ Switch service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Switch/),
+[Gen2+ authentication](https://shelly-api-docs.shelly.cloud/gen2/General/Authentication/),
+[Gen1 device API](https://shelly-api-docs.shelly.cloud/gen1/), and
+[Cloud Control API v2](https://shelly-api-docs.shelly.cloud/cloud-control-api/communication-v2/).
+
+## Default Workflow
+
+1. Identify the device generation and reachable API first:
+   - Gen2+: `local-gen2-info`, then `local-gen2-status` or
+     `local-gen2-components`.
+   - Gen1: `local-gen1-shelly`, then `local-gen1-status`.
+   - Cloud: `cloud-get-state` with `--select status` and only the device ids
+     needed for the task.
+2. Read state before any output control.
+3. Treat relay, switch, light, and cover changes as amber. Get explicit
+   operator approval before passing `--operator-grant`.
+4. Do not perform reboot, factory reset, firmware update, Wi-Fi reset, auth
+   changes, certificate upload, or profile changes through this v1 skill.
+5. Use the helper as the API wrapper. Do not handcraft Shelly URLs or JSON
+   payloads from memory when the helper supports the operation.
+
+## Credentials
+
+For Cloud Control API calls, store the Shelly authorization key in HybridClaw
+encrypted runtime secrets:
+
+```bash
+hybridclaw secret set SHELLY_CLOUD_AUTH_KEY "<cloud-auth-key>"
+```
+
+Pass the tenant server URI from the Shelly app with `--cloud-host` or set
+`SHELLY_CLOUD_HOST` in the runtime environment. The helper emits the cloud key
+as `<secret:SHELLY_CLOUD_AUTH_KEY>` in the request URL so the gateway resolves
+it server-side. Never paste the raw cloud key into chat or command arguments.
+
+For local Gen2+ devices with authentication enabled, note that Shelly uses
+SHA-256 digest authentication. The gateway `http_request` tool may return 401
+for protected local endpoints. `Shelly.GetDeviceInfo` and Gen1 `/shelly` remain
+available without authentication. Do not ask the user to paste local device
+passwords into chat; use cloud control or an operator-configured local auth
+route/tooling outside this helper.
+
+## Command Contract
+
+Show helper usage:
+
+```bash
+node skills/shelly/shelly.cjs --help
+```
+
+Build local Gen2+ read requests:
+
+```bash
+node skills/shelly/shelly.cjs --format json http-request local-gen2-info \
+  --device-url http://192.0.2.10
+
+node skills/shelly/shelly.cjs --format json http-request local-gen2-status \
+  --device-url http://192.0.2.10
+
+node skills/shelly/shelly.cjs --format json http-request local-gen2-components \
+  --device-url http://192.0.2.10 \
+  --include status \
+  --include config \
+  --key switch:0
+```
+
+Build guarded local Gen2+ switch control:
+
+```bash
+node skills/shelly/shelly.cjs --format json http-request local-gen2-switch-set \
+  --device-url http://192.0.2.10 \
+  --id 0 \
+  --on true \
+  --operator-grant
+```
+
+Build local Gen1 read and relay control requests:
+
+```bash
+node skills/shelly/shelly.cjs --format json http-request local-gen1-shelly \
+  --device-url http://192.0.2.10
+
+node skills/shelly/shelly.cjs --format json http-request local-gen1-relay-set \
+  --device-url http://192.0.2.10 \
+  --id 0 \
+  --turn off \
+  --operator-grant
+```
+
+Build Cloud Control API requests:
+
+```bash
+node skills/shelly/shelly.cjs --format json http-request cloud-get-state \
+  --cloud-host https://shelly-tenant.example \
+  --device-id b48a0a1cd978 \
+  --select status \
+  --pick-status sys
+
+node skills/shelly/shelly.cjs --format json http-request cloud-set-switch \
+  --cloud-host https://shelly-tenant.example \
+  --device-id b48a0a1cd978 \
+  --channel 0 \
+  --on true \
+  --operator-grant
+```
+
+The helper prints a wrapper such as
+`{ "command": "http-request", "httpRequest": { ... } }`. Pass only the
+`httpRequest` value to the built-in `http_request` tool.
+
+## Error Interpretation
+
+- Shelly Cloud 401/403 responses mean the cloud key is missing, blocked, or
+  rejected. Stop after the first failure and ask the operator to verify
+  `SHELLY_CLOUD_AUTH_KEY` and the tenant host.
+- Shelly Cloud 400 `DEVICE_OFFLINE`, `DEVICE_INVALID_CHANNEL`, or
+  `BAD_REQUEST` responses are upstream device or parameter failures. Report
+  the device id, operation, and upstream error string.
+- Shelly Cloud requests are limited to 1 request per second. Do not fan out or
+  retry in a loop.
+- Local 401 responses usually mean device digest auth is enabled. Fall back to
+  unauthenticated info endpoints or cloud control unless the operator has
+  configured an approved local credential path.
+- Local network errors mean the gateway cannot reach the device URL from its
+  runtime network. Ask for the device URL that is reachable from the gateway,
+  not just from the user's laptop.
