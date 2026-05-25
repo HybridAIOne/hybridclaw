@@ -75,6 +75,15 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain(
     'Do not claim that nobody named the devices in the\n  Shelly app.',
   );
+  expect(skill).toContain('Evidence and Reporting Rules');
+  expect(skill).toContain(
+    'Do not report capabilities, device lists,\nnames, rooms, or command readiness from intent, docs, or partial failures.',
+  );
+  expect(skill).toContain('Use this credential decision matrix');
+  expect(skill).toContain('Cannot list all devices through v2.');
+  expect(skill).toContain(
+    'Do not promise account-wide cloud discovery unless\n  `SHELLY_CLOUD_ACCESS_TOKEN` is configured.',
+  );
 });
 
 test('Shelly helper --help exits cleanly and lists local and cloud operations', () => {

@@ -116,6 +116,25 @@ and
 5. Use the helper as the API wrapper. Do not handcraft Shelly URLs or JSON
    payloads from memory when the helper supports the operation.
 
+## Evidence and Reporting Rules
+
+Base the answer only on successful tool results from the current turn or on
+explicitly cited session memory. Do not report capabilities, device lists,
+names, rooms, or command readiness from intent, docs, or partial failures.
+
+- HTTP 200 means the transport succeeded. Still inspect the returned Shelly
+  JSON and require `isok: true` when that field is present before treating the
+  payload as authoritative.
+- If a helper command fails, report the failed operation and stop or choose a
+  documented fallback. Do not continue as if the command succeeded.
+- If discovery returns ids without names, say exactly which fields were seen and
+  which fields were missing.
+- If credentials are missing for an API surface, name the missing secret and
+  explain what remains possible with the credentials that are configured.
+- Do not promise account-wide cloud discovery unless
+  `SHELLY_CLOUD_ACCESS_TOKEN` is configured. `SHELLY_CLOUD_AUTH_KEY` plus a
+  tenant host can read or control known device ids only.
+
 ## Device Discovery and IDs
 
 For Cloud Control API v2 calls in this skill, assume the operator must provide
@@ -123,6 +142,16 @@ the Shelly tenant host and one or more device ids. `cloud-get-state` sends
 `POST /v2/devices/api/get?auth_key=<AUTH_KEY>` and the documented body requires
 `ids`, with 1 to 10 device ids per request. Do not claim that the v2
 `auth_key` API can list every device.
+
+Use this credential decision matrix:
+
+| Configured inputs | Allowed discovery/control claim |
+| --- | --- |
+| Tenant host only | No cloud reads. Ask for `SHELLY_CLOUD_AUTH_KEY` or `SHELLY_CLOUD_ACCESS_TOKEN`. |
+| Tenant host + `SHELLY_CLOUD_AUTH_KEY` + no ids | Can operate only after ids are known. Cannot list all devices through v2. |
+| Tenant host + `SHELLY_CLOUD_AUTH_KEY` + ids | Can read and guard-control those exact ids through v2. |
+| Tenant host + `SHELLY_CLOUD_ACCESS_TOKEN` | Can use `cloud-all-status` for account status discovery. |
+| LAN IPs reachable from gateway | Can inspect local Gen1/Gen2 endpoints and derive ids/status from those responses. |
 
 If the user asks to discover all Shelly devices from the cloud:
 
