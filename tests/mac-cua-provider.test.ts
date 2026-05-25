@@ -506,6 +506,30 @@ test('mac-cua provider rejects background-safe violations', async () => {
   await expect(session.click('@e1')).rejects.toThrow(/background-safe/u);
 });
 
+test('mac-cua provider tolerates cursor-only changes in background-safe mode', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver({
+    before: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    },
+    after: {
+      cursorX: 100,
+      cursorY: 200,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    },
+  });
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await expect(session.screenshot()).resolves.toBeInstanceOf(Buffer);
+});
+
 test('mac-cua provider preserves the background-safe state across a simulated 60-second drive sequence', async () => {
   const { MacCuaBrowserProvider } = await import(
     '../src/browser/mac-cua-provider.js'

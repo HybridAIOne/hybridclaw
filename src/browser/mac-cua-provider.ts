@@ -1067,13 +1067,11 @@ class MacCuaBrowserSession implements BrowserSession {
   ): void {
     if (!before || !after) return;
     const unchanged =
-      before.cursorX === after.cursorX &&
-      before.cursorY === after.cursorY &&
       before.frontmostBundleId === after.frontmostBundleId &&
       before.activeSpaceId === after.activeSpaceId;
     if (!unchanged) {
       throw new Error(
-        'mac-cua driver violated background-safe contract by changing cursor, frontmost app, or active Space',
+        'mac-cua driver violated background-safe contract by changing frontmost app or active Space',
       );
     }
   }
