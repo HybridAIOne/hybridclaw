@@ -1,6 +1,6 @@
 ---
 name: shelly
-description: "Read and control Shelly smart relays, plugs, lights, covers, sensors, and energy devices through local Gen1/Gen2 HTTP APIs or the Shelly Cloud Control API with guarded output changes."
+description: "Read and control Shelly smart relays, plugs, lights, covers, shutters, shades, sensors, and energy devices through local Gen1/Gen2 HTTP APIs, Shelly Gen2 RPC methods such as Cover.GetConfig and Cover.GetStatus, or the Shelly Cloud Control API with guarded output changes."
 user-invocable: true
 requires:
   bins:

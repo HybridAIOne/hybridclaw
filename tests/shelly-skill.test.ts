@@ -30,6 +30,8 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   const skill = fs.readFileSync(skillPath, 'utf-8');
   const manifest = parseSkillManifestFromMarkdown(skill, { name: 'shelly' });
 
+  expect(skill).toContain('Shelly Gen2 RPC methods');
+  expect(skill).toContain('Cover.GetConfig');
   expect(manifest.credentials).toEqual([
     {
       id: 'shelly-cloud-auth-key',
