@@ -114,6 +114,24 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('Cannot list all devices through v2.');
   expect(skill).toContain('Do not call\n  tenant-host `/rpc/Cover.GetConfig`');
   expect(skill).toContain('cloud-get-state --select settings');
+  expect(skill).toContain('LAN Reachability and SSRF');
+  expect(skill).toContain(
+    'HTTP request blocked by SSRF guard: private or loopback host',
+  );
+  expect(skill).toContain(
+    'Treat that as a product safety guard, not a Shelly failure.',
+  );
+  expect(skill).toContain('The skill cannot\ndisable SSRF policy');
+  expect(skill).toContain('it does not allow private-network hosts.');
+  expect(skill).toContain(
+    'Do not retry with handcrafted URLs,\n   `curl`, DNS aliases, redirects, or URL encoding tricks.',
+  );
+  expect(skill).toContain(
+    'Ask the operator to provide an explicit LAN-capable Shelly tool or local\n     bridge',
+  );
+  expect(skill).toContain(
+    'verify reachability from the\n   gateway/runtime host',
+  );
   expect(skill).toContain('cover:<id>');
   expect(skill).toContain(
     'Do not promise account-wide cloud discovery unless\n  `SHELLY_CLOUD_ACCESS_TOKEN` is configured.',

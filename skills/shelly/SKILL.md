@@ -231,6 +231,51 @@ If the user asks to discover all Shelly devices from the cloud:
   tenant-host `/rpc/Cover.GetConfig`; that RPC path is a local device API, not a
   Shelly Cloud tenant endpoint.
 
+## LAN Reachability and SSRF
+
+Local Gen1/Gen2 APIs such as `Shelly.GetDeviceInfo`, `Cover.GetStatus`, and
+`Cover.GetConfig` are device-local HTTP endpoints. They work only when the
+requesting HybridClaw runtime is allowed to reach the Shelly LAN address.
+
+In this checkout, the generic `http_request` gateway blocks private and
+loopback hosts such as `192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`,
+`localhost`, and `.local` with:
+
+```text
+HTTP request blocked by SSRF guard: private or loopback host (<host>).
+```
+
+Treat that as a product safety guard, not a Shelly failure. The skill cannot
+disable SSRF policy, and `tools.httpRequest.authRules[]` only injects secrets;
+it does not allow private-network hosts.
+
+When a user wants local cover names or local device status:
+
+1. First build the local request with the helper, for example:
+   ```bash
+   node skills/shelly/shelly.cjs --format json http-request local-gen2-cover-config \
+     --device-url http://192.168.1.194 \
+     --id 0
+   ```
+   Pass the emitted `httpRequest` to `http_request`.
+2. If the request returns the SSRF guard error above, explain that local LAN
+   access is blocked from this runtime. Do not retry with handcrafted URLs,
+   `curl`, DNS aliases, redirects, or URL encoding tricks.
+3. Offer the supported alternatives:
+   - Use Cloud Control API v2 with `SHELLY_CLOUD_AUTH_KEY` and known ids:
+     `cloud-get-state --select settings`.
+   - Use Real Time Events OAuth discovery with `SHELLY_CLOUD_ACCESS_TOKEN`:
+     `cloud-all-status`.
+   - Ask the operator to provide an explicit LAN-capable Shelly tool or local
+     bridge that is intentionally scoped to Shelly device IPs and read-only
+     endpoints unless a separate operator grant is given for writes.
+4. If the operator provides such a LAN path, verify reachability from the
+   gateway/runtime host, not only from the user's laptop. The useful read-only
+   checks are:
+   - Gen2+: `/rpc/Shelly.GetDeviceInfo`, `/rpc/Cover.GetStatus?id=0`,
+     `/rpc/Cover.GetConfig?id=0`, `/rpc/Shelly.GetConfig`
+   - Gen1: `/shelly`, `/status`
+
 ## Names and Rooms
 
 Do not say Shelly App names or room names are unset just because a local RPC
