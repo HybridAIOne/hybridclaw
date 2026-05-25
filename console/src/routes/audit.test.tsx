@@ -111,6 +111,18 @@ describe('AuditPage', () => {
     expect(await screen.findByText('Loading audit entries…')).toBeTruthy();
   });
 
+  it('surfaces an error state with a retry when the audit query fails', async () => {
+    fetchAuditMock.mockRejectedValue(new Error('gateway exploded'));
+    renderWithProviders(<AuditPage />);
+    const retry = await screen.findByRole('button', { name: 'Retry' });
+    expect(retry).toBeTruthy();
+    // A failed fetch must not masquerade as an empty result.
+    expect(screen.queryByText('No audit entries match these filters.')).toBe(
+      null,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('gateway exploded');
+  });
+
   it('seeds filters from the URL on mount', async () => {
     window.history.replaceState(
       null,

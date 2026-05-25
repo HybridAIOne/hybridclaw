@@ -4708,6 +4708,22 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
   const parsedCursor = rawCursor ? parseInt(rawCursor, 10) : Number.NaN;
   const cursor =
     Number.isFinite(parsedCursor) && parsedCursor > 0 ? parsedCursor : 0;
+  const since = url.searchParams.get('since') || '';
+  const until = url.searchParams.get('until') || '';
+  // since/until feed a lexicographic timestamp comparison in SQL. Reject
+  // unparseable input rather than silently returning the wrong slice of the
+  // audit log — there's no sensible default to coerce a bad timestamp to.
+  for (const [name, value] of [
+    ['since', since],
+    ['until', until],
+  ] as const) {
+    if (value && Number.isNaN(Date.parse(value))) {
+      sendJson(res, 400, {
+        error: `\`${name}\` must be an ISO-8601 timestamp.`,
+      });
+      return;
+    }
+  }
   sendJson(
     res,
     200,
@@ -4715,8 +4731,8 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
       query: url.searchParams.get('query') || '',
       sessionId: url.searchParams.get('sessionId') || '',
       eventType: url.searchParams.get('eventType') || '',
-      since: url.searchParams.get('since') || '',
-      until: url.searchParams.get('until') || '',
+      since,
+      until,
       cursor,
       limit,
     }),

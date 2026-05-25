@@ -158,26 +158,35 @@
   background: var(--muted-foreground);
 }
 
-.categoryChip[data-category="session"] {
+/* Category palette — shared by the filter chips and the per-row event pills. */
+.categoryChip[data-category="session"],
+.eventPill[data-category="session"] {
   --cat-color: #3b82f6;
 }
-.categoryChip[data-category="turn"] {
+.categoryChip[data-category="turn"],
+.eventPill[data-category="turn"] {
   --cat-color: #8b5cf6;
 }
-.categoryChip[data-category="model"] {
+.categoryChip[data-category="model"],
+.eventPill[data-category="model"] {
   --cat-color: #14b8a6;
 }
-.categoryChip[data-category="tool"] {
+.categoryChip[data-category="tool"],
+.eventPill[data-category="tool"] {
   --cat-color: #f97316;
 }
-.categoryChip[data-category="autonomy"] {
+.categoryChip[data-category="autonomy"],
+.eventPill[data-category="autonomy"] {
   --cat-color: #f59e0b;
 }
 .categoryChip[data-category="authorization"],
-.categoryChip[data-category="approval"] {
+.categoryChip[data-category="approval"],
+.eventPill[data-category="authorization"],
+.eventPill[data-category="approval"] {
   --cat-color: #ef4444;
 }
-.categoryChip[data-category="a2a"] {
+.categoryChip[data-category="a2a"],
+.eventPill[data-category="a2a"] {
   --cat-color: #ec4899;
 }
 
@@ -399,35 +408,6 @@
   flex: 0 0 auto;
 }
 
-.eventPill[data-category="session"] {
-  --cat-color: #3b82f6;
-}
-
-.eventPill[data-category="turn"] {
-  --cat-color: #8b5cf6;
-}
-
-.eventPill[data-category="model"] {
-  --cat-color: #14b8a6;
-}
-
-.eventPill[data-category="tool"] {
-  --cat-color: #f97316;
-}
-
-.eventPill[data-category="autonomy"] {
-  --cat-color: #f59e0b;
-}
-
-.eventPill[data-category="authorization"],
-.eventPill[data-category="approval"] {
-  --cat-color: #ef4444;
-}
-
-.eventPill[data-category="a2a"] {
-  --cat-color: #ec4899;
-}
-
 .eventPill[data-category="default"] {
   --cat-color: var(--muted-foreground);
 }
@@ -437,6 +417,32 @@
   text-align: center;
   color: var(--muted-foreground);
   font-size: 0.875rem;
+}
+
+.emptyError {
+  color: var(--danger);
+}
+
+.retry {
+  appearance: none;
+  border: 1px solid var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.retry:hover {
+  background: var(--danger);
+  color: var(--card);
+}
+
+.retry:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .loadMoreRow {

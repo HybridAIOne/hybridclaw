@@ -6631,6 +6631,19 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('admin audit rejects an unparseable since/until with 400', async () => {
+    const state = await importFreshHealth();
+    const res = makeResponse();
+    state.handler(
+      makeRequest({ url: '/api/admin/audit?since=not-a-date' }) as never,
+      res as never,
+    );
+    await settle();
+    expect(res.statusCode).toBe(400);
+    // A bad timestamp must not silently return the wrong slice of the log.
+    expect(state.getGatewayAdminAudit).not.toHaveBeenCalled();
+  });
+
   test('returns pending approvals and policy state for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/approvals?agentId=writer' });

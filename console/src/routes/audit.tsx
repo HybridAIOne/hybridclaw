@@ -20,7 +20,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from '../components/sheet';
-import { formatDateTime, formatRelativeTime } from '../lib/format';
+import { getErrorMessage } from '../lib/error-message';
+import { formatDateTime, formatRelativeTime, pluralize } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
 import { isOneOf } from '../lib/oneof';
 import styles from './audit.module.css';
@@ -283,7 +284,9 @@ export function AuditPage() {
           <div className={styles.meta} aria-live="polite">
             {auditQuery.isLoading
               ? 'Loading…'
-              : `${entries.length} event${entries.length === 1 ? '' : 's'}`}
+              : auditQuery.isError
+                ? 'Failed to load'
+                : pluralize(entries.length, 'event')}
           </div>
         </div>
 
@@ -438,9 +441,25 @@ export function AuditPage() {
         </table>
         {entries.length === 0 ? (
           <div className={styles.empty}>
-            {auditQuery.isLoading
-              ? 'Loading audit entries…'
-              : 'No audit entries match these filters.'}
+            {auditQuery.isLoading ? (
+              'Loading audit entries…'
+            ) : auditQuery.isError ? (
+              <span className={styles.emptyError} role="alert">
+                Couldn't load audit events — {getErrorMessage(auditQuery.error)}
+                .{' '}
+                <button
+                  type="button"
+                  className={styles.retry}
+                  onClick={() => {
+                    void auditQuery.refetch();
+                  }}
+                >
+                  Retry
+                </button>
+              </span>
+            ) : (
+              'No audit entries match these filters.'
+            )}
           </div>
         ) : null}
         {auditQuery.hasNextPage ? (
@@ -453,7 +472,11 @@ export function AuditPage() {
               }}
               disabled={auditQuery.isFetchingNextPage}
             >
-              {auditQuery.isFetchingNextPage ? 'Loading…' : 'Load more'}
+              {auditQuery.isFetchingNextPage
+                ? 'Loading…'
+                : auditQuery.isFetchNextPageError
+                  ? 'Retry'
+                  : 'Load more'}
             </button>
           </div>
         ) : null}
