@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { getProviderContextError } from '../container/shared/provider-context.js';
+import { resolveRuntimeProviderContext } from '../container/src/providers/provider-ids.js';
 
 describe('provider context validation', () => {
   test('returns a tool-specific error when base URL is missing', () => {
@@ -68,6 +69,21 @@ describe('provider context validation', () => {
       }),
     ).toBe(
       'browser_vision is not configured: missing active request base URL context.',
+    );
+  });
+
+  test('infers prefixed browser vision model providers before HybridAI fallback', () => {
+    expect(
+      resolveRuntimeProviderContext(undefined, 'vllm/Qwen/Qwen3.6-27B-FP8'),
+    ).toBe('vllm');
+    expect(
+      resolveRuntimeProviderContext(
+        undefined,
+        'openrouter/~anthropic/claude-haiku-latest',
+      ),
+    ).toBe('openrouter');
+    expect(resolveRuntimeProviderContext(undefined, 'gpt-5-nano')).toBe(
+      'hybridai',
     );
   });
 });

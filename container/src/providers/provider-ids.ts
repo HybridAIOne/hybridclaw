@@ -42,6 +42,27 @@ export type RuntimeProvider = (typeof RUNTIME_PROVIDER_IDS)[number];
 export type OpenAICompatRuntimeProvider =
   (typeof OPENAI_COMPAT_RUNTIME_PROVIDER_IDS)[number];
 
+const RUNTIME_PROVIDER_MODEL_PREFIXES: Array<[RuntimeProvider, string]> = [
+  ['openai-codex', 'openai-codex/'],
+  ['anthropic', 'anthropic/'],
+  ['openrouter', 'openrouter/'],
+  ['mistral', 'mistral/'],
+  ['huggingface', 'huggingface/'],
+  ['gemini', 'gemini/'],
+  ['deepseek', 'deepseek/'],
+  ['xai', 'xai/'],
+  ['zai', 'zai/'],
+  ['kimi', 'kimi/'],
+  ['minimax', 'minimax/'],
+  ['dashscope', 'dashscope/'],
+  ['xiaomi', 'xiaomi/'],
+  ['kilo', 'kilo/'],
+  ['ollama', 'ollama/'],
+  ['lmstudio', 'lmstudio/'],
+  ['llamacpp', 'llamacpp/'],
+  ['vllm', 'vllm/'],
+];
+
 const RUNTIME_PROVIDER_ID_SET = new Set<string>(RUNTIME_PROVIDER_IDS);
 const OPENAI_COMPAT_RUNTIME_PROVIDER_ID_SET = new Set<string>(
   OPENAI_COMPAT_RUNTIME_PROVIDER_IDS,
@@ -58,4 +79,20 @@ export function isOpenAICompatRuntimeProvider(
     typeof value === 'string' &&
     OPENAI_COMPAT_RUNTIME_PROVIDER_ID_SET.has(value)
   );
+}
+
+export function inferRuntimeProviderFromModel(
+  model: string,
+): RuntimeProvider | undefined {
+  const normalized = String(model || '').trim();
+  return RUNTIME_PROVIDER_MODEL_PREFIXES.find(([, prefix]) =>
+    normalized.startsWith(prefix),
+  )?.[0];
+}
+
+export function resolveRuntimeProviderContext(
+  provider: RuntimeProvider | undefined,
+  model: string,
+): RuntimeProvider {
+  return provider || inferRuntimeProviderFromModel(model) || 'hybridai';
 }

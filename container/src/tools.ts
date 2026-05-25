@@ -30,7 +30,10 @@ import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import type { RuntimeProvider } from './providers/provider-ids.js';
+import {
+  resolveRuntimeProviderContext,
+  type RuntimeProvider,
+} from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -805,7 +808,7 @@ export function setModelContext(
   maxTokens?: number,
   debugModelResponses = false,
 ): void {
-  currentModelProvider = provider || 'hybridai';
+  currentModelProvider = resolveRuntimeProviderContext(provider, model);
   currentModelBaseUrl = String(baseUrl || '').trim();
   currentModelApiKey = String(apiKey || '').trim();
   currentModelName = String(model || '').trim();
@@ -817,7 +820,7 @@ export function setModelContext(
       : undefined;
   currentModelDebugResponses = debugModelResponses;
   setBrowserModelContext(
-    provider,
+    currentModelProvider,
     providerMethod,
     baseUrl,
     apiKey,

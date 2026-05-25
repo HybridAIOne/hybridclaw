@@ -15,7 +15,10 @@ import {
   type TwoFactorDetectionResult,
 } from '../shared/two-factor-detection.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import type { RuntimeProvider } from './providers/provider-ids.js';
+import {
+  resolveRuntimeProviderContext,
+  type RuntimeProvider,
+} from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
@@ -269,7 +272,7 @@ export function setBrowserModelContext(
   debugModelResponses = false,
 ): void {
   currentBrowserModelContext = {
-    provider: provider || 'hybridai',
+    provider: resolveRuntimeProviderContext(provider, model),
     providerMethod,
     baseUrl: String(baseUrl || '')
       .trim()
