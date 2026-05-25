@@ -4704,6 +4704,10 @@ async function handleApiAdminMcp(
 function handleApiAdminAudit(res: ServerResponse, url: URL): void {
   const parsedLimit = parseInt(url.searchParams.get('limit') || '60', 10);
   const limit = Number.isNaN(parsedLimit) ? 60 : parsedLimit;
+  const rawCursor = url.searchParams.get('cursor');
+  const parsedCursor = rawCursor ? parseInt(rawCursor, 10) : Number.NaN;
+  const cursor =
+    Number.isFinite(parsedCursor) && parsedCursor > 0 ? parsedCursor : 0;
   sendJson(
     res,
     200,
@@ -4711,6 +4715,9 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
       query: url.searchParams.get('query') || '',
       sessionId: url.searchParams.get('sessionId') || '',
       eventType: url.searchParams.get('eventType') || '',
+      since: url.searchParams.get('since') || '',
+      until: url.searchParams.get('until') || '',
+      cursor,
       limit,
     }),
   );

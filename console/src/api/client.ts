@@ -914,6 +914,9 @@ export function fetchAudit(
     query?: string;
     sessionId?: string;
     eventType?: string;
+    since?: string;
+    until?: string;
+    cursor?: number;
     limit?: number;
   },
 ): Promise<AdminAuditResponse> {
@@ -921,6 +924,11 @@ export function fetchAudit(
   if (params.query) queryParams.set('query', params.query);
   if (params.sessionId) queryParams.set('sessionId', params.sessionId);
   if (params.eventType) queryParams.set('eventType', params.eventType);
+  if (params.since) queryParams.set('since', params.since);
+  if (params.until) queryParams.set('until', params.until);
+  if (typeof params.cursor === 'number' && params.cursor > 0) {
+    queryParams.set('cursor', String(params.cursor));
+  }
   if (typeof params.limit === 'number') {
     queryParams.set('limit', String(params.limit));
   }

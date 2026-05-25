@@ -1282,8 +1282,11 @@ async function importFreshHealth(options?: {
     query: '',
     sessionId: '',
     eventType: '',
+    since: null,
+    until: null,
     limit: 60,
     entries: [],
+    nextCursor: null,
   }));
   const getGatewayAdminApprovals = vi.fn(() => ({
     selectedAgentId: 'main',
@@ -6586,8 +6589,46 @@ describe('gateway HTTP server', () => {
       limit: 25,
       query: 'approval',
       sessionId: 's1',
+      since: '',
+      until: '',
+      cursor: 0,
     });
     expect(res.statusCode).toBe(200);
+  });
+
+  test('forwards since/until/cursor pagination params on admin audit requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/audit?since=2026-05-01T00:00:00.000Z&until=2026-05-23T00:00:00.000Z&cursor=512&limit=50',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAudit).toHaveBeenCalledWith({
+      eventType: '',
+      limit: 50,
+      query: '',
+      sessionId: '',
+      since: '2026-05-01T00:00:00.000Z',
+      until: '2026-05-23T00:00:00.000Z',
+      cursor: 512,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('admin audit `cursor` defaults to 0 when missing or non-positive', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/audit?cursor=-1' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: 0 }),
+    );
   });
 
   test('returns pending approvals and policy state for authorized API requests', async () => {

@@ -147,6 +147,123 @@ test('admin audit event type filter supports partial type-ahead matches', async 
   ]);
 });
 
+test('admin audit returns nextCursor and paginates back via the cursor', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  for (let i = 0; i < 5; i += 1) {
+    recordAuditEvent({
+      sessionId: 'session-pagination',
+      runId: makeAuditRunId('test'),
+      event: { type: 'tool.result', toolName: `t${i}`, isError: false },
+    });
+  }
+
+  const { getGatewayAdminAudit } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  const firstPage = getGatewayAdminAudit({
+    sessionId: 'session-pagination',
+    limit: 2,
+  });
+  expect(firstPage.entries).toHaveLength(2);
+  expect(firstPage.nextCursor).toBe(firstPage.entries[1]?.id);
+
+  const secondPage = getGatewayAdminAudit({
+    sessionId: 'session-pagination',
+    limit: 2,
+    cursor: firstPage.nextCursor ?? undefined,
+  });
+  expect(secondPage.entries).toHaveLength(2);
+  // Cursor advances: second page's newest id < first page's oldest id.
+  expect(secondPage.entries[0]?.id).toBeLessThan(firstPage.nextCursor ?? 0);
+  expect(secondPage.nextCursor).toBe(secondPage.entries[1]?.id);
+
+  const lastPage = getGatewayAdminAudit({
+    sessionId: 'session-pagination',
+    limit: 2,
+    cursor: secondPage.nextCursor ?? undefined,
+  });
+  expect(lastPage.entries).toHaveLength(1);
+  expect(lastPage.nextCursor).toBeNull();
+});
+
+test('admin audit returns nextCursor when limit equals the DB maxLimit cap', async () => {
+  // Regression: queryStructuredAuditEntries has its own maxLimit (default 200)
+  // that silently clamped the +1 hasMore probe back to 200, leaving nextCursor
+  // permanently null at the page boundary. getGatewayAdminAudit must lift the
+  // cap when paginating.
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  for (let i = 0; i < 201; i += 1) {
+    recordAuditEvent({
+      sessionId: 'session-boundary',
+      runId: makeAuditRunId('test'),
+      event: { type: 'tool.result', toolName: `t${i}`, isError: false },
+    });
+  }
+
+  const { getGatewayAdminAudit } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const page = getGatewayAdminAudit({
+    sessionId: 'session-boundary',
+    limit: 200,
+  });
+  expect(page.entries).toHaveLength(200);
+  expect(page.nextCursor).not.toBeNull();
+  expect(page.nextCursor).toBe(page.entries[199]?.id);
+});
+
+test('admin audit since filter excludes entries before the cutoff', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-since',
+    runId: makeAuditRunId('test'),
+    event: { type: 'tool.result', toolName: 'bash', isError: false },
+  });
+
+  const { getGatewayAdminAudit } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  // A cutoff in the far future excludes every just-inserted row.
+  const future = getGatewayAdminAudit({
+    sessionId: 'session-since',
+    since: '2099-01-01T00:00:00.000Z',
+    limit: 10,
+  });
+  expect(future.entries).toHaveLength(0);
+  expect(future.since).toBe('2099-01-01T00:00:00.000Z');
+
+  // A cutoff in the distant past includes them.
+  const past = getGatewayAdminAudit({
+    sessionId: 'session-since',
+    since: '1970-01-01T00:00:00.000Z',
+    limit: 10,
+  });
+  expect(past.entries).toHaveLength(1);
+});
+
 test('bot set records a structured audit event for observability export', async () => {
   setupHome();
   const userId = 'u'.repeat(200);
