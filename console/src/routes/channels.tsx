@@ -16,7 +16,13 @@ import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ChannelLogo } from '../components/channel-logo';
-import { Field, FieldContent, FieldLabel } from '../components/field';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from '../components/field';
 import {
   Form,
   FormField,
@@ -96,6 +102,58 @@ function ChannelInstructionsField(props: { kind: ChannelInstructionKind }) {
             {...field}
             placeholder="Optional extra instructions for this channel only."
           />
+        </Field>
+      )}
+    />
+  );
+}
+
+function NumberFormField(props: {
+  name: string;
+  label: string;
+  min?: number;
+  max?: number;
+  integer?: boolean;
+  description?: string;
+  placeholder?: string;
+}) {
+  return (
+    <FormField
+      name={props.name}
+      render={({ field }) => (
+        <Field>
+          <FieldLabel>{props.label}</FieldLabel>
+          <NumberField
+            integer={props.integer}
+            min={props.min}
+            max={props.max}
+            placeholder={props.placeholder}
+            value={field.value as number}
+            onValueChange={field.onChange}
+          />
+          {props.description ? (
+            <FieldDescription>{props.description}</FieldDescription>
+          ) : null}
+          <FieldError />
+        </Field>
+      )}
+    />
+  );
+}
+
+function SwitchFormField(props: { name: string; label: string }) {
+  return (
+    <FormField
+      name={props.name}
+      render={({ field }) => (
+        <Field orientation="horizontal">
+          <Switch
+            checked={Boolean(field.value)}
+            onCheckedChange={field.onChange}
+          />
+          <FieldContent>
+            <FieldLabel>{props.label}</FieldLabel>
+          </FieldContent>
         </Field>
       )}
     />
@@ -284,20 +342,7 @@ function DiscordChannelEditor(props: {
         />
       </div>
 
-      <FormField
-        name="discord.commandsOnly"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Commands only</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="discord.commandsOnly" label="Commands only" />
 
       <div className="field-grid">
         <FormField
@@ -431,97 +476,47 @@ function DiscordChannelEditor(props: {
             </Field>
           )}
         />
-        <FormField
+        <NumberFormField
           name="discord.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Text chunk limit"
+          integer
+          min={0}
         />
       </div>
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="discord.debounceMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Debounce ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Debounce ms"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="discord.maxLinesPerMessage"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Max lines per message</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Max lines per message"
+          integer
+          min={0}
         />
       </div>
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="discord.rateLimitPerUser"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Rate limit per user</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Rate limit per user"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="discord.maxConcurrentPerChannel"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Max concurrent per channel</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Max concurrent per channel"
+          integer
+          min={0}
         />
       </div>
 
-      <FormField
+      <SwitchFormField
         name="discord.removeAckAfterReply"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Remove ack after reply</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
+        label="Remove ack after reply"
       />
       <ChannelInstructionsField kind="discord" />
       <p className="muted-copy">
@@ -651,19 +646,11 @@ function WhatsAppChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="whatsapp.debounceMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Debounce ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Debounce ms"
+          integer
+          min={0}
         />
         <FormField
           name="whatsapp.ackReaction"
@@ -677,49 +664,23 @@ function WhatsAppChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="whatsapp.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Text chunk limit"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="whatsapp.mediaMaxMb"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Media max MB</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Media max MB"
+          integer
+          min={0}
         />
       </div>
 
-      <FormField
+      <SwitchFormField
         name="whatsapp.sendReadReceipts"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Send read receipts</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
+        label="Send read receipts"
       />
       <ChannelInstructionsField kind="whatsapp" />
     </>
@@ -736,20 +697,7 @@ function TelegramChannelEditor(props: {
 }) {
   return (
     <>
-      <FormField
-        name="telegram.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="telegram.enabled" label="Enabled" />
 
       <div className="field-grid">
         <ManagedSecretField
@@ -762,19 +710,11 @@ function TelegramChannelEditor(props: {
           token={props.token}
           onSecretSaved={props.onSecretSaved}
         />
-        <FormField
+        <NumberFormField
           name="telegram.pollIntervalMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Poll interval ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Poll interval ms"
+          integer
+          min={0}
         />
       </div>
 
@@ -821,19 +761,9 @@ function TelegramChannelEditor(props: {
         />
       </div>
 
-      <FormField
+      <SwitchFormField
         name="telegram.requireMention"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Require mention in groups</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
+        label="Require mention in groups"
       />
 
       <FormField
@@ -863,33 +793,17 @@ function TelegramChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="telegram.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Text chunk limit"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="telegram.mediaMaxMb"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Media max MB</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Media max MB"
+          integer
+          min={0}
         />
       </div>
 
@@ -918,20 +832,7 @@ function ThreemaChannelEditor(props: {
 }) {
   return (
     <>
-      <FormField
-        name="threema.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="threema.enabled" label="Enabled" />
 
       <div className="field-grid">
         <FormField
@@ -1001,33 +902,17 @@ function ThreemaChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="threema.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Text chunk limit"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="threema.outboundDelayMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Outbound delay ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Outbound delay ms"
+          integer
+          min={0}
         />
       </div>
 
@@ -1081,20 +966,7 @@ function SignalChannelEditor(props: {
 
   return (
     <>
-      <FormField
-        name="signal.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="signal.enabled" label="Enabled" />
 
       <div className="field-grid">
         <Field>
@@ -1258,47 +1130,23 @@ function SignalChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="signal.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Text chunk limit"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="signal.reconnectIntervalMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Reconnect interval ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Reconnect interval ms"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="signal.outboundDelayMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Outbound delay ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Outbound delay ms"
+          integer
+          min={0}
         />
       </div>
 
@@ -1396,20 +1244,7 @@ function EmailChannelEditor(props: {
 
   return (
     <>
-      <FormField
-        name="email.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="email.enabled" label="Enabled" />
 
       {props.hybridaiApiKeyConfigured ? (
         <div className="button-row">
@@ -1469,65 +1304,23 @@ function EmailChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="email.imapPort"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>IMAP port</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="IMAP port"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="email.smtpPort"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>SMTP port</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="SMTP port"
+          integer
+          min={0}
         />
       </div>
 
       <div className="field-grid">
-        <FormField
-          name="email.imapSecure"
-          render={({ field }) => (
-            <Field orientation="horizontal">
-              <Switch
-                checked={Boolean(field.value)}
-                onCheckedChange={field.onChange}
-              />
-              <FieldContent>
-                <FieldLabel>IMAP secure</FieldLabel>
-              </FieldContent>
-            </Field>
-          )}
-        />
-        <FormField
-          name="email.smtpSecure"
-          render={({ field }) => (
-            <Field orientation="horizontal">
-              <Switch
-                checked={Boolean(field.value)}
-                onCheckedChange={field.onChange}
-              />
-              <FieldContent>
-                <FieldLabel>SMTP secure</FieldLabel>
-              </FieldContent>
-            </Field>
-          )}
-        />
+        <SwitchFormField name="email.imapSecure" label="IMAP secure" />
+        <SwitchFormField name="email.smtpSecure" label="SMTP secure" />
       </div>
 
       <FormField
@@ -1557,49 +1350,25 @@ function EmailChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="email.pollIntervalMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Poll interval ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Poll interval ms"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="email.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Text chunk limit"
+          integer
+          min={0}
         />
       </div>
 
-      <FormField
+      <NumberFormField
         name="email.mediaMaxMb"
-        render={({ field }) => (
-          <Field>
-            <FieldLabel>Media max MB</FieldLabel>
-            <NumberField
-              integer
-              min={0}
-              value={field.value as number}
-              onValueChange={field.onChange}
-            />
-          </Field>
-        )}
+        label="Media max MB"
+        integer
+        min={0}
       />
       <ChannelInstructionsField kind="email" />
     </>
@@ -1616,20 +1385,7 @@ function VoiceChannelEditor(props: {
 }) {
   return (
     <>
-      <FormField
-        name="voice.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="voice.enabled" label="Enabled" />
 
       <div className="field-grid">
         <FormField
@@ -1673,19 +1429,11 @@ function VoiceChannelEditor(props: {
             </Field>
           )}
         />
-        <FormField
+        <NumberFormField
           name="voice.maxConcurrentCalls"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Max concurrent calls</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Max concurrent calls"
+          integer
+          min={0}
         />
       </div>
 
@@ -1747,20 +1495,7 @@ function VoiceChannelEditor(props: {
         />
       </div>
 
-      <FormField
-        name="voice.relay.interruptible"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Interruptible</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="voice.relay.interruptible" label="Interruptible" />
 
       <FormField
         name="voice.relay.welcomeGreeting"
@@ -1804,20 +1539,7 @@ function TeamsChannelEditor(props: {
         </div>
       </div>
 
-      <FormField
-        name="msteams.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="msteams.enabled" label="Enabled" />
 
       <div className="field-grid">
         <FormField
@@ -1850,20 +1572,12 @@ function TeamsChannelEditor(props: {
             </Field>
           )}
         />
-        <FormField
+        <NumberFormField
           name="msteams.webhook.port"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Webhook port</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                max={65535}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Webhook port"
+          integer
+          min={0}
+          max={65535}
         />
       </div>
 
@@ -1911,19 +1625,9 @@ function TeamsChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <FormField
+        <SwitchFormField
           name="msteams.requireMention"
-          render={({ field }) => (
-            <Field orientation="horizontal">
-              <Switch
-                checked={Boolean(field.value)}
-                onCheckedChange={field.onChange}
-              />
-              <FieldContent>
-                <FieldLabel>Require mention</FieldLabel>
-              </FieldContent>
-            </Field>
-          )}
+          label="Require mention"
         />
         <FormField
           name="msteams.replyStyle"
@@ -1958,33 +1662,17 @@ function TeamsChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="msteams.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Text chunk limit"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="msteams.mediaMaxMb"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Media max MB</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Media max MB"
+          integer
+          min={0}
         />
       </div>
       <ChannelInstructionsField kind="msteams" />
@@ -2004,20 +1692,7 @@ function SlackChannelEditor(props: {
 }) {
   return (
     <>
-      <FormField
-        name="slack.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="slack.enabled" label="Enabled" />
 
       <ManagedSecretField
         label="Bot token"
@@ -2083,20 +1758,7 @@ function SlackChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <FormField
-          name="slack.requireMention"
-          render={({ field }) => (
-            <Field orientation="horizontal">
-              <Switch
-                checked={Boolean(field.value)}
-                onCheckedChange={field.onChange}
-              />
-              <FieldContent>
-                <FieldLabel>Require mention</FieldLabel>
-              </FieldContent>
-            </Field>
-          )}
-        />
+        <SwitchFormField name="slack.requireMention" label="Require mention" />
         <FormField
           name="slack.replyStyle"
           render={({ field }) => (
@@ -2143,33 +1805,17 @@ function SlackChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="slack.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Text chunk limit"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="slack.mediaMaxMb"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Media max MB</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Media max MB"
+          integer
+          min={0}
         />
       </div>
 
@@ -2224,20 +1870,7 @@ function SlackWebhookChannelEditor(props: {
 
   return (
     <>
-      <FormField
-        name="slackWebhook.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="slackWebhook.enabled" label="Enabled" />
 
       <div className="field">
         <span>Webhook targets</span>
@@ -2359,20 +1992,7 @@ function DiscordWebhookChannelEditor(props: {
 
   return (
     <>
-      <FormField
-        name="discordWebhook.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="discordWebhook.enabled" label="Enabled" />
 
       <div className="field">
         <span>Webhook targets</span>
@@ -2459,20 +2079,7 @@ function IMessageChannelEditor(props: {
 
   return (
     <>
-      <FormField
-        name="imessage.enabled"
-        render={({ field }) => (
-          <Field orientation="horizontal">
-            <Switch
-              checked={Boolean(field.value)}
-              onCheckedChange={field.onChange}
-            />
-            <FieldContent>
-              <FieldLabel>Enabled</FieldLabel>
-            </FieldContent>
-          </Field>
-        )}
-      />
+      <SwitchFormField name="imessage.enabled" label="Enabled" />
 
       <FormField
         name="imessage.backend"
@@ -2526,19 +2133,9 @@ function IMessageChannelEditor(props: {
             )}
           />
 
-          <FormField
+          <SwitchFormField
             name="imessage.allowPrivateNetwork"
-            render={({ field }) => (
-              <Field orientation="horizontal">
-                <Switch
-                  checked={Boolean(field.value)}
-                  onCheckedChange={field.onChange}
-                />
-                <FieldContent>
-                  <FieldLabel>Allow private network</FieldLabel>
-                </FieldContent>
-              </Field>
-            )}
+            label="Allow private network"
           />
         </>
       ) : (
@@ -2634,66 +2231,32 @@ function IMessageChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="imessage.pollIntervalMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>
-                {isRemote ? 'Webhook / poll interval ms' : 'Poll interval ms'}
-              </FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label={isRemote ? 'Webhook / poll interval ms' : 'Poll interval ms'}
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="imessage.debounceMs"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Debounce ms</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Debounce ms"
+          integer
+          min={0}
         />
       </div>
 
       <div className="field-grid">
-        <FormField
+        <NumberFormField
           name="imessage.textChunkLimit"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Text chunk limit</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Text chunk limit"
+          integer
+          min={0}
         />
-        <FormField
+        <NumberFormField
           name="imessage.mediaMaxMb"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Media max MB</FieldLabel>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </Field>
-          )}
+          label="Media max MB"
+          integer
+          min={0}
         />
       </div>
       <ChannelInstructionsField kind="imessage" />

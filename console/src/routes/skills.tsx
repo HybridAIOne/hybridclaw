@@ -560,8 +560,14 @@ export function SkillsPage() {
                     width: 'fit-content',
                   }}
                 >
-                  <Checkbox checked={zipForce} onCheckedChange={setZipForce} />
-                  <span>Overwrite existing skill (--force)</span>
+                  <Checkbox
+                    checked={zipForce}
+                    onCheckedChange={setZipForce}
+                    aria-labelledby="skill-zip-force-label"
+                  />
+                  <span id="skill-zip-force-label">
+                    Overwrite existing skill (--force)
+                  </span>
                 </label>
                 <div className="button-row">
                   <Button
