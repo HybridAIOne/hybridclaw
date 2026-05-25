@@ -44,6 +44,7 @@ metadata:
         - local-gen2-components
         - local-gen2-switch-status
         - cloud-get-state
+        - cloud-oauth-token
         - cloud-all-status
       amber:
         - local-gen1-relay-set
@@ -88,6 +89,9 @@ Shelly has three relevant HTTP surfaces:
   or last-known statuses for owned devices. That endpoint uses OAuth/Bearer
   access-token authentication through `SHELLY_CLOUD_ACCESS_TOKEN`, not the v2
   `auth_key`.
+- The Shelly OAuth flow is browser-consent based. Use `shelly-diy` as the
+  default `client_id` for DIY use unless the operator has an integrator client
+  id. The authorization code is exchanged at `https://<shelly_server>/oauth/auth`.
 
 Official references:
 [Gen2+ Shelly service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Shelly/),
@@ -115,6 +119,39 @@ and
    changes, certificate upload, or profile changes through this v1 skill.
 5. Use the helper as the API wrapper. Do not handcraft Shelly URLs or JSON
    payloads from memory when the helper supports the operation.
+
+## OAuth Token Acquisition
+
+Acquire `SHELLY_CLOUD_ACCESS_TOKEN` through a user-consented authorization-code
+flow. Do not ask for Shelly account passwords, and do not paste access tokens
+into chat.
+
+1. Send the user to Shelly's authorization page:
+   `https://my.shelly.cloud/oauth_login.html?client_id=shelly-diy&state=<opaque-state>`.
+   Include `redirect_uri` only when the operator has a registered callback for
+   the client id.
+2. After consent, the browser redirects to the callback with a `code` query
+   parameter. Ask the user to store that one-time code as a temporary runtime
+   secret:
+   ```bash
+   hybridclaw secret set SHELLY_OAUTH_CODE "<authorization-code>"
+   ```
+3. Exchange the code through the helper and gateway secret capture:
+   ```bash
+   node skills/shelly/shelly.cjs --format json http-request cloud-oauth-token \
+     --cloud-host https://shelly-tenant.example \
+     --code-secret SHELLY_OAUTH_CODE
+   ```
+   Pass the emitted `httpRequest` to `http_request`. The request sends
+   `grant_type=code`, `client_id`, and the authorization code as a secret
+   placeholder to `/oauth/auth`, with `replaceSecretPlaceholders: true`.
+4. The gateway must capture `access_token` into `SHELLY_CLOUD_ACCESS_TOKEN`
+   using `captureResponseFields`. The agent must report only whether capture
+   succeeded, not the token value.
+5. Use the `user_api_url` embedded in the JWT access token, or the tenant host
+   supplied by the operator, for subsequent Real Time Events HTTP calls. If the
+   token expires, rerun this OAuth flow unless Shelly documents and configures a
+   refresh-token route.
 
 ## Evidence and Reporting Rules
 
@@ -151,6 +188,7 @@ Use this credential decision matrix:
 | Tenant host + `SHELLY_CLOUD_AUTH_KEY` + no ids | Can operate only after ids are known. Cannot list all devices through v2. |
 | Tenant host + `SHELLY_CLOUD_AUTH_KEY` + ids | Can read and guard-control those exact ids through v2. |
 | Tenant host + `SHELLY_CLOUD_ACCESS_TOKEN` | Can use `cloud-all-status` for account status discovery. |
+| Tenant host + `SHELLY_OAUTH_CODE` | Can exchange the code and capture `SHELLY_CLOUD_ACCESS_TOKEN`. |
 | LAN IPs reachable from gateway | Can inspect local Gen1/Gen2 endpoints and derive ids/status from those responses. |
 
 If the user asks to discover all Shelly devices from the cloud:
@@ -214,6 +252,12 @@ hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN "<oauth-access-token>"
 `Authorization: Bearer <SHELLY_CLOUD_ACCESS_TOKEN>` server-side. Treat this
 token as distinct from `SHELLY_CLOUD_AUTH_KEY`; they are not interchangeable.
 
+To acquire this token without exposing it to the agent, use the OAuth token
+acquisition flow above. `cloud-oauth-token` mirrors the Salesforce skill's
+gateway capture pattern: the authorization code is supplied through a temporary
+secret placeholder, and the gateway captures the returned `access_token` into
+encrypted runtime secrets.
+
 For local Gen2+ devices with authentication enabled, note that Shelly uses
 SHA-256 digest authentication. The gateway `http_request` tool may return 401
 for protected local endpoints. `Shelly.GetDeviceInfo` and Gen1 `/shelly` remain
@@ -276,6 +320,10 @@ node skills/shelly/shelly.cjs --format json http-request cloud-get-state \
   --device-id b48a0a1cd978 \
   --select status \
   --pick-status sys
+
+node skills/shelly/shelly.cjs --format json http-request cloud-oauth-token \
+  --cloud-host https://shelly-tenant.example \
+  --code-secret SHELLY_OAUTH_CODE
 
 node skills/shelly/shelly.cjs --format json http-request cloud-all-status \
   --cloud-host https://shelly-tenant.example

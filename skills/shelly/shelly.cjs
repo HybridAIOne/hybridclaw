@@ -4,6 +4,7 @@
 const DEFAULT_TIMEOUT_MS = 15_000;
 const CLOUD_AUTH_SECRET = 'SHELLY_CLOUD_AUTH_KEY';
 const CLOUD_ACCESS_TOKEN_SECRET = 'SHELLY_CLOUD_ACCESS_TOKEN';
+const CLOUD_OAUTH_CODE_SECRET = 'SHELLY_OAUTH_CODE';
 const COST_MEASUREMENT = {
   system: 'UsageTotals',
   subLimitKey: 'shelly',
@@ -23,6 +24,7 @@ const OPERATION_TIERS = {
   'local-gen2-switch-set': 'amber',
   'local-gen2-switch-toggle': 'amber',
   'cloud-get-state': 'green',
+  'cloud-oauth-token': 'green',
   'cloud-all-status': 'green',
   'cloud-set-switch': 'amber',
   'cloud-set-light': 'amber',
@@ -62,6 +64,7 @@ Local Gen1 reads/control:
 
 Cloud Control API v2:
   cloud-get-state --cloud-host https://<HOST> --device-id abc123 --select status --select settings
+  cloud-oauth-token --cloud-host https://<HOST> [--client-id shelly-diy] [--code-secret SHELLY_OAUTH_CODE]
   cloud-all-status --cloud-host https://<HOST>
   cloud-set-switch --cloud-host https://<HOST> --device-id abc123 --channel 0 --on true --operator-grant
   cloud-set-light --cloud-host https://<HOST> --device-id abc123 --on true --brightness 50 --operator-grant
@@ -72,6 +75,7 @@ Environment:
   SHELLY_CLOUD_HOST        default Shelly Cloud tenant server URI
   SHELLY_CLOUD_AUTH_KEY    stored HybridClaw secret name used through <secret:SHELLY_CLOUD_AUTH_KEY>
   SHELLY_CLOUD_ACCESS_TOKEN stored OAuth/Bearer token for Real Time Events HTTP API
+  SHELLY_OAUTH_CODE        temporary authorization code secret for cloud-oauth-token
 `);
 }
 
@@ -223,7 +227,19 @@ function rpcGetUrl(base, method, params = {}) {
 
 function buildPayload(
   operation,
-  { url, method = 'GET', json, maxResponseBytes, secretHeaders },
+  {
+    url,
+    method = 'GET',
+    headers,
+    body,
+    json,
+    maxResponseBytes,
+    secretHeaders,
+    replaceSecretPlaceholders,
+    captureResponseFields,
+    requiresConfiguredSecrets,
+    capturesSecrets,
+  },
 ) {
   const tier = OPERATION_TIERS[operation];
   const payload = {
@@ -240,11 +256,29 @@ function buildPayload(
     },
     costMeasurement: COST_MEASUREMENT,
   };
+  if (headers !== undefined) payload.httpRequest.headers = headers;
+  if (body !== undefined) payload.httpRequest.body = body;
   if (json !== undefined) payload.httpRequest.json = json;
   if (secretHeaders !== undefined) {
     payload.httpRequest.secretHeaders = secretHeaders;
   }
-  if (operation === 'cloud-all-status') {
+  if (replaceSecretPlaceholders !== undefined) {
+    payload.httpRequest.replaceSecretPlaceholders = replaceSecretPlaceholders;
+  }
+  if (captureResponseFields !== undefined) {
+    payload.httpRequest.captureResponseFields = captureResponseFields;
+  }
+  if (operation === 'cloud-oauth-token') {
+    payload.secretRefPolicy =
+      'The OAuth authorization code is emitted as a secret placeholder and the access_token is captured into SHELLY_CLOUD_ACCESS_TOKEN; never paste the real code or token into chat or helper arguments.';
+    payload.liveExecution = {
+      mode: 'live-shelly-real-time-events-oauth-token-exchange',
+      requiresConfiguredSecrets: requiresConfiguredSecrets || [
+        CLOUD_OAUTH_CODE_SECRET,
+      ],
+      capturesSecrets: capturesSecrets || [CLOUD_ACCESS_TOKEN_SECRET],
+    };
+  } else if (operation === 'cloud-all-status') {
     payload.secretRefPolicy =
       'The Authorization header is emitted as a secretHeaders reference to SHELLY_CLOUD_ACCESS_TOKEN; never paste the real Shelly OAuth access token into chat or helper arguments.';
     payload.liveExecution = {
@@ -419,6 +453,14 @@ function realTimeEventsUrl(base, path, params = {}) {
   return appendQuery(appendPath(base, path), params);
 }
 
+function parseSecretName(value, label) {
+  const secretName = requireText(value, label);
+  if (!/^[A-Z][A-Z0-9_]*$/u.test(secretName)) {
+    die(`${label} must be an uppercase runtime secret name.`);
+  }
+  return secretName;
+}
+
 function parseDeviceId(args) {
   return requireText(
     popFlag(args, '--device-id') || popFlag(args, '--id'),
@@ -457,6 +499,36 @@ function buildCloud(operation, args) {
       method: 'POST',
       json,
       maxResponseBytes: 2_000_000,
+    });
+  }
+
+  if (operation === 'cloud-oauth-token') {
+    const clientId = requireText(
+      popFlag(args, '--client-id', 'shelly-diy'),
+      '--client-id',
+    );
+    const codeSecret = parseSecretName(
+      popFlag(args, '--code-secret', CLOUD_OAUTH_CODE_SECRET),
+      '--code-secret',
+    );
+    assertNoUnexpectedArgs(args);
+    return buildPayload(operation, {
+      url: appendPath(base, '/oauth/auth').toString(),
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: `client_id=${encodeURIComponent(clientId)}&grant_type=code&code=<secret:${codeSecret}>`,
+      replaceSecretPlaceholders: true,
+      captureResponseFields: [
+        {
+          jsonPath: 'access_token',
+          secretName: CLOUD_ACCESS_TOKEN_SECRET,
+        },
+      ],
+      requiresConfiguredSecrets: [codeSecret],
+      capturesSecrets: [CLOUD_ACCESS_TOKEN_SECRET],
+      maxResponseBytes: 200_000,
     });
   }
 

@@ -66,6 +66,12 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   );
   expect(skill).toContain('/device/all_status?show_info=true&no_shared=true');
   expect(skill).toContain('OAuth/Bearer\n  access-token authentication');
+  expect(skill).toContain('OAuth Token Acquisition');
+  expect(skill).toContain('cloud-oauth-token');
+  expect(skill).toContain('captureResponseFields');
+  expect(skill).toContain(
+    "mirrors the Salesforce skill's\ngateway capture pattern",
+  );
   expect(skill).toContain('cloud-all-status');
   expect(skill).toContain('Names and Rooms');
   expect(skill).toContain(
@@ -94,6 +100,7 @@ test('Shelly helper --help exits cleanly and lists local and cloud operations', 
   expect(result.stdout).toContain('local-gen2-status');
   expect(result.stdout).toContain('local-gen1-relay-set');
   expect(result.stdout).toContain('cloud-get-state');
+  expect(result.stdout).toContain('cloud-oauth-token');
   expect(result.stdout).toContain('cloud-all-status');
   expect(result.stdout).toContain('cloud-set-switch');
 });
@@ -277,6 +284,13 @@ test('Shelly helper builds cloud state and control requests without exposing sec
 });
 
 test('Shelly helper builds OAuth-backed Real Time Events all-status requests', () => {
+  const token = request([
+    'cloud-oauth-token',
+    '--cloud-host',
+    'https://shelly.example.com',
+    '--code-secret',
+    'SHELLY_OAUTH_CODE',
+  ]);
   const payload = request([
     'cloud-all-status',
     '--cloud-host',
@@ -290,6 +304,29 @@ test('Shelly helper builds OAuth-backed Real Time Events all-status requests', (
     '--without-info',
   ]);
 
+  expect(token).toMatchObject({
+    operation: 'cloud-oauth-token',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'https://shelly.example.com/oauth/auth',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'client_id=shelly-diy&grant_type=code&code=<secret:SHELLY_OAUTH_CODE>',
+      replaceSecretPlaceholders: true,
+      captureResponseFields: [
+        {
+          jsonPath: 'access_token',
+          secretName: 'SHELLY_CLOUD_ACCESS_TOKEN',
+        },
+      ],
+    },
+    liveExecution: {
+      requiresConfiguredSecrets: ['SHELLY_OAUTH_CODE'],
+      capturesSecrets: ['SHELLY_CLOUD_ACCESS_TOKEN'],
+    },
+  });
   expect(payload).toMatchObject({
     operation: 'cloud-all-status',
     stakesTier: 'green',
@@ -313,6 +350,7 @@ test('Shelly helper builds OAuth-backed Real Time Events all-status requests', (
   expect(includeShared.httpRequest.url).toBe(
     'https://shelly.example.com/device/all_status?show_info=false&no_shared=false',
   );
+  expect(JSON.stringify(token)).not.toContain('authorization-code-value');
   expect(JSON.stringify(payload)).not.toContain('access-token-value');
 });
 
