@@ -39,6 +39,7 @@ import {
   renderGatewayCommand,
   saveGatewayAdminSkillEnabled,
 } from './gateway/gateway-client.js';
+import type { GatewayAdminSuspendedSession } from './gateway/gateway-types.js';
 import {
   DEFAULT_SESSION_SHOW_MODE,
   isSessionShowMode,
@@ -2143,6 +2144,30 @@ function looksLikeTuiInteractiveReply(input: string): boolean {
   );
 }
 
+function isTuiRoutableInteractiveReplySession(
+  entry: GatewayAdminSuspendedSession,
+): boolean {
+  const userId = String(entry.userId || '').trim();
+  return (
+    entry.status === 'pending' &&
+    entry.expectedReturnKinds.includes('code') &&
+    (!userId || userId === TUI_USER_ID || userId === 'operator')
+  );
+}
+
+export function selectTuiInteractiveReplySession(
+  sessions: GatewayAdminSuspendedSession[],
+): GatewayAdminSuspendedSession | null {
+  return (
+    sessions
+      .filter(isTuiRoutableInteractiveReplySession)
+      .sort(
+        (left, right) =>
+          Date.parse(right.createdAt) - Date.parse(left.createdAt),
+      )[0] || null
+  );
+}
+
 async function tryRouteTuiInteractiveReply(
   input: string,
   rl: readline.Interface,
@@ -2150,17 +2175,9 @@ async function tryRouteTuiInteractiveReply(
   const trimmed = input.trim();
   if (!looksLikeTuiInteractiveReply(trimmed)) return false;
   const pending = await gatewayListInteractiveEscalations().catch(() => null);
-  const session = pending?.sessions
-    .filter(
-      (entry) =>
-        entry.status === 'pending' &&
-        entry.userId === TUI_USER_ID &&
-        entry.expectedReturnKinds.includes('code'),
-    )
-    .sort(
-      (left, right) =>
-        Date.parse(right.createdAt) - Date.parse(left.createdAt),
-    )[0];
+  const session = pending
+    ? selectTuiInteractiveReplySession(pending.sessions)
+    : null;
   if (!session) return false;
 
   await gatewayResumeInteractiveEscalation({
