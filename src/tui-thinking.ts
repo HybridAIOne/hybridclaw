@@ -1,7 +1,5 @@
 const DEFAULT_TUI_INDENT = '  ';
 const STREAM_TOKEN_PATTERN = /(\n|[^\S\n]+|\S+)/g;
-const THINKING_PREVIEW_MAX_LINES = 8;
-const THINKING_PREVIEW_MAX_CHARS = 1200;
 
 export interface TuiStreamFormatState {
   lineNeedsIndent: boolean;
@@ -509,14 +507,7 @@ function formatThinkingPreview(thinking: string | null): string | null {
   if (thinking == null) return null;
   const normalized = stripThinkingToolMarkup(thinking).replace(/\r\n?/g, '\n');
   if (!normalized) return '';
-  const lines = normalized.split('\n');
-  const visibleLines =
-    lines.length > THINKING_PREVIEW_MAX_LINES
-      ? ['...', ...lines.slice(-THINKING_PREVIEW_MAX_LINES)]
-      : lines;
-  const preview = visibleLines.join('\n');
-  if (preview.length <= THINKING_PREVIEW_MAX_CHARS) return preview;
-  return `...${preview.slice(-THINKING_PREVIEW_MAX_CHARS)}`;
+  return normalized;
 }
 
 function stripThinkingToolMarkup(text: string): string {
