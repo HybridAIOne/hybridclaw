@@ -1303,6 +1303,7 @@ export interface AdminA2AThreadMessage {
 
 export interface AdminA2AThreadSummary {
   id: string;
+  ownerCoworkerId: string | null;
   messageCount: number;
   participants: string[];
   latestMessage: AdminA2AThreadMessage | null;

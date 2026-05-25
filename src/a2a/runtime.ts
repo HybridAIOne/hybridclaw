@@ -7,7 +7,12 @@ import {
 } from './envelope.js';
 import { attachA2AHandoffContext } from './handoff-context.js';
 import { normalizePeerDescriptor } from './peer-descriptor.js';
-import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
+import {
+  type A2AThreadSummary,
+  listA2AInboxEnvelopes,
+  listA2AInboxThreads,
+  saveA2AEnvelope,
+} from './store.js';
 import {
   encodeForRegisteredTransport,
   type TransportRegistry,
@@ -101,4 +106,14 @@ export function inbox(agentId: string): A2AEnvelope[] {
     throw new A2AEnvelopeValidationError(['agentId is required']);
   }
   return listA2AInboxEnvelopes(agentId);
+}
+
+/**
+ * Returns thread summaries visible to `agentId`, including current ownership.
+ */
+export function inboxThreads(agentId: string): A2AThreadSummary[] {
+  if (!agentId.trim()) {
+    throw new A2AEnvelopeValidationError(['agentId is required']);
+  }
+  return listA2AInboxThreads(agentId);
 }

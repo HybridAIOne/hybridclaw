@@ -5284,6 +5284,7 @@ function mapA2AThreadSummary(
 ): GatewayAdminA2AThreadSummary {
   return {
     id: thread.thread_id,
+    ownerCoworkerId: thread.owner_coworker_id,
     messageCount: thread.message_count,
     participants: thread.participants,
     latestMessage:

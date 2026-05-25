@@ -1020,6 +1020,7 @@ export interface GatewayAdminA2AThreadMessage {
 
 export interface GatewayAdminA2AThreadSummary {
   id: string;
+  ownerCoworkerId: string | null;
   messageCount: number;
   participants: string[];
   latestMessage: GatewayAdminA2AThreadMessage | null;

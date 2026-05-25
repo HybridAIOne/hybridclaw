@@ -91,6 +91,7 @@ describe('gateway admin A2A inbox', () => {
     ]);
     expect(latest.threads[0]).toMatchObject({
       id: 'thread-b',
+      ownerCoworkerId: 'main@team@local-dev',
       messageCount: 2,
       participants: ['main@team@local-dev', 'writer@team@local-dev'],
       latestMessage: {
@@ -124,6 +125,11 @@ describe('gateway admin A2A inbox', () => {
       threadId: 'thread-a',
     });
     expect(selected.selectedThreadId).toBe('thread-a');
+    expect(selected.threads.find((thread) => thread.id === 'thread-a')).toEqual(
+      expect.objectContaining({
+        ownerCoworkerId: null,
+      }),
+    );
     expect(selected.messages).toEqual([
       expect.objectContaining({
         id: 'msg-a',
@@ -132,5 +138,49 @@ describe('gateway admin A2A inbox', () => {
         recipientAgentId: 'writer@team@local-dev',
       }),
     ]);
+  });
+
+  test('marks a handed-off thread as owned by the recipient in the inbox', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const service = await import('../src/gateway/gateway-service.ts');
+
+    initDatabase({ quiet: true });
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [
+        { id: 'briefing', owner: 'team', role: 'sender' },
+        { id: 'builder', owner: 'team', role: 'recipient' },
+      ];
+    });
+
+    runtime.sendMessage({
+      id: 'msg-handoff',
+      sender_agent_id: 'briefing',
+      recipient_agent_id: 'builder',
+      thread_id: 'thread-handoff',
+      intent: 'handoff',
+      content: 'Please take ownership of this thread.',
+      created_at: '2026-05-01T10:00:00.000Z',
+    });
+
+    expect(service.getGatewayAdminA2AInbox()).toMatchObject({
+      threads: [
+        {
+          id: 'thread-handoff',
+          ownerCoworkerId: 'builder@team@local-dev',
+          latestMessage: {
+            id: 'msg-handoff',
+            recipientAgentId: 'builder@team@local-dev',
+          },
+        },
+      ],
+      messages: [
+        {
+          id: 'msg-handoff',
+          recipientAgentId: 'builder@team@local-dev',
+        },
+      ],
+    });
   });
 });

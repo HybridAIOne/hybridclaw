@@ -22,11 +22,13 @@ const A2A_THREAD_STATE_VERSION = 1;
 interface A2AThreadState {
   version: typeof A2A_THREAD_STATE_VERSION;
   thread_id: string;
+  owner_coworker_id: string | null;
   envelopes: A2AEnvelope[];
 }
 
 export interface A2AThreadSummary {
   thread_id: string;
+  owner_coworker_id: string | null;
   message_count: number;
   participants: string[];
   latest_message_id: string | null;
@@ -84,6 +86,7 @@ function emptyThreadState(threadId: string): A2AThreadState {
   return {
     version: A2A_THREAD_STATE_VERSION,
     thread_id: threadId,
+    owner_coworker_id: null,
     envelopes: [],
   };
 }
@@ -118,6 +121,23 @@ function parsePersistedThreadState(
     typeof parsed.thread_id === 'string' ? parsed.thread_id.trim() : '';
   if (threadId !== expectedThreadId) {
     issues.push(`thread state is for ${threadId || '<missing>'}`);
+  }
+
+  let ownerCoworkerId: string | null = null;
+  if (
+    Object.hasOwn(parsed, 'owner_coworker_id') &&
+    parsed.owner_coworker_id !== null
+  ) {
+    if (typeof parsed.owner_coworker_id !== 'string') {
+      issues.push('owner_coworker_id must be a string or null');
+    } else {
+      ownerCoworkerId = parsed.owner_coworker_id.trim();
+      if (!ownerCoworkerId || !isA2AOpaqueId(ownerCoworkerId)) {
+        issues.push(
+          'owner_coworker_id must be a non-empty id without whitespace',
+        );
+      }
+    }
   }
 
   const rawEnvelopes = parsed.envelopes;
@@ -165,6 +185,7 @@ function parsePersistedThreadState(
   return {
     version: A2A_THREAD_STATE_VERSION,
     thread_id: expectedThreadId,
+    owner_coworker_id: ownerCoworkerId,
     envelopes,
   };
 }
@@ -204,6 +225,7 @@ function summarizeThreadState(state: A2AThreadState): A2AThreadSummary {
 
   return {
     thread_id: state.thread_id,
+    owner_coworker_id: state.owner_coworker_id,
     message_count: state.envelopes.length,
     participants: [...participants].sort(),
     latest_message_id: latest?.id ?? null,
@@ -250,6 +272,36 @@ export function listA2AThreads(): A2AThreadSummary[] {
     threads.push(
       summarizeThreadState(parsePersistedThreadState(state.content, threadId)),
     );
+  }
+
+  return threads.sort((left, right) => {
+    const recencyOrder = (right.latest_created_at ?? '').localeCompare(
+      left.latest_created_at ?? '',
+    );
+    if (recencyOrder !== 0) return recencyOrder;
+    return left.thread_id.localeCompare(right.thread_id);
+  });
+}
+
+export function listA2AInboxThreads(agentId: string): A2AThreadSummary[] {
+  const recipientAgentId = resolveA2AAgentId(agentId);
+  const threads: A2AThreadSummary[] = [];
+  for (const revisionState of listRuntimeAssetRevisionStates('a2a')) {
+    const threadId = threadIdFromAssetPath(revisionState.assetPath);
+    if (!threadId) continue;
+    const threadState = parsePersistedThreadState(
+      revisionState.content,
+      threadId,
+    );
+    if (
+      threadState.owner_coworker_id !== recipientAgentId &&
+      !threadState.envelopes.some(
+        (envelope) => envelope.recipient_agent_id === recipientAgentId,
+      )
+    ) {
+      continue;
+    }
+    threads.push(summarizeThreadState(threadState));
   }
 
   return threads.sort((left, right) => {
@@ -334,6 +386,10 @@ export function saveA2AEnvelope(
 
   const nextState: A2AThreadState = {
     ...state,
+    owner_coworker_id:
+      normalizedEnvelope.intent === 'handoff'
+        ? normalizedEnvelope.recipient_agent_id
+        : state.owner_coworker_id,
     envelopes: [...state.envelopes, normalizedEnvelope],
   };
   syncRuntimeAssetRevisionState(
