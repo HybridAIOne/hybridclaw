@@ -260,21 +260,6 @@ X-HybridClaw-iMessage-Password: YOUR_IMESSAGE_PASSWORD
 This is the primary and recommended setup. Use it unless your relay or proxy
 cannot send custom headers.
 
-Fallback only:
-
-```text
-https://your-hybridclaw.example.com/api/imessage/webhook?password=YOUR_IMESSAGE_PASSWORD
-```
-
-Warning: query-string secrets are more likely to end up in reverse-proxy access
-logs, browser history, and similar request traces. Only use the query-param
-form when header auth is genuinely unavailable.
-
-HybridClaw accepts:
-
-- header: `X-HybridClaw-iMessage-Password` (preferred)
-- query params: `password`, `guid`, or `token` (fallback only)
-
 The webhook must send `new-message` events to HybridClaw for inbound delivery.
 
 ### Step 7: Send a Test Message

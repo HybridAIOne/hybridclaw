@@ -413,7 +413,7 @@ hybridclaw secret route remove <url-prefix> [header]
 - `/secret route ...` is a convenience surface for editing
   `tools.httpRequest.authRules[]` without hand-editing `config.json`
 - `secret: { "source": "google-oauth" }` routes mint and inject the Google OAuth access token from `hybridclaw auth login google` for matching `*.googleapis.com` requests
-- bearer tokens injected with `bearerSecretName` require a companion `<NAME>_BOUND_DOMAIN` secret containing the exact hostname they may be sent to
+- secrets injected with `bearerSecretName` or `secretHeaders` require a companion `<NAME>_BOUND_DOMAIN` secret containing the exact hostname they may be sent to
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 Trust-model acceptance is persisted in `config.json` under `security.*` and is

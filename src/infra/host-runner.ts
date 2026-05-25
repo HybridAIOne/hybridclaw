@@ -14,7 +14,6 @@ import {
 } from '../auth/google-auth.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
-  ADDITIONAL_MOUNTS,
   BROWSER_ALLOW_PRIVATE_NETWORK,
   BROWSER_PROVIDER,
   CODEX_RUNTIME,
@@ -133,7 +132,6 @@ function resolveExecutorMaxTokens(params: {
 function buildHostAllowedRoots(extraRoots: string[] = []): string[] {
   const configured = resolveConfiguredAdditionalMounts({
     binds: CONTAINER_BINDS,
-    additionalMounts: ADDITIONAL_MOUNTS,
   });
   for (const warning of configured.warnings) {
     logger.warn({ warning }, 'Configured host-mode allowed root ignored');

@@ -1077,7 +1077,6 @@ export interface RuntimeConfig {
     network: string;
     timeoutMs: number;
     binds: string[];
-    additionalMounts: string;
     maxOutputBytes: number;
     maxConcurrent: number;
     persistBashState: boolean;
@@ -1810,7 +1809,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     network: 'bridge',
     timeoutMs: 300_000,
     binds: [],
-    additionalMounts: '',
     maxOutputBytes: 10_485_760,
     maxConcurrent: 5,
     persistBashState: true,
@@ -7306,11 +7304,6 @@ function normalizeRuntimeConfig(
       binds: normalizeStringArray(
         rawContainer.binds,
         DEFAULT_RUNTIME_CONFIG.container.binds,
-      ),
-      additionalMounts: normalizeString(
-        rawContainer.additionalMounts,
-        DEFAULT_RUNTIME_CONFIG.container.additionalMounts,
-        { allowEmpty: true },
       ),
       maxOutputBytes: normalizeInteger(
         rawContainer.maxOutputBytes,

@@ -17,7 +17,6 @@ import {
 import { getBrowserProfileDir } from '../browser/browser-login.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
-  ADDITIONAL_MOUNTS,
   BROWSER_ALLOW_PRIVATE_NETWORK,
   BROWSER_PROVIDER,
   CODEX_RUNTIME,
@@ -812,7 +811,6 @@ function getOrSpawnContainer(
   // Validate and append additional mounts
   const configuredMounts = resolveConfiguredAdditionalMounts({
     binds: CONTAINER_BINDS,
-    additionalMounts: ADDITIONAL_MOUNTS,
   });
   for (const warning of configuredMounts.warnings) {
     logger.warn({ warning }, 'Configured container bind ignored');

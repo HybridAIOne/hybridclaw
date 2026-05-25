@@ -110,10 +110,7 @@ export function parseBindSpecs(specs: string[]): ConfiguredMountParseResult {
 }
 
 export function resolveConfiguredAdditionalMounts(
-  containerConfig: Pick<
-    RuntimeConfig['container'],
-    'binds' | 'additionalMounts'
-  >,
+  containerConfig: Pick<RuntimeConfig['container'], 'binds'>,
 ): ConfiguredMountParseResult {
   const bindResult = parseBindSpecs(containerConfig.binds || []);
   return {

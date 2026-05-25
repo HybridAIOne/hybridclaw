@@ -829,7 +829,7 @@ function assertBearerDomainBinding(secretName: string, targetUrl: URL): void {
 
   throw new GatewayRequestError(
     403,
-    `Bearer secret ${secretName} is bound to *.${allowed} — ` +
+    `Secret ${secretName} is bound to *.${allowed} — ` +
       `request to ${targetHost} is blocked.`,
   );
 }
