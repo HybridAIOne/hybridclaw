@@ -40,6 +40,7 @@ import type {
   BrowserFillInput,
   BrowserProvider,
   BrowserSession,
+  BrowserTwoFactorState,
   BrowserWaypointEvent,
 } from '../browser/provider.js';
 import { createBrowserProvider } from '../browser/provider-factory.js';
@@ -560,9 +561,17 @@ async function readGatewayBrowserTwoFactorPageState(
   title: string;
   preview: string;
   selectors: string[];
+  nativeDetection?: BrowserTwoFactorState;
 }> {
   if (isMacCuaGatewaySession(active)) {
-    return { url: 'about:blank', title: '', preview: '', selectors: [] };
+    const nativeDetection = await active.session.inspectTwoFactorChallenge?.();
+    return {
+      url: nativeDetection?.url || 'about:blank',
+      title: nativeDetection?.title || '',
+      preview: nativeDetection?.preview || '',
+      selectors: nativeDetection?.selectors || [],
+      ...(nativeDetection ? { nativeDetection } : {}),
+    };
   }
   const pageState = await active.session.evaluate(
     browserRendererFunction<{
@@ -591,17 +600,26 @@ async function parkGatewayBrowserTwoFactor(params: {
     title: string;
     preview: string;
     selectors: string[];
+    nativeDetection?: BrowserTwoFactorState;
   };
 }): Promise<Record<string, unknown> | null> {
   const pageState =
     params.pageState ||
     (await readGatewayBrowserTwoFactorPageState(params.active));
-  const detection = detectTwoFactorChallenge({
-    args: params.args,
-    title: pageState.title,
-    text: pageState.preview,
-    selectors: pageState.selectors,
-  });
+  const detection = pageState.nativeDetection?.detected
+    ? {
+        detected: true,
+        modality: pageState.nativeDetection.modality || 'totp',
+        signals: pageState.nativeDetection.signals || ['native 2fa signal'],
+        selectors: pageState.nativeDetection.selectors || [],
+        ...(pageState.preview ? { textPreview: pageState.preview } : {}),
+      }
+    : detectTwoFactorChallenge({
+        args: params.args,
+        title: pageState.title,
+        text: pageState.preview,
+        selectors: pageState.selectors,
+      });
   if (!detection.detected) return null;
 
   const modality = parseInteractionModality(

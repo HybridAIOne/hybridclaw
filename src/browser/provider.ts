@@ -35,6 +35,16 @@ export interface BrowserSessionMeteringContext {
   skillName?: string;
 }
 
+export interface BrowserTwoFactorState {
+  detected: boolean;
+  modality?: string | null;
+  signals?: string[];
+  url?: string | null;
+  title?: string | null;
+  preview?: string;
+  selectors?: string[];
+}
+
 export type BrowserWaypointEvent =
   | 'browser_await_two_factor'
   | 'browser_resume_interaction';
@@ -73,6 +83,7 @@ export interface BrowserSession {
   consoleMessages?(
     opts?: ConsoleMessageOptions,
   ): Promise<BrowserConsoleMessage[]>;
+  inspectTwoFactorChallenge?(): Promise<BrowserTwoFactorState>;
   waypoint?(
     event: BrowserWaypointEvent,
     opts?: BrowserWaypointOptions,

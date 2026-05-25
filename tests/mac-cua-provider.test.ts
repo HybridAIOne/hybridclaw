@@ -606,6 +606,29 @@ test('mac-cua provider emits F14 waypoint events from AX two-factor detection an
   );
 });
 
+test('mac-cua provider exposes AX two-factor detection to gateway parking', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
+    detected: true,
+    signals: ['one-time-code'],
+  });
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await session.navigate('https://example.com/login');
+
+  await expect(session.inspectTwoFactorChallenge?.()).resolves.toMatchObject({
+    detected: true,
+    modality: 'totp',
+    signals: ['one-time-code'],
+    url: 'https://example.com/',
+    preview: 'verification code',
+  });
+});
+
 test('mac-cua provider advertises F13 and F14 parity only after readiness passes', async () => {
   const { MacCuaBrowserProvider } = await import(
     '../src/browser/mac-cua-provider.js'

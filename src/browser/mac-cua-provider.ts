@@ -27,6 +27,7 @@ import type {
   BrowserProviderCapabilities,
   BrowserSession,
   BrowserSessionMeteringContext,
+  BrowserTwoFactorState,
   BrowserWaypointEvent,
   BrowserWaypointOptions,
   ClickOptions,
@@ -815,6 +816,7 @@ class StdioMacCuaDriver implements MacCuaDriver {
 
 class MacCuaBrowserSession implements BrowserSession {
   private awaitingTwoFactor = false;
+  private lastTwoFactorState: BrowserTwoFactorState | null = null;
 
   constructor(
     private readonly driver: MacCuaDriver,
@@ -986,6 +988,17 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
+  async inspectTwoFactorChallenge(): Promise<BrowserTwoFactorState> {
+    if (this.awaitingTwoFactor && this.lastTwoFactorState?.detected) {
+      return this.lastTwoFactorState;
+    }
+    const state = await this.detectCurrentTwoFactorState();
+    if (state.detected) {
+      this.lastTwoFactorState = state;
+    }
+    return state;
+  }
+
   async waypoint(
     event: BrowserWaypointEvent,
     opts?: BrowserWaypointOptions,
@@ -995,6 +1008,7 @@ class MacCuaBrowserSession implements BrowserSession {
       this.awaitingTwoFactor = event === 'browser_await_two_factor';
       if (event === 'browser_resume_interaction') {
         this.awaitingTwoFactor = false;
+        this.lastTwoFactorState = null;
       }
     });
   }
@@ -1166,14 +1180,35 @@ class MacCuaBrowserSession implements BrowserSession {
     ) {
       return;
     }
-    const result = await this.driver.detectTwoFactorWaypoint(this.sessionId);
+    const result = await this.detectCurrentTwoFactorState();
     if (!result.detected) return;
     this.awaitingTwoFactor = true;
+    this.lastTwoFactorState = result;
     this.recordWaypoint(
       'browser_await_two_factor',
       { modality: 'mac-cua-ax' },
       { action, signals: result.signals },
     );
+  }
+
+  private async detectCurrentTwoFactorState(): Promise<BrowserTwoFactorState> {
+    if (!this.driver.detectTwoFactorWaypoint) return { detected: false };
+    const result = await this.driver.detectTwoFactorWaypoint(this.sessionId);
+    const url = await this.driver
+      .getCurrentUrl(this.sessionId)
+      .catch(() => null);
+    if (!result.detected) {
+      return { detected: false, url };
+    }
+    return {
+      detected: true,
+      modality: 'totp',
+      signals: result.signals || ['ax_two_factor_text'],
+      url,
+      title: '',
+      preview: 'verification code',
+      selectors: [],
+    };
   }
 
   private recordCredentialFilled(selector: string, ref: SecretRef): void {
