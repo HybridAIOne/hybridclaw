@@ -94,7 +94,6 @@ export function SortableHeader<Key extends string>(props: {
 }
 
 export function PageHeader(props: {
-  title?: string;
   description?: ReactNode;
   actions?: ReactNode;
 }) {

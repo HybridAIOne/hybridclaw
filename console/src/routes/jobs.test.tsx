@@ -1,11 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminJobCard,
@@ -13,7 +6,7 @@ import type {
   AdminSchedulerResponse,
   JobSession,
 } from '../api/types';
-import { ToastProvider } from '../components/toast';
+import { renderWithProviders } from '../test-utils';
 import { JobsPage } from './jobs';
 
 const fetchBoardBudgetSummariesMock = vi.fn();
@@ -133,19 +126,7 @@ function makeJobSession(overrides: Partial<JobSession> = {}): JobSession {
 }
 
 function renderJobsPage(): void {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <JobsPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<JobsPage />);
 }
 
 describe('JobsPage', () => {

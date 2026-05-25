@@ -112,7 +112,6 @@ export function SessionsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Sessions"
         actions={
           <input
             className="compact-search"

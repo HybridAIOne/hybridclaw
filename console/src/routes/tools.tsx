@@ -157,7 +157,6 @@ export function ToolsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Tools"
         actions={
           <input
             className="compact-search"
