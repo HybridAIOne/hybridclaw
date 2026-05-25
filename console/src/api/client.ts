@@ -31,6 +31,10 @@ import type {
   AdminMcpConfig,
   AdminMcpResponse,
   AdminModelsResponse,
+  AdminOutputGuardPreviewResponse,
+  AdminOutputGuardProfile,
+  AdminOutputGuardProfileResponse,
+  AdminOutputGuardProfileUpdateResponse,
   AdminOverview,
   AdminPluginsResponse,
   AdminPolicyRuleInput,
@@ -548,7 +552,7 @@ export function fetchBoardBudgetSummaries(
   }
   const query = params.toString();
   return requestJson<AdminBoardBudgetResponse>(
-    `/api/admin/board/budgets${query ? `?${query}` : ''}`,
+    `/api/admin/jobs/budgets${query ? `?${query}` : ''}`,
     { token },
   );
 }
@@ -1079,6 +1083,46 @@ export function unblockSkill(
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {
   return requestJson<AdminPluginsResponse>('/api/admin/plugins', { token });
+}
+
+export function fetchOutputGuardProfile(
+  token: string,
+): Promise<AdminOutputGuardProfileResponse> {
+  return requestJson<AdminOutputGuardProfileResponse>(
+    '/api/admin/output-guard',
+    {
+      token,
+    },
+  );
+}
+
+export function saveOutputGuardProfile(
+  token: string,
+  profile: AdminOutputGuardProfile,
+): Promise<AdminOutputGuardProfileUpdateResponse> {
+  return requestJson<AdminOutputGuardProfileUpdateResponse>(
+    '/api/admin/output-guard',
+    {
+      token,
+      method: 'PUT',
+      body: { profile },
+    },
+  );
+}
+
+export function previewOutputGuardProfile(
+  token: string,
+  profile: AdminOutputGuardProfile,
+  sample: string,
+): Promise<AdminOutputGuardPreviewResponse> {
+  return requestJson<AdminOutputGuardPreviewResponse>(
+    '/api/admin/output-guard/preview',
+    {
+      token,
+      method: 'POST',
+      body: { profile, sample },
+    },
+  );
 }
 
 export function fetchAdaptiveSkillHealth(

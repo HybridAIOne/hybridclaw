@@ -148,7 +148,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 36;
+export const DATABASE_SCHEMA_VERSION = 37;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -498,6 +498,13 @@ function agentA2ANeedMigration(database: Database.Database): boolean {
 
 function boardCardsNeedMigration(database: Database.Database): boolean {
   return !tableExists(database, 'board_cards');
+}
+
+function boardCardEdgesNeedMigration(database: Database.Database): boolean {
+  return (
+    !tableExists(database, 'board_card_edges') ||
+    !indexExists(database, 'idx_board_card_edges_logical_unique')
+  );
 }
 
 function threadGoalsNeedMigration(database: Database.Database): boolean {
@@ -2623,6 +2630,38 @@ function migrateV36(
   );
 }
 
+function migrateV37(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS board_card_edges (
+      id TEXT PRIMARY KEY,
+      from_card_id TEXT NOT NULL REFERENCES board_cards(id),
+      to_card_id TEXT NOT NULL REFERENCES board_cards(id),
+      kind TEXT NOT NULL CHECK (kind IN ('blocks', 'related')),
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      CHECK (from_card_id <> to_card_id),
+      UNIQUE (from_card_id, to_card_id, kind)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_board_card_edges_logical_unique
+      ON board_card_edges(
+        CASE
+          WHEN kind = 'related' AND from_card_id > to_card_id THEN to_card_id
+          ELSE from_card_id
+        END,
+        CASE
+          WHEN kind = 'related' AND from_card_id > to_card_id THEN from_card_id
+          ELSE to_card_id
+        END,
+        kind
+      );
+    CREATE INDEX IF NOT EXISTS idx_board_card_edges_from
+      ON board_card_edges(from_card_id, kind);
+    CREATE INDEX IF NOT EXISTS idx_board_card_edges_to
+      ON board_card_edges(to_card_id, kind);
+  `);
+  recordMigration(database, 37, 'Persist typed board card dependency edges');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2707,6 +2746,9 @@ function runMigrations(
   if (currentVersion < 36 || agentCanonicalIdentityNeedMigration(database)) {
     migrateV36(database, opts);
   }
+  if (currentVersion < 37 || boardCardEdgesNeedMigration(database)) {
+    migrateV37(database);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2724,6 +2766,9 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   db = new Database(dbPath);
   usageEventBatchInsertStatement = null;
   db.pragma('journal_mode = WAL');
+  // SQLite foreign-key enforcement is connection-scoped, so enable it before
+  // running migrations or accepting writes on this writable connection.
+  db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
   runMigrations(db, opts);
   migrateLegacyTasksToJobsTable();

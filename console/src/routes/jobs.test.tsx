@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AdminJobCard,
   AdminSchedulerJob,
   AdminSchedulerResponse,
   JobSession,
@@ -78,6 +79,39 @@ function makeConfigJob(
   };
 }
 
+function makeJobCard(overrides: Partial<AdminJobCard> = {}): AdminJobCard {
+  return {
+    id: 'edge-blocked',
+    title: 'Edge Blocked',
+    body: 'Waiting on another card.',
+    owner: { type: 'agent', id: 'main' },
+    column: 'in_review',
+    status: 'ready',
+    source: 'manual',
+    parent: null,
+    createdAt: '2026-04-12T18:40:00.000Z',
+    updatedAt: '2026-04-12T18:44:15.000Z',
+    blocked: true,
+    edges: [
+      {
+        id: 'edge-1',
+        fromCardId: 'edge-blocked',
+        toCardId: 'edge-blocker',
+        kind: 'blocked_by',
+        createdAt: '2026-04-12T18:44:15.000Z',
+      },
+      {
+        id: 'edge-2',
+        fromCardId: 'edge-blocked',
+        toCardId: 'related-card',
+        kind: 'related',
+        createdAt: '2026-04-12T18:44:16.000Z',
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function makeJobSession(overrides: Partial<JobSession> = {}): JobSession {
   return {
     sessionId: 'scheduler:release-reminder',
@@ -111,6 +145,7 @@ describe('JobsPage', () => {
     });
     fetchJobsContextMock.mockResolvedValue({
       agents: [{ id: 'main', name: 'Main' }],
+      cards: [],
       sessions: [],
       suspendedSessions: [],
     });
@@ -186,6 +221,7 @@ describe('JobsPage', () => {
         { id: 'agent-hard', name: 'Hard' },
         { id: 'agent-no-budget', name: 'No Budget Agent' },
       ],
+      cards: [],
       sessions: [],
       suspendedSessions: [],
     });
@@ -244,6 +280,7 @@ describe('JobsPage', () => {
   it('uses the linked session start time as the created timestamp', async () => {
     fetchJobsContextMock.mockResolvedValue({
       agents: [{ id: 'main', name: 'Main' }],
+      cards: [],
       sessions: [makeJobSession()],
       suspendedSessions: [],
     });
@@ -293,6 +330,7 @@ describe('JobsPage', () => {
   it('shows blocked sessions on the board and resumes them from the detail pane', async () => {
     fetchJobsContextMock.mockResolvedValue({
       agents: [{ id: 'main', name: 'Main' }],
+      cards: [],
       sessions: [],
       suspendedSessions: [
         {
@@ -337,5 +375,32 @@ describe('JobsPage', () => {
         },
       );
     });
+  });
+
+  it('shows dependency edges for job cards on the jobs board', async () => {
+    fetchJobsContextMock.mockResolvedValue({
+      agents: [{ id: 'main', name: 'Main' }],
+      cards: [makeJobCard()],
+      sessions: [],
+      suspendedSessions: [],
+    });
+    fetchSchedulerMock.mockResolvedValue({ jobs: [] });
+
+    renderJobsPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Edge Blocked')).toBeTruthy();
+    });
+    expect(screen.getByText('Blocked')).toBeTruthy();
+    expect(screen.getByText('Blocked by edge-blocker')).toBeTruthy();
+    expect(screen.getByText('Related related-card')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Edge Blocked'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Dependencies')).toBeTruthy();
+    });
+    expect(screen.getAllByText('Blocked by edge-blocker').length).toBe(2);
+    expect(screen.getAllByText('Related related-card').length).toBe(2);
   });
 });

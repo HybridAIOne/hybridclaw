@@ -1,4 +1,4 @@
-import { createHmac, generateKeyPairSync } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -727,6 +727,7 @@ async function importFreshHealth(options?: {
         state: 'set' as const,
         created_at: '2026-05-17T10:00:00.000Z',
         last_rotated_at: '2026-05-17T10:00:00.000Z',
+        length: 12,
         fingerprint: {
           length: 12,
           sha256_prefix: '0123456789ab',
@@ -737,11 +738,38 @@ async function importFreshHealth(options?: {
         state: 'unset' as const,
         created_at: null,
         last_rotated_at: null,
+        length: null,
         fingerprint: null,
       },
     ],
     total: 2,
   }));
+  const overwriteGatewayAdminSecret = vi.fn(
+    (params: { name: string; value: unknown }) => ({
+      secret: {
+        name: params.name,
+        state: 'set' as const,
+        created_at: '2026-05-17T10:00:00.000Z',
+        last_rotated_at: '2026-05-17T10:10:00.000Z',
+        length: String(params.value || '').length,
+        fingerprint: {
+          length: String(params.value || '').length,
+          sha256_prefix: 'fedcba987654',
+        },
+      },
+    }),
+  );
+  const unsetGatewayAdminSecret = vi.fn((params: { name: string }) => ({
+    secret: {
+      name: params.name,
+      state: 'unset' as const,
+      created_at: null,
+      last_rotated_at: null,
+      length: null,
+      fingerprint: null,
+    },
+  }));
+  const recordGatewayAdminSecretMutationFailure = vi.fn();
   const reconnectTunnelStatus = {
     provider: 'ngrok',
     publicUrl: 'https://next-public.example.test',
@@ -1586,6 +1614,7 @@ async function importFreshHealth(options?: {
   }));
   const getGatewayAdminJobsContext = vi.fn(() => ({
     agents: [{ id: 'main', name: 'Main Agent' }],
+    cards: [],
     sessions: [
       {
         sessionId: 'scheduler:job-1',
@@ -1610,6 +1639,22 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
+  const boardEdge = {
+    id: 'edge-1',
+    fromCardId: 'card-a',
+    toCardId: 'card-b',
+    kind: 'blocks' as const,
+    createdAt: '2026-05-22T10:00:00.000Z',
+    createdBy: { userId: 'user_a' },
+  };
+  const addEdge = vi.fn(() => boardEdge);
+  const removeEdge = vi.fn(() => boardEdge);
+  const listEdges = vi.fn(() => [boardEdge]);
+  const listEdgeRevisions = vi.fn(() => [
+    { id: 7, createdAt: '2026-05-22T10:00:00.000Z' },
+  ]);
+  const restoreEdgeRevision = vi.fn(() => boardEdge);
+  const isBlocked = vi.fn(() => true);
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
@@ -1714,6 +1759,14 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/board/budget-chip.js', () => ({
     getBoardBudgetSummaries,
   }));
+  vi.doMock('../src/board/card-store.js', () => ({
+    addEdge,
+    isBlocked,
+    listEdgeRevisions,
+    listEdges,
+    removeEdge,
+    restoreEdgeRevision,
+  }));
   vi.doMock('../src/agent/executor.js', () => ({
     stopSessionExecution,
   }));
@@ -1783,6 +1836,9 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/gateway/gateway-admin-secrets.js', () => ({
     getGatewayAdminSecrets,
+    overwriteGatewayAdminSecret,
+    recordGatewayAdminSecretMutationFailure,
+    unsetGatewayAdminSecret,
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
@@ -1864,6 +1920,9 @@ async function importFreshHealth(options?: {
     forkSessionBranch,
     getGatewayAdminOverview,
     getGatewayAdminSecrets,
+    overwriteGatewayAdminSecret,
+    recordGatewayAdminSecretMutationFailure,
+    unsetGatewayAdminSecret,
     getGatewayAdminStatistics,
     reconnectTunnelStatus,
     reconnectGatewayAdminTunnel,
@@ -1893,6 +1952,12 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
     getBoardBudgetSummaries,
+    addEdge,
+    removeEdge,
+    listEdges,
+    listEdgeRevisions,
+    restoreEdgeRevision,
+    isBlocked,
     getGatewayAdminTools,
     startTerminalSession,
     stopTerminalSession,
@@ -4709,6 +4774,7 @@ describe('gateway HTTP server', () => {
         cookie: makeSessionCookie(authSecret, {
           sessionId: 'admin-session-1',
           actor: 'admin-user',
+          actions: ['secret.list_metadata'],
         }),
       },
     });
@@ -4732,6 +4798,7 @@ describe('gateway HTTP server', () => {
           state: 'set',
           created_at: '2026-05-17T10:00:00.000Z',
           last_rotated_at: '2026-05-17T10:00:00.000Z',
+          length: 12,
           fingerprint: {
             length: 12,
             sha256_prefix: '0123456789ab',
@@ -4742,12 +4809,34 @@ describe('gateway HTTP server', () => {
           state: 'unset',
           created_at: null,
           last_rotated_at: null,
+          length: null,
           fingerprint: null,
         },
       ],
       total: 2,
     });
     expect(res.body).not.toContain('super-secret');
+  });
+
+  test('denies admin secret metadata sessions without action claims', async () => {
+    const authSecret = 'secret-list-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      url: '/api/admin/secrets',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
   });
 
   test('rejects unsupported admin secret metadata methods before listing names', async () => {
@@ -4782,6 +4871,226 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(401);
     expect(res.body).not.toContain('SET_SECRET');
     expect(res.body).not.toContain('OTHER_SECRET');
+  });
+
+  test('overwrites an admin secret without echoing the submitted value', async () => {
+    const authSecret = 'secret-overwrite-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: { value: 'rotated-super-secret' },
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          actions: ['secret.overwrite'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.overwriteGatewayAdminSecret).toHaveBeenCalledWith({
+      name: 'SET_SECRET',
+      value: 'rotated-super-secret',
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      secret: {
+        name: 'SET_SECRET',
+        state: 'set',
+        length: 'rotated-super-secret'.length,
+        fingerprint: {
+          sha256_prefix: 'fedcba987654',
+        },
+      },
+    });
+    expect(res.body).not.toContain('rotated-super-secret');
+  });
+
+  test('unsets an admin secret by name', async () => {
+    const authSecret = 'secret-unset-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/secrets/SET_SECRET',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          scope: 'secret.unset',
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.unsetGatewayAdminSecret).toHaveBeenCalledWith({
+      name: 'SET_SECRET',
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      secret: {
+        name: 'SET_SECRET',
+        state: 'unset',
+        created_at: null,
+        last_rotated_at: null,
+        length: null,
+        fingerprint: null,
+      },
+    });
+  });
+
+  test('returns 405 for admin secret read-back routes without leaking existence', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/secrets/SET_SECRET',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminSecrets).not.toHaveBeenCalled();
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(405);
+    expect(res.body).not.toContain('SET_SECRET');
+    expect(res.body).not.toContain('OTHER_SECRET');
+  });
+
+  test('denies admin secret overwrite before reading or persisting the body', async () => {
+    const authSecret = 'secret-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: { value: 'denied-super-secret' },
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          actions: ['secret.list_metadata'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
+      type: 'secret.overwritten',
+      name: 'SET_SECRET',
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'forbidden',
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.body).not.toContain('denied-super-secret');
+  });
+
+  test('audits unauthenticated admin secret overwrite attempts without reading the body', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: { value: 'unauthenticated-super-secret' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
+      type: 'secret.overwritten',
+      name: 'SET_SECRET',
+      audit: {
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'unauthorized',
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.body).not.toContain('unauthenticated-super-secret');
+  });
+
+  test('audits unauthenticated admin secret unset attempts', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/secrets/SET_SECRET',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.unsetGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
+      type: 'secret.unset',
+      name: 'SET_SECRET',
+      audit: {
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'unauthorized',
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  test('audits malformed admin secret overwrite bodies without cleartext', async () => {
+    const authSecret = 'secret-bad-body-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/secrets/SET_SECRET',
+      body: '{"value":"bad-json-secret"',
+      headers: {
+        cookie: makeSessionCookie(authSecret, {
+          sessionId: 'admin-session-1',
+          actor: 'admin-user',
+          actions: ['secret.overwrite'],
+        }),
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.recordGatewayAdminSecretMutationFailure).toHaveBeenCalledWith({
+      type: 'secret.overwritten',
+      name: 'SET_SECRET',
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'bad_request',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).not.toContain('bad-json-secret');
   });
 
   test('reconnects the admin tunnel for authorized API requests', async () => {
@@ -5754,6 +6063,7 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       agents: [{ id: 'main', name: 'Main Agent' }],
+      cards: [],
       sessions: [
         {
           sessionId: 'scheduler:job-1',
@@ -5769,10 +6079,10 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('returns board budget summaries for authorized API requests', async () => {
+  test('returns job budget summaries for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
-      url: '/api/admin/board/budgets?agentId=main&agentId=agent-a&agentId=agent-b',
+      url: '/api/admin/jobs/budgets?agentId=main&agentId=agent-a&agentId=agent-b',
     });
     const res = makeResponse();
 
@@ -5794,6 +6104,163 @@ describe('gateway HTTP server', () => {
         },
       ],
     });
+  });
+
+  test('exposes job edge mutation and query APIs', async () => {
+    const state = await importFreshHealth();
+    const createReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/jobs/edges',
+      body: {
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'blocks',
+        actor: { userId: 'user_a' },
+        sessionId: 'board-session',
+        runId: 'board-run',
+      },
+    });
+    const createRes = makeResponse();
+
+    state.handler(createReq as never, createRes as never);
+    await settle();
+
+    expect(state.addEdge).toHaveBeenCalledWith('card-a', 'card-b', 'blocks', {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-session',
+      runId: 'board-run',
+    });
+    expect(createRes.statusCode).toBe(200);
+    expect(JSON.parse(createRes.body)).toMatchObject({
+      edge: {
+        id: 'edge-1',
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'blocks',
+      },
+    });
+
+    const listReq = makeRequest({
+      url: '/api/admin/jobs/edges?cardId=card-b&kind=blocked_by',
+    });
+    const listRes = makeResponse();
+    state.handler(listReq as never, listRes as never);
+    await settle();
+    expect(state.listEdges).toHaveBeenCalledWith('card-b', 'blocked_by');
+    expect(JSON.parse(listRes.body)).toMatchObject({
+      edges: [{ id: 'edge-1' }],
+    });
+
+    const blockedReq = makeRequest({
+      url: '/api/admin/jobs/blocked?cardId=card-b',
+    });
+    const blockedRes = makeResponse();
+    state.handler(blockedReq as never, blockedRes as never);
+    await settle();
+    expect(state.isBlocked).toHaveBeenCalledWith('card-b');
+    expect(JSON.parse(blockedRes.body)).toEqual({
+      cardId: 'card-b',
+      blocked: true,
+    });
+
+    const deleteReq = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/jobs/edges?id=edge-1',
+      body: {
+        actor: { userId: 'user_a' },
+        sessionId: 'board-session',
+        runId: 'board-run',
+      },
+    });
+    const deleteRes = makeResponse();
+    state.handler(deleteReq as never, deleteRes as never);
+    await settle();
+    expect(state.removeEdge).toHaveBeenCalledWith('edge-1', {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-session',
+      runId: 'board-run',
+    });
+    expect(JSON.parse(deleteRes.body)).toMatchObject({
+      edge: { id: 'edge-1' },
+    });
+
+    const revisionsReq = makeRequest({
+      url: '/api/admin/jobs/edge-revisions?id=edge-1',
+    });
+    const revisionsRes = makeResponse();
+    state.handler(revisionsReq as never, revisionsRes as never);
+    await settle();
+    expect(state.listEdgeRevisions).toHaveBeenCalledWith('edge-1');
+    expect(JSON.parse(revisionsRes.body)).toMatchObject({
+      revisions: [{ id: 7 }],
+    });
+
+    const restoreReq = makeRequest({
+      method: 'POST',
+      url: '/api/admin/jobs/edge-revisions',
+      body: {
+        id: 'edge-1',
+        revisionId: 7,
+        actor: { userId: 'user_a' },
+        sessionId: 'board-session',
+        runId: 'board-run',
+      },
+    });
+    const restoreRes = makeResponse();
+    state.handler(restoreReq as never, restoreRes as never);
+    await settle();
+    expect(state.restoreEdgeRevision).toHaveBeenCalledWith('edge-1', 7, {
+      actor: { userId: 'user_a' },
+      sessionId: 'board-session',
+      runId: 'board-run',
+    });
+    expect(JSON.parse(restoreRes.body)).toMatchObject({
+      edge: { id: 'edge-1' },
+    });
+  });
+
+  test('rejects unsafe job edge system actors', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/jobs/edges',
+      body: {
+        fromCardId: 'card-a',
+        toCardId: 'card-b',
+        kind: 'blocks',
+        actor: { system: 'cli' },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.addEdge).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: '`actor.system` must be gateway.',
+    });
+  });
+
+  test('requires job edge deletes to identify the edge in the query string', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/jobs/edges',
+      body: {
+        id: 'edge-1',
+        actor: { userId: 'user_a' },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.removeEdge).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Missing `id`.' });
   });
 
   test('starts an admin terminal session for authorized API requests', async () => {
@@ -9259,14 +9726,15 @@ describe('gateway HTTP server', () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
     }));
-    const dataDir = makeTempDataDir();
-    writeRuntimeConfig(dataDir, (config) => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-secret-ref-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir, (config) => {
       const ops = config.ops as Record<string, unknown>;
       ops.gatewayApiToken = 'gateway-token';
     });
-    writeAllowAllSecretPolicy(dataDir);
+    writeAllowAllSecretPolicy(homeDir);
     const state = await importFreshHealth({
-      dataDir,
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
       gatewayApiToken: 'gateway-token',
     });
     const { saveNamedRuntimeSecrets } = await import(
@@ -9321,6 +9789,222 @@ describe('gateway HTTP server', () => {
         }),
       }),
     );
+  });
+
+  async function setupOtcGatewayRequestTest({
+    dnsAddress,
+    fetchMock,
+  }: {
+    dnsAddress: string;
+    fetchMock: ReturnType<typeof vi.fn>;
+  }) {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: dnsAddress, family: 4 }]),
+    }));
+    const homeDir = makeTempDocsRoot('hybridclaw-http-otc-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir, (config) => {
+      const ops = config.ops as Record<string, unknown>;
+      ops.gatewayApiToken = 'gateway-token';
+    });
+    writeAllowAllSecretPolicy(homeDir);
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.js'
+    );
+    saveNamedRuntimeSecrets({
+      OTC_ACCESS_KEY_ID: 'ak-live-example-123',
+      OTC_SECRET_ACCESS_KEY: 'sk-live-example-456',
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return { fetchMock, state };
+  }
+
+  test('signs T Cloud Public http_request calls with gateway-held AK/SK secrets', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ servers: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const { state } = await setupOtcGatewayRequestTest({
+      dnsAddress: '80.158.59.140',
+      fetchMock,
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail?limit=50',
+        method: 'GET',
+        skillName: 't-cloud-public',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(
+            /^SDK-HMAC-SHA256 Access=ak-live-example-123, SignedHeaders=host;x-sdk-date, Signature=[a-f0-9]{64}$/,
+          ),
+          'X-Sdk-Date': expect.stringMatching(/^\d{8}T\d{6}Z$/),
+        }),
+      }),
+    );
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    const sdkDate = headers['X-Sdk-Date'];
+    const canonicalRequest = [
+      'GET',
+      '/v2.1/project123/servers/detail/',
+      'limit=50',
+      `host:ecs.eu-de.otc.t-systems.com\nx-sdk-date:${sdkDate}\n`,
+      'host;x-sdk-date',
+      createHash('sha256').update('').digest('hex'),
+    ].join('\n');
+    const stringToSign = [
+      'SDK-HMAC-SHA256',
+      sdkDate,
+      createHash('sha256').update(canonicalRequest).digest('hex'),
+    ].join('\n');
+    const expectedSignature = createHmac('sha256', 'sk-live-example-456')
+      .update(stringToSign)
+      .digest('hex');
+    expect(headers.Authorization).toBe(
+      `SDK-HMAC-SHA256 Access=ak-live-example-123, SignedHeaders=host;x-sdk-date, Signature=${expectedSignature}`,
+    );
+    expect(headers.Authorization).not.toContain('sk-live-example-456');
+  });
+
+  test('rejects placeholder T Cloud Public AK/SK secrets before signing', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '80.158.59.140', family: 4 }]),
+    }));
+    const homeDir = makeTempDocsRoot('hybridclaw-http-otc-placeholder-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir, (config) => {
+      const ops = config.ops as Record<string, unknown>;
+      ops.gatewayApiToken = 'gateway-token';
+    });
+    writeAllowAllSecretPolicy(homeDir);
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.js'
+    );
+    saveNamedRuntimeSecrets({
+      OTC_ACCESS_KEY_ID: 'test-access-key',
+      OTC_SECRET_ACCESS_KEY: 'test-secret-key',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail?limit=50',
+        method: 'GET',
+        skillName: 't-cloud-public',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      'OTC_ACCESS_KEY_ID contains a placeholder value',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('blocks T Cloud Public signing for non-OTC hosts', async () => {
+    const fetchMock = vi.fn();
+    const { state } = await setupOtcGatewayRequestTest({
+      dnsAddress: '93.184.216.34',
+      fetchMock,
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/v2.1/project123/servers/detail',
+        method: 'GET',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toContain(
+      'otcAkSk can only be used for T Cloud Public / Open Telekom Cloud API hosts',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('blocks T Cloud Public signing over cleartext HTTP', async () => {
+    const fetchMock = vi.fn();
+    const { state } = await setupOtcGatewayRequestTest({
+      dnsAddress: '80.158.59.140',
+      fetchMock,
+    });
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'http://ecs.eu-de.otc.t-systems.com/v2.1/project123/servers/detail',
+        method: 'GET',
+        otcAkSk: {
+          accessKeyIdSecretName: 'OTC_ACCESS_KEY_ID',
+          secretAccessKeySecretName: 'OTC_SECRET_ACCESS_KEY',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      'otcAkSk signing requires an HTTPS T Cloud Public / Open Telekom Cloud URL',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('forwards base64-encoded binary bodies for outbound http_request calls', async () => {

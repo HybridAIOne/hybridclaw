@@ -17,6 +17,8 @@ import {
 } from '../api/client';
 import type {
   AdminBoardBudgetSummary,
+  AdminJobCard,
+  AdminJobCardEdge,
   AdminSchedulerJob,
   AdminSuspendedSession,
   JobAgent,
@@ -49,6 +51,10 @@ type JobBoardItem =
   | (JobBoardItemBase & {
       kind: 'job';
       job: AdminSchedulerJob;
+    })
+  | (JobBoardItemBase & {
+      kind: 'card';
+      card: AdminJobCard;
     })
   | (JobBoardItemBase & {
       kind: 'blocked';
@@ -114,6 +120,23 @@ function deriveTone(column: JobColumnId): JobBoardItem['tone'] {
   return 'default';
 }
 
+function deriveCardColumn(card: AdminJobCard): JobColumnId {
+  if (card.column === 'in_progress') return 'in_progress';
+  if (card.column === 'in_review') return 'review';
+  if (card.column === 'done') return 'done';
+  return 'backlog';
+}
+
+function getItemEdges(item: JobBoardItem): AdminJobCardEdge[] {
+  return item.kind === 'card' ? item.card.edges : [];
+}
+
+function formatEdgeLabel(edge: AdminJobCardEdge): string {
+  if (edge.kind === 'blocked_by') return `Blocked by ${edge.toCardId}`;
+  if (edge.kind === 'blocks') return `Blocks ${edge.toCardId}`;
+  return `Related ${edge.toCardId}`;
+}
+
 function deriveStateLabel(job: AdminSchedulerJob, column: JobColumnId): string {
   if (isJobPaused(job)) return 'paused';
   if (column === 'in_progress') return 'running';
@@ -166,6 +189,7 @@ function JobCard(props: {
   onDrop: (event: DragEvent<HTMLButtonElement>) => void;
 }) {
   const { item } = props;
+  const edges = getItemEdges(item);
   const agentPillStyle = useMemo(
     () => getAgentPillStyle(item.agentKey),
     [item.agentKey],
@@ -198,13 +222,30 @@ function JobCard(props: {
               {trimText(
                 item.kind === 'job'
                   ? item.job.name
-                  : item.suspendedSession.blockedLabel,
+                  : item.kind === 'card'
+                    ? item.card.title
+                    : item.suspendedSession.blockedLabel,
                 24,
               )}
             </strong>
           </div>
           <p>{item.summary}</p>
           <small>{item.stateLabel}</small>
+          {item.kind === 'card' && (item.card.blocked || edges.length > 0) ? (
+            <div className="jobs-card-edge-row">
+              {item.card.blocked ? (
+                <span className="jobs-edge-chip blocked">Blocked</span>
+              ) : null}
+              {edges.slice(0, 3).map((edge) => (
+                <span className="jobs-edge-chip" key={edge.id}>
+                  {formatEdgeLabel(edge)}
+                </span>
+              ))}
+              {edges.length > 3 ? (
+                <span className="jobs-edge-chip">+{edges.length - 3}</span>
+              ) : null}
+            </div>
+          ) : null}
           <div className="jobs-card-agent-row">
             <span className="jobs-card-pill" style={agentPillStyle}>
               {item.agentLabel}
@@ -248,6 +289,15 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
     return entries;
   }
 
+  if (item.kind === 'card') {
+    push('Card ID', item.card.id);
+    push('Source', item.card.source);
+    push('Parent', item.card.parent);
+    pushDate('Created', item.card.createdAt);
+    pushDate('Updated', item.card.updatedAt);
+    return entries;
+  }
+
   pushDate('Created', item.job.createdAt || item.session?.startedAt || null);
   pushDate('Last run', item.job.lastRun);
   push(
@@ -281,7 +331,7 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
 }
 
 function collectJobOutputs(item: JobBoardItem): string[] {
-  if (item.kind === 'blocked') return [];
+  if (item.kind === 'blocked' || item.kind === 'card') return [];
   const values =
     item.session?.output && item.session.output.length > 0
       ? item.session.output
@@ -317,10 +367,13 @@ function JobDetailCard(props: {
   const { item } = props;
   const navigate = useNavigate();
   const sessionId =
-    item.kind === 'blocked'
-      ? item.suspendedSession.sessionId
-      : resolveSchedulerSessionId(item.job);
+    item.kind === 'card'
+      ? null
+      : item.kind === 'blocked'
+        ? item.suspendedSession.sessionId
+        : resolveSchedulerSessionId(item.job);
   const editJobId = item.kind === 'job' ? item.job.id : null;
+  const edges = getItemEdges(item);
   const outputs = useMemo(() => collectJobOutputs(props.item), [props.item]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<null | 'lane' | 'agent'>(
@@ -363,25 +416,31 @@ function JobDetailCard(props: {
           <h4>
             {props.item.kind === 'job'
               ? props.item.job.name
-              : props.item.suspendedSession.blockedLabel}
+              : props.item.kind === 'card'
+                ? props.item.card.title
+                : props.item.suspendedSession.blockedLabel}
           </h4>
         </div>
-        <button
-          className="ghost-button"
-          type="button"
-          onClick={() => {
-            if (editJobId) {
-              void navigate({
-                to: '/admin/scheduler',
-                search: { jobId: editJobId },
-              }).catch(logNavigationError);
-              return;
-            }
-            void navigate({ to: '/admin/approvals' }).catch(logNavigationError);
-          }}
-        >
-          Edit
-        </button>
+        {props.item.kind === 'card' ? null : (
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => {
+              if (editJobId) {
+                void navigate({
+                  to: '/admin/scheduler',
+                  search: { jobId: editJobId },
+                }).catch(logNavigationError);
+                return;
+              }
+              void navigate({ to: '/admin/approvals' }).catch(
+                logNavigationError,
+              );
+            }}
+          >
+            Edit
+          </button>
+        )}
       </div>
 
       <div className="jobs-detail-stack">
@@ -465,9 +524,11 @@ function JobDetailCard(props: {
             <strong>
               {props.item.kind === 'blocked'
                 ? 'blocked'
-                : props.item.job.source === 'task'
-                  ? 'task'
-                  : 'job'}
+                : props.item.kind === 'card'
+                  ? 'card'
+                  : props.item.job.source === 'task'
+                    ? 'task'
+                    : 'job'}
             </strong>
           </div>
           <div>
@@ -479,9 +540,11 @@ function JobDetailCard(props: {
             <strong>
               {props.item.kind === 'blocked'
                 ? props.item.suspendedSession.context.host || 'n/a'
-                : props.item.job.channelId ||
-                  props.item.job.delivery.to ||
-                  'n/a'}
+                : props.item.kind === 'card'
+                  ? props.item.card.source
+                  : props.item.job.channelId ||
+                    props.item.job.delivery.to ||
+                    'n/a'}
             </strong>
           </div>
           {props.item.kind === 'job' &&
@@ -499,16 +562,38 @@ function JobDetailCard(props: {
           <p>
             {props.item.kind === 'blocked'
               ? props.item.suspendedSession.prompt
-              : props.item.job.description || props.item.summary}
+              : props.item.kind === 'card'
+                ? props.item.card.body || props.item.summary
+                : props.item.job.description || props.item.summary}
           </p>
         </div>
+
+        {props.item.kind === 'card' ? (
+          <div className="summary-block">
+            <span>Dependencies</span>
+            {edges.length ? (
+              <div className="jobs-runtime-list">
+                {edges.map((edge) => (
+                  <div className="jobs-runtime-row" key={edge.id}>
+                    <strong>{formatEdgeLabel(edge)}</strong>
+                    <small>{edge.kind}</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>No dependencies recorded for this card.</p>
+            )}
+          </div>
+        ) : null}
 
         <div className="summary-block">
           <span>Message</span>
           <p>
             {props.item.kind === 'blocked'
               ? props.item.suspendedSession.prompt
-              : props.item.job.action.message || 'No action message.'}
+              : props.item.kind === 'card'
+                ? props.item.card.status || 'No status recorded.'
+                : props.item.job.action.message || 'No action message.'}
           </p>
         </div>
 
@@ -764,9 +849,58 @@ export function JobsPage() {
       },
     );
 
-    return [...blockedItems, ...scheduledItems];
+    const cardItems = (jobsContextQuery.data?.cards || []).map(
+      (card): JobBoardItem => {
+        const agentId =
+          card.owner.type === 'agent' ? card.owner.id : 'unassigned';
+        const agent = agentsById.get(agentId) || null;
+        const agentLabel =
+          agent?.name ||
+          (card.owner.type === 'agent'
+            ? card.owner.id
+            : `User ${card.owner.id}`);
+        const column = deriveCardColumn(card);
+        const summary =
+          trimText(card.body, 36) ||
+          trimText(card.status, 28) ||
+          trimText(card.source, 24) ||
+          'No summary';
+
+        return {
+          key: `card:${card.id}`,
+          kind: 'card',
+          card,
+          session: null,
+          agentKey: agentId,
+          agentLabel,
+          column,
+          tone: card.blocked ? 'danger' : deriveTone(column),
+          stateLabel: card.blocked ? 'blocked' : card.status || 'ready',
+          summary,
+          searchIndex: [
+            card.id,
+            card.title,
+            card.body,
+            card.status,
+            card.source,
+            card.parent || '',
+            agentLabel,
+            ...card.edges.flatMap((edge) => [
+              edge.kind,
+              edge.fromCardId,
+              edge.toCardId,
+            ]),
+          ]
+            .join(' ')
+            .toLowerCase(),
+        };
+      },
+    );
+
+    return [...blockedItems, ...cardItems, ...scheduledItems];
   }, [
     agentsById,
+    jobsContextQuery.data?.cards,
     jobsContextQuery.data?.suspendedSessions,
     schedulerQuery.data?.jobs,
     sessionsById,

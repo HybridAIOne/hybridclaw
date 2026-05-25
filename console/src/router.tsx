@@ -21,6 +21,7 @@ import { GatewayPage } from './routes/gateway';
 import { JobsPage } from './routes/jobs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
+import { OutputGuardPage } from './routes/output-guard';
 import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
 import { SessionsPage } from './routes/sessions';
@@ -212,6 +213,12 @@ const pluginsRoute = createRoute({
   component: PluginsPage,
 });
 
+const outputGuardRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/output-guard',
+  component: OutputGuardPage,
+});
+
 const toolsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/tools',
@@ -251,6 +258,7 @@ const routeTree = rootRoute.addChildren([
     auditRoute,
     skillsRoute,
     pluginsRoute,
+    outputGuardRoute,
     toolsRoute,
   ]),
   agentsOverviewRoute,

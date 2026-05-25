@@ -26,7 +26,7 @@ export type PluginKind =
   | 'middleware';
 
 export type PluginRegistrationMode = 'full' | 'discovery';
-export type PluginDiscoverySource = 'home' | 'project' | 'config';
+export type PluginDiscoverySource = 'home' | 'project' | 'bundled' | 'config';
 
 export interface PluginInstallSpec {
   kind: 'npm' | 'node' | 'download';

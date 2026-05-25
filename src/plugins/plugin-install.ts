@@ -130,7 +130,7 @@ export interface CheckPluginOptions {
 export interface CheckPluginResult {
   pluginId: string;
   pluginDir: string;
-  source: 'home' | 'project' | 'config';
+  source: 'home' | 'project' | 'bundled' | 'config';
   requiresEnv: string[];
   missingEnv: string[];
   requiredConfigKeys: string[];

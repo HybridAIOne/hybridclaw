@@ -116,7 +116,6 @@ import {
 } from './tui-slash-menu.js';
 import { stopTuiRun } from './tui-stop.js';
 import {
-  appendTerminalRowCount,
   countTerminalRows,
   createTuiStreamFormatState,
   createTuiThinkingStreamState,
@@ -131,8 +130,6 @@ const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const BOLD_OFF = '\x1b[22m';
 const JELLYFISH = '🪼';
-const SAVE_CURSOR = '\x1b7';
-const RESTORE_CURSOR = '\x1b8';
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
 const TUI_EXIT_CONFIRM_WINDOW_MS = 5000;
@@ -1180,7 +1177,7 @@ function parseTuiMarkdownTableAt(
   return rows.length > 1 ? { rows, endLine } : null;
 }
 
-function hasTuiMarkdownFormatting(text: string): boolean {
+export function hasTuiMarkdownFormatting(text: string): boolean {
   const lines = String(text || '')
     .replace(/\r\n?/g, '\n')
     .split('\n');
@@ -1196,6 +1193,24 @@ function hasTuiMarkdownFormatting(text: string): boolean {
     if (parseTuiMarkdownTableAt(lines, index)) return true;
   }
   return false;
+}
+
+export function shouldReplayTuiFormattedText(params: {
+  finalText: string;
+  interrupted: boolean;
+  pendingApproval: boolean;
+  sawVisibleTextDelta: boolean;
+  status: GatewayChatResult['status'];
+  stdoutIsTTY: boolean;
+}): boolean {
+  return (
+    !params.pendingApproval &&
+    !params.interrupted &&
+    params.status !== 'error' &&
+    params.sawVisibleTextDelta &&
+    params.stdoutIsTTY &&
+    hasTuiMarkdownFormatting(params.finalText)
+  );
 }
 
 function wrapAnsiTuiVisibleLine(value: string, width: number): string[] {
@@ -1760,7 +1775,7 @@ function spinner(): {
   finishTool: (toolName: string, preview?: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
-  clearVisibleText: () => void;
+  clearVisibleText: () => boolean;
   trailingNewlinesAfterVisibleText: () => string;
   setThinkingPreview: (preview: string | null) => void;
   clearThinkingPreview: () => void;
@@ -1776,8 +1791,8 @@ function spinner(): {
   let cursorHidden = false;
   const toolEntries: SpinnerToolEntry[] = [];
   let hasVisibleText = false;
-  let visibleTextCursorSaved = false;
   let visibleTextState = createTuiStreamFormatState();
+  let visibleTextOutput = '';
   let visibleTextRows = 0;
   let thinkingPreviewRows = 0;
   let toolActivityRows = 0;
@@ -1868,27 +1883,21 @@ function spinner(): {
   };
 
   const clearVisibleText = () => {
-    if (!hasVisibleText) return;
+    if (!hasVisibleText) return true;
+    const canClear = process.stdout.isTTY;
     if (process.stdout.isTTY) {
-      if (visibleTextCursorSaved) {
-        process.stdout.write(`${RESTORE_CURSOR}\x1b[0J`);
-      } else {
-        const rows = Math.max(1, visibleTextRows);
-        if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
-        for (let row = 0; row < rows; row += 1) {
-          clearLine();
-          if (row < rows - 1) process.stdout.write('\n');
-        }
-        if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
-      }
+      const rows = Math.max(1, visibleTextRows);
+      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
+      process.stdout.write('\r\x1b[0J');
     }
     hasVisibleText = false;
-    visibleTextCursorSaved = false;
     visibleTextState = createTuiStreamFormatState();
+    visibleTextOutput = '';
     visibleTextRows = 0;
     if (!stopped && showActivityPreview && thinkingPreviewRows === 0) {
       render();
     }
+    return canClear;
   };
 
   const setThinkingPreview = (preview: string | null) => {
@@ -1989,10 +1998,6 @@ function spinner(): {
       if (!hasVisibleText) {
         clearTools();
         clearLine();
-        if (process.stdout.isTTY) {
-          process.stdout.write(SAVE_CURSOR);
-          visibleTextCursorSaved = true;
-        }
       }
       const formatted = formatTuiStreamDelta(
         delta,
@@ -2002,7 +2007,8 @@ function spinner(): {
       visibleTextState = formatted.state;
       if (!formatted.text) return;
       hasVisibleText = true;
-      visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);
+      visibleTextOutput += formatted.text;
+      visibleTextRows = countTerminalRows(visibleTextOutput, terminalColumns());
       process.stdout.write(formatted.text);
     },
     flushVisibleText: () => {
@@ -2016,13 +2022,10 @@ function spinner(): {
       if (!hasVisibleText) {
         clearTools();
         clearLine();
-        if (process.stdout.isTTY) {
-          process.stdout.write(SAVE_CURSOR);
-          visibleTextCursorSaved = true;
-        }
         hasVisibleText = true;
       }
-      visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);
+      visibleTextOutput += formatted.text;
+      visibleTextRows = countTerminalRows(visibleTextOutput, terminalColumns());
       process.stdout.write(formatted.text);
     },
     clearVisibleText,
@@ -2893,18 +2896,18 @@ async function processMessage(
       resolveCachedApprovalDetails(tuiPendingApproval),
     );
     const interrupted = isInterruptedResult(result);
-    const shouldReplayFormattedText =
-      !pendingApproval &&
-      !interrupted &&
-      result.status !== 'error' &&
-      sawVisibleTextDelta &&
-      process.stdout.isTTY &&
-      hasTuiMarkdownFormatting(finalText);
+    const wantsFormattedReplay = shouldReplayTuiFormattedText({
+      finalText,
+      interrupted,
+      pendingApproval: !!pendingApproval,
+      sawVisibleTextDelta,
+      status: result.status,
+      stdoutIsTTY: process.stdout.isTTY,
+    });
 
     s.flushVisibleText();
-    if (shouldReplayFormattedText) {
-      s.clearVisibleText();
-    }
+    const shouldReplayFormattedText =
+      wantsFormattedReplay && s.clearVisibleText();
     s.stop();
     s.clearThinkingPreview();
     const hasStreamedText = sawVisibleTextDelta && !shouldReplayFormattedText;

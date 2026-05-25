@@ -808,8 +808,46 @@ export interface GatewayAdminJobSession {
 
 export interface GatewayAdminJobsContextResponse {
   agents: GatewayAdminJobAgent[];
+  cards: GatewayAdminJobCard[];
   sessions: GatewayAdminJobSession[];
   suspendedSessions: GatewayAdminSuspendedSession[];
+}
+
+export interface GatewayAdminJobCardOwner {
+  type: 'agent' | 'user';
+  id: string;
+}
+
+export type GatewayAdminJobCardColumn =
+  | 'triage'
+  | 'todo'
+  | 'in_progress'
+  | 'in_review'
+  | 'done';
+
+export type GatewayAdminJobCardEdgeKind = 'blocks' | 'blocked_by' | 'related';
+
+export interface GatewayAdminJobCardEdge {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  kind: GatewayAdminJobCardEdgeKind;
+  createdAt: string;
+}
+
+export interface GatewayAdminJobCard {
+  id: string;
+  title: string;
+  body: string;
+  owner: GatewayAdminJobCardOwner;
+  column: GatewayAdminJobCardColumn;
+  status: string;
+  source: string;
+  parent: string | null;
+  createdAt: string;
+  updatedAt: string;
+  blocked: boolean;
+  edges: GatewayAdminJobCardEdge[];
 }
 
 export interface GatewayAdminBoardBudgetSummary {
@@ -1097,6 +1135,33 @@ export interface GatewayAdminModelCatalogEntry {
 
 export interface GatewayAdminModelsResponse {
   defaultModel: string;
+  auxiliaryModels?: {
+    skillsHub: {
+      provider:
+        | 'auto'
+        | 'disabled'
+        | 'hybridai'
+        | 'openai-codex'
+        | 'anthropic'
+        | 'openrouter'
+        | 'mistral'
+        | 'huggingface'
+        | 'gemini'
+        | 'deepseek'
+        | 'xai'
+        | 'zai'
+        | 'kimi'
+        | 'minimax'
+        | 'dashscope'
+        | 'xiaomi'
+        | 'kilo'
+        | 'ollama'
+        | 'lmstudio'
+        | 'llamacpp'
+        | 'vllm';
+      model: string | null;
+    };
+  };
   providerStatus: GatewayStatus['providerHealth'];
   models: GatewayAdminModelCatalogEntry[];
 }
@@ -1285,7 +1350,7 @@ export interface GatewayAdminPlugin {
   name: string | null;
   version: string | null;
   description: string | null;
-  source: 'home' | 'project' | 'config';
+  source: 'home' | 'project' | 'bundled' | 'config';
   enabled: boolean;
   status: 'loaded' | 'failed';
   error: string | null;
@@ -1304,6 +1369,68 @@ export interface GatewayAdminPluginsResponse {
     hooks: number;
   };
   plugins: GatewayAdminPlugin[];
+}
+
+export interface GatewayAdminOutputGuardProfile {
+  enabled: boolean;
+  mode: 'block' | 'rewrite' | 'flag';
+  policy: string;
+  doList: string[];
+  dontList: string[];
+  bannedPhrases: string[];
+  bannedPatterns: string[];
+  requirePhrases: string[];
+  classifier: GatewayAdminOutputGuardModelConfig;
+  rewriter: GatewayAdminOutputGuardModelConfig;
+}
+
+export interface GatewayAdminOutputGuardModelConfig {
+  provider: 'default' | 'auxiliary' | 'model';
+  model: string;
+}
+
+export interface GatewayAdminOutputGuardRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+}
+
+export interface GatewayAdminOutputGuardProfileResponse {
+  profile: GatewayAdminOutputGuardProfile;
+  revisions: GatewayAdminOutputGuardRevision[];
+}
+
+export interface GatewayAdminOutputGuardProfileUpdateResponse
+  extends GatewayAdminOutputGuardProfileResponse {
+  changed: boolean;
+  reloadMessage: string;
+}
+
+export interface GatewayAdminOutputGuardPreviewViolation {
+  kind: 'banned_phrase' | 'banned_pattern' | 'missing_required';
+  detail: string;
+}
+
+export interface GatewayAdminOutputGuardPreviewClassifier {
+  provider: 'default' | 'auxiliary' | 'model';
+  status: 'evaluated' | 'unavailable' | 'unparseable';
+  verdict: 'compliant' | 'non_compliant' | null;
+  severity: 'low' | 'medium' | 'high' | null;
+  reasons: string[];
+  message: string | null;
+  model: string | null;
+}
+
+export interface GatewayAdminOutputGuardPreviewResponse {
+  score: number;
+  ruleScore: number;
+  scoreSource: 'classifier' | 'rules';
+  verdict: 'compliant' | 'needs_review' | 'non_compliant';
+  violations: GatewayAdminOutputGuardPreviewViolation[];
+  classifier: GatewayAdminOutputGuardPreviewClassifier;
 }
 
 export interface GatewayAdminToolCatalogEntry {
