@@ -8,7 +8,10 @@ import type {
   ExecutorSessionHealthSnapshot,
 } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
+import {
+  getGoogleWorkspaceRuntimeEnvRecoveryHint,
+  resolveGoogleWorkspaceRuntimeEnv,
+} from '../auth/google-auth.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
@@ -921,9 +924,10 @@ async function runHostProcessInner(
     sessionModel: modelRuntime.model || model,
   });
   const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
+    const recoveryHint = getGoogleWorkspaceRuntimeEnvRecoveryHint(error);
     logger.warn(
-      { error },
-      'Failed to resolve Google access token for Workspace CLI runtime environment',
+      { error, recoveryHint },
+      `Failed to resolve Google access token for Workspace CLI runtime environment. ${recoveryHint}`,
     );
     return {};
   });
