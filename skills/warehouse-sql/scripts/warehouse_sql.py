@@ -182,6 +182,13 @@ class ReviewResult:
     requires_write_grant: bool
 
 
+@dataclass
+class SqlReviewScan:
+    masked: str
+    statements: list[str]
+    masked_statements: list[str]
+
+
 def utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -194,40 +201,44 @@ def stable_cache_key(
     backend: str,
     profile: str,
     database: str | None,
-    scope: dict[str, str] | None = None,
+    bigquery_project: str = "",
+    bigquery_dataset: str = "",
 ) -> str:
     raw = json.dumps(
         {
             "backend": backend,
             "profile": profile,
             "database": database or "",
-            "scope": scope or {},
+            "bigqueryDataset": bigquery_dataset,
+            "bigqueryProject": bigquery_project,
         },
         sort_keys=True,
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
-def schema_cache_scope(args: argparse.Namespace) -> dict[str, str]:
-    if args.backend == "bigquery":
-        project = (
-            str(getattr(args, "bigquery_project", "") or "").strip()
-            or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_PROJECT", "").strip()
-        )
-        dataset = (
-            str(getattr(args, "bigquery_dataset", "") or "").strip()
-            or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_DATASET", "").strip()
-        )
-        return {"project": project, "dataset": dataset}
-    return {}
+def bigquery_cache_scope(args: argparse.Namespace) -> tuple[str, str]:
+    if args.backend != "bigquery":
+        return "", ""
+    project = (
+        str(getattr(args, "bigquery_project", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_PROJECT", "").strip()
+    )
+    dataset = (
+        str(getattr(args, "bigquery_dataset", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_DATASET", "").strip()
+    )
+    return project, dataset
 
 
 def cache_path(cache_dir: Path, args: argparse.Namespace) -> Path:
+    bigquery_project, bigquery_dataset = bigquery_cache_scope(args)
     key = stable_cache_key(
         args.backend,
         args.profile,
         args.database,
-        schema_cache_scope(args),
+        bigquery_project,
+        bigquery_dataset,
     )
     return cache_dir / f"{args.backend}-{args.profile}-{key}.json"
 
@@ -721,83 +732,86 @@ def load_or_refresh_schema(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
-def sql_without_comments(sql: str, *, mask_literals: bool) -> str:
-    output: list[str] = []
+def scan_sql_for_review(sql: str) -> SqlReviewScan:
+    # Supported backends use standard SQL doubled-quote escaping; this does not
+    # model MySQL-style backslash string escaping.
+    masked: list[str] = []
+    statement: list[str] = []
+    masked_statement: list[str] = []
+    statements: list[str] = []
+    masked_statements: list[str] = []
     quote: str | None = None
     index = 0
+
+    def append_pair(commentless_text: str, masked_text: str) -> None:
+        masked.append(masked_text)
+        statement.append(commentless_text)
+        masked_statement.append(masked_text)
+
+    def append_masked_space(char: str) -> None:
+        append_pair(char, "\n" if char == "\n" else " ")
+
+    def append_comment_space(char: str) -> None:
+        replacement = "\n" if char == "\n" else " "
+        append_pair(replacement, replacement)
+
+    def flush_statement() -> None:
+        raw_statement = "".join(statement).strip()
+        raw_masked_statement = "".join(masked_statement).strip()
+        if raw_statement:
+            statements.append(raw_statement)
+        if raw_masked_statement:
+            masked_statements.append(raw_masked_statement)
+        statement.clear()
+        masked_statement.clear()
+
     while index < len(sql):
         char = sql[index]
         next_char = sql[index + 1] if index + 1 < len(sql) else ""
         if quote:
-            output.append("\n" if char == "\n" else " " if mask_literals else char)
+            append_masked_space(char)
             if char == quote:
                 if next_char == quote:
-                    output.append(" " if mask_literals else next_char)
+                    append_masked_space(next_char)
                     index += 1
                 else:
                     quote = None
         elif char in {"'", '"', "`"}:
             quote = char
-            output.append(" " if mask_literals else char)
+            append_masked_space(char)
         elif char == "-" and next_char == "-":
-            output.extend("  ")
+            append_comment_space(char)
+            append_comment_space(next_char)
             index += 2
             while index < len(sql) and sql[index] != "\n":
-                output.append(" ")
+                append_comment_space(sql[index])
                 index += 1
             if index < len(sql):
-                output.append(sql[index])
+                append_comment_space(sql[index])
         elif char == "/" and next_char == "*":
-            output.extend("  ")
+            append_comment_space(char)
+            append_comment_space(next_char)
             index += 2
             while index < len(sql):
                 if sql[index] == "*" and index + 1 < len(sql) and sql[index + 1] == "/":
-                    output.extend("  ")
+                    append_comment_space(sql[index])
+                    append_comment_space(sql[index + 1])
                     index += 1
                     break
-                output.append("\n" if sql[index] == "\n" else " ")
+                append_comment_space(sql[index])
                 index += 1
-        else:
-            output.append(char)
-        index += 1
-    return "".join(output)
-
-
-def strip_sql_comments(sql: str) -> str:
-    return sql_without_comments(sql, mask_literals=False)
-
-
-def mask_sql_literals_and_comments(sql: str) -> str:
-    return sql_without_comments(sql, mask_literals=True)
-
-
-def split_sql_statements(sql: str) -> list[str]:
-    statements: list[str] = []
-    current: list[str] = []
-    quote: str | None = None
-    index = 0
-    while index < len(sql):
-        char = sql[index]
-        current.append(char)
-        if quote:
-            if char == quote:
-                if index + 1 < len(sql) and sql[index + 1] == quote:
-                    current.append(sql[index + 1])
-                    index += 1
-                else:
-                    quote = None
-        elif char in {"'", '"', "`"}:
-            quote = char
         elif char == ";":
-            statement = "".join(current).strip().rstrip(";").strip()
-            if statement:
-                statements.append(statement)
-            current = []
+            masked.append(char)
+            flush_statement()
+        else:
+            append_pair(char, char)
         index += 1
-    tail = "".join(current).strip()
-    if tail:
-        statements.append(tail)
-    return statements
+    flush_statement()
+    return SqlReviewScan(
+        masked="".join(masked),
+        statements=statements,
+        masked_statements=masked_statements,
+    )
 
 
 def first_keyword(statement: str) -> str:
@@ -835,10 +849,8 @@ def review_sql(
     allow_write: bool = False,
     write_grant: str | None = None,
 ) -> ReviewResult:
-    commentless = strip_sql_comments(sql)
-    masked = mask_sql_literals_and_comments(sql)
-    statements = split_sql_statements(commentless)
-    masked_statements = split_sql_statements(masked)
+    scan = scan_sql_for_review(sql)
+    statements = scan.statements
     findings: list[str] = []
 
     if not statements:
@@ -847,16 +859,16 @@ def review_sql(
     if len(statements) > 1:
         findings.append("SQL must contain exactly one statement.")
 
-    lowered = f" {masked.lower()} "
+    lowered = f" {scan.masked.lower()} "
     keyword_hits = sorted(
         keyword
         for keyword in MUTATING_KEYWORDS
         if re.search(rf"\b{re.escape(keyword)}\b", lowered)
     )
     write_through_select = bool(
-        re.search(r"\bselect\b[\s\S]*\binto\b", masked, re.IGNORECASE)
+        re.search(r"\bselect\b[\s\S]*\binto\b", scan.masked, re.IGNORECASE)
     )
-    starter = first_keyword(masked_statements[0]) if masked_statements else ""
+    starter = first_keyword(scan.masked_statements[0]) if scan.masked_statements else ""
     read_only = (
         bool(statements)
         and starter in READ_ONLY_STARTERS
@@ -871,7 +883,7 @@ def review_sql(
         findings.append("SELECT INTO requires the write-grant path.")
     if statements and starter not in READ_ONLY_STARTERS:
         findings.append(f"Statement starts with '{starter or 'unknown'}', not a read-only SQL verb.")
-    if read_only and not re.search(r"\blimit\b", masked, re.IGNORECASE) and starter != "explain":
+    if read_only and not re.search(r"\blimit\b", scan.masked, re.IGNORECASE) and starter != "explain":
         findings.append("Exploratory read does not include LIMIT; add one unless an aggregate query requires all rows.")
 
     if requires_write_grant:
@@ -913,6 +925,14 @@ def default_model_review_payload() -> dict[str, Any]:
     }
 
 
+def skipped_model_review_payload(reason: str) -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "status": "skipped",
+        "reason": reason,
+    }
+
+
 def review_payload_from_result(
     sql: str,
     result: ReviewResult,
@@ -920,7 +940,7 @@ def review_payload_from_result(
 ) -> dict[str, Any]:
     findings = list(result.findings)
     status = result.status
-    if model_review and model_review.get("status") != "pass":
+    if model_review and model_review.get("status") == "block":
         status = "block"
         findings.append("Model review blocked execution.")
     return {
@@ -944,6 +964,15 @@ def resolve_model_review_url(args: argparse.Namespace) -> str:
     if env_url:
         return env_url
     return f"{resolve_gateway_url(args).rstrip('/')}/v1/chat/completions"
+
+
+def model_review_endpoint_configured(args: argparse.Namespace) -> bool:
+    return bool(
+        str(getattr(args, "model_review_url", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_URL", "").strip()
+        or os.environ.get("HYBRIDCLAW_GATEWAY_URL", "").strip()
+        or os.environ.get("GATEWAY_BASE_URL", "").strip()
+    )
 
 
 def resolve_model_review_token(args: argparse.Namespace) -> str:
@@ -1407,16 +1436,23 @@ def handle_schedule_refresh(args: argparse.Namespace) -> Any:
 
 def handle_query(args: argparse.Namespace) -> Any:
     ensure_backend(args.backend)
+    if args.execute and not model_review_endpoint_configured(args):
+        raise WarehouseSqlError(
+            "query --execute requires a model-review endpoint. Set HYBRIDCLAW_GATEWAY_URL, "
+            "GATEWAY_BASE_URL, HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_URL, or pass --model-review-url."
+        )
     review_result = review_sql(
         args.sql,
         allow_write=args.allow_write,
         write_grant=args.write_grant,
     )
-    model_review = (
-        run_model_review(args.sql, args, review_result)
-        if args.model_review or (args.execute and review_result.status == "pass")
-        else None
-    )
+    model_review = None
+    if args.model_review or (args.execute and review_result.status == "pass"):
+        model_review = run_model_review(args.sql, args, review_result)
+    elif args.execute:
+        model_review = skipped_model_review_payload(
+            "deterministic review blocked execution before model review"
+        )
     payload = review_payload_from_result(args.sql, review_result, model_review)
     if not args.execute:
         payload["execution"] = {

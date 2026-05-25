@@ -725,6 +725,51 @@ test('warehouse SQL helper executes reviewed SQLite queries only when requested'
   expect(reviewPayload.execution.status).toBe('not-run');
   expect(reviewPayload.review.modelReview.status).toBe('not-run');
 
+  const missingEndpoint = runHelper(
+    [
+      '--format',
+      'json',
+      'query',
+      '--backend',
+      'sqlite',
+      '--database',
+      dbPath,
+      '--execute',
+      'SELECT c_name FROM customer LIMIT 1',
+    ],
+    {
+      GATEWAY_BASE_URL: '',
+      HYBRIDCLAW_GATEWAY_URL: '',
+      HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_URL: '',
+    },
+  );
+  expect(missingEndpoint.status).toBe(2);
+  const missingEndpointPayload = JSON.parse(missingEndpoint.stdout);
+  expect(missingEndpointPayload.error).toContain(
+    'query --execute requires a model-review endpoint',
+  );
+
+  const deterministicBlock = runHelper([
+    '--format',
+    'json',
+    'query',
+    '--backend',
+    'sqlite',
+    '--database',
+    dbPath,
+    '--execute',
+    '--model-review-url',
+    'http://127.0.0.1:1/v1/chat/completions',
+    "UPDATE customer SET c_name = 'Blocked'",
+  ]);
+  expect(deterministicBlock.status).toBe(0);
+  const deterministicBlockPayload = JSON.parse(deterministicBlock.stdout);
+  expect(deterministicBlockPayload.review.modelReview).toMatchObject({
+    status: 'skipped',
+    reason: 'deterministic review blocked execution before model review',
+  });
+  expect(deterministicBlockPayload.execution.status).toBe('blocked');
+
   const executed = await withModelReviewServer(async ({ requests, url }) => {
     const result = await runHelperAsync([
       '--format',
