@@ -67,6 +67,14 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('/device/all_status?show_info=true&no_shared=true');
   expect(skill).toContain('OAuth/Bearer\n  access-token authentication');
   expect(skill).toContain('cloud-all-status');
+  expect(skill).toContain('Names and Rooms');
+  expect(skill).toContain(
+    'Do not say Shelly App names or room names are unset',
+  );
+  expect(skill).toContain('this endpoint did not return names');
+  expect(skill).toContain(
+    'Do not claim that nobody named the devices in the\n  Shelly app.',
+  );
 });
 
 test('Shelly helper --help exits cleanly and lists local and cloud operations', () => {

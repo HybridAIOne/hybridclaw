@@ -140,6 +140,26 @@ If the user asks to discover all Shelly devices from the cloud:
 - Do not try to call Real Time Events with `SHELLY_CLOUD_AUTH_KEY`; that key is
   for v2 `/v2/devices/api/...` control requests only.
 
+## Names and Rooms
+
+Do not say Shelly App names or room names are unset just because a local RPC
+response or a Cloud Control API v2 `settings` response omits a name field. Treat
+that as "this endpoint did not return names" and say that clearly.
+
+Shelly has multiple naming layers. Firmware configuration, cloud device
+metadata, app display names, and room assignments can be exposed by different
+API surfaces. When the user asks for names:
+
+- Prefer `cloud-all-status` with `show_info=true` when
+  `SHELLY_CLOUD_ACCESS_TOKEN` is configured. Inspect `_dev_info.app_name`,
+  `_dev_info.name`, `_dev_info.id`, `name`, and any returned room-like fields.
+- If only local Gen2+ data or v2 `cloud-get-state` data is available, report
+  the ids, IPs, model, and status, then say names were not returned by that
+  endpoint.
+- If no name-like or room-like field is returned, ask the user for a mapping or
+  for OAuth-backed discovery. Do not claim that nobody named the devices in the
+  Shelly app.
+
 ## Credentials
 
 For Cloud Control API calls, store the Shelly authorization key in HybridClaw
