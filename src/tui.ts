@@ -1576,6 +1576,10 @@ function terminalColumns(): number {
   return Math.max(24, process.stdout.columns || 120);
 }
 
+function terminalRows(): number {
+  return Math.max(8, process.stdout.rows || 24);
+}
+
 function formatTuiOutput(text: string): string {
   return formatTuiMarkdownOutput(text, terminalColumns(), '  ');
 }
@@ -1889,8 +1893,12 @@ function spinner(): {
     const canClear = process.stdout.isTTY;
     if (process.stdout.isTTY) {
       const rows = Math.max(1, visibleTextRows);
-      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
-      process.stdout.write('\r\x1b[0J');
+      const safeClearRows = Math.max(1, terminalRows() - 2);
+      if (rows <= safeClearRows) {
+        clearRows(rows);
+      } else {
+        process.stdout.write('\n');
+      }
     }
     hasVisibleText = false;
     visibleTextState = createTuiStreamFormatState();

@@ -231,6 +231,25 @@ test('strips Qwen tool markup from transient thinking previews', () => {
   });
 });
 
+test('bounds transient thinking previews to avoid terminal scrollback clears', () => {
+  const state = createTuiThinkingStreamState();
+  const result = state.push(
+    `<think>${Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n')}</think>`,
+  );
+
+  expect(result.thinkingPreview?.split('\n')).toEqual([
+    '...',
+    'line 13',
+    'line 14',
+    'line 15',
+    'line 16',
+    'line 17',
+    'line 18',
+    'line 19',
+    'line 20',
+  ]);
+});
+
 test('suppresses unmatched thinking close markers from visible stream text', () => {
   const state = createTuiThinkingStreamState();
 
