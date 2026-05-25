@@ -182,6 +182,10 @@ names, rooms, or command readiness from intent, docs, or partial failures.
   which fields were missing.
 - If credentials are missing for an API surface, name the missing secret and
   explain what remains possible with the credentials that are configured.
+- Do not infer that a stored secret is missing from prior turns, memory, or
+  prompt context. A secret is missing only if the current `http_request` using
+  the helper-emitted placeholder fails with a stored-secret error. If the user
+  says they configured a secret, retry the exact helper-backed request once.
 - Do not promise account-wide cloud discovery unless
   `SHELLY_CLOUD_ACCESS_TOKEN` is configured. `SHELLY_CLOUD_AUTH_KEY` plus a
   tenant host can read or control known device ids only.
@@ -222,6 +226,10 @@ If the user asks to discover all Shelly devices from the cloud:
   or ask for LAN IPs reachable by the gateway.
 - Do not try to call Real Time Events with `SHELLY_CLOUD_AUTH_KEY`; that key is
   for v2 `/v2/devices/api/...` control requests only.
+- For known cover ids and configured `SHELLY_CLOUD_AUTH_KEY`, use
+  `cloud-get-state --select settings` to inspect cloud v2 settings. Do not call
+  tenant-host `/rpc/Cover.GetConfig`; that RPC path is a local device API, not a
+  Shelly Cloud tenant endpoint.
 
 ## Names and Rooms
 
@@ -245,8 +253,9 @@ API surfaces. When the user asks for names:
   `local-gen2-components --include config --key sys`. Look for
   `sys.device.name` and component `name` fields.
 - If only Real Time Events or v2 `cloud-get-state` data is available, report
-  the ids, IPs, model/code, and status, then say app/room names were not
-  returned by that endpoint.
+  the ids, IPs, model/code, and status. For v2 settings, inspect returned
+  `cover:<id>`/cover settings for `name` before saying names were not returned
+  by that endpoint.
 - If no name-like or room-like field is returned, ask the user for a mapping or
   for LAN/local-config discovery. Do not claim that nobody named the devices in
   the Shelly app.
