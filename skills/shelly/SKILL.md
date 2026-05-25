@@ -42,6 +42,8 @@ metadata:
         - local-gen2-config
         - local-gen2-methods
         - local-gen2-components
+        - local-gen2-cover-config
+        - local-gen2-cover-status
         - local-gen2-switch-status
         - cloud-get-state
         - cloud-oauth-token
@@ -95,6 +97,7 @@ Shelly has three relevant HTTP surfaces:
 
 Official references:
 [Gen2+ Shelly service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Shelly/),
+[Gen2+ Cover service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Cover/),
 [Gen2+ Switch service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Switch/),
 [Gen2+ authentication](https://shelly-api-docs.shelly.cloud/gen2/General/Authentication/),
 [Gen1 device API](https://shelly-api-docs.shelly.cloud/gen1/),
@@ -106,7 +109,9 @@ and
 
 1. Identify the device generation and reachable API first:
    - Gen2+: `local-gen2-info`, then `local-gen2-status` or
-     `local-gen2-components`.
+     `local-gen2-components`. For cover names, call
+     `local-gen2-cover-config --id <cover-channel>` because
+     `Cover.GetConfig` exposes the cover component `name`.
    - Gen1: `local-gen1-shelly`, then `local-gen1-status`.
    - Cloud Real Time Events OAuth/Bearer: `cloud-all-status` to discover
      account device ids and current or last-known statuses.
@@ -232,9 +237,13 @@ API surfaces. When the user asks for names:
   Inspect `_dev_info` and top-level fields, but expect only id, generation,
   product code, and online state unless the actual response includes more.
   Do not promise app names from Real Time Events.
-- For firmware-level device names, prefer local Gen2+ `local-gen2-config` or
-  `local-gen2-components --include config --key sys` where the gateway can
-  reach the device. Look for `sys.device.name` or component `name` fields.
+- For firmware-level cover names, prefer local Gen2+
+  `local-gen2-cover-config --id <cover-channel>` where the gateway can reach
+  the device. `Cover.GetConfig` exposes the cover component `name`; this is the
+  best API surface for shade/cover labels.
+- For broader firmware-level device names, use `local-gen2-config` or
+  `local-gen2-components --include config --key sys`. Look for
+  `sys.device.name` and component `name` fields.
 - If only Real Time Events or v2 `cloud-get-state` data is available, report
   the ids, IPs, model/code, and status, then say app/room names were not
   returned by that endpoint.
@@ -302,6 +311,14 @@ node skills/shelly/shelly.cjs --format json http-request local-gen2-components \
   --include status \
   --include config \
   --key switch:0
+
+node skills/shelly/shelly.cjs --format json http-request local-gen2-cover-config \
+  --device-url http://192.0.2.10 \
+  --id 0
+
+node skills/shelly/shelly.cjs --format json http-request local-gen2-cover-status \
+  --device-url http://192.0.2.10 \
+  --id 0
 ```
 
 Build guarded local Gen2+ switch control:

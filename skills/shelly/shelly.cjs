@@ -20,6 +20,8 @@ const OPERATION_TIERS = {
   'local-gen2-config': 'green',
   'local-gen2-methods': 'green',
   'local-gen2-components': 'green',
+  'local-gen2-cover-config': 'green',
+  'local-gen2-cover-status': 'green',
   'local-gen2-switch-status': 'green',
   'local-gen2-switch-set': 'amber',
   'local-gen2-switch-toggle': 'amber',
@@ -50,6 +52,8 @@ Local Gen2+ reads:
   local-gen2-config --device-url http://192.0.2.10
   local-gen2-methods --device-url http://192.0.2.10
   local-gen2-components --device-url http://192.0.2.10 [--include status] [--include config] [--key switch:0]
+  local-gen2-cover-config --device-url http://192.0.2.10 --id 0
+  local-gen2-cover-status --device-url http://192.0.2.10 --id 0
   local-gen2-switch-status --device-url http://192.0.2.10 --id 0
 
 Local Gen2+ control:
@@ -362,6 +366,22 @@ function buildLocalGen2(operation, args) {
       params.offset = parseNonNegativeInteger(offset, '--offset');
     assertNoUnexpectedArgs(args);
     return buildRpcPost(operation, base, 'Shelly.GetComponents', params);
+  }
+
+  if (operation === 'local-gen2-cover-config') {
+    const id = parseNonNegativeInteger(popFlag(args, '--id', '0'), '--id');
+    assertNoUnexpectedArgs(args);
+    return buildPayload(operation, {
+      url: rpcGetUrl(base, 'Cover.GetConfig', { id }),
+    });
+  }
+
+  if (operation === 'local-gen2-cover-status') {
+    const id = parseNonNegativeInteger(popFlag(args, '--id', '0'), '--id');
+    assertNoUnexpectedArgs(args);
+    return buildPayload(operation, {
+      url: rpcGetUrl(base, 'Cover.GetStatus', { id }),
+    });
   }
 
   if (operation === 'local-gen2-switch-status') {

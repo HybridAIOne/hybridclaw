@@ -58,6 +58,8 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   ]);
   expect(skill).toContain('category: home-automation');
   expect(skill).toContain('local-gen2-switch-set');
+  expect(skill).toContain('local-gen2-cover-config');
+  expect(skill).toContain('Cover.GetConfig');
   expect(skill).toContain('cloud-set-cover');
   expect(skill).toContain('factory-reset');
   expect(skill).toContain('Device Discovery and IDs');
@@ -91,6 +93,9 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   );
   expect(skill).toContain('this endpoint did not return names');
   expect(skill).toContain('Do not promise app names from Real Time Events.');
+  expect(skill).toContain(
+    '`Cover.GetConfig` exposes the cover component `name`',
+  );
   expect(skill).toContain('sys.device.name');
   expect(skill).toContain(
     'Do not claim that nobody named the devices in\n  the Shelly app.',
@@ -112,6 +117,7 @@ test('Shelly helper --help exits cleanly and lists local and cloud operations', 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Shelly skill helper');
   expect(result.stdout).toContain('local-gen2-status');
+  expect(result.stdout).toContain('local-gen2-cover-config');
   expect(result.stdout).toContain('local-gen1-relay-set');
   expect(result.stdout).toContain('cloud-get-state');
   expect(result.stdout).toContain('cloud-oauth-token');
@@ -135,6 +141,20 @@ test('Shelly helper builds local Gen2 RPC read requests', () => {
     'config',
     '--key',
     'switch:0',
+  ]);
+  const coverConfig = request([
+    'local-gen2-cover-config',
+    '--device-url',
+    '192.0.2.10',
+    '--id',
+    '0',
+  ]);
+  const coverStatus = request([
+    'local-gen2-cover-status',
+    '--device-url',
+    '192.0.2.10',
+    '--id',
+    '0',
   ]);
 
   expect(status).toMatchObject({
@@ -160,6 +180,17 @@ test('Shelly helper builds local Gen2 RPC read requests', () => {
       },
     },
   });
+  expect(coverConfig).toMatchObject({
+    operation: 'local-gen2-cover-config',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Cover.GetConfig?id=0',
+      method: 'GET',
+    },
+  });
+  expect(coverStatus.httpRequest.url).toBe(
+    'http://192.0.2.10/rpc/Cover.GetStatus?id=0',
+  );
 });
 
 test('Shelly helper requires approval before local output changes', () => {
