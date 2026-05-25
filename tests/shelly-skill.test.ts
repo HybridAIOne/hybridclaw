@@ -155,7 +155,10 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   );
   expect(skill).toContain('Teach the operator which gate blocked the request');
   expect(skill).toContain(
-    'there is no general `tools.httpRequest` setting\n  that opens private-network hosts',
+    'opened only by a matching explicit workspace network policy\n  allow rule',
+  );
+  expect(skill).toContain(
+    'default network policy is not enough to bypass the private-host guard',
   );
   expect(skill).toContain(
     'For public Shelly Cloud HTTPS hosts, do not describe this as LAN SSRF\n  blocking',

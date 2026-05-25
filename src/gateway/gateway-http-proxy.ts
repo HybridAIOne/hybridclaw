@@ -26,6 +26,8 @@ import {
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
+import { evaluateNetworkPolicyAccess } from '../policy/network-policy.js';
+import { readPolicyState } from '../policy/policy-store.js';
 import {
   isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
@@ -179,6 +181,40 @@ async function isPrivateHost(hostname: string): Promise<boolean> {
   }
 }
 
+function getUrlPort(url: URL): number {
+  if (url.port) {
+    const parsed = Number.parseInt(url.port, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return url.protocol === 'https:' ? 443 : 80;
+}
+
+function isPrivateHttpRequestAllowedByPolicy(params: {
+  url: URL;
+  method: string;
+  agentId?: string;
+}): boolean {
+  try {
+    const state = readPolicyState(process.cwd());
+    const evaluation = evaluateNetworkPolicyAccess({
+      defaultAction: state.defaultAction,
+      rules: state.rules,
+      host: params.url.hostname,
+      port: getUrlPort(params.url),
+      method: params.method,
+      path: params.url.pathname || '/',
+      agentId: params.agentId,
+    });
+    return evaluation.decision === 'allow' && Boolean(evaluation.matchedRule);
+  } catch (error) {
+    logger.warn(
+      { host: params.url.hostname, error },
+      'Failed to evaluate network policy for private http_request target; blocking request',
+    );
+    return false;
+  }
+}
+
 type HttpResponseReadResult = {
   buffer: Buffer;
   bytesRead: number;
@@ -243,7 +279,10 @@ async function readHttpResponseBuffer(
   };
 }
 
-async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
+async function assertHttpRequestUrl(
+  raw: unknown,
+  context: { method: string; agentId?: string },
+): Promise<URL> {
   const input = String(raw || '').trim();
   if (!input) {
     throw new GatewayRequestError(400, 'Missing `url` in request body.');
@@ -263,7 +302,14 @@ async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
     );
   }
 
-  if (await isPrivateHost(parsed.hostname)) {
+  if (
+    (await isPrivateHost(parsed.hostname)) &&
+    !isPrivateHttpRequestAllowedByPolicy({
+      url: parsed,
+      method: context.method,
+      agentId: context.agentId,
+    })
+  ) {
     throw new GatewayRequestError(
       400,
       `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}).`,
@@ -1294,12 +1340,15 @@ export async function handleApiHttpRequest(
         selector: 'url',
       })
     : body.url;
-  const url = await assertHttpRequestUrl(rawUrl);
+  const method = normalizeHttpRequestMethod(body.method);
+  const url = await assertHttpRequestUrl(rawUrl, {
+    method,
+    agentId: baseSecretContext.agentId,
+  });
   const secretContext = {
     ...baseSecretContext,
     host: url.hostname,
   };
-  const method = normalizeHttpRequestMethod(body.method);
   const timeoutMs =
     parsePositiveInteger(body.timeoutMs) ?? HTTP_REQUEST_TIMEOUT_MS;
   const maxResponseBytes =

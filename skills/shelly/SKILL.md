@@ -270,9 +270,10 @@ change network policy from inside the user task.
 Teach the operator which gate blocked the request:
 
 - `HTTP request blocked by SSRF guard` is the gateway `http_request` private
-  host guard. In this checkout there is no general `tools.httpRequest` setting
-  that opens private-network hosts, and `tools.httpRequest.authRules[]` only
-  injects secrets.
+  host guard. It is opened only by a matching explicit workspace network policy
+  allow rule for the exact private host, port, method, path, and agent. The
+  default network policy is not enough to bypass the private-host guard, and
+  `tools.httpRequest.authRules[]` only injects secrets.
 - For public Shelly Cloud HTTPS hosts, do not describe this as LAN SSRF
   blocking and do not suggest adding the cloud domain to a private-network
   allowlist. If the host is under `shelly.cloud`, verify whether DNS resolves.
@@ -280,7 +281,8 @@ Teach the operator which gate blocked the request:
   current Shelly Cloud URI from Shelly Smart Control or from the OAuth JWT
   `user_api_url`.
 - `network default policy denies unlisted hosts` is the container network
-  approval policy. Open read-only Shelly LAN access with a narrow allow rule:
+  approval policy. Open read-only Shelly LAN access for both gateway-proxied
+  `http_request` calls and container network checks with a narrow allow rule:
   ```bash
   hybridclaw policy allow <shelly-lan-host-or-ip-pattern> \
     --methods GET \
@@ -288,10 +290,13 @@ Teach the operator which gate blocked the request:
     --port 80 \
     --comment "Shelly LAN read-only"
   ```
-- If the runtime still reports the SSRF guard after adding a policy rule, use
-  cloud fallback or ask the operator to provide a dedicated Shelly LAN bridge or
-  tool that is intentionally scoped to Shelly device IPs and read-only endpoints
-  unless a separate operator grant is given for writes.
+- If the runtime still reports the SSRF guard after adding a policy rule, verify
+  the currently running gateway has loaded a build that supports policy-backed
+  private `http_request` targets, and verify the rule matches the current
+  request's host, port, method, path, and agent. If it still cannot be opened,
+  use cloud fallback or ask the operator to provide a dedicated Shelly LAN
+  bridge or tool that is intentionally scoped to Shelly device IPs and read-only
+  endpoints unless a separate operator grant is given for writes.
 - Never collapse cloud DNS failure, LAN reachability failure, and container
   network policy denial into one cause. Report only the failure actually shown
   by the current tool result.
