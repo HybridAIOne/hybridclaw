@@ -392,6 +392,7 @@ export interface RuntimeManagedCloudBrowserConfig {
 
 export interface RuntimeBrowserConfig {
   provider: RuntimeBrowserProviderKind;
+  allowPrivateNetwork: boolean;
   local: RuntimeBrowserLocalConfig;
   camofox: RuntimeBrowserCamofoxConfig;
   managedCloud: RuntimeManagedCloudBrowserConfig;
@@ -1316,6 +1317,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   browser: {
     provider: 'local',
+    allowPrivateNetwork: false,
     local: {
       profileRoot: '',
       headed: false,
@@ -5805,6 +5807,10 @@ function normalizeBrowserConfig(
   const rawMacCua = isRecord(raw.macCua) ? raw.macCua : {};
   return {
     provider: normalizeBrowserProviderKind(raw.provider, fallback.provider),
+    allowPrivateNetwork: normalizeBoolean(
+      raw.allowPrivateNetwork,
+      fallback.allowPrivateNetwork,
+    ),
     local: {
       profileRoot: normalizeString(
         rawLocal.profileRoot,

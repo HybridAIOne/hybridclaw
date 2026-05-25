@@ -113,6 +113,7 @@ export class PlaywrightBrowserSession<
       reason: string,
     ) => void,
     private readonly metering?: BrowserSessionMeteringContext,
+    private readonly allowPrivateNetwork = false,
   ) {
     this.page.on?.('console', (message) => {
       this.consoleLog.push({
@@ -139,7 +140,9 @@ export class PlaywrightBrowserSession<
   }
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
-    const parsed = await assertBrowserNavigationUrl(url);
+    const parsed = await assertBrowserNavigationUrl(url, {
+      allowPrivateNetwork: this.allowPrivateNetwork,
+    });
     await this.page.goto(parsed.toString(), toNavigationOptions(opts));
   }
 

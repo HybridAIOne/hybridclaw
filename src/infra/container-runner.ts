@@ -18,6 +18,7 @@ import { getBrowserProfileDir } from '../browser/browser-login.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
+  BROWSER_ALLOW_PRIVATE_NETWORK,
   BROWSER_PROVIDER,
   CODEX_RUNTIME,
   CONTAINER_BINDS,
@@ -803,6 +804,8 @@ function getOrSpawnContainer(
     `HYBRIDCLAW_RALPH_MAX_ITERATIONS=${PROACTIVE_RALPH_MAX_ITERATIONS}`,
     '-e',
     `HYBRIDCLAW_BROWSER_PROVIDER=${BROWSER_PROVIDER}`,
+    '-e',
+    `BROWSER_ALLOW_PRIVATE_NETWORK=${BROWSER_ALLOW_PRIVATE_NETWORK ? 'true' : 'false'}`,
     '-e',
     `HYBRIDCLAW_WEB_SEARCH_PROVIDER=${WEB_SEARCH_PROVIDER}`,
     '-e',

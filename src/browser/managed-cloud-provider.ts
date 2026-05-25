@@ -89,6 +89,7 @@ export interface ManagedCloudBrowserProviderOptions {
   endpointUrl?: string;
   poolTokenRef?: SecretRef;
   defaultTenantId?: string;
+  allowPrivateNetwork?: boolean;
   fetch?: ManagedCloudFetch;
   playwright?: ManagedCloudPlaywrightModule;
   pricing?: Partial<ManagedCloudBrowserPricing>;
@@ -251,6 +252,7 @@ class ManagedCloudBrowserSession implements BrowserSession {
       action: string,
       method?: string,
     ) => Promise<ManagedCloudNavigationResponse>,
+    private readonly allowPrivateNetwork: boolean | undefined,
     private readonly secretAudit?: (
       handle: SecretHandle,
       reason: string,
@@ -298,7 +300,9 @@ class ManagedCloudBrowserSession implements BrowserSession {
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
     await this.runSessionAction('navigate', async () => {
-      const parsed = await assertBrowserNavigationUrl(url);
+      const parsed = await assertBrowserNavigationUrl(url, {
+        allowPrivateNetwork: this.allowPrivateNetwork,
+      });
       const guard = await this.checkNavigation(
         parsed.toString(),
         'goto',
@@ -474,7 +478,9 @@ class ManagedCloudBrowserSession implements BrowserSession {
   private async auditHistoryNavigation(action: string): Promise<void> {
     const url = this.page.url();
     if (!url || url === 'about:blank') return;
-    const parsed = await assertBrowserNavigationUrl(url);
+    const parsed = await assertBrowserNavigationUrl(url, {
+      allowPrivateNetwork: this.allowPrivateNetwork,
+    });
     const guard = await this.checkNavigation(parsed.toString(), action, 'GET');
     if (guard.verdict !== 'allow') {
       throw new Error(
@@ -544,6 +550,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
         (name) => this.recordActionUsage(metering, name),
         (url, action, method) =>
           this.checkNavigation(lease, metering, runId, url, action, method),
+        this.options.allowPrivateNetwork,
         this.options.secretAudit,
       );
 

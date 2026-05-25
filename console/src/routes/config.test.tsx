@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminBrowserPoolHealthResponse,
@@ -84,6 +90,7 @@ function makeConfig(): AdminConfig {
     },
     browser: {
       provider: 'local',
+      allowPrivateNetwork: false,
       local: {
         profileDir: '',
         headed: false,
@@ -171,6 +178,12 @@ describe('ConfigPage', () => {
 
     const provider = await screen.findByDisplayValue('local');
     fireEvent.change(provider, { target: { value: 'managed-cloud' } });
+    const privateNetworkToggle = screen.getByRole('group', {
+      name: /Allow private network navigation/i,
+    });
+    fireEvent.click(
+      within(privateNetworkToggle).getByRole('button', { name: 'on' }),
+    );
     expect(screen.getByDisplayValue('main')).toBeTruthy();
     expect(await screen.findByText(/fetch failed/i)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Start Docker pool' }));
@@ -213,6 +226,7 @@ describe('ConfigPage', () => {
       expect.objectContaining({
         browser: expect.objectContaining({
           provider: 'managed-cloud',
+          allowPrivateNetwork: true,
           managedCloud: expect.objectContaining({
             endpointUrl: 'https://browser.example',
             poolTokenRef: {

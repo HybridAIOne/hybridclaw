@@ -126,6 +126,7 @@ export interface MacCuaProviderOptions {
   driverCommand?: string;
   driverArgs?: string[];
   screenshotMode?: MacCuaScreenshotMode;
+  allowPrivateNetwork?: boolean;
   audit?: typeof recordAuditEvent;
   driverTimeoutMs?: number;
 }
@@ -823,6 +824,7 @@ class MacCuaBrowserSession implements BrowserSession {
     private readonly metering: BrowserSessionMeteringContext | undefined,
     private readonly runId: string,
     private readonly screenshotMode: MacCuaScreenshotMode,
+    private readonly allowPrivateNetwork: boolean | undefined,
     private readonly audit: typeof recordAuditEvent,
   ) {}
 
@@ -848,7 +850,9 @@ class MacCuaBrowserSession implements BrowserSession {
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
     await this.runAction('navigate', async () => {
       assertNoUnsupportedNavigationWait(opts);
-      const parsed = await assertBrowserNavigationUrl(url);
+      const parsed = await assertBrowserNavigationUrl(url, {
+        allowPrivateNetwork: this.allowPrivateNetwork,
+      });
       await this.keyChord('l', ['cmd']);
       await this.driver.typeTextChars(this.sessionId, {
         text: parsed.toString(),
@@ -861,7 +865,9 @@ class MacCuaBrowserSession implements BrowserSession {
           'mac-cua driver did not return an address-bar AX value before navigation commit.',
         );
       }
-      await assertBrowserNavigationUrl(addressBarValue);
+      await assertBrowserNavigationUrl(addressBarValue, {
+        allowPrivateNetwork: this.allowPrivateNetwork,
+      });
       await this.driver.pressKey(this.sessionId, 'return');
     });
   }
@@ -1281,6 +1287,7 @@ export class MacCuaBrowserProvider implements BrowserProvider {
       opts.metering,
       runId,
       this.screenshotMode,
+      this.options.allowPrivateNetwork,
       this.audit,
     );
     this.activeSessions.set(session, {

@@ -72,6 +72,7 @@ function DecimalNumberInput({
 function defaultBrowserConfig(): BrowserConfig {
   return {
     provider: 'local',
+    allowPrivateNetwork: false,
     local: {
       profileDir: '',
       headed: false,
@@ -570,6 +571,20 @@ export function ConfigPage() {
                     <option value="browser-use-cloud">browser-use-cloud</option>
                   </select>
                 </label>
+                <BooleanField
+                  label="Allow private network navigation"
+                  value={browser.allowPrivateNetwork}
+                  trueLabel="on"
+                  falseLabel="off"
+                  onChange={(allowPrivateNetwork) =>
+                    setDraft((current) =>
+                      updateBrowserConfig(current, (currentBrowser) => ({
+                        ...currentBrowser,
+                        allowPrivateNetwork,
+                      })),
+                    )
+                  }
+                />
                 {browser.provider === 'local' ? (
                   <>
                     <label className="field">

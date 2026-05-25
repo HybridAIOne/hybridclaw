@@ -126,6 +126,7 @@ export interface BrowserUseCloudProviderOptions {
   apiKeyRef?: SecretRef;
   baseUrl?: string;
   browser?: BrowserUseCloudSessionConfig;
+  allowPrivateNetwork?: boolean;
   fetch?: BrowserUseCloudFetch;
   playwright?: BrowserUseCloudPlaywrightModule;
   pricing?: Partial<BrowserUseCloudPricing>;
@@ -319,6 +320,7 @@ class BrowserUseCloudSession implements BrowserSession {
     private readonly page: BrowserUseCloudPage,
     private readonly recordAction: (name: string) => void,
     private readonly metering: BrowserSessionMeteringContext,
+    private readonly allowPrivateNetwork: boolean | undefined,
     private readonly secretAudit?: (
       handle: SecretHandle,
       reason: string,
@@ -341,7 +343,9 @@ class BrowserUseCloudSession implements BrowserSession {
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
     this.recordAction('navigate');
-    const parsed = await assertBrowserNavigationUrl(url);
+    const parsed = await assertBrowserNavigationUrl(url, {
+      allowPrivateNetwork: this.allowPrivateNetwork,
+    });
     await this.page.goto(parsed.toString(), toNavigationOptions(opts));
   }
 
@@ -444,6 +448,7 @@ export class BrowserUseCloudProvider implements BrowserProvider {
         page,
         (name) => this.recordActionUsage(metering, name),
         metering,
+        this.options.allowPrivateNetwork,
         this.options.secretAudit,
       );
 

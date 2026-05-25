@@ -736,6 +736,7 @@ export interface AdminConfig {
   };
   browser?: {
     provider: 'local' | 'camofox' | 'managed-cloud' | 'browser-use-cloud';
+    allowPrivateNetwork: boolean;
     local: {
       profileDir: string;
       headed: boolean;
