@@ -2,6 +2,13 @@ import { createContext, useContext } from 'react';
 
 export type FieldContextValue = {
   id: string | undefined;
+  /**
+   * Id of the `<FieldLabel>` element. Labelable controls are named via the
+   * label's `htmlFor`, but a role-based widget rendered on a non-labelable
+   * element (e.g. `<div role="radiogroup">`) can't be named that way — it
+   * points `aria-labelledby` here instead.
+   */
+  labelId: string | undefined;
   descriptionId: string | undefined;
   errorId: string | undefined;
   invalid: boolean | undefined;
@@ -35,6 +42,7 @@ export type FieldContextValue = {
 
 const defaultValue: FieldContextValue = {
   id: undefined,
+  labelId: undefined,
   descriptionId: undefined,
   errorId: undefined,
   invalid: undefined,
@@ -72,14 +80,17 @@ export function useFieldControlProps<P extends FieldControlProps>(props: P): P {
     field.invalid ? field.errorId : undefined,
     props['aria-describedby'],
   );
+  // Resolve required from the control prop first, then the surrounding
+  // Field — and drive `aria-required` off the *resolved* value so an
+  // explicitly-`required` control announces itself even outside a Field.
+  const required = props.required ?? field.required;
   return {
     ...props,
     id: props.id ?? field.id,
     disabled: props.disabled ?? field.disabled,
-    required: props.required ?? field.required,
+    required,
     'aria-invalid': props['aria-invalid'] ?? field.invalid,
-    'aria-required':
-      props['aria-required'] ?? (field.required ? true : undefined),
+    'aria-required': props['aria-required'] ?? (required ? true : undefined),
     'aria-describedby': describedBy,
   };
 }

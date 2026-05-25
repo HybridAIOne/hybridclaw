@@ -39,7 +39,7 @@ export function Switch({
   required,
   ...rest
 }: SwitchProps) {
-  const props = useFieldControlProps({ disabled, ...rest });
+  const props = useFieldControlProps({ disabled, required, ...rest });
   const field = useFieldContext();
   const state = checked ? 'checked' : 'unchecked';
   const isDisabled = props.disabled;
@@ -61,7 +61,6 @@ export function Switch({
         type="button"
         role="switch"
         aria-checked={checked}
-        aria-required={required || undefined}
         data-slot="switch"
         data-state={state}
         data-size={size}

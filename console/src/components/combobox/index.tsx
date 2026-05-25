@@ -206,7 +206,11 @@ export function Combobox<TMeta = unknown>({
       );
       if (!match) setQuery(labelForSelected);
       else if (match.value !== value) commit(match);
-    } else if (query !== value) {
+    } else if (query !== labelForSelected) {
+      // Compare against the displayed label, not the raw `value`: when an
+      // option's value differs from its label (value "apple" / label
+      // "Apple"), an unedited focus→blur would otherwise re-commit the
+      // label as free text and corrupt the committed value.
       commit(null, query);
     }
     onBlur?.();

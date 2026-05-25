@@ -73,10 +73,19 @@ export function NumberField({
     // trailing dot in "0." or the empty buffer behind `emptyValue`. We
     // read the latest raw via a ref so per-keystroke rerenders don't
     // re-run this effect.
-    if (Number(rawValueRef.current) === value) return;
+    const raw = rawValueRef.current;
+    // An empty buffer is the canonical display for `emptyValue` (the field
+    // is cleared but commits emptyValue). Don't resync it to
+    // `String(emptyValue)` — that would snap the just-cleared field back to
+    // the number. (`Number("")` is 0, so this only matters when
+    // emptyValue !== 0.)
+    if (raw.trim() === '' && emptyValue !== undefined && value === emptyValue) {
+      return;
+    }
+    if (Number(raw) === value) return;
     setRawValue(String(value));
     reportError(null);
-  }, [value, reportError]);
+  }, [value, emptyValue, reportError]);
 
   const validate = (text: string): { value?: number; error: string | null } => {
     if (text.trim() === '') {

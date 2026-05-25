@@ -28,6 +28,7 @@ type RadioGroupContextValue = {
   orientation: Orientation;
   registerItem: (value: string, el: HTMLButtonElement) => () => void;
   focusValue: (currentValue: string, direction: 1 | -1) => void;
+  focusEdge: (edge: 'first' | 'last') => void;
   loop: boolean;
 };
 
@@ -66,6 +67,8 @@ export function RadioGroup({
   id,
   'aria-invalid': ariaInvalidProp,
   'aria-describedby': ariaDescribedByProp,
+  'aria-label': ariaLabelProp,
+  'aria-labelledby': ariaLabelledByProp,
   ...props
 }: RadioGroupProps) {
   const field = useFieldContext();
@@ -79,6 +82,11 @@ export function RadioGroup({
     resolvedInvalid ? field.errorId : undefined,
     ariaDescribedByProp,
   );
+  // A `role="radiogroup"` div isn't a labelable element, so the surrounding
+  // <FieldLabel>'s `htmlFor` can't name it. Point at the label's id instead.
+  // Caller-supplied aria-labelledby / aria-label always win.
+  const labelledBy =
+    ariaLabelledByProp ?? (ariaLabelProp ? undefined : field.labelId);
   const isControlled = valueProp !== undefined;
   const [internalValue, setInternalValue] = useState<string | undefined>(
     defaultValue,
@@ -113,16 +121,38 @@ export function RadioGroup({
       const values = Array.from(itemsRef.current.keys());
       if (values.length === 0) return;
       const currentIndex = values.indexOf(currentValue);
-      let nextIndex = currentIndex + direction;
-      if (loop) {
-        nextIndex = (nextIndex + values.length) % values.length;
-      } else if (nextIndex < 0 || nextIndex >= values.length) {
-        return;
+      // Step in `direction`, skipping disabled (and thus unfocusable) items
+      // so navigation doesn't stall on one. Bounded by the item count so an
+      // all-disabled group can't loop forever.
+      for (let step = 1; step <= values.length; step += 1) {
+        let nextIndex = currentIndex + direction * step;
+        if (loop) {
+          nextIndex =
+            ((nextIndex % values.length) + values.length) % values.length;
+        } else if (nextIndex < 0 || nextIndex >= values.length) {
+          return;
+        }
+        const el = itemsRef.current.get(values[nextIndex]);
+        if (el && !el.disabled) {
+          el.focus();
+          return;
+        }
       }
-      itemsRef.current.get(values[nextIndex])?.focus();
     },
     [loop],
   );
+
+  const focusEdge = useCallback((edge: 'first' | 'last') => {
+    const values = Array.from(itemsRef.current.keys());
+    const ordered = edge === 'first' ? values : values.reverse();
+    for (const itemValue of ordered) {
+      const el = itemsRef.current.get(itemValue);
+      if (el && !el.disabled) {
+        el.focus();
+        return;
+      }
+    }
+  }, []);
 
   const ctx = useMemo<RadioGroupContextValue>(
     () => ({
@@ -135,6 +165,7 @@ export function RadioGroup({
       orientation,
       registerItem,
       focusValue,
+      focusEdge,
       loop,
     }),
     [
@@ -147,6 +178,7 @@ export function RadioGroup({
       orientation,
       registerItem,
       focusValue,
+      focusEdge,
       loop,
     ],
   );
@@ -158,6 +190,8 @@ export function RadioGroup({
         id={id ?? field.id}
         role="radiogroup"
         aria-orientation={orientation}
+        aria-label={ariaLabelProp}
+        aria-labelledby={labelledBy}
         aria-disabled={resolvedDisabled || undefined}
         aria-required={required || undefined}
         aria-invalid={resolvedInvalid || undefined}
@@ -230,6 +264,12 @@ export function RadioGroupItem({
     } else if (event.key === prevKey) {
       event.preventDefault();
       ctx.focusValue(value, -1);
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      ctx.focusEdge('first');
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      ctx.focusEdge('last');
     }
   };
 

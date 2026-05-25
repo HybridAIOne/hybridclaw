@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { Field, FieldLabel } from '../field';
 import { getHiddenInput } from '../test-utils';
 import { Switch } from './index';
 
@@ -78,5 +79,17 @@ describe('Switch', () => {
 
     rerender(<Switch checked={false} required />);
     expect(button.getAttribute('aria-required')).toBe('true');
+  });
+
+  it('inherits aria-required from a required surrounding Field', () => {
+    render(
+      <Field required>
+        <FieldLabel>Notifications</FieldLabel>
+        <Switch checked={false} />
+      </Field>,
+    );
+    expect(screen.getByRole('switch').getAttribute('aria-required')).toBe(
+      'true',
+    );
   });
 });

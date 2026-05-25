@@ -271,6 +271,7 @@ export function Field({
   const ctx = useMemo(
     () => ({
       id,
+      labelId: `${id}-label`,
       descriptionId: `${id}-description`,
       errorId: `${id}-error`,
       invalid: exposedInvalid,
@@ -345,11 +346,17 @@ export function FieldContent({ className, ...props }: FieldContentProps) {
 
 export type FieldLabelProps = ComponentProps<typeof Label>;
 
-export function FieldLabel({ className, htmlFor, ...props }: FieldLabelProps) {
+export function FieldLabel({
+  className,
+  htmlFor,
+  id,
+  ...props
+}: FieldLabelProps) {
   const field = useFieldContext();
   return (
     <Label
       data-slot="field-label"
+      id={id ?? field.labelId}
       htmlFor={htmlFor ?? field.id}
       className={cx(styles.label, className)}
       {...props}

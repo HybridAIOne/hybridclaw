@@ -47,6 +47,37 @@ describe('RadioGroup', () => {
     expect(screen.getByTestId('group').id).toBe('plan');
   });
 
+  it('is named by the surrounding FieldLabel via aria-labelledby', () => {
+    // A `role="radiogroup"` div is not labelable, so the FieldLabel's
+    // `htmlFor` cannot name it; it must be wired through aria-labelledby.
+    render(
+      <Field controlId="plan">
+        <FieldLabel>Plan</FieldLabel>
+        <RadioGroup>
+          <RadioGroupItem value="a" />
+          <RadioGroupItem value="b" />
+        </RadioGroup>
+      </Field>,
+    );
+
+    expect(screen.getByRole('radiogroup', { name: 'Plan' })).toBeTruthy();
+  });
+
+  it('lets the consumer override the accessible name with aria-label', () => {
+    render(
+      <Field controlId="plan">
+        <FieldLabel>Plan</FieldLabel>
+        <RadioGroup aria-label="Billing plan">
+          <RadioGroupItem value="a" />
+        </RadioGroup>
+      </Field>,
+    );
+
+    expect(
+      screen.getByRole('radiogroup', { name: 'Billing plan' }),
+    ).toBeTruthy();
+  });
+
   it('lets the consumer override disabled even when the Field is disabled', () => {
     render(
       <Field disabled>

@@ -28,7 +28,7 @@ export function Checkbox({
   required,
   ...rest
 }: CheckboxProps) {
-  const props = useFieldControlProps({ disabled, ...rest });
+  const props = useFieldControlProps({ disabled, required, ...rest });
   const field = useFieldContext();
   const isDisabled = props.disabled;
 
@@ -62,7 +62,6 @@ export function Checkbox({
         type="button"
         role="checkbox"
         aria-checked={ariaChecked}
-        aria-required={required || undefined}
         data-slot="checkbox"
         data-state={state}
         className={cx(styles.root, className)}
