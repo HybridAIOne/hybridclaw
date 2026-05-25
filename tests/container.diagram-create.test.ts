@@ -256,8 +256,7 @@ describe('diagram tools', () => {
     const hadDOMPurify = Object.hasOwn(globalThis, 'DOMPurify');
     const previousWindow = (globalThis as { window?: unknown }).window;
     const previousDocument = (globalThis as { document?: unknown }).document;
-    const previousDOMPurify = (globalThis as { DOMPurify?: unknown })
-      .DOMPurify;
+    const previousDOMPurify = (globalThis as { DOMPurify?: unknown }).DOMPurify;
     const { executeToolWithMetadata } = await loadTools();
 
     const result = await executeToolWithMetadata(
@@ -396,8 +395,7 @@ describe('diagram tools', () => {
   });
 
   test('rejects non-local insecure PlantUML server URLs', async () => {
-    process.env.HYBRIDCLAW_PLANTUML_SERVER_URL =
-      'http://internal-service.test';
+    process.env.HYBRIDCLAW_PLANTUML_SERVER_URL = 'http://internal-service.test';
     const { executeToolWithMetadata } = await loadTools();
 
     const result = await executeToolWithMetadata(

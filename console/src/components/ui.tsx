@@ -94,8 +94,8 @@ export function SortableHeader<Key extends string>(props: {
 }
 
 export function PageHeader(props: {
-  title: string;
-  description?: string;
+  title?: string;
+  description?: ReactNode;
   actions?: ReactNode;
 }) {
   if (!props.description && !props.actions) {
@@ -105,9 +105,9 @@ export function PageHeader(props: {
   return (
     <div className="page-header">
       {props.description ? (
-        <p className="supporting-text page-header-description">
+        <div className="supporting-text page-header-description">
           {props.description}
-        </p>
+        </div>
       ) : (
         <span />
       )}
