@@ -1,0 +1,88 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+.path {
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.statusInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.statusInline::before {
+  content: "·";
+  margin: 0 6px;
+  color: var(--muted-foreground);
+}
+
+.statusDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  flex-shrink: 0;
+}
+
+.formNote {
+  margin: -8px 0 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm, 8px);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.formNote strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sectionDescription {
+  margin-top: -10px;
+  margin-bottom: 18px;
+}
+
+.poolStatusPending {
+  margin: 0;
+  font-style: italic;
+}
+
+.jsonEditor {
+  min-height: min(calc(100vh - 260px), 720px);
+  resize: vertical;
+}
+
+.unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 24px;
+  max-width: 480px;
+  margin: 24px auto;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--line);
+  background: var(--panel-bg);
+  color: var(--muted-foreground);
+}

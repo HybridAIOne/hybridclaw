@@ -1449,10 +1449,6 @@ th {
   align-items: center;
 }
 
-.boolean-field {
-  align-items: start;
-}
-
 .boolean-pill {
   display: inline-flex;
   align-items: center;
@@ -1528,12 +1524,6 @@ th {
 
 .binary-toggle-button.active {
   font-weight: 600;
-}
-
-.binary-toggle.boolean-toggle:has(.binary-toggle-button.active.is-on) {
-  border-color: var(--status-success-border);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--success) 18%, transparent);
 }
 
 .binary-toggle-button.active.is-on {

@@ -1,12 +1,11 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminAgent,
   AdminAgentMarkdownFileResponse,
   AdminAgentMarkdownRevisionResponse,
 } from '../api/types';
-import { ToastProvider } from '../components/toast';
+import { renderWithProviders } from '../test-utils';
 import { AgentFilesPage } from './agents';
 
 const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
@@ -124,22 +123,8 @@ function makeDocument(
   };
 }
 
-function renderPage(): QueryClient {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <AgentFilesPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
-
+function renderPage() {
+  const { queryClient } = renderWithProviders(<AgentFilesPage />);
   return queryClient;
 }
 

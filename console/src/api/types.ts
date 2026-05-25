@@ -1,3 +1,15 @@
+export const LOG_LEVELS = [
+  'fatal',
+  'error',
+  'warn',
+  'info',
+  'debug',
+  'trace',
+  'silent',
+] as const;
+
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -781,7 +793,7 @@ export interface AdminConfig {
     gatewayBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
-    logLevel: string;
+    logLevel: LogLevel;
   };
   [key: string]: unknown;
 }

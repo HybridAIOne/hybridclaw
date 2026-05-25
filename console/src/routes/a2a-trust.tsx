@@ -15,6 +15,9 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Field, FieldLabel } from '../components/field';
+import { Input } from '../components/input';
+import { Textarea } from '../components/textarea';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
@@ -105,7 +108,7 @@ export function A2ATrustPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader title="A2A Trust" />
+      <PageHeader />
 
       <Card>
         <CardHeader>
@@ -222,13 +225,13 @@ export function A2ATrustPage() {
                     </div>
                   </div>
 
-                  <label className="field">
-                    <span>Revocation reason</span>
-                    <input
+                  <Field>
+                    <FieldLabel>Revocation reason</FieldLabel>
+                    <Input
                       value={revokeReason}
                       onChange={(event) => setRevokeReason(event.target.value)}
                     />
-                  </label>
+                  </Field>
                   <button
                     className="danger-button"
                     type="button"
@@ -280,49 +283,49 @@ export function A2ATrustPage() {
             </CardHeader>
             <CardContent>
               <div className="detail-stack">
-                <label className="field">
-                  <span>Peer</span>
-                  <input
+                <Field>
+                  <FieldLabel>Peer</FieldLabel>
+                  <Input
                     value={pinPeerId}
                     onChange={(event) => setPinPeerId(event.target.value)}
                   />
-                </label>
-                <label className="field">
-                  <span>Agent Card</span>
-                  <input
+                </Field>
+                <Field>
+                  <FieldLabel>Agent Card</FieldLabel>
+                  <Input
                     value={pinAgentCardUrl}
                     onChange={(event) => setPinAgentCardUrl(event.target.value)}
                   />
-                </label>
-                <label className="field">
-                  <span>Delivery URL</span>
-                  <input
+                </Field>
+                <Field>
+                  <FieldLabel>Delivery URL</FieldLabel>
+                  <Input
                     value={pinDeliveryUrl}
                     onChange={(event) => setPinDeliveryUrl(event.target.value)}
                   />
-                </label>
-                <label className="field">
-                  <span>Fingerprint</span>
-                  <input
+                </Field>
+                <Field>
+                  <FieldLabel>Fingerprint</FieldLabel>
+                  <Input
                     value={pinFingerprint}
                     onChange={(event) => setPinFingerprint(event.target.value)}
                   />
-                </label>
-                <label className="field">
-                  <span>Public JWK</span>
-                  <textarea
+                </Field>
+                <Field>
+                  <FieldLabel>Public JWK</FieldLabel>
+                  <Textarea
                     rows={5}
                     value={pinPublicKeyJwk}
                     onChange={(event) => setPinPublicKeyJwk(event.target.value)}
                   />
-                </label>
-                <label className="field">
-                  <span>Reason</span>
-                  <input
+                </Field>
+                <Field>
+                  <FieldLabel>Reason</FieldLabel>
+                  <Input
                     value={pinReason}
                     onChange={(event) => setPinReason(event.target.value)}
                   />
-                </label>
+                </Field>
                 <button
                   className="primary-button"
                   type="button"

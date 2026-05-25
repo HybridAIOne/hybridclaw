@@ -1,5 +1,12 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { Link } from '@tanstack/react-router';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useMemo,
+  useState,
+} from 'react';
 import {
   fetchBrowserPoolHealth,
   fetchConfig,
@@ -7,67 +14,58 @@ import {
   startBrowserPool,
 } from '../api/client';
 import type { AdminBrowserPoolHealthResponse, AdminConfig } from '../api/types';
+import { LOG_LEVELS } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/card';
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  pattern,
+  required,
+} from '../components/field';
+import { Form, FormField, useForm } from '../components/form';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import { NumberField } from '../components/number-field';
+import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
-import { BooleanField, PageHeader } from '../components/ui';
+import { PageHeader } from '../components/ui';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
+import { useFormMutation } from '../hooks/use-form-mutation';
+import { useUnsavedChangesGuard } from '../hooks/use-unsaved-changes-guard';
 import { getErrorMessage } from '../lib/error-message';
+import { isOneOf } from '../lib/oneof';
+import styles from './config.module.css';
 
-function cloneConfig<T>(value: T): T {
-  return structuredClone(value);
+function serialize(config: AdminConfig): string {
+  return JSON.stringify(config, null, 2);
 }
+
+type DraftSetter = Dispatch<SetStateAction<AdminConfig | null>>;
 
 type BrowserConfig = NonNullable<AdminConfig['browser']>;
 type BrowserProvider = BrowserConfig['provider'];
+type BrowserObjectSection = Exclude<keyof BrowserConfig, 'provider'>;
 const LOCAL_DOCKER_POOL_TENANT_ID = 'main';
 
-function DecimalNumberInput({
-  id,
-  value,
-  onValueChange,
-}: {
-  id: string;
-  value: number;
-  onValueChange: (value: number) => void;
-}) {
-  const [rawValue, setRawValue] = useState(String(value));
+const PROVIDER_OPTIONS: ReadonlyArray<{
+  value: BrowserProvider;
+  label: string;
+}> = [
+  { value: 'local', label: 'Local (Playwright)' },
+  { value: 'camofox', label: 'Camoufox (anti-detection)' },
+  { value: 'managed-cloud', label: 'Managed cloud (Docker pool)' },
+  { value: 'browser-use-cloud', label: 'Browser Use cloud' },
+];
 
-  useEffect(() => {
-    setRawValue(String(value));
-  }, [value]);
-
-  return (
-    <input
-      id={id}
-      inputMode="decimal"
-      value={rawValue}
-      onBlur={() => {
-        const parsed = Number(rawValue);
-        if (!Number.isFinite(parsed)) {
-          setRawValue(String(value));
-        }
-      }}
-      onChange={(event) => {
-        const nextValue = event.target.value;
-        setRawValue(nextValue);
-        if (nextValue.trim() === '') {
-          onValueChange(0);
-          return;
-        }
-        const parsed = Number(nextValue);
-        if (Number.isFinite(parsed) && parsed >= 0) {
-          onValueChange(parsed);
-        }
-      }}
-    />
-  );
-}
+const CONTAINER_MEMORY_PATTERN = /^\d+(?:\.\d+)?[kKmMgG]?$/;
 
 function defaultBrowserConfig(): BrowserConfig {
   return {
@@ -167,15 +165,45 @@ function browserConfig(config: AdminConfig): BrowserConfig {
   });
 }
 
-function updateBrowserConfig(
+function withBrowser(
   current: AdminConfig | null,
   updater: (browser: BrowserConfig) => BrowserConfig,
 ): AdminConfig | null {
   if (!current) return current;
-  return {
-    ...current,
-    browser: updater(browserConfig(current)),
-  };
+  return { ...current, browser: updater(browserConfig(current)) };
+}
+
+function setBrowserSection<K extends BrowserObjectSection>(
+  setDraft: DraftSetter,
+  section: K,
+  updates: Partial<BrowserConfig[K]>,
+) {
+  setDraft((current) =>
+    withBrowser(current, (b) => ({
+      ...b,
+      [section]: { ...b[section], ...updates },
+    })),
+  );
+}
+
+type BrowserPricedSection = 'managedCloud' | 'browserUseCloud';
+type BrowserPricing<K extends BrowserPricedSection> =
+  BrowserConfig[K]['pricing'];
+
+function setBrowserPricing<K extends BrowserPricedSection>(
+  setDraft: DraftSetter,
+  section: K,
+  updates: Partial<BrowserPricing<K>>,
+) {
+  setDraft((current) =>
+    withBrowser(current, (b) => ({
+      ...b,
+      [section]: {
+        ...b[section],
+        pricing: { ...b[section].pricing, ...updates },
+      },
+    })),
+  );
 }
 
 function browserPoolStatusClass(
@@ -208,39 +236,98 @@ function browserPoolStatusText(
   return `${health.status} - ${health.message}`;
 }
 
+function ProfileBrowserFields({
+  provider,
+  config,
+  setDraft,
+}: {
+  provider: 'local' | 'camofox';
+  config: BrowserConfig['local'];
+  setDraft: DraftSetter;
+}) {
+  return (
+    <>
+      <Field>
+        <FieldLabel>Profile directory</FieldLabel>
+        <Input
+          value={config.profileDir}
+          onChange={(event) =>
+            setBrowserSection(setDraft, provider, {
+              profileDir: event.target.value,
+            })
+          }
+        />
+      </Field>
+      <Field orientation="horizontal">
+        <Switch
+          checked={config.headed}
+          onCheckedChange={(headed) =>
+            setBrowserSection(setDraft, provider, { headed })
+          }
+        />
+        <FieldContent>
+          <FieldLabel>Headed browser</FieldLabel>
+          <FieldDescription>
+            Show the browser window instead of running headless.
+          </FieldDescription>
+        </FieldContent>
+      </Field>
+    </>
+  );
+}
+
 export function ConfigPage() {
   const auth = useAuth();
   const toast = useToast();
-  const [rawMode, setRawMode] = useState(false);
-  const [draft, setDraft] = useState<AdminConfig | null>(null);
+  const [viewMode, setViewMode] = useState<'form' | 'json'>('form');
   const [rawJson, setRawJson] = useState('');
+  const [jsonError, setJsonError] = useState<string | null>(null);
 
   const configQuery = useQuery({
     queryKey: ['config', auth.token],
     queryFn: () => fetchConfig(auth.token),
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async (nextConfig: AdminConfig) => {
-      return saveConfig(auth.token, nextConfig);
-    },
+  const form = useForm<AdminConfig>({ source: configQuery.data?.config });
+  const {
+    draft,
+    setDraft,
+    isDirty: formIsDirty,
+    discard: discardDraft,
+    commit: commitDraft,
+  } = form;
+
+  const savedSerialized = useMemo(
+    () => (configQuery.data ? serialize(configQuery.data.config) : ''),
+    [configQuery.data],
+  );
+
+  // Hydrate the JSON editor buffer whenever the saved config first arrives
+  // or changes from underneath us, so the textarea matches `draft` on mount.
+  if (configQuery.data && rawJson === '' && savedSerialized !== '') {
+    setRawJson(savedSerialized);
+  }
+
+  const isDirty =
+    viewMode === 'json' ? rawJson !== savedSerialized : formIsDirty;
+
+  const saveMutation = useFormMutation({
+    mutationFn: (nextConfig: AdminConfig) => saveConfig(auth.token, nextConfig),
     onSuccess: (payload) => {
-      setDraft(cloneConfig(payload.config));
-      setRawJson(JSON.stringify(payload.config, null, 2));
+      commitDraft(payload.config);
+      setRawJson(serialize(payload.config));
+      setJsonError(null);
       toast.success('Runtime config saved.');
     },
     onError: (error) => {
-      toast.error('Save failed', getErrorMessage(error));
+      toast.error('Save failed', error.message);
     },
   });
 
-  useEffect(() => {
-    if (!configQuery.data || draft) return;
-    setDraft(cloneConfig(configQuery.data.config));
-    setRawJson(JSON.stringify(configQuery.data.config, null, 2));
-  }, [configQuery.data, draft]);
-
   const draftBrowser = draft ? browserConfig(draft) : defaultBrowserConfig();
+  const savedBrowserProvider =
+    configQuery.data?.config.browser?.provider ?? 'local';
+  const providerChanged = draftBrowser.provider !== savedBrowserProvider;
   const managedPoolTokenId = draftBrowser.managedCloud.poolTokenRef?.id ?? '';
   const browserUseApiKeyId = draftBrowser.browserUseCloud.apiKeyRef?.id ?? '';
   const browserPoolHealthQuery = useQuery({
@@ -252,7 +339,7 @@ export function ConfigPage() {
     ],
     queryFn: () => fetchBrowserPoolHealth(auth.token),
     enabled: Boolean(
-      draft && !rawMode && draftBrowser.provider === 'managed-cloud',
+      draft && viewMode === 'form' && draftBrowser.provider === 'managed-cloud',
     ),
     refetchInterval: 15_000,
   });
@@ -266,19 +353,9 @@ export function ConfigPage() {
         toast.error('Browser pool did not start', payload.message);
       }
       if (payload.poolTokenRefId) {
-        const poolTokenRefId = payload.poolTokenRefId;
-        setDraft((current) =>
-          updateBrowserConfig(current, (currentBrowser) => ({
-            ...currentBrowser,
-            managedCloud: {
-              ...currentBrowser.managedCloud,
-              poolTokenRef: {
-                source: 'store',
-                id: poolTokenRefId,
-              },
-            },
-          })),
-        );
+        setBrowserSection(setDraft, 'managedCloud', {
+          poolTokenRef: { source: 'store', id: payload.poolTokenRefId },
+        });
       }
       void configQuery.refetch();
       void browserPoolHealthQuery.refetch();
@@ -287,369 +364,386 @@ export function ConfigPage() {
       toast.error('Browser pool start failed', getErrorMessage(error));
     },
   });
+
+  const handleRawJsonChange = useCallback((next: string) => {
+    setRawJson(next);
+    try {
+      JSON.parse(next);
+      setJsonError(null);
+    } catch (error) {
+      setJsonError(getErrorMessage(error));
+    }
+  }, []);
+
+  const { dialog: unsavedChangesDialog } = useUnsavedChangesGuard({
+    isDirty,
+    description:
+      'You have unsaved edits to the runtime config. Leaving this page will discard them.',
+  });
+
   if (configQuery.isLoading && !draft) {
-    return <div className="empty-state">Loading runtime config...</div>;
+    return <div className="empty-state">Loading runtime config…</div>;
   }
 
   if (!draft || !configQuery.data) {
-    return <div className="empty-state">Runtime config is unavailable.</div>;
+    return (
+      <div className={styles.unavailable}>
+        <p>Runtime config is unavailable.</p>
+        <Button
+          variant="ghost"
+          onClick={() => void configQuery.refetch()}
+          disabled={configQuery.isFetching}
+        >
+          {configQuery.isFetching ? 'Retrying…' : 'Retry'}
+        </Button>
+      </div>
+    );
   }
 
   const browser = draftBrowser;
 
+  const handleViewModeChange = (next: string) => {
+    const target = next === 'json' ? 'json' : 'form';
+    if (target === viewMode) return;
+    if (target === 'form') {
+      try {
+        const parsed = JSON.parse(rawJson) as AdminConfig;
+        setDraft(parsed);
+        setJsonError(null);
+        setViewMode('form');
+      } catch (error) {
+        setJsonError(getErrorMessage(error));
+      }
+      return;
+    }
+    setRawJson(serialize(draft));
+    setJsonError(null);
+    setViewMode('json');
+  };
+
+  const discard = () => {
+    discardDraft();
+    if (configQuery.data) setRawJson(serialize(configQuery.data.config));
+    setJsonError(null);
+  };
+
+  const save = () => {
+    if (viewMode === 'json') {
+      try {
+        const parsed = JSON.parse(rawJson) as AdminConfig;
+        setDraft(parsed);
+        setJsonError(null);
+        saveMutation.mutate(parsed);
+      } catch (error) {
+        setJsonError(getErrorMessage(error));
+      }
+      return;
+    }
+    saveMutation.mutate(draft);
+  };
+
+  const saveDisabled =
+    saveMutation.isPending ||
+    (viewMode === 'json' ? Boolean(jsonError) : !form.isValid);
+
   return (
-    <div className="page-stack">
+    <Form form={form} className={styles.page} onSubmit={save}>
       <PageHeader
-        title="Config"
+        description={
+          <>
+            <span className={styles.path}>{configQuery.data.path}</span>
+            {isDirty ? (
+              <span className={styles.statusInline}>
+                <span className={styles.statusDot} aria-hidden="true" />
+                Unsaved changes
+              </span>
+            ) : (
+              <span className={styles.statusInline}>Saved</span>
+            )}
+          </>
+        }
         actions={
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => {
-              const nextMode = !rawMode;
-              setRawMode(nextMode);
-              if (nextMode) {
-                setRawJson(JSON.stringify(draft, null, 2));
-              }
-            }}
-          >
-            {rawMode ? 'Back to forms' : 'Raw JSON'}
-          </button>
+          <>
+            <ToggleGroup
+              ariaLabel="Editor view"
+              value={viewMode}
+              onValueChange={handleViewModeChange}
+              size="sm"
+            >
+              <ToggleGroupItem value="form">Form</ToggleGroupItem>
+              <ToggleGroupItem value="json">JSON</ToggleGroupItem>
+            </ToggleGroup>
+            {isDirty ? (
+              <Button variant="ghost" onClick={discard}>
+                Discard
+              </Button>
+            ) : null}
+            {isDirty || saveMutation.isPending ? (
+              <Button
+                type="submit"
+                loading={saveMutation.isPending}
+                disabled={saveDisabled}
+              >
+                {saveMutation.isPending ? 'Saving…' : 'Save changes'}
+              </Button>
+            ) : null}
+          </>
         }
       />
 
-      <Card variant="muted">
-        <CardHeader>
-          <CardTitle>Runtime config</CardTitle>
-          <CardDescription>{configQuery.data.path}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {rawMode ? (
-            <div className="stack-form">
-              <label className="field textarea-field">
-                <span>config.json</span>
-                <textarea
-                  className="code-editor"
-                  rows={24}
-                  value={rawJson}
-                  onChange={(event) => setRawJson(event.target.value)}
-                />
-              </label>
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  type="button"
-                  onClick={() => {
-                    try {
-                      const parsed = JSON.parse(rawJson) as AdminConfig;
-                      setDraft(parsed);
-                      saveMutation.mutate(parsed);
-                    } catch (error) {
-                      toast.error('Invalid JSON', getErrorMessage(error));
-                    }
-                  }}
-                >
-                  Save JSON
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="config-grid">
-              <section className="config-section">
-                <h4>Operations</h4>
-                <label className="field">
-                  <span>Health host</span>
-                  <input
-                    value={draft.ops.healthHost}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              ops: {
-                                ...current.ops,
-                                healthHost: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
-                    }
-                  />
-                </label>
-                <label className="field">
-                  <span>Health port</span>
-                  <input
-                    value={String(draft.ops.healthPort)}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              ops: {
-                                ...current.ops,
-                                healthPort:
-                                  Number.parseInt(event.target.value, 10) || 0,
-                              },
-                            }
-                          : current,
-                      )
-                    }
-                  />
-                </label>
-                <label className="field">
-                  <span>Log level</span>
-                  <input
-                    value={draft.ops.logLevel}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              ops: {
-                                ...current.ops,
-                                logLevel: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
-                    }
-                  />
-                </label>
-              </section>
+      <p className={styles.formNote}>
+        Form covers core runtime fields. For the full schema (channels,
+        deployment, plugins, scheduler…) switch to <strong>JSON</strong>.
+      </p>
 
-              <section className="config-section">
-                <h4>Security</h4>
-                <BooleanField
-                  label="Confidential leak guard"
-                  value={draft.security?.confidentialRedactionEnabled ?? false}
-                  trueLabel="on"
-                  falseLabel="off"
-                  onChange={(confidentialRedactionEnabled) =>
-                    setDraft((current) => {
-                      if (!current) return current;
-                      const security = current.security ?? {
-                        trustModelAccepted: false,
-                        trustModelAcceptedAt: '',
-                        trustModelVersion: '',
-                        trustModelAcceptedBy: '',
-                        confidentialRedactionEnabled: false,
-                      };
-                      return {
-                        ...current,
-                        security: {
-                          ...security,
-                          confidentialRedactionEnabled,
-                        },
-                      };
-                    })
-                  }
+      <div className={styles.content}>
+        {viewMode === 'json' ? (
+          <Field invalid={Boolean(jsonError)}>
+            <FieldLabel>config.json</FieldLabel>
+            <Textarea
+              className={`code-editor ${styles.jsonEditor}`}
+              spellCheck={false}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              value={rawJson}
+              onChange={(event) => handleRawJsonChange(event.target.value)}
+            />
+            <FieldError>{jsonError}</FieldError>
+          </Field>
+        ) : (
+          <>
+            <FieldSet>
+              <FieldLegend>Operations</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                Gateway listener and log verbosity.
+              </FieldDescription>
+              <FieldGroup>
+                <FormField
+                  name="ops.healthHost"
+                  render={({ field }) => (
+                    <Field>
+                      <FieldLabel>Health host</FieldLabel>
+                      <Input {...field} />
+                      <FieldDescription>
+                        Interface the gateway binds to. Use{' '}
+                        <code>127.0.0.1</code> for loopback-only.
+                      </FieldDescription>
+                    </Field>
+                  )}
                 />
-              </section>
-
-              <section className="config-section">
-                <h4>HybridAI</h4>
-                <label className="field">
-                  <span>Base URL</span>
-                  <input
-                    value={draft.hybridai.baseUrl}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              hybridai: {
-                                ...current.hybridai,
-                                baseUrl: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
-                    }
-                  />
-                </label>
-                <label className="field">
-                  <span>Default model</span>
-                  <input
-                    value={draft.hybridai.defaultModel}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              hybridai: {
-                                ...current.hybridai,
-                                defaultModel: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
-                    }
-                  />
-                </label>
-                <BooleanField
-                  label="RAG default"
-                  value={draft.hybridai.enableRag}
-                  trueLabel="on"
-                  falseLabel="off"
-                  onChange={(enableRag) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            hybridai: {
-                              ...current.hybridai,
-                              enableRag,
-                            },
+                <FormField
+                  name="ops.healthPort"
+                  render={({ field }) => (
+                    <Field>
+                      <FieldLabel>Health port</FieldLabel>
+                      <NumberField
+                        integer
+                        min={1}
+                        max={65535}
+                        value={field.value as number}
+                        onValueChange={field.onChange}
+                      />
+                      <FieldError />
+                    </Field>
+                  )}
+                />
+                <FormField
+                  name="ops.logLevel"
+                  render={({ field }) => (
+                    <Field>
+                      <FieldLabel>Log level</FieldLabel>
+                      <NativeSelect
+                        value={field.value as string}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          if (isOneOf(LOG_LEVELS, next)) {
+                            field.onChange(next);
                           }
-                        : current,
-                    )
-                  }
+                        }}
+                      >
+                        {LOG_LEVELS.map((level) => (
+                          <NativeSelectOption key={level} value={level}>
+                            {level}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                    </Field>
+                  )}
                 />
-              </section>
+              </FieldGroup>
+            </FieldSet>
 
-              <section className="config-section">
-                <h4>Container</h4>
-                <label className="field">
-                  <span>Memory</span>
-                  <input
-                    value={draft.container.memory}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              container: {
-                                ...current.container,
-                                memory: event.target.value,
-                              },
-                            }
-                          : current,
-                      )
-                    }
-                  />
-                </label>
-                <BooleanField
-                  label="Persistent bash state"
-                  value={draft.container.persistBashState}
-                  trueLabel="on"
-                  falseLabel="off"
-                  onChange={(persistBashState) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            container: {
-                              ...current.container,
-                              persistBashState,
-                            },
-                          }
-                        : current,
-                    )
-                  }
+            <FieldSet>
+              <FieldLegend>Security</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                Sensitive-content guards applied to agent output.
+              </FieldDescription>
+              <FieldGroup>
+                <FormField
+                  name="security.confidentialRedactionEnabled"
+                  render={({ field }) => (
+                    <Field orientation="horizontal">
+                      <Switch
+                        checked={Boolean(field.value)}
+                        onCheckedChange={field.onChange}
+                      />
+                      <FieldContent>
+                        <FieldLabel>Confidential leak guard</FieldLabel>
+                        <FieldDescription>
+                          Redact secrets and sensitive patterns before they
+                          leave the agent.
+                        </FieldDescription>
+                      </FieldContent>
+                    </Field>
+                  )}
                 />
-              </section>
+              </FieldGroup>
+            </FieldSet>
 
-              <section className="config-section">
-                <h4>Browser</h4>
-                <label className="field">
-                  <span>Provider</span>
-                  <select
+            <FieldSet>
+              <FieldLegend>HybridAI</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                HybridAI provider defaults.
+              </FieldDescription>
+              <FieldGroup>
+                <FormField
+                  name="hybridai.baseUrl"
+                  render={({ field }) => (
+                    <Field>
+                      <FieldLabel>Base URL</FieldLabel>
+                      <Input type="url" {...field} />
+                    </Field>
+                  )}
+                />
+                <FormField
+                  name="hybridai.defaultModel"
+                  render={({ field }) => (
+                    <Field>
+                      <FieldLabel>Default model</FieldLabel>
+                      <Input {...field} />
+                    </Field>
+                  )}
+                />
+                <FormField
+                  name="hybridai.enableRag"
+                  render={({ field }) => (
+                    <Field orientation="horizontal">
+                      <Switch
+                        checked={Boolean(field.value)}
+                        onCheckedChange={field.onChange}
+                      />
+                      <FieldContent>
+                        <FieldLabel>RAG default</FieldLabel>
+                        <FieldDescription>
+                          Enable retrieval augmentation by default for new
+                          conversations.
+                        </FieldDescription>
+                      </FieldContent>
+                    </Field>
+                  )}
+                />
+              </FieldGroup>
+            </FieldSet>
+
+            <FieldSet>
+              <FieldLegend>Container</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                Sandboxed container runtime for tool execution.
+              </FieldDescription>
+              <FieldGroup>
+                <FormField
+                  name="container.memory"
+                  rules={[
+                    required(),
+                    pattern(
+                      CONTAINER_MEMORY_PATTERN,
+                      'Use a number with optional k, m, or g suffix.',
+                    ),
+                  ]}
+                  render={({ field }) => (
+                    <Field>
+                      <FieldLabel>Memory</FieldLabel>
+                      <Input {...field} placeholder="1024m" />
+                      <FieldDescription>
+                        Docker memory limit. e.g. <code>512m</code>,{' '}
+                        <code>1g</code>, <code>2048m</code>.
+                      </FieldDescription>
+                      <FieldError />
+                    </Field>
+                  )}
+                />
+                <FormField
+                  name="container.persistBashState"
+                  render={({ field }) => (
+                    <Field orientation="horizontal">
+                      <Switch
+                        checked={Boolean(field.value)}
+                        onCheckedChange={field.onChange}
+                      />
+                      <FieldContent>
+                        <FieldLabel>Persistent bash state</FieldLabel>
+                        <FieldDescription>
+                          Reuse the same shell across tool calls so cwd, env,
+                          and aliases survive.
+                        </FieldDescription>
+                      </FieldContent>
+                    </Field>
+                  )}
+                />
+              </FieldGroup>
+            </FieldSet>
+
+            <FieldSet>
+              <FieldLegend>Browser</FieldLegend>
+              <FieldDescription className={styles.sectionDescription}>
+                Browser provider used for agent web tasks.
+              </FieldDescription>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>Provider</FieldLabel>
+                  <NativeSelect
                     value={browser.provider}
                     onChange={(event) =>
                       setDraft((current) =>
-                        updateBrowserConfig(current, (currentBrowser) => ({
-                          ...currentBrowser,
+                        withBrowser(current, (b) => ({
+                          ...b,
                           provider: event.target.value as BrowserProvider,
                         })),
                       )
                     }
                   >
-                    <option value="local">local</option>
-                    <option value="camofox">camofox</option>
-                    <option value="managed-cloud">managed-cloud</option>
-                    <option value="browser-use-cloud">browser-use-cloud</option>
-                  </select>
-                </label>
+                    {PROVIDER_OPTIONS.map((option) => (
+                      <NativeSelectOption
+                        key={option.value}
+                        value={option.value}
+                      >
+                        {option.label}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </Field>
+
                 {browser.provider === 'local' ? (
-                  <>
-                    <label className="field">
-                      <span>Profile directory</span>
-                      <input
-                        value={browser.local.profileDir}
-                        onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              local: {
-                                ...currentBrowser.local,
-                                profileDir: event.target.value,
-                              },
-                            })),
-                          )
-                        }
-                      />
-                    </label>
-                    <BooleanField
-                      label="Headed browser"
-                      value={browser.local.headed}
-                      trueLabel="on"
-                      falseLabel="off"
-                      onChange={(headed) =>
-                        setDraft((current) =>
-                          updateBrowserConfig(current, (currentBrowser) => ({
-                            ...currentBrowser,
-                            local: {
-                              ...currentBrowser.local,
-                              headed,
-                            },
-                          })),
-                        )
-                      }
-                    />
-                  </>
+                  <ProfileBrowserFields
+                    provider="local"
+                    config={browser.local}
+                    setDraft={setDraft}
+                  />
                 ) : null}
+
                 {browser.provider === 'camofox' ? (
-                  <>
-                    <label className="field">
-                      <span>Profile directory</span>
-                      <input
-                        value={browser.camofox.profileDir}
-                        onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              camofox: {
-                                ...currentBrowser.camofox,
-                                profileDir: event.target.value,
-                              },
-                            })),
-                          )
-                        }
-                      />
-                    </label>
-                    <BooleanField
-                      label="Headed browser"
-                      value={browser.camofox.headed}
-                      trueLabel="on"
-                      falseLabel="off"
-                      onChange={(headed) =>
-                        setDraft((current) =>
-                          updateBrowserConfig(current, (currentBrowser) => ({
-                            ...currentBrowser,
-                            camofox: {
-                              ...currentBrowser.camofox,
-                              headed,
-                            },
-                          })),
-                        )
-                      }
-                    />
-                  </>
+                  <ProfileBrowserFields
+                    provider="camofox"
+                    config={browser.camofox}
+                    setDraft={setDraft}
+                  />
                 ) : null}
+
                 {browser.provider === 'managed-cloud' ? (
                   <>
-                    <div className="field">
-                      <span>Pool status</span>
+                    <Field>
+                      <FieldLabel>Pool status</FieldLabel>
                       <div className="button-row">
                         <span
                           className={browserPoolStatusClass(browserPoolHealth)}
@@ -662,8 +756,8 @@ export function ConfigPage() {
                             browserPoolHealthQuery.isLoading,
                           )}
                         </span>
-                        <button
-                          className="ghost-button"
+                        <Button
+                          variant="ghost"
                           type="button"
                           disabled={browserPoolHealthQuery.isFetching}
                           onClick={() => void browserPoolHealthQuery.refetch()}
@@ -671,9 +765,9 @@ export function ConfigPage() {
                           {browserPoolHealthQuery.isFetching
                             ? 'Checking...'
                             : 'Check now'}
-                        </button>
-                        <button
-                          className="ghost-button"
+                        </Button>
+                        <Button
+                          variant="ghost"
                           type="button"
                           disabled={startBrowserPoolMutation.isPending}
                           onClick={() => startBrowserPoolMutation.mutate()}
@@ -681,252 +775,183 @@ export function ConfigPage() {
                           {startBrowserPoolMutation.isPending
                             ? 'Starting...'
                             : 'Start Docker pool'}
-                        </button>
+                        </Button>
                       </div>
-                    </div>
-                    <label className="field">
-                      <span>Pool endpoint URL</span>
-                      <input
+                      {providerChanged ? (
+                        <FieldDescription className={styles.poolStatusPending}>
+                          Pending save — status above reflects the previously
+                          saved provider ({savedBrowserProvider}). Save changes
+                          to refresh.
+                        </FieldDescription>
+                      ) : null}
+                    </Field>
+                    <Field>
+                      <FieldLabel>Pool endpoint URL</FieldLabel>
+                      <Input
+                        type="url"
                         value={browser.managedCloud.endpointUrl}
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              managedCloud: {
-                                ...currentBrowser.managedCloud,
-                                endpointUrl: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'managedCloud', {
+                            endpointUrl: event.target.value,
+                          })
                         }
                       />
-                    </label>
-                    <label className="field">
-                      <span>Pool token SecretRef id</span>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>Pool token SecretRef id</FieldLabel>
+                      <Input
                         value={managedPoolTokenId}
                         placeholder="MANAGED_BROWSER_POOL_TOKEN"
                         onChange={(event) => {
                           const id = event.target.value.trim();
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              managedCloud: {
-                                ...currentBrowser.managedCloud,
-                                poolTokenRef: id
-                                  ? {
-                                      source: 'store',
-                                      id,
-                                    }
-                                  : undefined,
-                              },
-                            })),
-                          );
+                          setBrowserSection(setDraft, 'managedCloud', {
+                            poolTokenRef: id
+                              ? { source: 'store', id }
+                              : undefined,
+                          });
                         }}
                       />
-                    </label>
-                    <label className="field">
-                      <span>Default tenant id (optional)</span>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>Default tenant id (optional)</FieldLabel>
+                      <Input
                         value={browser.managedCloud.defaultTenantId}
                         placeholder="Uses agent id when blank"
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              managedCloud: {
-                                ...currentBrowser.managedCloud,
-                                defaultTenantId: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'managedCloud', {
+                            defaultTenantId: event.target.value,
+                          })
                         }
                       />
-                    </label>
+                    </Field>
                     <div className="button-row">
-                      <a className="ghost-button" href="/admin/approvals">
+                      <Link to="/admin/approvals" className="ghost-button">
                         Manage network policy
-                      </a>
+                      </Link>
                     </div>
-                    <label className="field" htmlFor="managed-cloud-action-usd">
-                      <span>Action price USD</span>
-                      <DecimalNumberInput
+                    <Field controlId="managed-cloud-action-usd">
+                      <FieldLabel>Action price USD</FieldLabel>
+                      <NumberField
                         id="managed-cloud-action-usd"
+                        min={0}
+                        emptyValue={0}
                         value={browser.managedCloud.pricing.actionUsd}
-                        onValueChange={(value) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              managedCloud: {
-                                ...currentBrowser.managedCloud,
-                                pricing: {
-                                  ...currentBrowser.managedCloud.pricing,
-                                  actionUsd: value,
-                                },
-                              },
-                            })),
-                          )
+                        onValueChange={(actionUsd) =>
+                          setBrowserPricing(setDraft, 'managedCloud', {
+                            actionUsd,
+                          })
                         }
                       />
-                    </label>
+                      <FieldError />
+                    </Field>
                   </>
                 ) : null}
+
                 {browser.provider === 'browser-use-cloud' ? (
                   <>
-                    <label className="field">
-                      <span>API key SecretRef id</span>
-                      <input
+                    <Field>
+                      <FieldLabel>API key SecretRef id</FieldLabel>
+                      <Input
                         value={browserUseApiKeyId}
                         onChange={(event) => {
                           const id = event.target.value.trim();
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                apiKeyRef: id
-                                  ? {
-                                      source: 'store',
-                                      id,
-                                    }
-                                  : undefined,
-                              },
-                            })),
-                          );
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            apiKeyRef: id ? { source: 'store', id } : undefined,
+                          });
                         }}
                       />
-                    </label>
-                    <label className="field">
-                      <span>Project id</span>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>Project id</FieldLabel>
+                      <Input
                         value={browser.browserUseCloud.projectId}
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                projectId: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            projectId: event.target.value,
+                          })
                         }
                       />
-                    </label>
-                    <label className="field">
-                      <span>Profile id</span>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>Profile id</FieldLabel>
+                      <Input
                         value={browser.browserUseCloud.profileId}
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                profileId: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            profileId: event.target.value,
+                          })
                         }
                       />
-                    </label>
-                    <label className="field">
-                      <span>Region</span>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>Region</FieldLabel>
+                      <Input
                         value={browser.browserUseCloud.region}
                         onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                region: event.target.value,
-                              },
-                            })),
-                          )
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            region: event.target.value,
+                          })
                         }
                       />
-                    </label>
-                    <BooleanField
-                      label="Keep alive"
-                      value={browser.browserUseCloud.keepAlive}
-                      trueLabel="on"
-                      falseLabel="off"
-                      onChange={(keepAlive) =>
-                        setDraft((current) =>
-                          updateBrowserConfig(current, (currentBrowser) => ({
-                            ...currentBrowser,
-                            browserUseCloud: {
-                              ...currentBrowser.browserUseCloud,
-                              keepAlive,
-                            },
-                          })),
-                        )
-                      }
-                    />
-                    <label className="field">
-                      <span>Browser price USD/min</span>
-                      <input
-                        inputMode="decimal"
-                        value={String(
-                          browser.browserUseCloud.pricing.browserUsdPerMinute,
-                        )}
-                        onChange={(event) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                pricing: {
-                                  ...currentBrowser.browserUseCloud.pricing,
-                                  browserUsdPerMinute:
-                                    Number(event.target.value) || 0,
-                                },
-                              },
-                            })),
-                          )
+                    </Field>
+                    <Field orientation="horizontal">
+                      <Switch
+                        checked={browser.browserUseCloud.keepAlive}
+                        onCheckedChange={(keepAlive) =>
+                          setBrowserSection(setDraft, 'browserUseCloud', {
+                            keepAlive,
+                          })
                         }
                       />
-                    </label>
-                    <label className="field" htmlFor="browser-use-action-usd">
-                      <span>Action price USD</span>
-                      <DecimalNumberInput
+                      <FieldContent>
+                        <FieldLabel>Keep alive</FieldLabel>
+                        <FieldDescription>
+                          Keep the cloud browser session alive between calls
+                          instead of tearing it down.
+                        </FieldDescription>
+                      </FieldContent>
+                    </Field>
+                    <Field controlId="browser-use-browser-usd">
+                      <FieldLabel>Browser price USD/min</FieldLabel>
+                      <NumberField
+                        id="browser-use-browser-usd"
+                        min={0}
+                        emptyValue={0}
+                        value={
+                          browser.browserUseCloud.pricing.browserUsdPerMinute
+                        }
+                        onValueChange={(browserUsdPerMinute) =>
+                          setBrowserPricing(setDraft, 'browserUseCloud', {
+                            browserUsdPerMinute,
+                          })
+                        }
+                      />
+                      <FieldError />
+                    </Field>
+                    <Field controlId="browser-use-action-usd">
+                      <FieldLabel>Action price USD</FieldLabel>
+                      <NumberField
                         id="browser-use-action-usd"
+                        min={0}
+                        emptyValue={0}
                         value={browser.browserUseCloud.pricing.actionUsd}
-                        onValueChange={(value) =>
-                          setDraft((current) =>
-                            updateBrowserConfig(current, (currentBrowser) => ({
-                              ...currentBrowser,
-                              browserUseCloud: {
-                                ...currentBrowser.browserUseCloud,
-                                pricing: {
-                                  ...currentBrowser.browserUseCloud.pricing,
-                                  actionUsd: value,
-                                },
-                              },
-                            })),
-                          )
+                        onValueChange={(actionUsd) =>
+                          setBrowserPricing(setDraft, 'browserUseCloud', {
+                            actionUsd,
+                          })
                         }
                       />
-                    </label>
+                      <FieldError />
+                    </Field>
                   </>
                 ) : null}
-              </section>
-            </div>
-          )}
+              </FieldGroup>
+            </FieldSet>
+          </>
+        )}
+      </div>
 
-          <div className="button-row">
-            <button
-              className="primary-button"
-              type="button"
-              disabled={saveMutation.isPending}
-              onClick={() => saveMutation.mutate(draft)}
-            >
-              {saveMutation.isPending ? 'Saving...' : 'Save config'}
-            </button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+      {unsavedChangesDialog}
+    </Form>
   );
 }

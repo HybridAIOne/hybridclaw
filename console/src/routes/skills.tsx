@@ -18,6 +18,7 @@ import type {
   AdminSkill,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -25,11 +26,15 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Checkbox } from '../components/checkbox';
+import { Field, FieldContent, FieldLabel } from '../components/field';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import {
-  BooleanField,
   BooleanPill,
-  BooleanToggle,
   MetricCard,
   PageHeader,
   SegmentedToggle,
@@ -480,18 +485,17 @@ export function SkillsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Skills"
         description="Browse installed skills, review health, and manage amendments."
         actions={
           <>
-            <input
+            <Input
               className="compact-search"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
               placeholder="Filter skills"
             />
-            <button
-              className="ghost-button"
+            <Button
+              variant="ghost"
               type="button"
               onClick={() => {
                 setShowCreate(!showCreate);
@@ -504,7 +508,7 @@ export function SkillsPage() {
               }}
             >
               {showCreate ? 'Cancel' : 'New'}
-            </button>
+            </Button>
           </>
         }
       />
@@ -531,16 +535,16 @@ export function SkillsPage() {
 
             {createMode === 'zip' ? (
               <div className="stack-form" style={{ marginTop: '1rem' }}>
-                <label className="field">
-                  <span>Skill archive (.zip)</span>
-                  <input
+                <Field>
+                  <FieldLabel>Skill archive (.zip)</FieldLabel>
+                  <Input
                     type="file"
                     accept=".zip,.skill"
                     onChange={(event) =>
                       setZipFile(event.target.files?.[0] || null)
                     }
                   />
-                </label>
+                </Field>
                 <p className="supporting-text">
                   ZIP must contain a SKILL.md with a valid <code>name</code>{' '}
                   frontmatter field. May include scripts/, references/, and
@@ -556,31 +560,26 @@ export function SkillsPage() {
                     width: 'fit-content',
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={zipForce}
-                    onChange={(event) => setZipForce(event.target.checked)}
-                    style={{ margin: 0 }}
-                  />
+                  <Checkbox checked={zipForce} onCheckedChange={setZipForce} />
                   <span>Overwrite existing skill (--force)</span>
                 </label>
                 <div className="button-row">
-                  <button
-                    className="primary-button"
+                  <Button
                     type="button"
+                    loading={uploadMutation.isPending}
                     disabled={uploadMutation.isPending || !zipFile}
                     onClick={() => uploadMutation.mutate()}
                   >
                     {uploadMutation.isPending ? 'Uploading...' : 'Upload skill'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
               <div className="stack-form" style={{ marginTop: '1rem' }}>
                 <div className="field-grid">
-                  <label className="field">
-                    <span>Name</span>
-                    <input
+                  <Field>
+                    <FieldLabel>Name</FieldLabel>
+                    <Input
                       value={draft.name}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -590,10 +589,10 @@ export function SkillsPage() {
                       }
                       placeholder="my-skill"
                     />
-                  </label>
-                  <label className="field">
-                    <span>Category</span>
-                    <select
+                  </Field>
+                  <Field>
+                    <FieldLabel>Category</FieldLabel>
+                    <NativeSelect
                       value={draft.category}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -602,20 +601,22 @@ export function SkillsPage() {
                         }))
                       }
                     >
-                      <option value="">Select category</option>
+                      <NativeSelectOption value="">
+                        Select category
+                      </NativeSelectOption>
                       {categoryOptions.map((category) => (
-                        <option key={category} value={category}>
+                        <NativeSelectOption key={category} value={category}>
                           {category}
-                        </option>
+                        </NativeSelectOption>
                       ))}
-                    </select>
-                  </label>
+                    </NativeSelect>
+                  </Field>
                 </div>
 
                 <div className="field-grid">
-                  <label className="field">
-                    <span>Short description</span>
-                    <input
+                  <Field>
+                    <FieldLabel>Short description</FieldLabel>
+                    <Input
                       value={draft.shortDescription}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -625,10 +626,10 @@ export function SkillsPage() {
                       }
                       placeholder="One-line summary used in metadata"
                     />
-                  </label>
-                  <label className="field">
-                    <span>Tags</span>
-                    <input
+                  </Field>
+                  <Field>
+                    <FieldLabel>Tags</FieldLabel>
+                    <Input
                       value={draft.tags}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -638,12 +639,12 @@ export function SkillsPage() {
                       }
                       placeholder="tag1, tag2"
                     />
-                  </label>
+                  </Field>
                 </div>
 
-                <label className="field">
-                  <span>Description</span>
-                  <input
+                <Field>
+                  <FieldLabel>Description</FieldLabel>
+                  <Input
                     value={draft.description}
                     onChange={(event) =>
                       setDraft((current) => ({
@@ -653,35 +654,39 @@ export function SkillsPage() {
                     }
                     placeholder="Short description of what this skill does"
                   />
-                </label>
+                </Field>
 
                 <div className="field-grid">
-                  <BooleanField
-                    label="User invocable"
-                    value={draft.userInvocable}
-                    trueLabel="yes"
-                    falseLabel="no"
-                    onChange={(userInvocable) =>
-                      setDraft((current) => ({ ...current, userInvocable }))
-                    }
-                  />
-                  <BooleanField
-                    label="Model invocable"
-                    value={!draft.disableModelInvocation}
-                    trueLabel="yes"
-                    falseLabel="no"
-                    onChange={(modelInvocable) =>
-                      setDraft((current) => ({
-                        ...current,
-                        disableModelInvocation: !modelInvocable,
-                      }))
-                    }
-                  />
+                  <Field orientation="horizontal">
+                    <Switch
+                      checked={draft.userInvocable}
+                      onCheckedChange={(userInvocable) =>
+                        setDraft((current) => ({ ...current, userInvocable }))
+                      }
+                    />
+                    <FieldContent>
+                      <FieldLabel>User invocable</FieldLabel>
+                    </FieldContent>
+                  </Field>
+                  <Field orientation="horizontal">
+                    <Switch
+                      checked={!draft.disableModelInvocation}
+                      onCheckedChange={(modelInvocable) =>
+                        setDraft((current) => ({
+                          ...current,
+                          disableModelInvocation: !modelInvocable,
+                        }))
+                      }
+                    />
+                    <FieldContent>
+                      <FieldLabel>Model invocable</FieldLabel>
+                    </FieldContent>
+                  </Field>
                 </div>
 
-                <label className="field">
-                  <span>Skill body (Markdown)</span>
-                  <textarea
+                <Field>
+                  <FieldLabel>Skill body (Markdown)</FieldLabel>
+                  <Textarea
                     rows={10}
                     value={draft.body}
                     onChange={(event) =>
@@ -694,7 +699,7 @@ export function SkillsPage() {
                       '# My Skill\n\nUse this skill when the user asks to ...\n\n## Workflow\n\n1. ...\n2. ...'
                     }
                   />
-                </label>
+                </Field>
 
                 <div className="panel-header" style={{ marginTop: '0.5rem' }}>
                   <div>
@@ -704,8 +709,8 @@ export function SkillsPage() {
                       references/guide.md)
                     </p>
                   </div>
-                  <button
-                    className="ghost-button"
+                  <Button
+                    variant="ghost"
                     type="button"
                     onClick={() =>
                       setDraft((current) => ({
@@ -722,7 +727,7 @@ export function SkillsPage() {
                     }
                   >
                     Add file
-                  </button>
+                  </Button>
                 </div>
 
                 {draft.files.map((file, index) => (
@@ -732,9 +737,9 @@ export function SkillsPage() {
                     style={{ gap: '0.25rem' }}
                   >
                     <div className="field-grid">
-                      <label className="field">
-                        <span>Path</span>
-                        <input
+                      <Field>
+                        <FieldLabel>Path</FieldLabel>
+                        <Input
                           value={file.path}
                           onChange={(event) =>
                             setDraft((current) => {
@@ -748,9 +753,9 @@ export function SkillsPage() {
                           }
                           placeholder="scripts/my-tool.mjs"
                         />
-                      </label>
-                      <button
-                        className="danger-button"
+                      </Field>
+                      <Button
+                        variant="danger"
                         type="button"
                         style={{ alignSelf: 'end' }}
                         onClick={() =>
@@ -761,11 +766,11 @@ export function SkillsPage() {
                         }
                       >
                         Remove
-                      </button>
+                      </Button>
                     </div>
-                    <label className="field">
-                      <span>Content</span>
-                      <textarea
+                    <Field>
+                      <FieldLabel>Content</FieldLabel>
+                      <Textarea
                         rows={8}
                         value={file.content}
                         onChange={(event) =>
@@ -781,14 +786,14 @@ export function SkillsPage() {
                         placeholder="// Script content..."
                         style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
                       />
-                    </label>
+                    </Field>
                   </div>
                 ))}
 
                 <div className="button-row">
-                  <button
-                    className="primary-button"
+                  <Button
                     type="button"
+                    loading={createMutation.isPending}
                     disabled={
                       createMutation.isPending ||
                       !draft.name.trim() ||
@@ -798,7 +803,7 @@ export function SkillsPage() {
                     onClick={() => createMutation.mutate()}
                   >
                     {createMutation.isPending ? 'Creating...' : 'Create skill'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -970,17 +975,14 @@ export function SkillsPage() {
                               </>
                             ) : (
                               <>
-                                <BooleanToggle
-                                  value={skill.enabled}
-                                  ariaLabel={`${skill.name} status`}
-                                  size="sm"
+                                <Switch
+                                  checked={skill.enabled}
+                                  aria-label={`${skill.name} status`}
                                   disabled={
                                     toggleMutation.isPending ||
                                     (!skill.available && !skill.enabled)
                                   }
-                                  trueLabel="active"
-                                  falseLabel="inactive"
-                                  onChange={(enabled) => {
+                                  onCheckedChange={(enabled) => {
                                     if (enabled && !skill.available) {
                                       return;
                                     }
@@ -1169,18 +1171,18 @@ export function SkillsPage() {
                       </small>
                     </div>
                     <div className="skill-review-actions">
-                      <button
+                      <Button
                         type="button"
-                        className="ghost-button"
+                        variant="ghost"
                         onClick={() =>
                           setSelectedSkillName(amendment.skill_name)
                         }
                       >
                         History
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        className="primary-button"
+                        loading={reviewMutation.isPending}
                         disabled={reviewMutation.isPending}
                         onClick={() =>
                           reviewMutation.mutate({
@@ -1190,10 +1192,11 @@ export function SkillsPage() {
                         }
                       >
                         Apply
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        className="danger-button"
+                        variant="danger"
+                        loading={reviewMutation.isPending}
                         disabled={reviewMutation.isPending}
                         onClick={() =>
                           reviewMutation.mutate({
@@ -1203,7 +1206,7 @@ export function SkillsPage() {
                         }
                       >
                         Reject
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ))}

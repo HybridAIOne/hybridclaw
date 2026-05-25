@@ -1,13 +1,18 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminBrowserPoolHealthResponse,
   AdminConfig,
   AdminConfigResponse,
 } from '../api/types';
-import { ToastProvider } from '../components/toast';
+import {
+  blockerStateMock,
+  mockRouterBlocker,
+  renderWithProviders,
+} from '../test-utils';
 import { ConfigPage } from './config';
+
+vi.mock('@tanstack/react-router', () => mockRouterBlocker());
 
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchBrowserPoolHealthMock =
@@ -116,22 +121,13 @@ function makeConfig(): AdminConfig {
 }
 
 function renderConfigPage() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <ConfigPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<ConfigPage />);
 }
 
 beforeEach(() => {
+  blockerStateMock.status = 'idle';
+  blockerStateMock.proceed = vi.fn();
+  blockerStateMock.reset = vi.fn();
   useAuthMock.mockReturnValue({ token: 'admin-token' });
   const config = makeConfig();
   fetchConfigMock.mockResolvedValue({
@@ -169,7 +165,9 @@ describe('ConfigPage', () => {
   it('edits managed cloud browser config from the form view', async () => {
     renderConfigPage();
 
-    const provider = await screen.findByDisplayValue('local');
+    const provider = (await screen.findByLabelText(
+      'Provider',
+    )) as HTMLSelectElement;
     fireEvent.change(provider, { target: { value: 'managed-cloud' } });
     expect(screen.getByDisplayValue('main')).toBeTruthy();
     expect(await screen.findByText(/fetch failed/i)).toBeTruthy();
@@ -205,7 +203,7 @@ describe('ConfigPage', () => {
     fireEvent.change(actionPriceInput, {
       target: { value: '0.0005' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save config' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
     expect(saveConfigMock).toHaveBeenCalledWith(
@@ -225,6 +223,174 @@ describe('ConfigPage', () => {
           }),
         }),
       }),
+    );
+  });
+
+  it('hides Save changes until a field is edited, and Discard restores the saved state', async () => {
+    renderConfigPage();
+
+    const healthHost = (await screen.findByLabelText(
+      'Health host',
+    )) as HTMLInputElement;
+    expect(healthHost.value).toBe('127.0.0.1');
+    expect(screen.getByText('Saved')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
+
+    fireEvent.change(healthHost, { target: { value: '10.0.0.1' } });
+
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Health host') as HTMLInputElement).value,
+      ).toBe('127.0.0.1'),
+    );
+    expect(screen.getByText('Saved')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(saveConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a FieldError for malformed JSON in raw mode and blocks saving', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
+
+    const editor = (await screen.findByLabelText(
+      'config.json',
+    )) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: '{ not json' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(saveConfigMock).not.toHaveBeenCalled();
+
+    fireEvent.change(editor, {
+      target: { value: JSON.stringify({ ...makeConfig(), version: 2 }) },
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    expect(saveConfigMock).toHaveBeenLastCalledWith(
+      'admin-token',
+      expect.objectContaining({ version: 2 }),
+    );
+  });
+
+  it('keeps raw mode open when toggling back to form view with invalid JSON', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
+
+    const editor = (await screen.findByLabelText(
+      'config.json',
+    )) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: 'not json' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Form' }));
+
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.queryByLabelText('Health host')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Form' })).toBeTruthy();
+    expect(saveConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('parses valid JSON when switching from raw mode back to the form view', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
+
+    const editor = (await screen.findByLabelText(
+      'config.json',
+    )) as HTMLTextAreaElement;
+    const edited = { ...makeConfig() };
+    edited.ops = { ...edited.ops, healthHost: '10.20.30.40' };
+    fireEvent.change(editor, { target: { value: JSON.stringify(edited) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Form' }));
+
+    const healthHost = (await screen.findByLabelText(
+      'Health host',
+    )) as HTMLInputElement;
+    expect(healthHost.value).toBe('10.20.30.40');
+    expect(screen.getByRole('button', { name: 'JSON' })).toBeTruthy();
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+  });
+
+  it('keeps "0." in flight for the browser-use-cloud price field and persists the parsed value', async () => {
+    renderConfigPage();
+
+    const provider = (await screen.findByLabelText(
+      'Provider',
+    )) as HTMLSelectElement;
+    fireEvent.change(provider, { target: { value: 'browser-use-cloud' } });
+
+    const browserPrice = screen.getByLabelText(
+      'Browser price USD/min',
+    ) as HTMLInputElement;
+    fireEvent.change(browserPrice, { target: { value: '0.' } });
+    expect(browserPrice.value).toBe('0.');
+    fireEvent.change(browserPrice, { target: { value: '0.25' } });
+    expect(browserPrice.value).toBe('0.25');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      'admin-token',
+      expect.objectContaining({
+        browser: expect.objectContaining({
+          provider: 'browser-use-cloud',
+          browserUseCloud: expect.objectContaining({
+            pricing: expect.objectContaining({ browserUsdPerMinute: 0.25 }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('shows the unsaved-changes dialog and routes both choices through the blocker', async () => {
+    blockerStateMock.status = 'blocked';
+    renderConfigPage();
+
+    await screen.findByLabelText('Health host');
+    expect(
+      screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(blockerStateMock.reset).toHaveBeenCalledTimes(1);
+    expect(blockerStateMock.proceed).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and leave' }));
+    expect(blockerStateMock.proceed).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables Save when a field-level validator rejects the input', async () => {
+    renderConfigPage();
+
+    const memory = (await screen.findByLabelText('Memory')) as HTMLInputElement;
+    fireEvent.change(memory, { target: { value: 'not-a-size' } });
+
+    const save = (await screen.findByRole('button', {
+      name: 'Save changes',
+    })) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    fireEvent.click(save);
+    expect(saveConfigMock).not.toHaveBeenCalled();
+
+    fireEvent.change(memory, { target: { value: '4g' } });
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole('button', {
+            name: 'Save changes',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
     );
   });
 });
