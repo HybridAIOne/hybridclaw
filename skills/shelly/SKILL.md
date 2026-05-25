@@ -290,6 +290,15 @@ Teach the operator which gate blocked the request:
     --port 80 \
     --comment "Shelly LAN read-only"
   ```
+- Before telling the operator to add a policy rule, check whether an equivalent
+  rule is already present. A read-only `Cover.GetConfig` call needs `GET` for
+  `/rpc/**` on the device port; do not ask for `POST` unless the requested
+  operation actually writes or calls an RPC endpoint that requires POST.
+- If an equivalent rule is already present, do not ask the operator to run the
+  same `hybridclaw policy allow` command again. Say that the policy is already
+  saved and continue with the local request. If the local request still reports
+  the SSRF guard, report it as a runtime/gateway mismatch or a rule mismatch
+  that must be diagnosed, not as a missing allow rule.
 - If the runtime still reports the SSRF guard after adding a policy rule, verify
   the currently running gateway has loaded a build that supports policy-backed
   private `http_request` targets, and verify the rule matches the current

@@ -188,6 +188,16 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   );
   expect(skill).toContain('--paths /rpc/**,/shelly,/status');
   expect(skill).toContain(
+    'Before telling the operator to add a policy rule, check whether an equivalent\n  rule is already present.',
+  );
+  expect(skill).toContain('A read-only `Cover.GetConfig` call needs `GET`');
+  expect(skill).toContain(
+    'do not ask the operator to run the\n  same `hybridclaw policy allow` command again.',
+  );
+  expect(skill).toContain(
+    'report it as a runtime/gateway mismatch or a rule mismatch',
+  );
+  expect(skill).toContain(
     'Never collapse cloud DNS failure, LAN reachability failure, and container\n  network policy denial into one cause.',
   );
   expect(skill).toContain(
