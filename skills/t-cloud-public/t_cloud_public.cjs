@@ -212,7 +212,15 @@ const OPERATION_DEFS = {
   'rds-instances': {
     service: 'rds',
     path: '/v3/{project_id}/instances',
-    query: ['limit', 'offset', 'id', 'name', 'type', 'datastore_type', 'vpc_id'],
+    query: [
+      'limit',
+      'offset',
+      'id',
+      'name',
+      'type',
+      'datastore_type',
+      'vpc_id',
+    ],
   },
   'cloud-eye-alarms': {
     service: 'ces',
@@ -284,13 +292,6 @@ function popFlag(args, name, fallback = undefined, options = {}) {
   return value;
 }
 
-function popBoolean(args, name) {
-  const index = args.indexOf(name);
-  if (index === -1) return false;
-  args.splice(index, 1);
-  return true;
-}
-
 function assertNoUnexpectedArgs(args) {
   if (args.length > 0) {
     die(`Unexpected arguments: ${args.join(' ')}`);
@@ -328,7 +329,9 @@ function validateDate(value, label) {
 }
 
 function validateBoolean(value, label) {
-  const normalized = String(value ?? '').trim().toLowerCase();
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
   if (!['true', 'false'].includes(normalized)) {
     die(`${label} must be true or false.`);
   }
@@ -431,9 +434,15 @@ function readCommonFlags(args) {
 
 function makeProjectPath(path, common) {
   if (path.includes('{project_id}') && common.projectId) {
-    return path.replaceAll('{project_id}', validatePathValue(common.projectId, '--project-id'));
+    return path.replaceAll(
+      '{project_id}',
+      validatePathValue(common.projectId, '--project-id'),
+    );
   }
-  return path.replaceAll('{project_id}', `<secret:${common.projectIdSecretName}>`);
+  return path.replaceAll(
+    '{project_id}',
+    `<secret:${common.projectIdSecretName}>`,
+  );
 }
 
 function collectQuery(args, names) {
@@ -445,10 +454,14 @@ function collectQuery(args, names) {
     if (name === 'limit' || name === 'pagesize') query[name] = parseLimit(raw);
     else if (name === 'date') query[name] = validateDate(raw, flag);
     else if (name === 'show_tag') query[name] = validateBoolean(raw, flag);
-    else if (name === 'hour') query[name] = validateIntegerRange(raw, flag, 0, 23);
-    else if (name === 'month') query[name] = validateIntegerRange(raw, flag, 1, 12);
-    else if (name === 'week') query[name] = validateIntegerRange(raw, flag, 1, 53);
-    else if (name === 'year') query[name] = validateIntegerRange(raw, flag, 2020, 2100);
+    else if (name === 'hour')
+      query[name] = validateIntegerRange(raw, flag, 0, 23);
+    else if (name === 'month')
+      query[name] = validateIntegerRange(raw, flag, 1, 12);
+    else if (name === 'week')
+      query[name] = validateIntegerRange(raw, flag, 1, 53);
+    else if (name === 'year')
+      query[name] = validateIntegerRange(raw, flag, 2020, 2100);
     else if (name === 'contract' || name === 'product') {
       query[name] = validateIntegerRange(raw, flag, 1, 9_999_999_999);
     } else query[name] = raw;
@@ -469,7 +482,8 @@ function collectJson(args, names) {
 
 function buildHttpRequest(operation, args) {
   const def = OPERATION_DEFS[operation];
-  if (!def) die(`Unknown T Cloud Public / Open Telekom Cloud operation: ${operation}`);
+  if (!def)
+    die(`Unknown T Cloud Public / Open Telekom Cloud operation: ${operation}`);
   const common = readCommonFlags(args);
   const params = {};
   for (const required of def.required || []) {
@@ -558,25 +572,25 @@ function liveExecutionMetadata(operation) {
       : 'live-t-cloud-public-api',
     requiresConfiguredSecrets,
     optionalConfiguredSecrets:
-      publicOperation || enterpriseDashboardOperation ? [] : ['OTC_SECURITY_TOKEN'],
+      publicOperation || enterpriseDashboardOperation
+        ? []
+        : ['OTC_SECURITY_TOKEN'],
     callPolicy: publicOperation
       ? 'Use this CJS helper as the API wrapper. For public OTC status reads, use run so the helper sends the allowlisted request through the HybridClaw gateway http_request route without credentials.'
       : enterpriseDashboardOperation
-      ? 'Use this CJS helper as the API wrapper. For Enterprise Dashboard billing reads, use run so the helper sends the documented bearer-token request through the HybridClaw gateway http_request route.'
-      : 'Use this CJS helper as the API wrapper. For live OTC reads, use run so the helper sends the allowlisted request through the HybridClaw gateway http_request route with gateway-managed OTC AK/SK signing.',
+        ? 'Use this CJS helper as the API wrapper. For Enterprise Dashboard billing reads, use run so the helper sends the documented bearer-token request through the HybridClaw gateway http_request route.'
+        : 'Use this CJS helper as the API wrapper. For live OTC reads, use run so the helper sends the allowlisted request through the HybridClaw gateway http_request route with gateway-managed OTC AK/SK signing.',
     secretRefPolicy: publicOperation
       ? 'This operation does not require OTC credentials. Do not add signing material or secret headers to the public status-dashboard request.'
       : enterpriseDashboardOperation
-      ? 'Do not preflight, inspect, print, or ask the model for OTC_ENTERPRISE_DASHBOARD_TOKEN. The bearerSecretName field is a credential reference resolved by the gateway.'
-      : 'Do not preflight, inspect, print, or ask the model for OTC_ACCESS_KEY_ID, OTC_SECRET_ACCESS_KEY, OTC_PROJECT_ID, or OTC_SECURITY_TOKEN. The otcAkSk and <secret:...> fields are credential references. OTC_REGION is plain configuration, not signing material.',
-    requestShape:
-      enterpriseDashboardOperation
-        ? `Operation ${operation} uses the documented Enterprise Dashboard v2 consumption API. Responses are NDJSON; parse each line and sum amount fields for totals.`
-        : `Operation ${operation} is allowlisted. Do not handcraft OTC API calls or expose arbitrary service/path passthrough in v1.`,
-    unauthorizedPolicy:
-      enterpriseDashboardOperation
-        ? 'If a live billing call returns 401 or 403, stop after the first failure and ask the operator to verify Enterprise Dashboard API access, token validity, organization permissions, and token security level.'
-        : 'If a live call returns 401, 403, or a signature error, stop after the first failure and ask the operator to verify OTC credential, project, region, IAM, and signing setup.',
+        ? 'Do not preflight, inspect, print, or ask the model for OTC_ENTERPRISE_DASHBOARD_TOKEN. The bearerSecretName field is a credential reference resolved by the gateway.'
+        : 'Do not preflight, inspect, print, or ask the model for OTC_ACCESS_KEY_ID, OTC_SECRET_ACCESS_KEY, OTC_PROJECT_ID, or OTC_SECURITY_TOKEN. The otcAkSk and <secret:...> fields are credential references. OTC_REGION is plain configuration, not signing material.',
+    requestShape: enterpriseDashboardOperation
+      ? `Operation ${operation} uses the documented Enterprise Dashboard v2 consumption API. Responses are NDJSON; parse each line and sum amount fields for totals.`
+      : `Operation ${operation} is allowlisted. Do not handcraft OTC API calls or expose arbitrary service/path passthrough in v1.`,
+    unauthorizedPolicy: enterpriseDashboardOperation
+      ? 'If a live billing call returns 401 or 403, stop after the first failure and ask the operator to verify Enterprise Dashboard API access, token validity, organization permissions, and token security level.'
+      : 'If a live call returns 401, 403, or a signature error, stop after the first failure and ask the operator to verify OTC credential, project, region, IAM, and signing setup.',
     rateLimitPolicy:
       'If a live call returns 429, report the rate limit and include Retry-After or rate-limit response headers when present.',
   };
@@ -592,30 +606,49 @@ function buildPlan(args = []) {
     operation = /\b(hourly|hour|stunde|stunden)\b/i.test(normalized)
       ? 'billing-hourly-consumption'
       : 'billing-daily-consumption';
-  }
-  else if (WRITE_KEYWORDS.test(normalized)) operation = 'guarded-mutation-request';
-  else if (/\b(status dashboard|service status|outage|availability status|platform status)\b/.test(normalized)) operation = 'service-status';
-  else if (/\b(endpoint|service catalog|api catalog|service list)\b/.test(normalized)) operation = 'service-endpoints';
-  else if (/\b(region|availability zone|az)\b/.test(normalized)) operation = 'regions';
+  } else if (WRITE_KEYWORDS.test(normalized))
+    operation = 'guarded-mutation-request';
+  else if (
+    /\b(status dashboard|service status|outage|availability status|platform status)\b/.test(
+      normalized,
+    )
+  )
+    operation = 'service-status';
+  else if (
+    /\b(endpoint|service catalog|api catalog|service list)\b/.test(normalized)
+  )
+    operation = 'service-endpoints';
+  else if (/\b(region|availability zone|az)\b/.test(normalized))
+    operation = 'regions';
   else if (/\b(project|tenant)\b/.test(normalized)) operation = 'projects';
   else if (/\b(quota|limit|capacity)\b/.test(normalized)) operation = 'quotas';
   else if (/\b(vpc|network)\b/.test(normalized)) operation = 'networks';
   else if (/\b(subnet)\b/.test(normalized)) operation = 'subnets';
-  else if (/\b(security group|firewall rule)\b/.test(normalized)) operation = 'security-groups';
-  else if (/\b(eip|elastic ip|public ip)\b/.test(normalized)) operation = 'eips';
-  else if (/\b(load balancer|elb)\b/.test(normalized)) operation = 'load-balancers';
+  else if (/\b(security group|firewall rule)\b/.test(normalized))
+    operation = 'security-groups';
+  else if (/\b(eip|elastic ip|public ip)\b/.test(normalized))
+    operation = 'eips';
+  else if (/\b(load balancer|elb)\b/.test(normalized))
+    operation = 'load-balancers';
   else if (/\b(volume|evs|disk)\b/.test(normalized)) operation = 'volumes';
   else if (/\b(snapshot)\b/.test(normalized)) operation = 'snapshots';
   else if (/\b(backup|cbr)\b/.test(normalized)) operation = 'backups';
-  else if (/\b(obs|bucket|object storage)\b/.test(normalized)) operation = 'obs-bucket';
-  else if (/\b(sfs|file share|nfs)\b/.test(normalized)) operation = 'sfs-shares';
-  else if (/\b(cce|kubernetes|cluster|node pool|container)\b/.test(normalized)) operation = 'cce-clusters';
-  else if (/\b(rds|database|postgres|mysql|sqlserver)\b/.test(normalized)) operation = 'rds-instances';
-  else if (/\b(alarm|cloud eye|metric)\b/.test(normalized)) operation = 'cloud-eye-alarms';
-  else if (/\b(trace|audit|cts|cloud trace)\b/.test(normalized)) operation = 'traces';
+  else if (/\b(obs|bucket|object storage)\b/.test(normalized))
+    operation = 'obs-bucket';
+  else if (/\b(sfs|file share|nfs)\b/.test(normalized))
+    operation = 'sfs-shares';
+  else if (/\b(cce|kubernetes|cluster|node pool|container)\b/.test(normalized))
+    operation = 'cce-clusters';
+  else if (/\b(rds|database|postgres|mysql|sqlserver)\b/.test(normalized))
+    operation = 'rds-instances';
+  else if (/\b(alarm|cloud eye|metric)\b/.test(normalized))
+    operation = 'cloud-eye-alarms';
+  else if (/\b(trace|audit|cts|cloud trace)\b/.test(normalized))
+    operation = 'traces';
   else if (/\b(log|lts|log tank)\b/.test(normalized)) operation = 'log-groups';
   else if (/\b(kms|key)\b/.test(normalized)) operation = 'kms-keys';
-  else if (/\b(waf|web application firewall)\b/.test(normalized)) operation = 'waf-policies';
+  else if (/\b(waf|web application firewall)\b/.test(normalized))
+    operation = 'waf-policies';
   else operation = 'unrecognized-request';
 
   const stakesTier =
@@ -624,8 +657,8 @@ function buildPlan(args = []) {
       : operation === 'unrecognized-request'
         ? 'amber'
         : operation.startsWith('billing-')
-        ? 'amber'
-        : 'green';
+          ? 'amber'
+          : 'green';
   const requiresEscalation = stakesTier === 'red';
   return {
     command: 'plan',
@@ -637,15 +670,17 @@ function buildPlan(args = []) {
         ? 'approve-t-cloud-public-exact-f8-f14-mutation'
         : null,
     region: common.region,
-    projectId: common.projectId ? 'provided' : `<secret:${common.projectIdSecretName}>`,
+    projectId: common.projectId
+      ? 'provided'
+      : `<secret:${common.projectIdSecretName}>`,
     nextStep:
       operation === 'unrecognized-request'
         ? 'Ask for the target OTC service, region, project, and desired read-only inventory or readiness check before building an API request.'
         : operation.startsWith('billing-')
-        ? `Build a dry-run payload with http-request ${operation}. Use run for live billing reads through the documented Enterprise Dashboard API, then parse NDJSON rows and sum amount fields for the requested period.`
-        : stakesTier === 'green'
-        ? `Build a dry-run payload with http-request ${operation}.`
-        : 'Do not build a write request in v1. Collect exact region, project, service, resource id, action, rollback, and F8/F14 operator approval.',
+          ? `Build a dry-run payload with http-request ${operation}. Use run for live billing reads through the documented Enterprise Dashboard API, then parse NDJSON rows and sum amount fields for the requested period.`
+          : stakesTier === 'green'
+            ? `Build a dry-run payload with http-request ${operation}.`
+            : 'Do not build a write request in v1. Collect exact region, project, service, resource id, action, rollback, and F8/F14 operator approval.',
     secretPolicy: {
       accessKeyIdSecretName: common.accessKeyIdSecretName,
       secretAccessKeySecretName: common.secretAccessKeySecretName,
@@ -784,7 +819,9 @@ async function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
   try {
     parsed = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(`Gateway returned non-JSON response: ${text.slice(0, 500)}`);
+    throw new Error(
+      `Gateway returned non-JSON response: ${text.slice(0, 500)}`,
+    );
   }
   if (!response.ok) {
     throw new Error(
@@ -889,10 +926,10 @@ function showHelp() {
   process.stdout.write(`T Cloud Public (formerly Open Telekom Cloud) skill helper
 
 Usage:
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs [--format json] plan <request> [--region eu-de]
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs [--format json] http-request <operation> [flags]
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs [--format json] run <operation> [flags]
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs [--format json] eval-scenarios
+  node skills/t-cloud-public/t_cloud_public.cjs [--format json] plan <request> [--region eu-de]
+  node skills/t-cloud-public/t_cloud_public.cjs [--format json] http-request <operation> [flags]
+  node skills/t-cloud-public/t_cloud_public.cjs [--format json] run <operation> [flags]
+  node skills/t-cloud-public/t_cloud_public.cjs [--format json] eval-scenarios
 
 Common flags:
   --region eu-de
@@ -935,14 +972,14 @@ Read operations:
   waf-policies [--page 1] [--pagesize 50]
 
 Examples:
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request regions
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request quotas --region eu-de
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request servers --region eu-de --limit 50
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request networks --region eu-de --limit 50
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request volumes --region eu-de --limit 50
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request cloud-eye-alarms --region eu-de --limit 50
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request billing-daily-consumption --date ${todayLocalIsoDate()}
-  node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json plan deploy-check --region eu-de --project-id <project-id>
+  node skills/t-cloud-public/t_cloud_public.cjs --format json http-request regions
+  node skills/t-cloud-public/t_cloud_public.cjs --format json http-request quotas --region eu-de
+  node skills/t-cloud-public/t_cloud_public.cjs --format json http-request servers --region eu-de --limit 50
+  node skills/t-cloud-public/t_cloud_public.cjs --format json http-request networks --region eu-de --limit 50
+  node skills/t-cloud-public/t_cloud_public.cjs --format json http-request volumes --region eu-de --limit 50
+  node skills/t-cloud-public/t_cloud_public.cjs --format json http-request cloud-eye-alarms --region eu-de --limit 50
+  node skills/t-cloud-public/t_cloud_public.cjs --format json http-request billing-daily-consumption --date ${todayLocalIsoDate()}
+  node skills/t-cloud-public/t_cloud_public.cjs --format json plan deploy-check --region eu-de --project-id <project-id>
 
 V1 is read/list/describe only. Mutating OTC actions require exact F8/F14
 approval and are intentionally planned, not executed, by this helper.

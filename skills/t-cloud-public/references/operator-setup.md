@@ -36,7 +36,7 @@ chat or project files.
 Region is plain configuration, not a secret. Pass it per command:
 
 ```bash
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run servers --region eu-de
+node skills/t-cloud-public/t_cloud_public.cjs --format json run servers --region eu-de
 ```
 
 For a local shell default, export it instead of putting it in the encrypted
@@ -64,7 +64,7 @@ maintenance window and only for the services being changed.
 
 ## Live Call Path
 
-`open_telekom_cloud.cjs run ...` posts an allowlisted `httpRequest` payload to
+`t_cloud_public.cjs run ...` posts an allowlisted `httpRequest` payload to
 the HybridClaw gateway. IaaS inventory payloads contain `otcAkSk` metadata with
 secret names only. The gateway resolves the secrets and signs the request
 server-side. Enterprise Dashboard billing payloads use `bearerSecretName:

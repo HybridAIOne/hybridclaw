@@ -44,7 +44,7 @@ metadata:
     short_description: "T Cloud Public infrastructure inventory, readiness checks, and guarded operation planning."
     tags:
       - t-cloud-public
-      - open-telekom-cloud
+      - "open telekom cloud"
       - t-systems
       - devops
       - infrastructure
@@ -104,16 +104,16 @@ metadata:
 
 Use this skill for T Cloud Public, formerly Open Telekom Cloud, infrastructure
 inventory, deployment-readiness checks, incident summaries, and guarded DevOps
-request planning. Invoke it as `t-cloud-public`. The helper path and credential
-names intentionally keep established `open-telekom-cloud` and `OTC_*`
-identifiers because the original issue, public API docs, domains, and customer
-terminology still use OTC/Open Telekom Cloud names.
+request planning. Invoke it as `t-cloud-public`. The helper path uses the
+current product name; credential names intentionally keep established `OTC_*`
+identifiers because the public API docs, domains, and customer terminology
+still use OTC/Open Telekom Cloud names.
 
 ## Default Workflow
 
 1. Start with read-only inventory or `plan`. V1 helper operations are
    read/list/describe only.
-2. Treat `open_telekom_cloud.cjs` as the API wrapper. Do not handcraft OTC API
+2. Treat `t_cloud_public.cjs` as the API wrapper. Do not handcraft OTC API
    URLs, service endpoints, signing metadata, request tiers, or SecretRefs from
    memory.
 3. For prompt/user testing, stop after `plan` or helper `http-request` payload
@@ -157,39 +157,39 @@ handling.
 Run the helper:
 
 ```bash
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --help
+node skills/t-cloud-public/t_cloud_public.cjs --help
 ```
 
 Plan without contacting OTC:
 
 ```bash
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json plan \
+node skills/t-cloud-public/t_cloud_public.cjs --format json plan \
   "deploy-check for eu-de production"
 ```
 
 Build dry-run gateway payloads:
 
 ```bash
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request regions
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request service-endpoints --region eu-de
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request service-status
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request quotas --region eu-de
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request servers --region eu-de --limit 50
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request networks --region eu-de --limit 50
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request volumes --region eu-de --limit 50
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request cloud-eye-alarms --region eu-de --limit 50
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request billing-daily-consumption --date 2026-05-24
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json http-request billing-hourly-consumption --date 2026-05-24 --hour 13
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request regions
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request service-endpoints --region eu-de
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request service-status
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request quotas --region eu-de
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request servers --region eu-de --limit 50
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request networks --region eu-de --limit 50
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request volumes --region eu-de --limit 50
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request cloud-eye-alarms --region eu-de --limit 50
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request billing-daily-consumption --date 2026-05-24
+node skills/t-cloud-public/t_cloud_public.cjs --format json http-request billing-hourly-consumption --date 2026-05-24 --hour 13
 ```
 
 Run live read requests through the gateway:
 
 ```bash
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run servers --region eu-de --limit 50
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run security-groups --region eu-de
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run backups --region eu-de --limit 50
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run rds-instances --region eu-de --limit 50
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json run billing-daily-consumption --date 2026-05-24
+node skills/t-cloud-public/t_cloud_public.cjs --format json run servers --region eu-de --limit 50
+node skills/t-cloud-public/t_cloud_public.cjs --format json run security-groups --region eu-de
+node skills/t-cloud-public/t_cloud_public.cjs --format json run backups --region eu-de --limit 50
+node skills/t-cloud-public/t_cloud_public.cjs --format json run rds-instances --region eu-de --limit 50
+node skills/t-cloud-public/t_cloud_public.cjs --format json run billing-daily-consumption --date 2026-05-24
 ```
 
 ## Inventory Coverage
@@ -247,7 +247,7 @@ to those tools by default.
 ## Validation
 
 ```bash
-python3 skills/skill-creator/scripts/quick_validate.py skills/open-telekom-cloud
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --help
-node skills/open-telekom-cloud/open_telekom_cloud.cjs --format json eval-scenarios
+python3 skills/skill-creator/scripts/quick_validate.py skills/t-cloud-public
+node skills/t-cloud-public/t_cloud_public.cjs --help
+node skills/t-cloud-public/t_cloud_public.cjs --format json eval-scenarios
 ```

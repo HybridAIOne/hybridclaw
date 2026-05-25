@@ -5,8 +5,8 @@ import path from 'node:path';
 
 import { expect, test } from 'vitest';
 
-const skillRoot = path.join(process.cwd(), 'skills', 'open-telekom-cloud');
-const helperPath = path.join(skillRoot, 'open_telekom_cloud.cjs');
+const skillRoot = path.join(process.cwd(), 'skills', 't-cloud-public');
+const helperPath = path.join(skillRoot, 't_cloud_public.cjs');
 
 function runHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
   return spawnSync('node', [helperPath, ...args], {
