@@ -466,19 +466,26 @@ function buildCloud(operation, args) {
   if (operation === 'cloud-set-light') {
     requireGrant(args, operation);
     const json = { id: parseDeviceId(args) };
+    let hasAction = false;
     const channel = popFlag(args, '--channel');
     if (channel !== undefined)
       json.channel = parseNonNegativeInteger(channel, '--channel');
     const on = popFlag(args, '--on');
-    if (on !== undefined) json.on = parseBooleanValue(on, '--on');
+    if (on !== undefined) {
+      json.on = parseBooleanValue(on, '--on');
+      hasAction = true;
+    }
     const toggleAfter = popFlag(args, '--toggle-after');
-    if (toggleAfter !== undefined)
+    if (toggleAfter !== undefined) {
       json.toggle_after = parsePositiveNumber(toggleAfter, '--toggle-after');
+      hasAction = true;
+    }
     const mode = popFlag(args, '--mode');
     if (mode !== undefined) {
       if (!['color', 'white'].includes(mode))
         die('--mode must be color or white.');
       json.mode = mode;
+      hasAction = true;
     }
     for (const [flag, property, min, max] of [
       ['--temperature', 'temperature', 2700, 7000],
@@ -491,10 +498,12 @@ function buildCloud(operation, args) {
       ['--effect', 'effect', 0, 6],
     ]) {
       const value = popFlag(args, flag);
-      if (value !== undefined)
+      if (value !== undefined) {
         json[property] = parseBoundedNumber(value, flag, min, max);
+        hasAction = true;
+      }
     }
-    if (Object.keys(json).length <= 1) {
+    if (!hasAction) {
       die('cloud-set-light requires at least one light command field.');
     }
     assertNoUnexpectedArgs(args);
@@ -508,6 +517,7 @@ function buildCloud(operation, args) {
   if (operation === 'cloud-set-cover') {
     requireGrant(args, operation);
     const json = { id: parseDeviceId(args) };
+    let hasAction = false;
     const channel = popFlag(args, '--channel');
     if (channel !== undefined)
       json.channel = parseNonNegativeInteger(channel, '--channel');
@@ -519,36 +529,45 @@ function buildCloud(operation, args) {
       } else {
         json.position = parseBoundedNumber(position, '--position', 0, 100);
       }
+      hasAction = true;
     }
     const relative = popFlag(args, '--relative');
-    if (relative !== undefined)
+    if (relative !== undefined) {
       json.relative = parseBoundedNumber(relative, '--relative', -100, 100);
+      hasAction = true;
+    }
     const duration = popFlag(args, '--duration');
-    if (duration !== undefined)
+    if (duration !== undefined) {
       json.duration = parsePositiveNumber(duration, '--duration');
+      hasAction = true;
+    }
     const slatPosition = popFlag(args, '--slat-position');
-    if (slatPosition !== undefined)
+    if (slatPosition !== undefined) {
       json.slatPosition = parseBoundedNumber(
         slatPosition,
         '--slat-position',
         0,
         100,
       );
+      hasAction = true;
+    }
     const slatRelative = popFlag(args, '--slat-relative');
-    if (slatRelative !== undefined)
+    if (slatRelative !== undefined) {
       json.slatRelative = parseBoundedNumber(
         slatRelative,
         '--slat-relative',
         -100,
         100,
       );
+      hasAction = true;
+    }
     if (json.position !== undefined && json.relative !== undefined) {
       die('--position and --relative cannot be used together.');
     }
     if (json.slatPosition !== undefined && json.slatRelative !== undefined) {
       die('--slat-position and --slat-relative cannot be used together.');
     }
-    if (Object.keys(json).length <= 1) {
+    if (!hasAction) {
       die('cloud-set-cover requires at least one cover command field.');
     }
     assertNoUnexpectedArgs(args);

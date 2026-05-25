@@ -239,6 +239,44 @@ test('Shelly helper builds cloud state and control requests without exposing sec
   expect(state.httpRequest).not.toHaveProperty('bearerSecretName');
 });
 
+test('Shelly helper rejects light and cover commands with only routing fields', () => {
+  const light = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'cloud-set-light',
+    '--cloud-host',
+    'https://shelly.example.com',
+    '--device-id',
+    'b48a0a1cd978',
+    '--channel',
+    '0',
+    '--operator-grant',
+  ]);
+  const cover = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'cloud-set-cover',
+    '--cloud-host',
+    'https://shelly.example.com',
+    '--device-id',
+    'b48a0a1cd978',
+    '--channel',
+    '0',
+    '--operator-grant',
+  ]);
+
+  expect(light.status).not.toBe(0);
+  expect(light.stderr).toContain(
+    'cloud-set-light requires at least one light command field.',
+  );
+  expect(cover.status).not.toBe(0);
+  expect(cover.stderr).toContain(
+    'cloud-set-cover requires at least one cover command field.',
+  );
+});
+
 test('Shelly helper rejects credential-bearing local URLs and non-HTTPS cloud hosts', () => {
   const local = runHelper([
     '--format',
