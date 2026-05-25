@@ -118,10 +118,10 @@ describe('TailscaleTunnelProvider', () => {
     );
     expect(upCall?.[0]).toEqual(['up']);
     expect(upCall?.[0]).not.toContain('test-auth-key');
-    expect(runCommand).toHaveBeenCalledWith(
-      ['up'],
-      { env: { TS_AUTHKEY: 'test-auth-key' }, timeoutMs: 5_000 },
-    );
+    expect(runCommand).toHaveBeenCalledWith(['up'], {
+      env: { TS_AUTHKEY: 'test-auth-key' },
+      timeoutMs: 5_000,
+    });
   });
 
   it('uses structured Funnel status when start output is quiet', async () => {
@@ -157,10 +157,9 @@ describe('TailscaleTunnelProvider', () => {
     await expect(provider.start()).resolves.toEqual({
       public_url: 'https://quiet.example.ts.net',
     });
-    expect(runCommand).toHaveBeenCalledWith(
-      ['funnel', 'status', '--json'],
-      { timeoutMs: 5_000 },
-    );
+    expect(runCommand).toHaveBeenCalledWith(['funnel', 'status', '--json'], {
+      timeoutMs: 5_000,
+    });
   });
 
   it('fails gracefully when tailscaled is logged out and TS_AUTHKEY is missing', async () => {
@@ -192,7 +191,7 @@ describe('TailscaleTunnelProvider', () => {
           provider: 'tailscale',
           reason: 'started',
           error:
-            'tailscale is not logged in and TS_AUTHKEY is not configured in encrypted runtime secrets. Store it with `hybridclaw secret set TS_AUTHKEY <authkey>` or run `tailscale login` on the host.',
+            'tailscale is not logged in and TS_AUTHKEY is not configured in encrypted runtime secrets. Store it with `/secret set TS_AUTHKEY <authkey>` or run `tailscale login` on the host.',
         },
       }),
     );

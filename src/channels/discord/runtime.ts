@@ -2673,7 +2673,9 @@ export async function initDiscord(
 
   const discordToken = String(DISCORD_TOKEN || '').trim();
   if (!discordToken) {
-    throw new Error('DISCORD_TOKEN is required to start the Discord bot');
+    throw new Error(
+      'Discord bot token is required. Store DISCORD_TOKEN with `/secret set DISCORD_TOKEN <token>`.',
+    );
   }
   try {
     await client.login(discordToken);

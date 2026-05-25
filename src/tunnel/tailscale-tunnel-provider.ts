@@ -263,7 +263,7 @@ export class TailscaleTunnelProvider implements TunnelProvider {
       if (!authKey) {
         if (isTailscaleLoggedOutError(message)) {
           throw new Error(
-            `tailscale is not logged in and ${this.tokenSecretName} is not configured in encrypted runtime secrets. Store it with \`hybridclaw secret set ${this.tokenSecretName} <authkey>\` or run \`tailscale login\` on the host.`,
+            `tailscale is not logged in and ${this.tokenSecretName} is not configured in encrypted runtime secrets. Store it with \`/secret set ${this.tokenSecretName} <authkey>\` or run \`tailscale login\` on the host.`,
           );
         }
         throw error;

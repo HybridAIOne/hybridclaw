@@ -1444,8 +1444,8 @@ export async function runAudioTranscribe(
   if (candidates.length === 0) {
     throw new Error(
       request.provider
-        ? `audio_transcribe provider "${request.provider}" is not configured. Store the provider API key with \`hybridclaw secret set\` or use provider "auto".`
-        : 'audio_transcribe is not configured: store OPENAI_API_KEY, DEEPGRAM_API_KEY, or ASSEMBLYAI_API_KEY with `hybridclaw secret set`, or use a configured openai-codex model.',
+        ? `audio_transcribe provider "${request.provider}" is not configured. Store the provider API key with \`/secret set\` or use provider "auto".`
+        : 'audio_transcribe is not configured: store OPENAI_API_KEY, DEEPGRAM_API_KEY, or ASSEMBLYAI_API_KEY with `/secret set`, or use a configured openai-codex model.',
     );
   }
 

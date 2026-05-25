@@ -2179,7 +2179,7 @@ async function runAgentBrowser(
       success: false,
       error:
         'agent-browser is not available in this container. Install it (global or /app/node_modules/.bin) ' +
-        'or set AGENT_BROWSER_BIN.',
+        'or switch to another browser provider in /admin/config.',
     };
   }
 
@@ -2234,7 +2234,7 @@ async function runAgentBrowser(
       return {
         success: false,
         error:
-          'Headful browser control requires Google Chrome. Install Google Chrome or set CHROME_BIN/AGENT_BROWSER_EXECUTABLE_PATH to a Chrome executable. Refusing to fall back to Playwright Chrome for Testing because it is unstable for headed macOS launches.',
+          'Headful browser control requires Google Chrome. Install Google Chrome or switch to another browser provider in /admin/config. Refusing to fall back to Playwright Chrome for Testing because it is unstable for headed macOS launches.',
       };
     }
     browserEnv.AGENT_BROWSER_EXECUTABLE_PATH = executablePath;

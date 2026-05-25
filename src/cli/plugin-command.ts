@@ -192,10 +192,12 @@ function printPluginCheckReport(result: {
   console.log(`Directory: ${result.pluginDir}`);
   console.log(`Source: ${result.source}`);
   if (result.requiresEnv.length > 0) {
-    console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
+    console.log(`Required runtime secrets: ${result.requiresEnv.join(', ')}`);
   }
   if (result.missingEnv.length > 0) {
-    console.log(`Missing env vars: ${result.missingEnv.join(', ')}`);
+    console.log(
+      `Missing runtime secrets: ${result.missingEnv.join(', ')}. Store them with /secret set, then reload plugins.`,
+    );
   }
   if (result.packageJsonDependencies.length > 0) {
     console.log(
@@ -428,7 +430,7 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     );
     printMissingBinaryGuidance(result.pluginId, result.missingRequiredBins);
     if (result.requiresEnv.length > 0) {
-      console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
+      console.log(`Required runtime secrets: ${result.requiresEnv.join(', ')}`);
     }
     if (result.requiredConfigKeys.length > 0) {
       console.log(
@@ -503,7 +505,7 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     );
     printMissingBinaryGuidance(result.pluginId, result.missingRequiredBins);
     if (result.requiresEnv.length > 0) {
-      console.log(`Required env vars: ${result.requiresEnv.join(', ')}`);
+      console.log(`Required runtime secrets: ${result.requiresEnv.join(', ')}`);
     }
     if (result.requiredConfigKeys.length > 0) {
       console.log(

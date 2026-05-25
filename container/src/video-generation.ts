@@ -545,7 +545,7 @@ export async function runVideoGenerate(
   const candidates = buildProviderCandidates(context);
   if (candidates.length === 0) {
     throw new Error(
-      'video_generate is not configured: store OPENAI_API_KEY or GEMINI_API_KEY/GOOGLE_API_KEY with `hybridclaw secret set`, or use a configured openai-codex/gemini model.',
+      'video_generate is not configured: store OPENAI_API_KEY or GEMINI_API_KEY/GOOGLE_API_KEY with `/secret set`, or use a configured openai-codex/gemini model.',
     );
   }
 

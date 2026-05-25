@@ -1920,7 +1920,7 @@ async function resolveInteractiveTelegramSetup(params: {
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error(
-      'Missing Telegram bot token. Pass `--token <token>`, set TELEGRAM_BOT_TOKEN, or run this command in an interactive terminal to be prompted.',
+      'Missing Telegram bot token. Pass `--token <token>`, store TELEGRAM_BOT_TOKEN with `/secret set TELEGRAM_BOT_TOKEN <token>`, or run this command in an interactive terminal to be prompted.',
     );
   }
 

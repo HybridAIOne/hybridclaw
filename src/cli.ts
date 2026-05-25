@@ -1838,16 +1838,16 @@ function printMissingEnvVarError(message: string, envVar?: string): void {
     HF_TOKEN: 'Hugging Face provider is not configured.',
   };
   const envVarHint: Record<string, string> = {
-    HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
-    ANTHROPIC_API_KEY: `Run \`hybridclaw auth login anthropic --method api-key\`, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli\`, or set ANTHROPIC_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
-    OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
-    MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
-    HF_TOKEN: `Run \`hybridclaw auth login huggingface\`, or set HF_TOKEN in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or store HYBRIDAI_API_KEY with \`/secret set HYBRIDAI_API_KEY <key>\`, then run the command again.`,
+    ANTHROPIC_API_KEY: `Run \`hybridclaw auth login anthropic --method api-key\`, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli\`, or store ANTHROPIC_API_KEY with \`/secret set ANTHROPIC_API_KEY <key>\`, then run the command again.`,
+    OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or store OPENROUTER_API_KEY with \`/secret set OPENROUTER_API_KEY <key>\`, then run the command again.`,
+    MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or store MISTRAL_API_KEY with \`/secret set MISTRAL_API_KEY <key>\`, then run the command again.`,
+    HF_TOKEN: `Run \`hybridclaw auth login huggingface\`, or store HF_TOKEN with \`/secret set HF_TOKEN <key>\`, then run the command again.`,
   };
   const renderedMessage = envVar ? envVarMessage[envVar] || message : message;
   const hint = envVar
     ? envVarHint[envVar]
-    : 'Set this variable and rerun the command.';
+    : 'Configure the required value with /config set or /secret set, then rerun the command.';
   console.error(`hybridclaw error: ${renderedMessage}`);
   console.error(`Hint: ${hint}`);
   console.error(

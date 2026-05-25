@@ -1201,7 +1201,7 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
   expect(result.text).toContain(
     'Installed plugin Node.js dependencies from package.json.',
   );
-  expect(result.text).toContain('Required env vars: DEMO_PLUGIN_TOKEN');
+  expect(result.text).toContain('Required runtime secrets: DEMO_PLUGIN_TOKEN');
   expect(result.text).toContain('required config keys: workspaceId');
   expect(result.text).toContain('Plugin runtime reloaded.');
 });

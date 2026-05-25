@@ -1305,7 +1305,7 @@ export async function runImageGenerate(
   const candidates = buildProviderCandidates(context);
   if (candidates.length === 0) {
     throw new Error(
-      'image_generate is not configured: store OPENAI_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, XAI_API_KEY, or BFL_API_KEY/BLACK_FOREST_LABS_API_KEY with `hybridclaw secret set`, or use a configured openai-codex/gemini/xai model.',
+      'image_generate is not configured: store OPENAI_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, XAI_API_KEY, or BFL_API_KEY/BLACK_FOREST_LABS_API_KEY with `/secret set`, or use a configured openai-codex/gemini/xai model.',
     );
   }
 

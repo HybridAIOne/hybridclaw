@@ -114,7 +114,7 @@ describe('NgrokTunnelProvider', () => {
           provider: 'ngrok',
           reason: 'started',
           error:
-            'ngrok auth token is not configured in encrypted runtime secrets. Store it with `hybridclaw secret set NGROK_AUTHTOKEN <token>`.',
+            'ngrok auth token is not configured in encrypted runtime secrets. Store it with `/secret set NGROK_AUTHTOKEN <token>`.',
         },
       }),
     );
