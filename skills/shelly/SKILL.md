@@ -81,10 +81,11 @@ Shelly has three relevant HTTP surfaces:
 - Gen2+ local RPC uses `/rpc` methods such as `Shelly.GetStatus`,
   `Shelly.GetConfig`, `Shelly.GetDeviceInfo`, `Shelly.GetComponents`, and
   `Switch.Set`.
-- Do not infer the HTTP verb for Gen2+ RPC methods. Use the helper-emitted
-  `httpRequest` exactly. In particular, `local-gen2-cover-config` emits
-  `GET /rpc/Cover.GetConfig?id=<id>`; never rewrite that as generic
-  `POST /rpc` JSON-RPC.
+- Do not infer or rewrite the HTTP verb, URL path, query string, or JSON body
+  for Gen2+ RPC methods. Use the helper-emitted `httpRequest` exactly. Shelly
+  local RPC has both direct method URLs and JSON-RPC transport forms; the
+  workspace network policy matches the actual emitted method, host, port, and
+  path.
 - Gen1 local devices use classic endpoints such as `/shelly`, `/status`, and
   `/relay/{id}`.
 - Shelly Cloud Control API v2 uses the tenant server URI from the Shelly app,
@@ -100,6 +101,7 @@ Shelly has three relevant HTTP surfaces:
   id. The authorization code is exchanged at `https://<shelly_server>/oauth/auth`.
 
 Official references:
+[Cloud Control API getting started](https://shelly-api-docs.shelly.cloud/cloud-control-api/),
 [Gen2+ Shelly service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Shelly/),
 [Gen2+ Cover service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Cover/),
 [Gen2+ Switch service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Switch/),
@@ -233,6 +235,30 @@ Use this credential decision matrix:
 | Tenant host + `SHELLY_OAUTH_CODE` | Can exchange the code and capture `SHELLY_CLOUD_ACCESS_TOKEN`. |
 | LAN IPs reachable from gateway | Can inspect local Gen1/Gen2 endpoints and derive ids/status from those responses. |
 
+## Required Inputs and Where to Find Them
+
+Collect only the inputs needed for the selected API surface. Do not ask for
+cloud credentials when local LAN reads are sufficient, and do not ask for local
+device passwords in chat.
+
+| Input | Source | Use |
+| --- | --- | --- |
+| Shelly Cloud tenant server URI | Shelly Smart Control app, same user settings area as the Authorization Cloud Key. The OAuth JWT `user_api_url` can also reveal the account's current API server after consent. | `--cloud-host` or `SHELLY_CLOUD_HOST` for Cloud Control v2 and Real Time Events HTTP calls. |
+| `SHELLY_CLOUD_AUTH_KEY` | Shelly Smart Control app user settings, Authorization Cloud Key. | Cloud Control API v2 state and control for known device ids. |
+| Device id | Shelly Smart Control app device details, Device Information, Device Id. | Cloud Control API v2 `ids`; required for v2 state/control and limited to known devices. |
+| `SHELLY_CLOUD_ACCESS_TOKEN` | OAuth authorization-code flow for Real Time Events; capture the returned `access_token` into HybridClaw secrets. | Account-level Real Time Events discovery with `cloud-all-status`. |
+| `SHELLY_OAUTH_CODE` | Temporary authorization code returned to the configured OAuth callback after Shelly login consent. | One-time exchange for `SHELLY_CLOUD_ACCESS_TOKEN`; remove or ignore after successful capture. |
+| LAN device URL or IP | Router/DHCP lease list, Shelly app device network details, local DNS, or a previously verified local URL. | Local Gen1/Gen2 reads and guarded local control when gateway policy and runtime network can reach the device. |
+| Cover channel id | Local config/status component key such as `cover:0`, or the default channel for single-cover devices. | Local `Cover.*` calls and cloud cover channel targeting. |
+| App-visible name or room | Shelly Smart Control app UI. | Human mapping only unless the same API response returns that field. Firmware/local RPC name fields can be null when name sync is disabled. |
+
+The Cloud Control API getting-started documentation says the Authorization
+Cloud Key and server URI are obtained from Shelly app user settings. The v2
+communication documentation says per-device ids are found in each device's
+Device Information screen. The Real Time Events documentation uses OAuth
+Bearer access tokens and instructs clients to use the `user_api_url` embedded
+in the token for subsequent account-level calls.
+
 If the user asks to discover all Shelly devices from the cloud:
 
 - Use `cloud-all-status` only when `SHELLY_CLOUD_ACCESS_TOKEN` is configured.
@@ -297,13 +323,14 @@ Teach the operator which gate blocked the request:
     --comment "Shelly LAN read-only"
   ```
 - Before telling the operator to add a policy rule, check whether an equivalent
-  rule is already present. A read-only `Cover.GetConfig` call needs `GET` for
-  `/rpc/**` on the device port; do not ask for `POST` unless the requested
-  operation actually writes or calls an RPC endpoint that requires POST.
-- If `Cover.GetConfig` is blocked and the tool call used `POST`, diagnose the
-  failed request as a wrong helper-bypass. Retry once with the helper-emitted
-  `GET /rpc/Cover.GetConfig?id=<id>` request. Do not ask for a broader policy
-  rule to make the incorrect POST request pass.
+  rule is already present. Compare the actual audited request host, port,
+  method, and path with the saved policy. A rule for `GET /rpc/**` does not
+  allow `POST /rpc`, and a rule for `POST /rpc/Cover.GetConfig` does not allow
+  `POST /rpc`.
+- If a private-host request is blocked, diagnose the mismatch from the current
+  tool result and saved policy. Do not ask for a broader policy rule unless the
+  helper-emitted request genuinely needs that broader method/path and the
+  operator accepts that permission.
 - If an equivalent rule is already present, do not ask the operator to run the
   same `hybridclaw policy allow` command again. Say that the policy is already
   saved and continue with the local request. If the local request still reports
@@ -329,8 +356,7 @@ When a user wants local cover names or local device status:
      --id 0
    ```
    Pass the emitted `httpRequest` to `http_request`.
-   Do not manually replace the emitted method with `POST` or collapse the URL to
-   `/rpc`; `Cover.GetConfig` must stay the helper-emitted GET request.
+   Do not manually replace the emitted method, URL path, query string, or body.
 2. If the request returns the SSRF guard error above, explain that local LAN
    access is blocked from this runtime. Do not retry with handcrafted URLs,
    `curl`, DNS aliases, redirects, or URL encoding tricks.
@@ -396,8 +422,12 @@ API surfaces. When the user asks for names:
 
 ## Credentials
 
-For Cloud Control API calls, store the Shelly authorization key in HybridClaw
-encrypted runtime secrets:
+Use HybridClaw secrets for every credential. Do not paste raw keys, access
+tokens, authorization codes, or local device passwords into chat.
+
+For Cloud Control API v2 calls, get the Authorization Cloud Key from Shelly
+Smart Control user settings and store it in HybridClaw encrypted runtime
+secrets:
 
 ```bash
 hybridclaw secret set SHELLY_CLOUD_AUTH_KEY "<cloud-auth-key>"
@@ -407,9 +437,11 @@ Pass the tenant server URI from the Shelly app with `--cloud-host` or set
 `SHELLY_CLOUD_HOST` in the runtime environment. The helper emits the cloud key
 as `<secret:SHELLY_CLOUD_AUTH_KEY>` in the request URL so the gateway resolves
 it server-side. Never paste the raw cloud key into chat or command arguments.
+Cloud Control v2 also needs known device ids; get them from each device's
+Device Information screen in Shelly Smart Control.
 
-For Real Time Events account-wide discovery, store the Shelly OAuth access token
-separately:
+For Real Time Events account-wide discovery, use Shelly's OAuth
+authorization-code flow and store the captured access token separately:
 
 ```bash
 hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN "<oauth-access-token>"
@@ -424,6 +456,12 @@ acquisition flow above. `cloud-oauth-token` mirrors the Salesforce skill's
 gateway capture pattern: the authorization code is supplied through a temporary
 secret placeholder, and the gateway captures the returned `access_token` into
 encrypted runtime secrets.
+
+The OAuth authorization code is temporary setup material, not a standing
+credential. Store it only as `SHELLY_OAUTH_CODE` long enough for
+`cloud-oauth-token` to exchange it and capture `SHELLY_CLOUD_ACCESS_TOKEN`.
+After capture, use the token and the JWT `user_api_url`/tenant host for
+Real Time Events calls.
 
 For local Gen2+ devices with authentication enabled, note that Shelly uses
 SHA-256 digest authentication. The gateway `http_request` tool may return 401

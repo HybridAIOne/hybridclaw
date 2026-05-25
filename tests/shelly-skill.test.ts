@@ -60,12 +60,20 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('local-gen2-switch-set');
   expect(skill).toContain('local-gen2-cover-config');
   expect(skill).toContain('Cover.GetConfig');
-  expect(skill).toContain('Do not infer the HTTP verb for Gen2+ RPC methods.');
   expect(skill).toContain(
-    '`GET /rpc/Cover.GetConfig?id=<id>`; never rewrite that as generic\n  `POST /rpc` JSON-RPC.',
+    'Do not infer or rewrite the HTTP verb, URL path, query string, or JSON body',
+  );
+  expect(skill).toContain(
+    'Shelly\n  local RPC has both direct method URLs and JSON-RPC transport forms',
   );
   expect(skill).toContain('cloud-set-cover');
   expect(skill).toContain('factory-reset');
+  expect(skill).toContain('Required Inputs and Where to Find Them');
+  expect(skill).toContain('Shelly Cloud tenant server URI');
+  expect(skill).toContain('Authorization Cloud Key');
+  expect(skill).toContain('Device Information');
+  expect(skill).toContain('SHELLY_OAUTH_CODE');
+  expect(skill).toContain('JWT `user_api_url`');
   expect(skill).toContain('Device Discovery and IDs');
   expect(skill).toContain(
     'Do not claim that the v2\n`auth_key` API can list every device.',
@@ -194,12 +202,14 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain(
     'Before telling the operator to add a policy rule, check whether an equivalent\n  rule is already present.',
   );
-  expect(skill).toContain('A read-only `Cover.GetConfig` call needs `GET`');
   expect(skill).toContain(
-    'If `Cover.GetConfig` is blocked and the tool call used `POST`, diagnose the\n  failed request as a wrong helper-bypass.',
+    'Compare the actual audited request host, port,\n  method, and path with the saved policy.',
   );
   expect(skill).toContain(
-    'Do not ask for a broader policy\n  rule to make the incorrect POST request pass.',
+    'A rule for `GET /rpc/**` does not\n  allow `POST /rpc`',
+  );
+  expect(skill).toContain(
+    'Do not ask for a broader policy rule unless the\n  helper-emitted request genuinely needs that broader method/path',
   );
   expect(skill).toContain(
     'do not ask the operator to run the\n  same `hybridclaw policy allow` command again.',
@@ -214,7 +224,7 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
     'Do not retry with handcrafted URLs,\n   `curl`, DNS aliases, redirects, or URL encoding tricks.',
   );
   expect(skill).toContain(
-    'Do not manually replace the emitted method with `POST` or collapse the URL to\n   `/rpc`',
+    'Do not manually replace the emitted method, URL path, query string, or body.',
   );
   expect(skill).toContain(
     'Ask the operator to provide an explicit LAN-capable Shelly tool or local\n     bridge',
