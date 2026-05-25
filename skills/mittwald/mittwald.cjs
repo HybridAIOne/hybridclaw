@@ -72,7 +72,6 @@ const OPERATION_TIERS = {
   'check-domain-availability': 'green',
   'validate-license-key': 'amber',
   'create-delivery-box': 'amber',
-  'app-action': 'red',
   'service-action': 'red',
   'order-extension': 'red',
   'restore-backup': 'red',
@@ -788,27 +787,6 @@ const OPERATION_HANDLERS = {
       },
     );
   },
-  'app-action': (operation, args) => {
-    const app = appId(args);
-    const action = assertAllowedAction(
-      popFlag(args, '--action'),
-      LIFECYCLE_ACTIONS,
-      '--action',
-    );
-    const target = `app-installation:${app} action:${action}`;
-    return wrapMutation(
-      operation,
-      {
-        url: appInstallationResourcePath(app, `actions/${action}`),
-        method: 'POST',
-      },
-      requireGrant(args, operation, target),
-      {
-        argv: followUpArgv(operation, ['--app-installation-id', app]),
-        verifies: 'app runtime status reflects requested action',
-      },
-    );
-  },
   'service-action': (operation, args) => {
     const { stack, service } = stackAndService(args);
     const action = assertAllowedAction(
@@ -920,7 +898,7 @@ const OPERATION_HANDLERS = {
   'check-domain-availability': (operation, args) => {
     const domain = requireText(popFlag(args, '--domain'), '--domain');
     return wrapHttpRequest(operation, {
-      url: `${API_BASE}/domains`,
+      url: `${API_BASE}/domain-registrable`,
       method: 'POST',
       json: { domain },
     });
@@ -953,14 +931,17 @@ const OPERATION_HANDLERS = {
     const clearTargetPath =
       popBooleanFlag(args, '--clear-target-path') === true;
     const target = `project-backup:${backup} source:${sourcePath} target:${targetPath || sourcePath}`;
-    const json = { sourcePath, clearTargetPath };
-    if (targetPath !== undefined) json.targetPath = targetPath;
+    const pathRestore = {
+      sourcePaths: [sourcePath],
+      clearTargetPath,
+    };
+    if (targetPath !== undefined) pathRestore.targetRestorePath = targetPath;
     return wrapMutation(
       operation,
       {
-        url: backupResourcePath(backup, 'restore-path'),
+        url: backupResourcePath(backup, 'restore'),
         method: 'POST',
-        json,
+        json: { pathRestore },
       },
       requireGrant(args, operation, target),
       {
@@ -1088,12 +1069,6 @@ function commandEventFollowUp(args) {
         url: appendQuery(projectResourcePath(projectId(args), 'cronjobs'), {
           limit: DEFAULT_LIMIT,
         }),
-        headers,
-      });
-      break;
-    case 'app-action':
-      payload = wrapHttpRequest('app-status', {
-        url: appInstallationResourcePath(appId(args), 'status'),
         headers,
       });
       break;
@@ -1345,7 +1320,6 @@ Guarded write operations require --operator-grant after exact F8/F14 approval:
   create-mysql-database --project-id id --description name --version 8.4 --password-secret MYSQL_PASSWORD
   create-app-installation --project-id id --body-json '{...}'
   create-cronjob --project-id id --body-json '{...}'
-  app-action --app-installation-id id --action start|stop|restart
   service-action --stack-id id --service-id id --action start|stop|restart
   change-domain-project --domain-id id --target-project-id id
   update-domain-nameservers --domain-id id --nameserver ns1.example.com --nameserver ns2.example.com

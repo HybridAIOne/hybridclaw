@@ -80,7 +80,6 @@ metadata:
         - validate-license-key
         - create-delivery-box
       red:
-        - app-action
         - service-action
         - restore-backup
         - restore-backup-path
@@ -130,11 +129,13 @@ users, and marketplace/license readouts.
    available.
 
 The helper is read-first. Guarded write operations exist only for allowlisted
-mittwald API shapes and require exact F8/F14 approval: app/service actions,
-database creation, app installation creation, cronjob creation, domain
+mittwald API shapes and require exact F8/F14 approval: service actions, database
+creation, app installation creation, cronjob creation, domain
 project/nameserver/deletion changes, backup restore, delivery box creation,
-license-key validation, and extension ordering. Do not create API tokens or use
-unlisted marketplace mutations.
+license-key validation, and extension ordering. App installation runtime actions
+are intentionally not exposed because the current mittwald OpenAPI marks that
+endpoint deprecated and non-functional. Do not create API tokens or use unlisted
+marketplace mutations.
 
 ## Command Contract
 
@@ -190,9 +191,6 @@ node skills/mittwald/mittwald.cjs --format json http-request create-mysql-databa
   --project-id <project-id> --description app-prod --version 8.4 \
   --password-secret MITTWALD_MYSQL_PASSWORD --operator-grant
 
-node skills/mittwald/mittwald.cjs --format json http-request app-action \
-  --app-installation-id <app-installation-id> --action restart --operator-grant
-
 node skills/mittwald/mittwald.cjs --format json http-request service-action \
   --stack-id <stack-id> --service-id <service-id> --action restart --operator-grant
 
@@ -213,8 +211,8 @@ node skills/mittwald/mittwald.cjs --format json http-request order-extension \
 After a live write returns an `etag` header, build the consistency read:
 
 ```bash
-node skills/mittwald/mittwald.cjs --format json event-follow-up app-action \
-  --app-installation-id <app-installation-id> --event-id <etag>
+node skills/mittwald/mittwald.cjs --format json event-follow-up service-action \
+  --stack-id <stack-id> --service-id <service-id> --event-id <etag>
 ```
 
 Classify saved or live `http_request` failures:

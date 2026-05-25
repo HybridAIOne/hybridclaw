@@ -84,6 +84,7 @@ test('mittwald skill manifest declares SecretRef credential metadata', () => {
   expect(skill).not.toContain('- files');
   expect(skill).not.toContain('- mail\n');
   expect(skill).not.toContain('- deploy-check');
+  expect(skill).not.toContain('- app-action');
 });
 
 test('mittwald helper exposes expected read commands', () => {
@@ -101,6 +102,7 @@ test('mittwald helper exposes expected read commands', () => {
   expect(result.stdout).toContain('change-domain-project');
   expect(result.stdout).toContain('validate-license-key');
   expect(result.stdout).toContain('create-delivery-box');
+  expect(result.stdout).not.toContain('app-action');
 });
 
 test('mittwald helper emits SecretRef-backed whoami request without secrets', () => {
@@ -228,9 +230,11 @@ test('mittwald guarded writes require exact operator grant', () => {
     '--format',
     'json',
     'http-request',
-    'app-action',
-    '--app-installation-id',
-    'app-123',
+    'service-action',
+    '--stack-id',
+    'stack-123',
+    '--service-id',
+    'service-123',
     '--action',
     'restart',
   ]);
@@ -239,14 +243,16 @@ test('mittwald guarded writes require exact operator grant', () => {
   expect(withoutGrant.stderr).toContain(
     'requires exact F8/F14 operator approval',
   );
-  expect(withoutGrant.stderr).toContain('app-installation:app-123');
+  expect(withoutGrant.stderr).toContain('stack:stack-123 service:service-123');
 });
 
-test('mittwald guarded app action emits red request with target approval and follow-up', () => {
+test('mittwald guarded service action emits red request with target approval and follow-up', () => {
   const payload = buildHttp([
-    'app-action',
-    '--app-installation-id',
-    'app/123',
+    'service-action',
+    '--stack-id',
+    'stack/123',
+    '--service-id',
+    'service/123',
     '--action',
     'restart',
     '--operator-grant',
@@ -254,10 +260,10 @@ test('mittwald guarded app action emits red request with target approval and fol
 
   expect(payload).toMatchObject({
     command: 'http-request',
-    operation: 'app-action',
+    operation: 'service-action',
     stakesTier: 'red',
     httpRequest: {
-      url: 'https://api.mittwald.de/v2/app-installations/app%2F123/actions/restart',
+      url: 'https://api.mittwald.de/v2/stacks/stack%2F123/services/service%2F123/actions/restart',
       method: 'POST',
       bearerSecretName: 'MITTWALD_API_TOKEN',
       stakesTier: 'red',
@@ -265,8 +271,8 @@ test('mittwald guarded app action emits red request with target approval and fol
     approval: {
       route: 'f14',
       requiredGrant:
-        'approve-mittwald-app-action:app-installation:app/123 action:restart',
-      target: 'app-installation:app/123 action:restart',
+        'approve-mittwald-service-action:stack:stack/123 service:service/123 action:restart',
+      target: 'stack:stack/123 service:service/123 action:restart',
     },
     eventConsistency: {
       responseEventHeader: 'etag',
@@ -279,14 +285,16 @@ test('mittwald guarded app action emits red request with target approval and fol
     '--format',
     'json',
     'event-follow-up',
-    'app-action',
-    '--app-installation-id',
-    'app/123',
+    'service-action',
+    '--stack-id',
+    'stack/123',
+    '--service-id',
+    'service/123',
     '--event-id',
     '<etag>',
   ]);
   expect(JSON.stringify(payload)).not.toContain('Authorization');
-  expect(JSON.stringify(payload)).not.toContain('app%252F123');
+  expect(JSON.stringify(payload)).not.toContain('stack%252F123');
 });
 
 test('mittwald guarded database creation uses secret placeholders and bounded follow-up', () => {
@@ -372,12 +380,14 @@ test('mittwald guarded backup restore and marketplace order are red operations',
     operation: 'restore-backup-path',
     stakesTier: 'red',
     httpRequest: {
-      url: 'https://api.mittwald.de/v2/project-backups/backup-123/restore-path',
+      url: 'https://api.mittwald.de/v2/project-backups/backup-123/restore',
       method: 'POST',
       json: {
-        sourcePath: '/html',
-        targetPath: '/html-restore',
-        clearTargetPath: false,
+        pathRestore: {
+          sourcePaths: ['/html'],
+          targetRestorePath: '/html-restore',
+          clearTargetPath: false,
+        },
       },
     },
   });
@@ -454,7 +464,7 @@ test('mittwald non-mutating domain availability does not require grant or follow
     operation: 'check-domain-availability',
     stakesTier: 'green',
     httpRequest: {
-      url: 'https://api.mittwald.de/v2/domains',
+      url: 'https://api.mittwald.de/v2/domain-registrable',
       method: 'POST',
       json: {
         domain: 'example.com',
