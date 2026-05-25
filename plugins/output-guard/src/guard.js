@@ -1,4 +1,4 @@
-import { resolveOutputGuardProfileForChannel } from './config.js';
+import { resolveOutputGuardProfileSelection } from './config.js';
 import { callOutputGuardModel, tryParseClassifierVerdict } from './llm.js';
 import { detectRuleViolations, summarizeViolations } from './rules.js';
 
@@ -82,7 +82,7 @@ export function createOutputGuardGuard({ api, config }) {
         return { action: 'allow' };
       }
 
-      const profile = resolveOutputGuardProfileForChannel(
+      const { profile } = resolveOutputGuardProfileSelection(
         config,
         context.channelId,
       );

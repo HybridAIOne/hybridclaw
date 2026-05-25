@@ -17,6 +17,8 @@ export default {
       api.logger.info({}, 'output-guard plugin disabled by config');
       return;
     }
+    const profileCount = Object.keys(config.profiles).length;
+    const channelProfileCount = Object.keys(config.channelProfiles).length;
     api.registerMiddleware(createOutputGuardMiddleware({ api, config }));
 
     api.registerCommand({
@@ -36,8 +38,8 @@ export default {
           `  mode: ${config.mode}`,
           `  failure mode: ${config.failureMode}`,
           `  channel profile: ${channelProfile}`,
-          `  named profiles: ${Object.keys(config.profiles).length}`,
-          `  channel mappings: ${Object.keys(config.channelProfiles).length}`,
+          `  named profiles: ${profileCount}`,
+          `  channel mappings: ${channelProfileCount}`,
           `  policy brief: ${activeProfile.policy ? 'configured' : '(none)'}`,
           `  policy file: ${activeProfile.policyFileText ? 'loaded' : '(none)'}`,
           `  do list: ${activeProfile.doList.length}`,
@@ -63,8 +65,8 @@ export default {
         dontList: config.defaultProfile.dontList.length,
         bannedPatterns: config.defaultProfile.bannedPatterns.length,
         requirePhrases: config.defaultProfile.requirePhrases.length,
-        profiles: Object.keys(config.profiles).length,
-        channelProfiles: Object.keys(config.channelProfiles).length,
+        profiles: profileCount,
+        channelProfiles: channelProfileCount,
         classifierProvider: config.classifier.provider,
         rewriterProvider: config.rewriter.provider,
       },

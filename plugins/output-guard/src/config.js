@@ -159,7 +159,7 @@ function resolveNamedProfiles(rawConfig, runtime, logger, errors) {
   return Object.freeze(profiles);
 }
 
-function resolveChannelProfiles(rawConfig) {
+function resolveChannelProfiles(rawConfig, logger) {
   if (!isRecord(rawConfig?.channelProfiles)) {
     return Object.freeze({});
   }
@@ -169,7 +169,13 @@ function resolveChannelProfiles(rawConfig) {
   )) {
     const channelId = normalizeString(rawChannelId);
     const profileId = normalizeString(rawProfileId);
-    if (!channelId || !profileId) continue;
+    if (!channelId || !profileId) {
+      logger.warn(
+        { channelId: rawChannelId, profileId: rawProfileId },
+        'output-guard: channelProfiles entry is invalid; ignoring',
+      );
+      continue;
+    }
     channelProfiles[channelId] = profileId;
   }
   return Object.freeze(channelProfiles);
@@ -205,10 +211,6 @@ export function resolveOutputGuardProfileSelection(config, channelId) {
   };
 }
 
-export function resolveOutputGuardProfileForChannel(config, channelId) {
-  return resolveOutputGuardProfileSelection(config, channelId).profile;
-}
-
 export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
   const errors = [];
   const enabled = rawConfig?.enabled !== false;
@@ -226,7 +228,7 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
     'default',
   );
   const profiles = resolveNamedProfiles(rawConfig, runtime, logger, errors);
-  const channelProfiles = resolveChannelProfiles(rawConfig);
+  const channelProfiles = resolveChannelProfiles(rawConfig, logger);
   const blockMessage =
     normalizeString(rawConfig?.blockMessage) ||
     'Output blocked by output guard.';
@@ -241,6 +243,13 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
   for (const entry of errors) {
     logger.warn(entry, 'output-guard config issue');
   }
+  for (const [channelId, profileId] of Object.entries(channelProfiles)) {
+    if (profiles[profileId]) continue;
+    logger.warn(
+      { channelId, profileId },
+      'output-guard: channelProfiles references unknown profile; will fall back to default',
+    );
+  }
 
   return Object.freeze({
     enabled,
@@ -249,7 +258,6 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
     defaultProfile,
     profiles,
     channelProfiles,
-    ...defaultProfile,
     blockMessage,
     minLength,
     classifier: Object.freeze(classifier),

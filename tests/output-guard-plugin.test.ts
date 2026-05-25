@@ -79,19 +79,23 @@ test('output-guard rules detect banned phrases, banned patterns, and missing req
 
   const nonCompliant = detectRuleViolations(
     'We deliver synergy. We guarantee zero downtime.',
-    config,
+    config.defaultProfile,
   );
   expect(nonCompliant.map((entry) => entry.kind).sort()).toEqual([
     'banned_pattern',
     'banned_phrase',
     'missing_required',
   ]);
-  expect(buildPolicyBrief(config)).toContain('Do:\n- Use concrete examples');
-  expect(buildPolicyBrief(config)).toContain("Don't:\n- Use hype");
+  expect(buildPolicyBrief(config.defaultProfile)).toContain(
+    'Do:\n- Use concrete examples',
+  );
+  expect(buildPolicyBrief(config.defaultProfile)).toContain(
+    "Don't:\n- Use hype",
+  );
 
   const compliant = detectRuleViolations(
     'Thanks for reaching out — we will follow up Tuesday.\n\nBest regards',
-    config,
+    config.defaultProfile,
   );
   expect(compliant).toEqual([]);
 });
@@ -116,13 +120,21 @@ test('output-guard profile config ignores malformed arrays and labels warnings',
           bannedPatterns: ['/[also-bad'],
         },
       },
-      channelProfiles: [],
+      channelProfiles: {
+        ' ': 'support',
+        'email:support@example.com': 'support',
+        'slack:C123': null,
+        'slack:C404': 'missing-profile',
+      },
     },
     { cwd: process.cwd(), homeDir: process.cwd() },
     logger as never,
   );
 
-  expect(config.channelProfiles).toEqual({});
+  expect(config.channelProfiles).toEqual({
+    'email:support@example.com': 'support',
+    'slack:C404': 'missing-profile',
+  });
   expect(config.profiles.support.policyBrief).toBe('');
   expect(logger.warn).toHaveBeenCalledWith(
     expect.objectContaining({ profileId: 'support' }),
@@ -135,6 +147,21 @@ test('output-guard profile config ignores malformed arrays and labels warnings',
   expect(logger.warn).toHaveBeenCalledWith(
     expect.objectContaining({ profileId: 'support' }),
     'output-guard config issue',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ channelId: ' ' }),
+    'output-guard: channelProfiles entry is invalid; ignoring',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ channelId: 'slack:C123', profileId: null }),
+    'output-guard: channelProfiles entry is invalid; ignoring',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      channelId: 'slack:C404',
+      profileId: 'missing-profile',
+    }),
+    'output-guard: channelProfiles references unknown profile; will fall back to default',
   );
 
   const arrayConfig = resolveOutputGuardConfig(
