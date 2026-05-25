@@ -14,6 +14,14 @@ credentials:
       id: SHELLY_CLOUD_AUTH_KEY
     scope: "Shelly Cloud Control API tenant host auth_key query parameter"
     how_to_obtain: "Generate an Authorization cloud key in Shelly Smart Control user settings and store it with `hybridclaw secret set SHELLY_CLOUD_AUTH_KEY \"<key>\"`."
+  - id: shelly-cloud-access-token
+    kind: bearer
+    required: false
+    secret_ref:
+      source: store
+      id: SHELLY_CLOUD_ACCESS_TOKEN
+    scope: "Shelly Cloud Real Time Events HTTP API Authorization bearer"
+    how_to_obtain: "Use Shelly's documented OAuth flow for the Real Time Events API and store the resulting access token with `hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN \"<access-token>\"`."
 metadata:
   hybridclaw:
     category: home-automation
@@ -36,6 +44,7 @@ metadata:
         - local-gen2-components
         - local-gen2-switch-status
         - cloud-get-state
+        - cloud-all-status
       amber:
         - local-gen1-relay-set
         - local-gen2-switch-set
@@ -77,7 +86,8 @@ Shelly has three relevant HTTP surfaces:
 - Shelly also documents an account-level Real Time Events HTTP endpoint,
   `/device/all_status?show_info=true&no_shared=true`, that can return current
   or last-known statuses for owned devices. That endpoint uses OAuth/Bearer
-  access-token authentication, not the v2 `auth_key` used by this helper.
+  access-token authentication through `SHELLY_CLOUD_ACCESS_TOKEN`, not the v2
+  `auth_key`.
 
 Official references:
 [Gen2+ Shelly service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Shelly/),
@@ -94,8 +104,10 @@ and
    - Gen2+: `local-gen2-info`, then `local-gen2-status` or
      `local-gen2-components`.
    - Gen1: `local-gen1-shelly`, then `local-gen1-status`.
-   - Cloud v2 `auth_key`: `cloud-get-state` with `--select status` and only
-     known device ids needed for the task.
+   - Cloud Real Time Events OAuth/Bearer: `cloud-all-status` to discover
+     account device ids and current or last-known statuses.
+   - Cloud Control API v2 `auth_key`: `cloud-get-state` with `--select status`
+     and only known device ids needed for the task.
 2. Read state before any output control.
 3. Treat relay, switch, light, and cover changes as amber. Get explicit
    operator approval before passing `--operator-grant`.
@@ -114,18 +126,19 @@ the Shelly tenant host and one or more device ids. `cloud-get-state` sends
 
 If the user asks to discover all Shelly devices from the cloud:
 
-- First explain that this helper does not implement account-wide discovery.
-- Ask for the device ids from Shelly Smart Control
-  `Device -> Settings -> Device Information -> Device Id`, or ask for LAN IPs
-  reachable by the gateway.
-- Mention only as a separate option that Shelly documents
-  `/device/all_status?show_info=true&no_shared=true` under Cloud Real Time
-  Events. It returns `data.devices_status` with `_dev_info.id`, but it requires
-  OAuth/Bearer access-token authentication rather than `SHELLY_CLOUD_AUTH_KEY`.
-  Do not try to call it with the v2 cloud auth key.
-- If the operator provides an OAuth/Bearer access token through an approved
-  runtime secret path in the future, add a separate helper operation before
-  using that endpoint. Keep it read-only and rate-limited.
+- Use `cloud-all-status` only when `SHELLY_CLOUD_ACCESS_TOKEN` is configured.
+  This calls the documented Real Time Events HTTP endpoint
+  `/device/all_status?show_info=true&no_shared=true` and emits
+  `Authorization: Bearer <SHELLY_CLOUD_ACCESS_TOKEN>` through `secretHeaders`.
+- The response returns `data.devices_status` keyed by device id; with
+  `show_info=true`, each entry can include `_dev_info.id`, app name, model, and
+  online state. Use that to identify cover/roller devices, then use v2
+  `cloud-get-state` or guarded `cloud-set-cover` with exact ids.
+- If `SHELLY_CLOUD_ACCESS_TOKEN` is not configured, ask for device ids from
+  Shelly Smart Control `Device -> Settings -> Device Information -> Device Id`,
+  or ask for LAN IPs reachable by the gateway.
+- Do not try to call Real Time Events with `SHELLY_CLOUD_AUTH_KEY`; that key is
+  for v2 `/v2/devices/api/...` control requests only.
 
 ## Credentials
 
@@ -140,6 +153,17 @@ Pass the tenant server URI from the Shelly app with `--cloud-host` or set
 `SHELLY_CLOUD_HOST` in the runtime environment. The helper emits the cloud key
 as `<secret:SHELLY_CLOUD_AUTH_KEY>` in the request URL so the gateway resolves
 it server-side. Never paste the raw cloud key into chat or command arguments.
+
+For Real Time Events account-wide discovery, store the Shelly OAuth access token
+separately:
+
+```bash
+hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN "<oauth-access-token>"
+```
+
+`cloud-all-status` uses `secretHeaders` so the gateway injects
+`Authorization: Bearer <SHELLY_CLOUD_ACCESS_TOKEN>` server-side. Treat this
+token as distinct from `SHELLY_CLOUD_AUTH_KEY`; they are not interchangeable.
 
 For local Gen2+ devices with authentication enabled, note that Shelly uses
 SHA-256 digest authentication. The gateway `http_request` tool may return 401
@@ -204,6 +228,9 @@ node skills/shelly/shelly.cjs --format json http-request cloud-get-state \
   --select status \
   --pick-status sys
 
+node skills/shelly/shelly.cjs --format json http-request cloud-all-status \
+  --cloud-host https://shelly-tenant.example
+
 node skills/shelly/shelly.cjs --format json http-request cloud-set-switch \
   --cloud-host https://shelly-tenant.example \
   --device-id b48a0a1cd978 \
@@ -219,8 +246,9 @@ The helper prints a wrapper such as
 ## Error Interpretation
 
 - Shelly Cloud 401/403 responses mean the cloud key is missing, blocked, or
-  rejected. Stop after the first failure and ask the operator to verify
-  `SHELLY_CLOUD_AUTH_KEY` and the tenant host.
+  rejected, or the OAuth access token is missing, blocked, expired, or rejected
+  for `cloud-all-status`. Stop after the first failure and ask the operator to
+  verify the relevant secret and tenant host.
 - Shelly Cloud 400 `DEVICE_OFFLINE`, `DEVICE_INVALID_CHANNEL`, or
   `BAD_REQUEST` responses are upstream device or parameter failures. Report
   the device id, operation, and upstream error string.

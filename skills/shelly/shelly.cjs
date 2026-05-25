@@ -3,6 +3,7 @@
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const CLOUD_AUTH_SECRET = 'SHELLY_CLOUD_AUTH_KEY';
+const CLOUD_ACCESS_TOKEN_SECRET = 'SHELLY_CLOUD_ACCESS_TOKEN';
 const COST_MEASUREMENT = {
   system: 'UsageTotals',
   subLimitKey: 'shelly',
@@ -22,6 +23,7 @@ const OPERATION_TIERS = {
   'local-gen2-switch-set': 'amber',
   'local-gen2-switch-toggle': 'amber',
   'cloud-get-state': 'green',
+  'cloud-all-status': 'green',
   'cloud-set-switch': 'amber',
   'cloud-set-light': 'amber',
   'cloud-set-cover': 'amber',
@@ -60,6 +62,7 @@ Local Gen1 reads/control:
 
 Cloud Control API v2:
   cloud-get-state --cloud-host https://<HOST> --device-id abc123 --select status --select settings
+  cloud-all-status --cloud-host https://<HOST>
   cloud-set-switch --cloud-host https://<HOST> --device-id abc123 --channel 0 --on true --operator-grant
   cloud-set-light --cloud-host https://<HOST> --device-id abc123 --on true --brightness 50 --operator-grant
   cloud-set-cover --cloud-host https://<HOST> --device-id abc123 --position open --operator-grant
@@ -68,6 +71,7 @@ Environment:
   SHELLY_DEVICE_URL        default local device base URL
   SHELLY_CLOUD_HOST        default Shelly Cloud tenant server URI
   SHELLY_CLOUD_AUTH_KEY    stored HybridClaw secret name used through <secret:SHELLY_CLOUD_AUTH_KEY>
+  SHELLY_CLOUD_ACCESS_TOKEN stored OAuth/Bearer token for Real Time Events HTTP API
 `);
 }
 
@@ -219,7 +223,7 @@ function rpcGetUrl(base, method, params = {}) {
 
 function buildPayload(
   operation,
-  { url, method = 'GET', json, maxResponseBytes },
+  { url, method = 'GET', json, maxResponseBytes, secretHeaders },
 ) {
   const tier = OPERATION_TIERS[operation];
   const payload = {
@@ -237,7 +241,19 @@ function buildPayload(
     costMeasurement: COST_MEASUREMENT,
   };
   if (json !== undefined) payload.httpRequest.json = json;
-  if (operation.startsWith('cloud-')) {
+  if (secretHeaders !== undefined) {
+    payload.httpRequest.secretHeaders = secretHeaders;
+  }
+  if (operation === 'cloud-all-status') {
+    payload.secretRefPolicy =
+      'The Authorization header is emitted as a secretHeaders reference to SHELLY_CLOUD_ACCESS_TOKEN; never paste the real Shelly OAuth access token into chat or helper arguments.';
+    payload.liveExecution = {
+      mode: 'live-shelly-real-time-events-http-api',
+      requiresConfiguredSecrets: [CLOUD_ACCESS_TOKEN_SECRET],
+      rateLimit:
+        'Shelly Cloud Real Time Events HTTP API requests are account-level reads; keep polling conservative.',
+    };
+  } else if (operation.startsWith('cloud-')) {
     payload.secretRefPolicy =
       'The auth_key is emitted as <secret:SHELLY_CLOUD_AUTH_KEY>; never paste the real Shelly cloud authorization key into chat or helper arguments.';
     payload.liveExecution = {
@@ -399,6 +415,10 @@ function cloudUrl(base, path) {
   return `${appendPath(base, path).toString()}?auth_key=<secret:${CLOUD_AUTH_SECRET}>`;
 }
 
+function realTimeEventsUrl(base, path, params = {}) {
+  return appendQuery(appendPath(base, path), params);
+}
+
 function parseDeviceId(args) {
   return requireText(
     popFlag(args, '--device-id') || popFlag(args, '--id'),
@@ -437,6 +457,28 @@ function buildCloud(operation, args) {
       method: 'POST',
       json,
       maxResponseBytes: 2_000_000,
+    });
+  }
+
+  if (operation === 'cloud-all-status') {
+    const includeShared = popBoolean(args, '--include-shared');
+    const showInfo = !popBoolean(args, '--without-info');
+    assertNoUnexpectedArgs(args);
+    return buildPayload(operation, {
+      url: realTimeEventsUrl(base, '/device/all_status', {
+        show_info: showInfo,
+        no_shared: !includeShared,
+      }),
+      method: 'GET',
+      maxResponseBytes: 5_000_000,
+      secretHeaders: [
+        {
+          name: 'Authorization',
+          secretName: CLOUD_ACCESS_TOKEN_SECRET,
+          prefix: 'Bearer',
+        },
+      ],
+      json: undefined,
     });
   }
 

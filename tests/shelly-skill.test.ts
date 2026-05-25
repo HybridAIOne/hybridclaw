@@ -43,6 +43,18 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
       howToObtain:
         'Generate an Authorization cloud key in Shelly Smart Control user settings and store it with `hybridclaw secret set SHELLY_CLOUD_AUTH_KEY "<key>"`.',
     },
+    {
+      id: 'shelly-cloud-access-token',
+      kind: 'bearer',
+      required: false,
+      secretRef: {
+        source: 'store',
+        id: 'SHELLY_CLOUD_ACCESS_TOKEN',
+      },
+      scope: 'Shelly Cloud Real Time Events HTTP API Authorization bearer',
+      howToObtain:
+        'Use Shelly\'s documented OAuth flow for the Real Time Events API and store the resulting access token with `hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN "<access-token>"`.',
+    },
   ]);
   expect(skill).toContain('category: home-automation');
   expect(skill).toContain('local-gen2-switch-set');
@@ -53,7 +65,8 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
     'Do not claim that the v2\n`auth_key` API can list every device.',
   );
   expect(skill).toContain('/device/all_status?show_info=true&no_shared=true');
-  expect(skill).toContain('OAuth/Bearer access-token authentication');
+  expect(skill).toContain('OAuth/Bearer\n  access-token authentication');
+  expect(skill).toContain('cloud-all-status');
 });
 
 test('Shelly helper --help exits cleanly and lists local and cloud operations', () => {
@@ -64,6 +77,7 @@ test('Shelly helper --help exits cleanly and lists local and cloud operations', 
   expect(result.stdout).toContain('local-gen2-status');
   expect(result.stdout).toContain('local-gen1-relay-set');
   expect(result.stdout).toContain('cloud-get-state');
+  expect(result.stdout).toContain('cloud-all-status');
   expect(result.stdout).toContain('cloud-set-switch');
 });
 
@@ -243,6 +257,46 @@ test('Shelly helper builds cloud state and control requests without exposing sec
   });
   expect(JSON.stringify(state)).not.toContain('supersecret');
   expect(state.httpRequest).not.toHaveProperty('bearerSecretName');
+});
+
+test('Shelly helper builds OAuth-backed Real Time Events all-status requests', () => {
+  const payload = request([
+    'cloud-all-status',
+    '--cloud-host',
+    'https://shelly.example.com',
+  ]);
+  const includeShared = request([
+    'cloud-all-status',
+    '--cloud-host',
+    'shelly.example.com',
+    '--include-shared',
+    '--without-info',
+  ]);
+
+  expect(payload).toMatchObject({
+    operation: 'cloud-all-status',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'https://shelly.example.com/device/all_status?show_info=true&no_shared=true',
+      method: 'GET',
+      skillName: 'shelly',
+      maxResponseBytes: 5_000_000,
+      secretHeaders: [
+        {
+          name: 'Authorization',
+          secretName: 'SHELLY_CLOUD_ACCESS_TOKEN',
+          prefix: 'Bearer',
+        },
+      ],
+    },
+    liveExecution: {
+      requiresConfiguredSecrets: ['SHELLY_CLOUD_ACCESS_TOKEN'],
+    },
+  });
+  expect(includeShared.httpRequest.url).toBe(
+    'https://shelly.example.com/device/all_status?show_info=false&no_shared=false',
+  );
+  expect(JSON.stringify(payload)).not.toContain('access-token-value');
 });
 
 test('Shelly helper rejects light and cover commands with only routing fields', () => {
