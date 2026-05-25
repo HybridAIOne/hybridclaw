@@ -216,6 +216,27 @@ failures, or session memory.
   `SHELLY_CLOUD_ACCESS_TOKEN` is configured. `SHELLY_CLOUD_AUTH_KEY` plus a
   tenant host can read or control known device ids only.
 
+## Response Formatting
+
+Use one user-facing table format per response. Do not start with a Markdown
+pipe table and then repeat the same section as a box-drawing or terminal table.
+
+For Shelly status summaries:
+
+- Prefer Markdown pipe tables for compact device lists. Keep columns short and
+  stable: number, id, IP suffix or host, type, state, position, temperature,
+  and a concise note when needed.
+- Put a blank line before and after every Markdown table. Do not place prose,
+  repeated headings, or another table immediately adjacent to the final table
+  row.
+- Emit a complete table block once. Do not stream a partial table, restart the
+  same section, or switch formats mid-answer.
+- Use plain lists instead of wide tables when the number of columns would wrap
+  badly in the target chat surface.
+- Avoid box-drawing tables in final chat answers unless the user explicitly
+  asks for terminal output. They are harder to copy, harder to render in
+  proportional fonts, and can duplicate poorly when mixed with Markdown.
+
 ## Device Discovery and IDs
 
 For Cloud Control API v2 calls in this skill, assume the operator must provide

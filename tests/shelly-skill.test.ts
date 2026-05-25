@@ -161,6 +161,13 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain(
     'If the user\n  says they configured a secret, retry the exact helper-backed request once.',
   );
+  expect(skill).toContain('Response Formatting');
+  expect(skill).toContain('Use one user-facing table format per response.');
+  expect(skill).toContain(
+    'Put a blank line before and after every Markdown table.',
+  );
+  expect(skill).toContain('Do not stream a partial table');
+  expect(skill).toContain('Avoid box-drawing tables in final chat answers');
   expect(skill).toContain('Use this credential decision matrix');
   expect(skill).toContain('Cannot list all devices through v2.');
   expect(skill).toContain('Do not call\n  tenant-host `/rpc/Cover.GetConfig`');
