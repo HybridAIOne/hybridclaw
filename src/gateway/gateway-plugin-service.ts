@@ -327,7 +327,7 @@ function buildPluginCheckLines(result: {
   }
   if (result.missingEnv.length > 0) {
     lines.push(
-      `Missing runtime secrets: ${result.missingEnv.join(', ')}. Store them with /secret set, then reload plugins.`,
+      `Missing runtime secrets: ${result.missingEnv.join(', ')}. Store them with \`hybridclaw secret set <name> <value>\` or in TUI with \`/secret set <name> <value>\`, then reload plugins.`,
     );
   }
   if (result.packageJsonDependencies.length > 0) {

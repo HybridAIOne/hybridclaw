@@ -469,7 +469,7 @@ function buildEvalEnvironment(params: {
   const token = webToken || gatewayToken;
   if (!token) {
     throw new Error(
-      'Eval requires a local gateway API token. Store WEB_API_TOKEN or GATEWAY_API_TOKEN with `/secret set` before running evals against the local OpenAI-compatible gateway.',
+      'Eval requires a local gateway API token. Store WEB_API_TOKEN or GATEWAY_API_TOKEN with `hybridclaw secret set <name> <token>` or in TUI with `/secret set <name> <token>` before running evals against the local OpenAI-compatible gateway.',
     );
   }
   const baseModel = params.effectiveModel.trim() || 'hybridai/gpt-4.1-mini';

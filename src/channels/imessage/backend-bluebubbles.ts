@@ -143,7 +143,7 @@ async function sendBlueBubblesRequest(
 ): Promise<unknown> {
   if (!IMESSAGE_PASSWORD.trim()) {
     throw new Error(
-      'BlueBubbles password is required. Store IMESSAGE_PASSWORD with `/secret set IMESSAGE_PASSWORD <password>` or set imessage.password in /admin/config.',
+      'BlueBubbles password is required. Store IMESSAGE_PASSWORD with `hybridclaw secret set IMESSAGE_PASSWORD <password>` or in TUI with `/secret set IMESSAGE_PASSWORD <password>`, or set imessage.password in /admin/config.',
     );
   }
 

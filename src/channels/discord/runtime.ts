@@ -2674,7 +2674,7 @@ export async function initDiscord(
   const discordToken = String(DISCORD_TOKEN || '').trim();
   if (!discordToken) {
     throw new Error(
-      'Discord bot token is required. Store DISCORD_TOKEN with `/secret set DISCORD_TOKEN <token>`.',
+      'Discord bot token is required. Store DISCORD_TOKEN with `hybridclaw secret set DISCORD_TOKEN <token>` or in TUI with `/secret set DISCORD_TOKEN <token>`.',
     );
   }
   try {

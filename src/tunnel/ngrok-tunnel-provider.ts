@@ -209,7 +209,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     const token = this.readSecret(this.tokenSecretName)?.trim() || '';
     if (!token) {
       throw new Error(
-        `ngrok auth token is not configured in encrypted runtime secrets. Store it with \`/secret set ${this.tokenSecretName} <token>\`.`,
+        `ngrok auth token is not configured in encrypted runtime secrets. Store it with \`hybridclaw secret set ${this.tokenSecretName} <token>\` or in TUI with \`/secret set ${this.tokenSecretName} <token>\`.`,
       );
     }
 

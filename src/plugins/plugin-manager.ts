@@ -1134,7 +1134,7 @@ export class PluginManager {
       return typeof stored !== 'string' || stored.trim().length === 0;
     });
     if (missingEnv.length > 0) {
-      const error = `Missing required runtime secrets: ${missingEnv.join(', ')}. Store them with /secret set, then reload plugins.`;
+      const error = `Missing required runtime secrets: ${missingEnv.join(', ')}. Store them with \`hybridclaw secret set <name> <value>\` or in TUI with \`/secret set <name> <value>\`, then reload plugins.`;
       this.logger.warn(
         { pluginId: candidate.id, missingEnv },
         'Skipping plugin due to missing required runtime secrets',

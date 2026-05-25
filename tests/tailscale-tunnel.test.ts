@@ -191,7 +191,7 @@ describe('TailscaleTunnelProvider', () => {
           provider: 'tailscale',
           reason: 'started',
           error:
-            'tailscale is not logged in and TS_AUTHKEY is not configured in encrypted runtime secrets. Store it with `/secret set TS_AUTHKEY <authkey>` or run `tailscale login` on the host.',
+            'tailscale is not logged in and TS_AUTHKEY is not configured in encrypted runtime secrets. Store it with `hybridclaw secret set TS_AUTHKEY <authkey>` or in TUI with `/secret set TS_AUTHKEY <authkey>`, or run `tailscale login` on the host.',
         },
       }),
     );

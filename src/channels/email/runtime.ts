@@ -135,7 +135,7 @@ function resolveRuntimeConfig(): {
   }
   if (!password) {
     throw new Error(
-      'Email channel password is required. Store EMAIL_PASSWORD with `/secret set EMAIL_PASSWORD <password>` or set email.password in /admin/config.',
+      'Email channel password is required. Store EMAIL_PASSWORD with `hybridclaw secret set EMAIL_PASSWORD <password>` or in TUI with `/secret set EMAIL_PASSWORD <password>`, or set email.password in /admin/config.',
     );
   }
   return {

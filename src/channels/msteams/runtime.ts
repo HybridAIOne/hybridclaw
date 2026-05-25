@@ -519,7 +519,7 @@ function ensureTeamsRuntimeReady(): CloudAdapter {
   }
   if (!normalizeValue(MSTEAMS_APP_PASSWORD)) {
     throw new Error(
-      'Microsoft Teams app password is required. Store MSTEAMS_APP_PASSWORD with `/secret set MSTEAMS_APP_PASSWORD <password>`.',
+      'Microsoft Teams app password is required. Store MSTEAMS_APP_PASSWORD with `hybridclaw secret set MSTEAMS_APP_PASSWORD <password>` or in TUI with `/secret set MSTEAMS_APP_PASSWORD <password>`.',
     );
   }
   return buildAdapter();
