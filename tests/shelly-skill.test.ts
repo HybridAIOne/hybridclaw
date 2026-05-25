@@ -57,198 +57,46 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
     },
   ]);
   expect(skill).toContain('category: home-automation');
+  expect(skill).toContain('Keep the markdown instructions generic');
+  expect(skill).toContain(
+    'API-specific request\nconstruction belongs in `shelly.cjs`.',
+  );
   expect(skill).toContain('local-gen2-switch-set');
   expect(skill).toContain('local-gen2-cover-config');
-  expect(skill).toContain('Cover.GetConfig');
+  expect(skill).toContain('local-gen2-cover-open');
+  expect(skill).toContain('local-gen2-cover-goto-position');
   expect(skill).toContain(
-    'Do not infer or rewrite the HTTP verb, URL path, query string, or JSON body',
-  );
-  expect(skill).toContain(
-    'Shelly\n  local RPC has both direct method URLs and JSON-RPC transport forms',
+    'Pass the helper-emitted `httpRequest` object unchanged',
   );
   expect(skill).toContain('cloud-set-cover');
   expect(skill).toContain('factory-reset');
-  expect(skill).toContain('Required Inputs and Where to Find Them');
+  expect(skill).toContain('Required Inputs');
   expect(skill).toContain('Shelly Cloud tenant server URI');
   expect(skill).toContain('Authorization Cloud Key');
   expect(skill).toContain('Device Information');
   expect(skill).toContain('SHELLY_OAUTH_CODE');
-  expect(skill).toContain('JWT `user_api_url`');
-  expect(skill).toContain('Device Discovery and IDs');
-  expect(skill).toContain(
-    'Do not claim that the v2\n`auth_key` API can list every device.',
-  );
-  expect(skill).toContain('/device/all_status?show_info=true&no_shared=true');
-  expect(skill).toContain('OAuth/Bearer\n  access-token authentication');
-  expect(skill).toContain('OAuth Token Acquisition');
+  expect(skill).toContain('OAuth JWT `user_api_url`');
+  expect(skill).toContain('Discovery and Names');
+  expect(skill).toContain('Cloud Control API v2 requires known device ids');
+  expect(skill).toContain('Real Time Events all-status can discover');
+  expect(skill).toContain('OAuth/Bearer authorization');
   expect(skill).toContain('cloud-oauth-token');
-  expect(skill).toContain('Pipedream RequestBin');
-  expect(skill).toContain('Wrong parameteres provided!');
-  expect(skill).toContain('redirect_uri=<url-encoded-request-bin-url>');
-  expect(skill).toContain('Use a local-first resolution order');
-  expect(skill).toContain(
-    'If a device URL, LAN IP, `.local` host, or local bridge is available',
-  );
-  expect(skill).toContain(
-    'Use cloud only when local LAN access is unavailable, blocked by policy, or\n     insufficient',
-  );
-  expect(skill).toContain('captureResponseFields');
-  expect(skill).toContain(
-    'Pass `captureResponseFields` as the JSON array emitted by the helper, not as\n   a string.',
-  );
-  expect(skill).toContain(
-    'do not store a raw access token with\n   `hybridclaw secret set` from tool output.',
-  );
-  expect(skill).toContain(
-    "mirrors the Salesforce skill's\ngateway capture pattern",
-  );
   expect(skill).toContain('cloud-all-status');
+  expect(skill).toContain('Access to Local Devices');
   expect(skill).toContain(
-    'The official Real Time Events docs\n  do not document Shelly Smart Control app display names or room assignments',
+    'local TUI/web `/policy` command, or the `/admin/approvals` network policy',
   );
-  expect(skill).toContain('Names and Rooms');
+  expect(skill).toContain('helper-emitted host,\nport, method, and path.');
+  expect(skill).toContain('Shelly names can exist in multiple layers');
+  expect(skill).toContain('Report the field\n  and API surface');
+  expect(skill).toContain('Result Handling');
   expect(skill).toContain(
-    'Do not say Shelly App names or room names are unset',
+    'Base status and control answers on successful live Shelly API results',
   );
-  expect(skill).toContain('this endpoint did not return names');
-  expect(skill).toContain('negative evidence only for that specific API field');
-  expect(skill).toContain(
-    'If the user supplies app UI evidence or says the device has a name, accept',
-  );
-  expect(skill).toContain(
-    'firmware/local RPC reads can return null even though the app visibly\n  has a name.',
-  );
-  expect(skill).toContain(
-    'Never answer "no", "not set", "default id only", or "no custom name in the\n  Shelly app"',
-  );
-  expect(skill).toContain('Do not promise app names from Real Time Events.');
-  expect(skill).toContain(
-    '`Cover.GetConfig` exposes the cover component `name`',
-  );
-  expect(skill).toContain('sys.device.name');
-  expect(skill).toContain(
-    'Do not claim that nobody named the devices in\n  the Shelly app,',
-  );
-  expect(skill).toContain(
-    'do not offer to rename the app-visible device unless the\n  user explicitly asks',
-  );
-  expect(skill).toContain('Evidence and Reporting Rules');
-  expect(skill).toContain(
-    'Base Shelly state answers only on successful Shelly API tool results from the\ncurrent turn.',
-  );
-  expect(skill).toContain(
-    'Do not report capabilities, device lists, names, rooms, current\nstatus, last-known status, or command readiness from intent, docs, partial\nfailures, or session memory.',
-  );
-  expect(skill).toContain(
-    'For any request about current state, last-known state, controller activity,',
-  );
-  expect(skill).toContain('or recent device behavior, use live Shelly data');
-  expect(skill).toContain(
-    'Use `session_search` only to recover missing setup hints',
-  );
-  expect(skill).toContain(
-    'Treat those results\n  as historical setup context only.',
-  );
-  expect(skill).toContain(
-    'Immediately verify any recovered host or id\n  with a live Shelly API call before reporting device state.',
-  );
-  expect(skill).toContain(
-    'Do not call `session_search` after a successful `cloud-all-status`,',
-  );
-  expect(skill).toContain(
-    'Do not infer that a stored secret is missing from prior turns, memory, or\n  prompt context.',
-  );
-  expect(skill).toContain(
-    'If the user\n  says they configured a secret, retry the exact helper-backed request once.',
-  );
-  expect(skill).toContain('Response Formatting');
-  expect(skill).toContain('Use one user-facing table format per response.');
-  expect(skill).toContain(
-    'Put a blank line before and after every Markdown table.',
-  );
-  expect(skill).toContain('Do not stream a partial table');
-  expect(skill).toContain('Avoid box-drawing tables in final chat answers');
-  expect(skill).toContain('Use this credential decision matrix');
-  expect(skill).toContain('Cannot list all devices through v2.');
-  expect(skill).toContain('Do not call\n  tenant-host `/rpc/Cover.GetConfig`');
-  expect(skill).toContain('cloud-get-state --select settings');
-  expect(skill).toContain('LAN Reachability and SSRF');
-  expect(skill).toContain(
-    'Always prefer them over\ncloud for local Shelly controllers',
-  );
-  expect(skill).toContain(
-    'HTTP request blocked by SSRF guard: private or loopback host',
-  );
-  expect(skill).toContain(
-    'Treat that as a product safety guard, not a Shelly failure.',
-  );
-  expect(skill).toContain(
-    'The skill cannot\nchange network policy from inside the user task.',
-  );
-  expect(skill).toContain('Teach the operator which gate blocked the request');
-  expect(skill).toContain(
-    'opened only by a matching explicit workspace network policy\n  allow rule',
-  );
-  expect(skill).toContain(
-    'default network policy is not enough to bypass the private-host guard',
-  );
-  expect(skill).toContain(
-    'For public Shelly Cloud HTTPS hosts, do not describe this as LAN SSRF\n  blocking',
-  );
-  expect(skill).toContain(
-    'do not suggest adding the cloud domain to a private-network\n  allowlist',
-  );
-  expect(skill).toContain(
-    'If it does not resolve, report an invalid or stale tenant host',
-  );
-  expect(skill).toContain('network default policy denies unlisted hosts');
-  expect(skill).toContain(
-    'hybridclaw policy allow <shelly-lan-host-or-ip-pattern>',
-  );
-  expect(skill).toContain(
-    'CLI, the local TUI/web `/policy` command, or the `/admin/approvals` network\n  policy editor.',
-  );
-  expect(skill).toContain(
-    'In the local TUI/web chat, the equivalent slash command is `/policy allow ...`',
-  );
-  expect(skill).toContain('--paths /rpc/**,/shelly,/status');
-  expect(skill).toContain(
-    'Before telling the operator to add a policy rule, check whether an equivalent\n  rule is already present.',
-  );
-  expect(skill).toContain(
-    'Compare the actual audited request host, port,\n  method, and path with the saved policy.',
-  );
-  expect(skill).toContain(
-    'A rule for `GET /rpc/**` does not\n  allow `POST /rpc`',
-  );
-  expect(skill).toContain(
-    'Do not ask for a broader policy rule unless the\n  helper-emitted request genuinely needs that broader method/path',
-  );
-  expect(skill).toContain(
-    'do not ask the operator to run the\n  same `hybridclaw policy allow` command again.',
-  );
-  expect(skill).toContain(
-    'report it as a runtime/gateway mismatch or a rule mismatch',
-  );
-  expect(skill).toContain(
-    'Never collapse cloud DNS failure, LAN reachability failure, and container\n  network policy denial into one cause.',
-  );
-  expect(skill).toContain(
-    'Do not retry with handcrafted URLs,\n   `curl`, DNS aliases, redirects, or URL encoding tricks.',
-  );
-  expect(skill).toContain(
-    'Do not manually replace the emitted method, URL path, query string, or body.',
-  );
-  expect(skill).toContain(
-    'Ask the operator to provide an explicit LAN-capable Shelly tool or local\n     bridge',
-  );
-  expect(skill).toContain(
-    'verify reachability from the\n   gateway/runtime host',
-  );
-  expect(skill).toContain('cover:<id>');
-  expect(skill).toContain(
-    'Do not promise account-wide cloud discovery unless\n  `SHELLY_CLOUD_ACCESS_TOKEN` is configured.',
-  );
+  expect(skill).not.toContain('session_search');
+  expect(skill).not.toContain('Response Formatting');
+  expect(skill).not.toContain('SSRF');
+  expect(skill).not.toContain('Wrong parameteres provided');
 });
 
 test('Shelly helper --help exits cleanly and lists local and cloud operations', () => {
@@ -258,6 +106,8 @@ test('Shelly helper --help exits cleanly and lists local and cloud operations', 
   expect(result.stdout).toContain('Shelly skill helper');
   expect(result.stdout).toContain('local-gen2-status');
   expect(result.stdout).toContain('local-gen2-cover-config');
+  expect(result.stdout).toContain('local-gen2-cover-open');
+  expect(result.stdout).toContain('local-gen2-cover-goto-position');
   expect(result.stdout).toContain('local-gen1-relay-set');
   expect(result.stdout).toContain('cloud-get-state');
   expect(result.stdout).toContain('cloud-oauth-token');
@@ -346,6 +196,16 @@ test('Shelly helper requires approval before local output changes', () => {
     '--on',
     'true',
   ]);
+  const deniedCover = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'local-gen2-cover-open',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+  ]);
   const allowed = request([
     'local-gen2-switch-set',
     '--device-url',
@@ -358,9 +218,35 @@ test('Shelly helper requires approval before local output changes', () => {
     '5',
     '--operator-grant',
   ]);
+  const coverOpen = request([
+    'local-gen2-cover-open',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--duration',
+    '5',
+    '--tag',
+    'hybridclaw',
+    '--operator-grant',
+  ]);
+  const coverGoto = request([
+    'local-gen2-cover-goto-position',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--position',
+    '50',
+    '--slat-position',
+    '30',
+    '--operator-grant',
+  ]);
 
   expect(denied.status).not.toBe(0);
   expect(denied.stderr).toContain('local-gen2-switch-set is amber');
+  expect(deniedCover.status).not.toBe(0);
+  expect(deniedCover.stderr).toContain('local-gen2-cover-open is amber');
   expect(allowed).toMatchObject({
     operation: 'local-gen2-switch-set',
     stakesTier: 'amber',
@@ -373,6 +259,38 @@ test('Shelly helper requires approval before local output changes', () => {
           id: 0,
           on: true,
           toggle_after: 5,
+        },
+      },
+    },
+  });
+  expect(coverOpen).toMatchObject({
+    operation: 'local-gen2-cover-open',
+    stakesTier: 'amber',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc',
+      method: 'POST',
+      json: {
+        method: 'Cover.Open',
+        params: {
+          id: 0,
+          duration: 5,
+          tag: 'hybridclaw',
+        },
+      },
+    },
+  });
+  expect(coverGoto).toMatchObject({
+    operation: 'local-gen2-cover-goto-position',
+    stakesTier: 'amber',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc',
+      method: 'POST',
+      json: {
+        method: 'Cover.GoToPosition',
+        params: {
+          id: 0,
+          pos: 50,
+          slat_pos: 30,
         },
       },
     },

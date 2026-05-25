@@ -22,6 +22,10 @@ const OPERATION_TIERS = {
   'local-gen2-components': 'green',
   'local-gen2-cover-config': 'green',
   'local-gen2-cover-status': 'green',
+  'local-gen2-cover-open': 'amber',
+  'local-gen2-cover-close': 'amber',
+  'local-gen2-cover-stop': 'amber',
+  'local-gen2-cover-goto-position': 'amber',
   'local-gen2-switch-status': 'green',
   'local-gen2-switch-set': 'amber',
   'local-gen2-switch-toggle': 'amber',
@@ -57,6 +61,10 @@ Local Gen2+ reads:
   local-gen2-switch-status --device-url http://192.0.2.10 --id 0
 
 Local Gen2+ control:
+  local-gen2-cover-open --device-url http://192.0.2.10 --id 0 [--duration 5] --operator-grant
+  local-gen2-cover-close --device-url http://192.0.2.10 --id 0 [--duration 5] --operator-grant
+  local-gen2-cover-stop --device-url http://192.0.2.10 --id 0 --operator-grant
+  local-gen2-cover-goto-position --device-url http://192.0.2.10 --id 0 --position 50 --operator-grant
   local-gen2-switch-set --device-url http://192.0.2.10 --id 0 --on true --operator-grant
   local-gen2-switch-toggle --device-url http://192.0.2.10 --id 0 --operator-grant
 
@@ -153,6 +161,14 @@ function parseBooleanValue(value, label) {
   if (['true', 'on', '1', 'yes'].includes(normalized)) return true;
   if (['false', 'off', '0', 'no'].includes(normalized)) return false;
   die(`${label} must be true or false.`);
+}
+
+function parseOptionalTag(args) {
+  const tag = popFlag(args, '--tag');
+  if (tag === undefined) return undefined;
+  const normalized = String(tag).trim();
+  if (normalized.length > 20) die('--tag must be at most 20 characters.');
+  return normalized || null;
 }
 
 function requireGrant(args, operation) {
@@ -382,6 +398,90 @@ function buildLocalGen2(operation, args) {
     return buildPayload(operation, {
       url: rpcGetUrl(base, 'Cover.GetStatus', { id }),
     });
+  }
+
+  if (
+    operation === 'local-gen2-cover-open' ||
+    operation === 'local-gen2-cover-close'
+  ) {
+    requireGrant(args, operation);
+    const id = parseNonNegativeInteger(popFlag(args, '--id', '0'), '--id');
+    const params = { id };
+    const duration = popFlag(args, '--duration');
+    if (duration !== undefined) {
+      params.duration = parsePositiveNumber(duration, '--duration');
+    }
+    const tag = parseOptionalTag(args);
+    if (tag !== undefined) params.tag = tag;
+    assertNoUnexpectedArgs(args);
+    return buildRpcPost(
+      operation,
+      base,
+      operation === 'local-gen2-cover-open' ? 'Cover.Open' : 'Cover.Close',
+      params,
+    );
+  }
+
+  if (operation === 'local-gen2-cover-stop') {
+    requireGrant(args, operation);
+    const id = parseNonNegativeInteger(popFlag(args, '--id', '0'), '--id');
+    const params = { id };
+    const tag = parseOptionalTag(args);
+    if (tag !== undefined) params.tag = tag;
+    assertNoUnexpectedArgs(args);
+    return buildRpcPost(operation, base, 'Cover.Stop', params);
+  }
+
+  if (operation === 'local-gen2-cover-goto-position') {
+    requireGrant(args, operation);
+    const id = parseNonNegativeInteger(popFlag(args, '--id', '0'), '--id');
+    const params = { id };
+    const position = popFlag(args, '--position');
+    const relative = popFlag(args, '--relative');
+    const slatPosition = popFlag(args, '--slat-position');
+    const slatRelative = popFlag(args, '--slat-relative');
+    if (position !== undefined && relative !== undefined) {
+      die('--position and --relative cannot be used together.');
+    }
+    if (slatPosition !== undefined && slatRelative !== undefined) {
+      die('--slat-position and --slat-relative cannot be used together.');
+    }
+    if (position !== undefined) {
+      params.pos = parseBoundedNumber(position, '--position', 0, 100);
+    }
+    if (relative !== undefined) {
+      params.rel = parseBoundedNumber(relative, '--relative', -100, 100);
+    }
+    if (slatPosition !== undefined) {
+      params.slat_pos = parseBoundedNumber(
+        slatPosition,
+        '--slat-position',
+        0,
+        100,
+      );
+    }
+    if (slatRelative !== undefined) {
+      params.slat_rel = parseBoundedNumber(
+        slatRelative,
+        '--slat-relative',
+        -100,
+        100,
+      );
+    }
+    if (
+      params.pos === undefined &&
+      params.rel === undefined &&
+      params.slat_pos === undefined &&
+      params.slat_rel === undefined
+    ) {
+      die(
+        'local-gen2-cover-goto-position requires --position, --relative, --slat-position, or --slat-relative.',
+      );
+    }
+    const tag = parseOptionalTag(args);
+    if (tag !== undefined) params.tag = tag;
+    assertNoUnexpectedArgs(args);
+    return buildRpcPost(operation, base, 'Cover.GoToPosition', params);
   }
 
   if (operation === 'local-gen2-switch-status') {
