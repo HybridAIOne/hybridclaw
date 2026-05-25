@@ -153,6 +153,10 @@ into chat.
 4. The gateway must capture `access_token` into `SHELLY_CLOUD_ACCESS_TOKEN`
    using `captureResponseFields`. The agent must report only whether capture
    succeeded, not the token value.
+   Pass `captureResponseFields` as the JSON array emitted by the helper, not as
+   a string. If capture fails, stop and report the failure; do not rerun the
+   token exchange without capture and do not store a raw access token with
+   `hybridclaw secret set` from tool output.
 5. Use the `user_api_url` embedded in the JWT access token, or the tenant host
    supplied by the operator, for subsequent Real Time Events HTTP calls. If the
    token expires, rerun this OAuth flow unless Shelly documents and configures a
@@ -203,9 +207,11 @@ If the user asks to discover all Shelly devices from the cloud:
   `/device/all_status?show_info=true&no_shared=true` and emits
   `Authorization: Bearer <SHELLY_CLOUD_ACCESS_TOKEN>` through `secretHeaders`.
 - The response returns `data.devices_status` keyed by device id; with
-  `show_info=true`, each entry can include `_dev_info.id`, app name, model, and
-  online state. Use that to identify cover/roller devices, then use v2
-  `cloud-get-state` or guarded `cloud-set-cover` with exact ids.
+  `show_info=true`, each entry can include `_dev_info.id`, `_dev_info.gen`,
+  `_dev_info.code`, and `_dev_info.online`. The official Real Time Events docs
+  do not document Shelly Smart Control app display names or room assignments in
+  this payload. Use the returned metadata to identify cover/roller devices,
+  then use v2 `cloud-get-state` or guarded `cloud-set-cover` with exact ids.
 - If `SHELLY_CLOUD_ACCESS_TOKEN` is not configured, ask for device ids from
   Shelly Smart Control `Device -> Settings -> Device Information -> Device Id`,
   or ask for LAN IPs reachable by the gateway.
@@ -222,15 +228,19 @@ Shelly has multiple naming layers. Firmware configuration, cloud device
 metadata, app display names, and room assignments can be exposed by different
 API surfaces. When the user asks for names:
 
-- Prefer `cloud-all-status` with `show_info=true` when
-  `SHELLY_CLOUD_ACCESS_TOKEN` is configured. Inspect `_dev_info.app_name`,
-  `_dev_info.name`, `_dev_info.id`, `name`, and any returned room-like fields.
-- If only local Gen2+ data or v2 `cloud-get-state` data is available, report
-  the ids, IPs, model, and status, then say names were not returned by that
-  endpoint.
+- For cloud account discovery, use `cloud-all-status` with `show_info=true`.
+  Inspect `_dev_info` and top-level fields, but expect only id, generation,
+  product code, and online state unless the actual response includes more.
+  Do not promise app names from Real Time Events.
+- For firmware-level device names, prefer local Gen2+ `local-gen2-config` or
+  `local-gen2-components --include config --key sys` where the gateway can
+  reach the device. Look for `sys.device.name` or component `name` fields.
+- If only Real Time Events or v2 `cloud-get-state` data is available, report
+  the ids, IPs, model/code, and status, then say app/room names were not
+  returned by that endpoint.
 - If no name-like or room-like field is returned, ask the user for a mapping or
-  for OAuth-backed discovery. Do not claim that nobody named the devices in the
-  Shelly app.
+  for LAN/local-config discovery. Do not claim that nobody named the devices in
+  the Shelly app.
 
 ## Credentials
 

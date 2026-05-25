@@ -73,16 +73,27 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('redirect_uri=<url-encoded-request-bin-url>');
   expect(skill).toContain('captureResponseFields');
   expect(skill).toContain(
+    'Pass `captureResponseFields` as the JSON array emitted by the helper, not as\n   a string.',
+  );
+  expect(skill).toContain(
+    'do not store a raw access token with\n   `hybridclaw secret set` from tool output.',
+  );
+  expect(skill).toContain(
     "mirrors the Salesforce skill's\ngateway capture pattern",
   );
   expect(skill).toContain('cloud-all-status');
+  expect(skill).toContain(
+    'The official Real Time Events docs\n  do not document Shelly Smart Control app display names or room assignments',
+  );
   expect(skill).toContain('Names and Rooms');
   expect(skill).toContain(
     'Do not say Shelly App names or room names are unset',
   );
   expect(skill).toContain('this endpoint did not return names');
+  expect(skill).toContain('Do not promise app names from Real Time Events.');
+  expect(skill).toContain('sys.device.name');
   expect(skill).toContain(
-    'Do not claim that nobody named the devices in the\n  Shelly app.',
+    'Do not claim that nobody named the devices in\n  the Shelly app.',
   );
   expect(skill).toContain('Evidence and Reporting Rules');
   expect(skill).toContain(
