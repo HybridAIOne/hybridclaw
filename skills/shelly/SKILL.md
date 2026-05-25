@@ -81,6 +81,10 @@ Shelly has three relevant HTTP surfaces:
 - Gen2+ local RPC uses `/rpc` methods such as `Shelly.GetStatus`,
   `Shelly.GetConfig`, `Shelly.GetDeviceInfo`, `Shelly.GetComponents`, and
   `Switch.Set`.
+- Do not infer the HTTP verb for Gen2+ RPC methods. Use the helper-emitted
+  `httpRequest` exactly. In particular, `local-gen2-cover-config` emits
+  `GET /rpc/Cover.GetConfig?id=<id>`; never rewrite that as generic
+  `POST /rpc` JSON-RPC.
 - Gen1 local devices use classic endpoints such as `/shelly`, `/status`, and
   `/relay/{id}`.
 - Shelly Cloud Control API v2 uses the tenant server URI from the Shelly app,
@@ -127,7 +131,9 @@ and
 4. Do not perform reboot, factory reset, firmware update, Wi-Fi reset, auth
    changes, certificate upload, or profile changes through this v1 skill.
 5. Use the helper as the API wrapper. Do not handcraft Shelly URLs or JSON
-   payloads from memory when the helper supports the operation.
+   payloads from memory when the helper supports the operation. Never change the
+   helper-emitted HTTP method, URL shape, or body before passing `httpRequest`
+   to the built-in `http_request` tool.
 
 ## OAuth Token Acquisition
 
@@ -294,6 +300,10 @@ Teach the operator which gate blocked the request:
   rule is already present. A read-only `Cover.GetConfig` call needs `GET` for
   `/rpc/**` on the device port; do not ask for `POST` unless the requested
   operation actually writes or calls an RPC endpoint that requires POST.
+- If `Cover.GetConfig` is blocked and the tool call used `POST`, diagnose the
+  failed request as a wrong helper-bypass. Retry once with the helper-emitted
+  `GET /rpc/Cover.GetConfig?id=<id>` request. Do not ask for a broader policy
+  rule to make the incorrect POST request pass.
 - If an equivalent rule is already present, do not ask the operator to run the
   same `hybridclaw policy allow` command again. Say that the policy is already
   saved and continue with the local request. If the local request still reports
@@ -319,6 +329,8 @@ When a user wants local cover names or local device status:
      --id 0
    ```
    Pass the emitted `httpRequest` to `http_request`.
+   Do not manually replace the emitted method with `POST` or collapse the URL to
+   `/rpc`; `Cover.GetConfig` must stay the helper-emitted GET request.
 2. If the request returns the SSRF guard error above, explain that local LAN
    access is blocked from this runtime. Do not retry with handcrafted URLs,
    `curl`, DNS aliases, redirects, or URL encoding tricks.

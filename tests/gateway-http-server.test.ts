@@ -10240,7 +10240,62 @@ describe('gateway HTTP server', () => {
       expect(res.statusCode).toBe(400);
       expect(JSON.parse(res.body)).toEqual({
         error:
-          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198).',
+          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for GET /debug on port 80.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('reports private outbound http_request method mismatches against policy', async () => {
+    const workspacePath = makeTempDocsRoot();
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.178.198',
+        '      port: 80',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /rpc/**',
+        '      agent: "*"',
+        '  presets: []',
+      ].join('\n'),
+      'utf8',
+    );
+    const originalCwd = process.cwd();
+    const state = await importFreshHealth({
+      gatewayApiToken: 'gateway-token',
+    });
+    process.chdir(workspacePath);
+    try {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/http/request',
+        headers: { authorization: 'Bearer gateway-token' },
+        body: {
+          url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
+          method: 'POST',
+        },
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({
+        error:
+          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for POST /rpc/Cover.GetConfig on port 80.',
       });
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {

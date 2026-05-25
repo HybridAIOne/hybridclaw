@@ -157,27 +157,37 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-async function isPrivateHost(hostname: string): Promise<boolean> {
+type PrivateHostCheck = {
+  blocked: boolean;
+  reason: 'private' | 'dns_failed';
+};
+
+async function checkPrivateHost(hostname: string): Promise<PrivateHostCheck> {
   const host = hostname.trim().toLowerCase();
-  if (!host) return true;
+  if (!host) return { blocked: true, reason: 'private' };
   if (
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     host.endsWith('.local')
   ) {
-    return true;
+    return { blocked: true, reason: 'private' };
   }
-  if (net.isIP(host) > 0) return isPrivateIp(host);
+  if (net.isIP(host) > 0) {
+    return { blocked: isPrivateIp(host), reason: 'private' };
+  }
   try {
     const resolved = await lookup(host, { all: true, verbatim: true });
-    if (resolved.length === 0) return false;
-    return resolved.some((entry) => isPrivateIp(entry.address));
+    if (resolved.length === 0) return { blocked: false, reason: 'private' };
+    return {
+      blocked: resolved.some((entry) => isPrivateIp(entry.address)),
+      reason: 'private',
+    };
   } catch (error) {
     logger.warn(
       { host, error },
       'DNS lookup failed during SSRF host check; treating host as private/blocked',
     );
-    return true;
+    return { blocked: true, reason: 'dns_failed' };
   }
 }
 
@@ -302,14 +312,20 @@ async function assertHttpRequestUrl(
     );
   }
 
-  if (
-    (await isPrivateHost(parsed.hostname)) &&
-    !isPrivateHttpRequestAllowedByPolicy({
+  const privateHostCheck = await checkPrivateHost(parsed.hostname);
+  if (privateHostCheck.blocked) {
+    const isAllowlisted = isPrivateHttpRequestAllowedByPolicy({
       url: parsed,
       method: context.method,
       agentId: context.agentId,
-    })
-  ) {
+    });
+    if (isAllowlisted) return parsed;
+    if (privateHostCheck.reason === 'private') {
+      throw new GatewayRequestError(
+        400,
+        `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}) is not allowlisted by workspace network policy for ${context.method} ${parsed.pathname || '/'} on port ${getUrlPort(parsed)}.`,
+      );
+    }
     throw new GatewayRequestError(
       400,
       `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}).`,
