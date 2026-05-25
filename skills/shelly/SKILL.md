@@ -335,7 +335,10 @@ Teach the operator which gate blocked the request:
   `user_api_url`.
 - `network default policy denies unlisted hosts` is the container network
   approval policy. Open read-only Shelly LAN access for both gateway-proxied
-  `http_request` calls and container network checks with a narrow allow rule:
+  `http_request` calls and container network checks with a narrow allow rule.
+  The operator can add the rule through any supported local policy surface:
+  CLI, the local TUI/web `/policy` command, or the `/admin/approvals` network
+  policy editor. All of these write the selected agent workspace policy.
   ```bash
   hybridclaw policy allow <shelly-lan-host-or-ip-pattern> \
     --methods GET \
@@ -343,6 +346,10 @@ Teach the operator which gate blocked the request:
     --port 80 \
     --comment "Shelly LAN read-only"
   ```
+  In the local TUI/web chat, the equivalent slash command is `/policy allow ...`
+  with the same host, methods, paths, port, and comment fields. In the browser
+  admin console, open `/admin/approvals`, select the relevant agent, and add a
+  network policy rule with the same values.
 - Before telling the operator to add a policy rule, check whether an equivalent
   rule is already present. Compare the actual audited request host, port,
   method, and path with the saved policy. A rule for `GET /rpc/**` does not

@@ -205,6 +205,12 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain(
     'hybridclaw policy allow <shelly-lan-host-or-ip-pattern>',
   );
+  expect(skill).toContain(
+    'CLI, the local TUI/web `/policy` command, or the `/admin/approvals` network\n  policy editor.',
+  );
+  expect(skill).toContain(
+    'In the local TUI/web chat, the equivalent slash command is `/policy allow ...`',
+  );
   expect(skill).toContain('--paths /rpc/**,/shelly,/status');
   expect(skill).toContain(
     'Before telling the operator to add a policy rule, check whether an equivalent\n  rule is already present.',
