@@ -112,6 +112,23 @@ describe('useFormDraft', () => {
     expect(result.current.isDirty).toBe(false);
   });
 
+  it('ignores an equal-but-new source object instead of re-adopting in a loop', () => {
+    // A caller that rebuilds an equal source every render (e.g.
+    // `source: data ?? makeDefault()`) must not trip the re-hydration
+    // effect: a clean draft + new identity would otherwise setDraft on
+    // every render, looping forever. Comparison is by value, so an
+    // equal-but-new source is a no-op and the draft reference is stable.
+    const { result, rerender } = renderHook(
+      ({ source }: { source: Config }) => useFormDraft({ source }),
+      { initialProps: { source: { name: 'gw', port: 9090 } } },
+    );
+    const firstDraft = result.current.draft;
+    rerender({ source: { name: 'gw', port: 9090 } });
+    rerender({ source: { name: 'gw', port: 9090 } });
+    expect(result.current.draft).toBe(firstDraft);
+    expect(result.current.isDirty).toBe(false);
+  });
+
   it('preserves draft edits when source changes underneath', () => {
     const initial: Config = { name: 'gw', port: 9090 };
     const { result, rerender } = renderHook(

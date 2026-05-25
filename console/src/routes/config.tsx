@@ -29,16 +29,7 @@ import {
   pattern,
   required,
 } from '../components/field';
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  useForm,
-} from '../components/form';
+import { Form, FormField, useForm } from '../components/form';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { NumberField } from '../components/number-field';
@@ -531,59 +522,53 @@ export function ConfigPage() {
                 <FormField
                   name="ops.healthHost"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Health host</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormDescription>
+                    <Field>
+                      <FieldLabel>Health host</FieldLabel>
+                      <Input {...field} />
+                      <FieldDescription>
                         Interface the gateway binds to. Use{' '}
                         <code>127.0.0.1</code> for loopback-only.
-                      </FormDescription>
-                    </FormItem>
+                      </FieldDescription>
+                    </Field>
                   )}
                 />
                 <FormField
                   name="ops.healthPort"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Health port</FormLabel>
-                      <FormControl>
-                        <NumberField
-                          integer
-                          min={1}
-                          max={65535}
-                          value={field.value as number}
-                          onValueChange={field.onChange}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+                    <Field>
+                      <FieldLabel>Health port</FieldLabel>
+                      <NumberField
+                        integer
+                        min={1}
+                        max={65535}
+                        value={field.value as number}
+                        onValueChange={field.onChange}
+                      />
+                      <FieldError />
+                    </Field>
                   )}
                 />
                 <FormField
                   name="ops.logLevel"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Log level</FormLabel>
-                      <FormControl>
-                        <NativeSelect
-                          value={field.value as string}
-                          onChange={(event) => {
-                            const next = event.target.value;
-                            if (isOneOf(LOG_LEVELS, next)) {
-                              field.onChange(next);
-                            }
-                          }}
-                        >
-                          {LOG_LEVELS.map((level) => (
-                            <NativeSelectOption key={level} value={level}>
-                              {level}
-                            </NativeSelectOption>
-                          ))}
-                        </NativeSelect>
-                      </FormControl>
-                    </FormItem>
+                    <Field>
+                      <FieldLabel>Log level</FieldLabel>
+                      <NativeSelect
+                        value={field.value as string}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          if (isOneOf(LOG_LEVELS, next)) {
+                            field.onChange(next);
+                          }
+                        }}
+                      >
+                        {LOG_LEVELS.map((level) => (
+                          <NativeSelectOption key={level} value={level}>
+                            {level}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                    </Field>
                   )}
                 />
               </FieldGroup>
@@ -598,19 +583,19 @@ export function ConfigPage() {
                 <FormField
                   name="security.confidentialRedactionEnabled"
                   render={({ field }) => (
-                    <FormItem orientation="horizontal">
+                    <Field orientation="horizontal">
                       <Switch
                         checked={Boolean(field.value)}
                         onCheckedChange={field.onChange}
                       />
                       <FieldContent>
-                        <FormLabel>Confidential leak guard</FormLabel>
-                        <FormDescription>
+                        <FieldLabel>Confidential leak guard</FieldLabel>
+                        <FieldDescription>
                           Redact secrets and sensitive patterns before they
                           leave the agent.
-                        </FormDescription>
+                        </FieldDescription>
                       </FieldContent>
-                    </FormItem>
+                    </Field>
                   )}
                 />
               </FieldGroup>
@@ -625,41 +610,37 @@ export function ConfigPage() {
                 <FormField
                   name="hybridai.baseUrl"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Base URL</FormLabel>
-                      <FormControl>
-                        <Input type="url" {...field} />
-                      </FormControl>
-                    </FormItem>
+                    <Field>
+                      <FieldLabel>Base URL</FieldLabel>
+                      <Input type="url" {...field} />
+                    </Field>
                   )}
                 />
                 <FormField
                   name="hybridai.defaultModel"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Default model</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                    </FormItem>
+                    <Field>
+                      <FieldLabel>Default model</FieldLabel>
+                      <Input {...field} />
+                    </Field>
                   )}
                 />
                 <FormField
                   name="hybridai.enableRag"
                   render={({ field }) => (
-                    <FormItem orientation="horizontal">
+                    <Field orientation="horizontal">
                       <Switch
                         checked={Boolean(field.value)}
                         onCheckedChange={field.onChange}
                       />
                       <FieldContent>
-                        <FormLabel>RAG default</FormLabel>
-                        <FormDescription>
+                        <FieldLabel>RAG default</FieldLabel>
+                        <FieldDescription>
                           Enable retrieval augmentation by default for new
                           conversations.
-                        </FormDescription>
+                        </FieldDescription>
                       </FieldContent>
-                    </FormItem>
+                    </Field>
                   )}
                 />
               </FieldGroup>
@@ -681,35 +662,33 @@ export function ConfigPage() {
                     ),
                   ]}
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Memory</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="1024m" />
-                      </FormControl>
-                      <FormDescription>
+                    <Field>
+                      <FieldLabel>Memory</FieldLabel>
+                      <Input {...field} placeholder="1024m" />
+                      <FieldDescription>
                         Docker memory limit. e.g. <code>512m</code>,{' '}
                         <code>1g</code>, <code>2048m</code>.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
+                      </FieldDescription>
+                      <FieldError />
+                    </Field>
                   )}
                 />
                 <FormField
                   name="container.persistBashState"
                   render={({ field }) => (
-                    <FormItem orientation="horizontal">
+                    <Field orientation="horizontal">
                       <Switch
                         checked={Boolean(field.value)}
                         onCheckedChange={field.onChange}
                       />
                       <FieldContent>
-                        <FormLabel>Persistent bash state</FormLabel>
-                        <FormDescription>
+                        <FieldLabel>Persistent bash state</FieldLabel>
+                        <FieldDescription>
                           Reuse the same shell across tool calls so cwd, env,
                           and aliases survive.
-                        </FormDescription>
+                        </FieldDescription>
                       </FieldContent>
-                    </FormItem>
+                    </Field>
                   )}
                 />
               </FieldGroup>

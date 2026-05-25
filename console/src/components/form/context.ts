@@ -22,9 +22,8 @@ export function useFormContext(): AnyFormController | null {
 
 /**
  * Set by `<FormField>` on its render-prop subtree so a nested `<Field>`
- * (or its alias `<FormItem>`) can pick up the binding without explicit
- * prop drilling. Field reads:
- *  - `id`   → controlId override (so FormLabel.htmlFor + Input.id agree)
+ * can pick up the binding without explicit prop drilling. Field reads:
+ *  - `id`   → controlId override (so FieldLabel.htmlFor + Input.id agree)
  *  - `error`/`validate` → piped into Field's internal error machinery
  *  - `required` → propagates `aria-required` to descendant controls.
  */

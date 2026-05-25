@@ -97,19 +97,19 @@ export type FormFieldProps<TDraft = unknown, V = unknown> = {
  *
  *   <Form form={form}>
  *     <FormField name="email" required rules={[email()]} render={({field}) => (
- *       <FormItem>
- *         <FormLabel>Email</FormLabel>
- *         <FormControl><Input {...field} /></FormControl>
- *         <FormDescription>...</FormDescription>
- *         <FormMessage />
- *       </FormItem>
+ *       <Field>
+ *         <FieldLabel>Email</FieldLabel>
+ *         <Input {...field} />
+ *         <FieldDescription>...</FieldDescription>
+ *         <FieldError />
+ *       </Field>
  *     )} />
  *   </Form>
  *
- * `FormItem` (alias for `<Field>`) reads the binding from
- * `FormFieldContext` and auto-wires controlId, validate, required, and
- * pipes the rules-computed error through Field's internal error state so
- * touched-gating still applies.
+ * The descendant `<Field>` reads the binding from `FormFieldContext` and
+ * auto-wires controlId, validate, required, and pipes the rules-computed
+ * error through Field's internal error state so touched-gating still
+ * applies.
  */
 export function FormField<TDraft = unknown, V = unknown>(
   props: FormFieldProps<TDraft, V>,

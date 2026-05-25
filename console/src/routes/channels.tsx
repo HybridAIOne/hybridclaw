@@ -19,10 +19,7 @@ import { ChannelLogo } from '../components/channel-logo';
 import { Field, FieldContent, FieldLabel } from '../components/field';
 import {
   Form,
-  FormControl,
   FormField,
-  FormItem,
-  FormLabel,
   type UseFormControllerReturn,
   useForm,
 } from '../components/form';
@@ -92,16 +89,14 @@ function ChannelInstructionsField(props: { kind: ChannelInstructionKind }) {
     <FormField
       name={`channelInstructions.${props.kind}`}
       render={({ field }) => (
-        <FormItem>
-          <FormLabel>Channel instructions</FormLabel>
-          <FormControl>
-            <Textarea
-              rows={4}
-              {...field}
-              placeholder="Optional extra instructions for this channel only."
-            />
-          </FormControl>
-        </FormItem>
+        <Field>
+          <FieldLabel>Channel instructions</FieldLabel>
+          <Textarea
+            rows={4}
+            {...field}
+            placeholder="Optional extra instructions for this channel only."
+          />
+        </Field>
       )}
     />
   );
@@ -224,7 +219,7 @@ function DiscordChannelEditor(props: {
 }) {
   return (
     <>
-      <FormItem orientation="horizontal">
+      <Field orientation="horizontal">
         <Switch
           checked={isDiscordEnabled(props.draft)}
           onCheckedChange={(enabled) => {
@@ -243,9 +238,9 @@ function DiscordChannelEditor(props: {
           }}
         />
         <FieldContent>
-          <FormLabel>Enabled</FormLabel>
+          <FieldLabel>Enabled</FieldLabel>
         </FieldContent>
-      </FormItem>
+      </Field>
 
       <ManagedSecretField
         label="Bot token"
@@ -261,34 +256,30 @@ function DiscordChannelEditor(props: {
         <FormField
           name="discord.prefix"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Prefix</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Prefix</FieldLabel>
+              <Input {...field} />
+            </Field>
           )}
         />
         <FormField
           name="discord.groupPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Group policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -296,15 +287,15 @@ function DiscordChannelEditor(props: {
       <FormField
         name="discord.commandsOnly"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Commands only</FormLabel>
+              <FieldLabel>Commands only</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -312,42 +303,38 @@ function DiscordChannelEditor(props: {
         <FormField
           name="discord.commandMode"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Command mode</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="public">public</NativeSelectOption>
-                  <NativeSelectOption value="restricted">
-                    restricted
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Command mode</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="public">public</NativeSelectOption>
+                <NativeSelectOption value="restricted">
+                  restricted
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="discord.sendPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Send policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Send policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -395,37 +382,31 @@ function DiscordChannelEditor(props: {
         <FormField
           name="discord.typingMode"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Typing mode</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="instant">
-                    instant
-                  </NativeSelectOption>
-                  <NativeSelectOption value="thinking">
-                    thinking
-                  </NativeSelectOption>
-                  <NativeSelectOption value="streaming">
-                    streaming
-                  </NativeSelectOption>
-                  <NativeSelectOption value="never">never</NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Typing mode</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="instant">instant</NativeSelectOption>
+                <NativeSelectOption value="thinking">
+                  thinking
+                </NativeSelectOption>
+                <NativeSelectOption value="streaming">
+                  streaming
+                </NativeSelectOption>
+                <NativeSelectOption value="never">never</NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="discord.ackReaction"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Ack reaction</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="👀" />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Ack reaction</FieldLabel>
+              <Input {...field} placeholder="👀" />
+            </Field>
           )}
         />
       </div>
@@ -434,38 +415,34 @@ function DiscordChannelEditor(props: {
         <FormField
           name="discord.ackReactionScope"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Ack reaction scope</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="all">all</NativeSelectOption>
-                  <NativeSelectOption value="group-mentions">
-                    group-mentions
-                  </NativeSelectOption>
-                  <NativeSelectOption value="direct">direct</NativeSelectOption>
-                  <NativeSelectOption value="off">off</NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Ack reaction scope</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="all">all</NativeSelectOption>
+                <NativeSelectOption value="group-mentions">
+                  group-mentions
+                </NativeSelectOption>
+                <NativeSelectOption value="direct">direct</NativeSelectOption>
+                <NativeSelectOption value="off">off</NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="discord.textChunkLimit"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Text chunk limit</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -474,33 +451,29 @@ function DiscordChannelEditor(props: {
         <FormField
           name="discord.debounceMs"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Debounce ms</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Debounce ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="discord.maxLinesPerMessage"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Max lines per message</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Max lines per message</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -509,33 +482,29 @@ function DiscordChannelEditor(props: {
         <FormField
           name="discord.rateLimitPerUser"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Rate limit per user</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Rate limit per user</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="discord.maxConcurrentPerChannel"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Max concurrent per channel</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Max concurrent per channel</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -543,15 +512,15 @@ function DiscordChannelEditor(props: {
       <FormField
         name="discord.removeAckAfterReply"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Remove ack after reply</FormLabel>
+              <FieldLabel>Remove ack after reply</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
       <ChannelInstructionsField kind="discord" />
@@ -571,7 +540,7 @@ function WhatsAppChannelEditor(props: {
 }) {
   return (
     <>
-      <FormItem orientation="horizontal">
+      <Field orientation="horizontal">
         <Switch
           checked={isWhatsAppEnabled(props.draft)}
           onCheckedChange={(enabled) => {
@@ -588,56 +557,50 @@ function WhatsAppChannelEditor(props: {
           }}
         />
         <FieldContent>
-          <FormLabel>Enabled</FormLabel>
+          <FieldLabel>Enabled</FieldLabel>
         </FieldContent>
-      </FormItem>
+      </Field>
 
       <div className="field-grid">
         <FormField
           name="whatsapp.dmPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>DM policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="pairing">
-                    pairing
-                  </NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="pairing">pairing</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="whatsapp.groupPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Group policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -691,28 +654,24 @@ function WhatsAppChannelEditor(props: {
         <FormField
           name="whatsapp.debounceMs"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Debounce ms</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Debounce ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="whatsapp.ackReaction"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Ack reaction</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Ack reaction</FieldLabel>
+              <Input {...field} />
+            </Field>
           )}
         />
       </div>
@@ -721,33 +680,29 @@ function WhatsAppChannelEditor(props: {
         <FormField
           name="whatsapp.textChunkLimit"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Text chunk limit</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="whatsapp.mediaMaxMb"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Media max MB</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -755,15 +710,15 @@ function WhatsAppChannelEditor(props: {
       <FormField
         name="whatsapp.sendReadReceipts"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Send read receipts</FormLabel>
+              <FieldLabel>Send read receipts</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
       <ChannelInstructionsField kind="whatsapp" />
@@ -784,15 +739,15 @@ function TelegramChannelEditor(props: {
       <FormField
         name="telegram.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -810,17 +765,15 @@ function TelegramChannelEditor(props: {
         <FormField
           name="telegram.pollIntervalMs"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Poll interval ms</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Poll interval ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -829,45 +782,41 @@ function TelegramChannelEditor(props: {
         <FormField
           name="telegram.dmPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>DM policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="telegram.groupPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Group policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -875,15 +824,15 @@ function TelegramChannelEditor(props: {
       <FormField
         name="telegram.requireMention"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Require mention in groups</FormLabel>
+              <FieldLabel>Require mention in groups</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -917,33 +866,29 @@ function TelegramChannelEditor(props: {
         <FormField
           name="telegram.textChunkLimit"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Text chunk limit</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="telegram.mediaMaxMb"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Media max MB</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -976,15 +921,15 @@ function ThreemaChannelEditor(props: {
       <FormField
         name="threema.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -992,12 +937,10 @@ function ThreemaChannelEditor(props: {
         <FormField
           name="threema.identity"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Gateway identity</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="*HYBRID1" />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Gateway identity</FieldLabel>
+              <Input {...field} placeholder="*HYBRID1" />
+            </Field>
           )}
         />
         <ManagedSecretField
@@ -1016,34 +959,30 @@ function ThreemaChannelEditor(props: {
         <FormField
           name="threema.apiBaseUrl"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>API base URL</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>API base URL</FieldLabel>
+              <Input {...field} />
+            </Field>
           )}
         />
         <FormField
           name="threema.dmPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>DM policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -1065,33 +1004,29 @@ function ThreemaChannelEditor(props: {
         <FormField
           name="threema.textChunkLimit"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Text chunk limit</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="threema.outboundDelayMs"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Outbound delay ms</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Outbound delay ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -1149,15 +1084,15 @@ function SignalChannelEditor(props: {
       <FormField
         name="signal.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -1236,23 +1171,19 @@ function SignalChannelEditor(props: {
         <FormField
           name="signal.daemonUrl"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Daemon URL</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="http://127.0.0.1:8080" />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Daemon URL</FieldLabel>
+              <Input {...field} placeholder="http://127.0.0.1:8080" />
+            </Field>
           )}
         />
         <FormField
           name="signal.account"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Account</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="+14155550123" />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Account</FieldLabel>
+              <Input {...field} placeholder="+14155550123" />
+            </Field>
           )}
         />
       </div>
@@ -1261,45 +1192,41 @@ function SignalChannelEditor(props: {
         <FormField
           name="signal.dmPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>DM policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="signal.groupPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Group policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -1334,49 +1261,43 @@ function SignalChannelEditor(props: {
         <FormField
           name="signal.textChunkLimit"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Text chunk limit</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="signal.reconnectIntervalMs"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Reconnect interval ms</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Reconnect interval ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="signal.outboundDelayMs"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Outbound delay ms</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Outbound delay ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -1478,15 +1399,15 @@ function EmailChannelEditor(props: {
       <FormField
         name="email.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -1508,12 +1429,10 @@ function EmailChannelEditor(props: {
         <FormField
           name="email.address"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Address</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="bot@example.com" />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Address</FieldLabel>
+              <Input {...field} placeholder="bot@example.com" />
+            </Field>
           )}
         />
         <ManagedSecretField
@@ -1532,23 +1451,19 @@ function EmailChannelEditor(props: {
         <FormField
           name="email.imapHost"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>IMAP host</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>IMAP host</FieldLabel>
+              <Input {...field} />
+            </Field>
           )}
         />
         <FormField
           name="email.smtpHost"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>SMTP host</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>SMTP host</FieldLabel>
+              <Input {...field} />
+            </Field>
           )}
         />
       </div>
@@ -1557,33 +1472,29 @@ function EmailChannelEditor(props: {
         <FormField
           name="email.imapPort"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>IMAP port</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>IMAP port</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="email.smtpPort"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>SMTP port</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>SMTP port</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -1592,29 +1503,29 @@ function EmailChannelEditor(props: {
         <FormField
           name="email.imapSecure"
           render={({ field }) => (
-            <FormItem orientation="horizontal">
+            <Field orientation="horizontal">
               <Switch
                 checked={Boolean(field.value)}
                 onCheckedChange={field.onChange}
               />
               <FieldContent>
-                <FormLabel>IMAP secure</FormLabel>
+                <FieldLabel>IMAP secure</FieldLabel>
               </FieldContent>
-            </FormItem>
+            </Field>
           )}
         />
         <FormField
           name="email.smtpSecure"
           render={({ field }) => (
-            <FormItem orientation="horizontal">
+            <Field orientation="horizontal">
               <Switch
                 checked={Boolean(field.value)}
                 onCheckedChange={field.onChange}
               />
               <FieldContent>
-                <FormLabel>SMTP secure</FormLabel>
+                <FieldLabel>SMTP secure</FieldLabel>
               </FieldContent>
-            </FormItem>
+            </Field>
           )}
         />
       </div>
@@ -1649,33 +1560,29 @@ function EmailChannelEditor(props: {
         <FormField
           name="email.pollIntervalMs"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Poll interval ms</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Poll interval ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="email.textChunkLimit"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Text chunk limit</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -1683,17 +1590,15 @@ function EmailChannelEditor(props: {
       <FormField
         name="email.mediaMaxMb"
         render={({ field }) => (
-          <FormItem>
-            <FormLabel>Media max MB</FormLabel>
-            <FormControl>
-              <NumberField
-                integer
-                min={0}
-                value={field.value as number}
-                onValueChange={field.onChange}
-              />
-            </FormControl>
-          </FormItem>
+          <Field>
+            <FieldLabel>Media max MB</FieldLabel>
+            <NumberField
+              integer
+              min={0}
+              value={field.value as number}
+              onValueChange={field.onChange}
+            />
+          </Field>
         )}
       />
       <ChannelInstructionsField kind="email" />
@@ -1714,15 +1619,15 @@ function VoiceChannelEditor(props: {
       <FormField
         name="voice.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -1730,23 +1635,19 @@ function VoiceChannelEditor(props: {
         <FormField
           name="voice.twilio.accountSid"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Twilio account SID</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="AC..." />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Twilio account SID</FieldLabel>
+              <Input {...field} placeholder="AC..." />
+            </Field>
           )}
         />
         <FormField
           name="voice.twilio.fromNumber"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>From number</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="+14155550123" />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>From number</FieldLabel>
+              <Input {...field} placeholder="+14155550123" />
+            </Field>
           )}
         />
       </div>
@@ -1766,28 +1667,24 @@ function VoiceChannelEditor(props: {
         <FormField
           name="voice.webhookPath"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Webhook path</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="/voice" />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Webhook path</FieldLabel>
+              <Input {...field} placeholder="/voice" />
+            </Field>
           )}
         />
         <FormField
           name="voice.maxConcurrentCalls"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Max concurrent calls</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Max concurrent calls</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -1796,32 +1693,26 @@ function VoiceChannelEditor(props: {
         <FormField
           name="voice.relay.ttsProvider"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>TTS provider</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="default">
-                    default
-                  </NativeSelectOption>
-                  <NativeSelectOption value="google">google</NativeSelectOption>
-                  <NativeSelectOption value="amazon">amazon</NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>TTS provider</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="default">default</NativeSelectOption>
+                <NativeSelectOption value="google">google</NativeSelectOption>
+                <NativeSelectOption value="amazon">amazon</NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="voice.relay.voice"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Voice</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="en-US-Journey-D" />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Voice</FieldLabel>
+              <Input {...field} placeholder="en-US-Journey-D" />
+            </Field>
           )}
         />
       </div>
@@ -1830,34 +1721,28 @@ function VoiceChannelEditor(props: {
         <FormField
           name="voice.relay.transcriptionProvider"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Transcription provider</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="default">
-                    default
-                  </NativeSelectOption>
-                  <NativeSelectOption value="deepgram">
-                    deepgram
-                  </NativeSelectOption>
-                  <NativeSelectOption value="google">google</NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Transcription provider</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="default">default</NativeSelectOption>
+                <NativeSelectOption value="deepgram">
+                  deepgram
+                </NativeSelectOption>
+                <NativeSelectOption value="google">google</NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="voice.relay.language"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Language</FormLabel>
-              <FormControl>
-                <Input {...field} placeholder="en-US" />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Language</FieldLabel>
+              <Input {...field} placeholder="en-US" />
+            </Field>
           )}
         />
       </div>
@@ -1865,27 +1750,25 @@ function VoiceChannelEditor(props: {
       <FormField
         name="voice.relay.interruptible"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Interruptible</FormLabel>
+              <FieldLabel>Interruptible</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
       <FormField
         name="voice.relay.welcomeGreeting"
         render={({ field }) => (
-          <FormItem>
-            <FormLabel>Welcome greeting</FormLabel>
-            <FormControl>
-              <Textarea rows={3} {...field} />
-            </FormControl>
-          </FormItem>
+          <Field>
+            <FieldLabel>Welcome greeting</FieldLabel>
+            <Textarea rows={3} {...field} />
+          </Field>
         )}
       />
       <ChannelInstructionsField kind="voice" />
@@ -1924,15 +1807,15 @@ function TeamsChannelEditor(props: {
       <FormField
         name="msteams.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -1940,23 +1823,19 @@ function TeamsChannelEditor(props: {
         <FormField
           name="msteams.appId"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>App ID</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>App ID</FieldLabel>
+              <Input {...field} />
+            </Field>
           )}
         />
         <FormField
           name="msteams.tenantId"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Tenant ID</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Tenant ID</FieldLabel>
+              <Input {...field} />
+            </Field>
           )}
         />
       </div>
@@ -1965,29 +1844,25 @@ function TeamsChannelEditor(props: {
         <FormField
           name="msteams.webhook.path"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Webhook path</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Webhook path</FieldLabel>
+              <Input {...field} />
+            </Field>
           )}
         />
         <FormField
           name="msteams.webhook.port"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Webhook port</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  max={65535}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Webhook port</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                max={65535}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -1996,45 +1871,41 @@ function TeamsChannelEditor(props: {
         <FormField
           name="msteams.dmPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>DM policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="msteams.groupPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Group policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -2043,34 +1914,32 @@ function TeamsChannelEditor(props: {
         <FormField
           name="msteams.requireMention"
           render={({ field }) => (
-            <FormItem orientation="horizontal">
+            <Field orientation="horizontal">
               <Switch
                 checked={Boolean(field.value)}
                 onCheckedChange={field.onChange}
               />
               <FieldContent>
-                <FormLabel>Require mention</FormLabel>
+                <FieldLabel>Require mention</FieldLabel>
               </FieldContent>
-            </FormItem>
+            </Field>
           )}
         />
         <FormField
           name="msteams.replyStyle"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Reply style</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="thread">thread</NativeSelectOption>
-                  <NativeSelectOption value="top-level">
-                    top-level
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Reply style</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="thread">thread</NativeSelectOption>
+                <NativeSelectOption value="top-level">
+                  top-level
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -2092,33 +1961,29 @@ function TeamsChannelEditor(props: {
         <FormField
           name="msteams.textChunkLimit"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Text chunk limit</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="msteams.mediaMaxMb"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Media max MB</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -2142,15 +2007,15 @@ function SlackChannelEditor(props: {
       <FormField
         name="slack.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -2178,45 +2043,41 @@ function SlackChannelEditor(props: {
         <FormField
           name="slack.dmPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>DM policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="slack.groupPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Group policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -2225,34 +2086,32 @@ function SlackChannelEditor(props: {
         <FormField
           name="slack.requireMention"
           render={({ field }) => (
-            <FormItem orientation="horizontal">
+            <Field orientation="horizontal">
               <Switch
                 checked={Boolean(field.value)}
                 onCheckedChange={field.onChange}
               />
               <FieldContent>
-                <FormLabel>Require mention</FormLabel>
+                <FieldLabel>Require mention</FieldLabel>
               </FieldContent>
-            </FormItem>
+            </Field>
           )}
         />
         <FormField
           name="slack.replyStyle"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Reply style</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="thread">thread</NativeSelectOption>
-                  <NativeSelectOption value="top-level">
-                    top-level
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Reply style</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="thread">thread</NativeSelectOption>
+                <NativeSelectOption value="top-level">
+                  top-level
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -2287,33 +2146,29 @@ function SlackChannelEditor(props: {
         <FormField
           name="slack.textChunkLimit"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Text chunk limit</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="slack.mediaMaxMb"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Media max MB</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -2372,15 +2227,15 @@ function SlackWebhookChannelEditor(props: {
       <FormField
         name="slackWebhook.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -2507,15 +2362,15 @@ function DiscordWebhookChannelEditor(props: {
       <FormField
         name="discordWebhook.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
@@ -2607,35 +2462,33 @@ function IMessageChannelEditor(props: {
       <FormField
         name="imessage.enabled"
         render={({ field }) => (
-          <FormItem orientation="horizontal">
+          <Field orientation="horizontal">
             <Switch
               checked={Boolean(field.value)}
               onCheckedChange={field.onChange}
             />
             <FieldContent>
-              <FormLabel>Enabled</FormLabel>
+              <FieldLabel>Enabled</FieldLabel>
             </FieldContent>
-          </FormItem>
+          </Field>
         )}
       />
 
       <FormField
         name="imessage.backend"
         render={({ field }) => (
-          <FormItem>
-            <FormLabel>Backend</FormLabel>
-            <FormControl>
-              <NativeSelect
-                value={field.value as string}
-                onChange={field.onChange}
-              >
-                <NativeSelectOption value="local">local</NativeSelectOption>
-                <NativeSelectOption value="bluebubbles">
-                  remote
-                </NativeSelectOption>
-              </NativeSelect>
-            </FormControl>
-          </FormItem>
+          <Field>
+            <FieldLabel>Backend</FieldLabel>
+            <NativeSelect
+              value={field.value as string}
+              onChange={field.onChange}
+            >
+              <NativeSelectOption value="local">local</NativeSelectOption>
+              <NativeSelectOption value="bluebubbles">
+                remote
+              </NativeSelectOption>
+            </NativeSelect>
+          </Field>
         )}
       />
 
@@ -2645,12 +2498,10 @@ function IMessageChannelEditor(props: {
             <FormField
               name="imessage.serverUrl"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Server URL</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                </FormItem>
+                <Field>
+                  <FieldLabel>Server URL</FieldLabel>
+                  <Input {...field} />
+                </Field>
               )}
             />
             <ManagedSecretField
@@ -2668,27 +2519,25 @@ function IMessageChannelEditor(props: {
           <FormField
             name="imessage.webhookPath"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Webhook path</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-              </FormItem>
+              <Field>
+                <FieldLabel>Webhook path</FieldLabel>
+                <Input {...field} />
+              </Field>
             )}
           />
 
           <FormField
             name="imessage.allowPrivateNetwork"
             render={({ field }) => (
-              <FormItem orientation="horizontal">
+              <Field orientation="horizontal">
                 <Switch
                   checked={Boolean(field.value)}
                   onCheckedChange={field.onChange}
                 />
                 <FieldContent>
-                  <FormLabel>Allow private network</FormLabel>
+                  <FieldLabel>Allow private network</FieldLabel>
                 </FieldContent>
-              </FormItem>
+              </Field>
             )}
           />
         </>
@@ -2697,23 +2546,19 @@ function IMessageChannelEditor(props: {
           <FormField
             name="imessage.cliPath"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>CLI path</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-              </FormItem>
+              <Field>
+                <FieldLabel>CLI path</FieldLabel>
+                <Input {...field} />
+              </Field>
             )}
           />
           <FormField
             name="imessage.dbPath"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Database path</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-              </FormItem>
+              <Field>
+                <FieldLabel>Database path</FieldLabel>
+                <Input {...field} />
+              </Field>
             )}
           />
         </div>
@@ -2723,45 +2568,41 @@ function IMessageChannelEditor(props: {
         <FormField
           name="imessage.dmPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>DM policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
         <FormField
           name="imessage.groupPolicy"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Group policy</FormLabel>
-              <FormControl>
-                <NativeSelect
-                  value={field.value as string}
-                  onChange={field.onChange}
-                >
-                  <NativeSelectOption value="open">open</NativeSelectOption>
-                  <NativeSelectOption value="allowlist">
-                    allowlist
-                  </NativeSelectOption>
-                  <NativeSelectOption value="disabled">
-                    disabled
-                  </NativeSelectOption>
-                </NativeSelect>
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           )}
         />
       </div>
@@ -2796,35 +2637,31 @@ function IMessageChannelEditor(props: {
         <FormField
           name="imessage.pollIntervalMs"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>
+            <Field>
+              <FieldLabel>
                 {isRemote ? 'Webhook / poll interval ms' : 'Poll interval ms'}
-              </FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+              </FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="imessage.debounceMs"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Debounce ms</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Debounce ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>
@@ -2833,33 +2670,29 @@ function IMessageChannelEditor(props: {
         <FormField
           name="imessage.textChunkLimit"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Text chunk limit</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
         <FormField
           name="imessage.mediaMaxMb"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Media max MB</FormLabel>
-              <FormControl>
-                <NumberField
-                  integer
-                  min={0}
-                  value={field.value as number}
-                  onValueChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
           )}
         />
       </div>

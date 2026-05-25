@@ -23,14 +23,6 @@ import {
 } from './context';
 
 export {
-  FormControl,
-  type FormControlProps,
-  FormDescription,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from './aliases';
-export {
   type AnyFormController,
   type FormFieldContextValue,
   type FormRegistryContextValue,

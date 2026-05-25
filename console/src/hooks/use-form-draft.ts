@@ -76,6 +76,13 @@ export function useFormDraft<T>(
   // the draft is still equal to the prior snapshot (i.e. the user hasn't
   // diverged), we adopt the new source — avoiding the surprise where
   // "unsaved changes" appears after a refetch the user didn't trigger.
+  //
+  // The prev/source comparison is structural, not identity (`Object.is`):
+  // a caller that rebuilds an equal `source` object on every render (e.g.
+  // `source: data ?? makeDefault()`) would otherwise look "changed" each
+  // render and, while the draft is still clean, re-adopt it in a loop —
+  // setDraft → re-render → new identity → setDraft → … Comparing by value
+  // means an equal-but-new source is a no-op.
   const prevSourceRef = useRef<T | undefined>(source);
   useEffect(() => {
     if (source === undefined) return;
@@ -85,7 +92,7 @@ export function useFormDraft<T>(
       setDraft(source);
       return;
     }
-    if (prev !== undefined && !Object.is(prev, source) && equals(draft, prev)) {
+    if (prev !== undefined && !equals(prev, source) && equals(draft, prev)) {
       setDraft(source);
     }
   }, [source, draft, equals]);

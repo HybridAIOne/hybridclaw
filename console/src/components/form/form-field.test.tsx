@@ -1,18 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { Field, FieldDescription, FieldError, FieldLabel } from '../field';
 import { pattern } from '../field/validators';
 import { Input } from '../input';
 import { Switch } from '../switch';
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  useForm,
-} from './index';
+import { Form, FormField, useForm } from './index';
 
 type Draft = {
   email: string;
@@ -39,12 +31,10 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
           <FormField
             name="email"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-              </FormItem>
+              <Field>
+                <FieldLabel>Email</FieldLabel>
+                <Input {...field} />
+              </Field>
             )}
           />
           <span data-testid="dirty">{form.isDirty ? 'dirty' : 'clean'}</span>
@@ -72,11 +62,11 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
             name="email"
             rules={[pattern(/.+@.+/, 'Must look like an email.')]}
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
+              <Field>
+                <FieldLabel>Email</FieldLabel>
                 <Input {...field} />
-                <FormMessage />
-              </FormItem>
+                <FieldError />
+              </Field>
             )}
           />
         </Form>
@@ -107,10 +97,10 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
             required={required}
             disabled={disabled}
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
+              <Field>
+                <FieldLabel>Email</FieldLabel>
                 <Input data-testid="email" {...field} />
-              </FormItem>
+              </Field>
             )}
           />
         </Form>
@@ -135,11 +125,11 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
             name="email"
             required
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
+              <Field>
+                <FieldLabel>Email</FieldLabel>
                 <Input {...field} />
-                <FormMessage />
-              </FormItem>
+                <FieldError />
+              </Field>
             )}
           />
           <button type="submit">Save</button>
@@ -166,14 +156,14 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
           <FormField
             name="enabled"
             render={({ field }) => (
-              <FormItem orientation="horizontal">
+              <Field orientation="horizontal">
                 <Switch
                   checked={Boolean(field.value)}
                   onCheckedChange={field.onChange}
                   data-testid="switch"
                 />
-                <FormLabel>Enabled</FormLabel>
-              </FormItem>
+                <FieldLabel>Enabled</FieldLabel>
+              </Field>
             )}
           />
           <span data-testid="enabled">
@@ -230,11 +220,11 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
               name="email"
               required
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
+                <Field>
+                  <FieldLabel>Email</FieldLabel>
                   <Input {...field} />
-                  <FormMessage />
-                </FormItem>
+                  <FieldError />
+                </Field>
               )}
             />
             <button type="submit">Save</button>
@@ -276,10 +266,10 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
         <Form form={form} aria-label="settings">
           <FormField name="email">
             {({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
+              <Field>
+                <FieldLabel>Email</FieldLabel>
                 <Input data-testid="via-children" {...field} />
-              </FormItem>
+              </Field>
             )}
           </FormField>
         </Form>
@@ -306,7 +296,7 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
     consoleError.mockRestore();
   });
 
-  it('FormDescription renders alongside the field for context', () => {
+  it('FieldDescription renders alongside the field for context', () => {
     function App() {
       const form = useForm({ source: makeSource() });
       return (
@@ -314,11 +304,11 @@ describe('FormField + useForm({source}) — shadcn-style composition', () => {
           <FormField
             name="email"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
+              <Field>
+                <FieldLabel>Email</FieldLabel>
                 <Input {...field} />
-                <FormDescription>We won't share it.</FormDescription>
-              </FormItem>
+                <FieldDescription>We won't share it.</FieldDescription>
+              </Field>
             )}
           />
         </Form>
