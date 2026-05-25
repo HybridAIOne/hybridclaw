@@ -1026,6 +1026,9 @@ export function JobsPage() {
   return (
     <div className="page-stack">
       <PageHeader
+        description={`${visibleItems.length} task${
+          visibleItems.length === 1 ? '' : 's'
+        }`}
         actions={
           <div className="header-actions">
             <input
