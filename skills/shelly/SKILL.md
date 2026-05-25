@@ -107,12 +107,16 @@ and
 
 ## Default Workflow
 
-1. Identify the device generation and reachable API first:
-   - Gen2+: `local-gen2-info`, then `local-gen2-status` or
+1. Use a local-first resolution order:
+   - If a device URL, LAN IP, `.local` host, or local bridge is available, try
+     local Gen2+ reads first: `local-gen2-info`, then `local-gen2-status` or
      `local-gen2-components`. For cover names, call
      `local-gen2-cover-config --id <cover-channel>` because
      `Cover.GetConfig` exposes the cover component `name`.
-   - Gen1: `local-gen1-shelly`, then `local-gen1-status`.
+   - If Gen2+ RPC is unavailable or the device is Gen1, try Gen1 reads:
+     `local-gen1-shelly`, then `local-gen1-status`.
+   - Use cloud only when local LAN access is unavailable, blocked by policy, or
+     insufficient for the requested account/device discovery.
    - Cloud Real Time Events OAuth/Bearer: `cloud-all-status` to discover
      account device ids and current or last-known statuses.
    - Cloud Control API v2 `auth_key`: `cloud-get-state` with `--select status`
@@ -169,9 +173,10 @@ into chat.
 
 ## Evidence and Reporting Rules
 
-Base the answer only on successful tool results from the current turn or on
-explicitly cited session memory. Do not report capabilities, device lists,
-names, rooms, or command readiness from intent, docs, or partial failures.
+Base Shelly state answers only on successful Shelly API tool results from the
+current turn. Do not report capabilities, device lists, names, rooms, current
+status, last-known status, or command readiness from intent, docs, partial
+failures, or session memory.
 
 - HTTP 200 means the transport succeeded. Still inspect the returned Shelly
   JSON and require `isok: true` when that field is present before treating the
@@ -182,6 +187,19 @@ names, rooms, or command readiness from intent, docs, or partial failures.
   which fields were missing.
 - If credentials are missing for an API surface, name the missing secret and
   explain what remains possible with the credentials that are configured.
+- For any request about current state, last-known state, controller activity,
+  or recent device behavior, use live Shelly data: `cloud-all-status`,
+  `cloud-get-state`, or local Gen1/Gen2 reads. If the live API response
+  includes timestamps, report those timestamps. If it does not, say the
+  endpoint returned current or last-known state without event history.
+- Use `session_search` only to recover missing setup hints such as a previously
+  used tenant host, device ids, or a room-to-device mapping. Treat those results
+  as historical setup context only. Immediately verify any recovered host or id
+  with a live Shelly API call before reporting device state.
+- Do not call `session_search` after a successful `cloud-all-status`,
+  `cloud-get-state`, or local Shelly read just to enrich status reporting.
+  Report exactly what the live response returned and ask the user for missing
+  room/name mappings if needed.
 - Do not infer that a stored secret is missing from prior turns, memory, or
   prompt context. A secret is missing only if the current `http_request` using
   the helper-emitted placeholder fails with a stored-secret error. If the user
@@ -234,8 +252,9 @@ If the user asks to discover all Shelly devices from the cloud:
 ## LAN Reachability and SSRF
 
 Local Gen1/Gen2 APIs such as `Shelly.GetDeviceInfo`, `Cover.GetStatus`, and
-`Cover.GetConfig` are device-local HTTP endpoints. They work only when the
-requesting HybridClaw runtime is allowed to reach the Shelly LAN address.
+`Cover.GetConfig` are device-local HTTP endpoints. Always prefer them over
+cloud for local Shelly controllers when the requesting HybridClaw runtime is
+allowed to reach the Shelly LAN address.
 
 In this checkout, the generic `http_request` gateway blocks private and
 loopback hosts such as `192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`,
@@ -246,8 +265,36 @@ HTTP request blocked by SSRF guard: private or loopback host (<host>).
 ```
 
 Treat that as a product safety guard, not a Shelly failure. The skill cannot
-disable SSRF policy, and `tools.httpRequest.authRules[]` only injects secrets;
-it does not allow private-network hosts.
+change network policy from inside the user task.
+
+Teach the operator which gate blocked the request:
+
+- `HTTP request blocked by SSRF guard` is the gateway `http_request` private
+  host guard. In this checkout there is no general `tools.httpRequest` setting
+  that opens private-network hosts, and `tools.httpRequest.authRules[]` only
+  injects secrets.
+- For public Shelly Cloud HTTPS hosts, do not describe this as LAN SSRF
+  blocking and do not suggest adding the cloud domain to a private-network
+  allowlist. If the host is under `shelly.cloud`, verify whether DNS resolves.
+  If it does not resolve, report an invalid or stale tenant host and ask for the
+  current Shelly Cloud URI from Shelly Smart Control or from the OAuth JWT
+  `user_api_url`.
+- `network default policy denies unlisted hosts` is the container network
+  approval policy. Open read-only Shelly LAN access with a narrow allow rule:
+  ```bash
+  hybridclaw policy allow <shelly-lan-host-or-ip-pattern> \
+    --methods GET \
+    --paths /rpc/**,/shelly,/status \
+    --port 80 \
+    --comment "Shelly LAN read-only"
+  ```
+- If the runtime still reports the SSRF guard after adding a policy rule, use
+  cloud fallback or ask the operator to provide a dedicated Shelly LAN bridge or
+  tool that is intentionally scoped to Shelly device IPs and read-only endpoints
+  unless a separate operator grant is given for writes.
+- Never collapse cloud DNS failure, LAN reachability failure, and container
+  network policy denial into one cause. Report only the failure actually shown
+  by the current tool result.
 
 When a user wants local cover names or local device status:
 

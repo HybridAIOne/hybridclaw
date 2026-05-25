@@ -73,6 +73,13 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('Pipedream RequestBin');
   expect(skill).toContain('Wrong parameteres provided!');
   expect(skill).toContain('redirect_uri=<url-encoded-request-bin-url>');
+  expect(skill).toContain('Use a local-first resolution order');
+  expect(skill).toContain(
+    'If a device URL, LAN IP, `.local` host, or local bridge is available',
+  );
+  expect(skill).toContain(
+    'Use cloud only when local LAN access is unavailable, blocked by policy, or\n     insufficient',
+  );
   expect(skill).toContain('captureResponseFields');
   expect(skill).toContain(
     'Pass `captureResponseFields` as the JSON array emitted by the helper, not as\n   a string.',
@@ -102,7 +109,26 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   );
   expect(skill).toContain('Evidence and Reporting Rules');
   expect(skill).toContain(
-    'Do not report capabilities, device lists,\nnames, rooms, or command readiness from intent, docs, or partial failures.',
+    'Base Shelly state answers only on successful Shelly API tool results from the\ncurrent turn.',
+  );
+  expect(skill).toContain(
+    'Do not report capabilities, device lists, names, rooms, current\nstatus, last-known status, or command readiness from intent, docs, partial\nfailures, or session memory.',
+  );
+  expect(skill).toContain(
+    'For any request about current state, last-known state, controller activity,',
+  );
+  expect(skill).toContain('or recent device behavior, use live Shelly data');
+  expect(skill).toContain(
+    'Use `session_search` only to recover missing setup hints',
+  );
+  expect(skill).toContain(
+    'Treat those results\n  as historical setup context only.',
+  );
+  expect(skill).toContain(
+    'Immediately verify any recovered host or id\n  with a live Shelly API call before reporting device state.',
+  );
+  expect(skill).toContain(
+    'Do not call `session_search` after a successful `cloud-all-status`,',
   );
   expect(skill).toContain(
     'Do not infer that a stored secret is missing from prior turns, memory, or\n  prompt context.',
@@ -116,13 +142,38 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('cloud-get-state --select settings');
   expect(skill).toContain('LAN Reachability and SSRF');
   expect(skill).toContain(
+    'Always prefer them over\ncloud for local Shelly controllers',
+  );
+  expect(skill).toContain(
     'HTTP request blocked by SSRF guard: private or loopback host',
   );
   expect(skill).toContain(
     'Treat that as a product safety guard, not a Shelly failure.',
   );
-  expect(skill).toContain('The skill cannot\ndisable SSRF policy');
-  expect(skill).toContain('it does not allow private-network hosts.');
+  expect(skill).toContain(
+    'The skill cannot\nchange network policy from inside the user task.',
+  );
+  expect(skill).toContain('Teach the operator which gate blocked the request');
+  expect(skill).toContain(
+    'there is no general `tools.httpRequest` setting\n  that opens private-network hosts',
+  );
+  expect(skill).toContain(
+    'For public Shelly Cloud HTTPS hosts, do not describe this as LAN SSRF\n  blocking',
+  );
+  expect(skill).toContain(
+    'do not suggest adding the cloud domain to a private-network\n  allowlist',
+  );
+  expect(skill).toContain(
+    'If it does not resolve, report an invalid or stale tenant host',
+  );
+  expect(skill).toContain('network default policy denies unlisted hosts');
+  expect(skill).toContain(
+    'hybridclaw policy allow <shelly-lan-host-or-ip-pattern>',
+  );
+  expect(skill).toContain('--paths /rpc/**,/shelly,/status');
+  expect(skill).toContain(
+    'Never collapse cloud DNS failure, LAN reachability failure, and container\n  network policy denial into one cause.',
+  );
   expect(skill).toContain(
     'Do not retry with handcrafted URLs,\n   `curl`, DNS aliases, redirects, or URL encoding tricks.',
   );
