@@ -48,6 +48,12 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('local-gen2-switch-set');
   expect(skill).toContain('cloud-set-cover');
   expect(skill).toContain('factory-reset');
+  expect(skill).toContain('Device Discovery and IDs');
+  expect(skill).toContain(
+    'Do not claim that the v2\n`auth_key` API can list every device.',
+  );
+  expect(skill).toContain('/device/all_status?show_info=true&no_shared=true');
+  expect(skill).toContain('OAuth/Bearer access-token authentication');
 });
 
 test('Shelly helper --help exits cleanly and lists local and cloud operations', () => {

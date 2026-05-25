@@ -72,14 +72,21 @@ Shelly has three relevant HTTP surfaces:
 - Gen1 local devices use classic endpoints such as `/shelly`, `/status`, and
   `/relay/{id}`.
 - Shelly Cloud Control API v2 uses the tenant server URI from the Shelly app,
-  an `auth_key`, and `/v2/devices/api/...` endpoints.
+  an `auth_key`, and `/v2/devices/api/...` endpoints. The v2 `auth_key`
+  state endpoint requires known device ids.
+- Shelly also documents an account-level Real Time Events HTTP endpoint,
+  `/device/all_status?show_info=true&no_shared=true`, that can return current
+  or last-known statuses for owned devices. That endpoint uses OAuth/Bearer
+  access-token authentication, not the v2 `auth_key` used by this helper.
 
 Official references:
 [Gen2+ Shelly service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Shelly/),
 [Gen2+ Switch service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Switch/),
 [Gen2+ authentication](https://shelly-api-docs.shelly.cloud/gen2/General/Authentication/),
-[Gen1 device API](https://shelly-api-docs.shelly.cloud/gen1/), and
-[Cloud Control API v2](https://shelly-api-docs.shelly.cloud/cloud-control-api/communication-v2/).
+[Gen1 device API](https://shelly-api-docs.shelly.cloud/gen1/),
+[Cloud Control API v2](https://shelly-api-docs.shelly.cloud/cloud-control-api/communication-v2/),
+and
+[Cloud Real Time Events](https://shelly-api-docs.shelly.cloud/cloud-control-api/real-time-events/).
 
 ## Default Workflow
 
@@ -87,8 +94,8 @@ Official references:
    - Gen2+: `local-gen2-info`, then `local-gen2-status` or
      `local-gen2-components`.
    - Gen1: `local-gen1-shelly`, then `local-gen1-status`.
-   - Cloud: `cloud-get-state` with `--select status` and only the device ids
-     needed for the task.
+   - Cloud v2 `auth_key`: `cloud-get-state` with `--select status` and only
+     known device ids needed for the task.
 2. Read state before any output control.
 3. Treat relay, switch, light, and cover changes as amber. Get explicit
    operator approval before passing `--operator-grant`.
@@ -96,6 +103,29 @@ Official references:
    changes, certificate upload, or profile changes through this v1 skill.
 5. Use the helper as the API wrapper. Do not handcraft Shelly URLs or JSON
    payloads from memory when the helper supports the operation.
+
+## Device Discovery and IDs
+
+For Cloud Control API v2 calls in this skill, assume the operator must provide
+the Shelly tenant host and one or more device ids. `cloud-get-state` sends
+`POST /v2/devices/api/get?auth_key=<AUTH_KEY>` and the documented body requires
+`ids`, with 1 to 10 device ids per request. Do not claim that the v2
+`auth_key` API can list every device.
+
+If the user asks to discover all Shelly devices from the cloud:
+
+- First explain that this helper does not implement account-wide discovery.
+- Ask for the device ids from Shelly Smart Control
+  `Device -> Settings -> Device Information -> Device Id`, or ask for LAN IPs
+  reachable by the gateway.
+- Mention only as a separate option that Shelly documents
+  `/device/all_status?show_info=true&no_shared=true` under Cloud Real Time
+  Events. It returns `data.devices_status` with `_dev_info.id`, but it requires
+  OAuth/Bearer access-token authentication rather than `SHELLY_CLOUD_AUTH_KEY`.
+  Do not try to call it with the v2 cloud auth key.
+- If the operator provides an OAuth/Bearer access token through an approved
+  runtime secret path in the future, add a separate helper operation before
+  using that endpoint. Keep it read-only and rate-limited.
 
 ## Credentials
 
