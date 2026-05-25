@@ -126,11 +126,13 @@ Acquire `SHELLY_CLOUD_ACCESS_TOKEN` through a user-consented authorization-code
 flow. Do not ask for Shelly account passwords, and do not paste access tokens
 into chat.
 
-1. Send the user to Shelly's authorization page:
-   `https://my.shelly.cloud/oauth_login.html?client_id=shelly-diy&state=<opaque-state>`.
-   For DIY setup without a hosted app callback, create a temporary request-capture
-   URL such as a Pipedream RequestBin endpoint and pass it as `redirect_uri`:
-   `https://my.shelly.cloud/oauth_login.html?client_id=shelly-diy&redirect_uri=<request-bin-url>`.
+1. Send the user to Shelly's authorization page with a callback URL. Do not use
+   the bare `https://my.shelly.cloud/oauth_login.html?client_id=shelly-diy`
+   URL; Shelly can reject it with "Wrong parameteres provided!". For DIY setup
+   without a hosted app callback, create a temporary request-capture URL such
+   as a Pipedream RequestBin endpoint and pass it as URL-encoded
+   `redirect_uri`, plus a simple `state` value:
+   `https://my.shelly.cloud/oauth_login.html?client_id=shelly-diy&redirect_uri=<url-encoded-request-bin-url>&state=hybridclaw`.
    Use a callback URL the operator controls and can inspect.
 2. After consent, the browser redirects to the callback with a `code` query
    parameter. In a RequestBin flow, open the captured request and copy the
