@@ -89,10 +89,10 @@ or change one top-level `plugins.list[].config` key without editing
   turns back into MemPalace, and can route prompt-time retrieval through CLI
   helpers or an active `mempalace` MCP server
 - `qmd-memory` injects external markdown retrieval context into prompts
-- `brand-voice` registers `post_receive` middleware that checks final
-  responses against configured voice guidance, banned phrases or regexes,
+- `output-guard` registers `post_receive` middleware that checks final
+  responses against configured policy guidance, banned phrases or regexes,
   required phrases, and optional classifier/rewriter models. It can flag,
-  rewrite, or block off-brand output before the message is returned to the user.
+  rewrite, or block non-compliant output before the message is returned to the user.
 - `concierge-router` registers routing middleware and `/concierge` commands to
   ask or infer urgency before model selection, then map `asap`, `balanced`, and
   `no_hurry` profiles to configured execution models. It stores pending choice
@@ -110,8 +110,8 @@ Example config writes:
 ```bash
 hybridclaw plugin config brevo-email domain agent.hybridai.one
 hybridclaw plugin config brevo-email fromName "HybridClaw Agent"
-hybridclaw plugin config brand-voice mode rewrite
-hybridclaw plugin config brand-voice voice "Clear, direct, concrete, no hype."
+hybridclaw plugin config output-guard mode rewrite
+hybridclaw plugin config output-guard policy "Clear, direct, concrete, no hype."
 ```
 
 When a reply uses plugin-provided prompt context, the TUI shows a footer such

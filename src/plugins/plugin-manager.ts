@@ -25,6 +25,7 @@ import {
   type RuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { resolveInstallPath } from '../infra/install-root.js';
 import { logger as rootLogger } from '../logger.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
@@ -973,6 +974,14 @@ export class PluginManager {
         discovered.set(candidate.id, candidate);
     }
 
+    const available = new Map<string, PluginCandidate>(discovered);
+    for (const candidate of this.scanDirectory(
+      resolveInstallPath('plugins'),
+      'bundled',
+    )) {
+      if (!available.has(candidate.id)) available.set(candidate.id, candidate);
+    }
+
     const selected = new Map<string, PluginCandidate>(discovered);
     for (const entry of configuredEntries) {
       if (!entry.enabled) {
@@ -992,7 +1001,7 @@ export class PluginManager {
             );
           }
         } else {
-          candidate = discovered.get(entry.id);
+          candidate = available.get(entry.id);
         }
         if (!candidate) {
           this.logger.warn(
@@ -1125,10 +1134,10 @@ export class PluginManager {
       return typeof stored !== 'string' || stored.trim().length === 0;
     });
     if (missingEnv.length > 0) {
-      const error = `Missing required env vars: ${missingEnv.join(', ')}.`;
+      const error = `Missing required runtime secrets: ${missingEnv.join(', ')}. Store them with \`hybridclaw secret set <name> <value>\` or in TUI with \`/secret set <name> <value>\`, then reload plugins.`;
       this.logger.warn(
         { pluginId: candidate.id, missingEnv },
-        'Skipping plugin due to missing required environment variables',
+        'Skipping plugin due to missing required runtime secrets',
       );
       this.plugins.push({
         id: candidate.id,

@@ -7,8 +7,18 @@ import { promisify } from 'node:util';
 import { parseOptionalBoolean } from '../shared/boolean-utils.js';
 import { assertBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../shared/browser-profile.js';
+import {
+  detectTwoFactorChallenge,
+  EXTRACT_TEXT_PREVIEW_SCRIPT,
+  normalizeTwoFactorModality,
+  TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
+  type TwoFactorDetectionResult,
+} from '../shared/two-factor-detection.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import type { RuntimeProvider } from './providers/provider-ids.js';
+import {
+  type RuntimeProvider,
+  resolveRuntimeProviderContext,
+} from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
@@ -32,6 +42,7 @@ const BROWSER_DEFAULT_TIMEOUT_MS = 45_000;
 const BROWSER_DOWNLOAD_TIMEOUT_MS = 120_000;
 const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 const BROWSER_MAX_SNAPSHOT_CHARS = 12_000;
+const TWO_FACTOR_SCREENSHOT_MAX_BYTES = 12 * 1024 * 1024;
 const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
 const BROWSER_TMP_HOME = path.join(BROWSER_RUNTIME_ROOT, 'home');
 const BROWSER_NPM_CACHE = path.join(BROWSER_RUNTIME_ROOT, 'npm-cache');
@@ -78,24 +89,6 @@ const EXTRACT_IFRAMES_SCRIPT = `(() => {
     title: frame.getAttribute('title') || null,
     src: frame.getAttribute('src') || '',
   }));
-})()`;
-
-const EXTRACT_TEXT_PREVIEW_SCRIPT = `(() => {
-  const bodyText = document.body ? String(document.body.innerText || '') : '';
-  const normalized = bodyText
-    .replace(/\\r/g, '')
-    .replace(/[ \\t]+\\n/g, '\\n')
-    .replace(/\\n{3,}/g, '\\n\\n')
-    .trim();
-  const previewLimit = 6000;
-  return {
-    text_length: normalized.length,
-    preview: normalized.slice(0, previewLimit),
-    preview_truncated: normalized.length > previewLimit,
-    has_noscript: Boolean(document.querySelector('noscript')),
-    root_shell: Boolean(document.querySelector('div#root:empty, div#app:empty, div#__next:empty')),
-    ready_state: String(document.readyState || ''),
-  };
 })()`;
 
 const NETWORK_TIMINGS_SCRIPT = `(() => {
@@ -154,19 +147,6 @@ const FIND_FILE_INPUT_SELECTORS_SCRIPT = `(() => {
   }
   push('input[type="file"]');
   return selectors.slice(0, 10);
-})()`;
-
-const TWO_FACTOR_SELECTOR_HINTS_SCRIPT = `(() => {
-  const selectors = [
-    'input[autocomplete="one-time-code"]',
-    'input[inputmode="numeric"]',
-    'input[type="tel"]',
-    'input[name*="otp" i]',
-    'input[id*="otp" i]',
-    'input[name*="code" i]',
-    'input[id*="code" i]',
-  ];
-  return selectors.filter((selector) => document.querySelector(selector));
 })()`;
 
 type SnapshotMode = 'default' | 'interactive' | 'full';
@@ -247,6 +227,9 @@ let gatewayApiToken = '';
 let gatewayBrowserProvider = '';
 let gatewayBrowserSessionId = '';
 let gatewayBrowserAgentId = '';
+let browserAllowPrivateNetwork =
+  String(process.env.BROWSER_ALLOW_PRIVATE_NETWORK || '').toLowerCase() ===
+  'true';
 const suspendedSessionByBrowserSession = new Map<string, string>();
 
 export function setBrowserGatewayContext(
@@ -255,12 +238,16 @@ export function setBrowserGatewayContext(
   browserProvider?: string,
   sessionId?: string,
   agentId?: string,
+  allowPrivateNetwork?: boolean,
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
   gatewayBrowserProvider = String(browserProvider || '').trim();
   gatewayBrowserSessionId = String(sessionId || '').trim();
   gatewayBrowserAgentId = String(agentId || '').trim();
+  if (typeof allowPrivateNetwork === 'boolean') {
+    browserAllowPrivateNetwork = allowPrivateNetwork;
+  }
 }
 
 function cloneTaskModelPolicies(
@@ -292,7 +279,7 @@ export function setBrowserModelContext(
   debugModelResponses = false,
 ): void {
   currentBrowserModelContext = {
-    provider: provider || 'hybridai',
+    provider: resolveRuntimeProviderContext(provider, model),
     providerMethod,
     baseUrl: String(baseUrl || '')
       .trim()
@@ -1185,6 +1172,31 @@ function safeUrlHost(url: string): string | null {
   }
 }
 
+async function detectBrowserTwoFactorChallenge(
+  effectiveSessionId: string,
+  args: Record<string, unknown> = {},
+): Promise<TwoFactorDetectionResult> {
+  const [textEval, selectorEval] = await Promise.all([
+    runBrowserEval(effectiveSessionId, EXTRACT_TEXT_PREVIEW_SCRIPT, 10_000),
+    runBrowserEval(
+      effectiveSessionId,
+      TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
+      10_000,
+    ),
+  ]);
+  const textData = asRecord(textEval.success ? textEval.result : null);
+  const selectors = Array.isArray(selectorEval.result)
+    ? selectorEval.result.filter(
+        (selector): selector is string => typeof selector === 'string',
+      )
+    : [];
+  return detectTwoFactorChallenge({
+    args,
+    text: typeof textData?.preview === 'string' ? textData.preview : '',
+    selectors,
+  });
+}
+
 async function callGatewayInteractiveEscalation(
   pathSuffix: string,
   payload: Record<string, unknown>,
@@ -1234,6 +1246,148 @@ async function consumeGatewayInteractiveEscalation(
   sessionId: string,
 ): Promise<Record<string, unknown>> {
   return callGatewayInteractiveEscalation('/consume', { sessionId });
+}
+
+async function parkBrowserTwoFactorInteraction(params: {
+  effectiveSessionId: string;
+  args?: Record<string, unknown>;
+  detection?: TwoFactorDetectionResult;
+}): Promise<Record<string, unknown>> {
+  assertGatewayInteractiveEscalationConfigured();
+  const args = params.args || {};
+  const detection =
+    params.detection ||
+    (await detectBrowserTwoFactorChallenge(params.effectiveSessionId, args));
+  const modality =
+    detection.modality || normalizeTwoFactorModality(args.modality) || 'totp';
+  const prompt =
+    String(args.prompt || '').trim() ||
+    `A ${modality} challenge needs operator input.`;
+  const skillId = String(args.skillId || args.skill_id || '').trim();
+  const userId = String(args.userId || args.user_id || '').trim();
+  const targetChannel = String(
+    args.escalationChannel || args.escalation_channel || '',
+  ).trim();
+  const targetRecipient = String(
+    args.escalationRecipient || args.escalation_recipient || '',
+  ).trim();
+  const ttlMs =
+    typeof args.ttlMs === 'number' && Number.isFinite(args.ttlMs)
+      ? args.ttlMs
+      : null;
+
+  const screenshotPath = createTempScreenshotPath('two-factor');
+  try {
+    const [snapshotResult, screenshotResult] = await Promise.all([
+      runAgentBrowser(params.effectiveSessionId, 'snapshot', [], {
+        timeoutMs: 30_000,
+      }),
+      runAgentBrowser(
+        params.effectiveSessionId,
+        'screenshot',
+        [screenshotPath],
+        {
+          timeoutMs: 60_000,
+        },
+      ),
+    ]);
+    const screenshotRef = screenshotResult.success
+      ? toWorkspaceRelativePath(screenshotPath)
+      : null;
+    let screenshotBase64 = '';
+    if (screenshotResult.success) {
+      const screenshotSize = fs.statSync(screenshotPath).size;
+      if (screenshotSize > TWO_FACTOR_SCREENSHOT_MAX_BYTES) {
+        throw new Error(
+          `2FA screenshot exceeds ${TWO_FACTOR_SCREENSHOT_MAX_BYTES} bytes (${screenshotSize} bytes).`,
+        );
+      }
+      screenshotBase64 = fs.readFileSync(screenshotPath).toString('base64');
+    }
+    const snapshotData = asRecord(
+      snapshotResult.success ? snapshotResult.data : null,
+    );
+    const url =
+      String(snapshotData?.url || snapshotData?.origin || '').trim() ||
+      'about:blank';
+    const title = String(snapshotData?.title || '').trim();
+
+    const gatewayResult = await createGatewayInteractiveEscalation({
+      prompt,
+      modality,
+      ...(userId ? { userId } : {}),
+      ...(skillId ? { skillId } : {}),
+      ...(ttlMs ? { ttlMs } : {}),
+      ...(targetChannel && targetRecipient
+        ? {
+            escalationTarget: {
+              channel: targetChannel,
+              recipient: targetRecipient,
+            },
+          }
+        : {}),
+      frameSnapshot: {
+        url,
+        title,
+        browserSessionKey: params.effectiveSessionId,
+        screenshotRef,
+      },
+      ...(screenshotBase64 ? { screenshotBase64 } : {}),
+      context: {
+        host: safeUrlHost(url),
+        pageTitle: title || null,
+        url,
+        screenshotRef,
+      },
+    });
+    const gatewaySession = asRecord(gatewayResult.session);
+    const suspendedSessionId = String(gatewaySession?.sessionId || '').trim();
+    if (suspendedSessionId) {
+      suspendedSessionByBrowserSession.set(
+        params.effectiveSessionId,
+        suspendedSessionId,
+      );
+    }
+    const gatewayFrameSnapshot = asRecord(gatewaySession?.frameSnapshot);
+    const persistedScreenshotRef =
+      typeof gatewayFrameSnapshot?.screenshotRef === 'string'
+        ? gatewayFrameSnapshot.screenshotRef
+        : screenshotRef;
+    return {
+      parked: true,
+      modality,
+      two_factor_detection: detection,
+      detected_selectors: detection.selectors,
+      text_preview: String(detection.textPreview || '').slice(0, 1000),
+      screenshot: persistedScreenshotRef,
+      interaction: gatewayResult,
+    };
+  } finally {
+    fs.rmSync(screenshotPath, { force: true });
+  }
+}
+
+async function addTwoFactorAutoPark(
+  effectiveSessionId: string,
+  args: Record<string, unknown>,
+  fields: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (args.disable_2fa_detection === true) return fields;
+  if (suspendedSessionByBrowserSession.has(effectiveSessionId)) return fields;
+  const detection = await detectBrowserTwoFactorChallenge(
+    effectiveSessionId,
+    args,
+  );
+  if (!detection.detected) return fields;
+  const parked = await parkBrowserTwoFactorInteraction({
+    effectiveSessionId,
+    args,
+    detection,
+  });
+  return {
+    ...fields,
+    ...parked,
+  };
 }
 
 function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
@@ -2035,7 +2189,7 @@ async function runAgentBrowser(
       success: false,
       error:
         'agent-browser is not available in this container. Install it (global or /app/node_modules/.bin) ' +
-        'or set AGENT_BROWSER_BIN.',
+        'or switch to another browser provider in /admin/config.',
     };
   }
 
@@ -2090,7 +2244,7 @@ async function runAgentBrowser(
       return {
         success: false,
         error:
-          'Headful browser control requires Google Chrome. Install Google Chrome or set CHROME_BIN/AGENT_BROWSER_EXECUTABLE_PATH to a Chrome executable. Refusing to fall back to Playwright Chrome for Testing because it is unstable for headed macOS launches.',
+          'Headful browser control requires Google Chrome. Install Google Chrome or switch to another browser provider in /admin/config. Refusing to fall back to Playwright Chrome for Testing because it is unstable for headed macOS launches.',
       };
     }
     browserEnv.AGENT_BROWSER_EXECUTABLE_PATH = executablePath;
@@ -2185,6 +2339,40 @@ function gatewayBrowserResultContext(
     provider: getBrowserProviderLogLabel(),
     audit_session_id: gatewayBrowserSessionId || effectiveSessionId,
   };
+}
+
+function extractSuspendedSessionId(payload: Record<string, unknown>): string {
+  const direct = String(payload.suspended_session_id || '').trim();
+  if (direct) return direct;
+  const interaction = asRecord(payload.interaction);
+  const session = asRecord(interaction?.session);
+  return String(session?.sessionId || '').trim();
+}
+
+function rememberGatewayManagedSuspension(
+  effectiveSessionId: string,
+  payload: Record<string, unknown>,
+): void {
+  const suspendedSessionId = extractSuspendedSessionId(payload);
+  if (suspendedSessionId) {
+    suspendedSessionByBrowserSession.set(
+      effectiveSessionId,
+      suspendedSessionId,
+    );
+  }
+}
+
+function prepareGatewayManagedBrowserArgs(
+  name: string,
+  args: Record<string, unknown>,
+  effectiveSessionId: string,
+): Record<string, unknown> {
+  if (name !== 'browser_resume_interaction') return args;
+  const explicitSessionId = String(args.sessionId || '').trim();
+  if (explicitSessionId) return args;
+  const suspendedSessionId =
+    suspendedSessionByBrowserSession.get(effectiveSessionId);
+  return suspendedSessionId ? { ...args, sessionId: suspendedSessionId } : args;
 }
 
 async function callGatewayManagedBrowser(
@@ -2306,7 +2494,13 @@ async function executeGatewayManagedBrowserTool(
     });
   }
 
-  const payload = await callGatewayManagedBrowser(name, args);
+  const gatewayArgs = prepareGatewayManagedBrowserArgs(
+    name,
+    args,
+    effectiveSessionId,
+  );
+  const payload = await callGatewayManagedBrowser(name, gatewayArgs);
+  rememberGatewayManagedSuspension(effectiveSessionId, payload);
   if (name === 'browser_navigate') {
     return success({
       ...gatewayBrowserResultContext(effectiveSessionId),
@@ -2329,10 +2523,15 @@ async function executeGatewayManagedBrowserTool(
   }
 
   if (name === 'browser_close') {
+    suspendedSessionByBrowserSession.delete(effectiveSessionId);
     return success({
       ...gatewayBrowserResultContext(effectiveSessionId),
       closed: true,
     });
+  }
+
+  if (name === 'browser_resume_interaction' && payload.resumed === true) {
+    suspendedSessionByBrowserSession.delete(effectiveSessionId);
   }
 
   return success({
@@ -2357,7 +2556,9 @@ export async function executeBrowserTool(
     }
     switch (name) {
       case 'browser_navigate': {
-        const parsed = await assertBrowserNavigationUrl(args.url);
+        const parsed = await assertBrowserNavigationUrl(args.url, {
+          allowPrivateNetwork: browserAllowPrivateNetwork,
+        });
         const headed = parseOptionalBoolean(args.headed ?? args.headful);
         const result = await runAgentBrowser(
           effectiveSessionId,
@@ -2397,22 +2598,24 @@ export async function executeBrowserTool(
         await runAgentBrowser(effectiveSessionId, 'network', [
           'requests',
         ]).catch(() => undefined);
-        return success({
-          url: data.url || parsed.toString(),
-          title,
-          session_id: effectiveSessionId,
-          content_text_length: contentLength,
-          ...(contentPreview ? { content_preview: contentPreview } : {}),
-          ...(contentPreview
-            ? { content_preview_truncated: contentPreviewTruncated }
-            : {}),
-          ...(readyState ? { ready_state: readyState } : {}),
-          ...(hasNoscript ? { has_noscript: true } : {}),
-          ...(rootShell ? { root_shell: true } : {}),
-          read_extraction_hint: extractionHint,
-          headed: getSession(effectiveSessionId).headed,
-          ...(botWarning ? { bot_detection_warning: botWarning } : {}),
-        });
+        return success(
+          await addTwoFactorAutoPark(effectiveSessionId, args, {
+            url: data.url || parsed.toString(),
+            title,
+            session_id: effectiveSessionId,
+            content_text_length: contentLength,
+            ...(contentPreview ? { content_preview: contentPreview } : {}),
+            ...(contentPreview
+              ? { content_preview_truncated: contentPreviewTruncated }
+              : {}),
+            ...(readyState ? { ready_state: readyState } : {}),
+            ...(hasNoscript ? { has_noscript: true } : {}),
+            ...(rootShell ? { root_shell: true } : {}),
+            read_extraction_hint: extractionHint,
+            headed: getSession(effectiveSessionId).headed,
+            ...(botWarning ? { bot_detection_warning: botWarning } : {}),
+          }),
+        );
       }
 
       case 'browser_snapshot': {
@@ -2450,31 +2653,30 @@ export async function executeBrowserTool(
               (selector): selector is string => typeof selector === 'string',
             )
           : [];
-        const twoFactorTextSignal =
-          /\b(verification code|one[- ]time code|two[- ]factor|2fa|multi[- ]factor|authenticator|sms|text message|recovery code|backup code|scan.+code|qr)\b/i.test(
-            rawSnapshot,
-          );
-        return success({
-          snapshot: truncated.text,
-          truncated: truncated.truncated,
-          element_count:
-            data.refs && typeof data.refs === 'object'
-              ? Object.keys(data.refs as Record<string, unknown>).length
-              : 0,
-          url: data.url || data.origin || '',
-          mode,
-          ...(frame ? { frame: frame.raw } : {}),
-          ...(frames.length > 0 ? { frames, frame_count: frames.length } : {}),
-          ...(twoFactorSelectors.length > 0 || twoFactorTextSignal
-            ? {
-                two_factor_detection: {
-                  detected: true,
-                  selectors: twoFactorSelectors,
-                  text_signal: twoFactorTextSignal,
-                },
-              }
-            : {}),
+        const snapshotTwoFactorDetection = detectTwoFactorChallenge({
+          args,
+          text: rawSnapshot,
+          selectors: twoFactorSelectors,
         });
+        return success(
+          await addTwoFactorAutoPark(effectiveSessionId, args, {
+            snapshot: truncated.text,
+            truncated: truncated.truncated,
+            element_count:
+              data.refs && typeof data.refs === 'object'
+                ? Object.keys(data.refs as Record<string, unknown>).length
+                : 0,
+            url: data.url || data.origin || '',
+            mode,
+            ...(frame ? { frame: frame.raw } : {}),
+            ...(frames.length > 0
+              ? { frames, frame_count: frames.length }
+              : {}),
+            ...(snapshotTwoFactorDetection.detected
+              ? { two_factor_detection: snapshotTwoFactorDetection }
+              : {}),
+          }),
+        );
       }
 
       case 'browser_click': {
@@ -2484,6 +2686,8 @@ export async function executeBrowserTool(
         const downloadPath = waitForDownload
           ? resolveDownloadOutputPath(args.downloadPath || args.path)
           : '';
+        const finishClick = async (fields: Record<string, unknown>) =>
+          success(await addTwoFactorAutoPark(effectiveSessionId, args, fields));
         await applyFrameTarget(effectiveSessionId, frame);
         if (target.source === 'coordinate') {
           if (waitForDownload) {
@@ -2673,7 +2877,7 @@ export async function executeBrowserTool(
           if (!up.success) {
             return failure(up.error || 'failed to release mouse button');
           }
-          return success({
+          return finishClick({
             clicked: target.raw,
             x: target.x,
             y: target.y,
@@ -2701,7 +2905,7 @@ export async function executeBrowserTool(
           ]);
           if (!result.success)
             return failure(result.error || `failed to click ${target.raw}`);
-          return success({
+          return finishClick({
             clicked: target.raw,
             ref: target.raw,
             ...(frame ? { frame: frame.raw } : {}),
@@ -2798,7 +3002,7 @@ export async function executeBrowserTool(
               : `failed to click ${target.source} "${target.raw}"`;
           return failure(error);
         }
-        return success({
+        return finishClick({
           clicked: target.raw,
           ...(target.source === 'selector'
             ? { selector: target.raw }
@@ -2822,17 +3026,28 @@ export async function executeBrowserTool(
         if (!text) return failure('text is required');
         const frame = parseOptionalFrame(args.frame);
         await applyFrameTarget(effectiveSessionId, frame);
+        const preFill = await addTwoFactorAutoPark(effectiveSessionId, args, {
+          ...(selector ? { selector } : { element: ref }),
+          typed_chars: 0,
+          code_injected: false,
+          ...(frame ? { frame: frame.raw } : {}),
+        });
+        if (preFill.parked === true) {
+          return success(preFill);
+        }
         const result = await runAgentBrowser(effectiveSessionId, 'fill', [
           target,
           text,
         ]);
         if (!result.success)
           return failure(result.error || `failed to fill ${target}`);
-        return success({
-          ...(selector ? { selector } : { element: ref }),
-          typed_chars: text.length,
-          ...(frame ? { frame: frame.raw } : {}),
-        });
+        return success(
+          await addTwoFactorAutoPark(effectiveSessionId, args, {
+            ...(selector ? { selector } : { element: ref }),
+            typed_chars: text.length,
+            ...(frame ? { frame: frame.raw } : {}),
+          }),
+        );
       }
 
       case 'browser_upload': {
@@ -2898,10 +3113,12 @@ export async function executeBrowserTool(
         ]);
         if (!result.success)
           return failure(result.error || `failed to press ${key}`);
-        return success({
-          key,
-          ...(frame ? { frame: frame.raw } : {}),
-        });
+        return success(
+          await addTwoFactorAutoPark(effectiveSessionId, args, {
+            key,
+            ...(frame ? { frame: frame.raw } : {}),
+          }),
+        );
       }
 
       case 'browser_scroll': {
@@ -2922,7 +3139,12 @@ export async function executeBrowserTool(
         ]);
         if (!result.success)
           return failure(result.error || `failed to scroll ${direction}`);
-        return success({ direction, pixels });
+        return success(
+          await addTwoFactorAutoPark(effectiveSessionId, args, {
+            direction,
+            pixels,
+          }),
+        );
       }
 
       case 'browser_back': {
@@ -2930,7 +3152,11 @@ export async function executeBrowserTool(
         if (!result.success)
           return failure(result.error || 'failed to navigate back');
         const data = (result.data || {}) as Record<string, unknown>;
-        return success({ url: data.url || '' });
+        return success(
+          await addTwoFactorAutoPark(effectiveSessionId, args, {
+            url: data.url || '',
+          }),
+        );
       }
 
       case 'browser_screenshot': {
@@ -3166,103 +3392,12 @@ export async function executeBrowserTool(
       }
 
       case 'browser_await_two_factor': {
-        assertGatewayInteractiveEscalationConfigured();
-        const modality = String(args.modality || 'totp').trim();
-        const prompt =
-          String(args.prompt || '').trim() ||
-          `A ${modality} challenge needs operator input.`;
-        const skillId = String(args.skillId || '').trim();
-        const userId = String(args.userId || '').trim();
-        const targetChannel = String(args.escalationChannel || '').trim();
-        const targetRecipient = String(args.escalationRecipient || '').trim();
-        const ttlMs =
-          typeof args.ttlMs === 'number' && Number.isFinite(args.ttlMs)
-            ? args.ttlMs
-            : null;
-
-        const [textEval, selectorEval] = await Promise.all([
-          runBrowserEval(
+        return success(
+          await parkBrowserTwoFactorInteraction({
             effectiveSessionId,
-            EXTRACT_TEXT_PREVIEW_SCRIPT,
-            15_000,
-          ),
-          runBrowserEval(
-            effectiveSessionId,
-            TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
-            15_000,
-          ),
-        ]);
-        const screenshotPath = createTempScreenshotPath('two-factor');
-        const [snapshotResult, screenshotResult] = await Promise.all([
-          runAgentBrowser(effectiveSessionId, 'snapshot', [], {
-            timeoutMs: 30_000,
+            args: { ...args, expects_2fa: true },
           }),
-          runAgentBrowser(effectiveSessionId, 'screenshot', [screenshotPath], {
-            timeoutMs: 60_000,
-          }),
-        ]);
-        const screenshotRef = screenshotResult.success
-          ? toWorkspaceRelativePath(screenshotPath)
-          : null;
-        const textData = asRecord(textEval.success ? textEval.result : null);
-        const snapshotData = asRecord(
-          snapshotResult.success ? snapshotResult.data : null,
         );
-        const url =
-          String(snapshotData?.url || snapshotData?.origin || '').trim() ||
-          'about:blank';
-        const title = String(snapshotData?.title || '').trim();
-        const selectors = Array.isArray(selectorEval.result)
-          ? selectorEval.result.filter(
-              (selector): selector is string => typeof selector === 'string',
-            )
-          : [];
-
-        const gatewayResult = await createGatewayInteractiveEscalation({
-          prompt,
-          modality,
-          ...(userId ? { userId } : {}),
-          ...(skillId ? { skillId } : {}),
-          ...(ttlMs ? { ttlMs } : {}),
-          ...(targetChannel && targetRecipient
-            ? {
-                escalationTarget: {
-                  channel: targetChannel,
-                  recipient: targetRecipient,
-                },
-              }
-            : {}),
-          frameSnapshot: {
-            url,
-            title,
-            browserSessionKey: effectiveSessionId,
-            screenshotRef,
-          },
-          context: {
-            host: safeUrlHost(url),
-            pageTitle: title || null,
-            url,
-            screenshotRef,
-          },
-        });
-        const gatewaySession = asRecord(gatewayResult.session);
-        const suspendedSessionId = String(
-          gatewaySession?.sessionId || '',
-        ).trim();
-        if (suspendedSessionId) {
-          suspendedSessionByBrowserSession.set(
-            effectiveSessionId,
-            suspendedSessionId,
-          );
-        }
-        return success({
-          parked: true,
-          modality,
-          detected_selectors: selectors,
-          text_preview: String(textData?.preview || '').slice(0, 1000),
-          screenshot: screenshotRef,
-          interaction: gatewayResult,
-        });
       }
 
       case 'browser_resume_interaction': {
@@ -3290,6 +3425,7 @@ export async function executeBrowserTool(
           if (!result.success) {
             return failure(result.error || `failed to fill ${ref}`);
           }
+          suspendedSessionByBrowserSession.delete(effectiveSessionId);
           return success({
             resumed: true,
             response_kind: 'code',
@@ -3299,6 +3435,7 @@ export async function executeBrowserTool(
           });
         }
         if (kind === 'approved' || kind === 'scanned') {
+          suspendedSessionByBrowserSession.delete(effectiveSessionId);
           return success({
             resumed: true,
             response_kind: kind,
@@ -3382,14 +3519,14 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_resume_interaction',
       description:
-        'Resume a browser session after the operator responds to browser_await_two_factor. If the response is a code, this consumes it from the gateway and injects it directly into the target element without returning the cleartext in the tool result.',
+        'Resume a browser session after the operator responds to browser_await_two_factor. If the response is a code, this consumes it from the gateway and injects it directly into the target element without returning the cleartext in the tool result. For native/mac-cua parked sessions, omit ref when browser_snapshot does not expose DOM refs; the gateway uses the parked 2FA target.',
       parameters: {
         type: 'object',
         properties: {
           ref: {
             type: 'string',
             description:
-              'Element reference for the 2FA/code input from browser_snapshot.',
+              'Optional element reference for the 2FA/code input from browser_snapshot. Required only for local DOM-backed sessions.',
           },
           sessionId: {
             type: 'string',
@@ -3402,7 +3539,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
               'Optional frame selector. Use "main" to target the main document again.',
           },
         },
-        required: ['ref'],
+        required: [],
       },
     },
   },
@@ -3423,6 +3560,16 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'boolean',
             description:
               'Use a visible browser window when the user explicitly requests headful/headed browser control.',
+          },
+          expects_2fa: {
+            type: 'boolean',
+            description:
+              'Set true for a skill-declared step that expects a 2FA challenge; the runtime parks via F14 instead of filling any second factor.',
+          },
+          modality: {
+            type: 'string',
+            enum: ['totp', 'push', 'qr', 'sms', 'recovery_code'],
+            description: 'Expected 2FA modality when expects_2fa is true.',
           },
         },
         required: ['url'],
@@ -3453,6 +3600,16 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description:
               'Optional frame selector. Use this to snapshot an embedded iframe, or "main" to target the main document again.',
+          },
+          expects_2fa: {
+            type: 'boolean',
+            description:
+              'Set true for a skill-declared step that expects a 2FA challenge; the runtime parks via F14.',
+          },
+          modality: {
+            type: 'string',
+            enum: ['totp', 'push', 'qr', 'sms', 'recovery_code'],
+            description: 'Expected 2FA modality when expects_2fa is true.',
           },
         },
         required: [],
@@ -3519,6 +3676,16 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Optional frame selector. Use "main" to target the main document again.',
           },
+          expects_2fa: {
+            type: 'boolean',
+            description:
+              'Set true when this click is expected to reveal a 2FA challenge; the runtime parks via F14.',
+          },
+          modality: {
+            type: 'string',
+            enum: ['totp', 'push', 'qr', 'sms', 'recovery_code'],
+            description: 'Expected 2FA modality when expects_2fa is true.',
+          },
         },
         required: [],
       },
@@ -3548,6 +3715,16 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description:
               'Optional frame selector. Use "main" to target the main document again.',
+          },
+          expects_2fa: {
+            type: 'boolean',
+            description:
+              'Set true only for skill-declared 2FA waypoints; the runtime parks instead of typing into second-factor fields.',
+          },
+          modality: {
+            type: 'string',
+            enum: ['totp', 'push', 'qr', 'sms', 'recovery_code'],
+            description: 'Expected 2FA modality when expects_2fa is true.',
           },
         },
         required: ['text'],
@@ -3585,6 +3762,16 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'string',
             description:
               'Optional frame selector. Use "main" to target the main document again.',
+          },
+          expects_2fa: {
+            type: 'boolean',
+            description:
+              'Set true only for skill-declared 2FA waypoints; the runtime parks instead of injecting secrets into second-factor fields.',
+          },
+          modality: {
+            type: 'string',
+            enum: ['totp', 'push', 'qr', 'sms', 'recovery_code'],
+            description: 'Expected 2FA modality when expects_2fa is true.',
           },
         },
         required: ['secretName'],

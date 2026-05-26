@@ -1,3 +1,5 @@
+import { parseAgentIdentity } from '../identity/agent-id.js';
+import { parseUserId } from '../identity/user-id.js';
 import {
   parseSecretRefInput,
   type SecretRef,
@@ -51,6 +53,8 @@ export interface AgentBudgetConfig {
 
 export interface AgentConfig {
   id: string;
+  canonicalId?: string;
+  ownerUserId?: string;
   name?: string;
   displayName?: string;
   imageAsset?: string;
@@ -81,6 +85,55 @@ export interface AgentsConfig {
   defaultAgentId?: string;
   defaults?: AgentDefaultsConfig;
   list?: AgentConfig[];
+}
+
+export function normalizeAgentIdentityFields(params: {
+  canonicalId?: string;
+  ownerUserId?: string;
+  path: string;
+}): Pick<AgentConfig, 'canonicalId' | 'ownerUserId'> {
+  let canonicalId = '';
+  let canonicalUserSlug = '';
+  const rawCanonicalId = params.canonicalId?.trim() || '';
+  if (rawCanonicalId) {
+    try {
+      const parsed = parseAgentIdentity(rawCanonicalId);
+      canonicalId = parsed.id;
+      canonicalUserSlug = parsed.userSlug;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`${params.path}.canonicalId is invalid: ${detail}`);
+    }
+  }
+
+  let ownerUserId = '';
+  let ownerUsername = '';
+  const rawOwnerUserId = params.ownerUserId?.trim() || '';
+  if (rawOwnerUserId) {
+    try {
+      const parsed = parseUserId(rawOwnerUserId);
+      ownerUserId = parsed.id;
+      ownerUsername = parsed.username;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`${params.path}.ownerUserId is invalid: ${detail}`);
+    }
+  }
+
+  if (
+    canonicalUserSlug &&
+    ownerUsername &&
+    canonicalUserSlug !== ownerUsername
+  ) {
+    throw new Error(
+      `${params.path}.ownerUserId username must match ${params.path}.canonicalId user slug`,
+    );
+  }
+
+  return {
+    ...(canonicalId ? { canonicalId } : {}),
+    ...(ownerUserId ? { ownerUserId } : {}),
+  };
 }
 
 export function buildOptionalAgentPresentation(

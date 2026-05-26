@@ -20,10 +20,21 @@ test('browser navigation guard blocks unsafe schemes and private hosts by defaul
   ).rejects.toThrow(/Unsupported URL protocol/u);
   await expect(
     assertBrowserNavigationUrl('http://127.0.0.1:3000/'),
-  ).rejects.toThrow(/private or loopback host/u);
+  ).rejects.toThrow(/browser\.allowPrivateNetwork/u);
+  await expect(
+    assertBrowserNavigationUrl('http://127.0.0.1:3000/'),
+  ).rejects.not.toThrow(/BROWSER_ALLOW_PRIVATE_NETWORK/u);
 });
 
 test('browser navigation guard allows private hosts when explicitly configured', async () => {
+  await expect(
+    assertBrowserNavigationUrl('http://127.0.0.1:3000/', {
+      allowPrivateNetwork: true,
+    }),
+  ).resolves.toEqual(new URL('http://127.0.0.1:3000/'));
+});
+
+test('browser navigation guard keeps legacy env override as internal fallback', async () => {
   await expect(
     assertBrowserNavigationUrl('http://127.0.0.1:3000/', {
       env: { BROWSER_ALLOW_PRIVATE_NETWORK: 'true' },

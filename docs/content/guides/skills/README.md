@@ -13,6 +13,9 @@ tips & tricks, ready-to-try example prompts, and troubleshooting.
 For CLI management commands see [Bundled Skills](../bundled-skills.md); for
 resolution rules and runtime internals see
 [Skills Internals](../../extensibility/skills.md).
+For authoring conventions, helper-script patterns, approval handling, and
+testing expectations see
+[Skill Authoring Best Practices](../../extensibility/skills.md#skill-authoring-best-practices).
 For production package requirements see
 [How to Ship a Business Skill](./business-skills.md).
 
@@ -35,7 +38,7 @@ For production package requirements see
 | Productivity | feature-planning, project-manager, trello | [Productivity Skills](./productivity.md) |
 | Memory & Knowledge | llm-wiki, notion, obsidian, personality, zettelkasten | [Memory & Knowledge Skills](./memory-knowledge.md) |
 | Publishing | diagram, excalidraw, hermes3000-writing, image-generation, manim-video, video-generation, video.from-script, wordpress, write-blog-post | [Publishing Skills](./publishing.md) |
-| Integrations & Utilities | 1password, stripe, download-platform-invoices, airtable, fastbill, firecrawl, ga4, google-ads, heygen, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
+| Integrations & Utilities | 1password, stripe, download-platform-invoices, airtable, fastbill, lexware-office, firecrawl, ga4, google-ads, heygen, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
 
 ## Evaluating Example Prompts
 

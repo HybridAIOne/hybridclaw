@@ -67,6 +67,30 @@ test('computeWorkerSignature changes when provider routing changes', () => {
   ).not.toBe(baseline);
 });
 
+test('computeWorkerSignature changes when browser private network access changes', () => {
+  const baseline = computeWorkerSignature({
+    agentId: 'main',
+    provider: 'hybridai',
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'main-secret',
+    requestHeaders: {},
+    browserProvider: 'local',
+    browserAllowPrivateNetwork: false,
+  });
+
+  expect(
+    computeWorkerSignature({
+      agentId: 'main',
+      provider: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      apiKey: 'main-secret',
+      requestHeaders: {},
+      browserProvider: 'local',
+      browserAllowPrivateNetwork: true,
+    }),
+  ).not.toBe(baseline);
+});
+
 test('computeWorkerSignature changes when auxiliary task routing changes', () => {
   const baseline = computeWorkerSignature({
     agentId: 'main',

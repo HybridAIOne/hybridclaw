@@ -71,6 +71,13 @@ import {
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import {
+  type Card as BoardCard,
+  type Edge as BoardCardEdge,
+  isBlocked as isBoardCardBlocked,
+  listCards,
+  listEdges,
+} from '../board/card-store.js';
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
@@ -184,6 +191,7 @@ import { handleGoalCommand } from '../goals/goal-command.js';
 import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
+import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
@@ -251,6 +259,7 @@ import {
   addPolicyRule,
   deletePolicyRule,
   readPolicyState,
+  setLanHttpAccessMode,
   setPolicyDefault,
   updatePolicyRule,
 } from '../policy/policy-store.js';
@@ -295,7 +304,12 @@ import {
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
 import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
+import { isRuntimeProviderId } from '../providers/provider-ids.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
+import {
+  normalizeAuxiliaryProviderModel,
+  resolveDefaultAuxiliaryModelForProvider,
+} from '../providers/task-routing.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
 import {
@@ -476,7 +490,10 @@ import {
   type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
   type GatewayAdminEmailMessageResponse,
+  type GatewayAdminJobCard,
+  type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
+  type GatewayAdminLanHttpAccessMode,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
@@ -541,6 +558,7 @@ initializeGoalContinuationRunner();
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
 const TRACE_EXPORT_ALL_CONCURRENCY = 4;
+const GATEWAY_PROCESS_STARTED_AT = new Date().toISOString();
 const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
@@ -3694,6 +3712,123 @@ export function buildTokenUsageAuditPayload(
   };
 }
 
+type GatewayBuildDiagnostics = NonNullable<GatewayStatus['build']>;
+type GatewayBuildFileDiagnostics = GatewayBuildDiagnostics['files'][number];
+
+const GATEWAY_BUILD_FILE_PAIRS: Array<{
+  name: string;
+  sourcePath: string;
+  buildPath: string;
+}> = [
+  {
+    name: 'cli',
+    sourcePath: 'src/cli.ts',
+    buildPath: 'dist/cli.js',
+  },
+  {
+    name: 'gateway-service',
+    sourcePath: 'src/gateway/gateway-service.ts',
+    buildPath: 'dist/gateway/gateway-service.js',
+  },
+  {
+    name: 'gateway-http-proxy',
+    sourcePath: 'src/gateway/gateway-http-proxy.ts',
+    buildPath: 'dist/gateway/gateway-http-proxy.js',
+  },
+  {
+    name: 'container-tools',
+    sourcePath: 'container/src/tools.ts',
+    buildPath: 'container/dist/tools.js',
+  },
+];
+
+function readFileModifiedAt(
+  filePath: string,
+): { timeMs: number; iso: string } | null {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      timeMs: stat.mtimeMs,
+      iso: stat.mtime.toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getBuildFileStatus(
+  packageRoot: string,
+  filePair: (typeof GATEWAY_BUILD_FILE_PAIRS)[number],
+): GatewayBuildFileDiagnostics {
+  const sourcePath = path.join(packageRoot, filePair.sourcePath);
+  const buildPath = path.join(packageRoot, filePair.buildPath);
+  const sourceModified = readFileModifiedAt(sourcePath);
+  const buildModified = readFileModifiedAt(buildPath);
+  let status: GatewayBuildFileDiagnostics['status'] = 'ok';
+  if (!sourceModified) {
+    status = 'missing_source';
+  } else if (!buildModified) {
+    status = 'missing_build';
+  } else if (sourceModified.timeMs > buildModified.timeMs + 1000) {
+    status = 'source_newer';
+  }
+
+  return {
+    name: filePair.name,
+    sourcePath,
+    sourceModifiedAt: sourceModified?.iso ?? null,
+    buildPath,
+    buildModifiedAt: buildModified?.iso ?? null,
+    status,
+  };
+}
+
+function readGitValue(packageRoot: string, args: string[]): string | null {
+  const result = spawnSync('git', args, {
+    cwd: packageRoot,
+    encoding: 'utf-8',
+    maxBuffer: 64 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 1000,
+  });
+  if (result.status !== 0) return null;
+  const value = result.stdout.trim();
+  return value || null;
+}
+
+function isStaleBuildStatus(status: GatewayBuildFileDiagnostics['status']) {
+  return status === 'source_newer' || status === 'missing_build';
+}
+
+function getGatewayBuildDiagnostics(): GatewayBuildDiagnostics {
+  const packageRoot = resolveInstallRoot();
+  const files = GATEWAY_BUILD_FILE_PAIRS.map((filePair) =>
+    getBuildFileStatus(packageRoot, filePair),
+  );
+  const gitBranch = readGitValue(packageRoot, [
+    'rev-parse',
+    '--abbrev-ref',
+    'HEAD',
+  ]);
+
+  return {
+    version: APP_VERSION,
+    gitCommit: readGitValue(packageRoot, ['rev-parse', '--verify', 'HEAD']),
+    gitBranch: gitBranch === 'HEAD' ? null : gitBranch,
+    packageRoot,
+    entrypoint: process.argv[1] || null,
+    cwd: process.cwd(),
+    execPath: process.execPath,
+    nodeVersion: process.version,
+    pid: process.pid,
+    ppid: process.ppid,
+    startedAt: GATEWAY_PROCESS_STARTED_AT,
+    staleBuild: files.some((file) => isStaleBuildStatus(file.status)),
+    files,
+  };
+}
+
 export async function getGatewayStatus(
   options: GatewayHealthOptions = {},
 ): Promise<GatewayStatus> {
@@ -3850,6 +3985,7 @@ export async function getGatewayStatus(
     pid: process.pid,
     lifecycle: getGatewayLifecycleStatus(),
     version: APP_VERSION,
+    build: getGatewayBuildDiagnostics(),
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
@@ -4546,6 +4682,7 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
   const allSessions = getAllSessions();
+  const cards = listCards().map(mapGatewayAdminJobCard);
   const sessions = allSessions
     .map((session) =>
       mapSessionCard({
@@ -4584,6 +4721,9 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const agentIds = Array.from(
     new Set([
       ...listAgents().map((agent) => agent.id),
+      ...cards
+        .map((card) => (card.owner.type === 'agent' ? card.owner.id : null))
+        .filter((agentId): agentId is string => Boolean(agentId)),
       ...sessions.map((session) => session.agentId),
       ...suspendedSessions
         .map(
@@ -4602,10 +4742,48 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
         name: agent.name || null,
       };
     }),
+    cards,
     sessions,
     suspendedSessions: suspendedSessions.map((session) =>
       mapGatewayAdminSuspendedSession(session, sessionAgentIds),
     ),
+  };
+}
+
+function mapGatewayAdminJobCard(card: BoardCard): GatewayAdminJobCard {
+  let owner: GatewayAdminJobCard['owner'];
+  if ('agentId' in card.owner && card.owner.agentId) {
+    owner = { type: 'agent', id: card.owner.agentId };
+  } else if ('userId' in card.owner && card.owner.userId) {
+    owner = { type: 'user', id: card.owner.userId };
+  } else {
+    throw new Error(`Board card ${card.id} has an invalid owner.`);
+  }
+  return {
+    id: card.id,
+    title: card.title,
+    body: card.body,
+    owner,
+    column: card.column,
+    status: card.status,
+    source: card.source,
+    parent: card.parent,
+    createdAt: card.createdAt,
+    updatedAt: card.updatedAt,
+    blocked: isBoardCardBlocked(card.id),
+    edges: listEdges(card.id).map(mapGatewayAdminJobCardEdge),
+  };
+}
+
+function mapGatewayAdminJobCardEdge(
+  edge: BoardCardEdge,
+): GatewayAdminJobCardEdge {
+  return {
+    id: edge.id,
+    fromCardId: edge.fromCardId,
+    toCardId: edge.toCardId,
+    kind: edge.kind,
+    createdAt: edge.createdAt,
   };
 }
 
@@ -5501,6 +5679,25 @@ function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
   return 'hybridai';
 }
 
+function resolveSkillsHubAuxiliaryModel(
+  runtimeConfig: RuntimeConfig,
+): string | null {
+  const policy = runtimeConfig.auxiliaryModels.skills_hub;
+  const model = policy.model.trim();
+  if (policy.provider === 'disabled') return null;
+  if (policy.provider === 'auto') return model || null;
+  if (!isRuntimeProviderId(policy.provider)) return model || null;
+  try {
+    return normalizeAuxiliaryProviderModel({
+      provider: policy.provider,
+      model:
+        model || resolveDefaultAuxiliaryModelForProvider(policy.provider) || '',
+    });
+  } catch {
+    return model || null;
+  }
+}
+
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
   await refreshAvailableModelCatalogs({ includeHybridAI: true });
 
@@ -5512,8 +5709,10 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     listUsageByModel({ window: 'monthly' }).map((row) => [row.model, row]),
   );
 
+  const skillsHubAuxiliaryModel = resolveSkillsHubAuxiliaryModel(runtimeConfig);
   const modelIds = dedupeStrings([
     runtimeConfig.hybridai.defaultModel,
+    ...(skillsHubAuxiliaryModel ? [skillsHubAuxiliaryModel] : []),
     ...getAvailableModelList(),
   ]);
   const defaultModel = resolveRequestedCatalogModelName(
@@ -5564,6 +5763,12 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
 
   return {
     defaultModel,
+    auxiliaryModels: {
+      skillsHub: {
+        provider: runtimeConfig.auxiliaryModels.skills_hub.provider,
+        model: skillsHubAuxiliaryModel,
+      },
+    },
     providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
@@ -5735,6 +5940,10 @@ function mapGatewayAdminPolicyStateValue(
     defaultAction: state.defaultAction,
     presets: [...state.presets],
     rules: state.rules.map(mapGatewayAdminPolicyRule),
+    lanHttpAccess: {
+      mode: state.lanHttpAccess.mode,
+      managedRuleIndexes: [...state.lanHttpAccess.managedRuleIndexes],
+    },
   };
 }
 
@@ -5892,6 +6101,23 @@ export function saveGatewayAdminPolicyDefault(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = setPolicyDefault(workspacePath, input.defaultAction);
+    syncManagedBrowserTenantPolicyProjection();
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function saveGatewayAdminPolicyLanHttpAccess(input: {
+  agentId?: string;
+  mode: GatewayAdminLanHttpAccessMode;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = setLanHttpAccessMode(workspacePath, input.mode);
     syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {

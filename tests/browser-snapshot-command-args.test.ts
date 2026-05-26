@@ -148,7 +148,10 @@ if (command === 'eval') {
   return scriptPath;
 }
 
-function createAgentBrowserScreenshotStub(root: string, logPath: string): string {
+function createAgentBrowserScreenshotStub(
+  root: string,
+  logPath: string,
+): string {
   const scriptPath = path.join(root, 'agent-browser-screenshot-stub.mjs');
   fs.writeFileSync(
     scriptPath,
@@ -399,7 +402,11 @@ test('browser_navigate can request a headed browser session', async () => {
 
   const output = await executeBrowserTool(
     'browser_navigate',
-    { url: 'https://example.com/', headed: true },
+    {
+      url: 'https://example.com/',
+      headed: true,
+      disable_2fa_detection: true,
+    },
     'session-1',
   );
   const parsed = JSON.parse(output) as { success: boolean; headed: boolean };
@@ -438,6 +445,45 @@ test('browser_navigate can request a headed browser session', async () => {
   );
 });
 
+test('browser_navigate uses gateway context for private network access', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-private-'),
+  );
+  const logPath = path.join(tempRoot, 'browser-env.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv(
+    'AGENT_BROWSER_BIN',
+    createAgentBrowserHeadedEnvStub(tempRoot, logPath),
+  );
+
+  const { executeBrowserTool, setBrowserGatewayContext } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  setBrowserGatewayContext('', '', 'local', 'session-1', 'agent-main', false);
+  const blocked = JSON.parse(
+    await executeBrowserTool(
+      'browser_navigate',
+      { url: 'http://127.0.0.1:18924/index.html' },
+      'session-1',
+    ),
+  ) as { success: boolean; error: string };
+  expect(blocked.success).toBe(false);
+  expect(blocked.error).toMatch(/browser\.allowPrivateNetwork/u);
+
+  setBrowserGatewayContext('', '', 'local', 'session-1', 'agent-main', true);
+  const allowed = JSON.parse(
+    await executeBrowserTool(
+      'browser_navigate',
+      { url: 'http://127.0.0.1:18924/index.html' },
+      'session-1',
+    ),
+  ) as { success: boolean; url: string };
+
+  expect(allowed.success).toBe(true);
+  expect(allowed.url).toBe('http://127.0.0.1:18924/index.html');
+});
+
 test('browser_navigate relaunches when headed mode changes', async () => {
   tempRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-browser-headed-switch-'),
@@ -456,12 +502,20 @@ test('browser_navigate relaunches when headed mode changes', async () => {
 
   await executeBrowserTool(
     'browser_navigate',
-    { url: 'https://example.com/', headed: true },
+    {
+      url: 'https://example.com/',
+      headed: true,
+      disable_2fa_detection: true,
+    },
     'session-1',
   );
   const output = await executeBrowserTool(
     'browser_navigate',
-    { url: 'https://example.com/', headed: false },
+    {
+      url: 'https://example.com/',
+      headed: false,
+      disable_2fa_detection: true,
+    },
     'session-1',
   );
   const parsed = JSON.parse(output) as { success: boolean; headed: boolean };

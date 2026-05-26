@@ -6,7 +6,7 @@
  * explicit response-field capture.
  */
 
-import { createSign } from 'node:crypto';
+import { createHash, createHmac, createSign } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
@@ -26,6 +26,8 @@ import {
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
+import { evaluateNetworkPolicyAccess } from '../policy/network-policy.js';
+import { readPolicyState } from '../policy/policy-store.js';
 import {
   isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
@@ -83,6 +85,7 @@ type ApiHttpRequestBody = {
   bearerSecretRef?: unknown;
   secretHeaders?: unknown;
   googleServiceAccount?: unknown;
+  otcAkSk?: unknown;
   replaceSecretPlaceholders?: unknown;
   captureResponseFields?: unknown;
   timeoutMs?: unknown;
@@ -103,6 +106,12 @@ type GoogleServiceAccountAuthRule = {
   privateKeySecretName: string;
   scopes: string[];
   subjectSecretName?: string;
+};
+
+type OtcAkSkAuthRule = {
+  accessKeyIdSecretName: string;
+  secretAccessKeySecretName: string;
+  securityTokenSecretName?: string;
 };
 
 type SecretResolveContext = {
@@ -148,27 +157,111 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-async function isPrivateHost(hostname: string): Promise<boolean> {
+function formatOutboundHttpError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const message = error.message || error.name || String(error);
+  const cause = formatErrorCause(error.cause);
+  if (!cause || message.includes(cause)) {
+    return message;
+  }
+  return `${message} (${cause})`;
+}
+
+function formatErrorCause(cause: unknown): string {
+  if (cause == null) {
+    return '';
+  }
+  if (cause instanceof Error) {
+    const message = cause.message || cause.name || String(cause);
+    const nestedCause = formatErrorCause(cause.cause);
+    if (!nestedCause || message.includes(nestedCause)) {
+      return message;
+    }
+    return `${message} (${nestedCause})`;
+  }
+  if (typeof cause === 'string') {
+    return cause;
+  }
+  if (typeof cause === 'object') {
+    const record = cause as Record<string, unknown>;
+    const message =
+      typeof record.message === 'string' ? record.message.trim() : '';
+    const code = typeof record.code === 'string' ? record.code.trim() : '';
+    if (message) {
+      return code && !message.includes(code) ? `${code} ${message}` : message;
+    }
+    return code;
+  }
+  return String(cause);
+}
+
+type PrivateHostCheck = {
+  blocked: boolean;
+  reason: 'private' | 'dns_failed';
+};
+
+async function checkPrivateHost(hostname: string): Promise<PrivateHostCheck> {
   const host = hostname.trim().toLowerCase();
-  if (!host) return true;
+  if (!host) return { blocked: true, reason: 'private' };
   if (
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     host.endsWith('.local')
   ) {
-    return true;
+    return { blocked: true, reason: 'private' };
   }
-  if (net.isIP(host) > 0) return isPrivateIp(host);
+  if (net.isIP(host) > 0) {
+    return { blocked: isPrivateIp(host), reason: 'private' };
+  }
   try {
     const resolved = await lookup(host, { all: true, verbatim: true });
-    if (resolved.length === 0) return false;
-    return resolved.some((entry) => isPrivateIp(entry.address));
+    if (resolved.length === 0) return { blocked: false, reason: 'private' };
+    return {
+      blocked: resolved.some((entry) => isPrivateIp(entry.address)),
+      reason: 'private',
+    };
   } catch (error) {
     logger.warn(
       { host, error },
       'DNS lookup failed during SSRF host check; treating host as private/blocked',
     );
-    return true;
+    return { blocked: true, reason: 'dns_failed' };
+  }
+}
+
+function getUrlPort(url: URL): number {
+  if (url.port) {
+    const parsed = Number.parseInt(url.port, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return url.protocol === 'https:' ? 443 : 80;
+}
+
+function isPrivateHttpRequestAllowedByPolicy(params: {
+  url: URL;
+  method: string;
+  agentId?: string;
+}): boolean {
+  try {
+    const state = readPolicyState(process.cwd());
+    const evaluation = evaluateNetworkPolicyAccess({
+      defaultAction: state.defaultAction,
+      rules: state.rules,
+      host: params.url.hostname,
+      port: getUrlPort(params.url),
+      method: params.method,
+      path: params.url.pathname || '/',
+      agentId: params.agentId,
+    });
+    return evaluation.decision === 'allow' && Boolean(evaluation.matchedRule);
+  } catch (error) {
+    logger.warn(
+      { host: params.url.hostname, error },
+      'Failed to evaluate network policy for private http_request target; blocking request',
+    );
+    return false;
   }
 }
 
@@ -236,7 +329,10 @@ async function readHttpResponseBuffer(
   };
 }
 
-async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
+async function assertHttpRequestUrl(
+  raw: unknown,
+  context: { method: string; agentId?: string },
+): Promise<URL> {
   const input = String(raw || '').trim();
   if (!input) {
     throw new GatewayRequestError(400, 'Missing `url` in request body.');
@@ -256,7 +352,20 @@ async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
     );
   }
 
-  if (await isPrivateHost(parsed.hostname)) {
+  const privateHostCheck = await checkPrivateHost(parsed.hostname);
+  if (privateHostCheck.blocked) {
+    const isAllowlisted = isPrivateHttpRequestAllowedByPolicy({
+      url: parsed,
+      method: context.method,
+      agentId: context.agentId,
+    });
+    if (isAllowlisted) return parsed;
+    if (privateHostCheck.reason === 'private') {
+      throw new GatewayRequestError(
+        400,
+        `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}) is not allowlisted by workspace network policy for ${context.method} ${parsed.pathname || '/'} on port ${getUrlPort(parsed)}.`,
+      );
+    }
     throw new GatewayRequestError(
       400,
       `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}).`,
@@ -477,7 +586,7 @@ async function resolveHubSpotOAuthTokenOrThrow(
     isAllowedHost: isHubSpotApiHost,
     allowedHostDescription: 'HubSpot API',
     resolveToken: resolveHubSpotAccessToken,
-    loginHint: `${secretName} is not available. Store a HubSpot Service Key with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
+    loginHint: `${secretName} is not available. Store a HubSpot Service Key with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN <token>\` or in TUI with \`/secret set HUBSPOT_ACCESS_TOKEN <token>\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
   });
 }
 
@@ -808,6 +917,242 @@ function normalizeGoogleServiceAccountAuth(
   };
 }
 
+function normalizeOtcAkSkAuth(value: unknown): OtcAkSkAuthRule | null {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(400, 'otcAkSk must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const accessKeyIdSecretName =
+    typeof record.accessKeyIdSecretName === 'string'
+      ? record.accessKeyIdSecretName.trim()
+      : '';
+  const secretAccessKeySecretName =
+    typeof record.secretAccessKeySecretName === 'string'
+      ? record.secretAccessKeySecretName.trim()
+      : '';
+  const securityTokenSecretName =
+    typeof record.securityTokenSecretName === 'string'
+      ? record.securityTokenSecretName.trim()
+      : '';
+
+  if (!accessKeyIdSecretName || !isRuntimeSecretName(accessKeyIdSecretName)) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk.accessKeyIdSecretName must be a valid secret name.',
+    );
+  }
+  if (
+    !secretAccessKeySecretName ||
+    !isRuntimeSecretName(secretAccessKeySecretName)
+  ) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk.secretAccessKeySecretName must be a valid secret name.',
+    );
+  }
+  if (
+    securityTokenSecretName &&
+    !isRuntimeSecretName(securityTokenSecretName)
+  ) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk.securityTokenSecretName must be a valid secret name.',
+    );
+  }
+  return {
+    accessKeyIdSecretName,
+    secretAccessKeySecretName,
+    ...(securityTokenSecretName ? { securityTokenSecretName } : {}),
+  };
+}
+
+function assertOtcAkSkHost(url: URL): void {
+  const host = url.hostname.toLowerCase();
+  if (
+    host === 'otc.t-systems.com' ||
+    host.endsWith('.otc.t-systems.com') ||
+    host.endsWith('.sc.otc.t-systems.com')
+  ) {
+    return;
+  }
+  throw new GatewayRequestError(
+    403,
+    'otcAkSk can only be used for T Cloud Public / Open Telekom Cloud API hosts.',
+  );
+}
+
+function encodeCanonicalQueryPart(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function canonicalizeOtcQuery(url: URL): string {
+  return Array.from(url.searchParams.entries())
+    .map(([key, value]) => [
+      encodeCanonicalQueryPart(key),
+      encodeCanonicalQueryPart(value),
+    ])
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+      leftKey === rightKey
+        ? leftValue.localeCompare(rightValue)
+        : leftKey.localeCompare(rightKey),
+    )
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+}
+
+function decodePathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function canonicalizeOtcPath(url: URL): string {
+  const path = url.pathname || '/';
+  const canonical = path
+    .split('/')
+    .map((segment) => encodeCanonicalQueryPart(decodePathSegment(segment)))
+    .join('/');
+  return canonical.endsWith('/') ? canonical : `${canonical}/`;
+}
+
+function sha256Hex(value: string | Uint8Array | undefined): string {
+  return createHash('sha256')
+    .update(value ?? '')
+    .digest('hex');
+}
+
+function hmacSha256Hex(secret: string, value: string): string {
+  return createHmac('sha256', secret).update(value).digest('hex');
+}
+
+function formatOtcSdkDate(now = new Date()): string {
+  return now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+}
+
+function normalizeCanonicalHeaderValue(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function assertOtcSecretIsNotPlaceholder(
+  secretName: string,
+  value: string,
+): void {
+  const normalized = value.trim().toLowerCase();
+  const placeholders = new Set([
+    'test-access-key',
+    'test-secret-key',
+    '<your-real-access-key-id>',
+    '<your-real-secret-access-key>',
+    'your-real-access-key-id',
+    'your-real-secret-access-key',
+  ]);
+  if (placeholders.has(normalized)) {
+    throw new GatewayRequestError(
+      400,
+      `${secretName} contains a placeholder value. Replace it with the real T Cloud Public / Open Telekom Cloud credential before retrying.`,
+    );
+  }
+}
+
+async function applyOtcAkSkSigning(params: {
+  rule: OtcAkSkAuthRule;
+  url: URL;
+  method: string;
+  headers: Record<string, string>;
+  body: BodyInit | undefined;
+  context: SecretResolveContext;
+}): Promise<void> {
+  assertOtcAkSkHost(params.url);
+  if (params.url.protocol !== 'https:') {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk signing requires an HTTPS T Cloud Public / Open Telekom Cloud URL.',
+    );
+  }
+  if (hasHeaderValue(params.headers, 'Authorization')) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk cannot be combined with an explicit Authorization header.',
+    );
+  }
+
+  const accessKeyId = await resolveHttpSecretOrThrow(
+    params.rule.accessKeyIdSecretName,
+    {
+      ...params.context,
+      selector: 'otcAkSk.accessKeyId',
+    },
+  );
+  assertOtcSecretIsNotPlaceholder(
+    params.rule.accessKeyIdSecretName,
+    accessKeyId,
+  );
+  const secretAccessKey = await resolveHttpSecretOrThrow(
+    params.rule.secretAccessKeySecretName,
+    {
+      ...params.context,
+      selector: 'otcAkSk.secretAccessKey',
+    },
+  );
+  assertOtcSecretIsNotPlaceholder(
+    params.rule.secretAccessKeySecretName,
+    secretAccessKey,
+  );
+  const securityToken = params.rule.securityTokenSecretName
+    ? await resolveHttpSecretOrThrow(params.rule.securityTokenSecretName, {
+        ...params.context,
+        selector: 'otcAkSk.securityToken',
+      })
+    : '';
+
+  const sdkDate = formatOtcSdkDate();
+  const bodyHash = sha256Hex(
+    typeof params.body === 'string' || params.body instanceof Uint8Array
+      ? params.body
+      : undefined,
+  );
+  setHeaderValue(params.headers, 'X-Sdk-Date', sdkDate);
+  if (securityToken) {
+    setHeaderValue(params.headers, 'X-Security-Token', securityToken);
+  }
+
+  const signedHeaderNames = ['host', 'x-sdk-date'];
+  if (securityToken) signedHeaderNames.push('x-security-token');
+  const headerValues = new Map<string, string>();
+  for (const [name, value] of Object.entries(params.headers)) {
+    headerValues.set(name.toLowerCase(), normalizeCanonicalHeaderValue(value));
+  }
+  headerValues.set('host', params.url.host);
+  const canonicalHeaders = signedHeaderNames
+    .map((name) => `${name}:${headerValues.get(name) || ''}\n`)
+    .join('');
+  const signedHeaders = signedHeaderNames.join(';');
+  const canonicalRequest = [
+    params.method.toUpperCase(),
+    canonicalizeOtcPath(params.url),
+    canonicalizeOtcQuery(params.url),
+    canonicalHeaders,
+    signedHeaders,
+    bodyHash,
+  ].join('\n');
+  const algorithm = 'SDK-HMAC-SHA256';
+  const stringToSign = [algorithm, sdkDate, sha256Hex(canonicalRequest)].join(
+    '\n',
+  );
+  const signature = hmacSha256Hex(secretAccessKey, stringToSign);
+  setHeaderValue(
+    params.headers,
+    'Authorization',
+    `${algorithm} Access=${accessKeyId}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+  );
+}
+
 function extractBindingDomainFromResponse(
   responseJson: Record<string, unknown>,
   requestUrl: URL,
@@ -1051,12 +1396,15 @@ export async function handleApiHttpRequest(
         selector: 'url',
       })
     : body.url;
-  const url = await assertHttpRequestUrl(rawUrl);
+  const method = normalizeHttpRequestMethod(body.method);
+  const url = await assertHttpRequestUrl(rawUrl, {
+    method,
+    agentId: baseSecretContext.agentId,
+  });
   const secretContext = {
     ...baseSecretContext,
     host: url.hostname,
   };
-  const method = normalizeHttpRequestMethod(body.method);
   const timeoutMs =
     parsePositiveInteger(body.timeoutMs) ?? HTTP_REQUEST_TIMEOUT_MS;
   const maxResponseBytes =
@@ -1080,15 +1428,17 @@ export async function handleApiHttpRequest(
   const googleServiceAccount = normalizeGoogleServiceAccountAuth(
     body.googleServiceAccount,
   );
+  const otcAkSk = normalizeOtcAkSkAuth(body.otcAkSk);
   const authModes = [
     bearerSecretName ? 'bearerSecretName' : '',
     body.bearerSecretRef !== undefined ? 'bearerSecretRef' : '',
     googleServiceAccount ? 'googleServiceAccount' : '',
+    otcAkSk ? 'otcAkSk' : '',
   ].filter(Boolean);
   if (authModes.length > 1) {
     throw new GatewayRequestError(
       400,
-      'Use only one of bearerSecretName, bearerSecretRef, or googleServiceAccount.',
+      'Use only one of bearerSecretName, bearerSecretRef, googleServiceAccount, or otcAkSk.',
     );
   }
   if (bearerSecretName) {
@@ -1226,6 +1576,17 @@ export async function handleApiHttpRequest(
     );
   }
 
+  if (otcAkSk) {
+    await applyOtcAkSkSigning({
+      rule: otcAkSk,
+      url,
+      method,
+      headers,
+      body: payloadBody,
+      context: secretContext,
+    });
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
@@ -1238,10 +1599,10 @@ export async function handleApiHttpRequest(
       redirect: 'manual',
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     throw new GatewayRequestError(
       502,
-      `Outbound HTTP request failed: ${message}`,
+      `Outbound HTTP request failed: ${formatOutboundHttpError(error)}`,
+      { cause: error },
     );
   } finally {
     clearTimeout(timeout);

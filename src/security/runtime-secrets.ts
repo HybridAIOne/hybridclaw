@@ -108,6 +108,7 @@ export interface RuntimeSecretMetadataEntry {
   state: 'set' | 'unset';
   created_at: string | null;
   last_rotated_at: string | null;
+  length: number | null;
   fingerprint: RuntimeSecretFingerprint | null;
 }
 
@@ -360,7 +361,7 @@ function resolveMasterKey(options?: { allowCreateLocalFallback?: boolean }): {
 
   if (!options?.allowCreateLocalFallback) {
     throw new Error(
-      `no master key available; set HYBRIDCLAW_MASTER_KEY, mount ${RUNTIME_MASTER_KEY_SECRET_PATH}, or restore ${localKeyPath}`,
+      `no master key available; mount ${RUNTIME_MASTER_KEY_SECRET_PATH} or restore ${localKeyPath}`,
     );
   }
 
@@ -897,12 +898,14 @@ export function listRuntimeSecretMetadata(options?: {
       const lastRotatedAt = value
         ? metadata?.lastRotatedAt || metadata?.createdAt || fallbackTimestamp
         : null;
+      const fingerprint = value ? fingerprintRuntimeSecretValue(value) : null;
       return {
         name,
         state: value ? 'set' : 'unset',
         created_at: createdAt,
         last_rotated_at: lastRotatedAt,
-        fingerprint: value ? fingerprintRuntimeSecretValue(value) : null,
+        length: fingerprint?.length ?? null,
+        fingerprint,
       };
     });
 }

@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import {
+  EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE,
+  EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE,
+} from '../../container/shared/two-factor-detection.js';
+import {
   extractA2AMtlsPublicKeyPem,
   handleA2AJsonRpcInbound,
   resolveA2AAgentCardPeerTrust,
@@ -19,14 +23,28 @@ import {
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
+import {
+  addEdge,
+  type BoardCardActor,
+  type BoardCardEdgeKind,
+  type BoardCardMutationContext,
+  isBlocked,
+  listEdgeRevisions,
+  listEdges,
+  removeEdge,
+  restoreEdgeRevision,
+} from '../board/card-store.js';
 import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
 import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
 import type {
+  BrowserFillInput,
   BrowserProvider,
   BrowserSession,
+  BrowserTwoFactorState,
   BrowserWaypointEvent,
 } from '../browser/provider.js';
 import { createBrowserProvider } from '../browser/provider-factory.js';
+import { browserSessionConfigSignature } from '../browser/session-config-signature.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -86,7 +104,10 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { isAdminActionAllowed } from '../security/admin-rbac.js';
+import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
+import { hardenSecretRef } from '../security/secret-refs.js';
 import {
   normalizeRecentChatSearchQuery,
   normalizeRecentChatSessionLimit,
@@ -131,7 +152,12 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
-import { getGatewayAdminSecrets } from './gateway-admin-secrets.js';
+import {
+  getGatewayAdminSecrets,
+  overwriteGatewayAdminSecret,
+  recordGatewayAdminSecretMutationFailure,
+  unsetGatewayAdminSecret,
+} from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
@@ -208,6 +234,7 @@ import {
   saveGatewayAdminDiscordWebhookTarget,
   saveGatewayAdminModels,
   saveGatewayAdminPolicyDefault,
+  saveGatewayAdminPolicyLanHttpAccess,
   saveGatewayAdminPolicyRule,
   saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
@@ -233,8 +260,10 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import {
+  clearOperatorReturn,
   consumeOperatorReturn,
   createSuspendedSession,
+  detectTwoFactorChallenge,
   emitInteractionNeededEvent,
   findPendingSuspendedSessionForOperator,
   formatInteractionRequest,
@@ -242,6 +271,7 @@ import {
   type InteractionModality,
   type OperatorReturn,
   parseOperatorReturnText,
+  peekOperatorReturn,
   resumeWith,
   resumeWithText,
 } from './interactive-escalation.js';
@@ -250,6 +280,11 @@ import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import {
+  getGatewayAdminOutputGuardProfile,
+  previewGatewayAdminOutputGuardProfile,
+  updateGatewayAdminOutputGuardProfile,
+} from './output-guard-admin.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
@@ -331,6 +366,7 @@ type ApiAdminPolicyRequestBody = {
   agentId?: unknown;
   index?: unknown;
   defaultAction?: unknown;
+  lanHttpAccessMode?: unknown;
   presetName?: unknown;
   rule?: unknown;
 };
@@ -338,6 +374,7 @@ type ApiAdminPolicyRequestBody = {
 type GatewayBrowserSessionEntry = {
   provider: BrowserProvider;
   providerKind: RuntimeBrowserProviderKind;
+  configSignature: string;
   session: BrowserSession;
   skillName: string;
 };
@@ -401,13 +438,36 @@ function normalizeGatewayBrowserSkillName(value: unknown): string {
   return normalized || 'browser';
 }
 
-function getGatewayBrowserSelector(args: Record<string, unknown>): string {
+function getGatewayBrowserSelector(
+  args: Record<string, unknown>,
+  opts?: { allowAtRef?: boolean },
+): string {
   const selector = String(args.selector || '').trim();
   if (selector) return selector;
   const ref = String(args.ref || '').trim();
   if (!ref) return '';
-  if (ref.startsWith('@')) return '';
+  if (ref.startsWith('@') && opts?.allowAtRef !== true) return '';
   return ref;
+}
+
+function getGatewayBrowserActionSelector(
+  active: GatewayBrowserSessionEntry,
+  args: Record<string, unknown>,
+): string {
+  return getGatewayBrowserSelector(args, {
+    allowAtRef: isMacCuaGatewaySession(active),
+  });
+}
+
+async function getGatewayBrowserResumeSelector(
+  active: GatewayBrowserSessionEntry,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const explicitSelector = getGatewayBrowserActionSelector(active, args);
+  if (explicitSelector) return explicitSelector;
+  if (!isMacCuaGatewaySession(active)) return '';
+  const state = await active.session.inspectTwoFactorChallenge?.();
+  return state?.selectors?.[0] || '';
 }
 
 function parseGatewayBrowserCoordinate(
@@ -430,7 +490,7 @@ function parseGatewayBrowserCoordinate(
 }
 
 function browserRendererFunction<T>(source: string): () => T {
-  return new Function(`return (${source});`) as () => T;
+  return new Function(`return (${source});`)() as () => T;
 }
 
 function unsupportedGatewayBrowserTool(toolName: string): never {
@@ -521,14 +581,185 @@ function safeGatewayBrowserUrlHost(url: string): string | null {
   }
 }
 
+async function readGatewayBrowserTwoFactorPageState(
+  active: GatewayBrowserSessionEntry,
+): Promise<{
+  url: string;
+  title: string;
+  preview: string;
+  selectors: string[];
+  nativeDetection?: BrowserTwoFactorState;
+}> {
+  if (isMacCuaGatewaySession(active)) {
+    const nativeDetection = await active.session.inspectTwoFactorChallenge?.();
+    return {
+      url: nativeDetection?.url || 'about:blank',
+      title: nativeDetection?.title || '',
+      preview: nativeDetection?.preview || '',
+      selectors: nativeDetection?.selectors || [],
+      ...(nativeDetection ? { nativeDetection } : {}),
+    };
+  }
+  const pageState = await active.session.evaluate(
+    browserRendererFunction<{
+      url: string;
+      title: string;
+      preview: string;
+      selectors: string[];
+    }>(EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE),
+  );
+  return {
+    url: pageState.url,
+    title: pageState.title,
+    preview: pageState.preview,
+    selectors: pageState.selectors,
+  };
+}
+
+async function parkGatewayBrowserTwoFactor(params: {
+  active: GatewayBrowserSessionEntry;
+  activeSseResponses: Set<ServerResponse>;
+  sessionId: string;
+  agentId: string;
+  args: Record<string, unknown>;
+  pageState?: {
+    url: string;
+    title: string;
+    preview: string;
+    selectors: string[];
+    nativeDetection?: BrowserTwoFactorState;
+  };
+}): Promise<Record<string, unknown> | null> {
+  const pageState =
+    params.pageState ||
+    (await readGatewayBrowserTwoFactorPageState(params.active));
+  const detection = pageState.nativeDetection?.detected
+    ? {
+        detected: true,
+        modality: pageState.nativeDetection.modality || 'totp',
+        signals: pageState.nativeDetection.signals || ['native 2fa signal'],
+        selectors: pageState.nativeDetection.selectors || [],
+        ...(pageState.preview ? { textPreview: pageState.preview } : {}),
+      }
+    : detectTwoFactorChallenge({
+        args: params.args,
+        title: pageState.title,
+        text: pageState.preview,
+        selectors: pageState.selectors,
+      });
+  if (!detection.detected) return null;
+
+  const modality = parseInteractionModality(
+    params.args.modality || detection.modality || 'totp',
+  );
+  const prompt =
+    normalizeOptionalString(params.args.prompt) ||
+    `A ${modality} challenge needs operator input.`;
+  const targetChannel = normalizeOptionalString(params.args.escalationChannel);
+  const targetRecipient = normalizeOptionalString(
+    params.args.escalationRecipient,
+  );
+  const escalationTarget =
+    targetChannel && targetRecipient
+      ? { channel: targetChannel, recipient: targetRecipient }
+      : undefined;
+  const image = await params.active.session.screenshot({
+    fullPage: true,
+    type: 'png',
+  });
+  const screenshotBase64 = Buffer.from(image).toString('base64');
+  const screenshotRef = `managed-browser://${params.sessionId}/two-factor-${randomUUID()}.png`;
+  const session = createSuspendedSession({
+    prompt,
+    userId:
+      normalizeOptionalString(params.args.userId) ||
+      escalationTarget?.recipient ||
+      'operator',
+    modality,
+    frameSnapshot: {
+      url: pageState.url || 'about:blank',
+      title: pageState.title || '',
+      browserSessionKey: params.sessionId,
+      screenshotRef,
+    },
+    context: {
+      host: safeGatewayBrowserUrlHost(pageState.url || ''),
+      pageTitle: pageState.title || null,
+      url: pageState.url || 'about:blank',
+    },
+    agentId: params.agentId,
+    skillId: normalizeOptionalString(params.args.skillId) || null,
+    escalationTarget,
+    ttlMs:
+      typeof params.args.ttlMs === 'number' &&
+      Number.isFinite(params.args.ttlMs)
+        ? params.args.ttlMs
+        : null,
+    artifacts: {
+      screenshotBase64,
+    },
+  });
+  await params.active.session.waypoint?.('browser_await_two_factor', {
+    modality,
+    prompt,
+    sessionId: session.sessionId,
+  });
+  emitInteractionNeededEvent({ session });
+  const notification = queueInteractionNotification(session);
+  const payload = { session, notification };
+  broadcastSseEvent(params.activeSseResponses, 'interaction_needed', payload);
+  return {
+    parked: true,
+    modality,
+    suspended_session_id: session.sessionId,
+    approval_id: session.approvalId,
+    two_factor_detection: detection,
+    detected_selectors: pageState.selectors,
+    text_preview: pageState.preview,
+    screenshot: session.frameSnapshot.screenshotRef || null,
+    interaction: payload,
+  };
+}
+
+async function sendGatewayBrowserActionJson(
+  res: ServerResponse,
+  params: {
+    active: GatewayBrowserSessionEntry;
+    activeSseResponses: Set<ServerResponse>;
+    sessionId: string;
+    agentId: string;
+    args: Record<string, unknown>;
+    fields: Record<string, unknown>;
+  },
+): Promise<void> {
+  const parked = await parkGatewayBrowserTwoFactor(params);
+  sendJson(res, 200, {
+    success: true,
+    ...params.fields,
+    ...(parked || {}),
+  });
+}
+
 async function getGatewayBrowserSession(
   sessionId: string,
   agentId: string,
   opts?: { headed?: boolean; skillName?: string },
 ): Promise<GatewayBrowserSessionEntry> {
-  const existing = gatewayBrowserSessions.get(sessionId);
-  if (existing) return existing;
   const browserConfig = getRuntimeConfig().browser;
+  const configSignature = browserSessionConfigSignature(browserConfig);
+  const existing = gatewayBrowserSessions.get(sessionId);
+  if (existing) {
+    if (existing.configSignature === configSignature) return existing;
+    try {
+      await existing.provider.closeSession(existing.session);
+    } catch (err) {
+      logger.warn(
+        { err, sessionId },
+        'Failed to close stale gateway browser session after browser config change',
+      );
+    }
+    gatewayBrowserSessions.delete(sessionId);
+  }
   const provider = createBrowserProvider(browserConfig);
   const skillName = normalizeGatewayBrowserSkillName(opts?.skillName);
   const session = await provider.launchSession({
@@ -544,6 +775,7 @@ async function getGatewayBrowserSession(
   const entry = {
     provider,
     providerKind: browserConfig.provider,
+    configSignature,
     session,
     skillName,
   };
@@ -583,14 +815,20 @@ async function handleApiBrowserTool(
     });
     if (isMacCuaGatewaySession(active)) {
       await active.session.navigate(url);
-      sendJson(res, 200, {
-        success: true,
-        url,
-        title: '',
-        content_text_length: 0,
-        content_preview_truncated: false,
-        ready_state: 'native',
-        read_extraction_hint: 'native_browser',
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: {
+          url,
+          title: '',
+          content_text_length: 0,
+          content_preview_truncated: false,
+          ready_state: 'native',
+          read_extraction_hint: 'native_browser',
+        },
       });
       return;
     }
@@ -598,43 +836,37 @@ async function handleApiBrowserTool(
       timeoutMs: 60_000,
       waitUntil: 'domcontentloaded',
     });
-    const pageState = await active.session.evaluate(() => {
-      const bodyText = document.body
-        ? String(document.body.innerText || '')
-        : '';
-      const normalized = bodyText
-        .replace(/\r/g, '')
-        .replace(/[ \t]+\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-      return {
-        url: String(window.location.href || ''),
-        title: String(document.title || ''),
-        preview: normalized.slice(0, 6000),
-        textLength: normalized.length,
-        previewTruncated: normalized.length > 6000,
-        hasNoscript: Boolean(document.querySelector('noscript')),
-        rootShell: Boolean(
-          document.querySelector(
-            'div#root:empty, div#app:empty, div#__next:empty',
-          ),
-        ),
-        readyState: String(document.readyState || ''),
-      };
-    });
-    sendJson(res, 200, {
-      success: true,
-      url: pageState.url || url,
-      title: pageState.title || '',
-      content_text_length: pageState.textLength || 0,
-      ...(pageState.preview ? { content_preview: pageState.preview } : {}),
-      content_preview_truncated: pageState.previewTruncated === true,
-      ready_state: pageState.readyState || '',
-      read_extraction_hint: gatewayBrowserTextPreviewHint({
-        contentLength: pageState.textLength || 0,
-        hasNoscript: pageState.hasNoscript === true,
-        rootShell: pageState.rootShell === true,
-      }),
+    const pageState = await active.session.evaluate(
+      browserRendererFunction<{
+        url: string;
+        title: string;
+        text_length: number;
+        preview: string;
+        preview_truncated: boolean;
+        has_noscript: boolean;
+        root_shell: boolean;
+        ready_state: string;
+      }>(EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE),
+    );
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: {
+        url: pageState.url || url,
+        title: pageState.title || '',
+        content_text_length: pageState.text_length || 0,
+        ...(pageState.preview ? { content_preview: pageState.preview } : {}),
+        content_preview_truncated: pageState.preview_truncated === true,
+        ready_state: pageState.ready_state || '',
+        read_extraction_hint: gatewayBrowserTextPreviewHint({
+          contentLength: pageState.text_length || 0,
+          hasNoscript: pageState.has_noscript === true,
+          rootShell: pageState.root_shell === true,
+        }),
+      },
     });
     return;
   }
@@ -655,17 +887,23 @@ async function handleApiBrowserTool(
   if (toolName === 'browser_snapshot') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
     if (isMacCuaGatewaySession(active)) {
-      sendJson(res, 200, {
-        success: true,
-        snapshot:
-          'Native macOS browser provider does not expose a DOM snapshot. Use browser_screenshot for visual state and AX selectors such as ax:1 or query text for actions.',
-        truncated: false,
-        element_count: 0,
-        url: '',
-        title: '',
-        mode: String(args.mode || 'default'),
-        frames: [],
-        two_factor_detection: { detected: false, signals: [] },
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: {
+          snapshot:
+            'Native macOS browser provider does not expose a DOM snapshot. Use browser_screenshot for visual state and AX selectors such as ax:1 or query text for actions.',
+          truncated: false,
+          element_count: 0,
+          url: '',
+          title: '',
+          mode: String(args.mode || 'default'),
+          frames: [],
+          two_factor_detection: { detected: false, signals: [] },
+        },
       });
       return;
     }
@@ -718,34 +956,54 @@ async function handleApiBrowserTool(
         elementCount: elements.length,
       };
     });
-    sendJson(res, 200, {
-      success: true,
-      snapshot: pageState.snapshot,
-      truncated: pageState.truncated === true,
-      element_count: pageState.elementCount || 0,
-      url: pageState.url || '',
-      title: pageState.title || '',
-      mode: String(args.mode || 'default'),
-      frames: [],
-      two_factor_detection: { detected: false, signals: [] },
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: {
+        snapshot: pageState.snapshot,
+        truncated: pageState.truncated === true,
+        element_count: pageState.elementCount || 0,
+        url: pageState.url || '',
+        title: pageState.title || '',
+        mode: String(args.mode || 'default'),
+        frames: [],
+        two_factor_detection: { detected: false, signals: [] },
+      },
     });
     return;
   }
 
   if (toolName === 'browser_click') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    const selector = getGatewayBrowserSelector(args);
+    const selector = getGatewayBrowserActionSelector(active, args);
     const text = String(args.text || '').trim();
     const coordinate = parseGatewayBrowserCoordinate(args);
     if (selector) {
       await active.session.click(selector, { timeoutMs: 30_000 });
-      sendJson(res, 200, { success: true, selector });
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { selector },
+      });
       return;
     }
     if (text) {
       if (isMacCuaGatewaySession(active)) {
         await active.session.click(text, { timeoutMs: 30_000 });
-        sendJson(res, 200, { success: true, text });
+        await sendGatewayBrowserActionJson(res, {
+          active,
+          activeSseResponses,
+          sessionId,
+          agentId,
+          args,
+          fields: { text },
+        });
         return;
       }
       const clicked = await active.session.evaluate(
@@ -780,7 +1038,14 @@ async function handleApiBrowserTool(
           `No managed browser element matched text: ${text}`,
         );
       }
-      sendJson(res, 200, { success: true, text });
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { text },
+      });
       return;
     }
     if (coordinate) {
@@ -806,7 +1071,14 @@ async function handleApiBrowserTool(
           `No managed browser element found at ${coordinate.x},${coordinate.y}`,
         );
       }
-      sendJson(res, 200, { success: true, x: coordinate.x, y: coordinate.y });
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { x: coordinate.x, y: coordinate.y },
+      });
       return;
     }
     throw new GatewayRequestError(
@@ -820,7 +1092,7 @@ async function handleApiBrowserTool(
     const active = await getGatewayBrowserSession(sessionId, agentId, {
       skillName,
     });
-    const selector = getGatewayBrowserSelector(args);
+    const selector = getGatewayBrowserActionSelector(active, args);
     if (!selector) {
       throw new GatewayRequestError(
         400,
@@ -843,13 +1115,39 @@ async function handleApiBrowserTool(
         'browser_secret_type requires secretName.',
       );
     }
+    const preFillParked = await parkGatewayBrowserTwoFactor({
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+    });
+    if (preFillParked) {
+      sendJson(res, 200, {
+        success: true,
+        selector,
+        typed_chars: 0,
+        secret_injected: false,
+        code_injected: false,
+        ...preFillParked,
+      });
+      return;
+    }
     await active.session.fill(selector, value);
-    sendJson(res, 200, {
-      success: true,
-      selector,
-      typed_chars:
-        toolName === 'browser_secret_type' ? 0 : String(args.text || '').length,
-      secret_injected: toolName === 'browser_secret_type',
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: {
+        selector,
+        typed_chars:
+          toolName === 'browser_secret_type'
+            ? 0
+            : String(args.text || '').length,
+        secret_injected: toolName === 'browser_secret_type',
+      },
     });
     return;
   }
@@ -877,7 +1175,14 @@ async function handleApiBrowserTool(
       deltaX:
         direction === 'left' ? -pixels : direction === 'right' ? pixels : 0,
     });
-    sendJson(res, 200, { success: true, direction, pixels });
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: { direction, pixels },
+    });
     return;
   }
 
@@ -885,7 +1190,14 @@ async function handleApiBrowserTool(
     const active = await getGatewayBrowserSession(sessionId, agentId);
     if (isMacCuaGatewaySession(active)) {
       await active.session.back();
-      sendJson(res, 200, { success: true, url: '' });
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { url: '' },
+      });
       return;
     }
     await active.session.back({
@@ -895,17 +1207,34 @@ async function handleApiBrowserTool(
     const url = await active.session.evaluate(() =>
       String(window.location.href || ''),
     );
-    sendJson(res, 200, { success: true, url });
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: { url },
+    });
     return;
   }
 
   if (toolName === 'browser_press') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    if (isMacCuaGatewaySession(active)) {
-      unsupportedGatewayBrowserTool(toolName);
-    }
     const key = String(args.key || '').trim();
     if (!key) throw new GatewayRequestError(400, 'browser_press requires key.');
+    if (isMacCuaGatewaySession(active)) {
+      if (!active.session.press) unsupportedGatewayBrowserTool(toolName);
+      await active.session.press(key);
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { key },
+      });
+      return;
+    }
     const pressed = await active.session.evaluate(
       browserRendererFunction<boolean>(`
         () => {
@@ -920,7 +1249,14 @@ async function handleApiBrowserTool(
       `),
     );
     if (!pressed) unsupportedGatewayBrowserTool(toolName);
-    sendJson(res, 200, { success: true, key });
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: { key },
+    });
     return;
   }
 
@@ -1043,96 +1379,19 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_await_two_factor') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    const waypoint = normalizeGatewayBrowserWaypoint(toolName);
-    const modality = parseInteractionModality(args.modality || 'totp');
-    const prompt =
-      normalizeOptionalString(args.prompt) ||
-      `A ${modality} challenge needs operator input.`;
-    const targetChannel = normalizeOptionalString(args.escalationChannel);
-    const targetRecipient = normalizeOptionalString(args.escalationRecipient);
-    const escalationTarget =
-      targetChannel && targetRecipient
-        ? { channel: targetChannel, recipient: targetRecipient }
-        : undefined;
-    const pageState = isMacCuaGatewaySession(active)
-      ? {
-          url: 'about:blank',
-          title: '',
-          preview: '',
-          selectors: [] as string[],
-        }
-      : await active.session.evaluate(() => {
-          const bodyText = document.body
-            ? String(document.body.innerText || '')
-            : '';
-          const selectors = Array.from(
-            document.querySelectorAll(
-              'input[autocomplete="one-time-code"], input[name*="otp" i], input[id*="otp" i], input[name*="code" i], input[id*="code" i]',
-            ),
-          )
-            .slice(0, 10)
-            .map((element) => {
-              const id = element.id ? `#${element.id}` : '';
-              const name = element.getAttribute('name');
-              return id || (name ? `input[name="${name}"]` : 'input');
-            });
-          return {
-            url: String(window.location.href || ''),
-            title: String(document.title || ''),
-            preview: bodyText.replace(/\s+/g, ' ').trim().slice(0, 1000),
-            selectors,
-          };
-        });
-    const image = await active.session.screenshot({
-      fullPage: true,
-      type: 'png',
-    });
-    const screenshotRef = `managed-browser://${sessionId}/two-factor-${randomUUID()}.png`;
-    const session = createSuspendedSession({
-      prompt,
-      userId:
-        normalizeOptionalString(args.userId) ||
-        escalationTarget?.recipient ||
-        'operator',
-      modality,
-      frameSnapshot: {
-        url: pageState.url || 'about:blank',
-        title: pageState.title || '',
-        browserSessionKey: sessionId,
-        screenshotRef,
-      },
-      context: {
-        host: safeGatewayBrowserUrlHost(pageState.url || ''),
-        pageTitle: pageState.title || null,
-        url: pageState.url || 'about:blank',
-        screenshotRef,
-      },
+    const payload = await parkGatewayBrowserTwoFactor({
+      active,
+      activeSseResponses,
+      sessionId,
       agentId,
-      skillId: normalizeOptionalString(args.skillId) || null,
-      escalationTarget,
-      ttlMs:
-        typeof args.ttlMs === 'number' && Number.isFinite(args.ttlMs)
-          ? args.ttlMs
-          : null,
+      args: { ...args, expects_2fa: true },
     });
-    await active.session.waypoint?.(waypoint, {
-      modality,
-      prompt,
-      sessionId: session.sessionId,
-    });
-    emitInteractionNeededEvent({ session });
-    const notification = queueInteractionNotification(session);
-    const payload = { session, notification };
-    broadcastSseEvent(activeSseResponses, 'interaction_needed', payload);
+    if (!payload) {
+      throw new GatewayRequestError(409, 'No 2FA challenge was detected.');
+    }
     sendJson(res, 200, {
       success: true,
-      parked: true,
-      modality,
-      detected_selectors: pageState.selectors,
-      text_preview: pageState.preview,
-      screenshot: screenshotRef,
-      screenshotBase64: Buffer.from(image).toString('base64'),
-      interaction: payload,
+      ...payload,
     });
     return;
   }
@@ -1142,7 +1401,7 @@ async function handleApiBrowserTool(
     const waypoint = normalizeGatewayBrowserWaypoint(toolName);
     const suspendedSessionId =
       normalizeOptionalString(args.sessionId) || sessionId;
-    const response = consumeOperatorReturn(suspendedSessionId);
+    const response = peekOperatorReturn(suspendedSessionId);
     if (!response) {
       throw new GatewayRequestError(
         404,
@@ -1150,24 +1409,44 @@ async function handleApiBrowserTool(
       );
     }
     if (response.kind === 'code') {
-      const selector = getGatewayBrowserSelector(args);
-      if (!selector) {
+      const explicitSelector = getGatewayBrowserActionSelector(active, args);
+      const selector = explicitSelector
+        ? explicitSelector
+        : await getGatewayBrowserResumeSelector(active, args);
+      let filledSelector = selector;
+      let fillStrategy = selector ? 'selector' : '';
+      let codeSubmitted = false;
+      if (explicitSelector || selector) {
+        await active.session.fill(
+          selector,
+          createOperatorReturnCodeHandle(response.value),
+        );
+      } else if (active.session.fillTwoFactorCode) {
+        const result = await active.session.fillTwoFactorCode(
+          createOperatorReturnCodeHandle(response.value),
+        );
+        filledSelector = result.selector || '';
+        fillStrategy = result.strategy;
+        codeSubmitted = result.submitted === true;
+      } else {
         throw new GatewayRequestError(
           400,
           'browser_resume_interaction requires selector for code injection with managed-cloud.',
         );
       }
-      await active.session.fill(selector, response.value);
       await active.session.waypoint?.(waypoint, {
         sessionId: suspendedSessionId,
         responseKind: response.kind,
       });
+      clearOperatorReturn(suspendedSessionId);
       sendJson(res, 200, {
         success: true,
         resumed: true,
         response_kind: 'code',
         code_injected: true,
-        selector,
+        ...(filledSelector ? { selector: filledSelector } : {}),
+        fill_strategy: fillStrategy,
+        ...(codeSubmitted ? { code_submitted: true } : {}),
       });
       return;
     }
@@ -1175,6 +1454,7 @@ async function handleApiBrowserTool(
       sessionId: suspendedSessionId,
       responseKind: response.kind,
     });
+    clearOperatorReturn(suspendedSessionId);
     sendJson(res, 200, {
       success: true,
       resumed: true,
@@ -1756,6 +2036,21 @@ function resolveAdminSessionAuditId(
     'actor',
   ]);
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function resolveAdminSecretAuditContext(
+  req: IncomingMessage,
+  sessionPayload: Record<string, unknown> | null,
+): {
+  sessionId?: string;
+  actor?: string | null;
+  sourceIp?: string | null;
+} {
+  return {
+    sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
+    actor: resolveAdminSessionActor(sessionPayload),
+    sourceIp: req.socket.remoteAddress || null,
+  };
 }
 
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
@@ -3202,7 +3497,7 @@ function handleApiAdminJobsContext(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminJobsContext());
 }
 
-function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
+function parseJobBudgetAgentIds(url: URL): string[] | undefined {
   const values = url.searchParams
     .getAll('agentId')
     .map((value) => value.trim())
@@ -3210,14 +3505,167 @@ function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
   return values.length > 0 ? values : undefined;
 }
 
-function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
+function handleApiAdminJobsBudgets(res: ServerResponse, url: URL): void {
   sendJson(
     res,
     200,
     getBoardBudgetSummaries({
-      agentIds: parseBoardBudgetAgentIds(url),
+      agentIds: parseJobBudgetAgentIds(url),
     }),
   );
+}
+
+function normalizeBoardEdgeKind(value: unknown): BoardCardEdgeKind | undefined {
+  const normalized = String(value || '').trim();
+  if (!normalized) return undefined;
+  if (
+    normalized === 'blocks' ||
+    normalized === 'blocked_by' ||
+    normalized === 'related'
+  ) {
+    return normalized;
+  }
+  throw new GatewayRequestError(400, 'Invalid board edge kind.');
+}
+
+function normalizeBoardCardId(value: unknown, field: string): string {
+  if (value == null)
+    throw new GatewayRequestError(400, `Missing \`${field}\`.`);
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `\`${field}\` must be a string.`);
+  }
+  const normalized = value.trim();
+  if (!normalized) throw new GatewayRequestError(400, `Missing \`${field}\`.`);
+  return normalized;
+}
+
+function normalizeBoardRevisionId(value: unknown): number {
+  if (value == null) {
+    throw new GatewayRequestError(400, 'Missing `revisionId`.');
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new GatewayRequestError(
+      400,
+      '`revisionId` must be a positive integer.',
+    );
+  }
+  return value;
+}
+
+function normalizeBoardActorField(
+  record: Record<string, unknown>,
+  field: 'system' | 'userId' | 'agentId',
+): string {
+  const value = record[field];
+  if (value == null) return '';
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `\`actor.${field}\` must be a string.`);
+  }
+  return value.trim();
+}
+
+function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
+  if (value == null) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(400, '`actor` must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const system = normalizeBoardActorField(record, 'system');
+  const userId = normalizeBoardActorField(record, 'userId');
+  const agentId = normalizeBoardActorField(record, 'agentId');
+  const actorCount = [system, userId, agentId].filter(Boolean).length;
+  if (actorCount !== 1) {
+    throw new GatewayRequestError(
+      400,
+      '`actor` must contain exactly one of system, userId, or agentId.',
+    );
+  }
+  if (system) {
+    if (system !== 'gateway') {
+      throw new GatewayRequestError(400, '`actor.system` must be gateway.');
+    }
+    return { system };
+  }
+  if (userId) return { userId };
+  return { agentId };
+}
+
+function extractBoardEdgeContext(
+  body: Record<string, unknown>,
+): BoardCardMutationContext {
+  return {
+    actor: normalizeBoardEdgeActor(body.actor),
+    sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+    runId: typeof body.runId === 'string' ? body.runId : null,
+  };
+}
+
+async function handleApiAdminJobsEdges(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (req.method === 'GET') {
+    const cardId = normalizeBoardCardId(
+      url.searchParams.get('cardId'),
+      'cardId',
+    );
+    const kind = normalizeBoardEdgeKind(url.searchParams.get('kind'));
+    sendJson(res, 200, { edges: listEdges(cardId, kind) });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const fromCardId = normalizeBoardCardId(body.fromCardId, 'fromCardId');
+    const toCardId = normalizeBoardCardId(body.toCardId, 'toCardId');
+    const kind = normalizeBoardEdgeKind(body.kind);
+    if (!kind) throw new GatewayRequestError(400, 'Missing `kind`.');
+    sendJson(res, 200, {
+      edge: addEdge(fromCardId, toCardId, kind, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  if (req.method === 'DELETE') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const id = normalizeBoardCardId(url.searchParams.get('id'), 'id');
+    sendJson(res, 200, {
+      edge: removeEdge(id, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+async function handleApiAdminJobsEdgeRevisions(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (req.method === 'GET') {
+    const id = normalizeBoardCardId(url.searchParams.get('id'), 'id');
+    sendJson(res, 200, { revisions: listEdgeRevisions(id) });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const id = normalizeBoardCardId(body.id, 'id');
+    const revisionId = normalizeBoardRevisionId(body.revisionId);
+    sendJson(res, 200, {
+      edge: restoreEdgeRevision(id, revisionId, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+function handleApiAdminJobsBlocked(res: ServerResponse, url: URL): void {
+  const cardId = normalizeBoardCardId(url.searchParams.get('cardId'), 'cardId');
+  sendJson(res, 200, { cardId, blocked: isBlocked(cardId) });
 }
 
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
@@ -3290,18 +3738,123 @@ function handleApiAdminSecrets(
   res: ServerResponse,
 ): void {
   const sessionPayload = getSessionAuthPayload(req);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.list_metadata')) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
 
   sendJson(
     res,
     200,
     getGatewayAdminSecrets({
-      audit: {
-        sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
-        actor: resolveAdminSessionActor(sessionPayload),
-        sourceIp: req.socket.remoteAddress || null,
-      },
+      audit: resolveAdminSecretAuditContext(req, sessionPayload),
     }),
   );
+}
+
+function parseApiAdminSecretName(pathname: string): string | null {
+  const prefix = '/api/admin/secrets/';
+  if (!pathname.startsWith(prefix)) return null;
+  const encoded = pathname.slice(prefix.length);
+  if (!encoded || encoded.includes('/')) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new GatewayRequestError(400, 'Invalid secret name in request path.');
+  }
+}
+
+function readAdminSecretBodyValue(body: unknown): unknown {
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    return (body as { value?: unknown }).value;
+  }
+  return undefined;
+}
+
+async function handleApiAdminSecretOverwrite(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+): Promise<void> {
+  const sessionPayload = getSessionAuthPayload(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.overwrite')) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.overwritten',
+      name,
+      audit,
+      errorCode: 'forbidden',
+    });
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.overwritten',
+      name,
+      audit,
+      errorCode:
+        error instanceof GatewayRequestError ? 'bad_request' : 'write_failed',
+    });
+    throw error;
+  }
+  sendJson(
+    res,
+    200,
+    overwriteGatewayAdminSecret({
+      name,
+      value: readAdminSecretBodyValue(body),
+      audit,
+    }),
+  );
+}
+
+async function handleApiAdminSecretUnset(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+): Promise<void> {
+  const sessionPayload = getSessionAuthPayload(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.unset')) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.unset',
+      name,
+      audit,
+      errorCode: 'forbidden',
+    });
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  sendJson(res, 200, unsetGatewayAdminSecret({ name, audit }));
+}
+
+function recordUnauthenticatedAdminSecretMutation(
+  req: IncomingMessage,
+  pathname: string,
+  method: string,
+): void {
+  if (method !== 'PUT' && method !== 'DELETE') return;
+  let name: string | null = null;
+  try {
+    name = parseApiAdminSecretName(pathname);
+  } catch {
+    return;
+  }
+  if (name === null) return;
+  recordGatewayAdminSecretMutationFailure({
+    type: method === 'PUT' ? 'secret.overwritten' : 'secret.unset',
+    name,
+    audit: {
+      sourceIp: req.socket.remoteAddress || null,
+    },
+    errorCode: 'unauthorized',
+  });
 }
 
 async function handleApiAdminTunnelReconnect(
@@ -4446,7 +4999,6 @@ function parseInteractionFrameSnapshot(value: unknown): {
   url: string;
   title?: string | null;
   browserSessionKey?: string | null;
-  storageStateRef?: string | null;
   screenshotRef?: string | null;
 } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -4464,7 +5016,6 @@ function parseInteractionFrameSnapshot(value: unknown): {
     url,
     title: normalizeOptionalString(raw.title) || null,
     browserSessionKey: normalizeOptionalString(raw.browserSessionKey) || null,
-    storageStateRef: normalizeOptionalString(raw.storageStateRef) || null,
     screenshotRef: normalizeOptionalString(raw.screenshotRef) || null,
   };
 }
@@ -4507,6 +5058,17 @@ function parseOperatorReturn(value: unknown): OperatorReturn | null {
     return reason ? { kind, reason } : { kind };
   }
   return null;
+}
+
+function createOperatorReturnCodeHandle(value: string): BrowserFillInput {
+  return createSecretHandle(
+    hardenSecretRef({
+      source: 'store',
+      id: `OPERATOR_RETURN_${randomUUID().replace(/-/g, '').toUpperCase()}`,
+    }),
+    value,
+    'dom',
+  );
 }
 
 function broadcastSseEvent(
@@ -4720,6 +5282,9 @@ async function handleApiCreateInteractiveEscalation(
         typeof body.ttlMs === 'number' && Number.isFinite(body.ttlMs)
           ? body.ttlMs
           : null,
+      artifacts: {
+        screenshotBase64: normalizeOptionalString(body.screenshotBase64),
+      },
     });
     emitInteractionNeededEvent({ session });
     const notification = queueInteractionNotification(session);
@@ -4786,6 +5351,31 @@ async function handleApiAdminPolicy(
         );
         return;
       }
+      if (body.lanHttpAccessMode !== undefined) {
+        const mode = String(body.lanHttpAccessMode || '')
+          .trim()
+          .toLowerCase();
+        if (
+          mode !== 'off' &&
+          mode !== 'read-only' &&
+          mode !== 'read-write' &&
+          mode !== 'custom'
+        ) {
+          throw new GatewayRequestError(
+            400,
+            'Expected `lanHttpAccessMode` to be `off`, `read-only`, `read-write`, or `custom`.',
+          );
+        }
+        sendJson(
+          res,
+          200,
+          saveGatewayAdminPolicyLanHttpAccess({
+            agentId: normalizeOptionalString(body.agentId),
+            mode,
+          }),
+        );
+        return;
+      }
       sendJson(
         res,
         200,
@@ -4828,6 +5418,57 @@ async function handleApiAdminTools(res: ServerResponse): Promise<void> {
 
 async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminPlugins());
+}
+
+async function handleApiAdminOutputGuard(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = req.method || 'GET';
+
+  if (method === 'GET') {
+    sendJson(res, 200, getGatewayAdminOutputGuardProfile());
+    return;
+  }
+
+  if (method === 'PUT') {
+    try {
+      sendJson(
+        res,
+        200,
+        await updateGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+      );
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  sendMethodNotAllowed(res);
+}
+
+async function handleApiAdminOutputGuardPreview(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') !== 'POST') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  try {
+    sendJson(
+      res,
+      200,
+      await previewGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+    );
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function handleApiAdminSkills(
@@ -5591,6 +6232,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           requireSameOrigin: method !== 'GET',
         })
       ) {
+        recordUnauthenticatedAdminSecretMutation(req, pathname, method);
         sendJson(res, 401, {
           error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
         });
@@ -5622,6 +6264,25 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/secrets' && method === 'GET') {
             handleApiAdminSecrets(req, res);
+            return;
+          }
+          const adminSecretName = parseApiAdminSecretName(pathname);
+          if (adminSecretName !== null) {
+            if (method === 'GET') {
+              sendJson(res, 405, {
+                error: 'Secret values are write-only on this route.',
+              });
+              return;
+            }
+            if (method === 'PUT') {
+              await handleApiAdminSecretOverwrite(req, res, adminSecretName);
+              return;
+            }
+            if (method === 'DELETE') {
+              await handleApiAdminSecretUnset(req, res, adminSecretName);
+              return;
+            }
+            sendMethodNotAllowed(res);
             return;
           }
           if (pathname === '/api/admin/secrets') {
@@ -5836,6 +6497,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminPlugins(res);
             return;
           }
+          if (pathname === '/api/admin/output-guard') {
+            await handleApiAdminOutputGuard(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/output-guard/preview') {
+            await handleApiAdminOutputGuardPreview(req, res);
+            return;
+          }
           if (pathname === '/api/admin/skills') {
             await handleApiAdminSkills(req, res);
             return;
@@ -5852,8 +6521,26 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminJobsContext(res);
             return;
           }
-          if (pathname === '/api/admin/board/budgets' && method === 'GET') {
-            handleApiAdminBoardBudgets(res, url);
+          if (pathname === '/api/admin/jobs/budgets' && method === 'GET') {
+            handleApiAdminJobsBudgets(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/jobs/edges' &&
+            (method === 'GET' || method === 'POST' || method === 'DELETE')
+          ) {
+            await handleApiAdminJobsEdges(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/jobs/edge-revisions' &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            await handleApiAdminJobsEdgeRevisions(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/jobs/blocked' && method === 'GET') {
+            handleApiAdminJobsBlocked(res, url);
             return;
           }
           if (

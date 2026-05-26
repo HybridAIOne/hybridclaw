@@ -14,6 +14,7 @@ export const DEFAULT_NETWORK_RULES = [
 ];
 
 const IPV4_HOST_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const IPV4_CIDR_RE = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/;
 const COMMON_SECOND_LEVEL_TLDS = new Set([
   'ac',
   'co',
@@ -94,12 +95,34 @@ export function normalizeNetworkPort(raw) {
   return Math.trunc(parsed);
 }
 
+function parseIpv4Address(value) {
+  if (!IPV4_HOST_RE.test(value)) return null;
+  const octets = value.split('.').map((entry) => Number.parseInt(entry, 10));
+  if (octets.some((octet) => octet < 0 || octet > 255)) return null;
+  return (
+    ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0
+  );
+}
+
+function parseIpv4Cidr(value) {
+  const match = IPV4_CIDR_RE.exec(value);
+  if (!match) return null;
+  const base = parseIpv4Address(match[1]);
+  if (base == null) return null;
+  const prefixLength = Number.parseInt(match[2], 10);
+  if (prefixLength < 0 || prefixLength > 32) return null;
+  const mask =
+    prefixLength === 0 ? 0 : (0xffffffff << (32 - prefixLength)) >>> 0;
+  return { base: (base & mask) >>> 0, mask, prefixLength };
+}
+
 export function normalizeNetworkHostScope(host) {
   const normalized = String(host || '')
     .trim()
     .toLowerCase()
     .replace(/\.$/, '');
   if (!normalized) return 'unknown-host';
+  if (parseIpv4Cidr(normalized)) return normalized;
   if (IPV4_HOST_RE.test(normalized)) return normalized;
   if (normalized.includes(':')) return normalized;
 
@@ -124,6 +147,7 @@ export function doesNetworkHostPatternExpandToSubdomains(host) {
     .toLowerCase()
     .replace(/\.$/, '');
   if (!normalized || normalized.includes('*')) return false;
+  if (parseIpv4Cidr(normalized)) return false;
   if (IPV4_HOST_RE.test(normalized) || normalized.includes(':')) return false;
   const labels = normalized.split('.').filter(Boolean);
   if (labels.length < 2) return false;
@@ -157,6 +181,11 @@ export function matchesNetworkHostPattern(pattern, candidateHost) {
     .replace(/\.$/, '');
   if (!normalizedPattern || !normalizedCandidate) return false;
   if (normalizedPattern === normalizedCandidate) return true;
+  const cidr = parseIpv4Cidr(normalizedPattern);
+  if (cidr) {
+    const candidate = parseIpv4Address(normalizedCandidate);
+    return candidate != null && (candidate & cidr.mask) >>> 0 === cidr.base;
+  }
   if (normalizedPattern.includes('*')) {
     return globHostPatternToRegExp(normalizedPattern).test(normalizedCandidate);
   }

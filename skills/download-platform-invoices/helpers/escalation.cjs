@@ -43,9 +43,19 @@ function createPushMfaEscalation(providerId, selector) {
   });
 }
 
+function createTotpEscalation(providerId, selector) {
+  return new InvoiceOperatorEscalationError({
+    providerId,
+    reason: 'totp',
+    modality: 'totp',
+    message: `TOTP challenge detected during ${providerId} invoice portal login at ${selector}; F14 2FA handoff required. HybridClaw never auto-fills 2FA codes.`,
+  });
+}
+
 module.exports = {
   InvoiceOperatorEscalationError,
   createCaptchaEscalation,
   createPushMfaEscalation,
+  createTotpEscalation,
   isInvoiceOperatorEscalation,
 };

@@ -735,7 +735,13 @@ export interface AdminConfig {
     persistBashState: boolean;
   };
   browser?: {
-    provider: 'local' | 'camofox' | 'managed-cloud' | 'browser-use-cloud';
+    provider:
+      | 'local'
+      | 'camofox'
+      | 'managed-cloud'
+      | 'browser-use-cloud'
+      | 'mac-cua';
+    allowPrivateNetwork: boolean;
     local: {
       profileDir: string;
       headed: boolean;
@@ -772,6 +778,12 @@ export interface AdminConfig {
         browserUsdPerMinute: number;
         actionUsd: number;
       };
+    };
+    macCua: {
+      browser: 'safari' | 'chrome' | 'firefox' | 'brave' | 'arc';
+      driverCommand: string;
+      driverArgs: string[];
+      screenshotMode: 'som' | 'vision' | 'ax';
     };
   };
   ops: {
@@ -860,6 +872,33 @@ export interface AdminModelCatalogEntry extends ChatModel {
 
 export interface AdminModelsResponse {
   defaultModel: string;
+  auxiliaryModels?: {
+    skillsHub: {
+      provider:
+        | 'auto'
+        | 'disabled'
+        | 'hybridai'
+        | 'openai-codex'
+        | 'anthropic'
+        | 'openrouter'
+        | 'mistral'
+        | 'huggingface'
+        | 'gemini'
+        | 'deepseek'
+        | 'xai'
+        | 'zai'
+        | 'kimi'
+        | 'minimax'
+        | 'dashscope'
+        | 'xiaomi'
+        | 'kilo'
+        | 'ollama'
+        | 'lmstudio'
+        | 'llamacpp'
+        | 'vllm';
+      model: string | null;
+    };
+  };
   providerStatus: GatewayStatus['providerHealth'];
   models: AdminModelCatalogEntry[];
 }
@@ -1130,8 +1169,44 @@ export interface JobSession {
 
 export interface AdminJobsContextResponse {
   agents: JobAgent[];
+  cards: AdminJobCard[];
   sessions: JobSession[];
   suspendedSessions: AdminSuspendedSession[];
+}
+
+export type AdminJobCardColumn =
+  | 'triage'
+  | 'todo'
+  | 'in_progress'
+  | 'in_review'
+  | 'done';
+
+export type AdminJobCardEdgeKind = 'blocks' | 'blocked_by' | 'related';
+
+export interface AdminJobCardEdge {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  kind: AdminJobCardEdgeKind;
+  createdAt: string;
+}
+
+export interface AdminJobCard {
+  id: string;
+  title: string;
+  body: string;
+  owner: {
+    type: 'agent' | 'user';
+    id: string;
+  };
+  column: AdminJobCardColumn;
+  status: string;
+  source: string;
+  parent: string | null;
+  createdAt: string;
+  updatedAt: string;
+  blocked: boolean;
+  edges: AdminJobCardEdge[];
 }
 
 export type AdminBoardBudgetCurrency = 'USD' | 'EUR';
@@ -1330,6 +1405,17 @@ export interface AdminPolicyRuleInput {
   comment?: string;
 }
 
+export type AdminLanHttpAccessMode =
+  | 'off'
+  | 'read-only'
+  | 'read-write'
+  | 'custom';
+
+export interface AdminLanHttpAccessState {
+  mode: AdminLanHttpAccessMode;
+  managedRuleIndexes: number[];
+}
+
 export interface AdminPolicyState {
   exists: boolean;
   policyPath: string;
@@ -1337,6 +1423,7 @@ export interface AdminPolicyState {
   defaultAction: 'allow' | 'deny';
   presets: string[];
   rules: AdminPolicyRule[];
+  lanHttpAccess: AdminLanHttpAccessState;
 }
 
 export interface AdminPolicyPresetSummary {
@@ -1426,6 +1513,68 @@ export interface AdminPluginsResponse {
     hooks: number;
   };
   plugins: AdminPlugin[];
+}
+
+export interface AdminOutputGuardProfile {
+  enabled: boolean;
+  mode: 'block' | 'rewrite' | 'flag';
+  policy: string;
+  doList: string[];
+  dontList: string[];
+  bannedPhrases: string[];
+  bannedPatterns: string[];
+  requirePhrases: string[];
+  classifier: AdminOutputGuardModelConfig;
+  rewriter: AdminOutputGuardModelConfig;
+}
+
+export interface AdminOutputGuardModelConfig {
+  provider: 'default' | 'auxiliary' | 'model';
+  model: string;
+}
+
+export interface AdminOutputGuardRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+}
+
+export interface AdminOutputGuardProfileResponse {
+  profile: AdminOutputGuardProfile;
+  revisions: AdminOutputGuardRevision[];
+}
+
+export interface AdminOutputGuardProfileUpdateResponse
+  extends AdminOutputGuardProfileResponse {
+  changed: boolean;
+  reloadMessage: string;
+}
+
+export interface AdminOutputGuardPreviewViolation {
+  kind: 'banned_phrase' | 'banned_pattern' | 'missing_required';
+  detail: string;
+}
+
+export interface AdminOutputGuardPreviewClassifier {
+  provider: 'default' | 'auxiliary' | 'model';
+  status: 'evaluated' | 'unavailable' | 'unparseable';
+  verdict: 'compliant' | 'non_compliant' | null;
+  severity: 'low' | 'medium' | 'high' | null;
+  reasons: string[];
+  message: string | null;
+  model: string | null;
+}
+
+export interface AdminOutputGuardPreviewResponse {
+  score: number;
+  ruleScore: number;
+  scoreSource: 'classifier' | 'rules';
+  verdict: 'compliant' | 'needs_review' | 'non_compliant';
+  violations: AdminOutputGuardPreviewViolation[];
+  classifier: AdminOutputGuardPreviewClassifier;
 }
 
 export interface AdminAdaptiveSkillErrorCluster {

@@ -3,6 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import {
+  formatUserId,
+  parseUserId,
+  USER_ID_LOCAL_AUTHORITY,
+} from './user-id.js';
 
 export const AGENT_IDENTITY_COMPONENT_MAX_LENGTH = 128;
 export const LOCAL_INSTANCE_ID_PREFIX = 'inst-';
@@ -20,6 +25,11 @@ export interface ParsedAgentIdentity {
 export interface LocalInstanceIdState {
   readonly currentInstanceId: string;
   readonly allocatedAt: string;
+}
+
+export interface LocalAgentIdentity {
+  readonly canonicalId: string;
+  readonly ownerUserId: string;
 }
 
 export interface ResolveLocalInstanceIdOptions {
@@ -154,6 +164,41 @@ export function slugifyAgentIdentityComponent(
     return normalized;
   }
   return fallback;
+}
+
+export function formatLocalOwnerUserId(owner: string | undefined): string {
+  const normalizedOwner = owner?.trim() || '';
+  if (normalizedOwner.includes('@')) {
+    try {
+      return parseUserId(normalizedOwner).id;
+    } catch {
+      // Fall through to local slug derivation for display names or emails.
+    }
+  }
+
+  return formatUserId(
+    slugifyAgentIdentityComponent(normalizedOwner, USER_ID_LOCAL_AUTHORITY),
+    USER_ID_LOCAL_AUTHORITY,
+  );
+}
+
+export function deriveLocalAgentIdentity(params: {
+  readonly agentId: string;
+  readonly owner?: string;
+  readonly ownerUserId?: string;
+  readonly instanceId?: string;
+}): LocalAgentIdentity {
+  const ownerUserId =
+    params.ownerUserId?.trim() || formatLocalOwnerUserId(params.owner);
+  const ownerUser = parseUserId(ownerUserId);
+  return {
+    ownerUserId: ownerUser.id,
+    canonicalId: formatAgentIdentity(
+      slugifyAgentIdentityComponent(params.agentId, 'agent'),
+      ownerUser.username,
+      params.instanceId ?? resolveLocalInstanceId(),
+    ),
+  };
 }
 
 export function localInstanceIdStatePath(): string {
