@@ -1286,13 +1286,13 @@ class MacCuaBrowserSession implements BrowserSession {
     after: MacCuaEnvironmentState | undefined,
   ): void {
     if (!before || !after) return;
-    if (before.activeSpaceId !== after.activeSpaceId) {
-      throw new Error(
-        'mac-cua driver violated background-safe contract by changing frontmost app or active Space',
-      );
-    }
-    if (before.frontmostBundleId === after.frontmostBundleId) return;
     if (after.frontmostBundleId === this.bundleId) return;
+    if (
+      before.frontmostBundleId === after.frontmostBundleId &&
+      before.activeSpaceId === after.activeSpaceId
+    ) {
+      return;
+    }
     throw new Error(
       'mac-cua driver violated background-safe contract by changing frontmost app or active Space',
     );

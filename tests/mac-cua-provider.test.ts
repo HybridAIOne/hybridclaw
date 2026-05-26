@@ -502,7 +502,7 @@ test('mac-cua provider resumes 2FA through native OTP set_value when AX selector
   expect(driver.click).not.toHaveBeenCalled();
 });
 
-test('mac-cua provider tolerates the controlled browser becoming frontmost on the same Space', async () => {
+test('mac-cua provider tolerates the controlled browser becoming frontmost', async () => {
   const root = makeTempRoot();
   const { initDatabase } = await import('../src/memory/db.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
@@ -549,7 +549,7 @@ test('mac-cua provider tolerates the controlled browser becoming frontmost on th
   expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
 });
 
-test('mac-cua provider rejects active Space changes even when the controlled browser becomes frontmost', async () => {
+test('mac-cua provider tolerates the controlled browser becoming frontmost on a different Space', async () => {
   const root = makeTempRoot();
   const { initDatabase } = await import('../src/memory/db.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
@@ -585,9 +585,15 @@ test('mac-cua provider rejects active Space changes even when the controlled bro
     'dom',
   );
 
-  await expect(session.fillTwoFactorCode?.(handle)).rejects.toThrow(
-    /background-safe/u,
-  );
+  await expect(session.fillTwoFactorCode?.(handle)).resolves.toEqual({
+    strategy: 'native-set-value',
+    submitted: true,
+  });
+
+  expect(driver.fillTwoFactorInput).toHaveBeenCalledWith('cua-session-1', {
+    text: '123456',
+  });
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
 });
 
 test('mac-cua provider falls back to focus and type when native OTP set_value cannot resolve a field', async () => {
@@ -712,6 +718,30 @@ test('mac-cua provider rejects background-safe violations', async () => {
       cursorY: 2,
       frontmostBundleId: 'com.google.Chrome',
       activeSpaceId: 1,
+    },
+  });
+  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const session = await provider.launchSession({});
+
+  await expect(session.click('@e1')).rejects.toThrow(/background-safe/u);
+});
+
+test('mac-cua provider rejects unrelated app activation on a different Space', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver({
+    before: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    },
+    after: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.google.Chrome',
+      activeSpaceId: 2,
     },
   });
   const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
