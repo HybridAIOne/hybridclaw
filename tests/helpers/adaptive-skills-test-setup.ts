@@ -75,6 +75,10 @@ export async function createAdaptiveSkillsTestContext(options?: {
     draft.adaptiveSkills.autoApplyEnabled = false;
     draft.adaptiveSkills.evaluationRunsBeforeRollback = 3;
     draft.adaptiveSkills.rollbackImprovementThreshold = 0.05;
+    draft.adaptiveSkills.optimization.editBudget = 4;
+    draft.adaptiveSkills.optimization.minTrajectoryEvidence = 2;
+    draft.adaptiveSkills.optimization.maxEvidenceExamples = 12;
+    draft.adaptiveSkills.optimization.heldOutRatio = 0.25;
   });
 
   return {

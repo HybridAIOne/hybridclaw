@@ -88,6 +88,30 @@ export function formatSkillAmendment(
         : `Diff: ${amendment.diff_summary}`,
     );
   }
+  if (amendment.proposal_metadata?.kind === 'skillopt_lite') {
+    const metadata = amendment.proposal_metadata;
+    const selectedCount = metadata.selected_edits?.length ?? 0;
+    const appliedCount =
+      metadata.apply_report?.filter((entry) =>
+        entry.status.startsWith('applied'),
+      ).length ?? 0;
+    const source = metadata.evidence?.source ?? 'observations';
+    const evidenceCount =
+      (metadata.evidence?.training_count ?? 0) +
+      (metadata.evidence?.held_out_count ?? 0);
+    lines.push(
+      style === 'compact'
+        ? `  skillopt-lite: ${selectedCount} edit(s), ${appliedCount} applied, evidence=${source}/${evidenceCount}`
+        : `SkillOpt-lite: ${selectedCount} edit(s), ${appliedCount} applied, evidence=${source}/${evidenceCount}`,
+    );
+    if (metadata.gate) {
+      lines.push(
+        style === 'compact'
+          ? `  gate: ${metadata.gate.accepted ? 'accepted' : 'rejected'} (${metadata.gate.reason})`
+          : `Gate: ${metadata.gate.accepted ? 'accepted' : 'rejected'} (${metadata.gate.reason})`,
+      );
+    }
+  }
   return lines.join('\n');
 }
 
