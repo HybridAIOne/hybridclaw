@@ -1,3 +1,15 @@
+export const LOG_LEVELS = [
+  'fatal',
+  'error',
+  'warn',
+  'info',
+  'debug',
+  'trace',
+  'silent',
+] as const;
+
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -793,7 +805,7 @@ export interface AdminConfig {
     gatewayBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
-    logLevel: string;
+    logLevel: LogLevel;
   };
   [key: string]: unknown;
 }
@@ -1261,8 +1273,14 @@ export interface AdminAuditResponse {
   query: string;
   sessionId: string;
   eventType: string;
+  since: string | null;
+  until: string | null;
   limit: number;
   entries: AdminAuditEntry[];
+  /** Opaque cursor for the next page; pass back as `cursor=`. null on the last page. */
+  nextCursor: number | null;
+  /** Total rows matching the filters in the database, independent of pagination. */
+  total: number;
 }
 
 export interface AdminA2AIdentity {

@@ -1,14 +1,6 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ToastProvider } from '../components/toast';
-
+import { renderWithProviders } from '../test-utils';
 import { GatewayPage } from './gateway';
 
 const reloadGatewayMock = vi.fn();
@@ -85,20 +77,7 @@ function makeStatus(overrides: Record<string, unknown> = {}) {
 }
 
 function renderGatewayPage(): void {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <GatewayPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<GatewayPage />);
 }
 
 describe('GatewayPage', () => {

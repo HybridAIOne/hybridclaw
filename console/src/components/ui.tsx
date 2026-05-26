@@ -94,8 +94,7 @@ export function SortableHeader<Key extends string>(props: {
 }
 
 export function PageHeader(props: {
-  title: string;
-  description?: string;
+  description?: ReactNode;
   actions?: ReactNode;
 }) {
   if (!props.description && !props.actions) {
@@ -105,9 +104,9 @@ export function PageHeader(props: {
   return (
     <div className="page-header">
       {props.description ? (
-        <p className="supporting-text page-header-description">
+        <div className="supporting-text page-header-description">
           {props.description}
-        </p>
+        </div>
       ) : (
         <span />
       )}
@@ -210,63 +209,5 @@ export function BooleanPill(props: {
       <span className="boolean-pill-dot" />
       {label}
     </span>
-  );
-}
-
-export function BooleanToggle(props: {
-  value: boolean;
-  onChange: (value: boolean) => void;
-  trueLabel?: string;
-  falseLabel?: string;
-  disabled?: boolean;
-  ariaLabel: string;
-  size?: 'sm' | 'default';
-}) {
-  return (
-    <SegmentedToggle
-      className="boolean-toggle"
-      ariaLabel={props.ariaLabel}
-      value={props.value ? 'true' : 'false'}
-      size={props.size}
-      options={[
-        {
-          value: 'true',
-          label: props.trueLabel ?? 'on',
-          activeTone: 'is-on',
-        },
-        {
-          value: 'false',
-          label: props.falseLabel ?? 'off',
-          activeTone: 'is-off',
-        },
-      ]}
-      disabled={props.disabled}
-      onChange={(value) => {
-        props.onChange(value === 'true');
-      }}
-    />
-  );
-}
-
-export function BooleanField(props: {
-  label: string;
-  value: boolean;
-  onChange: (value: boolean) => void;
-  trueLabel?: string;
-  falseLabel?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="field boolean-field">
-      <span>{props.label}</span>
-      <BooleanToggle
-        value={props.value}
-        onChange={props.onChange}
-        trueLabel={props.trueLabel}
-        falseLabel={props.falseLabel}
-        disabled={props.disabled}
-        ariaLabel={props.label}
-      />
-    </div>
   );
 }

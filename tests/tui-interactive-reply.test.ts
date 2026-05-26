@@ -1,7 +1,6 @@
 import { expect, test } from 'vitest';
-
-import { selectTuiInteractiveReplySession } from '../src/tui.js';
 import type { GatewayAdminSuspendedSession } from '../src/gateway/gateway-types.js';
+import { selectTuiInteractiveReplySession } from '../src/tui.js';
 
 function session(
   input: Partial<GatewayAdminSuspendedSession>,

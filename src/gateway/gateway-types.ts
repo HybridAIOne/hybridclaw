@@ -1242,8 +1242,14 @@ export interface GatewayAdminAuditResponse {
   query: string;
   sessionId: string;
   eventType: string;
+  since: string | null;
+  until: string | null;
   limit: number;
   entries: GatewayAdminAuditEntry[];
+  /** Opaque cursor for the next page; pass back as `cursor=`. null when this is the last page. */
+  nextCursor: number | null;
+  /** Total rows matching the filters in the database, independent of pagination. */
+  total: number;
 }
 
 export interface GatewayAdminApprovalAgent {

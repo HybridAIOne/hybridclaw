@@ -1,0 +1,54 @@
+.root {
+  display: grid;
+  gap: 12px;
+}
+
+.root[data-orientation="horizontal"] {
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  align-items: center;
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  color: var(--primary);
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.item[data-state="checked"] {
+  border-color: var(--primary);
+}
+
+.item:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 35%, transparent);
+}
+
+.item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.item[aria-invalid="true"] {
+  border-color: var(--destructive);
+}
+
+.indicator {
+  width: 8px;
+  height: 8px;
+  color: currentColor;
+}
