@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- **npm signature audit attestation 404s**: Treat missing npm registry
+  attestation endpoint artifacts as best-effort after retries while keeping
+  registry signature validation failures fatal.
+
 ## [0.20.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.20.0) - 2026-05-26
 
 ### Added

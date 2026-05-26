@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT = Date.parse(
   '2026-05-20T08:35:12.000Z',
@@ -37,8 +38,18 @@ const targets = [
   },
 ];
 
+const missingAttestationPattern = /E404[\s\S]*\/-\/npm\/v1\/attestations\//u;
+
+const signatureFailurePatterns = [
+  /packages? (?:has|have) missing registry signatures/iu,
+  /packages? (?:has|have) invalid registry signatures/iu,
+  /packages? (?:has|have) (?:an? )?invalid attestations?/iu,
+  /could not find registry signing key/iu,
+  /EINTEGRITY/u,
+];
+
 const transientPatterns = [
-  /E404[\s\S]*\/-\/npm\/v1\/attestations\//u,
+  missingAttestationPattern,
   /E5\d\d/u,
   'ECONNRESET',
   'ECONNREFUSED',
@@ -60,7 +71,22 @@ function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function isTransientFailure(output) {
+export function isMissingAttestationFailure(output) {
+  return missingAttestationPattern.test(output);
+}
+
+export function hasSignatureValidationFailure(output) {
+  return signatureFailurePatterns.some((pattern) => pattern.test(output));
+}
+
+export function shouldAllowMissingAttestationFailure(output) {
+  return (
+    isMissingAttestationFailure(output) &&
+    !hasSignatureValidationFailure(output)
+  );
+}
+
+export function isTransientFailure(output) {
   return transientPatterns.some((pattern) =>
     typeof pattern === 'string'
       ? output.includes(pattern)
@@ -68,7 +94,7 @@ function isTransientFailure(output) {
   );
 }
 
-function runAudit(target) {
+export function runAudit(target) {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     console.error(
       `Running npm registry signature audit for ${target.label} (${attempt}/${maxAttempts})`,
@@ -97,11 +123,20 @@ function runAudit(target) {
 
     const output = `${result.stdout || ''}\n${result.stderr || ''}`;
     if (attempt >= maxAttempts || !isTransientFailure(output)) {
+      if (shouldAllowMissingAttestationFailure(output)) {
+        console.error(
+          `npm registry signature audit for ${target.label} could not fetch npm provenance attestations (registry returned 404). Treating attestation availability as best-effort because no registry signature validation failure was reported.`,
+        );
+        return 0;
+      }
       return status;
     }
 
+    const reason = isMissingAttestationFailure(output)
+      ? 'a registry attestation lookup error'
+      : 'a transient registry availability error';
     console.error(
-      `npm registry signature audit for ${target.label} failed with a transient network error; retrying in ${retryDelayMs}ms.`,
+      `npm registry signature audit for ${target.label} failed with ${reason}; retrying in ${retryDelayMs}ms.`,
     );
     sleep(retryDelayMs);
   }
@@ -109,9 +144,19 @@ function runAudit(target) {
   return 1;
 }
 
-for (const target of targets) {
-  const status = runAudit(target);
-  if (status !== 0) {
-    process.exit(status);
+export function main() {
+  for (const target of targets) {
+    const status = runAudit(target);
+    if (status !== 0) {
+      return status;
+    }
   }
+  return 0;
+}
+
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+) {
+  process.exitCode = main();
 }
