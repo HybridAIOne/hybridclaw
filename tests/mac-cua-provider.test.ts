@@ -215,6 +215,52 @@ test('mac-cua provider starts the selected operator browser in background-safe m
   );
 });
 
+test('mac-cua provider supports safe key presses for form submission', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await session.press?.('Enter');
+
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
+});
+
+test('mac-cua provider resolves AX button rows from cua window-state markdown', async () => {
+  const { resolveMacCuaWindowStateElementIndex } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+
+  expect(
+    resolveMacCuaWindowStateElementIndex({
+      tree_markdown: '- [17] AXButton "Confirm"\n- [18] AXTextField "Code"',
+    }),
+  ).toBe(17);
+  expect(
+    resolveMacCuaWindowStateElementIndex({
+      markdown: '[element_index 23] AXButton "Confirm"',
+    }),
+  ).toBe(23);
+  expect(resolveMacCuaWindowStateElementIndex({ element_index: 31 })).toBe(31);
+});
+
+test('mac-cua provider blocks unsupported key presses', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await expect(session.press?.('Meta+Q')).rejects.toThrow(
+    /unsupported key press/u,
+  );
+
+  expect(driver.pressKey).not.toHaveBeenCalled();
+});
+
 test.each([
   ['safari' as const, 'com.apple.Safari'],
   ['chrome' as const, 'com.google.Chrome'],

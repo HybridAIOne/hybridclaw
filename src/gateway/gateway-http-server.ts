@@ -1205,11 +1205,21 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_press') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    if (isMacCuaGatewaySession(active)) {
-      unsupportedGatewayBrowserTool(toolName);
-    }
     const key = String(args.key || '').trim();
     if (!key) throw new GatewayRequestError(400, 'browser_press requires key.');
+    if (isMacCuaGatewaySession(active)) {
+      if (!active.session.press) unsupportedGatewayBrowserTool(toolName);
+      await active.session.press(key);
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { key },
+      });
+      return;
+    }
     const pressed = await active.session.evaluate(
       browserRendererFunction<boolean>(`
         () => {

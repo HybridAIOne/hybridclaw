@@ -75,6 +75,7 @@ export interface BrowserSession {
   forward(opts?: HistoryNavigationOptions): Promise<void>;
   reload(opts?: HistoryNavigationOptions): Promise<void>;
   click(selector: string, opts?: ClickOptions): Promise<void>;
+  press?(key: string): Promise<void>;
   /**
    * Use SecretRef or an internal SecretHandle for credential, token, and
    * operator-return code fields. Plain strings are intended for non-sensitive

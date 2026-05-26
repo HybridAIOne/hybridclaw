@@ -150,6 +150,31 @@ const SHELL_INJECTION_PATTERNS = [
   /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&?\s*;?\s*\}\s*;/u,
 ];
 
+const SAFE_MAC_CUA_PRESS_KEYS = new Set([
+  'return',
+  'tab',
+  'escape',
+  'backspace',
+  'delete',
+  'forwarddelete',
+  'space',
+  'arrowup',
+  'arrowdown',
+  'arrowleft',
+  'arrowright',
+]);
+
+const MAC_CUA_PRESS_KEY_ALIASES = new Map([
+  ['enter', 'return'],
+  ['esc', 'escape'],
+  [' ', 'space'],
+  ['spacebar', 'space'],
+  ['up', 'arrowup'],
+  ['down', 'arrowdown'],
+  ['left', 'arrowleft'],
+  ['right', 'arrowright'],
+]);
+
 const DESTRUCTIVE_KEY_CHORDS = new Set([
   'cmd+q',
   'cmd+w',
@@ -188,6 +213,17 @@ export function assertSafeMacCuaTypedPayload(text: string): void {
   if (SHELL_INJECTION_PATTERNS.some((pattern) => pattern.test(text))) {
     throw new Error('mac-cua blocked unsafe typed payload');
   }
+}
+
+function normalizeSafeMacCuaPressKey(key: string): string {
+  const normalized = String(key || '')
+    .trim()
+    .toLowerCase();
+  const mapped = MAC_CUA_PRESS_KEY_ALIASES.get(normalized) || normalized;
+  if (/^[a-z0-9]$/u.test(mapped) || SAFE_MAC_CUA_PRESS_KEYS.has(mapped)) {
+    return mapped;
+  }
+  throw new Error(`mac-cua blocked unsupported key press: ${key}`);
 }
 
 function parseMacCuaTarget(selector: string): MacCuaTarget {
@@ -330,10 +366,23 @@ function normalizeWindowId(value: unknown): number | null {
   return candidates[0]?.id ?? null;
 }
 
-function firstElementIndex(record: Record<string, unknown>): number | null {
+export function resolveMacCuaWindowStateElementIndex(
+  record: Record<string, unknown>,
+): number | null {
+  const structured =
+    normalizePositiveInteger(record.element_index) ||
+    normalizePositiveInteger(record.elementIndex) ||
+    normalizePositiveInteger(record.index);
+  if (structured !== null) return structured;
   const tree = String(record.tree_markdown || record.markdown || '');
   const match = tree.match(/\[element_index\s+(\d+)\]/u);
-  return match?.[1] ? Number(match[1]) : null;
+  if (match?.[1]) return Number(match[1]);
+  const indexedLine = tree.match(/^\s*(?:-\s+)?\[(\d+)\]\s+\w+/mu);
+  return indexedLine?.[1] ? Number(indexedLine[1]) : null;
+}
+
+function firstElementIndex(record: Record<string, unknown>): number | null {
+  return resolveMacCuaWindowStateElementIndex(record);
 }
 
 function firstEditableElementSelector(
@@ -1011,6 +1060,13 @@ class MacCuaBrowserSession implements BrowserSession {
         requestedTarget,
       );
       await this.driver.click(this.sessionId, target);
+    });
+  }
+
+  async press(key: string): Promise<void> {
+    const normalizedKey = normalizeSafeMacCuaPressKey(key);
+    await this.runAction('press', async () => {
+      await this.driver.pressKey(this.sessionId, normalizedKey);
     });
   }
 
