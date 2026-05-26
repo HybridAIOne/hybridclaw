@@ -95,30 +95,6 @@ construction belongs in `shelly.cjs`.
 - Do not perform factory reset, reboot, firmware update, Wi-Fi reset, auth
   changes, or certificate upload through this skill.
 
-## API Surfaces
-
-- Local Gen2+ devices use RPC methods under `/rpc`; use the dedicated
-  noun-verb helpers for common operations and generic RPC helpers for other
-  documented methods.
-- Local Gen1 devices use classic HTTP endpoints; use dedicated helpers for
-  common relay/status operations and generic Gen1 endpoint helpers for other
-  documented paths.
-- Shelly Cloud Control API v2 uses a tenant server URI, an Authorization Cloud
-  Key, and known device ids for state and control.
-- Shelly Real Time Events HTTP calls use OAuth/Bearer authorization and can
-  return account-level current or last-known device statuses. Real Time Events
-  WebSocket helpers emit connection and command-message specifications.
-
-Official references:
-[Cloud Control API getting started](https://shelly-api-docs.shelly.cloud/cloud-control-api/),
-[Cloud Control API v2](https://shelly-api-docs.shelly.cloud/cloud-control-api/communication-v2/),
-[Cloud Real Time Events](https://shelly-api-docs.shelly.cloud/cloud-control-api/real-time-events/),
-[Gen2+ Shelly service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Shelly/),
-[Gen2+ Cover service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Cover/),
-[Gen2+ Switch service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Switch/),
-[Gen2+ authentication](https://shelly-api-docs.shelly.cloud/gen2/General/Authentication/),
-and [Gen1 device API](https://shelly-api-docs.shelly.cloud/gen1/).
-
 ## Helper Operations
 
 Use this command surface directly; do not rediscover flags by trial and error.
@@ -244,3 +220,27 @@ reachable local device URL.
 - For cloud or local errors, report the operation, target, and upstream error
   without inventing state.
 - Respect Shelly Cloud rate limits; do not fan out or retry in tight loops.
+
+## API Surfaces
+
+- Local Gen2+ devices use RPC methods under `/rpc`; use the dedicated
+  noun-verb helpers for common operations and generic RPC helpers for other
+  documented methods.
+- Local Gen1 devices use classic HTTP endpoints; use dedicated helpers for
+  common relay/status operations and generic Gen1 endpoint helpers for other
+  documented paths.
+- Shelly Cloud Control API v2 uses a tenant server URI, an Authorization Cloud
+  Key, and known device ids for state and control.
+- Shelly Real Time Events HTTP calls use OAuth/Bearer authorization and can
+  return account-level current or last-known device statuses. Real Time Events
+  WebSocket helpers emit connection and command-message specifications.
+
+Official references:
+[Cloud Control API getting started](https://shelly-api-docs.shelly.cloud/cloud-control-api/),
+[Cloud Control API v2](https://shelly-api-docs.shelly.cloud/cloud-control-api/communication-v2/),
+[Cloud Real Time Events](https://shelly-api-docs.shelly.cloud/cloud-control-api/real-time-events/),
+[Gen2+ Shelly service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Shelly/),
+[Gen2+ Cover service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Cover/),
+[Gen2+ Switch service](https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Switch/),
+[Gen2+ authentication](https://shelly-api-docs.shelly.cloud/gen2/General/Authentication/),
+and [Gen1 device API](https://shelly-api-docs.shelly.cloud/gen1/).
