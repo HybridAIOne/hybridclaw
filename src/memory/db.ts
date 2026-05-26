@@ -7359,7 +7359,7 @@ export function storeMessage(
          content,
          artifacts_json,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
     )
     .run(
       resolvedSessionId,
