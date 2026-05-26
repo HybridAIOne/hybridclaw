@@ -85,8 +85,7 @@ saved revision history directly.
 ## Important Config Areas
 
 - `container.*` for execution isolation, including `sandboxMode`, `memory`,
-  `memorySwap`, `cpus`, `network`, `binds`, additional mounts, and
-  `persistBashState`
+  `memorySwap`, `cpus`, `network`, `binds`, and `persistBashState`
 - `container.persistBashState` controls whether `bash` tool calls reuse shell
   state (`cd`, exported env vars, aliases) for the active runtime session
   (`true`, default) or start fresh on each call (`false`)
@@ -99,6 +98,9 @@ saved revision history directly.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
+- legacy `container.additionalMounts` JSON is migrated into `container.binds`
+  on startup; update config files to use `binds` before `additionalMounts` is
+  removed
 - `browser.provider` selects the browser automation backend. Supported values include `local`, `camofox`, `managed-cloud`, `browser-use-cloud`, and `mac-cua`. `browser.local.*` and `browser.camofox.*` configure persistent profile roots and headed mode; `browser.managedCloud.*` points at an operator-run HybridClaw browser pool with navigation-guard enforcement and optional `poolTokenRef` bearer authentication; `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef; and `browser.macCua.*` selects the operator-owned macOS browser, driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`). Camofox stealth mode is deny-by-default per host; allow it from the workspace policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS Accessibility and Screen Recording grants.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
@@ -413,7 +415,7 @@ hybridclaw secret route remove <url-prefix> [header]
 - `/secret route ...` is a convenience surface for editing
   `tools.httpRequest.authRules[]` without hand-editing `config.json`
 - `secret: { "source": "google-oauth" }` routes mint and inject the Google OAuth access token from `hybridclaw auth login google` for matching `*.googleapis.com` requests
-- secrets injected with `bearerSecretName` or `secretHeaders` require a companion `<NAME>_BOUND_DOMAIN` secret containing the exact hostname they may be sent to
+- secrets injected with `bearerSecretName` or `secretHeaders` should have a companion `<NAME>_BOUND_DOMAIN` secret containing the exact hostname they may be sent to; unbound bearer secrets still work during the deprecation window, but runtime logs and `hybridclaw doctor security` warn before unbound injection is removed
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 Trust-model acceptance is persisted in `config.json` under `security.*` and is

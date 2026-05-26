@@ -71,6 +71,12 @@
 
 ### Changed
 
+- **Security fallback deprecations**: Added migration warnings for legacy
+  BlueBubbles query-param webhook auth, unbound `bearerSecretName` and
+  `secretHeaders` injection, and legacy `container.additionalMounts` config.
+  Existing setups continue to work during the deprecation window while docs and
+  `hybridclaw doctor security` point operators to header auth, bound bearer
+  secrets, and `container.binds`.
 - **Diagram validation and accounting**: Mermaid diagrams are validated with
   the bundled Mermaid parser before render, diagram render artifacts retain
   skill-scoped source/rendered metadata, and local diagram renders emit

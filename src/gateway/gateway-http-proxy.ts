@@ -816,10 +816,11 @@ function assertBearerDomainBinding(secretName: string, targetUrl: URL): void {
   const boundDomain = readStoredRuntimeSecret(bindingKey);
   const targetHost = targetUrl.hostname.toLowerCase();
   if (!boundDomain) {
-    throw new GatewayRequestError(
-      403,
-      `Secret ${secretName} is missing ${bindingKey}; request to ${targetHost} is blocked.`,
+    logger.warn(
+      { secretName, targetHost, bindingKey },
+      'Secret used without a domain binding; set the matching *_BOUND_DOMAIN runtime secret before unbound secret injection is removed',
     );
+    return;
   }
 
   const allowed = boundDomain.toLowerCase();

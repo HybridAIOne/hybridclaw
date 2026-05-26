@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { parseBindSpecs } from '../src/security/mount-config.ts';
+import {
+  parseBindSpecs,
+  parseLegacyAdditionalMountBinds,
+} from '../src/security/mount-config.ts';
 
 describe('mount config parsing', () => {
   test('parses OpenClaw-style bind specs', () => {
@@ -60,5 +63,34 @@ describe('mount config parsing', () => {
       ],
       warnings: [],
     });
+  });
+
+  test('converts legacy additionalMounts JSON into bind specs', () => {
+    expect(
+      parseLegacyAdditionalMountBinds(
+        JSON.stringify([
+          {
+            hostPath: '/host/legacy',
+            containerPath: 'legacy',
+            readonly: false,
+          },
+          {
+            hostPath: '/host/readonly',
+          },
+        ]),
+      ),
+    ).toEqual({
+      binds: ['/host/legacy:legacy:rw', '/host/readonly:readonly:ro'],
+      warnings: [],
+    });
+  });
+
+  test('surfaces warnings for invalid legacy additionalMounts JSON', () => {
+    expect(parseLegacyAdditionalMountBinds('{"hostPath":"/host/data"}')).toEqual(
+      {
+        binds: [],
+        warnings: ['container.additionalMounts must be a JSON array'],
+      },
+    );
   });
 });

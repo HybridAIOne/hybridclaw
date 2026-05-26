@@ -73,6 +73,7 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
+import { parseLegacyAdditionalMountBinds } from '../security/mount-config.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
@@ -6443,6 +6444,19 @@ function normalizeRuntimeConfig(
     DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture.retentionDays,
     { min: 0 },
   );
+  const normalizedContainerBinds = normalizeStringArray(
+    rawContainer.binds,
+    DEFAULT_RUNTIME_CONFIG.container.binds,
+  );
+  const legacyAdditionalMountBinds = parseLegacyAdditionalMountBinds(
+    (rawContainer as Record<string, unknown>).additionalMounts,
+  );
+  const containerBinds = [
+    ...new Set([
+      ...normalizedContainerBinds,
+      ...legacyAdditionalMountBinds.binds,
+    ]),
+  ];
 
   return {
     version: CONFIG_VERSION,
@@ -7301,10 +7315,7 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.container.timeoutMs,
         { min: 1_000 },
       ),
-      binds: normalizeStringArray(
-        rawContainer.binds,
-        DEFAULT_RUNTIME_CONFIG.container.binds,
-      ),
+      binds: containerBinds,
       maxOutputBytes: normalizeInteger(
         rawContainer.maxOutputBytes,
         DEFAULT_RUNTIME_CONFIG.container.maxOutputBytes,
@@ -8048,6 +8059,17 @@ function migrateConfigSchemaOnStartup(): void {
     const rawContainer = isRecord(parsedRecord.container)
       ? parsedRecord.container
       : {};
+    const legacyAdditionalMountBinds = parseLegacyAdditionalMountBinds(
+      rawContainer.additionalMounts,
+    );
+    if (legacyAdditionalMountBinds.binds.length > 0) {
+      console.warn(
+        '[runtime-config] migrated legacy container.additionalMounts into container.binds; update config.json to use container.binds before additionalMounts is removed',
+      );
+    }
+    for (const warning of legacyAdditionalMountBinds.warnings) {
+      console.warn(`[runtime-config] ${warning}`);
+    }
     const changed = writeConfigFile(
       migrated,
       {

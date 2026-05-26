@@ -9733,7 +9733,7 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  test('blocks bearerSecretName when stored secret is unbound', async () => {
+  test('allows unbound bearerSecretName during deprecation window with a warning', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-unbound-bearer-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir);
@@ -9753,7 +9753,12 @@ describe('gateway HTTP server', () => {
       dataDir: path.join(homeDir, '.hybridclaw', 'data'),
       gatewayApiToken: 'gateway-token',
     });
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const req = makeRequest({
@@ -9770,11 +9775,23 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await settle();
 
-    expect(res.statusCode).toBe(403);
-    expect(JSON.parse(res.body).error).toContain(
-      'EXTERNAL_ACCESS_TOKEN_BOUND_DOMAIN',
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer external-access-token',
+        }),
+      }),
     );
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      {
+        secretName: 'EXTERNAL_ACCESS_TOKEN',
+        targetHost: 'api.example.com',
+        bindingKey: 'EXTERNAL_ACCESS_TOKEN_BOUND_DOMAIN',
+      },
+      expect.stringContaining('without a domain binding'),
+    );
   });
 
   test('captures explicit bearer token fields without exposing the response body', async () => {

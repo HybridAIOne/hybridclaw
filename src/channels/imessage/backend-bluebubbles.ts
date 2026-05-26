@@ -12,6 +12,7 @@ import {
   IMESSAGE_SERVER_URL,
   IMESSAGE_TEXT_CHUNK_LIMIT,
 } from '../../config/config.js';
+import { logger } from '../../logger.js';
 import { SlidingWindowRateLimiter } from '../discord/rate-limiter.js';
 import {
   readWebhookJsonBody,
@@ -119,12 +120,31 @@ function safeEqual(value: string, expected: string): boolean {
   return timingSafeEqual(valueBuffer, expectedBuffer);
 }
 
-function readWebhookPassword(req: IncomingMessage): string | undefined {
+type WebhookPasswordReadResult = {
+  password?: string;
+  source: 'header' | 'query' | null;
+  parameterName?: string;
+};
+
+function readWebhookPassword(
+  req: IncomingMessage,
+  url: URL,
+): WebhookPasswordReadResult {
   const headerValue = req.headers['x-hybridclaw-imessage-password'];
   if (typeof headerValue === 'string' && headerValue.trim()) {
-    return headerValue.trim();
+    return { password: headerValue.trim(), source: 'header' };
   }
-  return undefined;
+  for (const key of ['password', 'guid', 'token']) {
+    const value = url.searchParams.get(key);
+    if (value?.trim()) {
+      return {
+        password: value.trim(),
+        source: 'query',
+        parameterName: key,
+      };
+    }
+  }
+  return { source: null };
 }
 
 async function sendBlueBubblesRequest(
@@ -282,6 +302,7 @@ export function createBlueBubblesIMessageBackend(
       req: IncomingMessage,
       res: ServerResponse,
     ): Promise<boolean> {
+      const url = new URL(req.url || '/', 'http://localhost');
       const decision = webhookRateLimiter.check(
         req.socket.remoteAddress || 'unknown',
         WEBHOOK_RATE_LIMIT,
@@ -294,7 +315,14 @@ export function createBlueBubblesIMessageBackend(
       }
 
       const expectedPassword = IMESSAGE_PASSWORD.trim();
-      const suppliedPassword = String(readWebhookPassword(req) || '').trim();
+      const suppliedAuth = readWebhookPassword(req, url);
+      if (suppliedAuth.source === 'query') {
+        logger.warn(
+          { parameterName: suppliedAuth.parameterName },
+          'BlueBubbles webhook used deprecated query-param auth; send x-hybridclaw-imessage-password instead before query-param auth is removed',
+        );
+      }
+      const suppliedPassword = String(suppliedAuth.password || '').trim();
       if (
         !expectedPassword ||
         !suppliedPassword ||

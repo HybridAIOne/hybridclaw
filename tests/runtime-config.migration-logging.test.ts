@@ -148,6 +148,45 @@ describe('runtime config migration logging', () => {
     );
   });
 
+  it('migrates legacy container additionalMounts into binds on startup', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.container.binds = ['/host/current:/current:ro'];
+      (
+        config.container as RuntimeConfig['container'] & {
+          additionalMounts: string;
+        }
+      ).additionalMounts = JSON.stringify([
+        {
+          hostPath: '/host/legacy',
+          containerPath: 'legacy',
+          readonly: false,
+        },
+      ]);
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await importFreshRuntimeConfig(homeDir);
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, '.hybridclaw', 'config.json'),
+        'utf-8',
+      ),
+    ) as RuntimeConfig & {
+      container: RuntimeConfig['container'] & { additionalMounts?: unknown };
+    };
+
+    expect(stored.container.binds).toEqual([
+      '/host/current:/current:ro',
+      '/host/legacy:legacy:rw',
+    ]);
+    expect(stored.container.additionalMounts).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] migrated legacy container.additionalMounts into container.binds; update config.json to use container.binds before additionalMounts is removed',
+    );
+  });
+
   it('normalizes MCP server transport aliases on startup', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
