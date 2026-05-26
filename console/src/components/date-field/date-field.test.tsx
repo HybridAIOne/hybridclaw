@@ -75,6 +75,33 @@ describe('DateField', () => {
     expect(onError).toHaveBeenLastCalledWith('Required.');
   });
 
+  it('round-trips a day-granularity date to the same calendar day', () => {
+    // Regression: a bare "YYYY-MM-DD" was parsed as UTC midnight, which the
+    // local-time renderer then shifted back a day in timezones behind UTC.
+    // The displayed day must match the supplied day in every timezone.
+    render(
+      <DateField
+        aria-label="date"
+        granularity="day"
+        value="2026-05-26"
+        onValueChange={() => {}}
+      />,
+    );
+    const input = document.querySelector('input') as HTMLInputElement;
+    expect(input.value).toBe('2026-05-26');
+  });
+
+  it('commits a day-granularity selection as the picked calendar day', () => {
+    const onChange = vi.fn();
+    render(<Harness granularity="day" onChange={onChange} />);
+    const input = document.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '2026-05-26' } });
+    const committed = onChange.mock.calls[0]?.[0] as Date;
+    expect(committed.getFullYear()).toBe(2026);
+    expect(committed.getMonth()).toBe(4); // May
+    expect(committed.getDate()).toBe(26); // local day, not shifted to the 25th
+  });
+
   it('rejects timestamps earlier than min', () => {
     const onChange = vi.fn();
     const onError = vi.fn();

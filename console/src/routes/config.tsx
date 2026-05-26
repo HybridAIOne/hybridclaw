@@ -1,10 +1,11 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
   type Dispatch,
   type SetStateAction,
   useCallback,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -279,6 +280,7 @@ function ProfileBrowserFields({
 export function ConfigPage() {
   const auth = useAuth();
   const toast = useToast();
+  const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<'form' | 'json'>('form');
   const [rawJson, setRawJson] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -302,9 +304,13 @@ export function ConfigPage() {
     [configQuery.data],
   );
 
-  // Hydrate the JSON editor buffer whenever the saved config first arrives
-  // or changes from underneath us, so the textarea matches `draft` on mount.
-  if (configQuery.data && rawJson === '' && savedSerialized !== '') {
+  // Seed the JSON editor once, when the config first arrives. Keyed on a ref
+  // rather than `rawJson === ''` — the latter re-fired the moment the user
+  // cleared the textarea, snapping the saved config back so it couldn't be
+  // emptied. Entering JSON mode and a successful save refresh `rawJson` anyway.
+  const didHydrateRawJsonRef = useRef(false);
+  if (!didHydrateRawJsonRef.current && savedSerialized !== '') {
+    didHydrateRawJsonRef.current = true;
     setRawJson(savedSerialized);
   }
 
@@ -314,6 +320,12 @@ export function ConfigPage() {
   const saveMutation = useFormMutation({
     mutationFn: (nextConfig: AdminConfig) => saveConfig(auth.token, nextConfig),
     onSuccess: (payload) => {
+      // Update the source query cache so `isDirty` (draft vs. source) clears
+      // after a save. Without this the page stays "dirty" — `commitDraft`
+      // only moves the draft to the saved value, while `source` keeps the
+      // originally-fetched config, so Discard would revert the just-saved
+      // edits. Mirrors the pattern in channels.tsx.
+      queryClient.setQueryData(['config', auth.token], payload);
       commitDraft(payload.config);
       setRawJson(serialize(payload.config));
       setJsonError(null);

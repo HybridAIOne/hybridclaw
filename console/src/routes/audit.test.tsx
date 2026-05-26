@@ -294,6 +294,24 @@ describe('AuditPage', () => {
     });
   });
 
+  it('lights the category chip for a sub-type filter and clears it on click', async () => {
+    // Filtering by a sub-type (`type:tool.call`) must press the "tool" chip —
+    // matching how rows are pilled by category — and clicking the lit chip
+    // must clear the filter rather than rewrite it to `type:tool`.
+    window.history.replaceState(null, '', '/admin/audit?q=type%3Atool.call');
+    fetchAuditMock.mockResolvedValue(makeResponse([]));
+    renderWithProviders(<AuditPage />);
+    const toolChip = await screen.findByRole('button', {
+      name: 'tool',
+      pressed: true,
+    });
+    fireEvent.click(toolChip);
+    await waitFor(() => {
+      const input = screen.getByLabelText<HTMLInputElement>('Audit search');
+      expect(input.value).toBe('');
+    });
+  });
+
   it('row click opens the inspector drawer', async () => {
     fetchAuditMock.mockResolvedValue(
       makeResponse([

@@ -37,7 +37,15 @@ function toDate(value: Date | string | null | undefined): Date | null {
     return Number.isNaN(value.getTime()) ? null : value;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const parsed = new Date(trimmed);
+  // A bare calendar date ("YYYY-MM-DD" — what `<input type="date">` emits) is
+  // parsed by `new Date` as UTC midnight, which `formatForInput` then shifts
+  // across the date boundary in non-UTC timezones (e.g. picking the 26th
+  // renders as the 25th in the Americas). Append a local time so it's read as
+  // local midnight and round-trips to the same day everywhere.
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+    ? `${trimmed}T00:00`
+    : trimmed;
+  const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -115,8 +123,10 @@ export function DateField({
           onValueChange(null);
           return;
         }
-        const parsed = new Date(text);
-        if (Number.isNaN(parsed.getTime())) {
+        // Parse via `toDate` so a day-granularity value (a bare date) is read
+        // as local midnight, consistent with how it's rendered back.
+        const parsed = toDate(text);
+        if (!parsed) {
           report('Enter a valid date.');
           return;
         }

@@ -66,14 +66,23 @@ export function url(message?: string): Validator<string> {
   };
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  // `URL.hostname` keeps the brackets for IPv6 literals, so the loopback
+  // address arrives as `[::1]`, not `::1`. Accept both spellings.
+  const host = hostname.toLowerCase();
+  return (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host === '[::1]'
+  );
+}
+
 const loopbackUrlDefault: Validator<string> = (value) => {
   if (value.trim() === '') return null;
   try {
     const parsed = new URL(value);
-    const host = parsed.hostname.toLowerCase();
-    return host === 'localhost' || host === '127.0.0.1' || host === '::1'
-      ? null
-      : 'Must be a loopback URL.';
+    return isLoopbackHost(parsed.hostname) ? null : 'Must be a loopback URL.';
   } catch {
     return 'Enter a valid URL.';
   }
@@ -85,10 +94,7 @@ export function loopbackUrl(message?: string): Validator<string> {
     if (value.trim() === '') return null;
     try {
       const parsed = new URL(value);
-      const host = parsed.hostname.toLowerCase();
-      return host === 'localhost' || host === '127.0.0.1' || host === '::1'
-        ? null
-        : message;
+      return isLoopbackHost(parsed.hostname) ? null : message;
     } catch {
       return 'Enter a valid URL.';
     }

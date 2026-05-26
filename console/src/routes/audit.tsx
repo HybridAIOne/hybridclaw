@@ -22,7 +22,6 @@ import {
 } from '../components/sheet';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
-import { isOneOf } from '../lib/oneof';
 import styles from './audit.module.css';
 import {
   CATEGORIES,
@@ -49,6 +48,16 @@ function prettifyPayload(raw: string): string {
   }
 }
 
+// The category a `type:` token belongs to (by dot prefix), or null when it's
+// empty or uncategorised. Shared by the chip's pressed state and its toggle so
+// they agree on what e.g. "tool" means — `tool` and `tool.call` both map to
+// "tool", matching how rows are pilled via `categorize`.
+function filterCategory(eventType: string): Category | null {
+  if (!eventType) return null;
+  const category = categorize(eventType);
+  return category === 'default' ? null : category;
+}
+
 type AuditSearchParams = { q: string | undefined; range: string | undefined };
 
 export function AuditPage() {
@@ -69,12 +78,17 @@ export function AuditPage() {
   const lastSyncedQ = useRef<string | undefined>(search.q);
   const lastSyncedRange = useRef<string | undefined>(search.range);
 
-  // Parse eagerly for UI (chips, active-filter row). The queryKey gets
-  // the deferred values below so typing doesn't refetch on every keystroke.
+  // Parse eagerly for UI (chips, active-filter row); the queryKey gets the
+  // deferred value so typing doesn't refetch on every keystroke. Defer the
+  // whole object as one unit — three separate `useDeferredValue` calls can
+  // land on different old/new snapshots in one commit, yielding a transient
+  // queryKey that mixes a new `query` with a stale `eventType`.
   const parsed = useMemo(() => parseAuditSearch(searchInput), [searchInput]);
-  const deferredQuery = useDeferredValue(parsed.query);
-  const deferredSessionId = useDeferredValue(parsed.sessionId);
-  const deferredEventType = useDeferredValue(parsed.eventType);
+  const {
+    query: deferredQuery,
+    sessionId: deferredSessionId,
+    eventType: deferredEventType,
+  } = useDeferredValue(parsed);
 
   // state → URL. Gates off `lastSynced*` refs instead of `search.*` so an
   // external URL change (back/forward) handled by the URL→state effect
@@ -130,10 +144,20 @@ export function AuditPage() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Cutoff is computed at render time and baked into the queryKey below.
-  // For an idle admin page this is fine; any user interaction (filter
-  // change, scroll-triggered fetchNextPage) re-renders and refreshes it.
-  const since = useMemo(() => rangeToSince(range), [range]);
+  // Advance the cutoff on a timer so an idle bounded-range view keeps
+  // excluding rows that age past the window instead of freezing it at
+  // selection time. Ticks only while a bounded range is active (so 'all'
+  // never re-renders on the timer); the leading `tick()` refreshes the cutoff
+  // on entry, since the page may have idled on 'all' first.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (range === 'all') return;
+    const tick = () => setNowTick(Date.now());
+    tick();
+    const id = window.setInterval(tick, 30_000);
+    return () => window.clearInterval(id);
+  }, [range]);
+  const since = useMemo(() => rangeToSince(range, nowTick), [range, nowTick]);
 
   const auditQuery = useInfiniteQuery({
     queryKey: [
@@ -188,10 +212,10 @@ export function AuditPage() {
     [auditQuery.data],
   );
 
-  const activeCategory: Category | null = useMemo(() => {
-    const v = parsed.eventType;
-    return v && isOneOf(CATEGORIES, v) ? v : null;
-  }, [parsed.eventType]);
+  const activeCategory = useMemo(
+    () => filterCategory(parsed.eventType),
+    [parsed.eventType],
+  );
 
   const hasAnyFilter = Boolean(
     parsed.query || parsed.sessionId || parsed.eventType || range !== 'all',
@@ -215,8 +239,10 @@ export function AuditPage() {
   const toggleCategory = useCallback((category: Category | null) => {
     setSearchInput((current) => {
       if (category === null) return removeAuditField(current, 'type');
-      const next = parseAuditSearch(current).eventType;
-      if (next === category) return removeAuditField(current, 'type');
+      // Clicking the lit chip clears the filter — compare by category so a
+      // sub-type token (`tool.call`) still matches the "tool" chip.
+      const active = filterCategory(parseAuditSearch(current).eventType);
+      if (active === category) return removeAuditField(current, 'type');
       return setAuditField(current, 'type', category);
     });
   }, []);
@@ -320,10 +346,14 @@ export function AuditPage() {
           })}
         </div>
 
+        {/*
+          Plain container, not a live region: this row holds interactive
+          controls (the removable chips and "Clear all") that an `aria-live`
+          wrapper would announce spuriously. `.meta` above is the live region.
+        */}
         <div
           className={styles.activeRow}
           data-empty={hasAnyFilter ? undefined : 'true'}
-          aria-live="polite"
         >
           {parsed.sessionId ? (
             <span className={styles.activeChip}>

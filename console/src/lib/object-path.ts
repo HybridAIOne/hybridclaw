@@ -1,3 +1,13 @@
+// Path segments that would walk into the prototype chain. Guarded in both
+// the read and write helpers so a crafted path can never reach
+// `Object.prototype` (prototype pollution) — these are generic exported
+// helpers, even if today's callers only pass hardcoded admin-config paths.
+const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function isUnsafeSegment(segment: string): boolean {
+  return UNSAFE_SEGMENTS.has(segment);
+}
+
 /**
  * Read a deeply-nested value from a plain object via a dotted path
  * (e.g. `'ops.healthPort'`). Returns `undefined` for missing intermediates.
@@ -10,6 +20,7 @@ export function getPath<T>(source: unknown, path: string): T | undefined {
   let cursor: unknown = source;
   for (const segment of segments) {
     if (cursor === null || typeof cursor !== 'object') return undefined;
+    if (isUnsafeSegment(segment)) return undefined;
     cursor = (cursor as Record<string, unknown>)[segment];
   }
   return cursor as T | undefined;
@@ -34,6 +45,9 @@ export function setPath<T extends object>(
     throw new Error('setPath requires a non-empty path.');
   }
   const segments = path.split('.');
+  if (segments.some(isUnsafeSegment)) {
+    throw new Error(`setPath rejected an unsafe path segment in "${path}".`);
+  }
   const result = assignAt(source, segments, 0, value);
   return result as T;
 }

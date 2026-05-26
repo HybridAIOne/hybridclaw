@@ -89,6 +89,21 @@ describe('parseAuditSearch', () => {
       query: 'hello',
     });
   });
+
+  it('tolerates an unterminated trailing quote', () => {
+    // A stray closing `"` (e.g. from a partial paste) must not leak into the
+    // parsed token on either a field value or free text.
+    expect(parseAuditSearch('web"')).toEqual({
+      sessionId: '',
+      eventType: '',
+      query: 'web',
+    });
+    expect(parseAuditSearch('session:web"')).toEqual({
+      sessionId: 'web',
+      eventType: '',
+      query: '',
+    });
+  });
 });
 
 describe('removeAuditField', () => {

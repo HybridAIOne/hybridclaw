@@ -253,6 +253,39 @@ describe('ConfigPage', () => {
     expect(saveConfigMock).not.toHaveBeenCalled();
   });
 
+  it('returns to a clean state after saving an edited config', async () => {
+    // Regression: the saved config must flow back into the source query cache,
+    // otherwise `isDirty` (draft vs. source) never clears after a save — the
+    // page stays "Unsaved changes" and Discard would revert the just-saved
+    // edit. A real server echoes the persisted config back, so mirror that
+    // here. The default beforeEach mock returns the *original* config, which
+    // is what hid this bug.
+    saveConfigMock.mockImplementation((_token: string, cfg: AdminConfig) =>
+      Promise.resolve({ path: '/tmp/config.json', config: cfg }),
+    );
+
+    renderConfigPage();
+
+    const healthHost = (await screen.findByLabelText(
+      'Health host',
+    )) as HTMLInputElement;
+    fireEvent.change(healthHost, { target: { value: '10.0.0.1' } });
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    // Once the save resolves the page is clean again — no lingering dirty UI.
+    await waitFor(() => expect(screen.getByText('Saved')).toBeTruthy());
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
+    // The saved value persists rather than reverting to the original fetch.
+    expect(
+      (screen.getByLabelText('Health host') as HTMLInputElement).value,
+    ).toBe('10.0.0.1');
+  });
+
   it('surfaces a FieldError for malformed JSON in raw mode and blocks saving', async () => {
     renderConfigPage();
 

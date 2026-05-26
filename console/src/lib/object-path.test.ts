@@ -65,4 +65,18 @@ describe('setPath', () => {
     const source = { a: { b: { c: 1 } } };
     expect(setPath(source, 'a.b.c', 1)).toBe(source);
   });
+
+  it('throws on prototype-polluting path segments', () => {
+    expect(() => setPath({}, '__proto__.polluted', true)).toThrow();
+    expect(() => setPath({}, 'a.constructor.prototype.x', true)).toThrow();
+    // The global prototype is never touched.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+describe('getPath prototype safety', () => {
+  it('does not read through prototype-chain segments', () => {
+    expect(getPath({}, '__proto__')).toBeUndefined();
+    expect(getPath({ a: {} }, 'a.constructor')).toBeUndefined();
+  });
 });

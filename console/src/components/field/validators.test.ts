@@ -90,6 +90,11 @@ describe('validators', () => {
       );
     });
 
+    it('accepts the IPv6 loopback literal (hostname keeps brackets)', () => {
+      expect(loopbackUrl()('http://[::1]:8787')).toBeNull();
+      expect(loopbackUrl()('http://[::1]')).toBeNull();
+    });
+
     it('passes empty input', () => {
       expect(loopbackUrl()('')).toBeNull();
     });

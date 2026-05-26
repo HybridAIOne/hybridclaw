@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
 
 /**
  * Returns an identity-stable wrapper around a callback. The wrapper always
@@ -12,7 +12,11 @@ export function useStableCallback<Args extends unknown[], R>(
   callback: (...args: Args) => R,
 ): (...args: Args) => R {
   const ref = useRef(callback);
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so the ref is updated before any
+  // synchronous child render/layout-effect that might invoke the stable
+  // wrapper in the same commit — matching React's own `useEvent` shim. Safe
+  // here because the console is a client-only SPA (no SSR hydration).
+  useLayoutEffect(() => {
     ref.current = callback;
   });
   return useCallback((...args: Args) => ref.current(...args), []);

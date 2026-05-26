@@ -227,9 +227,11 @@ function extractEventValue(arg: unknown): unknown {
     value?: unknown;
     checked?: unknown;
   };
-  if (target.type === 'checkbox' || target.type === 'radio') {
+  if (target.type === 'checkbox') {
     return target.checked ?? false;
   }
+  // A native radio's meaningful value is its `value`, not `checked` (which is
+  // simply `true` for the selected input) — fall through to the value branch.
   if ('value' in target) return target.value;
   return arg;
 }
