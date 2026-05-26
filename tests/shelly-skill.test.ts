@@ -93,6 +93,18 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('cloud oauth-token');
   expect(skill).toContain('cloud all-status');
   expect(skill).toContain('WebSocket helpers emit');
+  expect(skill).toContain('Use this command surface directly');
+  expect(skill).toContain('do not rediscover flags by trial and error');
+  expect(skill).toContain('approval-plan <resource> <action>');
+  expect(skill).toContain(
+    'cover goto --device-url http://192.0.2.10 --id 0 --position 50 --operator-grant',
+  );
+  expect(skill).toContain(
+    'cloud websocket-command --cloud-host https://<HOST> --device-id abc123',
+  );
+  expect(skill).toContain(
+    'rpc call --device-url http://192.0.2.10 --method Cover.Calibrate',
+  );
   expect(skill).toContain('Access to Local Devices');
   expect(skill).toContain(
     'local TUI/web `/policy` command, or the `/admin/approvals` network policy',

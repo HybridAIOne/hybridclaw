@@ -121,16 +121,51 @@ and [Gen1 device API](https://shelly-api-docs.shelly.cloud/gen1/).
 
 ## Helper Operations
 
-Run `node skills/shelly/shelly.cjs --help` for the exact command surface and
-flags. The helper uses noun-verb commands such as `cover status`, `cover goto`,
-`switch set`, and `cloud all-status`; it owns the Shelly API method, path, and
-body selection. Generic commands such as `gen1 get`, `gen1 set`, `rpc get`, and
-`rpc call` cover documented operations that do not have a dedicated noun-verb
-helper. Normal HTTP commands emit a wrapper containing `command`,
-`operation`, `stakesTier`, and `httpRequest`; pass only `httpRequest` to the
-network tool. WebSocket helpers emit `webSocket` instead of `httpRequest`.
-`approval-plan` emits no `httpRequest`; it validates an amber command and
-returns the exact approved helper command to run after confirmation.
+Use this command surface directly; do not rediscover flags by trial and error.
+Run `node skills/shelly/shelly.cjs --help` only when the surface below appears
+stale. The helper owns the Shelly API method, path, and body selection. Normal
+HTTP commands emit a wrapper containing `command`, `operation`, `stakesTier`,
+and `httpRequest`; pass only `httpRequest` to the network tool. WebSocket
+helpers emit `webSocket` instead of `httpRequest`. `approval-plan` emits no
+`httpRequest`; it validates an amber command and returns the exact approved
+helper command to run after confirmation.
+
+Command surface:
+
+```text
+node skills/shelly/shelly.cjs [--format json|pretty] <resource> <action> [flags]
+node skills/shelly/shelly.cjs [--format json|pretty] approval-plan <resource> <action> [flags]
+
+device info --device-url http://192.0.2.10 [--ident]
+device status --device-url http://192.0.2.10
+device config --device-url http://192.0.2.10
+device methods --device-url http://192.0.2.10
+device components --device-url http://192.0.2.10 [--include status] [--include config] [--key switch:0]
+cover config --device-url http://192.0.2.10 --id 0
+cover status --device-url http://192.0.2.10 --id 0
+cover open --device-url http://192.0.2.10 --id 0 --operator-grant
+cover close --device-url http://192.0.2.10 --id 0 --operator-grant
+cover stop --device-url http://192.0.2.10 --id 0 --operator-grant
+cover goto --device-url http://192.0.2.10 --id 0 --position 50 --operator-grant
+cover status --cloud-host https://<HOST> --device-id abc123
+cover goto --cloud-host https://<HOST> --device-id abc123 --position 50 --operator-grant
+switch status --device-url http://192.0.2.10 --id 0
+switch set --device-url http://192.0.2.10 --id 0 --on true --operator-grant
+switch toggle --device-url http://192.0.2.10 --id 0 --operator-grant
+switch set --cloud-host https://<HOST> --device-id abc123 --on true --operator-grant
+relay status --device-url http://192.0.2.10 --id 0
+relay set --device-url http://192.0.2.10 --id 0 --turn on|off|toggle --operator-grant
+light set --cloud-host https://<HOST> --device-id abc123 --on true --brightness 50 --operator-grant
+cloud state --cloud-host https://<HOST> --device-id abc123 --select status
+cloud all-status --cloud-host https://<HOST>
+cloud oauth-token --cloud-host https://<HOST>
+cloud websocket-url --cloud-host https://<HOST>
+cloud websocket-command --cloud-host https://<HOST> --device-id abc123 --cmd roller_to_pos --params-json '{"id":0,"pos":50}' --operator-grant
+gen1 get --device-url http://192.0.2.10 --path /settings [--query key=value]
+gen1 set --device-url http://192.0.2.10 --path /settings/relay/0 --query default_state=on --operator-grant
+rpc get --device-url http://192.0.2.10 --method Cloud.GetStatus [--param id=0] [--params-json '{}']
+rpc call --device-url http://192.0.2.10 --method Cover.Calibrate --params-json '{"id":0}' --operator-grant
+```
 
 Supported operation groups:
 
