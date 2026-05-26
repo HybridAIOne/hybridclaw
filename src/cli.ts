@@ -69,6 +69,7 @@ import {
   removeGatewayPidFile,
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
+import type { GatewayStatus } from './gateway/gateway-types.js';
 import { logger } from './logger.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
@@ -1013,6 +1014,32 @@ async function stopGatewayBackend(): Promise<void> {
   await stopManagedGatewayByPid(state);
 }
 
+function printGatewayBuildStatus(build: GatewayStatus['build']): void {
+  if (!build) return;
+
+  const commit = build.gitCommit ? build.gitCommit.slice(0, 12) : 'unknown';
+  const branch = build.gitBranch ? `${build.gitBranch}@` : '';
+  console.log(
+    `Gateway process: pid ${build.pid} | ppid ${build.ppid} | node ${build.nodeVersion}`,
+  );
+  console.log(
+    `Gateway build: v${build.version} | ${branch}${commit} | stale: ${build.staleBuild ? 'yes' : 'no'}`,
+  );
+  console.log(`Entrypoint: ${build.entrypoint ?? '(unknown)'}`);
+  console.log(`Package root: ${build.packageRoot}`);
+
+  const staleFiles = build.files.filter(
+    (file) => file.status === 'source_newer' || file.status === 'missing_build',
+  );
+  if (staleFiles.length > 0) {
+    console.log(
+      `Stale build files: ${staleFiles
+        .map((file) => `${file.name} (${file.status})`)
+        .join(', ')}`,
+    );
+  }
+}
+
 async function printGatewayLifecycleStatus(): Promise<void> {
   const state = readGatewayPid();
   const runningByPid = Boolean(state && isPidRunning(state.pid));
@@ -1036,6 +1063,7 @@ async function printGatewayLifecycleStatus(): Promise<void> {
       console.log(
         `Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Sandbox: ${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`,
       );
+      printGatewayBuildStatus(status.build);
       if ((status.sandbox?.activeSessionIds?.length || 0) > 0) {
         console.log('Active sandbox sessions:');
         for (const sessionId of status.sandbox?.activeSessionIds || []) {
