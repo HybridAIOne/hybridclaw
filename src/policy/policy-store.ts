@@ -14,6 +14,29 @@ import {
 } from './network-policy.js';
 
 const MANAGED_BY_PRESET_FIELD = 'managed_by_preset';
+const LAN_HTTP_ACCESS_MANAGED_PRESET = 'lan-http-access';
+const LAN_HTTP_ACCESS_RANGES = [
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '192.168.0.0/16',
+] as const;
+const LAN_READ_ONLY_METHODS = ['GET'] as const;
+const LAN_READ_WRITE_METHODS = [
+  'GET',
+  'HEAD',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'OPTIONS',
+] as const;
+
+export type LanHttpAccessMode = 'off' | 'read-only' | 'read-write' | 'custom';
+
+export interface LanHttpAccessState {
+  mode: LanHttpAccessMode;
+  managedRuleIndexes: number[];
+}
 
 export interface ManagedNetworkRule extends NetworkRule {
   managedByPreset?: string;
@@ -30,6 +53,118 @@ export interface PolicyNetworkState {
   defaultAction: NetworkPolicyAction;
   presets: string[];
   rules: IndexedNetworkRule[];
+  lanHttpAccess: LanHttpAccessState;
+}
+
+function parseIpv4Address(value: string): number | null {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) return null;
+  const octets = value.split('.').map((entry) => Number.parseInt(entry, 10));
+  if (octets.some((octet) => octet < 0 || octet > 255)) return null;
+  return (
+    ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0
+  );
+}
+
+function isPrivateLanHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/\.$/, '');
+  if ((LAN_HTTP_ACCESS_RANGES as readonly string[]).includes(normalized)) {
+    return true;
+  }
+  const address = parseIpv4Address(normalized);
+  if (address == null) return false;
+  return (
+    (address & 0xff000000) >>> 0 === 0x0a000000 ||
+    (address & 0xfff00000) >>> 0 === 0xac100000 ||
+    (address & 0xffff0000) >>> 0 === 0xc0a80000
+  );
+}
+
+function sameMethods(actual: string[], expected: readonly string[]): boolean {
+  if (actual.length !== expected.length) return false;
+  return expected.every((method) => actual.includes(method));
+}
+
+function isManagedLanRuleForMode(
+  rule: IndexedNetworkRule,
+  mode: Exclude<LanHttpAccessMode, 'off' | 'custom'>,
+): boolean {
+  const expectedMethods =
+    mode === 'read-only' ? LAN_READ_ONLY_METHODS : LAN_READ_WRITE_METHODS;
+  return (
+    rule.action === 'allow' &&
+    rule.managedByPreset === LAN_HTTP_ACCESS_MANAGED_PRESET &&
+    (LAN_HTTP_ACCESS_RANGES as readonly string[]).includes(rule.host) &&
+    rule.port === '*' &&
+    sameMethods(rule.methods, expectedMethods) &&
+    rule.paths.length === 1 &&
+    rule.paths[0] === '/**' &&
+    rule.agent === '*'
+  );
+}
+
+function deriveLanHttpAccess(rules: IndexedNetworkRule[]): LanHttpAccessState {
+  const managedRules = rules.filter(
+    (rule) => rule.managedByPreset === LAN_HTTP_ACCESS_MANAGED_PRESET,
+  );
+  const managedRuleIndexes = managedRules.map((rule) => rule.index);
+  const hasCustomLanRule = rules.some(
+    (rule) =>
+      rule.action === 'allow' &&
+      rule.managedByPreset !== LAN_HTTP_ACCESS_MANAGED_PRESET &&
+      isPrivateLanHost(rule.host),
+  );
+
+  if (managedRules.length === 0) {
+    return {
+      mode: hasCustomLanRule ? 'custom' : 'off',
+      managedRuleIndexes,
+    };
+  }
+
+  const managedHosts = new Set(managedRules.map((rule) => rule.host));
+  const hasExpectedHosts = LAN_HTTP_ACCESS_RANGES.every((range) =>
+    managedHosts.has(range),
+  );
+  const hasOnlyExpectedHosts = managedRules.every((rule) =>
+    (LAN_HTTP_ACCESS_RANGES as readonly string[]).includes(rule.host),
+  );
+  if (
+    managedRules.length === LAN_HTTP_ACCESS_RANGES.length &&
+    !hasCustomLanRule &&
+    hasExpectedHosts &&
+    hasOnlyExpectedHosts &&
+    managedRules.every((rule) => isManagedLanRuleForMode(rule, 'read-only'))
+  ) {
+    return { mode: 'read-only', managedRuleIndexes };
+  }
+  if (
+    managedRules.length === LAN_HTTP_ACCESS_RANGES.length &&
+    !hasCustomLanRule &&
+    hasExpectedHosts &&
+    hasOnlyExpectedHosts &&
+    managedRules.every((rule) => isManagedLanRuleForMode(rule, 'read-write'))
+  ) {
+    return { mode: 'read-write', managedRuleIndexes };
+  }
+  return { mode: 'custom', managedRuleIndexes };
+}
+
+function buildManagedLanRules(
+  mode: Exclude<LanHttpAccessMode, 'off' | 'custom'>,
+): ManagedNetworkRule[] {
+  const methods =
+    mode === 'read-only' ? LAN_READ_ONLY_METHODS : LAN_READ_WRITE_METHODS;
+  const label = mode === 'read-only' ? 'read-only' : 'read-write';
+  return LAN_HTTP_ACCESS_RANGES.map((host) => ({
+    action: 'allow',
+    host,
+    port: '*',
+    methods: [...methods],
+    paths: ['/**'],
+    agent: '*',
+    comment: `Managed RFC1918 LAN HTTP ${label}`,
+    managedByPreset: LAN_HTTP_ACCESS_MANAGED_PRESET,
+  }));
 }
 
 function normalizeManagedByPreset(value: unknown): string | undefined {
@@ -154,16 +289,18 @@ function toPolicyState(
           .filter((rule): rule is ManagedNetworkRule => Boolean(rule))
       : config.rules.map((rule) => ({ ...rule }));
   const workspacePath = path.dirname(path.dirname(policyPath));
+  const indexedRules = rules.map((rule, index) => ({
+    ...rule,
+    index: index + 1,
+  }));
   return {
     exists,
     policyPath,
     workspacePath,
     defaultAction: config.defaultAction,
     presets: [...config.presets],
-    rules: rules.map((rule, index) => ({
-      ...rule,
-      index: index + 1,
-    })),
+    rules: indexedRules,
+    lanHttpAccess: deriveLanHttpAccess(indexedRules),
   };
 }
 
@@ -344,5 +481,21 @@ export function setPolicyPresets(
   return updatePolicyState(workspacePath, (draft) => {
     draft.presets = [...params.presets];
     draft.rules = params.rules.map((rule) => ({ ...rule }));
+  });
+}
+
+export function setLanHttpAccessMode(
+  workspacePath: string,
+  mode: LanHttpAccessMode,
+): PolicyNetworkState {
+  if (mode === 'custom') {
+    return readPolicyState(workspacePath);
+  }
+  return updatePolicyState(workspacePath, (draft) => {
+    draft.rules = draft.rules.filter(
+      (rule) => rule.managedByPreset !== LAN_HTTP_ACCESS_MANAGED_PRESET,
+    );
+    if (mode === 'off') return;
+    draft.rules.push(...buildManagedLanRules(mode));
   });
 }

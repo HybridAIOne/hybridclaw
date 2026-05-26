@@ -16,6 +16,8 @@ export function setupA2AWebhookTestEnv(tempHomePrefix: string): void {
   const originalDataDir = process.env.HYBRIDCLAW_DATA_DIR;
   const originalHome = process.env.HOME;
   const originalInstanceId = process.env.HYBRIDCLAW_INSTANCE_ID;
+  const originalIdentityDiscoveryZone =
+    process.env.HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE;
   let tmpDir = '';
 
   beforeEach(() => {
@@ -29,6 +31,11 @@ export function setupA2AWebhookTestEnv(tempHomePrefix: string): void {
     restoreEnvVar('HYBRIDCLAW_DATA_DIR', originalDataDir);
     restoreEnvVar('HOME', originalHome);
     restoreEnvVar('HYBRIDCLAW_INSTANCE_ID', originalInstanceId);
+    restoreEnvVar(
+      'HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE',
+      originalIdentityDiscoveryZone,
+    );
+    vi.doUnmock('node:dns/promises');
     vi.resetModules();
     if (tmpDir) {
       fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -735,7 +735,13 @@ export interface AdminConfig {
     persistBashState: boolean;
   };
   browser?: {
-    provider: 'local' | 'camofox' | 'managed-cloud' | 'browser-use-cloud';
+    provider:
+      | 'local'
+      | 'camofox'
+      | 'managed-cloud'
+      | 'browser-use-cloud'
+      | 'mac-cua';
+    allowPrivateNetwork: boolean;
     local: {
       profileDir: string;
       headed: boolean;
@@ -772,6 +778,12 @@ export interface AdminConfig {
         browserUsdPerMinute: number;
         actionUsd: number;
       };
+    };
+    macCua: {
+      browser: 'safari' | 'chrome' | 'firefox' | 'brave' | 'arc';
+      driverCommand: string;
+      driverArgs: string[];
+      screenshotMode: 'som' | 'vision' | 'ax';
     };
   };
   ops: {
@@ -1393,6 +1405,17 @@ export interface AdminPolicyRuleInput {
   comment?: string;
 }
 
+export type AdminLanHttpAccessMode =
+  | 'off'
+  | 'read-only'
+  | 'read-write'
+  | 'custom';
+
+export interface AdminLanHttpAccessState {
+  mode: AdminLanHttpAccessMode;
+  managedRuleIndexes: number[];
+}
+
 export interface AdminPolicyState {
   exists: boolean;
   policyPath: string;
@@ -1400,6 +1423,7 @@ export interface AdminPolicyState {
   defaultAction: 'allow' | 'deny';
   presets: string[];
   rules: AdminPolicyRule[];
+  lanHttpAccess: AdminLanHttpAccessState;
 }
 
 export interface AdminPolicyPresetSummary {

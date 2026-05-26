@@ -3,6 +3,8 @@ import { describe, expect, test } from 'vitest';
 import {
   DnsIdentityResolverBackend,
   type DnsTxtLookup,
+  getDefaultIdentityResolver,
+  IDENTITY_DISCOVERY_ZONE_ENV,
   IdentityNotFoundError,
   IdentityResolver,
   IdentityResolverError,
@@ -286,5 +288,24 @@ describe('identity resolver discovery', () => {
     await expect(resolver.resolve('ada@hybridai')).rejects.toThrow(
       IdentityResolverError,
     );
+  });
+
+  test('caches default resolver by normalized discovery zone', () => {
+    const originalZone = process.env[IDENTITY_DISCOVERY_ZONE_ENV];
+    try {
+      process.env[IDENTITY_DISCOVERY_ZONE_ENV] = 'Identity.Test.';
+      const first = getDefaultIdentityResolver();
+      process.env[IDENTITY_DISCOVERY_ZONE_ENV] = 'identity.test';
+      const second = getDefaultIdentityResolver();
+
+      expect(first).toBeTruthy();
+      expect(second).toBe(first);
+    } finally {
+      if (originalZone === undefined) {
+        delete process.env[IDENTITY_DISCOVERY_ZONE_ENV];
+      } else {
+        process.env[IDENTITY_DISCOVERY_ZONE_ENV] = originalZone;
+      }
+    }
   });
 });

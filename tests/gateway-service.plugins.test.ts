@@ -1201,7 +1201,7 @@ test('handleGatewayCommand installs a plugin from a local TUI/web session and re
   expect(result.text).toContain(
     'Installed plugin Node.js dependencies from package.json.',
   );
-  expect(result.text).toContain('Required env vars: DEMO_PLUGIN_TOKEN');
+  expect(result.text).toContain('Required runtime secrets: DEMO_PLUGIN_TOKEN');
   expect(result.text).toContain('required config keys: workspaceId');
   expect(result.text).toContain('Plugin runtime reloaded.');
 });
@@ -1903,7 +1903,8 @@ test('getGatewayAdminPlugins summarizes plugin status for the admin console', as
       description: undefined,
       source: 'project',
       enabled: false,
-      error: 'Missing required env vars: DEMO_PLUGIN_TOKEN.',
+      error:
+        'Missing required runtime secrets: DEMO_PLUGIN_TOKEN. Store them with `hybridclaw secret set <name> <value>` or in TUI with `/secret set <name> <value>`, then reload plugins.',
       commands: [],
       tools: ['broken_tool'],
       hooks: [],
@@ -1931,7 +1932,8 @@ test('getGatewayAdminPlugins summarizes plugin status for the admin console', as
         source: 'project',
         enabled: false,
         status: 'failed',
-        error: 'Missing required env vars: DEMO_PLUGIN_TOKEN.',
+        error:
+          'Missing required runtime secrets: DEMO_PLUGIN_TOKEN. Store them with `hybridclaw secret set <name> <value>` or in TUI with `/secret set <name> <value>`, then reload plugins.',
         commands: [],
         tools: ['broken_tool'],
         hooks: [],

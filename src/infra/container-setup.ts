@@ -110,12 +110,12 @@ function buildDockerAccessMessage(
     case 'permission-denied':
       return [
         `${commandName}: Docker is installed but the current user cannot access the Docker daemon (${issue.detail}).`,
-        'Add this user to the `docker` group, start a new login shell, or set `container.sandboxMode` to `host`.',
+        'Add this user to the `docker` group, start a new login shell, run `/config set container.sandboxMode host`, or set it in /admin/config.',
       ].join(' ');
     case 'daemon-unavailable':
       return [
         `${commandName}: Docker daemon not ready (${issue.detail}).`,
-        'Start Docker, or set `container.sandboxMode` to `host` to run without Docker.',
+        'Start Docker, run `/config set container.sandboxMode host`, or set it in /admin/config to run without Docker.',
       ].join(' ');
     case 'ready':
       return `${commandName}: Docker is ready.`;
@@ -612,7 +612,7 @@ async function buildAndValidateImage(params: {
           [
             `No pullable container image source is configured for '${imageName}'.`,
             'Packaged installs only support pulling published runtime images.',
-            'Set `container.image` to a registry-qualified image name or set `HYBRIDCLAW_CONTAINER_PULL_IMAGE`.',
+            'Run `/config set container.image <registry/image:tag>` or set `container.image` in /admin/config.',
           ].join(' '),
         );
       }
@@ -696,7 +696,7 @@ export async function ensureContainerImageReady(
         ].join(' ')
       : [
           'Packaged installs only support pulling published runtime images automatically.',
-          'Set `container.image` to a registry-qualified image name or set `HYBRIDCLAW_CONTAINER_PULL_IMAGE`.',
+          'Run `/config set container.image <registry/image:tag>` or set `container.image` in /admin/config.',
         ].join(' ');
 
   if (!(await ensureDockerAvailable(commandName, required))) {

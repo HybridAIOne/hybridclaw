@@ -1104,6 +1104,30 @@ async function importFreshCli(options?: {
       status: 'ok',
       pid: 12345,
       version: '0.4.1',
+      build: {
+        version: '0.4.1',
+        gitCommit: 'abcdef1234567890',
+        gitBranch: 'main',
+        packageRoot: '/repo',
+        entrypoint: '/repo/dist/cli.js',
+        cwd: '/repo',
+        execPath: '/node',
+        nodeVersion: 'v22.0.0',
+        pid: 12345,
+        ppid: 111,
+        startedAt: '2026-05-26T08:00:00.000Z',
+        staleBuild: true,
+        files: [
+          {
+            name: 'gateway-http-proxy',
+            sourcePath: '/repo/src/gateway/gateway-http-proxy.ts',
+            sourceModifiedAt: '2026-05-26T08:01:00.000Z',
+            buildPath: '/repo/dist/gateway/gateway-http-proxy.js',
+            buildModifiedAt: '2026-05-26T08:00:00.000Z',
+            status: 'source_newer',
+          },
+        ],
+      },
       uptime: 1,
       sessions: 1,
       activeContainers: 0,
@@ -3079,7 +3103,7 @@ describe('CLI hybridai commands', () => {
       'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Required env vars: EXAMPLE_PLUGIN_TOKEN',
+      'Required runtime secrets: EXAMPLE_PLUGIN_TOKEN',
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Add a plugins.list[] override in '),
@@ -4718,6 +4742,29 @@ describe('CLI hybridai commands', () => {
 
     expect(runDoctorCli).toHaveBeenCalledWith(['--fix', 'docker']);
     expect(process.exitCode).toBe(1);
+  });
+
+  it('prints gateway build diagnostics for gateway status', async () => {
+    const { cli, gatewayStatus } = await importFreshCli({
+      gatewayReachable: true,
+      gatewayStatusSandboxMode: 'host',
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['gateway', 'status']);
+
+    expect(gatewayStatus).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Gateway process: pid 12345 | ppid 111 | node v22.0.0',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Gateway build: v0.4.1 | main@abcdef123456 | stale: yes',
+    );
+    expect(logSpy).toHaveBeenCalledWith('Entrypoint: /repo/dist/cli.js');
+    expect(logSpy).toHaveBeenCalledWith('Package root: /repo');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Stale build files: gateway-http-proxy (source_newer)',
+    );
   });
 
   it('writes and cleans up a managed PID file for gateway start --foreground', async () => {

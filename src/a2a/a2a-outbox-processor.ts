@@ -1,3 +1,4 @@
+import { getDefaultIdentityResolver } from '../identity/resolver.js';
 import { logger } from '../logger.js';
 import {
   type A2AOutboxProcessOptions,
@@ -23,14 +24,17 @@ export async function processA2AOutbox(
   opts: A2AOutboxProcessOptions = {},
 ): Promise<A2AOutboxProcessResult> {
   const now = opts.now?.() ?? new Date();
+  const deliveryOptions: A2AOutboxProcessOptions = {
+    ...opts,
+    identityResolver:
+      opts.identityResolver ?? getDefaultIdentityResolver() ?? undefined,
+  };
   const concurrency = normalizePositiveInteger(
     opts.concurrency,
     A2A_OUTBOX_CONCURRENCY,
   );
-  const due = listA2AOutboxItems().filter(
-    (item) =>
-      item.status === 'pending' &&
-      Date.parse(item.nextAttemptAt) <= now.getTime(),
+  const due = listA2AOutboxItems({ status: 'pending' }).filter(
+    (item) => Date.parse(item.nextAttemptAt) <= now.getTime(),
   );
   const result: A2AOutboxProcessResult = {
     processed: 0,
@@ -43,7 +47,7 @@ export async function processA2AOutbox(
     const batch = due.slice(index, index + concurrency);
     result.processed += batch.length;
     const outcomes = await Promise.allSettled(
-      batch.map((item) => deliverA2AItem(item, opts)),
+      batch.map((item) => deliverA2AItem(item, deliveryOptions)),
     );
     for (const outcome of outcomes) {
       if (outcome.status === 'fulfilled') {

@@ -26,6 +26,8 @@ import {
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
+import { evaluateNetworkPolicyAccess } from '../policy/network-policy.js';
+import { readPolicyState } from '../policy/policy-store.js';
 import {
   isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
@@ -155,27 +157,111 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-async function isPrivateHost(hostname: string): Promise<boolean> {
+function formatOutboundHttpError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const message = error.message || error.name || String(error);
+  const cause = formatErrorCause(error.cause);
+  if (!cause || message.includes(cause)) {
+    return message;
+  }
+  return `${message} (${cause})`;
+}
+
+function formatErrorCause(cause: unknown): string {
+  if (cause == null) {
+    return '';
+  }
+  if (cause instanceof Error) {
+    const message = cause.message || cause.name || String(cause);
+    const nestedCause = formatErrorCause(cause.cause);
+    if (!nestedCause || message.includes(nestedCause)) {
+      return message;
+    }
+    return `${message} (${nestedCause})`;
+  }
+  if (typeof cause === 'string') {
+    return cause;
+  }
+  if (typeof cause === 'object') {
+    const record = cause as Record<string, unknown>;
+    const message =
+      typeof record.message === 'string' ? record.message.trim() : '';
+    const code = typeof record.code === 'string' ? record.code.trim() : '';
+    if (message) {
+      return code && !message.includes(code) ? `${code} ${message}` : message;
+    }
+    return code;
+  }
+  return String(cause);
+}
+
+type PrivateHostCheck = {
+  blocked: boolean;
+  reason: 'private' | 'dns_failed';
+};
+
+async function checkPrivateHost(hostname: string): Promise<PrivateHostCheck> {
   const host = hostname.trim().toLowerCase();
-  if (!host) return true;
+  if (!host) return { blocked: true, reason: 'private' };
   if (
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     host.endsWith('.local')
   ) {
-    return true;
+    return { blocked: true, reason: 'private' };
   }
-  if (net.isIP(host) > 0) return isPrivateIp(host);
+  if (net.isIP(host) > 0) {
+    return { blocked: isPrivateIp(host), reason: 'private' };
+  }
   try {
     const resolved = await lookup(host, { all: true, verbatim: true });
-    if (resolved.length === 0) return false;
-    return resolved.some((entry) => isPrivateIp(entry.address));
+    if (resolved.length === 0) return { blocked: false, reason: 'private' };
+    return {
+      blocked: resolved.some((entry) => isPrivateIp(entry.address)),
+      reason: 'private',
+    };
   } catch (error) {
     logger.warn(
       { host, error },
       'DNS lookup failed during SSRF host check; treating host as private/blocked',
     );
-    return true;
+    return { blocked: true, reason: 'dns_failed' };
+  }
+}
+
+function getUrlPort(url: URL): number {
+  if (url.port) {
+    const parsed = Number.parseInt(url.port, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return url.protocol === 'https:' ? 443 : 80;
+}
+
+function isPrivateHttpRequestAllowedByPolicy(params: {
+  url: URL;
+  method: string;
+  agentId?: string;
+}): boolean {
+  try {
+    const state = readPolicyState(process.cwd());
+    const evaluation = evaluateNetworkPolicyAccess({
+      defaultAction: state.defaultAction,
+      rules: state.rules,
+      host: params.url.hostname,
+      port: getUrlPort(params.url),
+      method: params.method,
+      path: params.url.pathname || '/',
+      agentId: params.agentId,
+    });
+    return evaluation.decision === 'allow' && Boolean(evaluation.matchedRule);
+  } catch (error) {
+    logger.warn(
+      { host: params.url.hostname, error },
+      'Failed to evaluate network policy for private http_request target; blocking request',
+    );
+    return false;
   }
 }
 
@@ -243,7 +329,10 @@ async function readHttpResponseBuffer(
   };
 }
 
-async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
+async function assertHttpRequestUrl(
+  raw: unknown,
+  context: { method: string; agentId?: string },
+): Promise<URL> {
   const input = String(raw || '').trim();
   if (!input) {
     throw new GatewayRequestError(400, 'Missing `url` in request body.');
@@ -263,7 +352,20 @@ async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
     );
   }
 
-  if (await isPrivateHost(parsed.hostname)) {
+  const privateHostCheck = await checkPrivateHost(parsed.hostname);
+  if (privateHostCheck.blocked) {
+    const isAllowlisted = isPrivateHttpRequestAllowedByPolicy({
+      url: parsed,
+      method: context.method,
+      agentId: context.agentId,
+    });
+    if (isAllowlisted) return parsed;
+    if (privateHostCheck.reason === 'private') {
+      throw new GatewayRequestError(
+        400,
+        `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}) is not allowlisted by workspace network policy for ${context.method} ${parsed.pathname || '/'} on port ${getUrlPort(parsed)}.`,
+      );
+    }
     throw new GatewayRequestError(
       400,
       `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}).`,
@@ -484,7 +586,7 @@ async function resolveHubSpotOAuthTokenOrThrow(
     isAllowedHost: isHubSpotApiHost,
     allowedHostDescription: 'HubSpot API',
     resolveToken: resolveHubSpotAccessToken,
-    loginHint: `${secretName} is not available. Store a HubSpot Service Key with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
+    loginHint: `${secretName} is not available. Store a HubSpot Service Key with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN <token>\` or in TUI with \`/secret set HUBSPOT_ACCESS_TOKEN <token>\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
   });
 }
 
@@ -1294,12 +1396,15 @@ export async function handleApiHttpRequest(
         selector: 'url',
       })
     : body.url;
-  const url = await assertHttpRequestUrl(rawUrl);
+  const method = normalizeHttpRequestMethod(body.method);
+  const url = await assertHttpRequestUrl(rawUrl, {
+    method,
+    agentId: baseSecretContext.agentId,
+  });
   const secretContext = {
     ...baseSecretContext,
     host: url.hostname,
   };
-  const method = normalizeHttpRequestMethod(body.method);
   const timeoutMs =
     parsePositiveInteger(body.timeoutMs) ?? HTTP_REQUEST_TIMEOUT_MS;
   const maxResponseBytes =
@@ -1494,10 +1599,10 @@ export async function handleApiHttpRequest(
       redirect: 'manual',
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     throw new GatewayRequestError(
       502,
-      `Outbound HTTP request failed: ${message}`,
+      `Outbound HTTP request failed: ${formatOutboundHttpError(error)}`,
+      { cause: error },
     );
   } finally {
     clearTimeout(timeout);

@@ -44,6 +44,16 @@ const saveAdminPolicyDefaultMock =
       params: { agentId: string; defaultAction: 'allow' | 'deny' },
     ) => Promise<AdminPolicyState>
   >();
+const saveAdminPolicyLanHttpAccessMock =
+  vi.fn<
+    (
+      token: string,
+      params: {
+        agentId: string;
+        mode: 'off' | 'read-only' | 'read-write' | 'custom';
+      },
+    ) => Promise<AdminPolicyState>
+  >();
 const saveAdminPolicyPresetMock =
   vi.fn<
     (
@@ -87,6 +97,13 @@ vi.mock('../api/client', () => ({
     token: string,
     params: { agentId: string; defaultAction: 'allow' | 'deny' },
   ) => saveAdminPolicyDefaultMock(token, params),
+  saveAdminPolicyLanHttpAccess: (
+    token: string,
+    params: {
+      agentId: string;
+      mode: 'off' | 'read-only' | 'read-write' | 'custom';
+    },
+  ) => saveAdminPolicyLanHttpAccessMock(token, params),
   saveAdminPolicyPreset: (
     token: string,
     params: { agentId: string; presetName: string },
@@ -135,6 +152,10 @@ function makeApprovalsResponse(
       policyPath: '/tmp/main/workspace/.hybridclaw/policy.yaml',
       workspacePath: '/tmp/main/workspace',
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: ['github'],
       rules: [
         {
@@ -185,6 +206,7 @@ describe('ApprovalsPage', () => {
     fetchAdminApprovalsMock.mockReset();
     saveAdminPolicyRuleMock.mockReset();
     saveAdminPolicyDefaultMock.mockReset();
+    saveAdminPolicyLanHttpAccessMock.mockReset();
     saveAdminPolicyPresetMock.mockReset();
     deleteAdminPolicyRuleMock.mockReset();
     useAuthMock.mockReset();
@@ -194,6 +216,13 @@ describe('ApprovalsPage', () => {
     saveAdminPolicyDefaultMock.mockResolvedValue(
       makeApprovalsResponse().policy,
     );
+    saveAdminPolicyLanHttpAccessMock.mockResolvedValue({
+      ...makeApprovalsResponse().policy,
+      lanHttpAccess: {
+        mode: 'read-only',
+        managedRuleIndexes: [2, 3, 4],
+      },
+    });
     saveAdminPolicyPresetMock.mockResolvedValue({
       ...makeApprovalsResponse().policy,
       presets: ['github', 'npm'],
@@ -239,6 +268,10 @@ describe('ApprovalsPage', () => {
             policyPath: '/tmp/research/workspace/.hybridclaw/policy.yaml',
             workspacePath: '/tmp/research/workspace',
             defaultAction: 'deny',
+            lanHttpAccess: {
+              mode: 'off',
+              managedRuleIndexes: [],
+            },
             presets: [],
             rules: [
               {
@@ -319,6 +352,39 @@ describe('ApprovalsPage', () => {
         defaultAction: 'allow',
       });
     });
+  });
+
+  it('updates LAN HTTP access from the dropdown', async () => {
+    renderApprovalsPage();
+
+    await screen.findByText('manual allow');
+    fireEvent.change(screen.getByLabelText('LAN HTTP access'), {
+      target: { value: 'read-only' },
+    });
+
+    await waitFor(() => {
+      expect(saveAdminPolicyLanHttpAccessMock).toHaveBeenCalledWith(
+        'test-token',
+        {
+          agentId: 'main',
+          mode: 'read-only',
+        },
+      );
+    });
+  });
+
+  it('opens the policy editor for custom LAN HTTP access', async () => {
+    renderApprovalsPage();
+
+    await screen.findByText('manual allow');
+    expect(screen.queryByLabelText('Host')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('LAN HTTP access'), {
+      target: { value: 'custom' },
+    });
+
+    expect(await screen.findByLabelText('Host')).toBeTruthy();
+    expect(saveAdminPolicyLanHttpAccessMock).not.toHaveBeenCalled();
   });
 
   it('applies a template from the dropdown', async () => {

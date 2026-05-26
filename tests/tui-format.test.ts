@@ -6,11 +6,13 @@ import {
   formatTuiTitledCommandBlock,
   formatTuiToolActivityBlock,
   formatTuiToolActivityLine,
+  hasTuiMarkdownFormatting,
   isMutedSkillListLine,
   isPluginListHeaderLine,
   nextActiveDelegateToolCount,
   parseTuiSectionCards,
   renderTuiEvalResultsPanel,
+  shouldReplayTuiFormattedText,
   visibleTuiLength,
 } from '../src/tui.ts';
 
@@ -181,6 +183,42 @@ test('formats inline markdown emphasis in regular tui output', () => {
   );
   expect(rendered).toContain('\x1b[1mAdd pricing signals.\x1b[22m');
   expect(rendered).not.toContain('\x1b[0m');
+});
+
+test('detects markdown that needs final tui replay after streaming', () => {
+  expect(hasTuiMarkdownFormatting('Plain text only.')).toBe(false);
+  expect(hasTuiMarkdownFormatting('Use **bold** text.')).toBe(true);
+  expect(
+    hasTuiMarkdownFormatting(
+      ['| A | B |', '|---|---|', '| 1 | 2 |'].join('\n'),
+    ),
+  ).toBe(true);
+  expect(hasTuiMarkdownFormatting('```\n| not | table |\n```')).toBe(false);
+});
+
+test('replays streamed tui output only when markdown can be cleared safely', () => {
+  const base = {
+    finalText: 'Use **bold** text.',
+    interrupted: false,
+    pendingApproval: false,
+    sawVisibleTextDelta: true,
+    status: 'success' as const,
+    stdoutIsTTY: true,
+  };
+
+  expect(shouldReplayTuiFormattedText(base)).toBe(true);
+  expect(
+    shouldReplayTuiFormattedText({ ...base, finalText: 'Plain text only.' }),
+  ).toBe(false);
+  expect(shouldReplayTuiFormattedText({ ...base, stdoutIsTTY: false })).toBe(
+    false,
+  );
+  expect(
+    shouldReplayTuiFormattedText({ ...base, sawVisibleTextDelta: false }),
+  ).toBe(false);
+  expect(shouldReplayTuiFormattedText({ ...base, status: 'error' })).toBe(
+    false,
+  );
 });
 
 test('keeps wide glyph markdown table rows inside the terminal width', () => {

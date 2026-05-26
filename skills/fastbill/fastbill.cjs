@@ -9,12 +9,6 @@ const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const DEFAULT_TIMEOUT_MS = 30000;
 const GATEWAY_TIMEOUT_BUFFER_MS = 5000;
 const DEFAULT_AUTH_SECRET_NAME = 'FASTBILL_BASIC_AUTH';
-const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
-const EINVOICE_FIXTURE_PATH = path.join(
-  __dirname,
-  'fixtures',
-  'einvoice-readiness.json',
-);
 
 const READ_SERVICES = new Set([
   'article.get',
@@ -635,173 +629,12 @@ function resolveJsonInput(args, label) {
   );
 }
 
-function findInvoices(response) {
-  return collectNodesByKey(response, 'INVOICE').filter(
-    (invoice) => invoice && typeof invoice === 'object',
-  );
-}
-
-function isoDateDaysAgo(days) {
-  const date = new Date();
-  date.setUTCDate(
-    date.getUTCDate() - parseNonNegativeInt(days, '--older-than-days'),
-  );
-  return date.toISOString().slice(0, 10);
-}
-
-function filterInvoices(invoices, input) {
-  let filtered = invoices;
-  if (input.state) {
-    const expected = String(input.state).toLowerCase();
-    filtered = filtered.filter(
-      (invoice) => String(invoice.STATE || '').toLowerCase() === expected,
-    );
-  }
-  return filtered;
-}
-
 function parseNonNegativeInt(value, flag) {
   if (value === undefined || value === null || value === '') return undefined;
   if (!/^\d+$/u.test(String(value))) {
     throw new FastBillConfigError(`${flag} must be a non-negative integer.`);
   }
   return Number(value);
-}
-
-function parseIsoDate(value, flag) {
-  if (!value) return undefined;
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(String(value))) {
-    throw new FastBillConfigError(`${flag} must use YYYY-MM-DD format.`);
-  }
-  return value;
-}
-
-function planFastBillRequest(text) {
-  const raw = String(text || '').trim();
-  const normalized = raw.toLowerCase();
-  let service = 'invoice.get';
-  let mutatesAccount = false;
-  let operatorGrantRequired = false;
-  let command = 'list-invoices';
-
-  if (
-    /(create|new).*(invoice|rechnung)|\bdraft\b.*\bnew\b.*(invoice|rechnung)|\bprepare\b.*(invoice|rechnung)/u.test(
-      normalized,
-    )
-  ) {
-    service = 'invoice.create';
-    command = 'create-invoice';
-  } else if (
-    /(xrechnung|zugferd|e-?invoice|electronic invoice)/u.test(normalized)
-  ) {
-    service = 'invoice.get';
-    command = 'export-einvoice';
-  } else if (
-    /(delete|remove).*(invoice|rechnung)|test invoice.*(delete|remove)/u.test(
-      normalized,
-    )
-  ) {
-    service = 'invoice.delete';
-    command = 'request invoice.delete';
-  } else if (
-    /(cancel|void|storno).*(invoice|rechnung)|invoice.*(cancel|void|storno)/u.test(
-      normalized,
-    )
-  ) {
-    service = 'invoice.cancel';
-    command = 'request invoice.cancel';
-  } else if (
-    /(complete|finalize|finalise).*(invoice|rechnung)|draft invoice.*(complete|finalize|finalise)/u.test(
-      normalized,
-    )
-  ) {
-    service = 'invoice.complete';
-    command = 'request invoice.complete';
-  } else if (
-    /(update|change|correct).*(invoice|rechnung)|draft invoice.*(update|change|correct)/u.test(
-      normalized,
-    )
-  ) {
-    service = 'invoice.update';
-    command = 'request invoice.update';
-  } else if (/(create|new|add).*(customer|client|kunde)/u.test(normalized)) {
-    service = 'customer.create';
-    command = 'request customer.create';
-  } else if (/(mark|set).*(paid|bezahlt)/u.test(normalized)) {
-    service = 'invoice.setpaid';
-    command = 'mark-paid';
-  } else if (
-    /(reminder|mahnung|payment reminder|send.*email)/u.test(normalized)
-  ) {
-    service = 'invoice.sendbyemail';
-    command = 'send-reminder';
-  } else if (/(document inbox|documents|folder)/u.test(normalized)) {
-    service = 'document.get';
-    command = 'request document.get';
-  } else if (/(article|articles|product|products)/u.test(normalized)) {
-    service = 'article.get';
-    command = 'request article.get';
-  } else if (/(customer|client|kunde)/u.test(normalized)) {
-    service = 'customer.get';
-    command = 'request customer.get';
-  }
-
-  mutatesAccount = WRITE_SERVICES.has(service);
-  operatorGrantRequired = mutatesAccount;
-  return {
-    input: raw,
-    command,
-    service,
-    mutatesAccount,
-    operatorGrantRequired,
-    defaultAutonomy: mutatesAccount
-      ? 'operator_grant_required'
-      : 'read_allowed',
-    costMeasurement: usageTotalsMeasurement(),
-  };
-}
-
-function loadEvalScenarios() {
-  return JSON.parse(fs.readFileSync(EVAL_SCENARIOS_PATH, 'utf8'));
-}
-
-function loadEInvoiceFixture() {
-  return JSON.parse(fs.readFileSync(EINVOICE_FIXTURE_PATH, 'utf8'));
-}
-
-function evaluateScenarios() {
-  const scenarios = loadEvalScenarios();
-  const einvoiceFixture = loadEInvoiceFixture();
-  const results = scenarios.map((scenario) => {
-    const plan = planFastBillRequest(scenario.prompt);
-    const pass =
-      plan.service === scenario.expected.service &&
-      plan.operatorGrantRequired === scenario.expected.operatorGrantRequired;
-    return {
-      id: scenario.id,
-      category: scenario.category,
-      pass,
-      expected: scenario.expected,
-      actual: {
-        service: plan.service,
-        operatorGrantRequired: plan.operatorGrantRequired,
-      },
-    };
-  });
-  const failed = results.filter((result) => !result.pass);
-  return {
-    total: results.length,
-    passed: results.length - failed.length,
-    failed: failed.length,
-    fixtureCoverage: {
-      einvoiceFormats: einvoiceFixture.formats,
-      requiredBuyerChecks: einvoiceFixture.requiredBuyerChecks.length,
-      hasXRechnung: einvoiceFixture.formats.includes('XRechnung'),
-      hasZugferd: einvoiceFixture.formats.includes('ZUGFeRD'),
-    },
-    results,
-    costMeasurement: usageTotalsMeasurement(),
-  };
 }
 
 function parseArgs(argv) {
@@ -838,13 +671,6 @@ Usage:
   node skills/fastbill/fastbill.cjs http-request <service> [--filter-json JSON] [--data-json JSON] [--limit N] [--offset N] [--operator-grant]
   node skills/fastbill/fastbill.cjs parse-response --body-file PATH
   node skills/fastbill/fastbill.cjs request <service> [--filter-json JSON] [--data-json JSON] [--limit N] [--offset N] [--dry-run] [--operator-grant]
-  node skills/fastbill/fastbill.cjs list-invoices [--state unpaid|overdue|paid|draft] [--older-than-days N] [--limit N] [--offset N] [--dry-run]
-  node skills/fastbill/fastbill.cjs create-invoice --data-json JSON --operator-grant [--dry-run]
-  node skills/fastbill/fastbill.cjs mark-paid --invoice-id ID [--paid-date YYYY-MM-DD] [--payment-method TEXT] --operator-grant [--dry-run]
-  node skills/fastbill/fastbill.cjs send-reminder --invoice-id ID --recipient EMAIL [--subject TEXT] [--message TEXT] --operator-grant [--dry-run]
-  node skills/fastbill/fastbill.cjs export-einvoice --invoice-id ID [--dry-run]
-  node skills/fastbill/fastbill.cjs plan "natural language request"
-  node skills/fastbill/fastbill.cjs eval-scenarios
 
 Environment:
   HYBRIDCLAW_GATEWAY_URL       Gateway URL, default ${DEFAULT_GATEWAY_URL}
@@ -871,18 +697,6 @@ async function main(argv = process.argv.slice(2)) {
       DEFAULT_AUTH_SECRET_NAME,
     traceId: args['trace-id'],
   };
-
-  if (command === 'plan') {
-    printJson(planFastBillRequest(args._.slice(1).join(' ')));
-    return;
-  }
-
-  if (command === 'eval-scenarios') {
-    const result = evaluateScenarios();
-    printJson(result);
-    if (result.failed > 0) process.exitCode = 1;
-    return;
-  }
 
   if (command === 'http-request') {
     const service = args._[1];
@@ -923,109 +737,6 @@ async function main(argv = process.argv.slice(2)) {
     return;
   }
 
-  if (command === 'list-invoices') {
-    const filter = {};
-    if (args['older-than-days'])
-      filter.END_DUE_DATE = isoDateDaysAgo(args['older-than-days']);
-    const limit = parseNonNegativeInt(args.limit, '--limit') ?? 100;
-    const result = await callFastBillService({
-      ...common,
-      service: 'invoice.get',
-      filter,
-      limit,
-      offset: parseNonNegativeInt(args.offset, '--offset'),
-    });
-    if (!common.dryRun) {
-      const rawInvoices = findInvoices(result.response);
-      result.invoices = filterInvoices(rawInvoices, {
-        state: args.state,
-      });
-      if (rawInvoices.length === limit) {
-        result.truncated = true;
-        result.truncationNote =
-          'Results may be incomplete. Use --limit and --offset to paginate.';
-      }
-    }
-    printJson(result);
-    return;
-  }
-
-  if (command === 'create-invoice') {
-    const data = resolveJsonInput(args, 'data');
-    printJson(
-      await callFastBillService({
-        ...common,
-        service: 'invoice.create',
-        data,
-      }),
-    );
-    return;
-  }
-
-  if (command === 'mark-paid') {
-    if (!args['invoice-id'])
-      throw new FastBillConfigError('--invoice-id is required.');
-    const data = {
-      INVOICE_ID: args['invoice-id'],
-      PAID_DATE: parseIsoDate(args['paid-date'], '--paid-date'),
-      PAYMENT_METHOD: args['payment-method'],
-    };
-    printJson(
-      await callFastBillService({
-        ...common,
-        service: 'invoice.setpaid',
-        data,
-      }),
-    );
-    return;
-  }
-
-  if (command === 'send-reminder') {
-    if (!args['invoice-id'])
-      throw new FastBillConfigError('--invoice-id is required.');
-    if (!args.recipient)
-      throw new FastBillConfigError('--recipient is required.');
-    const data = {
-      INVOICE_ID: args['invoice-id'],
-      RECIPIENT: {
-        TO: args.recipient,
-      },
-      SUBJECT: args.subject || 'Payment reminder',
-      MESSAGE:
-        args.message ||
-        'Please review the outstanding invoice and payment status.',
-    };
-    printJson(
-      await callFastBillService({
-        ...common,
-        service: 'invoice.sendbyemail',
-        data,
-      }),
-    );
-    return;
-  }
-
-  if (command === 'export-einvoice') {
-    if (!args['invoice-id'])
-      throw new FastBillConfigError('--invoice-id is required.');
-    const einvoiceFixture = loadEInvoiceFixture();
-    const result = await callFastBillService({
-      ...common,
-      service: 'invoice.get',
-      filter: { INVOICE_ID: args['invoice-id'] },
-    });
-    result.einvoiceHandoff = {
-      invoiceId: args['invoice-id'],
-      source: 'FastBill invoice.get DOCUMENT_URL / invoice document metadata',
-      formats: einvoiceFixture.formats,
-      requiresAccountEInvoicingEnabled: true,
-      validateWithEInvoicingFixtures: true,
-      mandatoryBuyerChecks: einvoiceFixture.requiredBuyerChecks,
-    };
-    printJson(result);
-    return;
-  }
-
   throw new FastBillConfigError(`Unknown command: ${command}`);
 }
 
@@ -1060,10 +771,7 @@ module.exports = {
   buildFastBillHttpRequest,
   buildFastBillXmlRequest,
   callFastBillService,
-  evaluateScenarios,
-  loadEInvoiceFixture,
   parseFastBillHttpResponse,
   parseFastBillXmlResponse,
-  planFastBillRequest,
   usageTotalsMeasurement,
 };

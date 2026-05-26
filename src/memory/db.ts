@@ -73,6 +73,7 @@ import { resolveSessionRoutingScope } from '../session/session-routing.js';
 import type {
   AgentSkillScore,
   SkillAmendment,
+  SkillAmendmentProposalMetadata,
   SkillAmendmentStatus,
   SkillErrorCategory,
   SkillExecutionOutcome,
@@ -148,7 +149,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 37;
+export const DATABASE_SCHEMA_VERSION = 38;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -258,11 +259,15 @@ type SkillObservationErrorClusterRow = {
 
 type SkillAmendmentRow = Omit<
   SkillAmendment,
-  'guard_verdict' | 'metrics_at_proposal' | 'metrics_post_apply'
+  | 'guard_verdict'
+  | 'metrics_at_proposal'
+  | 'metrics_post_apply'
+  | 'proposal_metadata'
 > & {
   guard_verdict: string;
   metrics_at_proposal: string | null;
   metrics_post_apply: string | null;
+  proposal_metadata: string | null;
 };
 
 function getSchemaVersion(database: Database.Database): number {
@@ -1466,6 +1471,7 @@ function migrateV9(
       guard_findings_count INTEGER NOT NULL DEFAULT 0,
       metrics_at_proposal TEXT,
       metrics_post_apply TEXT,
+      proposal_metadata TEXT,
       runs_since_apply INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -2662,6 +2668,24 @@ function migrateV37(database: Database.Database): void {
   recordMigration(database, 37, 'Persist typed board card dependency edges');
 }
 
+function migrateV38(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'skill_amendments',
+    column: 'proposal_metadata',
+    ddl: 'proposal_metadata TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(
+    database,
+    38,
+    'Persist adaptive skill amendment proposal metadata',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2748,6 +2772,9 @@ function runMigrations(
   }
   if (currentVersion < 37 || boardCardEdgesNeedMigration(database)) {
     migrateV37(database);
+  }
+  if (currentVersion < 38) {
+    migrateV38(database, opts);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -8430,6 +8457,33 @@ function serializeSkillMetricsJson(
   }
 }
 
+function parseSkillAmendmentProposalMetadataJson(
+  raw: string | null,
+): SkillAmendmentProposalMetadata | null {
+  const normalized = raw?.trim() || '';
+  if (!normalized) return null;
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as SkillAmendmentProposalMetadata;
+  } catch {
+    return null;
+  }
+}
+
+function serializeSkillAmendmentProposalMetadataJson(
+  metadata: SkillAmendmentProposalMetadata | null | undefined,
+): string | null {
+  if (!metadata) return null;
+  try {
+    return JSON.stringify(metadata);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeSkillOutcome(
   value: string | null | undefined,
 ): SkillExecutionOutcome {
@@ -8537,6 +8591,9 @@ function mapSkillAmendmentRow(row: SkillAmendmentRow): SkillAmendment {
     ),
     metrics_at_proposal: parseSkillMetricsJson(row.metrics_at_proposal),
     metrics_post_apply: parseSkillMetricsJson(row.metrics_post_apply),
+    proposal_metadata: parseSkillAmendmentProposalMetadataJson(
+      row.proposal_metadata,
+    ),
     runs_since_apply: Math.max(0, Math.floor(row.runs_since_apply || 0)),
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -9185,6 +9242,7 @@ export function createSkillAmendment(input: {
   guardFindingsCount?: number;
   metricsAtProposal?: SkillHealthMetrics | null;
   metricsPostApply?: SkillHealthMetrics | null;
+  proposalMetadata?: SkillAmendmentProposalMetadata | null;
   runsSinceApply?: number;
 }): SkillAmendment {
   const skillName = input.skillName.trim();
@@ -9218,8 +9276,9 @@ export function createSkillAmendment(input: {
          guard_findings_count,
          metrics_at_proposal,
          metrics_post_apply,
+         proposal_metadata,
          runs_since_apply
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       skillName,
@@ -9241,6 +9300,7 @@ export function createSkillAmendment(input: {
       Math.max(0, Math.floor(input.guardFindingsCount || 0)),
       serializeSkillMetricsJson(input.metricsAtProposal),
       serializeSkillMetricsJson(input.metricsPostApply),
+      serializeSkillAmendmentProposalMetadataJson(input.proposalMetadata),
       Math.max(0, Math.floor(input.runsSinceApply || 0)),
     );
 

@@ -134,7 +134,9 @@ function resolveRuntimeConfig(): {
     throw new Error('Email SMTP host is not configured.');
   }
   if (!password) {
-    throw new Error('EMAIL_PASSWORD is required to start the email channel.');
+    throw new Error(
+      'Email channel password is required. Store EMAIL_PASSWORD with `hybridclaw secret set EMAIL_PASSWORD <password>` or in TUI with `/secret set EMAIL_PASSWORD <password>`, or set email.password in /admin/config.',
+    );
   }
   return {
     address: config.address.trim(),

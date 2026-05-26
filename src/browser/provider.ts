@@ -1,4 +1,5 @@
 import type { Buffer } from 'node:buffer';
+import type { SecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 
 export interface BrowserProvider {
@@ -11,6 +12,8 @@ export interface BrowserProviderCapabilities {
   credentialInjection: 'opaque-handle';
   waypointEvents: readonly BrowserWaypointEvent[];
 }
+
+export type BrowserFillInput = SecretInput | SecretHandle;
 
 export interface SessionOptions {
   /**
@@ -30,6 +33,22 @@ export interface BrowserSessionMeteringContext {
   tenantId?: string;
   auditRunId?: string;
   skillName?: string;
+}
+
+export interface BrowserTwoFactorState {
+  detected: boolean;
+  modality?: string | null;
+  signals?: string[];
+  url?: string | null;
+  title?: string | null;
+  preview?: string;
+  selectors?: string[];
+}
+
+export interface BrowserTwoFactorCodeFillResult {
+  selector?: string;
+  strategy: string;
+  submitted?: boolean;
 }
 
 export type BrowserWaypointEvent =
@@ -57,11 +76,16 @@ export interface BrowserSession {
   forward(opts?: HistoryNavigationOptions): Promise<void>;
   reload(opts?: HistoryNavigationOptions): Promise<void>;
   click(selector: string, opts?: ClickOptions): Promise<void>;
+  press?(key: string): Promise<void>;
   /**
-   * Use SecretRef for credential or token fields. Plain strings are intended
-   * for non-sensitive form values.
+   * Use SecretRef or an internal SecretHandle for credential, token, and
+   * operator-return code fields. Plain strings are intended for non-sensitive
+   * form values.
    */
-  fill(selector: string, value: SecretInput): Promise<void>;
+  fill(selector: string, value: BrowserFillInput): Promise<void>;
+  fillTwoFactorCode?(
+    value: BrowserFillInput,
+  ): Promise<BrowserTwoFactorCodeFillResult>;
   scroll(opts: ScrollOptions): Promise<void>;
   waitForSelector(selector: string, opts?: WaitOptions): Promise<void>;
   upload?(selector: string, files: string[]): Promise<void>;
@@ -69,6 +93,7 @@ export interface BrowserSession {
   consoleMessages?(
     opts?: ConsoleMessageOptions,
   ): Promise<BrowserConsoleMessage[]>;
+  inspectTwoFactorChallenge?(): Promise<BrowserTwoFactorState>;
   waypoint?(
     event: BrowserWaypointEvent,
     opts?: BrowserWaypointOptions,
@@ -79,7 +104,7 @@ export type BrowserEvaluateFunction<T = unknown> = () => T | Promise<T>;
 
 export type BrowserAction =
   | { name: 'click'; selector: string; opts?: ClickOptions }
-  | { name: 'fill'; selector: string; value: SecretInput }
+  | { name: 'fill'; selector: string; value: BrowserFillInput }
   | { name: 'scroll'; opts: ScrollOptions }
   | { name: 'upload'; selector: string; files: string[] }
   | { name: 'pdf'; opts?: PdfOptions }
