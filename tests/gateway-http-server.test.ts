@@ -1315,6 +1315,10 @@ async function importFreshHealth(options?: {
       policyPath: '/tmp/main/workspace/.hybridclaw/policy.yaml',
       workspacePath: '/tmp/main/workspace',
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: ['github'],
       rules: [
         {
@@ -1358,6 +1362,10 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: [],
       rules: [
         {
@@ -1373,6 +1381,27 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: params.defaultAction,
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
+      presets: [],
+      rules: [],
+    }),
+  );
+  const saveGatewayAdminPolicyLanHttpAccess = vi.fn(
+    (params: {
+      agentId?: string;
+      mode: 'off' | 'read-only' | 'read-write' | 'custom';
+    }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: params.mode,
+        managedRuleIndexes: params.mode === 'off' ? [] : [2, 3, 4],
+      },
       presets: [],
       rules: [],
     }),
@@ -1383,6 +1412,10 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: [params.presetName],
       rules: [
         {
@@ -1404,6 +1437,10 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: [],
       rules: [],
       deletedIndex: params.index,
@@ -1826,6 +1863,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminSlackWebhookTarget,
     saveGatewayAdminAgentMarkdownFile,
     saveGatewayAdminPolicyDefault,
+    saveGatewayAdminPolicyLanHttpAccess,
     saveGatewayAdminPolicyRule,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
@@ -1939,6 +1977,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
     saveGatewayAdminPolicyDefault,
+    saveGatewayAdminPolicyLanHttpAccess,
     applyGatewayAdminPolicyPreset,
     saveGatewayAdminPolicyRule,
     deleteGatewayAdminPolicyRule,
@@ -6830,6 +6869,34 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('saves the admin LAN HTTP policy mode for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/policy',
+      body: {
+        agentId: 'writer',
+        lanHttpAccessMode: 'read-write',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminPolicyLanHttpAccess).toHaveBeenCalledWith({
+      agentId: 'writer',
+      mode: 'read-write',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      lanHttpAccess: {
+        mode: 'read-write',
+      },
+    });
+  });
+
   test('applies admin policy templates for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -10143,7 +10210,7 @@ describe('gateway HTTP server', () => {
         '  default: deny',
         '  rules:',
         '    - action: allow',
-        '      host: 192.168.178.198',
+        '      host: 192.168.0.0/16',
         '      port: 80',
         '      methods:',
         '        - GET',

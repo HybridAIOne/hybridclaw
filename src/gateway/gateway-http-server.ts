@@ -225,6 +225,7 @@ import {
   saveGatewayAdminDiscordWebhookTarget,
   saveGatewayAdminModels,
   saveGatewayAdminPolicyDefault,
+  saveGatewayAdminPolicyLanHttpAccess,
   saveGatewayAdminPolicyRule,
   saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
@@ -353,6 +354,7 @@ type ApiAdminPolicyRequestBody = {
   agentId?: unknown;
   index?: unknown;
   defaultAction?: unknown;
+  lanHttpAccessMode?: unknown;
   presetName?: unknown;
   rule?: unknown;
 };
@@ -5077,6 +5079,31 @@ async function handleApiAdminPolicy(
           saveGatewayAdminPolicyDefault({
             agentId: normalizeOptionalString(body.agentId),
             defaultAction: rawDefaultAction,
+          }),
+        );
+        return;
+      }
+      if (body.lanHttpAccessMode !== undefined) {
+        const mode = String(body.lanHttpAccessMode || '')
+          .trim()
+          .toLowerCase();
+        if (
+          mode !== 'off' &&
+          mode !== 'read-only' &&
+          mode !== 'read-write' &&
+          mode !== 'custom'
+        ) {
+          throw new GatewayRequestError(
+            400,
+            'Expected `lanHttpAccessMode` to be `off`, `read-only`, `read-write`, or `custom`.',
+          );
+        }
+        sendJson(
+          res,
+          200,
+          saveGatewayAdminPolicyLanHttpAccess({
+            agentId: normalizeOptionalString(body.agentId),
+            mode,
           }),
         );
         return;

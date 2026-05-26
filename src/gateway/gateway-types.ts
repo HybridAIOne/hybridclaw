@@ -1277,6 +1277,17 @@ export interface GatewayAdminPolicyRule {
   managedByPreset?: string;
 }
 
+export type GatewayAdminLanHttpAccessMode =
+  | 'off'
+  | 'read-only'
+  | 'read-write'
+  | 'custom';
+
+export interface GatewayAdminLanHttpAccessState {
+  mode: GatewayAdminLanHttpAccessMode;
+  managedRuleIndexes: number[];
+}
+
 export interface GatewayAdminPolicyState {
   exists: boolean;
   policyPath: string;
@@ -1284,6 +1295,7 @@ export interface GatewayAdminPolicyState {
   defaultAction: 'allow' | 'deny';
   presets: string[];
   rules: GatewayAdminPolicyRule[];
+  lanHttpAccess: GatewayAdminLanHttpAccessState;
 }
 
 export interface GatewayAdminPolicyPresetSummary {

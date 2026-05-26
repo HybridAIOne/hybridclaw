@@ -28,6 +28,7 @@ import type {
   AdminInteractionResponse,
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
+  AdminLanHttpAccessMode,
   AdminMcpConfig,
   AdminMcpResponse,
   AdminModelsResponse,
@@ -992,6 +993,23 @@ export function saveAdminPolicyDefault(
     token,
     method: 'PUT',
     body: params,
+  });
+}
+
+export function saveAdminPolicyLanHttpAccess(
+  token: string,
+  params: {
+    agentId: string;
+    mode: AdminLanHttpAccessMode;
+  },
+): Promise<AdminPolicyState> {
+  return requestJson<AdminPolicyState>('/api/admin/policy', {
+    token,
+    method: 'PUT',
+    body: {
+      agentId: params.agentId,
+      lanHttpAccessMode: params.mode,
+    },
   });
 }
 

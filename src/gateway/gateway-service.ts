@@ -258,6 +258,7 @@ import {
   addPolicyRule,
   deletePolicyRule,
   readPolicyState,
+  setLanHttpAccessMode,
   setPolicyDefault,
   updatePolicyRule,
 } from '../policy/policy-store.js';
@@ -491,6 +492,7 @@ import {
   type GatewayAdminJobCard,
   type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
+  type GatewayAdminLanHttpAccessMode,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
@@ -5818,6 +5820,10 @@ function mapGatewayAdminPolicyStateValue(
     defaultAction: state.defaultAction,
     presets: [...state.presets],
     rules: state.rules.map(mapGatewayAdminPolicyRule),
+    lanHttpAccess: {
+      mode: state.lanHttpAccess.mode,
+      managedRuleIndexes: [...state.lanHttpAccess.managedRuleIndexes],
+    },
   };
 }
 
@@ -5975,6 +5981,23 @@ export function saveGatewayAdminPolicyDefault(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = setPolicyDefault(workspacePath, input.defaultAction);
+    syncManagedBrowserTenantPolicyProjection();
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function saveGatewayAdminPolicyLanHttpAccess(input: {
+  agentId?: string;
+  mode: GatewayAdminLanHttpAccessMode;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = setLanHttpAccessMode(workspacePath, input.mode);
     syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
