@@ -502,6 +502,53 @@ test('mac-cua provider resumes 2FA through native OTP set_value when AX selector
   expect(driver.click).not.toHaveBeenCalled();
 });
 
+test('mac-cua provider treats background-safe changes as non-fatal after 2FA resume submit', async () => {
+  const root = makeTempRoot();
+  const { initDatabase } = await import('../src/memory/db.js');
+  initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { createSecretHandle } = await import(
+    '../src/security/secret-handles.js'
+  );
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver({
+    before: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    },
+    after: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Safari',
+      activeSpaceId: 1,
+    },
+  });
+  driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
+    detected: true,
+    signals: ['one-time-code'],
+  });
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+  const handle = createSecretHandle(
+    { source: 'store', id: 'OPERATOR_RETURN_test' },
+    '123456',
+    'dom',
+  );
+
+  await expect(session.fillTwoFactorCode?.(handle)).resolves.toEqual({
+    strategy: 'native-set-value',
+    submitted: true,
+  });
+
+  expect(driver.fillTwoFactorInput).toHaveBeenCalledWith('cua-session-1', {
+    text: '123456',
+  });
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
+});
+
 test('mac-cua provider falls back to focus and type when native OTP set_value cannot resolve a field', async () => {
   const root = makeTempRoot();
   const { initDatabase } = await import('../src/memory/db.js');

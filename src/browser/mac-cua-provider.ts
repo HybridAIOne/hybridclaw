@@ -1095,39 +1095,58 @@ class MacCuaBrowserSession implements BrowserSession {
   ): Promise<BrowserTwoFactorCodeFillResult> {
     const state = await this.inspectTwoFactorChallenge();
     const selector = state.selectors?.[0];
-    if (selector) {
-      await this.fill(selector, value);
-      await this.press('Enter');
-      return { selector, strategy: 'ax-selector', submitted: true };
-    }
-
-    let strategy = 'native-focus';
-    await this.runAction('browser_resume_interaction', async () => {
-      const payload = this.buildFillPayload('detected 2FA input', value);
-      if (this.driver.fillTwoFactorInput) {
-        const filled = await this.driver.fillTwoFactorInput(
-          this.sessionId,
-          payload,
+    let strategy = selector ? 'ax-selector' : 'native-focus';
+    await this.runAction(
+      'browser_resume_interaction',
+      async () => {
+        const payload = this.buildFillPayload(
+          selector || 'detected 2FA input',
+          value,
         );
-        if (filled) {
-          strategy = 'native-set-value';
+        if (selector) {
+          const target = await this.resolveActionTarget(
+            'browser_resume_interaction',
+            selector,
+            parseMacCuaTarget(selector),
+          );
+          if ('secretRef' in payload) {
+            await this.assertSecretFillAllowed(selector, payload.secretRef);
+          }
+          await this.driver.click(this.sessionId, target);
+          await this.driver.typeTextChars(this.sessionId, payload);
           await this.driver.pressKey(this.sessionId, 'return');
+          if ('secretRef' in payload) {
+            this.recordCredentialFilled(selector, payload.secretRef);
+          }
           return;
         }
-      }
-      if (!this.driver.focusTwoFactorInput) {
-        throw new Error(
-          'mac-cua cannot focus the 2FA input because the driver does not expose a native 2FA focus primitive.',
-        );
-      }
-      const focused = await this.driver.focusTwoFactorInput(this.sessionId);
-      if (!focused) {
-        throw new Error('mac-cua could not focus the detected 2FA input.');
-      }
-      await this.driver.typeTextChars(this.sessionId, payload);
-      await this.driver.pressKey(this.sessionId, 'return');
-    });
-    return { strategy, submitted: true };
+
+        if (this.driver.fillTwoFactorInput) {
+          const filled = await this.driver.fillTwoFactorInput(
+            this.sessionId,
+            payload,
+          );
+          if (filled) {
+            strategy = 'native-set-value';
+            await this.driver.pressKey(this.sessionId, 'return');
+            return;
+          }
+        }
+        if (!this.driver.focusTwoFactorInput) {
+          throw new Error(
+            'mac-cua cannot focus the 2FA input because the driver does not expose a native 2FA focus primitive.',
+          );
+        }
+        const focused = await this.driver.focusTwoFactorInput(this.sessionId);
+        if (!focused) {
+          throw new Error('mac-cua could not focus the detected 2FA input.');
+        }
+        await this.driver.typeTextChars(this.sessionId, payload);
+        await this.driver.pressKey(this.sessionId, 'return');
+      },
+      { allowBackgroundSafeViolation: true },
+    );
+    return { ...(selector ? { selector } : {}), strategy, submitted: true };
   }
 
   private buildFillPayload(
@@ -1251,12 +1270,17 @@ class MacCuaBrowserSession implements BrowserSession {
   private async runAction<T>(
     action: string,
     run: () => Promise<T>,
+    opts?: { allowBackgroundSafeViolation?: boolean },
   ): Promise<T> {
     const before = await this.driver.getEnvironmentState();
     try {
       const result = await run();
       const after = await this.driver.getEnvironmentState();
-      this.assertBackgroundSafe(before, after);
+      try {
+        this.assertBackgroundSafe(before, after);
+      } catch (error) {
+        if (opts?.allowBackgroundSafeViolation !== true) throw error;
+      }
       await this.recordDetectedTwoFactor(action);
       this.recordAction(action, 'ok');
       return result;
