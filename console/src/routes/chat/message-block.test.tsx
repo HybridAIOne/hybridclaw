@@ -436,4 +436,69 @@ describe('MessageBlock artifacts', () => {
     expect(renderMarkdownMock).toHaveBeenCalledTimes(3);
     expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABCD');
   });
+
+  it('renders accessible response rating controls and clears the selected rating', () => {
+    const onRate = vi.fn();
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          messageId: 42,
+          responseRating: 'up',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={onRate}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const up = screen.getByRole('button', {
+      name: 'Clear thumbs up rating',
+    });
+    const down = screen.getByRole('button', {
+      name: 'Rate response thumbs down',
+    });
+    expect(up.getAttribute('aria-pressed')).toBe('true');
+    expect(down.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(up);
+    expect(onRate).toHaveBeenCalledWith(expect.any(Object), null);
+  });
+
+  it('keeps response rating controls visible but disabled before message persistence', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], { messageId: null })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={vi.fn()}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs up' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs down' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+  });
 });

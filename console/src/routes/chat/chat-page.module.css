@@ -752,6 +752,11 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--foreground);
 }
 
+.actionButtonSelected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
 .actionButtonSuccess {
   color: var(--success);
 }

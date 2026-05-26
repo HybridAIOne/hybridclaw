@@ -212,6 +212,7 @@ import {
   getRecentSessionsForChannel,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
+  getResponseRatingsForMessages,
   getSessionBoundaryMessagesBySessionIds,
   getSessionCount,
   getSessionFileChangeCounts,
@@ -7185,11 +7186,27 @@ export function getGatewayBootstrapAutostartState(params: {
 export function getGatewayHistory(
   sessionId: string,
   limit = MAX_HISTORY_MESSAGES,
+  options?: {
+    operatorUserId?: string | null;
+    sourceSurface?: string | null;
+  },
 ): ConversationHistoryPage {
   const page = memoryService.getConversationHistoryPage(
     sessionId,
     Math.max(1, Math.min(limit, 200)),
   );
+  const ratingOperatorUserId = options?.operatorUserId?.trim() || '';
+  const sourceSurface = options?.sourceSurface?.trim() || 'web';
+  const responseRatings = ratingOperatorUserId
+    ? getResponseRatingsForMessages({
+        sessionId: page.sessionId,
+        messageIds: page.history
+          .filter((message) => message.role === 'assistant')
+          .map((message) => message.id),
+        operatorUserId: ratingOperatorUserId,
+        sourceSurface,
+      })
+    : new Map();
   const history = page.history
     .filter((message) => {
       if (message.role !== 'assistant') return true;
@@ -7203,13 +7220,19 @@ export function getGatewayHistory(
       const content = stripSilentToken(message.content);
       const assistantPresentation =
         getGatewayAssistantPresentationForMessageAgent(message.agent_id);
-      if (content === message.content && !assistantPresentation) {
+      const responseRating = responseRatings.get(message.id) ?? null;
+      if (
+        content === message.content &&
+        !assistantPresentation &&
+        !responseRating
+      ) {
         return message;
       }
       return {
         ...message,
         ...(content !== message.content ? { content } : {}),
         ...(assistantPresentation ? { assistantPresentation } : {}),
+        ...(responseRating ? { response_rating: responseRating } : {}),
       };
     })
     .filter((message) => message.content.trim().length > 0)

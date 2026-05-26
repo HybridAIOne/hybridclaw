@@ -114,6 +114,8 @@ import type {
   ConversationHistoryPage,
   ForkSessionBranchParams,
   ForkSessionBranchResult,
+  ResponseRatingRecord,
+  ResponseRatingValue,
   Session,
   SessionShowMode,
   SessionTitleSource,
@@ -152,7 +154,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 41;
+export const DATABASE_SCHEMA_VERSION = 42;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -230,6 +232,32 @@ interface ConversationHistoryPageRow {
   content: string | null;
   artifacts_json: string | null;
   created_at: string | null;
+}
+
+interface ResponseRatingRow {
+  session_id: string;
+  message_id: number;
+  operator_user_id: string;
+  source_surface: string;
+  rating: string;
+  agent_id: string | null;
+  model: string | null;
+  provider: string | null;
+  skill_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResponseRatingTarget {
+  session_id: string;
+  message_id: number;
+  agent_id: string | null;
+  role: string;
+  model: string | null;
+  provider: string | null;
+  skill_observation_id: number | null;
+  skill_run_id: string | null;
+  skill_name: string | null;
 }
 
 interface SessionBranchRow {
@@ -739,6 +767,25 @@ function migrateV1(database: Database.Database): void {
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+
+    CREATE TABLE IF NOT EXISTS response_ratings (
+      session_id TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      operator_user_id TEXT NOT NULL,
+      source_surface TEXT NOT NULL,
+      rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+      agent_id TEXT,
+      model TEXT,
+      provider TEXT,
+      skill_name TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      PRIMARY KEY (session_id, message_id, operator_user_id, source_surface)
+    );
+    CREATE INDEX IF NOT EXISTS idx_response_ratings_message
+      ON response_ratings(session_id, message_id);
+    CREATE INDEX IF NOT EXISTS idx_response_ratings_updated
+      ON response_ratings(updated_at);
 
     CREATE TABLE IF NOT EXISTS session_branches (
       session_id TEXT PRIMARY KEY,
@@ -2818,6 +2865,38 @@ function migrateV41(database: Database.Database): void {
   );
 }
 
+function responseRatingsNeedMigration(database: Database.Database): boolean {
+  return (
+    !tableExists(database, 'response_ratings') ||
+    !indexExists(database, 'idx_response_ratings_message') ||
+    !indexExists(database, 'idx_response_ratings_updated')
+  );
+}
+
+function migrateV42(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS response_ratings (
+      session_id TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      operator_user_id TEXT NOT NULL,
+      source_surface TEXT NOT NULL,
+      rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+      agent_id TEXT,
+      model TEXT,
+      provider TEXT,
+      skill_name TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      PRIMARY KEY (session_id, message_id, operator_user_id, source_surface)
+    );
+    CREATE INDEX IF NOT EXISTS idx_response_ratings_message
+      ON response_ratings(session_id, message_id);
+    CREATE INDEX IF NOT EXISTS idx_response_ratings_updated
+      ON response_ratings(updated_at);
+  `);
+  recordMigration(database, 42, 'Persist per-response operator ratings');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2920,6 +2999,9 @@ function runMigrations(
     budgetSoftWarnEventUnitKeyNeedMigration(database)
   ) {
     migrateV41(database);
+  }
+  if (currentVersion < 42 || responseRatingsNeedMigration(database)) {
+    migrateV42(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -7228,6 +7310,32 @@ function parseMessageArtifacts(raw: string | null): ArtifactMetadata[] {
   }
 }
 
+function normalizeResponseRatingValue(
+  value: string | null | undefined,
+): ResponseRatingValue | null {
+  return value === 'up' || value === 'down' ? value : null;
+}
+
+function mapResponseRatingRow(
+  row: ResponseRatingRow,
+): ResponseRatingRecord | null {
+  const rating = normalizeResponseRatingValue(row.rating);
+  if (!rating) return null;
+  return {
+    session_id: row.session_id,
+    message_id: row.message_id,
+    operator_user_id: row.operator_user_id,
+    source_surface: row.source_surface,
+    rating,
+    agent_id: row.agent_id,
+    model: row.model,
+    provider: row.provider,
+    skill_name: row.skill_name,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 export function storeMessage(
   sessionId: string,
   userId: string,
@@ -7242,7 +7350,16 @@ export function storeMessage(
   const artifactsJson = serializeMessageArtifacts(artifacts);
   const result = db
     .prepare(
-      'INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO messages (
+         session_id,
+         user_id,
+         username,
+         role,
+         agent_id,
+         content,
+         artifacts_json,
+         created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
     )
     .run(
       resolvedSessionId,
@@ -7272,6 +7389,192 @@ export function getConversationHistory(
     resolvedSessionId,
     limit,
   );
+}
+
+function inferProviderFromModel(model: string | null): string | null {
+  const trimmed = model?.trim() || '';
+  if (!trimmed) return null;
+  const slashIndex = trimmed.indexOf('/');
+  return slashIndex > 0 ? trimmed.slice(0, slashIndex) : null;
+}
+
+export function getResponseRatingTarget(params: {
+  sessionId: string;
+  messageId: number;
+}): ResponseRatingTarget | null {
+  const sessionId = resolveSessionIdCompat(params.sessionId);
+  const row = queryOne<
+    {
+      session_id: string;
+      message_id: number;
+      agent_id: string | null;
+      role: string;
+      model: string | null;
+      skill_observation_id: number | null;
+      skill_run_id: string | null;
+      skill_name: string | null;
+    },
+    [string, number]
+  >(
+    db,
+    `SELECT
+       m.session_id,
+       m.id AS message_id,
+       m.agent_id,
+       m.role,
+       s.model,
+      skill_observation.id AS skill_observation_id,
+      skill_observation.run_id AS skill_run_id,
+      skill_observation.skill_name
+     FROM messages m
+     LEFT JOIN sessions s ON s.id = m.session_id
+     LEFT JOIN skill_observations skill_observation
+       ON skill_observation.id = (
+        SELECT id
+        FROM skill_observations
+        WHERE session_id = m.session_id
+          AND julianday(created_at) <= julianday(m.created_at)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+       )
+     WHERE m.session_id = ? AND m.id = ?
+     LIMIT 1`,
+    sessionId,
+    params.messageId,
+  );
+  if (!row) return null;
+  return {
+    ...row,
+    provider: inferProviderFromModel(row.model),
+  };
+}
+
+export function upsertResponseRating(input: {
+  sessionId: string;
+  messageId: number;
+  operatorUserId: string;
+  sourceSurface: string;
+  rating: ResponseRatingValue;
+  agentId?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  skillName?: string | null;
+}): ResponseRatingRecord {
+  const sessionId = resolveSessionIdCompat(input.sessionId);
+  const operatorUserId = input.operatorUserId.trim();
+  const sourceSurface = input.sourceSurface.trim() || 'web';
+  db.prepare(
+    `INSERT INTO response_ratings (
+       session_id,
+       message_id,
+       operator_user_id,
+       source_surface,
+       rating,
+       agent_id,
+       model,
+       provider,
+       skill_name
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id, message_id, operator_user_id, source_surface)
+     DO UPDATE SET
+       rating = excluded.rating,
+       agent_id = excluded.agent_id,
+       model = excluded.model,
+       provider = excluded.provider,
+       skill_name = excluded.skill_name,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+  ).run(
+    sessionId,
+    input.messageId,
+    operatorUserId,
+    sourceSurface,
+    input.rating,
+    input.agentId?.trim() || null,
+    input.model?.trim() || null,
+    input.provider?.trim() || null,
+    input.skillName?.trim() || null,
+  );
+
+  const row = queryOne<ResponseRatingRow, [string, number, string, string]>(
+    db,
+    `SELECT *
+     FROM response_ratings
+     WHERE session_id = ?
+       AND message_id = ?
+       AND operator_user_id = ?
+       AND source_surface = ?`,
+    sessionId,
+    input.messageId,
+    operatorUserId,
+    sourceSurface,
+  );
+  const rating = row ? mapResponseRatingRow(row) : null;
+  if (!rating) {
+    throw new Error('Failed to read persisted response rating.');
+  }
+  return rating;
+}
+
+export function clearResponseRating(input: {
+  sessionId: string;
+  messageId: number;
+  operatorUserId: string;
+  sourceSurface: string;
+}): void {
+  db.prepare(
+    `DELETE FROM response_ratings
+     WHERE session_id = ?
+       AND message_id = ?
+       AND operator_user_id = ?
+       AND source_surface = ?`,
+  ).run(
+    resolveSessionIdCompat(input.sessionId),
+    input.messageId,
+    input.operatorUserId.trim(),
+    input.sourceSurface.trim() || 'web',
+  );
+}
+
+export function getResponseRatingsForMessages(input: {
+  sessionId: string;
+  messageIds: number[];
+  operatorUserId: string;
+  sourceSurface: string;
+}): Map<number, ResponseRatingValue> {
+  const sessionId = resolveSessionIdCompat(input.sessionId);
+  const messageIds = [
+    ...new Set(
+      input.messageIds
+        .filter((id) => Number.isInteger(id) && id > 0)
+        .map((id) => Math.floor(id)),
+    ),
+  ];
+  const operatorUserId = input.operatorUserId.trim();
+  const sourceSurface = input.sourceSurface.trim() || 'web';
+  if (messageIds.length === 0 || !operatorUserId) return new Map();
+  const placeholders = messageIds.map(() => '?').join(', ');
+  const rows = queryAll<
+    Pick<ResponseRatingRow, 'message_id' | 'rating'>,
+    Array<string | number>
+  >(
+    db,
+    `SELECT message_id, rating
+     FROM response_ratings
+     WHERE session_id = ?
+       AND operator_user_id = ?
+       AND source_surface = ?
+       AND message_id IN (${placeholders})`,
+    sessionId,
+    operatorUserId,
+    sourceSurface,
+    ...messageIds,
+  );
+  const ratings = new Map<number, ResponseRatingValue>();
+  for (const row of rows) {
+    const rating = normalizeResponseRatingValue(row.rating);
+    if (rating) ratings.set(row.message_id, rating);
+  }
+  return ratings;
 }
 
 function getBranchVariantMessageId(
@@ -9388,6 +9691,35 @@ export function attachFeedbackToObservation(input: {
     db,
     'SELECT * FROM skill_observations WHERE id = ?',
     target.id,
+  );
+  if (!row) {
+    throw new Error('Failed to read updated skill observation.');
+  }
+  return mapSkillObservationRow(row);
+}
+
+export function attachFeedbackToObservationById(input: {
+  observationId: number;
+  feedback: string;
+  sentiment: SkillFeedbackSentiment;
+}): SkillObservation | null {
+  const observationId = Math.floor(input.observationId);
+  if (!Number.isInteger(observationId) || observationId <= 0) return null;
+
+  const result = db
+    .prepare(
+      `UPDATE skill_observations
+       SET user_feedback = ?,
+           feedback_sentiment = ?
+       WHERE id = ?`,
+    )
+    .run(input.feedback.trim() || null, input.sentiment, observationId);
+  if (Number(result.changes || 0) <= 0) return null;
+
+  const row = queryOne<SkillObservationRow, [number]>(
+    db,
+    'SELECT * FROM skill_observations WHERE id = ?',
+    observationId,
   );
   if (!row) {
     throw new Error('Failed to read updated skill observation.');

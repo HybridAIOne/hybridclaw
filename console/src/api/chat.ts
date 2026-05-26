@@ -6,6 +6,8 @@ import type {
   ChatMobileQrResponse,
   ChatRecentResponse,
   MediaUploadResponse,
+  RateResponseRequest,
+  RateResponseResponse,
 } from './chat-types';
 import {
   buildWebCommandRequestBody,
@@ -43,11 +45,13 @@ export function fetchChatHistory(
   token: string,
   sessionId: string,
   limit = 80,
+  userId?: string,
 ): Promise<ChatHistoryResponse> {
   const params = new URLSearchParams({
     sessionId,
     limit: String(limit),
   });
+  if (userId) params.set('userId', userId);
   return requestJson<ChatHistoryResponse>(`/api/history?${params.toString()}`, {
     token,
   });
@@ -94,6 +98,20 @@ export function createChatBranch(
     token,
     method: 'POST',
     body: { sessionId, beforeMessageId },
+  });
+}
+
+export function rateChatResponse(
+  token: string,
+  payload: RateResponseRequest,
+): Promise<RateResponseResponse> {
+  return requestJson<RateResponseResponse>('/api/chat/rating', {
+    token,
+    method: 'POST',
+    body: {
+      ...payload,
+      sourceSurface: payload.sourceSurface ?? 'web',
+    },
   });
 }
 

@@ -1731,6 +1731,18 @@ async function importFreshHealth(options?: {
   }));
   const refreshRuntimeSecretsFromEnv = vi.fn();
   const reloadRuntimeConfig = vi.fn();
+  const submitResponseRating = vi.fn(
+    (input: {
+      sessionId: string;
+      messageId: number;
+      rating: 'up' | 'down' | null;
+    }) => ({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      rating: input.rating,
+      record: null,
+    }),
+  );
 
   vi.doMock('node:http', () => ({
     default: { createServer },
@@ -1947,6 +1959,9 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/gateway-restart.js', () => ({
     requestGatewayRestart,
   }));
+  vi.doMock('../src/gateway/response-ratings.js', () => ({
+    submitResponseRating,
+  }));
 
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
@@ -2019,6 +2034,7 @@ async function importFreshHealth(options?: {
     upgradeHandler,
     moveGatewayAdminSchedulerJob,
     requestGatewayRestart,
+    submitResponseRating,
     refreshRuntimeSecretsFromEnv,
     reloadRuntimeConfig,
     createGatewayAdminAgent,
@@ -4474,6 +4490,106 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       error: 'sqlite busy',
     });
+  });
+
+  test('accepts valid web chat response ratings', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: {
+        sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
+        messageId: 12,
+        rating: 'up',
+        userId: 'operator-a',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.submitResponseRating).toHaveBeenCalledWith({
+      sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
+      messageId: 12,
+      operatorUserId: 'operator-a',
+      rating: 'up',
+      sourceSurface: 'web',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
+      messageId: 12,
+      rating: 'up',
+    });
+  });
+
+  test('rejects invalid web chat response rating payloads', async () => {
+    const state = await importFreshHealth();
+    const missingSessionReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: { messageId: 12, rating: 'up' },
+    });
+    const missingSessionRes = makeResponse();
+
+    state.handler(missingSessionReq as never, missingSessionRes as never);
+    await waitForResponse(missingSessionRes, (next) => next.writableEnded);
+
+    expect(missingSessionRes.statusCode).toBe(400);
+    expect(JSON.parse(missingSessionRes.body)).toEqual({
+      error: 'Missing `sessionId` in request body.',
+    });
+
+    const malformedSessionReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: {
+        sessionId: 'agent:main:channel:web:bad',
+        messageId: 12,
+        rating: 'up',
+      },
+    });
+    const malformedSessionRes = makeResponse();
+
+    state.handler(malformedSessionReq as never, malformedSessionRes as never);
+    await waitForResponse(malformedSessionRes, (next) => next.writableEnded);
+
+    expect(malformedSessionRes.statusCode).toBe(400);
+    expect(JSON.parse(malformedSessionRes.body)).toEqual({
+      error: 'Malformed canonical `sessionId`.',
+    });
+
+    const invalidMessageReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: { sessionId: 's1', messageId: '12abc', rating: 'up' },
+    });
+    const invalidMessageRes = makeResponse();
+
+    state.handler(invalidMessageReq as never, invalidMessageRes as never);
+    await waitForResponse(invalidMessageRes, (next) => next.writableEnded);
+
+    expect(invalidMessageRes.statusCode).toBe(400);
+    expect(JSON.parse(invalidMessageRes.body)).toEqual({
+      error: 'Missing valid positive integer `messageId` in request body.',
+    });
+
+    const invalidRatingReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: { sessionId: 's1', messageId: 12, rating: 'maybe' },
+    });
+    const invalidRatingRes = makeResponse();
+
+    state.handler(invalidRatingReq as never, invalidRatingRes as never);
+    await waitForResponse(invalidRatingRes, (next) => next.writableEnded);
+
+    expect(invalidRatingRes.statusCode).toBe(400);
+    expect(JSON.parse(invalidRatingRes.body)).toEqual({
+      error: '`rating` must be "up", "down", or null.',
+    });
+    expect(state.submitResponseRating).not.toHaveBeenCalled();
   });
 
   test('returns recent chat sessions for authorized loopback API requests', async () => {
