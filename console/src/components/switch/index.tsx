@@ -39,7 +39,13 @@ export function Switch({
   required,
   ...rest
 }: SwitchProps) {
-  const props = useFieldControlProps({ disabled, required, ...rest });
+  // `required` only feeds `aria-required` here; the literal `required`
+  // attribute is invalid on a <button>, so omit it from the spread.
+  const { required: _required, ...props } = useFieldControlProps({
+    disabled,
+    required,
+    ...rest,
+  });
   const field = useFieldContext();
   const state = checked ? 'checked' : 'unchecked';
   const isDisabled = props.disabled;

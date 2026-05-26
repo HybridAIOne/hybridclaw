@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -147,14 +147,22 @@ export function AuditPage() {
   // Advance the cutoff on a timer so an idle bounded-range view keeps
   // excluding rows that age past the window instead of freezing it at
   // selection time. Ticks only while a bounded range is active (so 'all'
-  // never re-renders on the timer); the leading `tick()` refreshes the cutoff
+  // never re-renders on the timer); the leading refresh re-bases the cutoff
   // on entry, since the page may have idled on 'all' first.
+  //
+  // The interval skips while the user has paged past the first page:
+  // `since` is in the query key, so advancing it would reset the infinite
+  // query and silently discard every already-loaded page. A deliberate
+  // range change still re-bases (and resets to page 1), which is expected.
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const pageCountRef = useRef(0);
   useEffect(() => {
     if (range === 'all') return;
-    const tick = () => setNowTick(Date.now());
-    tick();
-    const id = window.setInterval(tick, 30_000);
+    setNowTick(Date.now());
+    const id = window.setInterval(() => {
+      if (pageCountRef.current > 1) return;
+      setNowTick(Date.now());
+    }, 30_000);
     return () => window.clearInterval(id);
   }, [range]);
   const since = useMemo(() => rangeToSince(range, nowTick), [range, nowTick]);
@@ -179,6 +187,9 @@ export function AuditPage() {
         limit: PAGE_SIZE,
       }),
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    // Keep the prior rows on screen while the query key changes (range/search
+    // edits, and the page-1 idle cutoff refresh) instead of flashing empty.
+    placeholderData: keepPreviousData,
   });
 
   // Auto-fetch the next page when the sentinel near the bottom enters view.
@@ -191,6 +202,9 @@ export function AuditPage() {
   // the latest state via a ref instead.
   const auditQueryRef = useRef(auditQuery);
   auditQueryRef.current = auditQuery;
+  // Read by the cutoff timer (declared above) to freeze the window once the
+  // user has loaded more than one page.
+  pageCountRef.current = auditQuery.data?.pages.length ?? 0;
   useEffect(() => {
     const sentinel = loadMoreRef.current;
     if (!sentinel || !auditQuery.hasNextPage) return;

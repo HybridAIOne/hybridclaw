@@ -52,6 +52,15 @@ export function setPath<T extends object>(
   return result as T;
 }
 
+// Clone a container, preserving array-ness. Spreading an array into a plain
+// object literal would silently rewrite it into a numeric-keyed object (losing
+// `.length`/`.map`), so an array intermediate on the path stays an array.
+function cloneContainer(cursor: object): Record<string, unknown> {
+  return (
+    Array.isArray(cursor) ? [...cursor] : { ...(cursor as object) }
+  ) as Record<string, unknown>;
+}
+
 function assignAt(
   cursor: unknown,
   segments: string[],
@@ -65,18 +74,14 @@ function assignAt(
     if (isObject && (cursor as Record<string, unknown>)[key] === value) {
       return cursor;
     }
-    const base: Record<string, unknown> = isObject
-      ? { ...(cursor as Record<string, unknown>) }
-      : {};
+    const base = isObject ? cloneContainer(cursor as object) : {};
     base[key] = value;
     return base;
   }
   const child = isObject ? (cursor as Record<string, unknown>)[key] : undefined;
   const nextChild = assignAt(child, segments, index + 1, value);
   if (isObject && nextChild === child) return cursor;
-  const base: Record<string, unknown> = isObject
-    ? { ...(cursor as Record<string, unknown>) }
-    : {};
+  const base = isObject ? cloneContainer(cursor as object) : {};
   base[key] = nextChild;
   return base;
 }

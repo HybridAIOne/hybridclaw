@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminAuditEntry, AdminAuditResponse } from '../api/types';
 import { renderWithProviders } from '../test-utils';
@@ -266,6 +266,53 @@ describe('AuditPage', () => {
     expect(calls[calls.length - 1]?.[1]).toMatchObject({ cursor: 199 });
     // No more pages → button disappears.
     expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+  });
+
+  it('idle cutoff timer advances at page 1 but freezes once a second page loads', async () => {
+    // Regression guard: `since` advances on a 30s timer for bounded ranges and
+    // is part of the query key, so an unconditional tick would reset the
+    // infinite query and silently discard every loaded page. The tick must
+    // freeze while the user has paged past the first page.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      window.history.replaceState(null, '', '/admin/audit?range=1h');
+      fetchAuditMock.mockResolvedValueOnce(
+        makeResponse([makeEntry({ id: 200, eventType: 'tool.call' })], 199),
+      );
+      renderWithProviders(<AuditPage />);
+      await screen.findByText('#200');
+
+      // Phase A — one page loaded: the tick advances `since`, changing the
+      // query key and refetching. Proves the timer is actually live.
+      const callsAtPage1 = fetchAuditMock.mock.calls.length;
+      fetchAuditMock.mockResolvedValueOnce(
+        makeResponse([makeEntry({ id: 201, eventType: 'tool.call' })], 198),
+      );
+      await act(async () => {
+        vi.advanceTimersByTime(31_000);
+      });
+      await screen.findByText('#201');
+      expect(fetchAuditMock.mock.calls.length).toBeGreaterThan(callsAtPage1);
+
+      // Load a second page.
+      fetchAuditMock.mockResolvedValueOnce(
+        makeResponse([makeEntry({ id: 150, eventType: 'tool.result' })], null),
+      );
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more' }));
+      await screen.findByText('#150');
+
+      // Phase B — two pages loaded: the tick must be a no-op, so it can't
+      // refetch and collapse the list back to page 1.
+      const callsAtPage2 = fetchAuditMock.mock.calls.length;
+      await act(async () => {
+        vi.advanceTimersByTime(31_000);
+      });
+      expect(fetchAuditMock.mock.calls.length).toBe(callsAtPage2);
+      expect(screen.getByText('#201')).toBeTruthy();
+      expect(screen.getByText('#150')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('category chip click writes a type: token into the search', async () => {

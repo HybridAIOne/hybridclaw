@@ -66,6 +66,15 @@ describe('setPath', () => {
     expect(setPath(source, 'a.b.c', 1)).toBe(source);
   });
 
+  it('preserves arrays when an array lies on the path', () => {
+    const source = { items: [{ name: 'a' }, { name: 'b' }] };
+    const result = setPath(source, 'items.1.name', 'B');
+    expect(Array.isArray(result.items)).toBe(true);
+    expect(result.items).toEqual([{ name: 'a' }, { name: 'B' }]);
+    // The untouched element keeps its reference.
+    expect(result.items[0]).toBe(source.items[0]);
+  });
+
   it('throws on prototype-polluting path segments', () => {
     expect(() => setPath({}, '__proto__.polluted', true)).toThrow();
     expect(() => setPath({}, 'a.constructor.prototype.x', true)).toThrow();

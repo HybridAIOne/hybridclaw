@@ -19,21 +19,30 @@ export function required<T>(message?: string): Validator<T> {
 }
 
 export function pattern(re: RegExp, message: string): Validator<string> {
-  return (value) => (re.test(value) ? null : message);
+  return (value) => {
+    // Non-strings (e.g. an optional field still `undefined`) defer to
+    // `required` rather than throwing, matching `url`/`loopbackUrl`.
+    if (typeof value !== 'string') return null;
+    // Reset `lastIndex` first: a caller-supplied `/g` or `/y` regex carries
+    // match state across `test` calls, and FormField re-runs validators on
+    // every render — without this the same input flips pass/fail per render.
+    re.lastIndex = 0;
+    return re.test(value) ? null : message;
+  };
 }
 
 export function minLength(n: number, message?: string): Validator<string> {
   return (value) =>
-    value.length >= n
-      ? null
-      : (message ?? `Must be at least ${n} character${n === 1 ? '' : 's'}.`);
+    typeof value === 'string' && value.length < n
+      ? (message ?? `Must be at least ${n} character${n === 1 ? '' : 's'}.`)
+      : null;
 }
 
 export function maxLength(n: number, message?: string): Validator<string> {
   return (value) =>
-    value.length <= n
-      ? null
-      : (message ?? `Must be at most ${n} character${n === 1 ? '' : 's'}.`);
+    typeof value === 'string' && value.length > n
+      ? (message ?? `Must be at most ${n} character${n === 1 ? '' : 's'}.`)
+      : null;
 }
 
 export function oneOf<T>(

@@ -44,6 +44,21 @@ describe('validators', () => {
       expect(rule('abc')).toBe('Numbers only.');
       expect(rule('123')).toBeNull();
     });
+
+    it('is stable across calls with a global/sticky regex', () => {
+      // `RegExp.test` advances `lastIndex` on /g and /y patterns; without a
+      // reset the same input would flip pass/fail on alternating calls.
+      const rule = pattern(/\d+/g, 'Numbers only.');
+      expect(rule('123')).toBeNull();
+      expect(rule('123')).toBeNull();
+      expect(rule('123')).toBeNull();
+    });
+
+    it('passes non-string values (defers to required)', () => {
+      const rule = pattern(/^\d+$/, 'Numbers only.');
+      expect(rule(undefined as unknown as string)).toBeNull();
+      expect(rule(null as unknown as string)).toBeNull();
+    });
   });
 
   describe('minLength / maxLength', () => {
@@ -52,6 +67,13 @@ describe('validators', () => {
       expect(minLength(3)('abc')).toBeNull();
       expect(maxLength(3)('abcd')).toBe('Must be at most 3 characters.');
       expect(maxLength(3)('abc')).toBeNull();
+    });
+
+    it('passes non-string values instead of throwing', () => {
+      expect(minLength(3)(undefined as unknown as string)).toBeNull();
+      expect(minLength(3)(null as unknown as string)).toBeNull();
+      expect(maxLength(3)(undefined as unknown as string)).toBeNull();
+      expect(maxLength(3)(null as unknown as string)).toBeNull();
     });
   });
 

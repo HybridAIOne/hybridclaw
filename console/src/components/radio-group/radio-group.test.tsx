@@ -34,6 +34,22 @@ describe('RadioGroup', () => {
     );
   });
 
+  it('inherits aria-required from a surrounding <Field required>', () => {
+    render(
+      <Field required>
+        <FieldLabel>Plan</FieldLabel>
+        <RadioGroup data-testid="group">
+          <RadioGroupItem value="a" />
+          <RadioGroupItem value="b" />
+        </RadioGroup>
+      </Field>,
+    );
+
+    expect(screen.getByTestId('group').getAttribute('aria-required')).toBe(
+      'true',
+    );
+  });
+
   it('uses the Field-generated id on the group container', () => {
     render(
       <Field controlId="plan">

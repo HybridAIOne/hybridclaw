@@ -73,6 +73,10 @@ export function RadioGroup({
 }: RadioGroupProps) {
   const field = useFieldContext();
   const resolvedDisabled = disabled ?? field.disabled;
+  // Inherit `required` from a surrounding <Field required> when not set
+  // locally, so the group announces `aria-required` like every
+  // useFieldControlProps-based control does (see FieldContext.required).
+  const resolvedRequired = required ?? field.required;
   const resolvedInvalid =
     ariaInvalidProp === undefined
       ? field.invalid
@@ -160,7 +164,7 @@ export function RadioGroup({
       value,
       setValue,
       disabled: resolvedDisabled,
-      required,
+      required: resolvedRequired,
       invalid: resolvedInvalid,
       orientation,
       registerItem,
@@ -173,7 +177,7 @@ export function RadioGroup({
       value,
       setValue,
       resolvedDisabled,
-      required,
+      resolvedRequired,
       resolvedInvalid,
       orientation,
       registerItem,
@@ -193,7 +197,7 @@ export function RadioGroup({
         aria-label={ariaLabelProp}
         aria-labelledby={labelledBy}
         aria-disabled={resolvedDisabled || undefined}
-        aria-required={required || undefined}
+        aria-required={resolvedRequired || undefined}
         aria-invalid={resolvedInvalid || undefined}
         aria-describedby={describedBy}
         data-slot="radio-group"
