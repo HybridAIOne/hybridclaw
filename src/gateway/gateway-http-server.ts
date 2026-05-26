@@ -455,14 +455,15 @@ function getGatewayBrowserActionSelector(
   });
 }
 
-function getGatewayBrowserResumeSelector(
+async function getGatewayBrowserResumeSelector(
   active: GatewayBrowserSessionEntry,
   args: Record<string, unknown>,
-): string {
-  return (
-    getGatewayBrowserActionSelector(active, args) ||
-    (isMacCuaGatewaySession(active) ? 'verification code' : '')
-  );
+): Promise<string> {
+  const explicitSelector = getGatewayBrowserActionSelector(active, args);
+  if (explicitSelector) return explicitSelector;
+  if (!isMacCuaGatewaySession(active)) return '';
+  const state = await active.session.inspectTwoFactorChallenge?.();
+  return state?.selectors?.[0] || 'verification code';
 }
 
 function parseGatewayBrowserCoordinate(
@@ -706,6 +707,8 @@ async function parkGatewayBrowserTwoFactor(params: {
   return {
     parked: true,
     modality,
+    suspended_session_id: session.sessionId,
+    approval_id: session.approvalId,
     two_factor_detection: detection,
     detected_selectors: pageState.selectors,
     text_preview: pageState.preview,
@@ -1379,7 +1382,7 @@ async function handleApiBrowserTool(
       );
     }
     if (response.kind === 'code') {
-      const selector = getGatewayBrowserResumeSelector(active, args);
+      const selector = await getGatewayBrowserResumeSelector(active, args);
       if (!selector) {
         throw new GatewayRequestError(
           400,

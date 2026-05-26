@@ -117,7 +117,7 @@ export interface MacCuaDriver {
   getCurrentUrl(sessionId: string): Promise<string | null>;
   detectTwoFactorWaypoint?(
     sessionId: string,
-  ): Promise<{ detected: boolean; signals?: string[] }>;
+  ): Promise<{ detected: boolean; signals?: string[]; selectors?: string[] }>;
   getEnvironmentState(): Promise<MacCuaEnvironmentState>;
 }
 
@@ -328,6 +328,30 @@ function firstElementIndex(record: Record<string, unknown>): number | null {
   const tree = String(record.tree_markdown || record.markdown || '');
   const match = tree.match(/\[element_index\s+(\d+)\]/u);
   return match?.[1] ? Number(match[1]) : null;
+}
+
+function firstEditableElementSelector(
+  record: Record<string, unknown>,
+  windowId?: string | number,
+): string | null {
+  const tree = String(record.tree_markdown || record.markdown || '');
+  const elementPattern =
+    /^\s*(?:-\s+)?\[(\d+)\]\s+(\w+)(?:\s+"([^"]*)"|(?:\s+\(\d+\))?\s+id=([^\s[\]]*))?/gmu;
+  for (const match of tree.matchAll(elementPattern)) {
+    const index = match[1] ? Number(match[1]) : null;
+    const role = String(match[2] || '').toLowerCase();
+    if (
+      index !== null &&
+      Number.isFinite(index) &&
+      (role.includes('textfield') ||
+        role.includes('textarea') ||
+        role.includes('searchfield') ||
+        role.includes('combobox'))
+    ) {
+      return `@e${index}${windowId ? `@window:${windowId}` : ''}`;
+    }
+  }
+  return null;
 }
 
 function scrollDirectionFromDelta(
@@ -619,7 +643,7 @@ class StdioMacCuaDriver implements MacCuaDriver {
 
   async detectTwoFactorWaypoint(
     sessionId: string,
-  ): Promise<{ detected: boolean; signals?: string[] }> {
+  ): Promise<{ detected: boolean; signals?: string[]; selectors?: string[] }> {
     const session = this.requireSession(sessionId);
     const record = await this.callToolRecord('get_window_state', {
       pid: session.pid,
@@ -632,9 +656,13 @@ class StdioMacCuaDriver implements MacCuaDriver {
       text.includes('two-factor') ||
       text.includes('2fa') ||
       text.includes('one-time');
-    return detected
-      ? { detected: true, signals: ['ax_two_factor_text'] }
-      : { detected: false };
+    if (!detected) return { detected: false };
+    const selector = firstEditableElementSelector(record, session.windowId);
+    return {
+      detected: true,
+      signals: ['ax_two_factor_text'],
+      ...(selector ? { selectors: [selector] } : {}),
+    };
   }
 
   async getEnvironmentState(): Promise<MacCuaEnvironmentState> {
@@ -1205,7 +1233,7 @@ class MacCuaBrowserSession implements BrowserSession {
       url,
       title: '',
       preview: 'verification code',
-      selectors: [],
+      selectors: result.selectors || [],
     };
   }
 

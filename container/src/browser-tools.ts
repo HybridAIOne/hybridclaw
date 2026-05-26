@@ -16,8 +16,8 @@ import {
 } from '../shared/two-factor-detection.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
-  resolveRuntimeProviderContext,
   type RuntimeProvider,
+  resolveRuntimeProviderContext,
 } from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -2334,6 +2334,40 @@ function gatewayBrowserResultContext(
   };
 }
 
+function extractSuspendedSessionId(payload: Record<string, unknown>): string {
+  const direct = String(payload.suspended_session_id || '').trim();
+  if (direct) return direct;
+  const interaction = asRecord(payload.interaction);
+  const session = asRecord(interaction?.session);
+  return String(session?.sessionId || '').trim();
+}
+
+function rememberGatewayManagedSuspension(
+  effectiveSessionId: string,
+  payload: Record<string, unknown>,
+): void {
+  const suspendedSessionId = extractSuspendedSessionId(payload);
+  if (suspendedSessionId) {
+    suspendedSessionByBrowserSession.set(
+      effectiveSessionId,
+      suspendedSessionId,
+    );
+  }
+}
+
+function prepareGatewayManagedBrowserArgs(
+  name: string,
+  args: Record<string, unknown>,
+  effectiveSessionId: string,
+): Record<string, unknown> {
+  if (name !== 'browser_resume_interaction') return args;
+  const explicitSessionId = String(args.sessionId || '').trim();
+  if (explicitSessionId) return args;
+  const suspendedSessionId =
+    suspendedSessionByBrowserSession.get(effectiveSessionId);
+  return suspendedSessionId ? { ...args, sessionId: suspendedSessionId } : args;
+}
+
 async function callGatewayManagedBrowser(
   name: string,
   args: Record<string, unknown>,
@@ -2453,7 +2487,13 @@ async function executeGatewayManagedBrowserTool(
     });
   }
 
-  const payload = await callGatewayManagedBrowser(name, args);
+  const gatewayArgs = prepareGatewayManagedBrowserArgs(
+    name,
+    args,
+    effectiveSessionId,
+  );
+  const payload = await callGatewayManagedBrowser(name, gatewayArgs);
+  rememberGatewayManagedSuspension(effectiveSessionId, payload);
   if (name === 'browser_navigate') {
     return success({
       ...gatewayBrowserResultContext(effectiveSessionId),
@@ -2476,10 +2516,15 @@ async function executeGatewayManagedBrowserTool(
   }
 
   if (name === 'browser_close') {
+    suspendedSessionByBrowserSession.delete(effectiveSessionId);
     return success({
       ...gatewayBrowserResultContext(effectiveSessionId),
       closed: true,
     });
+  }
+
+  if (name === 'browser_resume_interaction' && payload.resumed === true) {
+    suspendedSessionByBrowserSession.delete(effectiveSessionId);
   }
 
   return success({
@@ -3465,14 +3510,14 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_resume_interaction',
       description:
-        'Resume a browser session after the operator responds to browser_await_two_factor. If the response is a code, this consumes it from the gateway and injects it directly into the target element without returning the cleartext in the tool result.',
+        'Resume a browser session after the operator responds to browser_await_two_factor. If the response is a code, this consumes it from the gateway and injects it directly into the target element without returning the cleartext in the tool result. For native/mac-cua parked sessions, omit ref when browser_snapshot does not expose DOM refs; the gateway uses the parked 2FA target.',
       parameters: {
         type: 'object',
         properties: {
           ref: {
             type: 'string',
             description:
-              'Element reference for the 2FA/code input from browser_snapshot.',
+              'Optional element reference for the 2FA/code input from browser_snapshot. Required only for local DOM-backed sessions.',
           },
           sessionId: {
             type: 'string',
@@ -3485,7 +3530,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
               'Optional frame selector. Use "main" to target the main document again.',
           },
         },
-        required: ['ref'],
+        required: [],
       },
     },
   },

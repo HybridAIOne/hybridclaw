@@ -638,6 +638,7 @@ test('mac-cua provider exposes AX two-factor detection to gateway parking', asyn
   driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
     detected: true,
     signals: ['one-time-code'],
+    selectors: ['@e24@window:7'],
   });
   const provider = new MacCuaBrowserProvider({ driver });
   const session = await provider.launchSession({});
@@ -650,6 +651,7 @@ test('mac-cua provider exposes AX two-factor detection to gateway parking', asyn
     signals: ['one-time-code'],
     url: 'https://example.com/',
     preview: 'verification code',
+    selectors: ['@e24@window:7'],
   });
 });
 
