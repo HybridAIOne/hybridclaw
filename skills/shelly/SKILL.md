@@ -202,6 +202,13 @@ For Gen2+ RPC, authorize the method/path that the helper emits. Some local
 reads and all local control operations use HTTP `POST` to a method-scoped
 `/rpc/<method>` path, even when the RPC method itself is a read.
 
+On macOS, the app that launches the gateway must have Local Network
+permission. If local LAN calls fail with `No route to host`, `EHOSTUNREACH`,
+or kernel log drops with `reason: NECP`, verify that a direct LAN `curl` from
+the same terminal app can reach the Shelly device. Reset or grant Local Network
+permission for that terminal app, reopen it, confirm direct LAN access, then
+start the gateway from the allowed app session.
+
 ## Credentials
 
 - Store the Cloud Control v2 key as `SHELLY_CLOUD_AUTH_KEY`.

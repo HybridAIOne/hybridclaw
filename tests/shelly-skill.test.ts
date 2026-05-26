@@ -112,6 +112,9 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   );
   expect(skill).toContain('helper-emitted host,\nport, method, and path.');
   expect(skill).toContain('method-scoped\n`/rpc/<method>` path');
+  expect(skill).toContain('Local Network\npermission');
+  expect(skill).toContain('reason: NECP');
+  expect(skill).toContain('direct LAN `curl` from\n');
   expect(skill).toContain('Shelly names can exist in multiple layers');
   expect(skill).toContain('Report the field\n  and API surface');
   expect(skill).toContain('Result Handling');
