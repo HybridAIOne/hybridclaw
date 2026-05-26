@@ -232,6 +232,14 @@ reads and all local control operations use HTTP `POST` to a method-scoped
 - Inspect returned JSON and require `isok: true` when that field is present.
 - For cloud or local errors, report the operation, target, and upstream error
   without inventing state.
+- For local gateway errors, distinguish policy denials from outbound
+  connection failures. A 400 "not allowlisted" error is a workspace network
+  policy denial. A 502 "gateway policy accepted the request, but the gateway
+  process could not open the outbound connection" is not a policy denial.
+- Do not claim container isolation, container networking, or `--network host`
+  unless current `hybridclaw gateway status` shows the gateway is actually
+  running in container sandbox mode. If gateway status is not checked, describe
+  the failure only as a gateway process outbound connection failure.
 - Respect Shelly Cloud rate limits; do not fan out or retry in tight loops.
 
 ## API Surfaces

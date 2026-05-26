@@ -520,6 +520,28 @@ function normalizeGatewayResult(wrapper, fallbackStatus) {
   };
 }
 
+function gatewayErrorMessage(response, text) {
+  const parsed = parseJsonMaybe(text);
+  const errorText =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? String(parsed.error || parsed.text || text).trim()
+      : String(text || '').trim();
+  const prefix = `Gateway proxy returned HTTP ${response.status} for Shelly request`;
+  if (
+    response.status === 400 &&
+    /not allowlisted by workspace network policy/u.test(errorText)
+  ) {
+    return `${prefix}: workspace network policy denied this helper-emitted target. ${errorText}`;
+  }
+  if (
+    response.status === 502 &&
+    /Outbound HTTP request failed/u.test(errorText)
+  ) {
+    return `${prefix}: gateway policy accepted the request, but the gateway process could not open the outbound connection. ${errorText}`;
+  }
+  return `${prefix}: ${errorText || text}`;
+}
+
 async function executeGatewayRequest(httpRequest, options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   if (typeof fetchImpl !== 'function') {
@@ -552,9 +574,7 @@ async function executeGatewayRequest(httpRequest, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(
-      `Gateway proxy returned HTTP ${response.status} for Shelly request: ${text}`,
-    );
+    throw new Error(gatewayErrorMessage(response, text));
   }
   const parsed = parseJsonMaybe(text);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {

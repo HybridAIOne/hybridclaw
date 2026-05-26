@@ -118,6 +118,11 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain(
     'Base status and control answers on successful live Shelly API results',
   );
+  expect(skill).toContain('distinguish policy denials from outbound');
+  expect(skill).toContain('not a policy denial');
+  expect(skill).toContain(
+    'Do not claim container isolation, container networking, or `--network host`',
+  );
   expect(skill).toContain(
     'When the operator explicitly asks for local, LAN, or RPC access',
   );
@@ -200,6 +205,52 @@ test('Shelly helper executes HTTP requests through the gateway proxy', async () 
       },
       body: JSON.stringify(payload.httpRequest),
     }),
+  );
+});
+
+test('Shelly helper classifies gateway policy and outbound connection errors', async () => {
+  const payload = request([
+    'cover',
+    'status',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+  ]);
+  const policyDeniedFetch = vi.fn(async () => ({
+    ok: false,
+    status: 400,
+    statusText: 'Bad Request',
+    text: async () =>
+      JSON.stringify({
+        error:
+          'HTTP request blocked by SSRF guard: private or loopback host (192.0.2.10) is not allowlisted by workspace network policy for GET /rpc/Cover.GetStatus on port 80.',
+      }),
+  }));
+  const outboundFailedFetch = vi.fn(async () => ({
+    ok: false,
+    status: 502,
+    statusText: 'Bad Gateway',
+    text: async () =>
+      JSON.stringify({
+        error:
+          'Outbound HTTP request failed: fetch failed (connect EHOSTUNREACH 192.0.2.10:80)',
+      }),
+  }));
+
+  await expect(
+    shelly.executeGatewayRequest(payload.httpRequest, {
+      gatewayUrl: 'http://127.0.0.1:9090',
+      fetch: policyDeniedFetch,
+    }),
+  ).rejects.toThrow('workspace network policy denied');
+  await expect(
+    shelly.executeGatewayRequest(payload.httpRequest, {
+      gatewayUrl: 'http://127.0.0.1:9090',
+      fetch: outboundFailedFetch,
+    }),
+  ).rejects.toThrow(
+    'gateway policy accepted the request, but the gateway process could not open the outbound connection',
   );
 });
 
