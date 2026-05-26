@@ -119,6 +119,10 @@ export interface MacCuaDriver {
   detectTwoFactorWaypoint?(
     sessionId: string,
   ): Promise<{ detected: boolean; signals?: string[]; selectors?: string[] }>;
+  fillTwoFactorInput?(
+    sessionId: string,
+    payload: { text: string } | { secretRef: SecretRef },
+  ): Promise<boolean>;
   focusTwoFactorInput?(sessionId: string): Promise<boolean>;
   getEnvironmentState(): Promise<MacCuaEnvironmentState>;
 }
@@ -336,7 +340,32 @@ function firstEditableElementSelector(
   record: Record<string, unknown>,
   windowId?: string | number,
 ): string | null {
+  const target = firstEditableElementTarget(record, windowId);
+  if (!target || target.kind !== 'ax') return null;
+  return `@e${target.elementIndex}${target.windowId ? `@window:${target.windowId}` : ''}`;
+}
+
+function firstEditableElementTarget(
+  record: Record<string, unknown>,
+  windowId?: string | number,
+): MacCuaTarget | null {
   const tree = String(record.tree_markdown || record.markdown || '');
+  for (const line of tree.split(/\r?\n/u)) {
+    const indexMatch = line.match(/\[element_index\s+(\d+)\]/u);
+    const roleMatch = line.match(
+      /\b(?:AX)?(?:TextField|TextArea|SearchField|ComboBox)\b/iu,
+    );
+    if (indexMatch?.[1] && roleMatch) {
+      const elementIndex = Number(indexMatch[1]);
+      if (Number.isFinite(elementIndex)) {
+        return {
+          kind: 'ax',
+          elementIndex,
+          ...(windowId ? { windowId } : {}),
+        };
+      }
+    }
+  }
   const elementPattern =
     /^\s*(?:-\s+)?\[(\d+)\]\s+(\w+)(?:\s+"([^"]*)"|(?:\s+\(\d+\))?\s+id=([^\s[\]]*))?/gmu;
   for (const match of tree.matchAll(elementPattern)) {
@@ -350,7 +379,11 @@ function firstEditableElementSelector(
         role.includes('searchfield') ||
         role.includes('combobox'))
     ) {
-      return `@e${index}${windowId ? `@window:${windowId}` : ''}`;
+      return {
+        kind: 'ax',
+        elementIndex: index,
+        ...(windowId ? { windowId } : {}),
+      };
     }
   }
   return null;
@@ -667,45 +700,48 @@ class StdioMacCuaDriver implements MacCuaDriver {
     };
   }
 
-  async focusTwoFactorInput(sessionId: string): Promise<boolean> {
+  private async findTwoFactorInputTarget(
+    sessionId: string,
+  ): Promise<MacCuaTarget | null> {
     const session = this.requireSession(sessionId);
-    const record = await this.callToolRecord('page', {
-      pid: session.pid,
-      window_id: session.windowId,
-      action: 'execute_javascript',
-      javascript: `(() => {
-        const selectors = [
-          'input[autocomplete="one-time-code"]',
-          'input[inputmode="numeric"]',
-          'input[name*="otp" i]',
-          'input[id*="otp" i]',
-          'input[name*="totp" i]',
-          'input[id*="totp" i]',
-          'input[name*="code" i]',
-          'input[id*="code" i]',
-          'input[type="tel"]',
-          'input[type="number"]',
-          'input[type="text"]',
-          'textarea'
-        ];
-        const element = selectors
-          .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
-          .find((candidate) => {
-            const input = candidate;
-            if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
-              return false;
-            }
-            if (input.disabled || input.readOnly) return false;
-            const rect = input.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-          });
-        if (!element) return false;
-        element.focus();
-        if (typeof element.select === 'function') element.select();
-        return document.activeElement === element;
-      })()`,
-    });
-    return record.result === true || record.value === true;
+    for (const query of [
+      'one-time-code',
+      'otp',
+      'totp',
+      'verification code',
+      'two-factor',
+      'code',
+      '',
+    ]) {
+      const record = await this.callToolRecord('get_window_state', {
+        pid: session.pid,
+        window_id: session.windowId,
+        ...(query ? { query } : {}),
+      });
+      const target = firstEditableElementTarget(record, session.windowId);
+      if (!target) continue;
+      return target;
+    }
+    return null;
+  }
+
+  async fillTwoFactorInput(
+    sessionId: string,
+    payload: { text: string } | { secretRef: SecretRef },
+  ): Promise<boolean> {
+    const target = await this.findTwoFactorInputTarget(sessionId);
+    if (!target) return false;
+    await this.setValue(sessionId, target, payload);
+    return true;
+  }
+
+  async focusTwoFactorInput(sessionId: string): Promise<boolean> {
+    const target = await this.findTwoFactorInputTarget(sessionId);
+    if (!target) {
+      return false;
+    }
+    await this.click(sessionId, target);
+    return true;
   }
 
   async getEnvironmentState(): Promise<MacCuaEnvironmentState> {
@@ -1008,7 +1044,19 @@ class MacCuaBrowserSession implements BrowserSession {
       return { selector, strategy: 'ax-selector' };
     }
 
+    let strategy = 'native-focus';
     await this.runAction('browser_resume_interaction', async () => {
+      const payload = this.buildFillPayload('detected 2FA input', value);
+      if (this.driver.fillTwoFactorInput) {
+        const filled = await this.driver.fillTwoFactorInput(
+          this.sessionId,
+          payload,
+        );
+        if (filled) {
+          strategy = 'native-set-value';
+          return;
+        }
+      }
       if (!this.driver.focusTwoFactorInput) {
         throw new Error(
           'mac-cua cannot focus the 2FA input because the driver does not expose a native 2FA focus primitive.',
@@ -1018,12 +1066,9 @@ class MacCuaBrowserSession implements BrowserSession {
       if (!focused) {
         throw new Error('mac-cua could not focus the detected 2FA input.');
       }
-      await this.driver.typeTextChars(
-        this.sessionId,
-        this.buildFillPayload('detected 2FA input', value),
-      );
+      await this.driver.typeTextChars(this.sessionId, payload);
     });
-    return { strategy: 'native-focus' };
+    return { strategy };
   }
 
   private buildFillPayload(
