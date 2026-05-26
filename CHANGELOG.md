@@ -2,12 +2,95 @@
 
 ## Unreleased
 
+### Added
+
+- **Codex app-server runtime**: Added an optional `openai-codex/*` runtime
+  path through `codex app-server`, including HybridClaw callback MCP tools,
+  approval translation, transcript projection, and runtime-selector tests.
+- **Managed and Mac browser providers**: Added managed-cloud browser launch,
+  tenant navigation policy, provider health checks, and a macOS CUA browser
+  provider with `hybridclaw doctor cua-mac` diagnostics.
+- **Browser 2FA handoff**: Browser providers can detect two-factor and
+  device-check waypoints, park the run for operator escalation, and resume
+  without exposing credentials to the model.
+- **Admin console surfaces**: Added Agents Overview, Output Guard, richer
+  config editing, per-agent budget chips, job and chat UI improvements, and
+  admin secret overwrite/unset APIs that never return cleartext values.
+- **`hubspot` skill**: Adds HubSpot CRM reads and guarded writes for contacts,
+  companies, deals, notes, and tasks through SecretRef-backed bearer auth.
+- **`lexware-office` skill**: Adds Lexware Office contacts, invoices,
+  vouchers, receipts, posting categories, and payment-state workflows through
+  the Lexware Public API.
+- **`hetzner-cloud` skill**: Adds Hetzner Cloud inventory, cost, provisioning,
+  volume, snapshot, restore, and guarded delete workflows.
+- **`hetzner-dns` skill**: Adds Hetzner DNS zone and record inspection plus
+  guarded A, AAAA, CNAME, TXT, add, update, and delete workflows.
+- **`hetzner-storage-box` skill**: Adds Hetzner Storage Box inventory,
+  snapshot, WebDAV file, archive, upload, download, and public URL workflows.
+- **`zabbix` skill**: Adds Zabbix monitoring reads for API health, host
+  inventory, current problems, trigger severity summaries, and incident
+  context.
+- **`t-cloud-public` skill**: Adds T Cloud Public and Open Telekom Cloud
+  infrastructure inventory, quotas, service status, and guarded operation
+  planning with gateway-managed API signing.
+- **`mittwald` skill**: Adds mittwald mStudio and Kundencenter reads for
+  projects, apps, runtimes, databases, domains, mail, backups, files,
+  containers, and access users.
+- **`shelly` skill**: Adds Shelly local and cloud device inspection plus
+  guarded relay, switch, light, and cover control workflows.
+- **`fax-send` skill**: Adds outbound fax preparation and explicitly approved
+  send workflows for configured fax providers.
+- **`distil-pii-redactor` skill**: Adds local PII redaction and anonymization
+  with Distil-PII and `llama.cpp` so sensitive text can be sanitized before it
+  reaches external tools.
+- **`warehouse-sql` skill**: Adds reviewed natural-language SQL workflows with
+  cached schema inspection, model-review enforcement, and guarded execution
+  for warehouse queries.
+- **Fax channel docs and accounting**: Added outbound fax skill support,
+  provider-facing fax accounting helpers, eval scenarios, and setup
+  documentation for fax workflows.
+- **Adaptive Skills SkillOpt-lite**: Added trajectory minibatch reflection,
+  bounded edit candidates, candidate artifacts, held-out evaluation gates, and
+  acceptance tests for the adaptive-skills amendment loop.
+- **Board dependency edges**: Board cards can carry typed `blocks`,
+  `blocked_by`, and `related` edges so work-board status and future
+  coordination surfaces can reason about dependencies.
+- **Supply-chain guardrails**: Added dependency-audit workflow coverage,
+  shrinkwrap synchronization, release-check updates, and dependency policy
+  baselines.
+- **Google OAuth recovery hint**: Authentication diagnostics include an
+  actionable recovery hint when Google OAuth state needs to be refreshed.
+
 ### Changed
 
 - **Diagram validation and accounting**: Mermaid diagrams are validated with
   the bundled Mermaid parser before render, diagram render artifacts retain
   skill-scoped source/rendered metadata, and local diagram renders emit
   zero-cost usage hooks so budget accounting only reflects LLM token use.
+- **Skill amendment safety**: Skill amendment generation and application now
+  enforce tighter best-practice constraints, clearer formatting, and rollback
+  evaluation behavior.
+- **Auxiliary routing and provider health**: Auxiliary model calls prefer
+  healthy local providers when configured and route through health-aware
+  fallback decisions.
+- **FastBill wrapper guidance**: FastBill API helper instructions and guard
+  rails are stricter to reduce model-side request reconstruction mistakes.
+- **Runtime and docs diagnostics**: Gateway status and operator docs describe
+  the current runtime, managed-browser, threat-model, and skill setup surfaces
+  more completely.
+- **Conversation preview logging**: Web chat diagnostics label conversation
+  preview roles more clearly.
+
+### Fixed
+
+- **Remote A2A routing bug**: Fixed `sendMessage` delivery for remote A2A
+  recipients that were incorrectly treated as local recipients.
+- **Admin SPA navigation bug**: Fixed admin job links that triggered full-page
+  reloads instead of staying inside the existing SPA route.
+- **Observability ingest token bug**: Fixed stale observability ingest tokens
+  that could cause ingest requests to fail after token rotation.
+- **Chat error banner bug**: Fixed web chat error banners that could remain
+  visible after the underlying error state cleared.
 
 ## [0.19.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.2) - 2026-05-14
 

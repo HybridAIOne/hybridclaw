@@ -118,3 +118,44 @@ TUI channels.
 > `1. Catch me up on everything from the last 24 hours across all channels`
 > `2. That incident in #ops you mentioned — show me the full timeline of messages around it`
 > `3. Draft a summary of the incident and post it as a thread reply in #ops`
+
+---
+
+## fax-send
+
+Send outbound fax documents through a configured provider with explicit
+operator approval for every transmission.
+
+**Prerequisites** — configure the fax provider and stored credentials as
+documented in [Fax Channel Setup](../../channels/fax.md). The skill needs a
+validated destination number, an approved document or generated cover page, and
+provider access through the HybridClaw gateway.
+
+> 💡 **Tips & Tricks**
+>
+> Treat every fax send as high-impact: preview the recipient, page count,
+> attachment names, and provider cost before asking for approval.
+>
+> Use dry-run or planning output first when generating fax requests from
+> natural-language instructions.
+>
+> Never paste provider credentials into chat. Store them as HybridClaw secrets
+> and let the gateway inject them server-side.
+
+> 🎯 **Try it yourself**
+>
+> `Prepare a fax cover page for Acme Legal and show me the send plan`
+>
+> `Send this signed PDF by fax after I approve the recipient and page count`
+>
+> `Validate this German fax number and build an outbound fax request without sending it`
+
+**Troubleshooting**
+
+- **Provider not configured** — complete the setup in
+  [Fax Channel Setup](../../channels/fax.md) and restart the gateway if the
+  provider configuration changed.
+- **Number rejected** — normalize the number to E.164 format and confirm the
+  destination country is supported by the provider.
+- **Send refused** — rerun the approval plan and send only after the operator
+  confirms the exact recipient, document, and cost.
