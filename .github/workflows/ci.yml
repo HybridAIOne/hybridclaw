@@ -36,21 +36,32 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
-
-      - name: Setup Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
 
       - name: Build ${{ matrix.name }} image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.file }}
-          target: ${{ matrix.target }}
-          push: false
-          load: true
-          tags: hybridclaw-${{ matrix.name }}:preflight
-          cache-from: type=gha,scope=${{ matrix.cache_scope }}
-          cache-to: type=gha,mode=max,ignore-error=true,timeout=5m,scope=${{ matrix.cache_scope }}
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ matrix.name }}
+          BUILD_CONTEXT: ${{ matrix.context }}
+          DOCKERFILE: ${{ matrix.file }}
+          DOCKER_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+
+          build_args=(
+            --file "${DOCKERFILE}"
+            --tag "hybridclaw-${IMAGE_NAME}:preflight"
+          )
+
+          if [[ -n "${DOCKER_TARGET}" ]]; then
+            build_args+=(--target "${DOCKER_TARGET}")
+          fi
+
+          docker buildx create --use --name hybridclaw-ci-builder
+          docker buildx inspect --bootstrap
+          docker buildx build --load "${build_args[@]}" "${BUILD_CONTEXT}"
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
@@ -82,13 +93,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
-
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+          fetch-depth: 0
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
-
-      - name: Fetch PR base for dependency policy
-        if: github.event_name == 'pull_request'
-        run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
 
       - name: Dependency policy (PR lockfiles)
         if: github.event_name == 'pull_request'
@@ -148,6 +158,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
@@ -203,12 +216,26 @@ jobs:
 
       - name: Publish coverage badge to gh-pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e  # v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./badge
-          destination_dir: badge
-          keep_files: true
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          worktree="$(mktemp -d)"
+          git fetch --no-tags --depth=1 origin gh-pages
+          git worktree add "${worktree}" origin/gh-pages
+          mkdir -p "${worktree}/badge"
+          cp badge/coverage.json "${worktree}/badge/coverage.json"
+
+          git -C "${worktree}" config user.name "github-actions[bot]"
+          git -C "${worktree}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "${worktree}" add badge/coverage.json
+          if git -C "${worktree}" diff --cached --quiet; then
+            echo "Coverage badge unchanged."
+            exit 0
+          fi
+
+          git -C "${worktree}" commit -m "chore: update coverage badge"
+          git -C "${worktree}" push origin HEAD:gh-pages
 
   npm-e2e:
     needs: test
@@ -216,6 +243,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
