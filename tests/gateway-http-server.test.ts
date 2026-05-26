@@ -1315,6 +1315,10 @@ async function importFreshHealth(options?: {
       policyPath: '/tmp/main/workspace/.hybridclaw/policy.yaml',
       workspacePath: '/tmp/main/workspace',
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: ['github'],
       rules: [
         {
@@ -1358,6 +1362,10 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: [],
       rules: [
         {
@@ -1373,6 +1381,27 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: params.defaultAction,
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
+      presets: [],
+      rules: [],
+    }),
+  );
+  const saveGatewayAdminPolicyLanHttpAccess = vi.fn(
+    (params: {
+      agentId?: string;
+      mode: 'off' | 'read-only' | 'read-write' | 'custom';
+    }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: params.mode,
+        managedRuleIndexes: params.mode === 'off' ? [] : [2, 3, 4],
+      },
       presets: [],
       rules: [],
     }),
@@ -1383,6 +1412,10 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: [params.presetName],
       rules: [
         {
@@ -1404,6 +1437,10 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: [],
       rules: [],
       deletedIndex: params.index,
@@ -1826,6 +1863,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminSlackWebhookTarget,
     saveGatewayAdminAgentMarkdownFile,
     saveGatewayAdminPolicyDefault,
+    saveGatewayAdminPolicyLanHttpAccess,
     saveGatewayAdminPolicyRule,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
@@ -1939,6 +1977,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
     saveGatewayAdminPolicyDefault,
+    saveGatewayAdminPolicyLanHttpAccess,
     applyGatewayAdminPolicyPreset,
     saveGatewayAdminPolicyRule,
     deleteGatewayAdminPolicyRule,
@@ -6830,6 +6869,34 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('saves the admin LAN HTTP policy mode for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/policy',
+      body: {
+        agentId: 'writer',
+        lanHttpAccessMode: 'read-write',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminPolicyLanHttpAccess).toHaveBeenCalledWith({
+      agentId: 'writer',
+      mode: 'read-write',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      lanHttpAccess: {
+        mode: 'read-write',
+      },
+    });
+  });
+
   test('applies admin policy templates for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -10099,6 +10166,40 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('preserves outbound http_request fetch failure causes in 502 responses', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('fetch failed', {
+          cause: new Error('connect ECONNREFUSED 192.168.178.198:80'),
+        });
+      }),
+    );
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Outbound HTTP request failed: fetch failed (connect ECONNREFUSED 192.168.178.198:80)',
+    });
+  });
+
   test('fails closed when dns lookup for http_request host fails', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => {
@@ -10131,6 +10232,176 @@ describe('gateway HTTP server', () => {
       }),
       'DNS lookup failed during SSRF host check; treating host as private/blocked',
     );
+  });
+
+  test('allows private outbound http_request targets only when explicitly allowlisted by policy', async () => {
+    const workspacePath = makeTempDocsRoot();
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: 80',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /rpc/**',
+        '      agent: "*"',
+        '  presets: []',
+      ].join('\n'),
+      'utf8',
+    );
+    const originalCwd = process.cwd();
+    const state = await importFreshHealth({
+      gatewayApiToken: 'gateway-token',
+    });
+    process.chdir(workspacePath);
+    try {
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ id: 0, name: 'Living room' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/http/request',
+        headers: { authorization: 'Bearer gateway-token' },
+        body: {
+          url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
+          method: 'GET',
+        },
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(200);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('keeps private outbound http_request targets blocked when policy path does not match', async () => {
+    const workspacePath = makeTempDocsRoot();
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.178.198',
+        '      port: 80',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /rpc/**',
+        '      agent: "*"',
+        '  presets: []',
+      ].join('\n'),
+      'utf8',
+    );
+    const originalCwd = process.cwd();
+    const state = await importFreshHealth({
+      gatewayApiToken: 'gateway-token',
+    });
+    process.chdir(workspacePath);
+    try {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/http/request',
+        headers: { authorization: 'Bearer gateway-token' },
+        body: {
+          url: 'http://192.168.178.198/debug',
+          method: 'GET',
+        },
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({
+        error:
+          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for GET /debug on port 80.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('reports private outbound http_request method mismatches against policy', async () => {
+    const workspacePath = makeTempDocsRoot();
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.178.198',
+        '      port: 80',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /rpc/**',
+        '      agent: "*"',
+        '  presets: []',
+      ].join('\n'),
+      'utf8',
+    );
+    const originalCwd = process.cwd();
+    const state = await importFreshHealth({
+      gatewayApiToken: 'gateway-token',
+    });
+    process.chdir(workspacePath);
+    try {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/http/request',
+        headers: { authorization: 'Bearer gateway-token' },
+        body: {
+          url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
+          method: 'POST',
+        },
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({
+        error:
+          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for POST /rpc/Cover.GetConfig on port 80.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      process.chdir(originalCwd);
+    }
   });
 
   test('streams outbound http_request responses and truncates once the size limit is exceeded', async () => {

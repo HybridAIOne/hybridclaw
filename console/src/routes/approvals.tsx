@@ -4,10 +4,15 @@ import {
   deleteAdminPolicyRule,
   fetchAdminApprovals,
   saveAdminPolicyDefault,
+  saveAdminPolicyLanHttpAccess,
   saveAdminPolicyPreset,
   saveAdminPolicyRule,
 } from '../api/client';
-import type { AdminPolicyRule, AdminPolicyRuleInput } from '../api/types';
+import type {
+  AdminLanHttpAccessMode,
+  AdminPolicyRule,
+  AdminPolicyRuleInput,
+} from '../api/types';
 import { useAuth } from '../auth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import {
@@ -247,6 +252,23 @@ export function ApprovalsPage() {
     },
   });
 
+  const lanHttpAccessMutation = useMutation({
+    mutationFn: (mode: AdminLanHttpAccessMode) =>
+      saveAdminPolicyLanHttpAccess(auth.token, {
+        agentId: activeAgentId,
+        mode,
+      }),
+    onSuccess: (_payload, mode) => {
+      void queryClient.invalidateQueries({
+        queryKey: ['admin-approvals', auth.token],
+      });
+      toast.success(`LAN HTTP access set to ${mode}.`);
+    },
+    onError: (error) => {
+      toast.error('Failed to update LAN HTTP access', getErrorMessage(error));
+    },
+  });
+
   function handleDraftSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     try {
@@ -279,12 +301,17 @@ export function ApprovalsPage() {
     saveMutation.isPending ||
     deleteMutation.isPending ||
     defaultMutation.isPending ||
+    lanHttpAccessMutation.isPending ||
     presetMutation.isPending;
   const editorOpen = editorMode !== null;
   const displayedDefaultAction =
     defaultMutation.isPending && defaultMutation.variables
       ? defaultMutation.variables
       : approvalsQuery.data?.policy.defaultAction || 'deny';
+  const displayedLanHttpAccessMode =
+    lanHttpAccessMutation.isPending && lanHttpAccessMutation.variables
+      ? lanHttpAccessMutation.variables
+      : approvalsQuery.data?.policy.lanHttpAccess?.mode || 'off';
 
   useEffect(() => {
     setSelectedPresetName((current) => {
@@ -359,6 +386,29 @@ export function ApprovalsPage() {
             >
               <option value="deny">deny</option>
               <option value="allow">allow</option>
+            </select>
+          </div>
+        </div>
+        <div className="metric-card">
+          <span>LAN HTTP access</span>
+          <div className="field">
+            <select
+              aria-label="LAN HTTP access"
+              value={displayedLanHttpAccessMode}
+              disabled={!approvalsQuery.data || policyMutationPending}
+              onChange={(event) => {
+                const mode = event.target.value as AdminLanHttpAccessMode;
+                if (mode === 'custom') {
+                  beginCreateRule();
+                  return;
+                }
+                lanHttpAccessMutation.mutate(mode);
+              }}
+            >
+              <option value="off">Off</option>
+              <option value="read-only">Read-only LAN</option>
+              <option value="read-write">Read-write LAN</option>
+              <option value="custom">Custom</option>
             </select>
           </div>
         </div>

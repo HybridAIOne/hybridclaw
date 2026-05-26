@@ -1,0 +1,1069 @@
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+
+import { expect, test, vi } from 'vitest';
+
+import { parseSkillManifestFromMarkdown } from '../src/skills/skill-manifest.js';
+
+const helperPath = path.join(process.cwd(), 'skills', 'shelly', 'shelly.cjs');
+const skillPath = path.join(process.cwd(), 'skills', 'shelly', 'SKILL.md');
+const require = createRequire(import.meta.url);
+const shelly = require('../skills/shelly/shelly.cjs');
+
+function runHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
+  return spawnSync('node', [helperPath, ...args], {
+    encoding: 'utf-8',
+    env: {
+      ...process.env,
+      ...env,
+    },
+  });
+}
+
+function request(args: string[]) {
+  return shelly.buildRequest(['--format', 'json', ...args]);
+}
+
+function approvalPlan(args: string[]) {
+  return shelly.buildRequest(['--format', 'json', 'approval-plan', ...args]);
+}
+
+test('Shelly skill manifest declares optional cloud credential and guarded operations', () => {
+  const skill = fs.readFileSync(skillPath, 'utf-8');
+  const manifest = parseSkillManifestFromMarkdown(skill, { name: 'shelly' });
+
+  expect(skill).toContain('Shelly Gen2 RPC methods');
+  expect(skill).toContain('Cover.GetConfig');
+  expect(manifest.credentials).toEqual([
+    {
+      id: 'shelly-cloud-auth-key',
+      kind: 'api_key',
+      required: false,
+      secretRef: {
+        source: 'store',
+        id: 'SHELLY_CLOUD_AUTH_KEY',
+      },
+      scope: 'Shelly Cloud Control API tenant host auth_key query parameter',
+      howToObtain:
+        'Generate an Authorization cloud key in Shelly Smart Control user settings and store it with `hybridclaw secret set SHELLY_CLOUD_AUTH_KEY "<key>"`.',
+    },
+    {
+      id: 'shelly-cloud-access-token',
+      kind: 'bearer',
+      required: false,
+      secretRef: {
+        source: 'store',
+        id: 'SHELLY_CLOUD_ACCESS_TOKEN',
+      },
+      scope: 'Shelly Cloud Real Time Events HTTP API Authorization bearer',
+      howToObtain:
+        'Use Shelly\'s documented OAuth flow for the Real Time Events API and store the resulting access token with `hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN "<access-token>"`.',
+    },
+  ]);
+  expect(skill).toContain('category: home-automation');
+  expect(skill).toContain('Keep the markdown instructions generic');
+  expect(skill).toContain(
+    'API-specific request\nconstruction belongs in `shelly.cjs`.',
+  );
+  expect(skill).toContain('cover.status');
+  expect(skill).toContain('cover.goto');
+  expect(skill).toContain('switch.set');
+  expect(skill).toContain('gen1.get');
+  expect(skill).toContain('rpc.call');
+  expect(skill).toContain('cloud.websocket-url');
+  expect(skill).toContain(
+    'The helper executes HTTP operations through the HybridClaw gateway',
+  );
+  expect(skill).toContain('Use `--request`');
+  expect(skill).toContain('approval-plan');
+  expect(skill).toContain('approvedHelperCommandText');
+  expect(skill).toContain('light.set');
+  expect(skill).toContain('factory-reset');
+  expect(skill).toContain('Required Inputs');
+  expect(skill).toContain('Shelly Cloud tenant server URI');
+  expect(skill).toContain('Authorization Cloud Key');
+  expect(skill).toContain('Device Information');
+  expect(skill).toContain('SHELLY_OAUTH_CODE');
+  expect(skill).toContain('OAuth JWT `user_api_url`');
+  expect(skill).toContain('Discovery and Names');
+  expect(skill).toContain('Cloud Control API v2 requires known device ids');
+  expect(skill).toContain('Real Time Events all-status can discover');
+  expect(skill).toContain('OAuth/Bearer authorization');
+  expect(skill).toContain('cloud oauth-token');
+  expect(skill).toContain('cloud all-status');
+  expect(skill).toContain('WebSocket helpers emit');
+  expect(skill).toContain('Use this command surface directly');
+  expect(skill).toContain('do not rediscover flags by trial and error');
+  expect(skill).toContain('approval-plan <resource> <action>');
+  expect(skill).toContain(
+    'cover goto --device-url http://192.0.2.10 --id 0 --position 50 --operator-grant',
+  );
+  expect(skill).toContain(
+    'cloud websocket-command --cloud-host https://<HOST> --device-id abc123',
+  );
+  expect(skill).toContain(
+    'rpc call --device-url http://192.0.2.10 --method Cover.Calibrate',
+  );
+  expect(skill).toContain('Access to Local Devices');
+  expect(skill).toContain(
+    'local TUI/web `/policy` command, or the `/admin/approvals` network policy',
+  );
+  expect(skill).toContain('helper-emitted host,\nport, method, and path.');
+  expect(skill).toContain('method-scoped\n`/rpc/<method>` path');
+  expect(skill).toContain('Local Network\npermission');
+  expect(skill).toContain('reason: NECP');
+  expect(skill).toContain('direct LAN `curl` from\n');
+  expect(skill).toContain('Shelly names can exist in multiple layers');
+  expect(skill).toContain('Report the field\n  and API surface');
+  expect(skill).toContain('Result Handling');
+  expect(skill).toContain(
+    'Base status and control answers on successful live Shelly API results',
+  );
+  expect(skill).toContain('distinguish policy denials from outbound');
+  expect(skill).toContain('not a policy denial');
+  expect(skill).toContain(
+    'Do not claim container isolation, container networking, or `--network host`',
+  );
+  expect(skill).toContain(
+    'When the operator explicitly asks for local, LAN, or RPC access',
+  );
+  expect(skill).toContain('do not substitute a cloud result');
+  expect(skill).not.toContain('session_search');
+  expect(skill).not.toContain('Response Formatting');
+  expect(skill).not.toContain('SSRF');
+  expect(skill).not.toContain('Wrong parameteres provided');
+});
+
+test('Shelly helper --help exits cleanly and lists local and cloud operations', () => {
+  const result = runHelper(['--help']);
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain('Shelly skill helper');
+  expect(result.stdout).toContain('approval-plan <resource> <action>');
+  expect(result.stdout).toContain('device status');
+  expect(result.stdout).toContain('cover config');
+  expect(result.stdout).toContain('cover open');
+  expect(result.stdout).toContain('cover goto');
+  expect(result.stdout).toContain('relay set');
+  expect(result.stdout).toContain('cloud state');
+  expect(result.stdout).toContain('cloud oauth-token');
+  expect(result.stdout).toContain('cloud all-status');
+  expect(result.stdout).toContain('switch set');
+  expect(result.stdout).toContain('gen1 get');
+  expect(result.stdout).toContain('gen1 set');
+  expect(result.stdout).toContain('rpc get');
+  expect(result.stdout).toContain('rpc call');
+  expect(result.stdout).toContain('cloud websocket-url');
+  expect(result.stdout).toContain('cloud websocket-command');
+});
+
+test('Shelly helper executes HTTP requests through the gateway proxy', async () => {
+  const payload = request([
+    'cover',
+    'status',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+  ]);
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    text: async () =>
+      JSON.stringify({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: JSON.stringify({ id: 0, state: 'open', current_pos: 100 }),
+      }),
+  }));
+
+  const result = await shelly.executeGatewayRequest(payload.httpRequest, {
+    gatewayUrl: 'http://127.0.0.1:9090',
+    gatewayToken: 'gateway-token',
+    fetch: fetchMock,
+  });
+
+  expect(result).toMatchObject({
+    command: 'live-result',
+    ok: true,
+    status: 200,
+    bodyJson: {
+      id: 0,
+      state: 'open',
+      current_pos: 100,
+    },
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://127.0.0.1:9090/api/http/request',
+    expect.objectContaining({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer gateway-token',
+      },
+      body: JSON.stringify(payload.httpRequest),
+    }),
+  );
+});
+
+test('Shelly helper refreshes Real Time Events OAuth once and retries discovery', async () => {
+  const payload = request([
+    'cloud',
+    'all-status',
+    '--cloud-host',
+    'https://shelly-128-eu.shelly.cloud',
+  ]);
+  const invalidTokenBody = JSON.stringify({
+    isok: false,
+    errors: {
+      invalid_token: 'The login information is invalid! Please login again!',
+    },
+    error: 'UNAUTHORIZED',
+  });
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () =>
+        JSON.stringify({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: {},
+          body: invalidTokenBody,
+        }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () =>
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+        }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () =>
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: JSON.stringify({
+            isok: true,
+            data: {
+              devices_status: {
+                '1c692047d498': {
+                  _dev_info: {
+                    id: '1c692047d498',
+                    gen: 'G2',
+                    code: 'SNSW-102P16EU',
+                    online: true,
+                  },
+                  'cover:0': {
+                    current_pos: 50,
+                    state: 'stopped',
+                  },
+                },
+              },
+            },
+          }),
+        }),
+    });
+
+  const { result, oauthRefreshed } = await shelly.executeLivePayload(payload, {
+    gatewayUrl: 'http://127.0.0.1:9090',
+    gatewayToken: 'gateway-token',
+    fetch: fetchMock,
+  });
+
+  expect(oauthRefreshed).toBe(true);
+  expect(
+    result.bodyJson.data.devices_status['1c692047d498']['cover:0'],
+  ).toMatchObject({
+    current_pos: 50,
+    state: 'stopped',
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  const firstRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+  const refreshRequest = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+  const retryRequest = JSON.parse(fetchMock.mock.calls[2][1].body as string);
+  expect(firstRequest.url).toBe(
+    'https://shelly-128-eu.shelly.cloud/device/all_status?show_info=true&no_shared=true',
+  );
+  expect(refreshRequest.url).toBe(
+    'https://shelly-128-eu.shelly.cloud/oauth/auth',
+  );
+  expect(refreshRequest.body).toContain('grant_type=code');
+  expect(retryRequest.url).toBe(firstRequest.url);
+});
+
+test('Shelly helper classifies gateway policy and outbound connection errors', async () => {
+  const payload = request([
+    'cover',
+    'status',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+  ]);
+  const policyDeniedFetch = vi.fn(async () => ({
+    ok: false,
+    status: 400,
+    statusText: 'Bad Request',
+    text: async () =>
+      JSON.stringify({
+        error:
+          'HTTP request blocked by SSRF guard: private or loopback host (192.0.2.10) is not allowlisted by workspace network policy for GET /rpc/Cover.GetStatus on port 80.',
+      }),
+  }));
+  const outboundFailedFetch = vi.fn(async () => ({
+    ok: false,
+    status: 502,
+    statusText: 'Bad Gateway',
+    text: async () =>
+      JSON.stringify({
+        error:
+          'Outbound HTTP request failed: fetch failed (connect EHOSTUNREACH 192.0.2.10:80)',
+      }),
+  }));
+
+  await expect(
+    shelly.executeGatewayRequest(payload.httpRequest, {
+      gatewayUrl: 'http://127.0.0.1:9090',
+      fetch: policyDeniedFetch,
+    }),
+  ).rejects.toThrow('workspace network policy denied');
+  await expect(
+    shelly.executeGatewayRequest(payload.httpRequest, {
+      gatewayUrl: 'http://127.0.0.1:9090',
+      fetch: outboundFailedFetch,
+    }),
+  ).rejects.toThrow(
+    'gateway policy accepted the request, but the gateway process could not open the outbound connection',
+  );
+});
+
+test('Shelly helper reports unreachable gateway before local Shelly request', async () => {
+  const payload = request([
+    'cover',
+    'status',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+  ]);
+  const cause = Object.assign(
+    new Error('connect ECONNREFUSED 127.0.0.1:9090'),
+    {
+      code: 'ECONNREFUSED',
+    },
+  );
+  const fetchMock = vi.fn(async () => {
+    throw new TypeError('fetch failed', { cause });
+  });
+
+  await expect(
+    shelly.executeGatewayRequest(payload.httpRequest, {
+      gatewayUrl: 'http://127.0.0.1:9090',
+      fetch: fetchMock,
+    }),
+  ).rejects.toThrow(
+    'Gateway proxy request failed before Shelly request was sent: fetch failed (connect ECONNREFUSED 127.0.0.1:9090). Check that the HybridClaw gateway is running and reachable at http://127.0.0.1:9090.',
+  );
+});
+
+test('Shelly helper builds local Gen2 RPC read requests', () => {
+  const status = request([
+    'device',
+    'status',
+    '--device-url',
+    'http://192.0.2.10',
+  ]);
+  const components = request([
+    'device',
+    'components',
+    '--device-url',
+    '192.0.2.10',
+    '--include',
+    'status',
+    '--include',
+    'config',
+    '--key',
+    'switch:0',
+  ]);
+  const coverConfig = request([
+    'cover',
+    'config',
+    '--device-url',
+    '192.0.2.10',
+    '--id',
+    '0',
+  ]);
+  const coverStatus = request([
+    'cover',
+    'status',
+    '--device-url',
+    '192.0.2.10',
+    '--id',
+    '0',
+  ]);
+
+  expect(status).toMatchObject({
+    command: 'http-request',
+    operation: 'device.status',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Shelly.GetStatus',
+      method: 'GET',
+      skillName: 'shelly',
+      stakesTier: 'green',
+    },
+  });
+  expect(components.httpRequest).toMatchObject({
+    url: 'http://192.0.2.10/rpc/Shelly.GetComponents',
+    method: 'POST',
+    json: {
+      include: ['status', 'config'],
+      keys: ['switch:0'],
+    },
+  });
+  expect(components.rpcMethod).toBe('Shelly.GetComponents');
+  expect(coverConfig).toMatchObject({
+    operation: 'cover.config',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Cover.GetConfig?id=0',
+      method: 'GET',
+    },
+  });
+  expect(coverStatus.httpRequest.url).toBe(
+    'http://192.0.2.10/rpc/Cover.GetStatus?id=0',
+  );
+  expect(
+    shelly.buildRequest([
+      '--format',
+      'json',
+      'cover',
+      'status',
+      '--device-url',
+      '192.0.2.10',
+      '--id',
+      '0',
+    ]),
+  ).toMatchObject({
+    operation: 'cover.status',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Cover.GetStatus?id=0',
+      method: 'GET',
+    },
+  });
+});
+
+test('Shelly helper requires approval before local output changes', () => {
+  const denied = runHelper([
+    '--format',
+    'json',
+    'switch',
+    'set',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--on',
+    'true',
+  ]);
+  const deniedCover = runHelper([
+    '--format',
+    'json',
+    'cover',
+    'open',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+  ]);
+  const allowed = request([
+    'switch',
+    'set',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--on',
+    'true',
+    '--toggle-after',
+    '5',
+    '--operator-grant',
+  ]);
+  const coverOpen = request([
+    'cover',
+    'open',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--duration',
+    '5',
+    '--tag',
+    'hybridclaw',
+    '--operator-grant',
+  ]);
+  const coverGoto = request([
+    'cover',
+    'goto',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--position',
+    '50',
+    '--slat-position',
+    '30',
+    '--operator-grant',
+  ]);
+  const coverGotoPlan = approvalPlan([
+    'cover',
+    'goto',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--position',
+    '50',
+  ]);
+  const aliasPlan = shelly.buildRequest([
+    '--format',
+    'json',
+    'cover',
+    'goto',
+    '--device',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--position',
+    '100',
+    '--approval-plan',
+  ]);
+
+  expect(denied.status).not.toBe(0);
+  expect(denied.stderr).toContain('switch.set is amber');
+  expect(deniedCover.status).not.toBe(0);
+  expect(deniedCover.stderr).toContain('cover.open is amber');
+  expect(allowed).toMatchObject({
+    operation: 'switch.set',
+    stakesTier: 'amber',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Switch.Set',
+      method: 'POST',
+      json: {
+        id: 0,
+        on: true,
+        toggle_after: 5,
+      },
+    },
+    rpcMethod: 'Switch.Set',
+  });
+  expect(coverOpen).toMatchObject({
+    operation: 'cover.open',
+    stakesTier: 'amber',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Cover.Open',
+      method: 'POST',
+      json: {
+        id: 0,
+        duration: 5,
+        tag: 'hybridclaw',
+      },
+    },
+    rpcMethod: 'Cover.Open',
+  });
+  expect(coverGoto).toMatchObject({
+    operation: 'cover.goto',
+    stakesTier: 'amber',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Cover.GoToPosition',
+      method: 'POST',
+      json: {
+        id: 0,
+        pos: 50,
+        slat_pos: 30,
+      },
+    },
+    rpcMethod: 'Cover.GoToPosition',
+  });
+  expect(coverGotoPlan).toMatchObject({
+    command: 'approval-plan',
+    operation: 'cover.goto',
+    stakesTier: 'amber',
+    target: {
+      host: '192.0.2.10',
+      path: '/rpc/Cover.GoToPosition',
+      method: 'POST',
+    },
+    rpcMethod: 'Cover.GoToPosition',
+    params: {
+      id: 0,
+      pos: 50,
+    },
+    approvalRequired: true,
+  });
+  expect(coverGotoPlan).not.toHaveProperty('httpRequest');
+  expect(coverGotoPlan.approvalBoundary).toContain('Stop after producing');
+  expect(coverGotoPlan.approvedHelperCommandText).toContain('cover goto');
+  expect(coverGotoPlan.approvedHelperCommandText).toContain('--operator-grant');
+  expect(aliasPlan).toMatchObject({
+    command: 'approval-plan',
+    operation: 'cover.goto',
+    target: {
+      host: '192.0.2.10',
+      path: '/rpc/Cover.GoToPosition',
+      method: 'POST',
+    },
+    params: {
+      id: 0,
+      pos: 100,
+    },
+  });
+  expect(aliasPlan.approvedHelperCommandText).toContain('--device-url');
+});
+
+test('Shelly helper builds local Gen1 relay requests', () => {
+  const status = request([
+    'relay',
+    'status',
+    '--device-url',
+    'http://192.0.2.20',
+    '--id',
+    '1',
+  ]);
+  const set = request([
+    'relay',
+    'set',
+    '--device-url',
+    'http://192.0.2.20',
+    '--id',
+    '1',
+    '--turn',
+    'toggle',
+    '--timer',
+    '10',
+    '--operator-grant',
+  ]);
+
+  expect(status.httpRequest.url).toBe('http://192.0.2.20/relay/1');
+  expect(status.stakesTier).toBe('green');
+  expect(set).toMatchObject({
+    operation: 'relay.set',
+    stakesTier: 'amber',
+    httpRequest: {
+      url: 'http://192.0.2.20/relay/1?turn=toggle&timer=10',
+      method: 'GET',
+    },
+  });
+});
+
+test('Shelly helper builds generic Gen1 endpoint requests', () => {
+  const get = request([
+    'gen1',
+    'get',
+    '--device-url',
+    'http://192.0.2.20',
+    '--path',
+    '/settings',
+  ]);
+  const set = request([
+    'gen1',
+    'set',
+    '--device-url',
+    'http://192.0.2.20',
+    '--path',
+    '/settings/relay/0',
+    '--query',
+    'default_state=on',
+    '--operator-grant',
+  ]);
+
+  expect(get).toMatchObject({
+    operation: 'gen1.get',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'http://192.0.2.20/settings',
+      method: 'GET',
+    },
+  });
+  expect(set).toMatchObject({
+    operation: 'gen1.set',
+    stakesTier: 'amber',
+    httpRequest: {
+      url: 'http://192.0.2.20/settings/relay/0?default_state=on',
+      method: 'GET',
+    },
+  });
+});
+
+test('Shelly helper builds generic Gen2 RPC requests', () => {
+  const get = request([
+    'rpc',
+    'get',
+    '--device-url',
+    'http://192.0.2.10',
+    '--method',
+    'Cloud.GetStatus',
+  ]);
+  const call = request([
+    'rpc',
+    'call',
+    '--device-url',
+    'http://192.0.2.10',
+    '--method',
+    'Cover.Calibrate',
+    '--params-json',
+    '{"id":0}',
+    '--operator-grant',
+  ]);
+  const plan = approvalPlan([
+    'rpc',
+    'call',
+    '--device-url',
+    'http://192.0.2.10',
+    '--method',
+    'Cover.ResetCounters',
+    '--params-json',
+    '{"id":0,"type":["aenergy"]}',
+  ]);
+
+  expect(get).toMatchObject({
+    operation: 'rpc.get',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Cloud.GetStatus',
+      method: 'GET',
+    },
+  });
+  expect(call).toMatchObject({
+    operation: 'rpc.call',
+    stakesTier: 'amber',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Cover.Calibrate',
+      method: 'POST',
+      json: {
+        id: 0,
+      },
+    },
+    rpcMethod: 'Cover.Calibrate',
+  });
+  expect(plan).toMatchObject({
+    command: 'approval-plan',
+    operation: 'rpc.call',
+    rpcMethod: 'Cover.ResetCounters',
+    params: {
+      id: 0,
+      type: ['aenergy'],
+    },
+  });
+  expect(plan.approvedHelperCommandText).toContain('rpc call');
+  expect(plan.approvedHelperCommandText).toContain('--operator-grant');
+});
+
+test('Shelly helper builds cloud state and control requests without exposing secrets', () => {
+  const state = request([
+    'cloud',
+    'state',
+    '--cloud-host',
+    'https://shelly.example.com',
+    '--device-id',
+    'b48a0a1cd978',
+    '--select',
+    'status',
+    '--pick-status',
+    'sys',
+  ]);
+  const setSwitch = request([
+    'switch',
+    'set',
+    '--cloud-host',
+    'shelly.example.com',
+    '--device-id',
+    'b48a0a1cd978',
+    '--channel',
+    '0',
+    '--on',
+    'false',
+    '--operator-grant',
+  ]);
+
+  expect(state).toMatchObject({
+    operation: 'cloud.state',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'https://shelly.example.com/v2/devices/api/get?auth_key=<secret:SHELLY_CLOUD_AUTH_KEY>',
+      method: 'POST',
+      json: {
+        ids: ['b48a0a1cd978'],
+        select: ['status'],
+        pick: {
+          status: ['sys'],
+        },
+      },
+    },
+    liveExecution: {
+      requiresConfiguredSecrets: ['SHELLY_CLOUD_AUTH_KEY'],
+    },
+  });
+  expect(setSwitch.httpRequest).toMatchObject({
+    url: 'https://shelly.example.com/v2/devices/api/set/switch?auth_key=<secret:SHELLY_CLOUD_AUTH_KEY>',
+    method: 'POST',
+    json: {
+      id: 'b48a0a1cd978',
+      channel: 0,
+      on: false,
+    },
+  });
+  expect(JSON.stringify(state)).not.toContain('supersecret');
+  expect(state.httpRequest).not.toHaveProperty('bearerSecretName');
+});
+
+test('Shelly helper builds OAuth-backed Real Time Events all-status requests', () => {
+  const token = request([
+    'cloud',
+    'oauth-token',
+    '--cloud-host',
+    'https://shelly.example.com',
+    '--code-secret',
+    'SHELLY_OAUTH_CODE',
+  ]);
+  const payload = request([
+    'cloud',
+    'all-status',
+    '--cloud-host',
+    'https://shelly.example.com',
+  ]);
+  const includeShared = request([
+    'cloud',
+    'all-status',
+    '--cloud-host',
+    'shelly.example.com',
+    '--include-shared',
+    '--without-info',
+  ]);
+  const websocket = request([
+    'cloud',
+    'websocket-url',
+    '--cloud-host',
+    'https://shelly.example.com',
+  ]);
+  const websocketCommand = request([
+    'cloud',
+    'websocket-command',
+    '--cloud-host',
+    'https://shelly.example.com',
+    '--device-id',
+    'b48a0a1cd978',
+    '--cmd',
+    'roller_to_pos',
+    '--params-json',
+    '{"id":0,"pos":50}',
+    '--operator-grant',
+  ]);
+
+  expect(token).toMatchObject({
+    operation: 'cloud.oauth-token',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'https://shelly.example.com/oauth/auth',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'client_id=shelly-diy&grant_type=code&code=<secret:SHELLY_OAUTH_CODE>',
+      replaceSecretPlaceholders: true,
+      captureResponseFields: [
+        {
+          jsonPath: 'access_token',
+          secretName: 'SHELLY_CLOUD_ACCESS_TOKEN',
+        },
+      ],
+    },
+    liveExecution: {
+      requiresConfiguredSecrets: ['SHELLY_OAUTH_CODE'],
+      capturesSecrets: ['SHELLY_CLOUD_ACCESS_TOKEN'],
+    },
+  });
+  expect(payload).toMatchObject({
+    operation: 'cloud.all-status',
+    stakesTier: 'green',
+    httpRequest: {
+      url: 'https://shelly.example.com/device/all_status?show_info=true&no_shared=true',
+      method: 'GET',
+      skillName: 'shelly',
+      maxResponseBytes: 5_000_000,
+      secretHeaders: [
+        {
+          name: 'Authorization',
+          secretName: 'SHELLY_CLOUD_ACCESS_TOKEN',
+          prefix: 'Bearer',
+        },
+      ],
+    },
+    liveExecution: {
+      requiresConfiguredSecrets: ['SHELLY_CLOUD_ACCESS_TOKEN'],
+    },
+  });
+  expect(includeShared.httpRequest.url).toBe(
+    'https://shelly.example.com/device/all_status?show_info=false&no_shared=false',
+  );
+  expect(websocket).toMatchObject({
+    command: 'websocket',
+    operation: 'cloud.websocket-url',
+    stakesTier: 'green',
+    webSocket: {
+      urlTemplate:
+        'wss://shelly.example.com:6113/shelly/wss/hk_sock?t=<secret:SHELLY_CLOUD_ACCESS_TOKEN>',
+      replaceSecretPlaceholders: true,
+    },
+    liveExecution: {
+      requiresConfiguredSecrets: ['SHELLY_CLOUD_ACCESS_TOKEN'],
+    },
+  });
+  expect(websocketCommand).toMatchObject({
+    command: 'websocket',
+    operation: 'cloud.websocket-command',
+    stakesTier: 'amber',
+    webSocket: {
+      message: {
+        event: 'Shelly:CommandRequest',
+        deviceId: 'b48a0a1cd978',
+        data: {
+          cmd: 'roller_to_pos',
+          params: {
+            id: 0,
+            pos: 50,
+          },
+        },
+      },
+    },
+  });
+  expect(JSON.stringify(token)).not.toContain('authorization-code-value');
+  expect(JSON.stringify(payload)).not.toContain('access-token-value');
+});
+
+test('Shelly helper rejects light and cover commands with only routing fields', () => {
+  const light = runHelper([
+    '--format',
+    'json',
+    'light',
+    'set',
+    '--cloud-host',
+    'https://shelly.example.com',
+    '--device-id',
+    'b48a0a1cd978',
+    '--channel',
+    '0',
+    '--operator-grant',
+  ]);
+  const cover = runHelper([
+    '--format',
+    'json',
+    'cover',
+    'goto',
+    '--cloud-host',
+    'https://shelly.example.com',
+    '--device-id',
+    'b48a0a1cd978',
+    '--channel',
+    '0',
+    '--operator-grant',
+  ]);
+
+  expect(light.status).not.toBe(0);
+  expect(light.stderr).toContain(
+    'light.set requires at least one light command field.',
+  );
+  expect(cover.status).not.toBe(0);
+  expect(cover.stderr).toContain(
+    'cover.goto requires --position, --relative, --slat-position, or --slat-relative.',
+  );
+});
+
+test('Shelly helper rejects credential-bearing local URLs and non-HTTPS cloud hosts', () => {
+  const local = runHelper([
+    '--format',
+    'json',
+    'device',
+    'info',
+    '--device-url',
+    'http://admin:password@192.0.2.10',
+  ]);
+  const cloud = runHelper([
+    '--format',
+    'json',
+    'cloud',
+    'state',
+    '--cloud-host',
+    'http://shelly.example.com',
+    '--device-id',
+    'b48a0a1cd978',
+  ]);
+
+  expect(local.status).not.toBe(0);
+  expect(local.stderr).toContain('must not embed credentials');
+  expect(cloud.status).not.toBe(0);
+  expect(cloud.stderr).toContain('must use https');
+});
+
+test('Shelly helper blocks disallowed destructive maintenance operations', () => {
+  const rebootRpc = runHelper([
+    '--format',
+    'json',
+    'rpc',
+    'call',
+    '--device-url',
+    'http://192.0.2.10',
+    '--method',
+    'Shelly.Reboot',
+    '--operator-grant',
+  ]);
+  const rebootGen1 = runHelper([
+    '--format',
+    'json',
+    'gen1',
+    'set',
+    '--device-url',
+    'http://192.0.2.20',
+    '--path',
+    '/reboot',
+    '--operator-grant',
+  ]);
+  const nonReadRpcGet = runHelper([
+    '--format',
+    'json',
+    'rpc',
+    'get',
+    '--device-url',
+    'http://192.0.2.10',
+    '--method',
+    'Cover.Open',
+  ]);
+
+  expect(rebootRpc.status).not.toBe(0);
+  expect(rebootRpc.stderr).toContain('Shelly.Reboot is not allowed');
+  expect(rebootGen1.status).not.toBe(0);
+  expect(rebootGen1.stderr).toContain('/reboot is not allowed');
+  expect(nonReadRpcGet.status).not.toBe(0);
+  expect(nonReadRpcGet.stderr).toContain('rpc get only allows read methods');
+});

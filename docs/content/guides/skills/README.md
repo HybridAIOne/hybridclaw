@@ -13,6 +13,9 @@ tips & tricks, ready-to-try example prompts, and troubleshooting.
 For CLI management commands see [Bundled Skills](../bundled-skills.md); for
 resolution rules and runtime internals see
 [Skills Internals](../../extensibility/skills.md).
+For authoring conventions, helper-script patterns, approval handling, and
+testing expectations see
+[Skill Authoring Best Practices](../../extensibility/skills.md#skill-authoring-best-practices).
 For production package requirements see
 [How to Ship a Business Skill](./business-skills.md).
 

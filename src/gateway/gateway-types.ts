@@ -346,6 +346,28 @@ export interface GatewayStatus {
     restartReason: string | null;
   };
   version: string;
+  build?: {
+    version: string;
+    gitCommit: string | null;
+    gitBranch: string | null;
+    packageRoot: string;
+    entrypoint: string | null;
+    cwd: string;
+    execPath: string;
+    nodeVersion: string;
+    pid: number;
+    ppid: number;
+    startedAt: string;
+    staleBuild: boolean;
+    files: Array<{
+      name: string;
+      sourcePath: string;
+      sourceModifiedAt: string | null;
+      buildPath: string;
+      buildModifiedAt: string | null;
+      status: 'ok' | 'source_newer' | 'missing_source' | 'missing_build';
+    }>;
+  };
   uptime: number;
   sessions: number;
   activeContainers: number;
@@ -1277,6 +1299,17 @@ export interface GatewayAdminPolicyRule {
   managedByPreset?: string;
 }
 
+export type GatewayAdminLanHttpAccessMode =
+  | 'off'
+  | 'read-only'
+  | 'read-write'
+  | 'custom';
+
+export interface GatewayAdminLanHttpAccessState {
+  mode: GatewayAdminLanHttpAccessMode;
+  managedRuleIndexes: number[];
+}
+
 export interface GatewayAdminPolicyState {
   exists: boolean;
   policyPath: string;
@@ -1284,6 +1317,7 @@ export interface GatewayAdminPolicyState {
   defaultAction: 'allow' | 'deny';
   presets: string[];
   rules: GatewayAdminPolicyRule[];
+  lanHttpAccess: GatewayAdminLanHttpAccessState;
 }
 
 export interface GatewayAdminPolicyPresetSummary {
