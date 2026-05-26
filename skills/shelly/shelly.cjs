@@ -37,7 +37,14 @@ const OPERATION_TIERS = {
   'cloud-set-cover': 'amber',
 };
 
-const HTTP_OPERATIONS = new Set(Object.keys(OPERATION_TIERS));
+const DOMAIN_COMMANDS = new Set([
+  'device',
+  'cover',
+  'switch',
+  'relay',
+  'light',
+  'cloud',
+]);
 
 function die(message, code = 2) {
   console.error(message);
@@ -48,47 +55,47 @@ function printHelp() {
   console.log(`Shelly skill helper
 
 Usage:
-  node skills/shelly/shelly.cjs [--format json|pretty] http-request <operation> [flags]
+  node skills/shelly/shelly.cjs [--format json|pretty] <resource> <action> [flags]
+  node skills/shelly/shelly.cjs [--format json|pretty] approval-plan <resource> <action> [flags]
 
-Local Gen2+ reads:
-  local-gen2-info --device-url http://192.0.2.10 [--ident]
-  local-gen2-status --device-url http://192.0.2.10
-  local-gen2-config --device-url http://192.0.2.10
-  local-gen2-methods --device-url http://192.0.2.10
-  local-gen2-components --device-url http://192.0.2.10 [--include status] [--include config] [--key switch:0]
-  local-gen2-cover-config --device-url http://192.0.2.10 --id 0
-  local-gen2-cover-status --device-url http://192.0.2.10 --id 0
-  local-gen2-switch-status --device-url http://192.0.2.10 --id 0
-
-Local Gen2+ control:
-  local-gen2-cover-open --device-url http://192.0.2.10 --id 0 [--duration 5] --operator-grant
-  local-gen2-cover-close --device-url http://192.0.2.10 --id 0 [--duration 5] --operator-grant
-  local-gen2-cover-stop --device-url http://192.0.2.10 --id 0 --operator-grant
-  local-gen2-cover-goto-position --device-url http://192.0.2.10 --id 0 --position 50 --operator-grant
-  local-gen2-switch-set --device-url http://192.0.2.10 --id 0 --on true --operator-grant
-  local-gen2-switch-toggle --device-url http://192.0.2.10 --id 0 --operator-grant
-
-Local Gen1 reads/control:
-  local-gen1-shelly --device-url http://192.0.2.10
-  local-gen1-status --device-url http://192.0.2.10
-  local-gen1-relay-status --device-url http://192.0.2.10 --id 0
-  local-gen1-relay-set --device-url http://192.0.2.10 --id 0 --turn on|off|toggle --operator-grant
-
-Cloud Control API v2:
-  cloud-get-state --cloud-host https://<HOST> --device-id abc123 --select status --select settings
-  cloud-oauth-token --cloud-host https://<HOST> [--client-id shelly-diy] [--code-secret SHELLY_OAUTH_CODE]
-  cloud-all-status --cloud-host https://<HOST>
-  cloud-set-switch --cloud-host https://<HOST> --device-id abc123 --channel 0 --on true --operator-grant
-  cloud-set-light --cloud-host https://<HOST> --device-id abc123 --on true --brightness 50 --operator-grant
-  cloud-set-cover --cloud-host https://<HOST> --device-id abc123 --position open --operator-grant
+Commands:
+  device info --device-url http://192.0.2.10 [--ident]
+  device status --device-url http://192.0.2.10
+  device config --device-url http://192.0.2.10
+  device methods --device-url http://192.0.2.10
+  device components --device-url http://192.0.2.10 [--include status] [--include config] [--key switch:0]
+  cover config --device-url http://192.0.2.10 --id 0
+  cover status --device-url http://192.0.2.10 --id 0
+  cover open --device-url http://192.0.2.10 --id 0 --operator-grant
+  cover close --device-url http://192.0.2.10 --id 0 --operator-grant
+  cover stop --device-url http://192.0.2.10 --id 0 --operator-grant
+  cover goto --device-url http://192.0.2.10 --id 0 --position 50 --operator-grant
+  cover status --cloud-host https://<HOST> --device-id abc123
+  cover goto --cloud-host https://<HOST> --device-id abc123 --position 50 --operator-grant
+  switch status --device-url http://192.0.2.10 --id 0
+  switch set --device-url http://192.0.2.10 --id 0 --on true --operator-grant
+  switch toggle --device-url http://192.0.2.10 --id 0 --operator-grant
+  switch set --cloud-host https://<HOST> --device-id abc123 --on true --operator-grant
+  relay status --device-url http://192.0.2.10 --id 0
+  relay set --device-url http://192.0.2.10 --id 0 --turn on|off|toggle --operator-grant
+  light set --cloud-host https://<HOST> --device-id abc123 --on true --brightness 50 --operator-grant
+  cloud state --cloud-host https://<HOST> --device-id abc123 --select status
+  cloud all-status --cloud-host https://<HOST>
+  cloud oauth-token --cloud-host https://<HOST>
 
 Environment:
   SHELLY_DEVICE_URL        default local device base URL
   SHELLY_CLOUD_HOST        default Shelly Cloud tenant server URI
   SHELLY_CLOUD_AUTH_KEY    stored HybridClaw secret name used through <secret:SHELLY_CLOUD_AUTH_KEY>
   SHELLY_CLOUD_ACCESS_TOKEN stored OAuth/Bearer token for Real Time Events HTTP API
-  SHELLY_OAUTH_CODE        temporary authorization code secret for cloud-oauth-token
+  SHELLY_OAUTH_CODE        temporary authorization code secret for cloud oauth-token
 `);
+}
+
+function shellQuote(value) {
+  const raw = String(value);
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(raw)) return raw;
+  return `'${raw.replace(/'/gu, `'\\''`)}'`;
 }
 
 function popFlag(args, name, defaultValue = undefined) {
@@ -127,6 +134,19 @@ function assertNoUnexpectedArgs(args) {
   if (args.length > 0) {
     die(`Unexpected argument: ${args[0]}`);
   }
+}
+
+function hasFlag(args, name) {
+  return args.includes(name);
+}
+
+function hasAnyFlag(args, names) {
+  return names.some((name) => hasFlag(args, name));
+}
+
+function addDefaultRepeatedFlag(args, name, values) {
+  if (hasFlag(args, name)) return args;
+  return [...args, ...values.flatMap((value) => [name, value])];
 }
 
 function requireText(value, label) {
@@ -829,26 +849,261 @@ function parseBoundedNumber(value, label, min, max) {
   return parsed;
 }
 
+function commandId(resource, action) {
+  return `${resource}.${action}`;
+}
+
+function exposeCommand(payload, resource, action) {
+  return {
+    ...payload,
+    operation: commandId(resource, action),
+  };
+}
+
+function usesCloudRoute(args) {
+  return hasFlag(args, '--cloud-host') || hasFlag(args, '--device-id');
+}
+
+function buildDeviceCommand(action, args) {
+  const operationByAction = {
+    info: 'local-gen2-info',
+    status: usesCloudRoute(args) ? 'cloud-get-state' : 'local-gen2-status',
+    config: 'local-gen2-config',
+    methods: 'local-gen2-methods',
+    components: 'local-gen2-components',
+  };
+  const operation = operationByAction[action];
+  if (!operation) die(`Unsupported device action: ${action || '(missing)'}`);
+  const payload = operation.startsWith('cloud-')
+    ? buildCloud(operation, args)
+    : buildLocalGen2(operation, args);
+  return exposeCommand(payload, 'device', action);
+}
+
+function buildCoverCommand(action, args) {
+  let operation;
+  let commandArgs = args;
+  if (
+    action === 'goto' &&
+    !hasAnyFlag(args, [
+      '--position',
+      '--relative',
+      '--slat-position',
+      '--slat-relative',
+    ])
+  ) {
+    die(
+      'cover.goto requires --position, --relative, --slat-position, or --slat-relative.',
+    );
+  }
+  if (usesCloudRoute(args)) {
+    if (action === 'status') {
+      operation = 'cloud-get-state';
+      commandArgs = addDefaultRepeatedFlag(args, '--select', ['status']);
+    } else if (action === 'config') {
+      operation = 'cloud-get-state';
+      commandArgs = addDefaultRepeatedFlag(args, '--select', ['settings']);
+    } else if (['open', 'close', 'stop'].includes(action)) {
+      operation = 'cloud-set-cover';
+      commandArgs = hasFlag(args, '--position')
+        ? args
+        : [...args, '--position', action === 'close' ? 'close' : action];
+    } else if (action === 'goto') {
+      operation = 'cloud-set-cover';
+    } else {
+      die(`Unsupported cover action: ${action || '(missing)'}`);
+    }
+    return exposeCommand(buildCloud(operation, commandArgs), 'cover', action);
+  }
+
+  const operationByAction = {
+    config: 'local-gen2-cover-config',
+    status: 'local-gen2-cover-status',
+    open: 'local-gen2-cover-open',
+    close: 'local-gen2-cover-close',
+    stop: 'local-gen2-cover-stop',
+    goto: 'local-gen2-cover-goto-position',
+  };
+  operation = operationByAction[action];
+  if (!operation) die(`Unsupported cover action: ${action || '(missing)'}`);
+  return exposeCommand(buildLocalGen2(operation, commandArgs), 'cover', action);
+}
+
+function buildSwitchCommand(action, args) {
+  if (usesCloudRoute(args)) {
+    if (action === 'status') {
+      const payload = buildCloud(
+        'cloud-get-state',
+        addDefaultRepeatedFlag(args, '--select', ['status']),
+      );
+      return exposeCommand(payload, 'switch', action);
+    }
+    if (action === 'set') {
+      return exposeCommand(
+        buildCloud('cloud-set-switch', args),
+        'switch',
+        action,
+      );
+    }
+    die(`Unsupported cloud switch action: ${action || '(missing)'}`);
+  }
+
+  const operationByAction = {
+    status: 'local-gen2-switch-status',
+    set: 'local-gen2-switch-set',
+    toggle: 'local-gen2-switch-toggle',
+  };
+  const operation = operationByAction[action];
+  if (!operation) die(`Unsupported switch action: ${action || '(missing)'}`);
+  return exposeCommand(buildLocalGen2(operation, args), 'switch', action);
+}
+
+function buildRelayCommand(action, args) {
+  const operationByAction = {
+    status: 'local-gen1-relay-status',
+    set: 'local-gen1-relay-set',
+  };
+  const operation = operationByAction[action];
+  if (!operation) die(`Unsupported relay action: ${action || '(missing)'}`);
+  return exposeCommand(buildLocalGen1(operation, args), 'relay', action);
+}
+
+function buildLightCommand(action, args) {
+  if (action !== 'set')
+    die(`Unsupported light action: ${action || '(missing)'}`);
+  if (
+    !hasAnyFlag(args, [
+      '--on',
+      '--toggle-after',
+      '--mode',
+      '--temperature',
+      '--brightness',
+      '--red',
+      '--green',
+      '--blue',
+      '--white',
+      '--gain',
+      '--effect',
+    ])
+  ) {
+    die('light.set requires at least one light command field.');
+  }
+  return exposeCommand(buildCloud('cloud-set-light', args), 'light', action);
+}
+
+function buildCloudCommand(action, args) {
+  const operationByAction = {
+    state: 'cloud-get-state',
+    'oauth-token': 'cloud-oauth-token',
+    'all-status': 'cloud-all-status',
+  };
+  const operation = operationByAction[action];
+  if (!operation) die(`Unsupported cloud action: ${action || '(missing)'}`);
+  return exposeCommand(buildCloud(operation, args), 'cloud', action);
+}
+
+function buildDomainCommand(resource, action, args) {
+  if (!DOMAIN_COMMANDS.has(resource)) {
+    die(`Unsupported resource: ${resource || '(missing)'}`);
+  }
+  const publicOperation = commandId(resource, action);
+  if (
+    domainTier(resource, action) === 'amber' &&
+    !args.includes('--operator-grant')
+  ) {
+    die(
+      `${publicOperation} is amber; pass --operator-grant only after explicit operator approval.`,
+    );
+  }
+  const builders = {
+    device: buildDeviceCommand,
+    cover: buildCoverCommand,
+    switch: buildSwitchCommand,
+    relay: buildRelayCommand,
+    light: buildLightCommand,
+    cloud: buildCloudCommand,
+  };
+  return builders[resource](action, args);
+}
+
+function domainTier(resource, action) {
+  if (
+    resource === 'cover' &&
+    ['open', 'close', 'stop', 'goto'].includes(action)
+  ) {
+    return 'amber';
+  }
+  if (resource === 'switch' && ['set', 'toggle'].includes(action)) {
+    return 'amber';
+  }
+  if (resource === 'relay' && action === 'set') return 'amber';
+  if (resource === 'light' && action === 'set') return 'amber';
+  return 'green';
+}
+
 function buildRequest(argv) {
   const args = [...argv];
   const format = popFlag(args, '--format', 'pretty');
   if (!['json', 'pretty'].includes(format))
     die('--format must be json or pretty.');
   const command = args.shift();
-  if (command !== 'http-request') {
-    die('Only the http-request command is supported.');
+  if (command === 'approval-plan') {
+    return buildApprovalPlan(args);
   }
-  const operation = args.shift();
-  if (!HTTP_OPERATIONS.has(operation)) {
-    die(`Unsupported operation: ${operation || '(missing)'}`);
+  const action = args.shift();
+  return buildDomainCommand(command, action, args);
+}
+
+function buildApprovalPlan(args) {
+  const resource = args.shift();
+  const action = args.shift();
+  if (!DOMAIN_COMMANDS.has(resource)) {
+    die(`Unsupported resource: ${resource || '(missing)'}`);
+  }
+  const publicOperation = commandId(resource, action);
+  if (domainTier(resource, action) !== 'amber') {
+    die(
+      `approval-plan is only needed for amber operations: ${publicOperation}.`,
+    );
+  }
+  if (args.includes('--operator-grant')) {
+    die('approval-plan must be built before --operator-grant is added.');
   }
 
-  if (operation.startsWith('local-gen2-'))
-    return buildLocalGen2(operation, args);
-  if (operation.startsWith('local-gen1-'))
-    return buildLocalGen1(operation, args);
-  if (operation.startsWith('cloud-')) return buildCloud(operation, args);
-  die(`Unsupported operation: ${operation}`);
+  const approvedArgs = [resource, action, ...args, '--operator-grant'];
+  const approvedPayload = buildRequest(['--format', 'json', ...approvedArgs]);
+  const approvedHelperCommand = [
+    'node',
+    'skills/shelly/shelly.cjs',
+    '--format',
+    'json',
+    ...approvedArgs,
+  ];
+  const target = new URL(approvedPayload.httpRequest.url);
+  const plan = {
+    command: 'approval-plan',
+    operation: approvedPayload.operation,
+    stakesTier: approvedPayload.stakesTier,
+    target: {
+      host: target.host,
+      path: target.pathname,
+      method: approvedPayload.httpRequest.method,
+    },
+    approvedHelperCommand,
+    approvedHelperCommandText: approvedHelperCommand.map(shellQuote).join(' '),
+    approvalSummary:
+      'After explicit operator approval, run approvedHelperCommandText exactly, then pass the emitted httpRequest unchanged to http_request.',
+    costMeasurement: COST_MEASUREMENT,
+  };
+  if (approvedPayload.httpRequest.json?.method) {
+    plan.rpcMethod = approvedPayload.httpRequest.json.method;
+  }
+  if (approvedPayload.httpRequest.json?.params) {
+    plan.params = approvedPayload.httpRequest.json.params;
+  } else if (approvedPayload.httpRequest.json) {
+    plan.params = approvedPayload.httpRequest.json;
+  }
+  return plan;
 }
 
 function main() {

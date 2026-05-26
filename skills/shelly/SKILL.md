@@ -34,31 +34,27 @@ metadata:
       - relay
     stakes_tiers:
       green:
-        - local-gen1-shelly
-        - local-gen1-status
-        - local-gen1-relay-status
-        - local-gen2-info
-        - local-gen2-status
-        - local-gen2-config
-        - local-gen2-methods
-        - local-gen2-components
-        - local-gen2-cover-config
-        - local-gen2-cover-status
-        - local-gen2-switch-status
-        - cloud-get-state
-        - cloud-oauth-token
-        - cloud-all-status
+        - device.info
+        - device.status
+        - device.config
+        - device.methods
+        - device.components
+        - cover.config
+        - cover.status
+        - switch.status
+        - relay.status
+        - cloud.state
+        - cloud.oauth-token
+        - cloud.all-status
       amber:
-        - local-gen1-relay-set
-        - local-gen2-cover-open
-        - local-gen2-cover-close
-        - local-gen2-cover-stop
-        - local-gen2-cover-goto-position
-        - local-gen2-switch-set
-        - local-gen2-switch-toggle
-        - cloud-set-switch
-        - cloud-set-light
-        - cloud-set-cover
+        - cover.open
+        - cover.close
+        - cover.stop
+        - cover.goto
+        - switch.set
+        - switch.toggle
+        - relay.set
+        - light.set
       red:
         - factory-reset
         - reboot
@@ -84,8 +80,11 @@ construction belongs in `shelly.cjs`.
 - Pass the helper-emitted `httpRequest` object unchanged to the built-in
   `http_request` tool.
 - Read state before any relay, switch, light, or cover control operation.
-- Treat control operations as amber and require explicit operator approval
-  before passing `--operator-grant`.
+- Treat control operations as amber. Before asking for approval, build an
+  `approval-plan` for the selected operation and include its
+  `approvedHelperCommandText` in the approval request. After approval, run that
+  helper command exactly and pass its emitted `httpRequest` unchanged to
+  `http_request`.
 - Do not perform factory reset, reboot, firmware update, Wi-Fi reset, auth
   changes, certificate upload, calibration, profile changes, or energy-counter
   reset through this skill.
@@ -113,20 +112,24 @@ and [Gen1 device API](https://shelly-api-docs.shelly.cloud/gen1/).
 
 ## Helper Operations
 
-Run `node skills/shelly/shelly.cjs --help` for the exact flags. The helper
-emits a wrapper containing `command`, `operation`, `stakesTier`, and
-`httpRequest`; pass only `httpRequest` to the network tool.
+Run `node skills/shelly/shelly.cjs --help` for the exact command surface and
+flags. The helper uses noun-verb commands such as `cover status`, `cover goto`,
+`switch set`, and `cloud all-status`; it owns the Shelly API method, path, and
+body selection. Normal commands emit a wrapper containing `command`,
+`operation`, `stakesTier`, and `httpRequest`; pass only `httpRequest` to the
+network tool. `approval-plan` emits no `httpRequest`; it validates an amber
+command and returns the exact approved helper command to run after
+confirmation.
 
 Supported operation groups:
 
-- Local Gen2+ reads: device info, status, config, method list, components,
-  cover config/status, and switch status.
-- Local Gen2+ controls: cover open/close/stop/go-to-position and switch
-  set/toggle.
-- Local Gen1 reads/control: device info, status, relay status, relay set.
-- Cloud reads/discovery: v2 state by known ids, OAuth token exchange, Real Time
-  Events all-status.
-- Cloud controls: switch, light, and cover set operations.
+- Device reads: local info, status, config, method list, and components; cloud
+  state when routed with cloud inputs.
+- Cover reads/control: config, status, open, close, stop, and go-to-position.
+- Switch and relay reads/control: status, set, and toggle where supported.
+- Light control: cloud set operations.
+- Cloud account reads: v2 state by known ids, OAuth token exchange, and Real
+  Time Events all-status.
 
 ## Selection Workflow
 
@@ -135,8 +138,8 @@ Supported operation groups:
 3. Use Real Time Events OAuth for account-level cloud discovery.
 4. Use Cloud Control API v2 for known device ids, especially when local access
    is unavailable or the requested device is remote.
-5. For control, use the matching local or cloud helper operation and include
-   `--operator-grant` only after explicit approval.
+5. For control, use the matching helper command and include `--operator-grant`
+   only after explicit approval.
 
 ## Required Inputs
 
@@ -166,7 +169,7 @@ reachable local device URL.
 - Store the Cloud Control v2 key as `SHELLY_CLOUD_AUTH_KEY`.
 - Store the Real Time Events OAuth token as `SHELLY_CLOUD_ACCESS_TOKEN`.
 - Store an OAuth authorization code as `SHELLY_OAUTH_CODE` only long enough for
-  `cloud-oauth-token` to exchange it and capture `SHELLY_CLOUD_ACCESS_TOKEN`.
+  `cloud oauth-token` to exchange it and capture `SHELLY_CLOUD_ACCESS_TOKEN`.
 - Never paste raw keys, access tokens, authorization codes, or local device
   passwords into chat.
 - Local Gen2+ devices with authentication enabled use Shelly digest

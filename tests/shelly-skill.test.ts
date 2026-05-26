@@ -23,7 +23,11 @@ function runHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
 }
 
 function request(args: string[]) {
-  return shelly.buildRequest(['--format', 'json', 'http-request', ...args]);
+  return shelly.buildRequest(['--format', 'json', ...args]);
+}
+
+function approvalPlan(args: string[]) {
+  return shelly.buildRequest(['--format', 'json', 'approval-plan', ...args]);
 }
 
 test('Shelly skill manifest declares optional cloud credential and guarded operations', () => {
@@ -63,14 +67,15 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain(
     'API-specific request\nconstruction belongs in `shelly.cjs`.',
   );
-  expect(skill).toContain('local-gen2-switch-set');
-  expect(skill).toContain('local-gen2-cover-config');
-  expect(skill).toContain('local-gen2-cover-open');
-  expect(skill).toContain('local-gen2-cover-goto-position');
+  expect(skill).toContain('cover.status');
+  expect(skill).toContain('cover.goto');
+  expect(skill).toContain('switch.set');
   expect(skill).toContain(
     'Pass the helper-emitted `httpRequest` object unchanged',
   );
-  expect(skill).toContain('cloud-set-cover');
+  expect(skill).toContain('approval-plan');
+  expect(skill).toContain('approvedHelperCommandText');
+  expect(skill).toContain('light.set');
   expect(skill).toContain('factory-reset');
   expect(skill).toContain('Required Inputs');
   expect(skill).toContain('Shelly Cloud tenant server URI');
@@ -82,8 +87,8 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('Cloud Control API v2 requires known device ids');
   expect(skill).toContain('Real Time Events all-status can discover');
   expect(skill).toContain('OAuth/Bearer authorization');
-  expect(skill).toContain('cloud-oauth-token');
-  expect(skill).toContain('cloud-all-status');
+  expect(skill).toContain('cloud oauth-token');
+  expect(skill).toContain('cloud all-status');
   expect(skill).toContain('Access to Local Devices');
   expect(skill).toContain(
     'local TUI/web `/policy` command, or the `/admin/approvals` network policy',
@@ -106,25 +111,28 @@ test('Shelly helper --help exits cleanly and lists local and cloud operations', 
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Shelly skill helper');
-  expect(result.stdout).toContain('local-gen2-status');
-  expect(result.stdout).toContain('local-gen2-cover-config');
-  expect(result.stdout).toContain('local-gen2-cover-open');
-  expect(result.stdout).toContain('local-gen2-cover-goto-position');
-  expect(result.stdout).toContain('local-gen1-relay-set');
-  expect(result.stdout).toContain('cloud-get-state');
-  expect(result.stdout).toContain('cloud-oauth-token');
-  expect(result.stdout).toContain('cloud-all-status');
-  expect(result.stdout).toContain('cloud-set-switch');
+  expect(result.stdout).toContain('approval-plan <resource> <action>');
+  expect(result.stdout).toContain('device status');
+  expect(result.stdout).toContain('cover config');
+  expect(result.stdout).toContain('cover open');
+  expect(result.stdout).toContain('cover goto');
+  expect(result.stdout).toContain('relay set');
+  expect(result.stdout).toContain('cloud state');
+  expect(result.stdout).toContain('cloud oauth-token');
+  expect(result.stdout).toContain('cloud all-status');
+  expect(result.stdout).toContain('switch set');
 });
 
 test('Shelly helper builds local Gen2 RPC read requests', () => {
   const status = request([
-    'local-gen2-status',
+    'device',
+    'status',
     '--device-url',
     'http://192.0.2.10',
   ]);
   const components = request([
-    'local-gen2-components',
+    'device',
+    'components',
     '--device-url',
     '192.0.2.10',
     '--include',
@@ -135,14 +143,16 @@ test('Shelly helper builds local Gen2 RPC read requests', () => {
     'switch:0',
   ]);
   const coverConfig = request([
-    'local-gen2-cover-config',
+    'cover',
+    'config',
     '--device-url',
     '192.0.2.10',
     '--id',
     '0',
   ]);
   const coverStatus = request([
-    'local-gen2-cover-status',
+    'cover',
+    'status',
     '--device-url',
     '192.0.2.10',
     '--id',
@@ -151,7 +161,7 @@ test('Shelly helper builds local Gen2 RPC read requests', () => {
 
   expect(status).toMatchObject({
     command: 'http-request',
-    operation: 'local-gen2-status',
+    operation: 'device.status',
     stakesTier: 'green',
     httpRequest: {
       url: 'http://192.0.2.10/rpc/Shelly.GetStatus',
@@ -173,7 +183,7 @@ test('Shelly helper builds local Gen2 RPC read requests', () => {
     },
   });
   expect(coverConfig).toMatchObject({
-    operation: 'local-gen2-cover-config',
+    operation: 'cover.config',
     stakesTier: 'green',
     httpRequest: {
       url: 'http://192.0.2.10/rpc/Cover.GetConfig?id=0',
@@ -183,14 +193,32 @@ test('Shelly helper builds local Gen2 RPC read requests', () => {
   expect(coverStatus.httpRequest.url).toBe(
     'http://192.0.2.10/rpc/Cover.GetStatus?id=0',
   );
+  expect(
+    shelly.buildRequest([
+      '--format',
+      'json',
+      'cover',
+      'status',
+      '--device-url',
+      '192.0.2.10',
+      '--id',
+      '0',
+    ]),
+  ).toMatchObject({
+    operation: 'cover.status',
+    httpRequest: {
+      url: 'http://192.0.2.10/rpc/Cover.GetStatus?id=0',
+      method: 'GET',
+    },
+  });
 });
 
 test('Shelly helper requires approval before local output changes', () => {
   const denied = runHelper([
     '--format',
     'json',
-    'http-request',
-    'local-gen2-switch-set',
+    'switch',
+    'set',
     '--device-url',
     'http://192.0.2.10',
     '--id',
@@ -201,15 +229,16 @@ test('Shelly helper requires approval before local output changes', () => {
   const deniedCover = runHelper([
     '--format',
     'json',
-    'http-request',
-    'local-gen2-cover-open',
+    'cover',
+    'open',
     '--device-url',
     'http://192.0.2.10',
     '--id',
     '0',
   ]);
   const allowed = request([
-    'local-gen2-switch-set',
+    'switch',
+    'set',
     '--device-url',
     'http://192.0.2.10',
     '--id',
@@ -221,7 +250,8 @@ test('Shelly helper requires approval before local output changes', () => {
     '--operator-grant',
   ]);
   const coverOpen = request([
-    'local-gen2-cover-open',
+    'cover',
+    'open',
     '--device-url',
     'http://192.0.2.10',
     '--id',
@@ -233,7 +263,8 @@ test('Shelly helper requires approval before local output changes', () => {
     '--operator-grant',
   ]);
   const coverGoto = request([
-    'local-gen2-cover-goto-position',
+    'cover',
+    'goto',
     '--device-url',
     'http://192.0.2.10',
     '--id',
@@ -244,13 +275,23 @@ test('Shelly helper requires approval before local output changes', () => {
     '30',
     '--operator-grant',
   ]);
+  const coverGotoPlan = approvalPlan([
+    'cover',
+    'goto',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--position',
+    '50',
+  ]);
 
   expect(denied.status).not.toBe(0);
-  expect(denied.stderr).toContain('local-gen2-switch-set is amber');
+  expect(denied.stderr).toContain('switch.set is amber');
   expect(deniedCover.status).not.toBe(0);
-  expect(deniedCover.stderr).toContain('local-gen2-cover-open is amber');
+  expect(deniedCover.stderr).toContain('cover.open is amber');
   expect(allowed).toMatchObject({
-    operation: 'local-gen2-switch-set',
+    operation: 'switch.set',
     stakesTier: 'amber',
     httpRequest: {
       url: 'http://192.0.2.10/rpc',
@@ -266,7 +307,7 @@ test('Shelly helper requires approval before local output changes', () => {
     },
   });
   expect(coverOpen).toMatchObject({
-    operation: 'local-gen2-cover-open',
+    operation: 'cover.open',
     stakesTier: 'amber',
     httpRequest: {
       url: 'http://192.0.2.10/rpc',
@@ -282,7 +323,7 @@ test('Shelly helper requires approval before local output changes', () => {
     },
   });
   expect(coverGoto).toMatchObject({
-    operation: 'local-gen2-cover-goto-position',
+    operation: 'cover.goto',
     stakesTier: 'amber',
     httpRequest: {
       url: 'http://192.0.2.10/rpc',
@@ -297,18 +338,38 @@ test('Shelly helper requires approval before local output changes', () => {
       },
     },
   });
+  expect(coverGotoPlan).toMatchObject({
+    command: 'approval-plan',
+    operation: 'cover.goto',
+    stakesTier: 'amber',
+    target: {
+      host: '192.0.2.10',
+      path: '/rpc',
+      method: 'POST',
+    },
+    rpcMethod: 'Cover.GoToPosition',
+    params: {
+      id: 0,
+      pos: 50,
+    },
+  });
+  expect(coverGotoPlan).not.toHaveProperty('httpRequest');
+  expect(coverGotoPlan.approvedHelperCommandText).toContain('cover goto');
+  expect(coverGotoPlan.approvedHelperCommandText).toContain('--operator-grant');
 });
 
 test('Shelly helper builds local Gen1 relay requests', () => {
   const status = request([
-    'local-gen1-relay-status',
+    'relay',
+    'status',
     '--device-url',
     'http://192.0.2.20',
     '--id',
     '1',
   ]);
   const set = request([
-    'local-gen1-relay-set',
+    'relay',
+    'set',
     '--device-url',
     'http://192.0.2.20',
     '--id',
@@ -323,7 +384,7 @@ test('Shelly helper builds local Gen1 relay requests', () => {
   expect(status.httpRequest.url).toBe('http://192.0.2.20/relay/1');
   expect(status.stakesTier).toBe('green');
   expect(set).toMatchObject({
-    operation: 'local-gen1-relay-set',
+    operation: 'relay.set',
     stakesTier: 'amber',
     httpRequest: {
       url: 'http://192.0.2.20/relay/1?turn=toggle&timer=10',
@@ -334,7 +395,8 @@ test('Shelly helper builds local Gen1 relay requests', () => {
 
 test('Shelly helper builds cloud state and control requests without exposing secrets', () => {
   const state = request([
-    'cloud-get-state',
+    'cloud',
+    'state',
     '--cloud-host',
     'https://shelly.example.com',
     '--device-id',
@@ -345,7 +407,8 @@ test('Shelly helper builds cloud state and control requests without exposing sec
     'sys',
   ]);
   const setSwitch = request([
-    'cloud-set-switch',
+    'switch',
+    'set',
     '--cloud-host',
     'shelly.example.com',
     '--device-id',
@@ -358,7 +421,7 @@ test('Shelly helper builds cloud state and control requests without exposing sec
   ]);
 
   expect(state).toMatchObject({
-    operation: 'cloud-get-state',
+    operation: 'cloud.state',
     stakesTier: 'green',
     httpRequest: {
       url: 'https://shelly.example.com/v2/devices/api/get?auth_key=<secret:SHELLY_CLOUD_AUTH_KEY>',
@@ -390,19 +453,22 @@ test('Shelly helper builds cloud state and control requests without exposing sec
 
 test('Shelly helper builds OAuth-backed Real Time Events all-status requests', () => {
   const token = request([
-    'cloud-oauth-token',
+    'cloud',
+    'oauth-token',
     '--cloud-host',
     'https://shelly.example.com',
     '--code-secret',
     'SHELLY_OAUTH_CODE',
   ]);
   const payload = request([
-    'cloud-all-status',
+    'cloud',
+    'all-status',
     '--cloud-host',
     'https://shelly.example.com',
   ]);
   const includeShared = request([
-    'cloud-all-status',
+    'cloud',
+    'all-status',
     '--cloud-host',
     'shelly.example.com',
     '--include-shared',
@@ -410,7 +476,7 @@ test('Shelly helper builds OAuth-backed Real Time Events all-status requests', (
   ]);
 
   expect(token).toMatchObject({
-    operation: 'cloud-oauth-token',
+    operation: 'cloud.oauth-token',
     stakesTier: 'green',
     httpRequest: {
       url: 'https://shelly.example.com/oauth/auth',
@@ -433,7 +499,7 @@ test('Shelly helper builds OAuth-backed Real Time Events all-status requests', (
     },
   });
   expect(payload).toMatchObject({
-    operation: 'cloud-all-status',
+    operation: 'cloud.all-status',
     stakesTier: 'green',
     httpRequest: {
       url: 'https://shelly.example.com/device/all_status?show_info=true&no_shared=true',
@@ -463,8 +529,8 @@ test('Shelly helper rejects light and cover commands with only routing fields', 
   const light = runHelper([
     '--format',
     'json',
-    'http-request',
-    'cloud-set-light',
+    'light',
+    'set',
     '--cloud-host',
     'https://shelly.example.com',
     '--device-id',
@@ -476,8 +542,8 @@ test('Shelly helper rejects light and cover commands with only routing fields', 
   const cover = runHelper([
     '--format',
     'json',
-    'http-request',
-    'cloud-set-cover',
+    'cover',
+    'goto',
     '--cloud-host',
     'https://shelly.example.com',
     '--device-id',
@@ -489,11 +555,11 @@ test('Shelly helper rejects light and cover commands with only routing fields', 
 
   expect(light.status).not.toBe(0);
   expect(light.stderr).toContain(
-    'cloud-set-light requires at least one light command field.',
+    'light.set requires at least one light command field.',
   );
   expect(cover.status).not.toBe(0);
   expect(cover.stderr).toContain(
-    'cloud-set-cover requires at least one cover command field.',
+    'cover.goto requires --position, --relative, --slat-position, or --slat-relative.',
   );
 });
 
@@ -501,16 +567,16 @@ test('Shelly helper rejects credential-bearing local URLs and non-HTTPS cloud ho
   const local = runHelper([
     '--format',
     'json',
-    'http-request',
-    'local-gen2-info',
+    'device',
+    'info',
     '--device-url',
     'http://admin:password@192.0.2.10',
   ]);
   const cloud = runHelper([
     '--format',
     'json',
-    'http-request',
-    'cloud-get-state',
+    'cloud',
+    'state',
     '--cloud-host',
     'http://shelly.example.com',
     '--device-id',
