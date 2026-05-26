@@ -218,7 +218,12 @@ test('tool result audit stores a redacted truncated preview beyond the summary',
       {
         name: 'bash',
         arguments: '{"command":"node script.js"}',
-        result: `prefix sk-test-ABCDEFGHIJKLMNOP1234567890 ${'x'.repeat(5000)}`,
+        result: [
+          'prefix sk-test-ABCDEFGHIJKLMNOP1234567890',
+          'https://example.com/callback?token=opaque-query-token',
+          'unknown Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0Kk1',
+          'x'.repeat(5000),
+        ].join(' '),
         durationMs: 10,
         isError: false,
       },
@@ -238,6 +243,8 @@ test('tool result audit stores a redacted truncated preview beyond the summary',
   expect(payload.resultPreview).not.toContain(
     'sk-test-ABCDEFGHIJKLMNOP1234567890',
   );
+  expect(payload.resultPreview).toContain('token=***REDACTED***');
+  expect(payload.resultPreview).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
 });
 
 test('autonomy audit falls back to internally consistent approval metadata', async () => {

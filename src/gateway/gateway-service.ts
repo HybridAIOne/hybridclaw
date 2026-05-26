@@ -2066,10 +2066,7 @@ function parseTurnTraceSelectorFlag(args: readonly unknown[]): {
     };
   }
   return {
-    selector:
-      selector.runId || selector.turnIndex != null || selector.latest
-        ? selector
-        : null,
+    selector: selector.runId || selector.turnIndex != null ? selector : null,
     error: null,
   };
 }

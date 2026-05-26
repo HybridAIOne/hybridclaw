@@ -88,7 +88,6 @@ const TRACE_DEPENDENCY_MANIFEST_FILES = [
 
 interface ToolResultSummary {
   durationMs: number | null;
-  content: string | null;
   isError: boolean | null;
 }
 
@@ -951,9 +950,6 @@ function buildToolResultByCallId(
     if (!toolCallId) continue;
     resultByToolCallId.set(toolCallId, {
       durationMs: readNumber(payload, 'durationMs'),
-      content:
-        readString(payload, 'resultPreview') ||
-        readString(payload, 'resultSummary'),
       isError: readBoolean(payload, 'isError'),
     });
   }
