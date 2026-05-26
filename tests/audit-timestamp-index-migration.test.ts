@@ -33,11 +33,11 @@ function auditTimestampIndex(dbPath: string): { name: string } | undefined {
   }
 }
 
-// Regression guard: the timestamp index lives in migrateV38, NOT migrateV1.
+// Regression guard: the timestamp index lives in migrateV39, NOT migrateV1.
 // migrateV1 only runs on a brand-new (v0) database, so an index added there
 // would never reach the existing deployments that need it. This test proves
-// a database that predates V38 picks the index up on the next boot.
-test('migrateV38 adds idx_audit_events_timestamp to a pre-V38 database', async () => {
+// a database that predates V39 picks the index up on the next boot.
+test('migrateV39 adds idx_audit_events_timestamp to a pre-V39 database', async () => {
   tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-audit-index-migration-'),
   );
@@ -52,11 +52,11 @@ test('migrateV38 adds idx_audit_events_timestamp to a pre-V38 database', async (
     name: 'idx_audit_events_timestamp',
   });
 
-  // 2. Simulate a database created before migrateV38: drop the index and
+  // 2. Simulate a database created before migrateV39: drop the index and
   //    roll user_version back one step so the next boot re-runs migrations.
   const downgrade = new Database(dbPath);
   downgrade.prepare('DROP INDEX IF EXISTS idx_audit_events_timestamp').run();
-  downgrade.pragma('user_version = 37');
+  downgrade.pragma('user_version = 38');
   downgrade.close();
   expect(auditTimestampIndex(dbPath)).toBeUndefined();
 

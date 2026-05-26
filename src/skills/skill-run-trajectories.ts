@@ -530,3 +530,85 @@ export function pruneExpiredSkillRunTrajectories(input?: {
   }
   return prunedFiles;
 }
+
+function parseSkillRunTrajectoryLine(
+  line: string,
+): SkillRunTrajectoryRecord | null {
+  const normalized = line.trim();
+  if (!normalized) return null;
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    const record = parsed as Partial<SkillRunTrajectoryRecord>;
+    if (
+      record.schema_version !== SKILL_RUN_TRAJECTORY_SCHEMA_VERSION ||
+      typeof record.skill_id !== 'string' ||
+      typeof record.agent_id !== 'string' ||
+      typeof record.run_id !== 'string'
+    ) {
+      return null;
+    }
+    return record as SkillRunTrajectoryRecord;
+  } catch {
+    return null;
+  }
+}
+
+export function getSkillRunTrajectories(params: {
+  skillName: string;
+  agentId?: string | null;
+  limit?: number;
+  config?: RuntimeConfig;
+}): SkillRunTrajectoryRecord[] {
+  const runtimeConfig = params.config ?? getRuntimeConfig();
+  const storeDir = resolveSkillRunTrajectoryStoreDir(runtimeConfig);
+  if (!fs.existsSync(storeDir)) return [];
+
+  const skillName = params.skillName.trim();
+  const agentId = params.agentId?.trim() || '';
+  const limit = Math.max(1, Math.min(params.limit || 100, 1_000));
+  const records: SkillRunTrajectoryRecord[] = [];
+
+  try {
+    const dateEntries = fs
+      .readdirSync(storeDir, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() && TRAJECTORY_DATE_DIR_PATTERN.test(entry.name),
+      )
+      .map((entry) => entry.name)
+      .sort()
+      .reverse();
+
+    for (const date of dateEntries) {
+      const dateDir = path.join(storeDir, date);
+      const fileEntries = fs
+        .readdirSync(dateDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+        .map((entry) => entry.name)
+        .sort();
+      for (const fileName of fileEntries) {
+        const filePath = path.join(dateDir, fileName);
+        const lines = fs.readFileSync(filePath, 'utf-8').split(/\r?\n/);
+        for (const line of lines) {
+          const record = parseSkillRunTrajectoryLine(line);
+          if (!record || record.skill_id !== skillName) continue;
+          if (agentId && record.agent_id !== agentId) continue;
+          records.push(record);
+        }
+      }
+      if (records.length >= limit) break;
+    }
+  } catch (error) {
+    logger.warn(
+      { storeDir, skillName, agentId: agentId || null, error },
+      'Failed to read skill run trajectories',
+    );
+  }
+
+  return records
+    .sort((left, right) => right.captured_at.localeCompare(left.captured_at))
+    .slice(0, limit);
+}

@@ -1401,6 +1401,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     autoApplyEnabled: false,
     evaluationRunsBeforeRollback: 10,
     rollbackImprovementThreshold: 0.05,
+    optimization: {
+      editBudget: 4,
+      minTrajectoryEvidence: 2,
+      maxEvidenceExamples: 12,
+      heldOutRatio: 0.25,
+    },
   },
   discord: {
     prefix: '!claw',
@@ -6101,6 +6107,9 @@ function normalizeRuntimeConfig(
   const rawTrajectoryCapture = isRecord(rawAdaptiveSkills.trajectoryCapture)
     ? rawAdaptiveSkills.trajectoryCapture
     : {};
+  const rawAdaptiveSkillsOptimization = isRecord(rawAdaptiveSkills.optimization)
+    ? rawAdaptiveSkills.optimization
+    : {};
   const rawChannelInstructions = isRecord(raw.channelInstructions)
     ? raw.channelInstructions
     : {};
@@ -6631,6 +6640,30 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.rollbackImprovementThreshold,
         { min: 0, max: 1 },
       ),
+      optimization: {
+        editBudget: normalizeInteger(
+          rawAdaptiveSkillsOptimization.editBudget,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization.editBudget,
+          { min: 1, max: 20 },
+        ),
+        minTrajectoryEvidence: normalizeInteger(
+          rawAdaptiveSkillsOptimization.minTrajectoryEvidence,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .minTrajectoryEvidence,
+          { min: 0, max: 100 },
+        ),
+        maxEvidenceExamples: normalizeInteger(
+          rawAdaptiveSkillsOptimization.maxEvidenceExamples,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .maxEvidenceExamples,
+          { min: 1, max: 100 },
+        ),
+        heldOutRatio: normalizeNumber(
+          rawAdaptiveSkillsOptimization.heldOutRatio,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization.heldOutRatio,
+          { min: 0, max: 0.8 },
+        ),
+      },
     },
     discord: {
       prefix: normalizeString(
