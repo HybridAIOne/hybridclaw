@@ -257,6 +257,35 @@ test('Shelly helper classifies gateway policy and outbound connection errors', a
   );
 });
 
+test('Shelly helper reports unreachable gateway before local Shelly request', async () => {
+  const payload = request([
+    'cover',
+    'status',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+  ]);
+  const cause = Object.assign(
+    new Error('connect ECONNREFUSED 127.0.0.1:9090'),
+    {
+      code: 'ECONNREFUSED',
+    },
+  );
+  const fetchMock = vi.fn(async () => {
+    throw new TypeError('fetch failed', { cause });
+  });
+
+  await expect(
+    shelly.executeGatewayRequest(payload.httpRequest, {
+      gatewayUrl: 'http://127.0.0.1:9090',
+      fetch: fetchMock,
+    }),
+  ).rejects.toThrow(
+    'Gateway proxy request failed before Shelly request was sent: fetch failed (connect ECONNREFUSED 127.0.0.1:9090). Check that the HybridClaw gateway is running and reachable at http://127.0.0.1:9090.',
+  );
+});
+
 test('Shelly helper builds local Gen2 RPC read requests', () => {
   const status = request([
     'device',

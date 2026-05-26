@@ -542,6 +542,31 @@ function gatewayErrorMessage(response, text) {
   return `${prefix}: ${errorText || text}`;
 }
 
+function formatErrorCause(error) {
+  if (!error || typeof error !== 'object') return '';
+  const cause = error.cause;
+  if (!cause) return '';
+  if (cause instanceof Error) {
+    const nested = formatErrorCause(cause);
+    return nested && !cause.message.includes(nested)
+      ? `${cause.message} (${nested})`
+      : cause.message;
+  }
+  if (typeof cause === 'object') {
+    const code = typeof cause.code === 'string' ? cause.code : '';
+    const message = typeof cause.message === 'string' ? cause.message : '';
+    return [code, message].filter(Boolean).join(' ');
+  }
+  return String(cause);
+}
+
+function formatTransportError(error) {
+  if (!(error instanceof Error)) return String(error);
+  const cause = formatErrorCause(error);
+  if (!cause || error.message.includes(cause)) return error.message;
+  return `${error.message} (${cause})`;
+}
+
 async function executeGatewayRequest(httpRequest, options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   if (typeof fetchImpl !== 'function') {
@@ -562,12 +587,20 @@ async function executeGatewayRequest(httpRequest, options = {}) {
   let response;
   let text = '';
   try {
-    response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(httpRequest),
-      signal: controller.signal,
-    });
+    try {
+      response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(httpRequest),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw new Error(
+        `Gateway proxy request failed before Shelly request was sent: ${formatTransportError(
+          error,
+        )}. Check that the HybridClaw gateway is running and reachable at ${gatewayUrl}.`,
+      );
+    }
     text = await response.text();
   } finally {
     clearTimeout(timeout);
