@@ -40,6 +40,12 @@ function validateRuntimeEnvelope(envelope: unknown): A2AEnvelope {
   return validateA2AEnvelope(envelope);
 }
 
+function assertInboxAgentId(agentId: string): void {
+  if (!agentId.trim()) {
+    throw new A2AEnvelopeValidationError(['agentId is required']);
+  }
+}
+
 /**
  * Trusted in-process primitive for persisting an A2A envelope.
  * `actor` is audit metadata; sender authorization belongs at transport/tool boundaries.
@@ -102,18 +108,11 @@ export function sendMessage(
  * and then id. Read/unread state and pagination are intentionally out of scope.
  */
 export function inbox(agentId: string): A2AEnvelope[] {
-  if (!agentId.trim()) {
-    throw new A2AEnvelopeValidationError(['agentId is required']);
-  }
+  assertInboxAgentId(agentId);
   return listA2AInboxEnvelopes(agentId);
 }
 
-/**
- * Returns thread summaries visible to `agentId`, including current ownership.
- */
 export function inboxThreads(agentId: string): A2AThreadSummary[] {
-  if (!agentId.trim()) {
-    throw new A2AEnvelopeValidationError(['agentId is required']);
-  }
+  assertInboxAgentId(agentId);
   return listA2AInboxThreads(agentId);
 }

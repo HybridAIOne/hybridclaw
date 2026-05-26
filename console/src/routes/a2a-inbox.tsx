@@ -28,10 +28,6 @@ function messageCountLabel(count: number): string {
   return `${count} message${count === 1 ? '' : 's'}`;
 }
 
-function ownerLabel(ownerCoworkerId: string | null): string {
-  return ownerCoworkerId ? `Owned by ${ownerCoworkerId}` : 'No owner';
-}
-
 function intentClassName(intent: AdminA2AThreadMessage['intent']): string {
   return intent === 'escalate' || intent === 'policy.update'
     ? 'mailbox-role-pill needs-reply'
@@ -167,7 +163,9 @@ export function A2AInboxPage() {
                   <p className="supporting-text">
                     {participantLabel(selectedThread)} ·{' '}
                     {messageCountLabel(selectedThread.messageCount)} ·{' '}
-                    {ownerLabel(selectedThread.ownerCoworkerId)}
+                    {selectedThread.ownerCoworkerId
+                      ? `Owned by ${selectedThread.ownerCoworkerId}`
+                      : 'No owner'}
                   </p>
                   {selectedThread.latestMessage ? (
                     <p className="supporting-text">

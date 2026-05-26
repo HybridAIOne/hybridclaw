@@ -608,6 +608,12 @@ describe('A2A envelope persistence', () => {
         owner_coworker_id: 'writer@team@local-dev',
       }),
     ]);
+    expect(store.listA2AInboxThreads('Writer@Team@LOCAL-DEV')).toEqual([
+      expect.objectContaining({
+        thread_id: 'thread-local-owner',
+        owner_coworker_id: 'writer@team@local-dev',
+      }),
+    ]);
     expect(
       revisions.getRuntimeAssetRevisionState('a2a', assetPath)?.content,
     ).toBe(legacyContent);
