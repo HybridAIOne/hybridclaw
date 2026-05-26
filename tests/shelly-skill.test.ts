@@ -295,6 +295,19 @@ test('Shelly helper requires approval before local output changes', () => {
     '--position',
     '50',
   ]);
+  const aliasPlan = shelly.buildRequest([
+    '--format',
+    'json',
+    'cover',
+    'goto',
+    '--device',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+    '--position',
+    '100',
+    '--approval-plan',
+  ]);
 
   expect(denied.status).not.toBe(0);
   expect(denied.stderr).toContain('switch.set is amber');
@@ -362,10 +375,26 @@ test('Shelly helper requires approval before local output changes', () => {
       id: 0,
       pos: 50,
     },
+    approvalRequired: true,
   });
   expect(coverGotoPlan).not.toHaveProperty('httpRequest');
+  expect(coverGotoPlan.approvalBoundary).toContain('Stop after producing');
   expect(coverGotoPlan.approvedHelperCommandText).toContain('cover goto');
   expect(coverGotoPlan.approvedHelperCommandText).toContain('--operator-grant');
+  expect(aliasPlan).toMatchObject({
+    command: 'approval-plan',
+    operation: 'cover.goto',
+    target: {
+      host: '192.0.2.10',
+      path: '/rpc',
+      method: 'POST',
+    },
+    params: {
+      id: 0,
+      pos: 100,
+    },
+  });
+  expect(aliasPlan.approvedHelperCommandText).toContain('--device-url');
 });
 
 test('Shelly helper builds local Gen1 relay requests', () => {

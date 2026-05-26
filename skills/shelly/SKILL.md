@@ -89,7 +89,8 @@ construction belongs in `shelly.cjs`.
 - Read state before any relay, switch, light, or cover control operation.
 - Treat control operations as amber. Before asking for approval, build an
   `approval-plan` for the selected operation and include its
-  `approvedHelperCommandText` in the approval request. After approval, run that
+  `approvedHelperCommandText` in the approval request. Stop after presenting
+  the plan. Only after the operator confirms in a later message, run that
   helper command exactly and use its emitted request specification unchanged.
 - Do not perform factory reset, reboot, firmware update, Wi-Fi reset, auth
   changes, or certificate upload through this skill.

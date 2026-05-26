@@ -163,6 +163,13 @@ function addDefaultRepeatedFlag(args, name, values) {
   return [...args, ...values.flatMap((value) => [name, value])];
 }
 
+function normalizeFlagAliases(args) {
+  return args.map((arg) => {
+    if (arg === '--device') return '--device-url';
+    return arg;
+  });
+}
+
 function requireText(value, label) {
   const normalized = String(value || '').trim();
   if (!normalized) die(`${label} is required.`);
@@ -1303,19 +1310,24 @@ function domainTier(resource, action) {
 }
 
 function buildRequest(argv) {
-  const args = [...argv];
+  const args = normalizeFlagAliases([...argv]);
   const format = popFlag(args, '--format', 'pretty');
   if (!['json', 'pretty'].includes(format))
     die('--format must be json or pretty.');
+  const wantsApprovalPlan = popBoolean(args, '--approval-plan');
   const command = args.shift();
   if (command === 'approval-plan') {
     return buildApprovalPlan(args);
   }
   const action = args.shift();
+  if (wantsApprovalPlan) {
+    return buildApprovalPlan([command, action, ...args]);
+  }
   return buildDomainCommand(command, action, args);
 }
 
 function buildApprovalPlan(args) {
+  args = normalizeFlagAliases([...args]);
   const resource = args.shift();
   const action = args.shift();
   if (!DOMAIN_COMMANDS.has(resource)) {
@@ -1356,8 +1368,11 @@ function buildApprovalPlan(args) {
     },
     approvedHelperCommand,
     approvedHelperCommandText: approvedHelperCommand.map(shellQuote).join(' '),
+    approvalRequired: true,
+    approvalBoundary:
+      'Stop after producing this plan. Do not run approvedHelperCommandText until the operator confirms in a later message.',
     approvalSummary:
-      'After explicit operator approval, run approvedHelperCommandText exactly, then use the emitted request specification unchanged with the appropriate network tool.',
+      'After explicit operator approval in a later message, run approvedHelperCommandText exactly, then use the emitted request specification unchanged with the appropriate network tool.',
     costMeasurement: COST_MEASUREMENT,
   };
   if (approvedPayload.httpRequest?.json?.method) {
