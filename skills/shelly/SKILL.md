@@ -236,6 +236,10 @@ start the gateway from the allowed app session.
 
 - Base status and control answers on successful live Shelly API results from
   the current turn.
+- For Real Time Events reads, the helper refreshes an invalid stored OAuth
+  access token once when `SHELLY_OAUTH_CODE` is configured, then retries the
+  original read. Treat the final helper result as authoritative; do not ask for
+  device ids, LAN IPs, or manual re-auth until that retry path has failed.
 - Inspect returned JSON and require `isok: true` when that field is present.
 - For cloud or local errors, report the operation, target, and upstream error
   without inventing state.

@@ -211,6 +211,107 @@ test('Shelly helper executes HTTP requests through the gateway proxy', async () 
   );
 });
 
+test('Shelly helper refreshes Real Time Events OAuth once and retries discovery', async () => {
+  const payload = request([
+    'cloud',
+    'all-status',
+    '--cloud-host',
+    'https://shelly-128-eu.shelly.cloud',
+  ]);
+  const invalidTokenBody = JSON.stringify({
+    isok: false,
+    errors: {
+      invalid_token: 'The login information is invalid! Please login again!',
+    },
+    error: 'UNAUTHORIZED',
+  });
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () =>
+        JSON.stringify({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: {},
+          body: invalidTokenBody,
+        }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () =>
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+        }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () =>
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: JSON.stringify({
+            isok: true,
+            data: {
+              devices_status: {
+                '1c692047d498': {
+                  _dev_info: {
+                    id: '1c692047d498',
+                    gen: 'G2',
+                    code: 'SNSW-102P16EU',
+                    online: true,
+                  },
+                  'cover:0': {
+                    current_pos: 50,
+                    state: 'stopped',
+                  },
+                },
+              },
+            },
+          }),
+        }),
+    });
+
+  const { result, oauthRefreshed } = await shelly.executeLivePayload(payload, {
+    gatewayUrl: 'http://127.0.0.1:9090',
+    gatewayToken: 'gateway-token',
+    fetch: fetchMock,
+  });
+
+  expect(oauthRefreshed).toBe(true);
+  expect(
+    result.bodyJson.data.devices_status['1c692047d498']['cover:0'],
+  ).toMatchObject({
+    current_pos: 50,
+    state: 'stopped',
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  const firstRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+  const refreshRequest = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+  const retryRequest = JSON.parse(fetchMock.mock.calls[2][1].body as string);
+  expect(firstRequest.url).toBe(
+    'https://shelly-128-eu.shelly.cloud/device/all_status?show_info=true&no_shared=true',
+  );
+  expect(refreshRequest.url).toBe(
+    'https://shelly-128-eu.shelly.cloud/oauth/auth',
+  );
+  expect(refreshRequest.body).toContain('grant_type=code');
+  expect(retryRequest.url).toBe(firstRequest.url);
+});
+
 test('Shelly helper classifies gateway policy and outbound connection errors', async () => {
   const payload = request([
     'cover',

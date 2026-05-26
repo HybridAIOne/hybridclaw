@@ -637,6 +637,54 @@ async function executeGatewayRequest(httpRequest, options = {}) {
   return normalized;
 }
 
+function isShellyOauthInvalidTokenError(error) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return (
+    /Shelly returned HTTP 401/u.test(message) &&
+    /invalid_token/u.test(message) &&
+    /Please login again/u.test(message)
+  );
+}
+
+function isRefreshableRealTimeEventsOperation(payload) {
+  return payload?.operation === 'cloud.all-status';
+}
+
+function cloudHostFromHttpRequest(httpRequest) {
+  const url = new URL(httpRequest.url);
+  return `${url.protocol}//${url.host}`;
+}
+
+async function executeLivePayload(payload, options = {}) {
+  try {
+    return {
+      result: await executeGatewayRequest(payload.httpRequest, options),
+      oauthRefreshed: false,
+    };
+  } catch (error) {
+    if (
+      !isRefreshableRealTimeEventsOperation(payload) ||
+      !isShellyOauthInvalidTokenError(error)
+    ) {
+      throw error;
+    }
+  }
+
+  const refreshPayload = buildRequest([
+    '--format',
+    'json',
+    'cloud',
+    'oauth-token',
+    '--cloud-host',
+    cloudHostFromHttpRequest(payload.httpRequest),
+  ]);
+  await executeGatewayRequest(refreshPayload.httpRequest, options);
+  return {
+    result: await executeGatewayRequest(payload.httpRequest, options),
+    oauthRefreshed: true,
+  };
+}
+
 function buildWebSocketPayload(operation, { urlTemplate, message }) {
   const payload = {
     command: 'websocket',
@@ -1565,7 +1613,7 @@ async function main() {
   const emitRequestOnly = popBoolean(args, '--request');
   const payload = buildRequest(args);
   if (!emitRequestOnly && payload.httpRequest) {
-    const result = await executeGatewayRequest(payload.httpRequest);
+    const { result, oauthRefreshed } = await executeLivePayload(payload);
     const output = {
       command: 'live',
       operation: payload.operation,
@@ -1577,6 +1625,9 @@ async function main() {
       result,
       costMeasurement: payload.costMeasurement,
     };
+    if (oauthRefreshed) {
+      output.oauthRefreshed = true;
+    }
     process.stdout.write(
       JSON.stringify(output, null, format === 'pretty' ? 2 : 0),
     );
@@ -1601,4 +1652,5 @@ if (require.main === module) {
 module.exports = {
   buildRequest,
   executeGatewayRequest,
+  executeLivePayload,
 };
