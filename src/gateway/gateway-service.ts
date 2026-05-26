@@ -2032,6 +2032,10 @@ function parseTurnTraceSelectorFlag(args: readonly unknown[]): {
   for (let index = 0; index < args.length; index += 1) {
     const arg = parseLowerArg(args, index);
     if (!arg) continue;
+    if (arg === '--last' || arg === '--latest') {
+      selector.latest = true;
+      continue;
+    }
     if (arg === '--turn') {
       const turnIndex = parseIntegerArg(args, index + 1);
       if (!turnIndex || turnIndex < 1) {
@@ -2059,14 +2063,22 @@ function parseTurnTraceSelectorFlag(args: readonly unknown[]): {
     };
   }
 
-  if (selector.runId && selector.turnIndex != null) {
+  const selectedSelectorCount = [
+    selector.latest,
+    selector.runId,
+    selector.turnIndex != null,
+  ].filter(Boolean).length;
+  if (selectedSelectorCount > 1) {
     return {
       selector: null,
-      error: 'Use either `--turn` or `--run`, not both.',
+      error: 'Use only one of `--last`, `--turn`, or `--run`.',
     };
   }
   return {
-    selector: selector.runId || selector.turnIndex != null ? selector : null,
+    selector:
+      selector.latest || selector.runId || selector.turnIndex != null
+        ? selector
+        : null,
     error: null,
   };
 }
@@ -2155,7 +2167,11 @@ function parseExportTraceTarget(
     };
   }
 
-  const hasLeadingSelector = first === '--turn' || first === '--run';
+  const hasLeadingSelector =
+    first === '--last' ||
+    first === '--latest' ||
+    first === '--turn' ||
+    first === '--run';
   const targetSessionId = hasLeadingSelector
     ? currentSessionId
     : first || currentSessionId;

@@ -1,12 +1,17 @@
-import { parseJsonObject, truncateAuditText } from '../audit/audit-trail.js';
+import {
+  parseJsonObject,
+  readAuditBoolean as readBoolean,
+  readAuditNumber as readNumber,
+  readAuditString as readString,
+  truncateAuditText,
+} from '../audit/audit-trail.js';
+import { logger } from '../logger.js';
 import {
   redactHighEntropyStrings,
   redactSecretsDeep,
+  URL_SECRET_QUERY_PARAM_RE,
 } from '../security/redact.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
-
-const URL_SECRET_QUERY_RE =
-  /([?&](?:x-amz-signature|access_token|api[_-]?key|auth|authorization|key|password|refresh_token|secret|signature|token)=)[^&\s"'`]+/gi;
 
 export interface AuditTurnTraceSelector {
   latest?: boolean;
@@ -58,42 +63,10 @@ export interface AuditTurnTraceRecord {
   tools: AuditTurnTraceToolRecord[];
 }
 
-function readString(
-  payload: Record<string, unknown>,
-  key: string,
-): string | null {
-  const value = payload[key];
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  return normalized || null;
-}
-
-function readNumber(
-  payload: Record<string, unknown>,
-  key: string,
-): number | null {
-  const value = payload[key];
-  if (typeof value === 'number' && Number.isFinite(value))
-    return Math.trunc(value);
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return Math.trunc(parsed);
-  }
-  return null;
-}
-
-function readBoolean(
-  payload: Record<string, unknown>,
-  key: string,
-): boolean | null {
-  const value = payload[key];
-  return typeof value === 'boolean' ? value : null;
-}
-
 function redactTraceText(text: string, maxChars = 320): string {
   const redacted = redactHighEntropyStrings(
     String(redactSecretsDeep(text)).replace(
-      URL_SECRET_QUERY_RE,
+      URL_SECRET_QUERY_PARAM_RE,
       '$1***REDACTED***',
     ),
   );
@@ -128,7 +101,13 @@ export function groupAuditTurnRows(
   const turns: AuditTurnGroup[] = [];
   for (const [runId, runRows] of grouped) {
     const turnStart = runRows.find((row) => row.event_type === 'turn.start');
-    if (!turnStart) continue;
+    if (!turnStart) {
+      logger.warn(
+        { runId, rowCount: runRows.length },
+        'audit turn group has no turn.start event, skipping',
+      );
+      continue;
+    }
     turns.push({
       runId,
       rows: runRows,
@@ -231,12 +210,7 @@ function formatDuration(durationMs: number | null): string {
 
 function toolKind(toolName: string, payload: Record<string, unknown>): string {
   const explicit =
-    readString(payload, 'toolKind') ||
-    readString(payload, 'tool_kind') ||
-    readString(payload, 'executionKind') ||
-    readString(payload, 'execution_kind') ||
-    readString(payload, 'callType') ||
-    readString(payload, 'call_type');
+    readString(payload, 'toolKind') || readString(payload, 'callType');
   if (explicit) return explicit;
   if (
     readBoolean(payload, 'helper') === true ||
@@ -305,12 +279,38 @@ function summarizeSkill(payload: Record<string, unknown>): string {
     .join(', ');
 }
 
-function actionMatchesTool(
-  payload: Record<string, unknown>,
-  toolName: string,
-): boolean {
-  const action = readString(payload, 'action') || '';
-  return action === `tool:${toolName}`;
+function auditAuthorizationRowsForTurn(rows: StructuredAuditEntry[]): {
+  byToolCallId: Map<string, StructuredAuditEntry[]>;
+  byAction: Map<string, StructuredAuditEntry[]>;
+} {
+  const byToolCallId = new Map<string, StructuredAuditEntry[]>();
+  const byAction = new Map<string, StructuredAuditEntry[]>();
+  const authEventTypes = new Set([
+    'authorization.check',
+    'autonomy.decision',
+    'approval.request',
+    'approval.response',
+    'escalation.decision',
+  ]);
+
+  for (const row of rows) {
+    if (!authEventTypes.has(row.event_type)) continue;
+    const payload = parseJsonObject(row.payload);
+    const toolCallId = readString(payload, 'toolCallId');
+    if (toolCallId) {
+      const entries = byToolCallId.get(toolCallId) || [];
+      entries.push(row);
+      byToolCallId.set(toolCallId, entries);
+    }
+    const action = readString(payload, 'action');
+    if (action) {
+      const entries = byAction.get(action) || [];
+      entries.push(row);
+      byAction.set(action, entries);
+    }
+  }
+
+  return { byToolCallId, byAction };
 }
 
 export function buildAuditTurnTraceRecords(params: {
@@ -357,6 +357,7 @@ export function buildAuditTurnTraceRecords(params: {
       const toolCallId = readString(payload, 'toolCallId');
       if (toolCallId) resultByCallId.set(toolCallId, payload);
     }
+    const authorizationRows = auditAuthorizationRowsForTurn(turn.rows);
 
     const tools = turn.rows
       .filter((row) => row.event_type === 'tool.call')
@@ -372,28 +373,17 @@ export function buildAuditTurnTraceRecords(params: {
             readString(result, 'resultSummary') ||
             truncateAuditText(JSON.stringify(result), 280)
           : null;
-        const authorization = turn.rows
-          .filter((entry) => {
-            if (
-              entry.event_type !== 'authorization.check' &&
-              entry.event_type !== 'autonomy.decision' &&
-              entry.event_type !== 'approval.request' &&
-              entry.event_type !== 'approval.response' &&
-              entry.event_type !== 'escalation.decision'
-            ) {
-              return false;
-            }
-            const entryPayload = parseJsonObject(entry.payload);
-            return (
-              readString(entryPayload, 'toolCallId') === toolCallId ||
-              actionMatchesTool(entryPayload, toolName)
-            );
-          })
-          .map((entry) => ({
+        const authorizationRowsForTool = [
+          ...(authorizationRows.byToolCallId.get(toolCallId) || []),
+          ...(authorizationRows.byAction.get(`tool:${toolName}`) || []),
+        ];
+        const authorization = [...new Set(authorizationRowsForTool)].map(
+          (entry) => ({
             eventType: entry.event_type,
             timestamp: entry.timestamp,
             summary: redactTraceValue(parseJsonObject(entry.payload), 520),
-          }));
+          }),
+        );
 
         return {
           order: index + 1,

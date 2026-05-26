@@ -947,6 +947,10 @@ test('gateway export trace command writes a focused turn trace', async () => {
   expect(steps[0]).toMatchObject({ role: 'user', content: 'Prompt 2' });
   expect(String(steps[1]?.content)).toContain('Assistant 2');
   expect(String(steps[1]?.content).length).toBeLessThan(4100);
+  const observations = steps[1]?.observations as Array<Record<string, unknown>>;
+  expect(String(observations[0]?.content)).toContain('result');
+  expect(String(observations[0]?.content).length).toBeGreaterThan(1000);
+  expect(String(observations[0]?.content).length).toBeLessThanOrEqual(2003);
   const serialized = JSON.stringify(record);
   expect(serialized).toContain('turn_trace_focus_2');
   expect(serialized).toContain('"turn_traces"');

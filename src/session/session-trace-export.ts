@@ -3,12 +3,22 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseJsonObject, truncateAuditText } from '../audit/audit-trail.js';
+import {
+  parseJsonObject,
+  readAuditBoolean as readBoolean,
+  readAuditNumber as readNumber,
+  readAuditString as readString,
+  truncateAuditText,
+} from '../audit/audit-trail.js';
 import { APP_VERSION } from '../config/config.js';
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
-import { redactHighEntropyStrings, redactSecrets } from '../security/redact.js';
+import {
+  redactHighEntropyStrings,
+  redactSecrets,
+  URL_SECRET_QUERY_PARAM_RE,
+} from '../security/redact.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import type { UsageTotals } from '../types/usage.js';
@@ -67,8 +77,7 @@ const TRACE_EXPORT_EXTRA_REDACTION_PATTERNS: ReadonlyArray<{
     replace: '***DISCORD_WEBHOOK_REDACTED***',
   },
   {
-    match:
-      /([?&](?:x-amz-signature|access_token|api[_-]?key|auth|authorization|key|password|refresh_token|secret|signature|token)=)[^&\s"'`]+/gi,
+    match: URL_SECRET_QUERY_PARAM_RE,
     replace: '$1***REDACTED***',
   },
 ]);
@@ -116,6 +125,10 @@ enum TraceRedactionFieldType {
   ToolInput = 'tool_input',
   ToolResult = 'tool_result',
   Identifier = 'identifier',
+}
+
+interface TraceExportRedactionStats {
+  redactionsApplied: number;
 }
 
 function safeFilePart(raw: string): string {
@@ -697,6 +710,7 @@ function anonymizeTracePaths(text: string): string {
 function redactTraceText(
   text: string,
   fieldType: TraceRedactionFieldType,
+  stats?: TraceExportRedactionStats,
 ): string {
   if (fieldType === TraceRedactionFieldType.Identifier) return text;
   let next = anonymizeTracePaths(text);
@@ -709,6 +723,14 @@ function redactTraceText(
     fieldType === TraceRedactionFieldType.ToolInput
   ) {
     next = redactHighEntropyStrings(next);
+  }
+  if (stats) {
+    stats.redactionsApplied += [
+      ...next.matchAll(/\*\*\*[A-Z0-9_]+REDACTED\*\*\*/g),
+    ].length;
+    stats.redactionsApplied += [
+      ...next.matchAll(/\buser_[a-f0-9]{8}\b/g),
+    ].length;
   }
   return next;
 }
@@ -735,10 +757,14 @@ function fieldTypeForChildKey(
 function sanitizeTraceExportValue(
   value: unknown,
   fieldType: TraceRedactionFieldType = TraceRedactionFieldType.General,
+  stats?: TraceExportRedactionStats,
 ): unknown {
-  if (typeof value === 'string') return redactTraceText(value, fieldType);
+  if (typeof value === 'string')
+    return redactTraceText(value, fieldType, stats);
   if (Array.isArray(value)) {
-    return value.map((entry) => sanitizeTraceExportValue(entry, fieldType));
+    return value.map((entry) =>
+      sanitizeTraceExportValue(entry, fieldType, stats),
+    );
   }
   if (!value || typeof value !== 'object') return value;
 
@@ -747,48 +773,24 @@ function sanitizeTraceExportValue(
     sanitized[key] = sanitizeTraceExportValue(
       raw,
       fieldTypeForChildKey(key, fieldType),
+      stats,
     );
   }
   return sanitized;
 }
 
-function finalizeTraceRecord(
-  record: Record<string, unknown>,
-): Record<string, unknown> {
-  return sanitizeTraceExportValue(record) as Record<string, unknown>;
-}
-
-function readString(
-  payload: Record<string, unknown>,
-  key: string,
-): string | null {
-  const value = payload[key];
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  return normalized || null;
-}
-
-function readNumber(
-  payload: Record<string, unknown>,
-  key: string,
-): number | null {
-  const value = payload[key];
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.trunc(value);
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return Math.trunc(parsed);
-  }
-  return null;
-}
-
-function readBoolean(
-  payload: Record<string, unknown>,
-  key: string,
-): boolean | null {
-  const value = payload[key];
-  return typeof value === 'boolean' ? value : null;
+function finalizeTraceRecord(record: Record<string, unknown>): {
+  record: Record<string, unknown>;
+  redactionsApplied: number;
+} {
+  const stats: TraceExportRedactionStats = { redactionsApplied: 0 };
+  return {
+    record: sanitizeTraceExportValue(record, undefined, stats) as Record<
+      string,
+      unknown
+    >,
+    redactionsApplied: stats.redactionsApplied,
+  };
 }
 
 function truncateText(text: string, maxChars = 12_000): string {
@@ -978,10 +980,12 @@ function buildToolCallTraceEntries(
 function buildObservationTraceEntries(
   turn: TurnGroup,
   toolResultRows: StructuredAuditEntry[],
+  preferResultPreview: boolean,
 ): Array<Record<string, unknown>> {
   return toolResultRows.map((row) => {
     const payload = parseJsonObject(row.payload);
     const resultSummary =
+      (preferResultPreview ? readString(payload, 'resultPreview') : null) ||
       readString(payload, 'resultSummary') ||
       truncateAuditText(JSON.stringify(payload), 280);
     return {
@@ -1096,6 +1100,7 @@ function buildTraceSteps(params: {
   fallbackModel: string;
   systemPromptHashByRunId: Map<string, string>;
   assistantStartIndex?: number;
+  preferResultPreview?: boolean;
 }): {
   steps: Array<Record<string, unknown>>;
   agentStepIndexByRunId: Map<string, number>;
@@ -1133,6 +1138,7 @@ function buildTraceSteps(params: {
     const observations = buildObservationTraceEntries(
       turn,
       summary.toolResultRows,
+      params.preferResultPreview === true,
     );
     const systemPromptHash = params.systemPromptHashByRunId.get(turn.runId);
     const dynamicContext = readTurnDynamicContext(summary);
@@ -1388,20 +1394,13 @@ function detectCommittedOutcomeFromSteps(
   return {};
 }
 
-function countOccurrences(text: string, pattern: RegExp): number {
-  return [...text.matchAll(pattern)].length;
-}
-
 function buildTraceSecurityMetadata(
-  record: Record<string, unknown>,
+  redactionsApplied: number,
 ): Record<string, unknown> {
-  const serialized = stableStringify(record);
   return {
     scanned: true,
     flags_reviewed: 0,
-    redactions_applied:
-      countOccurrences(serialized, /\*\*\*[A-Z0-9_]+REDACTED\*\*\*/g) +
-      countOccurrences(serialized, /\buser_[a-f0-9]{8}\b/g),
+    redactions_applied: redactionsApplied,
     classifier_version: null,
   };
 }
@@ -1479,6 +1478,7 @@ export async function exportSessionTraceAtifJsonl(params: {
             fallbackModel,
             systemPromptHashByRunId,
             assistantStartIndex,
+            preferResultPreview: Boolean(params.selector),
           })
         : {
             steps: buildFallbackSteps(params.messages),
@@ -1666,8 +1666,9 @@ export async function exportSessionTraceAtifJsonl(params: {
       },
     };
 
-    const sanitizedRecord = finalizeTraceRecord(recordWithoutHash);
-    const security = buildTraceSecurityMetadata(sanitizedRecord);
+    const { record: sanitizedRecord, redactionsApplied } =
+      finalizeTraceRecord(recordWithoutHash);
+    const security = buildTraceSecurityMetadata(redactionsApplied);
     const finalizedRecord = {
       ...sanitizedRecord,
       security,

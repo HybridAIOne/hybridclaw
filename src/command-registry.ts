@@ -204,7 +204,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   audit: {
     command:
-      '/audit [sessionId] | /audit last | /audit turn <n> | /audit run <runId> | /audit <sessionId> [--turn <n>|--run <runId>]',
+      '/audit [sessionId] | /audit last | /audit turn <n> | /audit run <runId> | /audit <sessionId> [--last|--turn <n>|--run <runId>]',
     description: 'Show recent audit events or a turn-level tool trace',
   },
   auth: {
@@ -239,7 +239,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   export: {
     command:
-      '/export session [sessionId] | /export trace [sessionId|all|--all] [--turn <n>|--run <runId>]',
+      '/export session [sessionId] | /export trace [sessionId|all|--all] [--last|--turn <n>|--run <runId>]',
     description: 'Export session snapshot or trace JSONL',
   },
   fullauto: {
@@ -2031,7 +2031,7 @@ function buildSlashCommandCatalogDefinitions(
         {
           id: 'export.trace',
           label:
-            '/export trace [session_id|all|--all] [--turn <n>|--run <run_id>]',
+            '/export trace [session_id|all|--all] [--last|--turn <n>|--run <run_id>]',
           insertText: '/export trace ',
           description:
             'Export the current or specified session as an ATIF-compatible trace JSONL',

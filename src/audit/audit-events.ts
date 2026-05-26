@@ -1,6 +1,10 @@
 import { logger } from '../logger.js';
 import { logStructuredAuditEvent } from '../memory/db.js';
-import { redactHighEntropyStrings } from '../security/redact.js';
+import {
+  redactHighEntropyStrings,
+  redactSecretsDeep,
+  URL_SECRET_QUERY_PARAM_RE,
+} from '../security/redact.js';
 import type { ToolExecution } from '../types/execution.js';
 import {
   type AuditEventPayload,
@@ -46,12 +50,12 @@ function summarizeToolResult(text: string): string {
   return truncateAuditText(text, 280);
 }
 
-const RESULT_PREVIEW_URL_SECRET_QUERY_RE =
-  /([?&](?:x-amz-signature|access_token|api[_-]?key|auth|authorization|key|password|refresh_token|secret|signature|token)=)[^&\s"'`]+/gi;
-
 function previewToolResult(text: string): string {
   const redacted = redactHighEntropyStrings(
-    text.replace(RESULT_PREVIEW_URL_SECRET_QUERY_RE, '$1***REDACTED***'),
+    String(redactSecretsDeep(text)).replace(
+      URL_SECRET_QUERY_PARAM_RE,
+      '$1***REDACTED***',
+    ),
   );
   return truncateAuditText(redacted, 4_000);
 }
