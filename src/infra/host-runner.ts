@@ -93,6 +93,7 @@ import {
   isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
+import { parseToolProgressLine } from './tool-progress-parser.js';
 import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
@@ -117,9 +118,6 @@ import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
 const HOST_CAPACITY_POLL_MS = 100;
-const TOOL_RESULT_RE =
-  /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
-const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 
 function resolveExecutorMaxTokens(params: {
@@ -331,34 +329,14 @@ function emitThinkingDelta(entry: PoolEntry, line: string): void {
 function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
+  const parsed = parseToolProgressLine(line);
+  if (!parsed) return;
 
-  const resultMatch = line.match(TOOL_RESULT_RE);
-  if (resultMatch) {
-    try {
-      callback({
-        sessionId: entry.sessionId,
-        toolName: resultMatch[1],
-        phase: 'finish',
-        durationMs: parseInt(resultMatch[2], 10),
-        preview: redactCredentialSecrets(resultMatch[3]),
-      });
-    } catch (err) {
-      logger.debug(
-        { sessionId: entry.sessionId, err },
-        'Tool progress callback failed',
-      );
-    }
-    return;
-  }
-
-  const startMatch = line.match(TOOL_START_RE);
-  if (!startMatch) return;
   try {
     callback({
       sessionId: entry.sessionId,
-      toolName: startMatch[1],
-      phase: 'start',
-      preview: redactCredentialSecrets(startMatch[2]),
+      ...parsed,
+      preview: redactCredentialSecrets(parsed.preview || ''),
     });
   } catch (err) {
     logger.debug(
