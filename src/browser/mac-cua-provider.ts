@@ -1096,56 +1096,52 @@ class MacCuaBrowserSession implements BrowserSession {
     const state = await this.inspectTwoFactorChallenge();
     const selector = state.selectors?.[0];
     let strategy = selector ? 'ax-selector' : 'native-focus';
-    await this.runAction(
-      'browser_resume_interaction',
-      async () => {
-        const payload = this.buildFillPayload(
-          selector || 'detected 2FA input',
-          value,
+    await this.runAction('browser_resume_interaction', async () => {
+      const payload = this.buildFillPayload(
+        selector || 'detected 2FA input',
+        value,
+      );
+      if (selector) {
+        const target = await this.resolveActionTarget(
+          'browser_resume_interaction',
+          selector,
+          parseMacCuaTarget(selector),
         );
-        if (selector) {
-          const target = await this.resolveActionTarget(
-            'browser_resume_interaction',
-            selector,
-            parseMacCuaTarget(selector),
-          );
-          if ('secretRef' in payload) {
-            await this.assertSecretFillAllowed(selector, payload.secretRef);
-          }
-          await this.driver.click(this.sessionId, target);
-          await this.driver.typeTextChars(this.sessionId, payload);
-          await this.driver.pressKey(this.sessionId, 'return');
-          if ('secretRef' in payload) {
-            this.recordCredentialFilled(selector, payload.secretRef);
-          }
-          return;
+        if ('secretRef' in payload) {
+          await this.assertSecretFillAllowed(selector, payload.secretRef);
         }
-
-        if (this.driver.fillTwoFactorInput) {
-          const filled = await this.driver.fillTwoFactorInput(
-            this.sessionId,
-            payload,
-          );
-          if (filled) {
-            strategy = 'native-set-value';
-            await this.driver.pressKey(this.sessionId, 'return');
-            return;
-          }
-        }
-        if (!this.driver.focusTwoFactorInput) {
-          throw new Error(
-            'mac-cua cannot focus the 2FA input because the driver does not expose a native 2FA focus primitive.',
-          );
-        }
-        const focused = await this.driver.focusTwoFactorInput(this.sessionId);
-        if (!focused) {
-          throw new Error('mac-cua could not focus the detected 2FA input.');
-        }
+        await this.driver.click(this.sessionId, target);
         await this.driver.typeTextChars(this.sessionId, payload);
         await this.driver.pressKey(this.sessionId, 'return');
-      },
-      { allowBackgroundSafeViolation: true },
-    );
+        if ('secretRef' in payload) {
+          this.recordCredentialFilled(selector, payload.secretRef);
+        }
+        return;
+      }
+
+      if (this.driver.fillTwoFactorInput) {
+        const filled = await this.driver.fillTwoFactorInput(
+          this.sessionId,
+          payload,
+        );
+        if (filled) {
+          strategy = 'native-set-value';
+          await this.driver.pressKey(this.sessionId, 'return');
+          return;
+        }
+      }
+      if (!this.driver.focusTwoFactorInput) {
+        throw new Error(
+          'mac-cua cannot focus the 2FA input because the driver does not expose a native 2FA focus primitive.',
+        );
+      }
+      const focused = await this.driver.focusTwoFactorInput(this.sessionId);
+      if (!focused) {
+        throw new Error('mac-cua could not focus the detected 2FA input.');
+      }
+      await this.driver.typeTextChars(this.sessionId, payload);
+      await this.driver.pressKey(this.sessionId, 'return');
+    });
     return { ...(selector ? { selector } : {}), strategy, submitted: true };
   }
 
@@ -1270,17 +1266,12 @@ class MacCuaBrowserSession implements BrowserSession {
   private async runAction<T>(
     action: string,
     run: () => Promise<T>,
-    opts?: { allowBackgroundSafeViolation?: boolean },
   ): Promise<T> {
     const before = await this.driver.getEnvironmentState();
     try {
       const result = await run();
       const after = await this.driver.getEnvironmentState();
-      try {
-        this.assertBackgroundSafe(before, after);
-      } catch (error) {
-        if (opts?.allowBackgroundSafeViolation !== true) throw error;
-      }
+      this.assertBackgroundSafe(before, after);
       await this.recordDetectedTwoFactor(action);
       this.recordAction(action, 'ok');
       return result;
@@ -1295,14 +1286,16 @@ class MacCuaBrowserSession implements BrowserSession {
     after: MacCuaEnvironmentState | undefined,
   ): void {
     if (!before || !after) return;
-    const unchanged =
-      before.frontmostBundleId === after.frontmostBundleId &&
-      before.activeSpaceId === after.activeSpaceId;
-    if (!unchanged) {
+    if (before.activeSpaceId !== after.activeSpaceId) {
       throw new Error(
         'mac-cua driver violated background-safe contract by changing frontmost app or active Space',
       );
     }
+    if (before.frontmostBundleId === after.frontmostBundleId) return;
+    if (after.frontmostBundleId === this.bundleId) return;
+    throw new Error(
+      'mac-cua driver violated background-safe contract by changing frontmost app or active Space',
+    );
   }
 
   private recordAction(
