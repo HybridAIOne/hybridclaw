@@ -3,14 +3,14 @@
   flex-direction: column;
   gap: 24px;
   width: 100%;
-  max-width: 920px;
-  margin: 0 auto;
+  min-width: 0;
 }
 
 .content {
-  display: flex;
-  flex-direction: column;
-  gap: 48px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
 }
 
 .path {
@@ -63,6 +63,15 @@
   margin-bottom: 18px;
 }
 
+.sectionCard {
+  min-width: 0;
+  width: 100%;
+}
+
+.jsonField {
+  grid-column: 1 / -1;
+}
+
 .poolStatusPending {
   margin: 0;
   font-style: italic;
@@ -85,4 +94,10 @@
   border: 1px solid var(--line);
   background: var(--panel-bg);
   color: var(--muted-foreground);
+}
+
+@media (max-width: 1080px) {
+  .content {
+    grid-template-columns: 1fr;
+  }
 }

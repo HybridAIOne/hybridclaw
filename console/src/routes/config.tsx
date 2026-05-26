@@ -18,6 +18,7 @@ import type { AdminBrowserPoolHealthResponse, AdminConfig } from '../api/types';
 import { LOG_LEVELS } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
+import { Card } from '../components/card';
 import {
   Field,
   FieldContent,
@@ -525,7 +526,7 @@ export function ConfigPage() {
 
       <div className={styles.content}>
         {viewMode === 'json' ? (
-          <Field invalid={Boolean(jsonError)}>
+          <Field className={styles.jsonField} invalid={Boolean(jsonError)}>
             <FieldLabel>config.json</FieldLabel>
             <Textarea
               className={`code-editor ${styles.jsonEditor}`}
@@ -540,560 +541,582 @@ export function ConfigPage() {
           </Field>
         ) : (
           <>
-            <FieldSet>
-              <FieldLegend>Operations</FieldLegend>
-              <FieldDescription className={styles.sectionDescription}>
-                Gateway listener and log verbosity.
-              </FieldDescription>
-              <FieldGroup>
-                <FormField
-                  name="ops.healthHost"
-                  render={({ field }) => (
-                    <Field>
-                      <FieldLabel>Health host</FieldLabel>
-                      <Input {...field} />
-                      <FieldDescription>
-                        Interface the gateway binds to. Use{' '}
-                        <code>127.0.0.1</code> for loopback-only.
-                      </FieldDescription>
-                    </Field>
-                  )}
-                />
-                <FormField
-                  name="ops.healthPort"
-                  render={({ field }) => (
-                    <Field>
-                      <FieldLabel>Health port</FieldLabel>
-                      <NumberField
-                        integer
-                        min={1}
-                        max={65535}
-                        value={field.value as number}
-                        onValueChange={field.onChange}
-                      />
-                      <FieldError />
-                    </Field>
-                  )}
-                />
-                <FormField
-                  name="ops.logLevel"
-                  render={({ field }) => (
-                    <Field>
-                      <FieldLabel>Log level</FieldLabel>
-                      <NativeSelect
-                        value={field.value as string}
-                        onChange={(event) => {
-                          const next = event.target.value;
-                          if (isOneOf(LOG_LEVELS, next)) {
-                            field.onChange(next);
-                          }
-                        }}
-                      >
-                        {LOG_LEVELS.map((level) => (
-                          <NativeSelectOption key={level} value={level}>
-                            {level}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                    </Field>
-                  )}
-                />
-              </FieldGroup>
-            </FieldSet>
-
-            <FieldSet>
-              <FieldLegend>Security</FieldLegend>
-              <FieldDescription className={styles.sectionDescription}>
-                Sensitive-content guards applied to agent output.
-              </FieldDescription>
-              <FieldGroup>
-                <FormField
-                  name="security.confidentialRedactionEnabled"
-                  render={({ field }) => (
-                    <Field orientation="horizontal">
-                      <Switch
-                        checked={Boolean(field.value)}
-                        onCheckedChange={field.onChange}
-                      />
-                      <FieldContent>
-                        <FieldLabel>Confidential leak guard</FieldLabel>
+            <Card className={styles.sectionCard}>
+              <FieldSet>
+                <FieldLegend>Operations</FieldLegend>
+                <FieldDescription className={styles.sectionDescription}>
+                  Gateway listener and log verbosity.
+                </FieldDescription>
+                <FieldGroup>
+                  <FormField
+                    name="ops.healthHost"
+                    render={({ field }) => (
+                      <Field>
+                        <FieldLabel>Health host</FieldLabel>
+                        <Input {...field} />
                         <FieldDescription>
-                          Redact secrets and sensitive patterns before they
-                          leave the agent.
+                          Interface the gateway binds to. Use{' '}
+                          <code>127.0.0.1</code> for loopback-only.
                         </FieldDescription>
-                      </FieldContent>
-                    </Field>
-                  )}
-                />
-              </FieldGroup>
-            </FieldSet>
-
-            <FieldSet>
-              <FieldLegend>HybridAI</FieldLegend>
-              <FieldDescription className={styles.sectionDescription}>
-                HybridAI provider defaults.
-              </FieldDescription>
-              <FieldGroup>
-                <FormField
-                  name="hybridai.baseUrl"
-                  render={({ field }) => (
-                    <Field>
-                      <FieldLabel>Base URL</FieldLabel>
-                      <Input type="url" {...field} />
-                    </Field>
-                  )}
-                />
-                <FormField
-                  name="hybridai.defaultModel"
-                  render={({ field }) => (
-                    <Field>
-                      <FieldLabel>Default model</FieldLabel>
-                      <Input {...field} />
-                    </Field>
-                  )}
-                />
-                <FormField
-                  name="hybridai.enableRag"
-                  render={({ field }) => (
-                    <Field orientation="horizontal">
-                      <Switch
-                        checked={Boolean(field.value)}
-                        onCheckedChange={field.onChange}
-                      />
-                      <FieldContent>
-                        <FieldLabel>RAG default</FieldLabel>
-                        <FieldDescription>
-                          Enable retrieval augmentation by default for new
-                          conversations.
-                        </FieldDescription>
-                      </FieldContent>
-                    </Field>
-                  )}
-                />
-              </FieldGroup>
-            </FieldSet>
-
-            <FieldSet>
-              <FieldLegend>Container</FieldLegend>
-              <FieldDescription className={styles.sectionDescription}>
-                Sandboxed container runtime for tool execution.
-              </FieldDescription>
-              <FieldGroup>
-                <FormField
-                  name="container.memory"
-                  rules={[
-                    required(),
-                    pattern(
-                      CONTAINER_MEMORY_PATTERN,
-                      'Use a number with optional k, m, or g suffix.',
-                    ),
-                  ]}
-                  render={({ field }) => (
-                    <Field>
-                      <FieldLabel>Memory</FieldLabel>
-                      <Input {...field} placeholder="1024m" />
-                      <FieldDescription>
-                        Docker memory limit. e.g. <code>512m</code>,{' '}
-                        <code>1g</code>, <code>2048m</code>.
-                      </FieldDescription>
-                      <FieldError />
-                    </Field>
-                  )}
-                />
-                <FormField
-                  name="container.persistBashState"
-                  render={({ field }) => (
-                    <Field orientation="horizontal">
-                      <Switch
-                        checked={Boolean(field.value)}
-                        onCheckedChange={field.onChange}
-                      />
-                      <FieldContent>
-                        <FieldLabel>Persistent bash state</FieldLabel>
-                        <FieldDescription>
-                          Reuse the same shell across tool calls so cwd, env,
-                          and aliases survive.
-                        </FieldDescription>
-                      </FieldContent>
-                    </Field>
-                  )}
-                />
-              </FieldGroup>
-            </FieldSet>
-
-            <FieldSet>
-              <FieldLegend>Browser</FieldLegend>
-              <FieldDescription className={styles.sectionDescription}>
-                Browser provider used for agent web tasks.
-              </FieldDescription>
-              <FieldGroup>
-                <Field>
-                  <FieldLabel>Provider</FieldLabel>
-                  <NativeSelect
-                    value={browser.provider}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        withBrowser(current, (b) => ({
-                          ...b,
-                          provider: event.target.value as BrowserProvider,
-                        })),
-                      )
-                    }
-                  >
-                    {PROVIDER_OPTIONS.map((option) => (
-                      <NativeSelectOption
-                        key={option.value}
-                        value={option.value}
-                      >
-                        {option.label}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </Field>
-
-                <Field orientation="horizontal">
-                  <Switch
-                    checked={browser.allowPrivateNetwork}
-                    onCheckedChange={(allowPrivateNetwork) =>
-                      setDraft((current) =>
-                        withBrowser(current, (b) => ({
-                          ...b,
-                          allowPrivateNetwork,
-                        })),
-                      )
-                    }
+                      </Field>
+                    )}
                   />
-                  <FieldContent>
-                    <FieldLabel>Allow private network navigation</FieldLabel>
-                    <FieldDescription>
-                      Allow the browser to navigate to private and loopback
-                      network addresses.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
-
-                {browser.provider === 'local' ? (
-                  <ProfileBrowserFields
-                    provider="local"
-                    config={browser.local}
-                    setDraft={setDraft}
+                  <FormField
+                    name="ops.healthPort"
+                    render={({ field }) => (
+                      <Field>
+                        <FieldLabel>Health port</FieldLabel>
+                        <NumberField
+                          integer
+                          min={1}
+                          max={65535}
+                          value={field.value as number}
+                          onValueChange={field.onChange}
+                        />
+                        <FieldError />
+                      </Field>
+                    )}
                   />
-                ) : null}
-
-                {browser.provider === 'camofox' ? (
-                  <ProfileBrowserFields
-                    provider="camofox"
-                    config={browser.camofox}
-                    setDraft={setDraft}
-                  />
-                ) : null}
-
-                {browser.provider === 'managed-cloud' ? (
-                  <>
-                    <Field>
-                      <FieldLabel>Pool status</FieldLabel>
-                      <div className="button-row">
-                        <span
-                          className={browserPoolStatusClass(browserPoolHealth)}
+                  <FormField
+                    name="ops.logLevel"
+                    render={({ field }) => (
+                      <Field>
+                        <FieldLabel>Log level</FieldLabel>
+                        <NativeSelect
+                          value={field.value as string}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            if (isOneOf(LOG_LEVELS, next)) {
+                              field.onChange(next);
+                            }
+                          }}
                         >
+                          {LOG_LEVELS.map((level) => (
+                            <NativeSelectOption key={level} value={level}>
+                              {level}
+                            </NativeSelectOption>
+                          ))}
+                        </NativeSelect>
+                      </Field>
+                    )}
+                  />
+                </FieldGroup>
+              </FieldSet>
+            </Card>
+
+            <Card className={styles.sectionCard}>
+              <FieldSet>
+                <FieldLegend>Security</FieldLegend>
+                <FieldDescription className={styles.sectionDescription}>
+                  Sensitive-content guards applied to agent output.
+                </FieldDescription>
+                <FieldGroup>
+                  <FormField
+                    name="security.confidentialRedactionEnabled"
+                    render={({ field }) => (
+                      <Field orientation="horizontal">
+                        <Switch
+                          checked={Boolean(field.value)}
+                          onCheckedChange={field.onChange}
+                        />
+                        <FieldContent>
+                          <FieldLabel>Confidential leak guard</FieldLabel>
+                          <FieldDescription>
+                            Redact secrets and sensitive patterns before they
+                            leave the agent.
+                          </FieldDescription>
+                        </FieldContent>
+                      </Field>
+                    )}
+                  />
+                </FieldGroup>
+              </FieldSet>
+            </Card>
+
+            <Card className={styles.sectionCard}>
+              <FieldSet>
+                <FieldLegend>HybridAI</FieldLegend>
+                <FieldDescription className={styles.sectionDescription}>
+                  HybridAI provider defaults.
+                </FieldDescription>
+                <FieldGroup>
+                  <FormField
+                    name="hybridai.baseUrl"
+                    render={({ field }) => (
+                      <Field>
+                        <FieldLabel>Base URL</FieldLabel>
+                        <Input type="url" {...field} />
+                      </Field>
+                    )}
+                  />
+                  <FormField
+                    name="hybridai.defaultModel"
+                    render={({ field }) => (
+                      <Field>
+                        <FieldLabel>Default model</FieldLabel>
+                        <Input {...field} />
+                      </Field>
+                    )}
+                  />
+                  <FormField
+                    name="hybridai.enableRag"
+                    render={({ field }) => (
+                      <Field orientation="horizontal">
+                        <Switch
+                          checked={Boolean(field.value)}
+                          onCheckedChange={field.onChange}
+                        />
+                        <FieldContent>
+                          <FieldLabel>RAG default</FieldLabel>
+                          <FieldDescription>
+                            Enable retrieval augmentation by default for new
+                            conversations.
+                          </FieldDescription>
+                        </FieldContent>
+                      </Field>
+                    )}
+                  />
+                </FieldGroup>
+              </FieldSet>
+            </Card>
+
+            <Card className={styles.sectionCard}>
+              <FieldSet>
+                <FieldLegend>Container</FieldLegend>
+                <FieldDescription className={styles.sectionDescription}>
+                  Sandboxed container runtime for tool execution.
+                </FieldDescription>
+                <FieldGroup>
+                  <FormField
+                    name="container.memory"
+                    rules={[
+                      required(),
+                      pattern(
+                        CONTAINER_MEMORY_PATTERN,
+                        'Use a number with optional k, m, or g suffix.',
+                      ),
+                    ]}
+                    render={({ field }) => (
+                      <Field>
+                        <FieldLabel>Memory</FieldLabel>
+                        <Input {...field} placeholder="1024m" />
+                        <FieldDescription>
+                          Docker memory limit. e.g. <code>512m</code>,{' '}
+                          <code>1g</code>, <code>2048m</code>.
+                        </FieldDescription>
+                        <FieldError />
+                      </Field>
+                    )}
+                  />
+                  <FormField
+                    name="container.persistBashState"
+                    render={({ field }) => (
+                      <Field orientation="horizontal">
+                        <Switch
+                          checked={Boolean(field.value)}
+                          onCheckedChange={field.onChange}
+                        />
+                        <FieldContent>
+                          <FieldLabel>Persistent bash state</FieldLabel>
+                          <FieldDescription>
+                            Reuse the same shell across tool calls so cwd, env,
+                            and aliases survive.
+                          </FieldDescription>
+                        </FieldContent>
+                      </Field>
+                    )}
+                  />
+                </FieldGroup>
+              </FieldSet>
+            </Card>
+
+            <Card className={styles.sectionCard}>
+              <FieldSet>
+                <FieldLegend>Browser</FieldLegend>
+                <FieldDescription className={styles.sectionDescription}>
+                  Browser provider used for agent web tasks.
+                </FieldDescription>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel>Provider</FieldLabel>
+                    <NativeSelect
+                      value={browser.provider}
+                      onChange={(event) =>
+                        setDraft((current) =>
+                          withBrowser(current, (b) => ({
+                            ...b,
+                            provider: event.target.value as BrowserProvider,
+                          })),
+                        )
+                      }
+                    >
+                      {PROVIDER_OPTIONS.map((option) => (
+                        <NativeSelectOption
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {option.label}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+
+                  <Field orientation="horizontal">
+                    <Switch
+                      checked={browser.allowPrivateNetwork}
+                      onCheckedChange={(allowPrivateNetwork) =>
+                        setDraft((current) =>
+                          withBrowser(current, (b) => ({
+                            ...b,
+                            allowPrivateNetwork,
+                          })),
+                        )
+                      }
+                    />
+                    <FieldContent>
+                      <FieldLabel>Allow private network navigation</FieldLabel>
+                      <FieldDescription>
+                        Allow the browser to navigate to private and loopback
+                        network addresses.
+                      </FieldDescription>
+                    </FieldContent>
+                  </Field>
+
+                  {browser.provider === 'local' ? (
+                    <ProfileBrowserFields
+                      provider="local"
+                      config={browser.local}
+                      setDraft={setDraft}
+                    />
+                  ) : null}
+
+                  {browser.provider === 'camofox' ? (
+                    <ProfileBrowserFields
+                      provider="camofox"
+                      config={browser.camofox}
+                      setDraft={setDraft}
+                    />
+                  ) : null}
+
+                  {browser.provider === 'managed-cloud' ? (
+                    <>
+                      <Field>
+                        <FieldLabel>Pool status</FieldLabel>
+                        <div className="button-row">
                           <span
-                            className={browserPoolDotClass(browserPoolHealth)}
-                          />
-                          {browserPoolStatusText(
-                            browserPoolHealth,
-                            browserPoolHealthQuery.isLoading,
-                          )}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          type="button"
-                          disabled={browserPoolHealthQuery.isFetching}
-                          onClick={() => void browserPoolHealthQuery.refetch()}
-                        >
-                          {browserPoolHealthQuery.isFetching
-                            ? 'Checking...'
-                            : 'Check now'}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          type="button"
-                          disabled={startBrowserPoolMutation.isPending}
-                          onClick={() => startBrowserPoolMutation.mutate()}
-                        >
-                          {startBrowserPoolMutation.isPending
-                            ? 'Starting...'
-                            : 'Start Docker pool'}
-                        </Button>
+                            className={browserPoolStatusClass(
+                              browserPoolHealth,
+                            )}
+                          >
+                            <span
+                              className={browserPoolDotClass(browserPoolHealth)}
+                            />
+                            {browserPoolStatusText(
+                              browserPoolHealth,
+                              browserPoolHealthQuery.isLoading,
+                            )}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            type="button"
+                            disabled={browserPoolHealthQuery.isFetching}
+                            onClick={() =>
+                              void browserPoolHealthQuery.refetch()
+                            }
+                          >
+                            {browserPoolHealthQuery.isFetching
+                              ? 'Checking...'
+                              : 'Check now'}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            type="button"
+                            disabled={startBrowserPoolMutation.isPending}
+                            onClick={() => startBrowserPoolMutation.mutate()}
+                          >
+                            {startBrowserPoolMutation.isPending
+                              ? 'Starting...'
+                              : 'Start Docker pool'}
+                          </Button>
+                        </div>
+                        {providerChanged ? (
+                          <FieldDescription
+                            className={styles.poolStatusPending}
+                          >
+                            Pending save — status above reflects the previously
+                            saved provider ({savedBrowserProvider}). Save
+                            changes to refresh.
+                          </FieldDescription>
+                        ) : null}
+                      </Field>
+                      <Field>
+                        <FieldLabel>Pool endpoint URL</FieldLabel>
+                        <Input
+                          type="url"
+                          value={browser.managedCloud.endpointUrl}
+                          onChange={(event) =>
+                            setBrowserSection(setDraft, 'managedCloud', {
+                              endpointUrl: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Pool token SecretRef id</FieldLabel>
+                        <Input
+                          value={managedPoolTokenId}
+                          placeholder="MANAGED_BROWSER_POOL_TOKEN"
+                          onChange={(event) => {
+                            const id = event.target.value.trim();
+                            setBrowserSection(setDraft, 'managedCloud', {
+                              poolTokenRef: id
+                                ? { source: 'store', id }
+                                : undefined,
+                            });
+                          }}
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Default tenant id (optional)</FieldLabel>
+                        <Input
+                          value={browser.managedCloud.defaultTenantId}
+                          placeholder="Uses agent id when blank"
+                          onChange={(event) =>
+                            setBrowserSection(setDraft, 'managedCloud', {
+                              defaultTenantId: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                      <div className="button-row">
+                        <Link to="/admin/approvals" className="ghost-button">
+                          Manage network policy
+                        </Link>
                       </div>
-                      {providerChanged ? (
-                        <FieldDescription className={styles.poolStatusPending}>
-                          Pending save — status above reflects the previously
-                          saved provider ({savedBrowserProvider}). Save changes
-                          to refresh.
-                        </FieldDescription>
-                      ) : null}
-                    </Field>
-                    <Field>
-                      <FieldLabel>Pool endpoint URL</FieldLabel>
-                      <Input
-                        type="url"
-                        value={browser.managedCloud.endpointUrl}
-                        onChange={(event) =>
-                          setBrowserSection(setDraft, 'managedCloud', {
-                            endpointUrl: event.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel>Pool token SecretRef id</FieldLabel>
-                      <Input
-                        value={managedPoolTokenId}
-                        placeholder="MANAGED_BROWSER_POOL_TOKEN"
-                        onChange={(event) => {
-                          const id = event.target.value.trim();
-                          setBrowserSection(setDraft, 'managedCloud', {
-                            poolTokenRef: id
-                              ? { source: 'store', id }
-                              : undefined,
-                          });
-                        }}
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel>Default tenant id (optional)</FieldLabel>
-                      <Input
-                        value={browser.managedCloud.defaultTenantId}
-                        placeholder="Uses agent id when blank"
-                        onChange={(event) =>
-                          setBrowserSection(setDraft, 'managedCloud', {
-                            defaultTenantId: event.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-                    <div className="button-row">
-                      <Link to="/admin/approvals" className="ghost-button">
-                        Manage network policy
-                      </Link>
-                    </div>
-                    <Field controlId="managed-cloud-action-usd">
-                      <FieldLabel>Action price USD</FieldLabel>
-                      <NumberField
-                        id="managed-cloud-action-usd"
-                        min={0}
-                        emptyValue={0}
-                        value={browser.managedCloud.pricing.actionUsd}
-                        onValueChange={(actionUsd) =>
-                          setBrowserPricing(setDraft, 'managedCloud', {
-                            actionUsd,
-                          })
-                        }
-                      />
-                      <FieldError />
-                    </Field>
-                  </>
-                ) : null}
+                      <Field controlId="managed-cloud-action-usd">
+                        <FieldLabel>Action price USD</FieldLabel>
+                        <NumberField
+                          id="managed-cloud-action-usd"
+                          min={0}
+                          emptyValue={0}
+                          value={browser.managedCloud.pricing.actionUsd}
+                          onValueChange={(actionUsd) =>
+                            setBrowserPricing(setDraft, 'managedCloud', {
+                              actionUsd,
+                            })
+                          }
+                        />
+                        <FieldError />
+                      </Field>
+                    </>
+                  ) : null}
 
-                {browser.provider === 'browser-use-cloud' ? (
-                  <>
-                    <Field>
-                      <FieldLabel>API key SecretRef id</FieldLabel>
-                      <Input
-                        value={browserUseApiKeyId}
-                        onChange={(event) => {
-                          const id = event.target.value.trim();
-                          setBrowserSection(setDraft, 'browserUseCloud', {
-                            apiKeyRef: id ? { source: 'store', id } : undefined,
-                          });
-                        }}
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel>Project id</FieldLabel>
-                      <Input
-                        value={browser.browserUseCloud.projectId}
-                        onChange={(event) =>
-                          setBrowserSection(setDraft, 'browserUseCloud', {
-                            projectId: event.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel>Profile id</FieldLabel>
-                      <Input
-                        value={browser.browserUseCloud.profileId}
-                        onChange={(event) =>
-                          setBrowserSection(setDraft, 'browserUseCloud', {
-                            profileId: event.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel>Region</FieldLabel>
-                      <Input
-                        value={browser.browserUseCloud.region}
-                        onChange={(event) =>
-                          setBrowserSection(setDraft, 'browserUseCloud', {
-                            region: event.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field orientation="horizontal">
-                      <Switch
-                        checked={browser.browserUseCloud.keepAlive}
-                        onCheckedChange={(keepAlive) =>
-                          setBrowserSection(setDraft, 'browserUseCloud', {
-                            keepAlive,
-                          })
-                        }
-                      />
-                      <FieldContent>
-                        <FieldLabel>Keep alive</FieldLabel>
-                        <FieldDescription>
-                          Keep the cloud browser session alive between calls
-                          instead of tearing it down.
-                        </FieldDescription>
-                      </FieldContent>
-                    </Field>
-                    <Field controlId="browser-use-browser-usd">
-                      <FieldLabel>Browser price USD/min</FieldLabel>
-                      <NumberField
-                        id="browser-use-browser-usd"
-                        min={0}
-                        emptyValue={0}
-                        value={
-                          browser.browserUseCloud.pricing.browserUsdPerMinute
-                        }
-                        onValueChange={(browserUsdPerMinute) =>
-                          setBrowserPricing(setDraft, 'browserUseCloud', {
-                            browserUsdPerMinute,
-                          })
-                        }
-                      />
-                      <FieldError />
-                    </Field>
-                    <Field controlId="browser-use-action-usd">
-                      <FieldLabel>Action price USD</FieldLabel>
-                      <NumberField
-                        id="browser-use-action-usd"
-                        min={0}
-                        emptyValue={0}
-                        value={browser.browserUseCloud.pricing.actionUsd}
-                        onValueChange={(actionUsd) =>
-                          setBrowserPricing(setDraft, 'browserUseCloud', {
-                            actionUsd,
-                          })
-                        }
-                      />
-                      <FieldError />
-                    </Field>
-                  </>
-                ) : null}
-                {browser.provider === 'mac-cua' ? (
-                  <>
-                    <Field>
-                      <FieldLabel>Native browser</FieldLabel>
-                      <NativeSelect
-                        value={browser.macCua.browser}
-                        onChange={(event) =>
-                          setDraft((current) =>
-                            withBrowser(current, (b) => ({
-                              ...b,
-                              macCua: {
-                                ...b.macCua,
-                                browser: event.target
-                                  .value as BrowserConfig['macCua']['browser'],
-                              },
-                            })),
-                          )
-                        }
-                      >
-                        <NativeSelectOption value="safari">
-                          safari
-                        </NativeSelectOption>
-                        <NativeSelectOption value="chrome">
-                          chrome
-                        </NativeSelectOption>
-                        <NativeSelectOption value="firefox">
-                          firefox
-                        </NativeSelectOption>
-                        <NativeSelectOption value="brave">
-                          brave
-                        </NativeSelectOption>
-                        <NativeSelectOption value="arc">arc</NativeSelectOption>
-                      </NativeSelect>
-                    </Field>
-                    <Field>
-                      <FieldLabel>Driver command</FieldLabel>
-                      <Input
-                        value={browser.macCua.driverCommand}
-                        placeholder="cua-driver"
-                        onChange={(event) =>
-                          setDraft((current) =>
-                            withBrowser(current, (b) => ({
-                              ...b,
-                              macCua: {
-                                ...b.macCua,
-                                driverCommand: event.target.value,
-                              },
-                            })),
-                          )
-                        }
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel>Driver args</FieldLabel>
-                      <Input
-                        value={browser.macCua.driverArgs.join(' ')}
-                        placeholder="mcp --no-daemon-relaunch"
-                        onChange={(event) =>
-                          setDraft((current) =>
-                            withBrowser(current, (b) => ({
-                              ...b,
-                              macCua: {
-                                ...b.macCua,
-                                driverArgs: event.target.value
-                                  .split(/\s+/u)
-                                  .map((part) => part.trim())
-                                  .filter(Boolean),
-                              },
-                            })),
-                          )
-                        }
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel>Screenshot mode</FieldLabel>
-                      <NativeSelect
-                        value={browser.macCua.screenshotMode}
-                        onChange={(event) =>
-                          setDraft((current) =>
-                            withBrowser(current, (b) => ({
-                              ...b,
-                              macCua: {
-                                ...b.macCua,
-                                screenshotMode: event.target
-                                  .value as BrowserConfig['macCua']['screenshotMode'],
-                              },
-                            })),
-                          )
-                        }
-                      >
-                        <NativeSelectOption value="som">som</NativeSelectOption>
-                        <NativeSelectOption value="vision">
-                          vision
-                        </NativeSelectOption>
-                        <NativeSelectOption value="ax">ax</NativeSelectOption>
-                      </NativeSelect>
-                    </Field>
-                  </>
-                ) : null}
-              </FieldGroup>
-            </FieldSet>
+                  {browser.provider === 'browser-use-cloud' ? (
+                    <>
+                      <Field>
+                        <FieldLabel>API key SecretRef id</FieldLabel>
+                        <Input
+                          value={browserUseApiKeyId}
+                          onChange={(event) => {
+                            const id = event.target.value.trim();
+                            setBrowserSection(setDraft, 'browserUseCloud', {
+                              apiKeyRef: id
+                                ? { source: 'store', id }
+                                : undefined,
+                            });
+                          }}
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Project id</FieldLabel>
+                        <Input
+                          value={browser.browserUseCloud.projectId}
+                          onChange={(event) =>
+                            setBrowserSection(setDraft, 'browserUseCloud', {
+                              projectId: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Profile id</FieldLabel>
+                        <Input
+                          value={browser.browserUseCloud.profileId}
+                          onChange={(event) =>
+                            setBrowserSection(setDraft, 'browserUseCloud', {
+                              profileId: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Region</FieldLabel>
+                        <Input
+                          value={browser.browserUseCloud.region}
+                          onChange={(event) =>
+                            setBrowserSection(setDraft, 'browserUseCloud', {
+                              region: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field orientation="horizontal">
+                        <Switch
+                          checked={browser.browserUseCloud.keepAlive}
+                          onCheckedChange={(keepAlive) =>
+                            setBrowserSection(setDraft, 'browserUseCloud', {
+                              keepAlive,
+                            })
+                          }
+                        />
+                        <FieldContent>
+                          <FieldLabel>Keep alive</FieldLabel>
+                          <FieldDescription>
+                            Keep the cloud browser session alive between calls
+                            instead of tearing it down.
+                          </FieldDescription>
+                        </FieldContent>
+                      </Field>
+                      <Field controlId="browser-use-browser-usd">
+                        <FieldLabel>Browser price USD/min</FieldLabel>
+                        <NumberField
+                          id="browser-use-browser-usd"
+                          min={0}
+                          emptyValue={0}
+                          value={
+                            browser.browserUseCloud.pricing.browserUsdPerMinute
+                          }
+                          onValueChange={(browserUsdPerMinute) =>
+                            setBrowserPricing(setDraft, 'browserUseCloud', {
+                              browserUsdPerMinute,
+                            })
+                          }
+                        />
+                        <FieldError />
+                      </Field>
+                      <Field controlId="browser-use-action-usd">
+                        <FieldLabel>Action price USD</FieldLabel>
+                        <NumberField
+                          id="browser-use-action-usd"
+                          min={0}
+                          emptyValue={0}
+                          value={browser.browserUseCloud.pricing.actionUsd}
+                          onValueChange={(actionUsd) =>
+                            setBrowserPricing(setDraft, 'browserUseCloud', {
+                              actionUsd,
+                            })
+                          }
+                        />
+                        <FieldError />
+                      </Field>
+                    </>
+                  ) : null}
+                  {browser.provider === 'mac-cua' ? (
+                    <>
+                      <Field>
+                        <FieldLabel>Native browser</FieldLabel>
+                        <NativeSelect
+                          value={browser.macCua.browser}
+                          onChange={(event) =>
+                            setDraft((current) =>
+                              withBrowser(current, (b) => ({
+                                ...b,
+                                macCua: {
+                                  ...b.macCua,
+                                  browser: event.target
+                                    .value as BrowserConfig['macCua']['browser'],
+                                },
+                              })),
+                            )
+                          }
+                        >
+                          <NativeSelectOption value="safari">
+                            safari
+                          </NativeSelectOption>
+                          <NativeSelectOption value="chrome">
+                            chrome
+                          </NativeSelectOption>
+                          <NativeSelectOption value="firefox">
+                            firefox
+                          </NativeSelectOption>
+                          <NativeSelectOption value="brave">
+                            brave
+                          </NativeSelectOption>
+                          <NativeSelectOption value="arc">
+                            arc
+                          </NativeSelectOption>
+                        </NativeSelect>
+                      </Field>
+                      <Field>
+                        <FieldLabel>Driver command</FieldLabel>
+                        <Input
+                          value={browser.macCua.driverCommand}
+                          placeholder="cua-driver"
+                          onChange={(event) =>
+                            setDraft((current) =>
+                              withBrowser(current, (b) => ({
+                                ...b,
+                                macCua: {
+                                  ...b.macCua,
+                                  driverCommand: event.target.value,
+                                },
+                              })),
+                            )
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Driver args</FieldLabel>
+                        <Input
+                          value={browser.macCua.driverArgs.join(' ')}
+                          placeholder="mcp --no-daemon-relaunch"
+                          onChange={(event) =>
+                            setDraft((current) =>
+                              withBrowser(current, (b) => ({
+                                ...b,
+                                macCua: {
+                                  ...b.macCua,
+                                  driverArgs: event.target.value
+                                    .split(/\s+/u)
+                                    .map((part) => part.trim())
+                                    .filter(Boolean),
+                                },
+                              })),
+                            )
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Screenshot mode</FieldLabel>
+                        <NativeSelect
+                          value={browser.macCua.screenshotMode}
+                          onChange={(event) =>
+                            setDraft((current) =>
+                              withBrowser(current, (b) => ({
+                                ...b,
+                                macCua: {
+                                  ...b.macCua,
+                                  screenshotMode: event.target
+                                    .value as BrowserConfig['macCua']['screenshotMode'],
+                                },
+                              })),
+                            )
+                          }
+                        >
+                          <NativeSelectOption value="som">
+                            som
+                          </NativeSelectOption>
+                          <NativeSelectOption value="vision">
+                            vision
+                          </NativeSelectOption>
+                          <NativeSelectOption value="ax">ax</NativeSelectOption>
+                        </NativeSelect>
+                      </Field>
+                    </>
+                  ) : null}
+                </FieldGroup>
+              </FieldSet>
+            </Card>
           </>
         )}
       </div>
