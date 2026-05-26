@@ -132,6 +132,51 @@ test('network policy is evaluated as a policy-engine consumer', () => {
   });
 });
 
+test('network policy matches RFC1918 CIDR rules without matching metadata ranges', () => {
+  const rules: NetworkRule[] = [
+    {
+      action: 'allow',
+      host: '192.168.0.0/16',
+      port: '*',
+      methods: ['GET'],
+      paths: ['/**'],
+      agent: '*',
+    },
+    {
+      action: 'allow',
+      host: '10.0.0.0/8',
+      port: '*',
+      methods: ['GET'],
+      paths: ['/**'],
+      agent: '*',
+    },
+  ];
+
+  expect(
+    evaluateNetworkPolicyAccess({
+      rules,
+      defaultAction: 'deny',
+      host: '192.168.178.198',
+      port: 80,
+      method: 'GET',
+      path: '/rpc/Cover.GetConfig',
+    }),
+  ).toEqual({
+    decision: 'allow',
+    matchedRule: rules[0],
+  });
+  expect(
+    evaluateNetworkPolicyAccess({
+      rules,
+      defaultAction: 'deny',
+      host: '169.254.169.254',
+      port: 80,
+      method: 'GET',
+      path: '/latest/meta-data',
+    }).decision,
+  ).toBe('prompt');
+});
+
 test('skill policy is evaluated as a policy-engine consumer', () => {
   const state = readSkillPolicyState({
     skill: {

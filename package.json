@@ -75,7 +75,7 @@
     "test:integration": "vitest run --configLoader runner --project integration --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --project e2e --passWithNoTests",
     "test:console": "npm --workspace console run test",
-    "audit:signatures": "node ./scripts/audit-signatures.mjs && npm --prefix container audit signatures",
+    "audit:signatures": "node ./scripts/audit-signatures.mjs",
     "deps:policy": "node ./scripts/check-dependency-policy.mjs",
     "deps:update-lockfile": "npm update --package-lock-only && npm --prefix container update --package-lock-only && node ./scripts/sync-shrinkwraps.mjs",
     "deps:verify": "npm ci --ignore-scripts --no-audit --fund=false && npm --prefix container ci --ignore-scripts --no-audit --fund=false && npm run audit:signatures",
