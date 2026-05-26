@@ -39,6 +39,8 @@ metadata:
         - device.config
         - device.methods
         - device.components
+        - gen1.get
+        - rpc.get
         - cover.config
         - cover.status
         - switch.status
@@ -46,7 +48,11 @@ metadata:
         - cloud.state
         - cloud.oauth-token
         - cloud.all-status
+        - cloud.websocket-url
       amber:
+        - gen1.set
+        - rpc.call
+        - cloud.websocket-command
         - cover.open
         - cover.close
         - cover.stop
@@ -78,27 +84,29 @@ construction belongs in `shelly.cjs`.
 - Build every Shelly HTTP request with `skills/shelly/shelly.cjs`. Do not
   handcraft Shelly URLs or JSON bodies when the helper supports the operation.
 - Pass the helper-emitted `httpRequest` object unchanged to the built-in
-  `http_request` tool.
+  `http_request` tool. For WebSocket planning outputs, use the emitted
+  `webSocket` object as the complete connection or message specification.
 - Read state before any relay, switch, light, or cover control operation.
 - Treat control operations as amber. Before asking for approval, build an
   `approval-plan` for the selected operation and include its
   `approvedHelperCommandText` in the approval request. After approval, run that
-  helper command exactly and pass its emitted `httpRequest` unchanged to
-  `http_request`.
+  helper command exactly and use its emitted request specification unchanged.
 - Do not perform factory reset, reboot, firmware update, Wi-Fi reset, auth
-  changes, certificate upload, calibration, profile changes, or energy-counter
-  reset through this skill.
+  changes, or certificate upload through this skill.
 
 ## API Surfaces
 
-- Local Gen2+ devices use RPC methods under `/rpc`, including `Shelly.*`,
-  `Cover.*`, `Switch.*`, and `Shelly.GetComponents`.
-- Local Gen1 devices use classic endpoints such as `/shelly`, `/status`, and
-  `/relay/{id}`.
+- Local Gen2+ devices use RPC methods under `/rpc`; use the dedicated
+  noun-verb helpers for common operations and generic RPC helpers for other
+  documented methods.
+- Local Gen1 devices use classic HTTP endpoints; use dedicated helpers for
+  common relay/status operations and generic Gen1 endpoint helpers for other
+  documented paths.
 - Shelly Cloud Control API v2 uses a tenant server URI, an Authorization Cloud
   Key, and known device ids for state and control.
 - Shelly Real Time Events HTTP calls use OAuth/Bearer authorization and can
-  return account-level current or last-known device statuses.
+  return account-level current or last-known device statuses. Real Time Events
+  WebSocket helpers emit connection and command-message specifications.
 
 Official references:
 [Cloud Control API getting started](https://shelly-api-docs.shelly.cloud/cloud-control-api/),
@@ -115,21 +123,26 @@ and [Gen1 device API](https://shelly-api-docs.shelly.cloud/gen1/).
 Run `node skills/shelly/shelly.cjs --help` for the exact command surface and
 flags. The helper uses noun-verb commands such as `cover status`, `cover goto`,
 `switch set`, and `cloud all-status`; it owns the Shelly API method, path, and
-body selection. Normal commands emit a wrapper containing `command`,
+body selection. Generic commands such as `gen1 get`, `gen1 set`, `rpc get`, and
+`rpc call` cover documented operations that do not have a dedicated noun-verb
+helper. Normal HTTP commands emit a wrapper containing `command`,
 `operation`, `stakesTier`, and `httpRequest`; pass only `httpRequest` to the
-network tool. `approval-plan` emits no `httpRequest`; it validates an amber
-command and returns the exact approved helper command to run after
-confirmation.
+network tool. WebSocket helpers emit `webSocket` instead of `httpRequest`.
+`approval-plan` emits no `httpRequest`; it validates an amber command and
+returns the exact approved helper command to run after confirmation.
 
 Supported operation groups:
 
 - Device reads: local info, status, config, method list, and components; cloud
   state when routed with cloud inputs.
+- Generic Gen1 and Gen2 coverage: documented Gen1 HTTP paths and documented
+  Gen2 RPC methods.
 - Cover reads/control: config, status, open, close, stop, and go-to-position.
 - Switch and relay reads/control: status, set, and toggle where supported.
 - Light control: cloud set operations.
-- Cloud account reads: v2 state by known ids, OAuth token exchange, and Real
-  Time Events all-status.
+- Cloud account reads and event planning: v2 state by known ids, OAuth token
+  exchange, Real Time Events all-status, WebSocket URL, and command-message
+  construction.
 
 ## Selection Workflow
 

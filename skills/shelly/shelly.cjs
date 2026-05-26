@@ -13,8 +13,12 @@ const COST_MEASUREMENT = {
 const OPERATION_TIERS = {
   'local-gen1-shelly': 'green',
   'local-gen1-status': 'green',
+  'local-gen1-get': 'green',
+  'local-gen1-set': 'amber',
   'local-gen1-relay-status': 'green',
   'local-gen1-relay-set': 'amber',
+  'local-gen2-rpc-get': 'green',
+  'local-gen2-rpc-call': 'amber',
   'local-gen2-info': 'green',
   'local-gen2-status': 'green',
   'local-gen2-config': 'green',
@@ -32,6 +36,8 @@ const OPERATION_TIERS = {
   'cloud-get-state': 'green',
   'cloud-oauth-token': 'green',
   'cloud-all-status': 'green',
+  'cloud-websocket-url': 'green',
+  'cloud-websocket-command': 'amber',
   'cloud-set-switch': 'amber',
   'cloud-set-light': 'amber',
   'cloud-set-cover': 'amber',
@@ -39,6 +45,8 @@ const OPERATION_TIERS = {
 
 const DOMAIN_COMMANDS = new Set([
   'device',
+  'gen1',
+  'rpc',
   'cover',
   'switch',
   'relay',
@@ -82,6 +90,12 @@ Commands:
   cloud state --cloud-host https://<HOST> --device-id abc123 --select status
   cloud all-status --cloud-host https://<HOST>
   cloud oauth-token --cloud-host https://<HOST>
+  cloud websocket-url --cloud-host https://<HOST>
+  cloud websocket-command --cloud-host https://<HOST> --device-id abc123 --cmd roller_to_pos --params-json '{"id":0,"pos":50}' --operator-grant
+  gen1 get --device-url http://192.0.2.10 --path /settings [--query key=value]
+  gen1 set --device-url http://192.0.2.10 --path /settings/relay/0 --query default_state=on --operator-grant
+  rpc get --device-url http://192.0.2.10 --method Cloud.GetStatus [--param id=0] [--params-json '{}']
+  rpc call --device-url http://192.0.2.10 --method Cover.Calibrate --params-json '{"id":0}' --operator-grant
 
 Environment:
   SHELLY_DEVICE_URL        default local device base URL
@@ -183,6 +197,110 @@ function parseBooleanValue(value, label) {
   die(`${label} must be true or false.`);
 }
 
+function parseJsonObject(value, label) {
+  const raw = requireText(value, label);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    die(`${label} must be valid JSON: ${error.message}`);
+  }
+  if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
+    die(`${label} must be a JSON object.`);
+  }
+  return parsed;
+}
+
+function parseParamValue(raw) {
+  const value = String(raw);
+  if (/^(true|false|null)$/u.test(value)) return JSON.parse(value);
+  if (/^-?\d+(\.\d+)?$/u.test(value)) return Number(value);
+  if (
+    (value.startsWith('{') && value.endsWith('}')) ||
+    (value.startsWith('[') && value.endsWith(']')) ||
+    (value.startsWith('"') && value.endsWith('"'))
+  ) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
+
+function parseKeyValuePairs(args, flag) {
+  const pairs = popRepeatedFlag(args, flag);
+  const parsed = {};
+  for (const pair of pairs) {
+    const index = pair.indexOf('=');
+    if (index < 1) die(`${flag} must use key=value.`);
+    const key = pair.slice(0, index).trim();
+    if (!key) die(`${flag} key is required.`);
+    parsed[key] = parseParamValue(pair.slice(index + 1));
+  }
+  return parsed;
+}
+
+function mergeParams(args) {
+  const params = parseKeyValuePairs(args, '--param');
+  const json = popFlag(args, '--params-json');
+  if (json !== undefined)
+    Object.assign(params, parseJsonObject(json, '--params-json'));
+  return params;
+}
+
+function parsePath(value, label) {
+  const path = requireText(value, label);
+  if (!path.startsWith('/')) die(`${label} must start with "/".`);
+  if (path.includes('..')) die(`${label} must not contain "..".`);
+  if (path.includes('?'))
+    die(`${label} must not include a query string; use --query.`);
+  if (/\/{2,}/u.test(path)) die(`${label} must not contain duplicate slashes.`);
+  return path;
+}
+
+function parseRpcMethod(value, label = '--method') {
+  const method = requireText(value, label);
+  if (!/^[A-Za-z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$/u.test(method)) {
+    die(`${label} must look like Namespace.Method.`);
+  }
+  return method;
+}
+
+function rpcAction(method) {
+  return method.split('.')[1] || '';
+}
+
+function assertReadRpcMethod(method) {
+  if (!/^(Get|List|Check)/u.test(rpcAction(method))) {
+    die(
+      'rpc get only allows read methods; use rpc call for state-changing methods.',
+    );
+  }
+}
+
+function assertAllowedRpcCall(method) {
+  if (
+    /^(FactoryReset|ResetWiFiConfig|Reboot|Update|SetAuth|PutTLS|PutUserCA)/u.test(
+      rpcAction(method),
+    )
+  ) {
+    die(`${method} is not allowed through this skill.`);
+  }
+}
+
+function assertAllowedGen1Path(path) {
+  if (
+    /\/(reboot|ota|sta_cache_reset|poweroff|calibrate|reset_data)(\/|$)/u.test(
+      path,
+    ) ||
+    path === '/settings/login'
+  ) {
+    die(`${path} is not allowed through this skill.`);
+  }
+}
+
 function parseOptionalTag(args) {
   const tag = popFlag(args, '--tag');
   if (tag === undefined) return undefined;
@@ -257,6 +375,14 @@ function appendQuery(url, params) {
     if (value !== undefined && value !== null) {
       next.searchParams.set(key, String(value));
     }
+  }
+  return next.toString();
+}
+
+function appendQueryPairs(url, params) {
+  const next = new URL(url.toString());
+  for (const [key, value] of Object.entries(params)) {
+    next.searchParams.set(key, String(value));
   }
   return next.toString();
 }
@@ -340,6 +466,29 @@ function buildPayload(
   return payload;
 }
 
+function buildWebSocketPayload(operation, { urlTemplate, message }) {
+  const payload = {
+    command: 'websocket',
+    operation,
+    stakesTier: OPERATION_TIERS[operation],
+    webSocket: {
+      urlTemplate,
+      replaceSecretPlaceholders: true,
+      skillName: 'shelly',
+      stakesTier: OPERATION_TIERS[operation],
+    },
+    secretRefPolicy:
+      'The WebSocket URL template contains a secret placeholder for SHELLY_CLOUD_ACCESS_TOKEN; never paste the real token into chat or helper arguments.',
+    liveExecution: {
+      mode: 'live-shelly-real-time-events-websocket',
+      requiresConfiguredSecrets: [CLOUD_ACCESS_TOKEN_SECRET],
+    },
+    costMeasurement: COST_MEASUREMENT,
+  };
+  if (message !== undefined) payload.webSocket.message = message;
+  return payload;
+}
+
 function buildRpcPost(operation, base, method, params) {
   return buildPayload(operation, {
     url: appendPath(base, '/rpc').toString(),
@@ -350,6 +499,27 @@ function buildRpcPost(operation, base, method, params) {
       params,
     },
   });
+}
+
+function buildGenericRpcGet(args) {
+  const base = resolveDeviceBase(args);
+  const method = parseRpcMethod(popFlag(args, '--method'));
+  assertReadRpcMethod(method);
+  const params = mergeParams(args);
+  assertNoUnexpectedArgs(args);
+  return buildPayload('local-gen2-rpc-get', {
+    url: rpcGetUrl(base, method, params),
+  });
+}
+
+function buildGenericRpcCall(args) {
+  const base = resolveDeviceBase(args);
+  const method = parseRpcMethod(popFlag(args, '--method'));
+  assertAllowedRpcCall(method);
+  const params = mergeParams(args);
+  requireGrant(args, 'local-gen2-rpc-call');
+  assertNoUnexpectedArgs(args);
+  return buildRpcPost('local-gen2-rpc-call', base, method, params);
 }
 
 function buildLocalGen2(operation, args) {
@@ -554,6 +724,27 @@ function buildLocalGen1(operation, args) {
     });
   }
 
+  if (operation === 'local-gen1-get') {
+    const path = parsePath(popFlag(args, '--path'), '--path');
+    assertAllowedGen1Path(path);
+    const query = parseKeyValuePairs(args, '--query');
+    assertNoUnexpectedArgs(args);
+    return buildPayload(operation, {
+      url: appendQueryPairs(appendPath(base, path), query),
+    });
+  }
+
+  if (operation === 'local-gen1-set') {
+    requireGrant(args, operation);
+    const path = parsePath(popFlag(args, '--path'), '--path');
+    assertAllowedGen1Path(path);
+    const query = parseKeyValuePairs(args, '--query');
+    assertNoUnexpectedArgs(args);
+    return buildPayload(operation, {
+      url: appendQueryPairs(appendPath(base, path), query),
+    });
+  }
+
   if (operation === 'local-gen1-relay-status') {
     const id = parseNonNegativeInteger(popFlag(args, '--id', '0'), '--id');
     assertNoUnexpectedArgs(args);
@@ -691,6 +882,49 @@ function buildCloud(operation, args) {
         },
       ],
       json: undefined,
+    });
+  }
+
+  if (operation === 'cloud-websocket-url') {
+    assertNoUnexpectedArgs(args);
+    return buildWebSocketPayload(operation, {
+      urlTemplate: `wss://${base.hostname}:6113/shelly/wss/hk_sock?t=<secret:${CLOUD_ACCESS_TOKEN_SECRET}>`,
+    });
+  }
+
+  if (operation === 'cloud-websocket-command') {
+    requireGrant(args, operation);
+    const deviceId = parseDeviceId(args);
+    const trid = parseNonNegativeInteger(
+      popFlag(args, '--trid', '1'),
+      '--trid',
+    );
+    const cmd = requireText(popFlag(args, '--cmd'), '--cmd');
+    const allowedCommands = new Set([
+      'relay',
+      'light',
+      'roller',
+      'roller_to_pos',
+    ]);
+    if (!allowedCommands.has(cmd)) {
+      die('--cmd must be relay, light, roller, or roller_to_pos.');
+    }
+    const params = parseJsonObject(
+      popFlag(args, '--params-json'),
+      '--params-json',
+    );
+    assertNoUnexpectedArgs(args);
+    return buildWebSocketPayload(operation, {
+      urlTemplate: `wss://${base.hostname}:6113/shelly/wss/hk_sock?t=<secret:${CLOUD_ACCESS_TOKEN_SECRET}>`,
+      message: {
+        event: 'Shelly:CommandRequest',
+        trid,
+        deviceId,
+        data: {
+          cmd,
+          params,
+        },
+      },
     });
   }
 
@@ -880,6 +1114,26 @@ function buildDeviceCommand(action, args) {
   return exposeCommand(payload, 'device', action);
 }
 
+function buildGen1Command(action, args) {
+  const operationByAction = {
+    get: 'local-gen1-get',
+    set: 'local-gen1-set',
+  };
+  const operation = operationByAction[action];
+  if (!operation) die(`Unsupported gen1 action: ${action || '(missing)'}`);
+  return exposeCommand(buildLocalGen1(operation, args), 'gen1', action);
+}
+
+function buildRpcCommand(action, args) {
+  const builders = {
+    get: buildGenericRpcGet,
+    call: buildGenericRpcCall,
+  };
+  const builder = builders[action];
+  if (!builder) die(`Unsupported rpc action: ${action || '(missing)'}`);
+  return exposeCommand(builder(args), 'rpc', action);
+}
+
 function buildCoverCommand(action, args) {
   let operation;
   let commandArgs = args;
@@ -996,6 +1250,8 @@ function buildCloudCommand(action, args) {
     state: 'cloud-get-state',
     'oauth-token': 'cloud-oauth-token',
     'all-status': 'cloud-all-status',
+    'websocket-url': 'cloud-websocket-url',
+    'websocket-command': 'cloud-websocket-command',
   };
   const operation = operationByAction[action];
   if (!operation) die(`Unsupported cloud action: ${action || '(missing)'}`);
@@ -1017,6 +1273,8 @@ function buildDomainCommand(resource, action, args) {
   }
   const builders = {
     device: buildDeviceCommand,
+    gen1: buildGen1Command,
+    rpc: buildRpcCommand,
     cover: buildCoverCommand,
     switch: buildSwitchCommand,
     relay: buildRelayCommand,
@@ -1038,6 +1296,9 @@ function domainTier(resource, action) {
   }
   if (resource === 'relay' && action === 'set') return 'amber';
   if (resource === 'light' && action === 'set') return 'amber';
+  if (resource === 'gen1' && action === 'set') return 'amber';
+  if (resource === 'rpc' && action === 'call') return 'amber';
+  if (resource === 'cloud' && action === 'websocket-command') return 'amber';
   return 'green';
 }
 
@@ -1079,7 +1340,9 @@ function buildApprovalPlan(args) {
     'json',
     ...approvedArgs,
   ];
-  const target = new URL(approvedPayload.httpRequest.url);
+  const requestTarget =
+    approvedPayload.httpRequest || approvedPayload.webSocket;
+  const target = new URL(requestTarget.url || requestTarget.urlTemplate);
   const plan = {
     command: 'approval-plan',
     operation: approvedPayload.operation,
@@ -1087,21 +1350,25 @@ function buildApprovalPlan(args) {
     target: {
       host: target.host,
       path: target.pathname,
-      method: approvedPayload.httpRequest.method,
+      method: approvedPayload.httpRequest
+        ? approvedPayload.httpRequest.method
+        : 'WEBSOCKET',
     },
     approvedHelperCommand,
     approvedHelperCommandText: approvedHelperCommand.map(shellQuote).join(' '),
     approvalSummary:
-      'After explicit operator approval, run approvedHelperCommandText exactly, then pass the emitted httpRequest unchanged to http_request.',
+      'After explicit operator approval, run approvedHelperCommandText exactly, then use the emitted request specification unchanged with the appropriate network tool.',
     costMeasurement: COST_MEASUREMENT,
   };
-  if (approvedPayload.httpRequest.json?.method) {
+  if (approvedPayload.httpRequest?.json?.method) {
     plan.rpcMethod = approvedPayload.httpRequest.json.method;
   }
-  if (approvedPayload.httpRequest.json?.params) {
+  if (approvedPayload.httpRequest?.json?.params) {
     plan.params = approvedPayload.httpRequest.json.params;
-  } else if (approvedPayload.httpRequest.json) {
+  } else if (approvedPayload.httpRequest?.json) {
     plan.params = approvedPayload.httpRequest.json;
+  } else if (approvedPayload.webSocket?.message) {
+    plan.message = approvedPayload.webSocket.message;
   }
   return plan;
 }
