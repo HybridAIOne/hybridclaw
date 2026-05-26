@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import { parseSkillManifestFromMarkdown } from '../src/skills/skill-manifest.js';
 
@@ -74,8 +74,9 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
   expect(skill).toContain('rpc.call');
   expect(skill).toContain('cloud.websocket-url');
   expect(skill).toContain(
-    'Pass the helper-emitted `httpRequest` object unchanged',
+    'The helper executes HTTP operations through the HybridClaw gateway',
   );
+  expect(skill).toContain('Use `--request`');
   expect(skill).toContain('approval-plan');
   expect(skill).toContain('approvedHelperCommandText');
   expect(skill).toContain('light.set');
@@ -143,6 +144,58 @@ test('Shelly helper --help exits cleanly and lists local and cloud operations', 
   expect(result.stdout).toContain('rpc call');
   expect(result.stdout).toContain('cloud websocket-url');
   expect(result.stdout).toContain('cloud websocket-command');
+});
+
+test('Shelly helper executes HTTP requests through the gateway proxy', async () => {
+  const payload = request([
+    'cover',
+    'status',
+    '--device-url',
+    'http://192.0.2.10',
+    '--id',
+    '0',
+  ]);
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    text: async () =>
+      JSON.stringify({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: JSON.stringify({ id: 0, state: 'open', current_pos: 100 }),
+      }),
+  }));
+
+  const result = await shelly.executeGatewayRequest(payload.httpRequest, {
+    gatewayUrl: 'http://127.0.0.1:9090',
+    gatewayToken: 'gateway-token',
+    fetch: fetchMock,
+  });
+
+  expect(result).toMatchObject({
+    command: 'live-result',
+    ok: true,
+    status: 200,
+    bodyJson: {
+      id: 0,
+      state: 'open',
+      current_pos: 100,
+    },
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://127.0.0.1:9090/api/http/request',
+    expect.objectContaining({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer gateway-token',
+      },
+      body: JSON.stringify(payload.httpRequest),
+    }),
+  );
 });
 
 test('Shelly helper builds local Gen2 RPC read requests', () => {

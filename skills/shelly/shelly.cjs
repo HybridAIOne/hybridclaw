@@ -2,6 +2,8 @@
 'use strict';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
+const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
 const CLOUD_AUTH_SECRET = 'SHELLY_CLOUD_AUTH_KEY';
 const CLOUD_ACCESS_TOKEN_SECRET = 'SHELLY_CLOUD_ACCESS_TOKEN';
 const CLOUD_OAUTH_CODE_SECRET = 'SHELLY_OAUTH_CODE';
@@ -63,7 +65,7 @@ function printHelp() {
   console.log(`Shelly skill helper
 
 Usage:
-  node skills/shelly/shelly.cjs [--format json|pretty] <resource> <action> [flags]
+  node skills/shelly/shelly.cjs [--format json|pretty] [--request] <resource> <action> [flags]
   node skills/shelly/shelly.cjs [--format json|pretty] approval-plan <resource> <action> [flags]
 
 Commands:
@@ -98,6 +100,8 @@ Commands:
   rpc call --device-url http://192.0.2.10 --method Cover.Calibrate --params-json '{"id":0}' --operator-grant
 
 Environment:
+  HYBRIDCLAW_GATEWAY_URL   gateway base URL for live execution (default: http://127.0.0.1:9090)
+  HYBRIDCLAW_GATEWAY_TOKEN gateway bearer token for live execution
   SHELLY_DEVICE_URL        default local device base URL
   SHELLY_CLOUD_HOST        default Shelly Cloud tenant server URI
   SHELLY_CLOUD_AUTH_KEY    stored HybridClaw secret name used through <secret:SHELLY_CLOUD_AUTH_KEY>
@@ -471,6 +475,109 @@ function buildPayload(
     };
   }
   return payload;
+}
+
+function resolveGatewayUrl() {
+  return String(
+    process.env.HYBRIDCLAW_GATEWAY_URL ||
+      process.env.GATEWAY_BASE_URL ||
+      DEFAULT_GATEWAY_URL,
+  ).replace(/\/+$/u, '');
+}
+
+function resolveGatewayToken() {
+  return String(
+    process.env.HYBRIDCLAW_GATEWAY_TOKEN || process.env.GATEWAY_API_TOKEN || '',
+  ).trim();
+}
+
+function parseJsonMaybe(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGatewayResult(wrapper, fallbackStatus) {
+  const status = Number(wrapper.status || fallbackStatus || 0);
+  const body = typeof wrapper.body === 'string' ? wrapper.body : '';
+  return {
+    command: 'live-result',
+    ok: wrapper.ok !== false,
+    status,
+    statusText: wrapper.statusText || '',
+    headers: wrapper.headers || {},
+    body,
+    bodyJson: parseJsonMaybe(body),
+    bodyTruncated: wrapper.bodyTruncated === true,
+    maxResponseBytes: wrapper.maxResponseBytes,
+  };
+}
+
+async function executeGatewayRequest(httpRequest, options = {}) {
+  const fetchImpl = options.fetch || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch is not available for Shelly requests.');
+  }
+  const gatewayUrl = String(options.gatewayUrl || resolveGatewayUrl()).replace(
+    /\/+$/u,
+    '',
+  );
+  const gatewayToken = options.gatewayToken || resolveGatewayToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  let text = '';
+  try {
+    response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(httpRequest),
+      signal: controller.signal,
+    });
+    text = await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Gateway proxy returned HTTP ${response.status} for Shelly request: ${text}`,
+    );
+  }
+  const parsed = parseJsonMaybe(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      command: 'live-result',
+      ok: true,
+      status: response.status,
+      statusText: response.statusText || '',
+      headers: {},
+      body: text,
+      bodyJson: null,
+    };
+  }
+  const normalized = normalizeGatewayResult(parsed, response.status);
+  if (normalized.bodyTruncated) {
+    throw new Error(
+      `Shelly response was truncated by the gateway at ${normalized.maxResponseBytes || 'the configured'} bytes.`,
+    );
+  }
+  if (!normalized.ok) {
+    throw new Error(
+      `Shelly returned HTTP ${normalized.status || 'error'}: ${
+        normalized.body || normalized.statusText
+      }`,
+    );
+  }
+  return normalized;
 }
 
 function buildWebSocketPayload(operation, { urlTemplate, message }) {
@@ -1372,7 +1479,7 @@ function buildApprovalPlan(args) {
     approvalBoundary:
       'Stop after producing this plan. Do not run approvedHelperCommandText until the operator confirms in a later message.',
     approvalSummary:
-      'After explicit operator approval in a later message, run approvedHelperCommandText exactly, then use the emitted request specification unchanged with the appropriate network tool.',
+      'After explicit operator approval in a later message, run approvedHelperCommandText exactly. The helper executes HTTP operations through the HybridClaw gateway.',
     costMeasurement: COST_MEASUREMENT,
   };
   if (approvedPayload.httpRequest?.json?.method) {
@@ -1388,7 +1495,7 @@ function buildApprovalPlan(args) {
   return plan;
 }
 
-function main() {
+async function main() {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) {
     printHelp();
@@ -1397,7 +1504,27 @@ function main() {
   const format = args.includes('--format')
     ? args[args.indexOf('--format') + 1]
     : 'pretty';
+  const emitRequestOnly = popBoolean(args, '--request');
   const payload = buildRequest(args);
+  if (!emitRequestOnly && payload.httpRequest) {
+    const result = await executeGatewayRequest(payload.httpRequest);
+    const output = {
+      command: 'live',
+      operation: payload.operation,
+      stakesTier: payload.stakesTier,
+      request: {
+        url: payload.httpRequest.url,
+        method: payload.httpRequest.method,
+      },
+      result,
+      costMeasurement: payload.costMeasurement,
+    };
+    process.stdout.write(
+      JSON.stringify(output, null, format === 'pretty' ? 2 : 0),
+    );
+    process.stdout.write('\n');
+    return;
+  }
   process.stdout.write(
     JSON.stringify(payload, null, format === 'pretty' ? 2 : 0),
   );
@@ -1405,9 +1532,15 @@ function main() {
 }
 
 if (require.main === module) {
-  main();
+  main().catch((error) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exitCode = 1;
+  });
 }
 
 module.exports = {
   buildRequest,
+  executeGatewayRequest,
 };

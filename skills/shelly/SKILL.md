@@ -81,11 +81,13 @@ construction belongs in `shelly.cjs`.
 
 ## Core Contract
 
-- Build every Shelly HTTP request with `skills/shelly/shelly.cjs`. Do not
+- Run Shelly HTTP operations through `skills/shelly/shelly.cjs`. Do not
   handcraft Shelly URLs or JSON bodies when the helper supports the operation.
-- Pass the helper-emitted `httpRequest` object unchanged to the built-in
-  `http_request` tool. For WebSocket planning outputs, use the emitted
-  `webSocket` object as the complete connection or message specification.
+- The helper executes HTTP operations through the HybridClaw gateway, so normal
+  Shelly reads and writes should be a single helper command. Use `--request`
+  only when an explicit request specification is needed for debugging or code
+  review. For WebSocket planning outputs, use the emitted `webSocket` object as
+  the complete connection or message specification.
 - Read state before any relay, switch, light, or cover control operation.
 - Treat control operations as amber. Before asking for approval, build an
   `approval-plan` for the selected operation and include its
@@ -99,17 +101,19 @@ construction belongs in `shelly.cjs`.
 
 Use this command surface directly; do not rediscover flags by trial and error.
 Run `node skills/shelly/shelly.cjs --help` only when the surface below appears
-stale. The helper owns the Shelly API method, path, and body selection. Normal
-HTTP commands emit a wrapper containing `command`, `operation`, `stakesTier`,
-and `httpRequest`; pass only `httpRequest` to the network tool. WebSocket
-helpers emit `webSocket` instead of `httpRequest`. `approval-plan` emits no
-`httpRequest`; it validates an amber command and returns the exact approved
-helper command to run after confirmation.
+stale. The helper owns the Shelly API method, path, body selection, gateway
+dispatch, secret injection, and response wrapping. Normal HTTP commands execute
+the request and return `command: "live"`, the operation, a redacted request
+summary, and the gateway result. `--request` emits a request wrapper containing
+`command`, `operation`, `stakesTier`, and `httpRequest` without executing it.
+WebSocket helpers emit `webSocket` instead of `httpRequest`. `approval-plan`
+emits no `httpRequest`; it validates an amber command and returns the exact
+approved helper command to run after confirmation.
 
 Command surface:
 
 ```text
-node skills/shelly/shelly.cjs [--format json|pretty] <resource> <action> [flags]
+node skills/shelly/shelly.cjs [--format json|pretty] [--request] <resource> <action> [flags]
 node skills/shelly/shelly.cjs [--format json|pretty] approval-plan <resource> <action> [flags]
 
 device info --device-url http://192.0.2.10 [--ident]
