@@ -1,6 +1,6 @@
 ---
 title: Development Skills
-description: Code review, GitHub issue automation, PR workflows, Salesforce inspection, and skill creation tools.
+description: Code review, GitHub issue automation, PR workflows, Salesforce inspection, Hetzner DevOps, and skill creation tools.
 sidebar_position: 3
 ---
 
@@ -248,6 +248,259 @@ SOQL rows with a bundled Python helper. Read-only by default.
 
 ---
 
+## hetzner-devops
+
+Operate Hetzner infrastructure with three bundled skills:
+
+- `hetzner-cloud` — VPS inventory, server types, locations, prices, provisioning, volumes, snapshots, restores, and guarded deletes.
+- `hetzner-dns` — DNS zones and records, including guarded A, AAAA, CNAME, TXT, add/remove/update/delete flows.
+- `hetzner-storage-box` — Storage Box inventory, snapshots, WebDAV file list/download/upload/archive flows, and public URL preparation.
+
+**Prerequisites**
+
+| Dependency | Purpose | Install |
+|---|---|---|
+| `node` | Required helper runtime | System install |
+| Hetzner Cloud/API token | Stored secret: `HETZNER_API_TOKEN` for Cloud and Storage Box management | `hybridclaw secret set HETZNER_API_TOKEN "<token>"` |
+| Hetzner DNS API token | Stored secret: `HETZNER_DNS_API_TOKEN` for DNS API `Auth-API-Token` injection | `hybridclaw secret set HETZNER_DNS_API_TOKEN "<token>"` |
+| Storage Box WebDAV auth | Optional stored secret for file operations: `HETZNER_STORAGE_BOX_BASIC_AUTH` | Store base64 `username:password` payload |
+
+`HETZNER_API_TOKEN` is intentionally limited to Hetzner Console APIs. DNS and
+WebDAV use separate secrets because Hetzner exposes those surfaces through
+different auth contracts; HybridClaw still injects every secret server-side, so
+the model never sees raw tokens or passwords.
+
+Per-skill operator setup references:
+
+- [Hetzner Cloud operator setup](../../../../skills/hetzner-cloud/references/operator-setup.md)
+- [Hetzner DNS operator setup](../../../../skills/hetzner-dns/references/operator-setup.md)
+- [Hetzner Storage Box operator setup](../../../../skills/hetzner-storage-box/references/operator-setup.md)
+
+> 💡 **Tips & Tricks**
+>
+> Use read-only Hetzner API tokens for inventory and cost reporting.
+>
+> Discover DNS record ids before updates and deletes; the DNS API is record-id based.
+>
+> Use Storage Box subaccounts scoped to the archive path for WebDAV writes.
+>
+> All helpers emit gateway-backed `http_request` payloads; secrets are injected server-side and are never printed.
+>
+> Treat the CJS helpers as the API wrappers: they choose endpoints, methods, payloads, tiers, URL encoding, and secret refs. For prompt/user testing, stop after `plan` or helper payload generation. For real user requests that need live Hetzner data, pass the emitted `httpRequest` object unchanged to live `http_request` and let the gateway resolve `bearerSecretName` or `secretHeaders`. If one live call returns 401 or 403, stop immediately and ask the operator to verify the secret; do not retry or continue across more Hetzner endpoints.
+
+> 🎯 **Try it yourself**
+>
+> `List all Hetzner Cloud servers with label project=acme and estimate their current monthly cost`
+>
+> `Create a plan for a demo VPS in Falkenstein with a TTL label, but do not provision it yet`
+>
+> `Point demo-acme.example.com to this server IP in Hetzner DNS`
+>
+> `Snapshot the production server before deploy and show me the exact rollback request`
+>
+> `Archive this Q4 invoice manifest to the Storage Box and prepare the public URL`
+>
+> **Conversation flow:**
+>
+> `1. List Hetzner servers and DNS zones for project acme`
+> `2. Plan a demo VPS and DNS record for Friday's customer demo`
+> `3. After I approve, build the create-server and create-rrset requests`
+> `4. On Monday, tear down the demo server and delete the temporary DNS record`
+
+**Troubleshooting**
+
+- **Token rejected** — verify the Cloud/Storage Box token belongs to the Hetzner Console project, or that the DNS token was created in the DNS Console.
+- **Write refused** — rerun the helper after an exact operator grant and include `--operator-grant`.
+- **WebDAV auth fails** — verify the Storage Box host, subaccount permissions, and `HETZNER_STORAGE_BOX_BASIC_AUTH` encoded payload.
+
+---
+
+## t-cloud-public
+
+Inspect T Cloud Public, formerly Open Telekom Cloud, infrastructure and prepare
+guarded DevOps operations through gateway-managed OTC API signing.
+
+**Prerequisites** — an OTC IAM user with least-privilege access keys and the
+target regional project id.
+
+```bash
+hybridclaw secret set OTC_ACCESS_KEY_ID "<access-key-id>"
+hybridclaw secret set OTC_SECRET_ACCESS_KEY "<secret-access-key>"
+hybridclaw secret set OTC_PROJECT_ID "<regional-project-id>"
+```
+
+Optional Enterprise Dashboard consumption and spend reads need:
+
+```bash
+hybridclaw secret set OTC_ENTERPRISE_DASHBOARD_TOKEN "<dashboard-api-key>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with `regions`, `projects`, `service-endpoints`, `quotas`, and
+> read-only inventory commands before planning changes.
+>
+> The helper signs OTC requests and emits gateway-ready requests; do not build
+> signed headers or canonical request strings by hand.
+>
+> Mutating compute, network, storage, IAM, KMS, database, and WAF operations
+> are amber or red and require exact operator approval.
+
+> 🎯 **Try it yourself**
+>
+> `List T Cloud Public servers, networks, volumes, and current quotas for my project`
+>
+> `Check Cloud Eye alarms and recent Cloud Trace events for the production project`
+>
+> `Show daily T Cloud Public consumption for this month`
+
+**Troubleshooting**
+
+- **Signature or auth errors** — verify the access key id, secret key, project
+  id, region, and system clock.
+- **403 on inventory reads** — grant the IAM user read scopes for the target
+  services and project.
+- **Dashboard billing errors** — store `OTC_ENTERPRISE_DASHBOARD_TOKEN` and
+  confirm the key has Admin security level in the Enterprise Dashboard.
+
+---
+
+## mittwald
+
+Read mittwald mStudio and Kundencenter resources: projects, apps, runtimes,
+databases, domains, mail, backups, files, containers, and access users.
+
+**Prerequisites** — a mittwald API token stored in HybridClaw secrets.
+
+```bash
+hybridclaw secret set MITTWALD_API_TOKEN "<api-token>"
+```
+
+Create the token in mittwald mStudio under user profile API token settings.
+Use the narrowest token role that can read the projects you want HybridClaw to
+inspect.
+
+> 💡 **Tips & Tricks**
+>
+> Use read-only commands such as `whoami`, `projects`, `apps`, `domains`,
+> `databases`, `backups`, and `service-logs` for triage.
+>
+> The helper injects `MITTWALD_API_TOKEN` server-side with
+> `bearerSecretName`; never paste the token into chat or raw headers.
+>
+> App installation, database creation, cronjob creation, domain moves, and
+> delivery-box creation require explicit operator approval. Restore, service
+> action, domain deletion, and extension-order operations are red-tier.
+
+> 🎯 **Try it yourself**
+>
+> `List mittwald projects and summarize apps, domains, databases, and backups`
+>
+> `Check the latest service logs for this mittwald app`
+>
+> `Plan a Redis database creation for this project without executing it`
+
+**Troubleshooting**
+
+- **401 or 403** — verify the token is active and has access to the selected
+  mStudio project.
+- **429** — respect the returned rate-limit headers; do not retry in a loop.
+- **Missing resource ids** — list the parent project/app/domain first and pass
+  the exact id from the helper output.
+
+---
+
+## zabbix
+
+Read Zabbix monitoring state for incident triage: API health, host inventory,
+current or recent problems, trigger severity summaries, and incident context.
+
+**Prerequisites** — a Zabbix API token and the frontend base URL.
+
+```bash
+hybridclaw secret set ZABBIX_API_TOKEN "<zabbix-api-token>"
+```
+
+Pass the base URL per request or configure it in the runtime environment as
+`ZABBIX_BASE_URL`. The helper accepts both the frontend URL and the
+`api_jsonrpc.php` endpoint URL.
+
+> 💡 **Tips & Tricks**
+>
+> Start with `api-version`, then inspect `hosts`, `problems`, and
+> `triggers` before creating an incident summary.
+>
+> This v1 skill is read-only; acknowledge, suppress, close, update, or delete
+> operations are intentionally not executed.
+>
+> Use Zabbix for detection and context, then hand off remediation to a
+> maintenance skill or operator.
+
+> 🎯 **Try it yourself**
+>
+> `Show current high-severity Zabbix problems and affected hosts`
+>
+> `Summarize recent Zabbix problems for the database host group`
+>
+> `Build an incident summary from Zabbix triggers for the last 24 hours`
+
+**Troubleshooting**
+
+- **Base URL rejected** — use HTTPS unless the endpoint is explicitly local or
+  private and the operator accepts `--allow-http`.
+- **Auth errors** — verify the token and that the API endpoint path resolves.
+- **Too much data** — narrow by host group, severity, time window, or monitored
+  hosts only.
+
+---
+
+## shelly
+
+Inspect and control Shelly relays, plugs, lights, covers, shutters, sensors,
+and energy devices through local Gen1/Gen2 HTTP/RPC APIs or Shelly Cloud.
+
+**Prerequisites** — local device URLs for LAN mode. Optional Shelly Cloud
+credentials enable cloud state and event workflows:
+
+```bash
+hybridclaw secret set SHELLY_CLOUD_AUTH_KEY "<cloud-auth-key>"
+hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN "<cloud-access-token>"
+```
+
+Generate the cloud auth key in Shelly Smart Control user settings. Use the
+documented Shelly OAuth flow for the Real Time Events API access token.
+
+> 💡 **Tips & Tricks**
+>
+> Read `device info`, `device status`, or `cover status` before any control
+> command.
+>
+> Relay, switch, light, and cover operations are amber-tier. Build an
+> approval plan first and run the exact approved helper command only after the
+> operator confirms.
+>
+> Factory reset, reboot, firmware update, Wi-Fi reset, auth changes, and
+> certificate upload are not supported through this skill.
+
+> 🎯 **Try it yourself**
+>
+> `Read status from the Shelly device at http://192.0.2.10`
+>
+> `Show cover position and config for this Shelly shutter`
+>
+> `Prepare an approval plan to move the office shutter to 50 percent`
+
+**Troubleshooting**
+
+- **LAN device unreachable** — verify the gateway process can reach the local
+  IP and that workspace policy allows the host.
+- **Cloud auth fails** — refresh `SHELLY_CLOUD_AUTH_KEY` or
+  `SHELLY_CLOUD_ACCESS_TOKEN`.
+- **Control refused** — rerun the generated approval plan and include the
+  exact operator grant from a later confirmation.
+
+---
+
 ## warehouse-sql
 
 Review and run read-only natural-language SQL against a customer data
@@ -314,6 +567,15 @@ docs, and reliable init/validate/package/publish workflows.
 > Follow the three-layer model: frontmatter (triggers + metadata), SKILL.md body (core workflow), references/scripts/assets (detail).
 >
 > Keep SKILL.md concise — the model already knows general concepts; only include what is unique to your skill.
+>
+> For API-backed skills, provide a `*.cjs` CLI wrapper that owns endpoints,
+> payloads, tiers, and secret refs. Prefer a `run` subcommand for live gateway
+> execution, and keep `http-request` as the dry-run path that emits
+> gateway-ready JSON the model can inspect or pass through unchanged.
+>
+> If a request shape is safety-critical, include generic
+> `skillRequestContract` metadata in the emitted request instead of adding
+> provider-specific checks to gateway or container core.
 >
 > Use `quick_validate.py` to check your skill before publishing.
 

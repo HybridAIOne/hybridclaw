@@ -93,6 +93,16 @@ Use `parseAgentIdentity()` and `formatAgentIdentity()` from
 `slugifyAgentIdentityComponent()` when deriving a canonical component from a
 display name, config value, or environment value.
 
+Agent registry records persist two canonical fields:
+
+- `canonicalId`: the stable `agent-slug@user@instance-id` identity for the agent
+- `ownerUserId`: the canonical `username@authority` owner user ID used when the local identity is first derived
+
+Existing local agents are backfilled on first database migration. Agents with no
+federated owner use the `local` user authority, so an owner like `benedikt`
+becomes `benedikt@local`. Bare local agent slugs remain accepted inside the same
+instance; A2A boundaries resolve them to the persisted `canonicalId`.
+
 ## A2A Envelope Federation Metadata
 
 A2A envelopes carry canonical `sender_agent_id` and `recipient_agent_id`
@@ -144,3 +154,11 @@ TXT record values are JSON objects:
 concurrent cold-cache lookups, caches successful records for five minutes by
 default, and supports explicit invalidation. Discovery URLs must use HTTPS
 unless they target loopback.
+
+The A2A outbound outbox uses this resolver automatically when
+`HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE` is set. Remote `sendMessage` recipients are
+queued first, then the outbox resolves the recipient's canonical ID under that
+zone before dispatching through the A2A HTTP transport. The synchronous
+`sendMessage` confirmation reports `pending` for durable queued delivery and
+`false` only when dispatch is refused before an outbox item exists; later
+outbox failures are audited and routed through interactive escalation.

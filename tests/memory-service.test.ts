@@ -676,6 +676,189 @@ describe.sequential('schema migrations', () => {
     expect(boardCardsTable?.name).toBe('board_cards');
   });
 
+  test('migrates legacy agents to canonical local identities', () => {
+    const dbPath = createTempDbPath();
+    const originalInstanceId = process.env.HYBRIDCLAW_INSTANCE_ID;
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'Inst Test';
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        owner TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      INSERT INTO agents (id, name, owner)
+      VALUES ('main', 'Main Agent', NULL), ('writer', 'Writer', 'Benedikt');
+      PRAGMA user_version = 33;
+    `);
+    legacy.close();
+
+    try {
+      initDatabase({ quiet: true, dbPath });
+    } finally {
+      if (originalInstanceId === undefined) {
+        delete process.env.HYBRIDCLAW_INSTANCE_ID;
+      } else {
+        process.env.HYBRIDCLAW_INSTANCE_ID = originalInstanceId;
+      }
+    }
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const columns = inspect.pragma('table_info(agents)') as Array<{
+      name: string;
+    }>;
+    const agents = inspect
+      .prepare(
+        'SELECT id, canonical_id, owner_user_id FROM agents ORDER BY id ASC',
+      )
+      .all() as Array<{
+      id: string;
+      canonical_id: string;
+      owner_user_id: string;
+    }>;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(columns.some((column) => column.name === 'canonical_id')).toBe(true);
+    expect(columns.some((column) => column.name === 'owner_user_id')).toBe(
+      true,
+    );
+    expect(agents).toEqual([
+      {
+        id: 'main',
+        canonical_id: 'main@local@inst-test',
+        owner_user_id: 'local@local',
+      },
+      {
+        id: 'writer',
+        canonical_id: 'writer@benedikt@inst-test',
+        owner_user_id: 'benedikt@local',
+      },
+    ]);
+  });
+
+  test('adds suffixes when migrated local agents derive duplicate canonical ids', () => {
+    const dbPath = createTempDbPath();
+    const originalInstanceId = process.env.HYBRIDCLAW_INSTANCE_ID;
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'Inst Test';
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        owner TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      INSERT INTO agents (id, name, owner)
+      VALUES
+        ('writer', 'Writer', 'Benedikt'),
+        ('writer!', 'Writer Duplicate', 'Benedikt');
+      PRAGMA user_version = 33;
+    `);
+    legacy.close();
+
+    try {
+      initDatabase({ quiet: true, dbPath });
+    } finally {
+      if (originalInstanceId === undefined) {
+        delete process.env.HYBRIDCLAW_INSTANCE_ID;
+      } else {
+        process.env.HYBRIDCLAW_INSTANCE_ID = originalInstanceId;
+      }
+    }
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const agents = inspect
+      .prepare(
+        'SELECT id, canonical_id, owner_user_id FROM agents ORDER BY id ASC',
+      )
+      .all() as Array<{
+      id: string;
+      canonical_id: string;
+      owner_user_id: string;
+    }>;
+    const uniqueCanonicalIndex = inspect
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agents_canonical_id'",
+      )
+      .get() as { name: string } | undefined;
+    inspect.close();
+
+    expect(agents).toEqual([
+      {
+        id: 'writer',
+        canonical_id: 'writer@benedikt@inst-test',
+        owner_user_id: 'benedikt@local',
+      },
+      {
+        id: 'writer!',
+        canonical_id: 'writer-2@benedikt@inst-test',
+        owner_user_id: 'benedikt@local',
+      },
+    ]);
+    expect(uniqueCanonicalIndex?.name).toBe('idx_agents_canonical_id');
+  });
+
+  test('self-heals v36 agents missing the owner user index', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        canonical_id TEXT,
+        owner_user_id TEXT,
+        name TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      INSERT INTO agents (id, canonical_id, owner_user_id, name)
+      VALUES ('main', 'main@local@inst-test', 'local@local', 'Main Agent');
+      CREATE UNIQUE INDEX idx_agents_canonical_id
+        ON agents(canonical_id)
+        WHERE canonical_id IS NOT NULL AND TRIM(canonical_id) != '';
+      CREATE TABLE jobs (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('scheduler_job', 'scheduled_task')),
+        legacy_task_id INTEGER UNIQUE,
+        session_id TEXT,
+        channel_id TEXT,
+        name TEXT,
+        description TEXT,
+        agent_id TEXT,
+        board_status TEXT CHECK (board_status IS NULL OR board_status IN ('backlog', 'in_progress', 'review', 'done', 'cancelled')),
+        max_retries INTEGER,
+        schedule TEXT NOT NULL,
+        action TEXT NOT NULL,
+        delivery TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_run TEXT,
+        last_status TEXT CHECK (last_status IS NULL OR last_status IN ('success', 'error')),
+        consecutive_errors INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      PRAGMA user_version = 36;
+    `);
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const ownerIndex = inspect
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agents_owner_user_id'",
+      )
+      .get() as { name: string } | undefined;
+    inspect.close();
+
+    expect(ownerIndex?.name).toBe('idx_agents_owner_user_id');
+  });
+
   test('fills admin statistics indexes for branch schema v23 databases', () => {
     const dbPath = createTempDbPath();
     const legacy = new Database(dbPath);

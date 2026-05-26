@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import {
   type CSSProperties,
   type DragEvent,
@@ -8,23 +9,29 @@ import {
   useState,
 } from 'react';
 import {
+  fetchBoardBudgetSummaries,
   fetchJobsContext,
   fetchScheduler,
   moveSchedulerJob,
   saveSchedulerJob,
 } from '../api/client';
 import type {
+  AdminBoardBudgetSummary,
+  AdminJobCard,
+  AdminJobCardEdge,
   AdminSchedulerJob,
   AdminSuspendedSession,
   JobAgent,
   JobSession,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { AgentBudgetChip } from '../components/agent-budget-chip';
 import { InteractionResumeControls } from '../components/interaction-resume-controls';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
+import { logNavigationError } from '../lib/navigation';
 
 type JobColumnId = 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
 
@@ -44,6 +51,10 @@ type JobBoardItem =
   | (JobBoardItemBase & {
       kind: 'job';
       job: AdminSchedulerJob;
+    })
+  | (JobBoardItemBase & {
+      kind: 'card';
+      card: AdminJobCard;
     })
   | (JobBoardItemBase & {
       kind: 'blocked';
@@ -79,8 +90,8 @@ function trimText(raw: string | null | undefined, maxLength: number): string {
 
 function resolveSchedulerSessionId(job: AdminSchedulerJob): string | null {
   if (job.sessionId) return job.sessionId;
-  if (job.source === 'config') return `scheduler:${job.id}`;
-  return job.sessionId || null;
+  if (job.source === 'job') return `scheduler:${job.id}`;
+  return null;
 }
 
 function deriveColumn(
@@ -109,6 +120,23 @@ function deriveTone(column: JobColumnId): JobBoardItem['tone'] {
   return 'default';
 }
 
+function deriveCardColumn(card: AdminJobCard): JobColumnId {
+  if (card.column === 'in_progress') return 'in_progress';
+  if (card.column === 'in_review') return 'review';
+  if (card.column === 'done') return 'done';
+  return 'backlog';
+}
+
+function getItemEdges(item: JobBoardItem): AdminJobCardEdge[] {
+  return item.kind === 'card' ? item.card.edges : [];
+}
+
+function formatEdgeLabel(edge: AdminJobCardEdge): string {
+  if (edge.kind === 'blocked_by') return `Blocked by ${edge.toCardId}`;
+  if (edge.kind === 'blocks') return `Blocks ${edge.toCardId}`;
+  return `Related ${edge.toCardId}`;
+}
+
 function deriveStateLabel(job: AdminSchedulerJob, column: JobColumnId): string {
   if (isJobPaused(job)) return 'paused';
   if (column === 'in_progress') return 'running';
@@ -119,8 +147,8 @@ function deriveStateLabel(job: AdminSchedulerJob, column: JobColumnId): string {
 
 function isJobPaused(job: AdminSchedulerJob): boolean {
   if (job.source === 'task') return job.disabled;
-  // Config jobs have two distinct flags:
-  // - enabled: persisted config switch
+  // Scheduler jobs have two distinct flags:
+  // - enabled: persisted DB switch
   // - disabled: runtime pause / auto-disable state
   return !job.enabled || job.disabled;
 }
@@ -150,6 +178,7 @@ function getAgentPillStyle(agentKey: string): CSSProperties {
 
 function JobCard(props: {
   item: JobBoardItem;
+  budget: AdminBoardBudgetSummary | null;
   selected: boolean;
   draggable: boolean;
   onSelect: () => void;
@@ -160,6 +189,11 @@ function JobCard(props: {
   onDrop: (event: DragEvent<HTMLButtonElement>) => void;
 }) {
   const { item } = props;
+  const edges = getItemEdges(item);
+  const agentPillStyle = useMemo(
+    () => getAgentPillStyle(item.agentKey),
+    [item.agentKey],
+  );
 
   return (
     <div
@@ -188,19 +222,36 @@ function JobCard(props: {
               {trimText(
                 item.kind === 'job'
                   ? item.job.name
-                  : item.suspendedSession.blockedLabel,
+                  : item.kind === 'card'
+                    ? item.card.title
+                    : item.suspendedSession.blockedLabel,
                 24,
               )}
             </strong>
           </div>
           <p>{item.summary}</p>
           <small>{item.stateLabel}</small>
-          <span
-            className="jobs-card-pill"
-            style={getAgentPillStyle(item.agentKey)}
-          >
-            {item.agentLabel}
-          </span>
+          {item.kind === 'card' && (item.card.blocked || edges.length > 0) ? (
+            <div className="jobs-card-edge-row">
+              {item.card.blocked ? (
+                <span className="jobs-edge-chip blocked">Blocked</span>
+              ) : null}
+              {edges.slice(0, 3).map((edge) => (
+                <span className="jobs-edge-chip" key={edge.id}>
+                  {formatEdgeLabel(edge)}
+                </span>
+              ))}
+              {edges.length > 3 ? (
+                <span className="jobs-edge-chip">+{edges.length - 3}</span>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="jobs-card-agent-row">
+            <span className="jobs-card-pill" style={agentPillStyle}>
+              {item.agentLabel}
+            </span>
+            <AgentBudgetChip budget={props.budget} />
+          </div>
         </article>
       </button>
     </div>
@@ -212,7 +263,7 @@ function replaceSchedulerJob(
   nextJob: AdminSchedulerJob,
 ): AdminSchedulerJob[] {
   return (jobs || []).map((job) =>
-    job.id === nextJob.id && job.source === 'config' ? nextJob : job,
+    job.id === nextJob.id && job.source === 'job' ? nextJob : job,
   );
 }
 
@@ -235,6 +286,15 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
   if (item.kind === 'blocked') {
     pushDate('Created', item.suspendedSession.createdAt);
     pushDate('Expires', item.suspendedSession.expiresAt);
+    return entries;
+  }
+
+  if (item.kind === 'card') {
+    push('Card ID', item.card.id);
+    push('Source', item.card.source);
+    push('Parent', item.card.parent);
+    pushDate('Created', item.card.createdAt);
+    pushDate('Updated', item.card.updatedAt);
     return entries;
   }
 
@@ -271,7 +331,7 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
 }
 
 function collectJobOutputs(item: JobBoardItem): string[] {
-  if (item.kind === 'blocked') return [];
+  if (item.kind === 'blocked' || item.kind === 'card') return [];
   const values =
     item.session?.output && item.session.output.length > 0
       ? item.session.output
@@ -302,34 +362,35 @@ function JobDetailCard(props: {
   runtime: JobRuntimeEntry[];
   agents: JobAgent[];
   savePending: boolean;
-  onUpdate: (nextJob: AdminSchedulerJob & { source: 'config' }) => void;
+  onUpdate: (nextJob: AdminSchedulerJob & { source: 'job' }) => void;
 }) {
   const { item } = props;
+  const navigate = useNavigate();
   const sessionId =
-    item.kind === 'blocked'
-      ? item.suspendedSession.sessionId
-      : resolveSchedulerSessionId(item.job);
-  const editHref =
-    item.kind === 'blocked'
-      ? '/admin/approvals'
-      : `/admin/scheduler?jobId=${encodeURIComponent(item.job.id)}`;
+    item.kind === 'card'
+      ? null
+      : item.kind === 'blocked'
+        ? item.suspendedSession.sessionId
+        : resolveSchedulerSessionId(item.job);
+  const editJobId = item.kind === 'job' ? item.job.id : null;
+  const edges = getItemEdges(item);
   const outputs = useMemo(() => collectJobOutputs(props.item), [props.item]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<null | 'lane' | 'agent'>(
     null,
   );
   const isEditable =
-    props.item.kind === 'job' && props.item.job.source === 'config';
+    props.item.kind === 'job' && props.item.job.source === 'job';
 
-  function saveConfigUpdate(
-    patch: Partial<AdminSchedulerJob & { source: 'config' }>,
+  function saveJobUpdate(
+    patch: Partial<AdminSchedulerJob & { source: 'job' }>,
   ): void {
     if (props.item.kind !== 'job') return;
     const job = props.item.job;
-    if (job.source !== 'config') return;
+    if (job.source !== 'job') return;
     props.onUpdate({
       ...job,
-      source: 'config',
+      source: 'job',
       ...patch,
     });
     setEditingField(null);
@@ -355,12 +416,31 @@ function JobDetailCard(props: {
           <h4>
             {props.item.kind === 'job'
               ? props.item.job.name
-              : props.item.suspendedSession.blockedLabel}
+              : props.item.kind === 'card'
+                ? props.item.card.title
+                : props.item.suspendedSession.blockedLabel}
           </h4>
         </div>
-        <a className="ghost-button" href={editHref}>
-          Edit
-        </a>
+        {props.item.kind === 'card' ? null : (
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => {
+              if (editJobId) {
+                void navigate({
+                  to: '/admin/scheduler',
+                  search: { jobId: editJobId },
+                }).catch(logNavigationError);
+                return;
+              }
+              void navigate({ to: '/admin/approvals' }).catch(
+                logNavigationError,
+              );
+            }}
+          >
+            Edit
+          </button>
+        )}
       </div>
 
       <div className="jobs-detail-stack">
@@ -381,7 +461,7 @@ function JobDetailCard(props: {
                 }
                 onBlur={() => setEditingField(null)}
                 onChange={(event) =>
-                  saveConfigUpdate({
+                  saveJobUpdate({
                     boardStatus: event.target.value as JobColumnId,
                   })
                 }
@@ -414,7 +494,7 @@ function JobDetailCard(props: {
                 }
                 onBlur={() => setEditingField(null)}
                 onChange={(event) =>
-                  saveConfigUpdate({
+                  saveJobUpdate({
                     agentId: event.target.value || null,
                   })
                 }
@@ -444,9 +524,11 @@ function JobDetailCard(props: {
             <strong>
               {props.item.kind === 'blocked'
                 ? 'blocked'
-                : props.item.job.source === 'task'
-                  ? 'task'
-                  : 'config'}
+                : props.item.kind === 'card'
+                  ? 'card'
+                  : props.item.job.source === 'task'
+                    ? 'task'
+                    : 'job'}
             </strong>
           </div>
           <div>
@@ -458,9 +540,11 @@ function JobDetailCard(props: {
             <strong>
               {props.item.kind === 'blocked'
                 ? props.item.suspendedSession.context.host || 'n/a'
-                : props.item.job.channelId ||
-                  props.item.job.delivery.to ||
-                  'n/a'}
+                : props.item.kind === 'card'
+                  ? props.item.card.source
+                  : props.item.job.channelId ||
+                    props.item.job.delivery.to ||
+                    'n/a'}
             </strong>
           </div>
           {props.item.kind === 'job' &&
@@ -478,16 +562,38 @@ function JobDetailCard(props: {
           <p>
             {props.item.kind === 'blocked'
               ? props.item.suspendedSession.prompt
-              : props.item.job.description || props.item.summary}
+              : props.item.kind === 'card'
+                ? props.item.card.body || props.item.summary
+                : props.item.job.description || props.item.summary}
           </p>
         </div>
+
+        {props.item.kind === 'card' ? (
+          <div className="summary-block">
+            <span>Dependencies</span>
+            {edges.length ? (
+              <div className="jobs-runtime-list">
+                {edges.map((edge) => (
+                  <div className="jobs-runtime-row" key={edge.id}>
+                    <strong>{formatEdgeLabel(edge)}</strong>
+                    <small>{edge.kind}</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>No dependencies recorded for this card.</p>
+            )}
+          </div>
+        ) : null}
 
         <div className="summary-block">
           <span>Message</span>
           <p>
             {props.item.kind === 'blocked'
               ? props.item.suspendedSession.prompt
-              : props.item.job.action.message || 'No action message.'}
+              : props.item.kind === 'card'
+                ? props.item.card.status || 'No status recorded.'
+                : props.item.job.action.message || 'No action message.'}
           </p>
         </div>
 
@@ -569,6 +675,7 @@ function JobDetailCard(props: {
 
 export function JobsPage() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [search, setSearch] = useState('');
@@ -593,7 +700,7 @@ export function JobsPage() {
   });
 
   const saveJobMutation = useMutation({
-    mutationFn: (job: AdminSchedulerJob & { source: 'config' }) =>
+    mutationFn: (job: AdminSchedulerJob & { source: 'job' }) =>
       saveSchedulerJob(auth.token, job),
     onMutate: async (job) => {
       await queryClient.cancelQueries({
@@ -742,9 +849,58 @@ export function JobsPage() {
       },
     );
 
-    return [...blockedItems, ...scheduledItems];
+    const cardItems = (jobsContextQuery.data?.cards || []).map(
+      (card): JobBoardItem => {
+        const agentId =
+          card.owner.type === 'agent' ? card.owner.id : 'unassigned';
+        const agent = agentsById.get(agentId) || null;
+        const agentLabel =
+          agent?.name ||
+          (card.owner.type === 'agent'
+            ? card.owner.id
+            : `User ${card.owner.id}`);
+        const column = deriveCardColumn(card);
+        const summary =
+          trimText(card.body, 36) ||
+          trimText(card.status, 28) ||
+          trimText(card.source, 24) ||
+          'No summary';
+
+        return {
+          key: `card:${card.id}`,
+          kind: 'card',
+          card,
+          session: null,
+          agentKey: agentId,
+          agentLabel,
+          column,
+          tone: card.blocked ? 'danger' : deriveTone(column),
+          stateLabel: card.blocked ? 'blocked' : card.status || 'ready',
+          summary,
+          searchIndex: [
+            card.id,
+            card.title,
+            card.body,
+            card.status,
+            card.source,
+            card.parent || '',
+            agentLabel,
+            ...card.edges.flatMap((edge) => [
+              edge.kind,
+              edge.fromCardId,
+              edge.toCardId,
+            ]),
+          ]
+            .join(' ')
+            .toLowerCase(),
+        };
+      },
+    );
+
+    return [...blockedItems, ...cardItems, ...scheduledItems];
   }, [
     agentsById,
+    jobsContextQuery.data?.cards,
     jobsContextQuery.data?.suspendedSessions,
     schedulerQuery.data?.jobs,
     sessionsById,
@@ -760,6 +916,40 @@ export function JobsPage() {
     () => new Map(allItems.map((item) => [item.key, item])),
     [allItems],
   );
+
+  const ownerAgentIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allItems
+            .map((item) => item.agentKey)
+            .filter((agentId) => agentId && agentId !== 'unassigned'),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [allItems],
+  );
+  const ownerAgentIdsCacheKey = useMemo(
+    () =>
+      [...ownerAgentIds]
+        .sort((left, right) => left.localeCompare(right))
+        .join('\0'),
+    [ownerAgentIds],
+  );
+
+  const budgetQuery = useQuery({
+    queryKey: ['board-budget-summaries', auth.token, ownerAgentIdsCacheKey],
+    queryFn: () => fetchBoardBudgetSummaries(auth.token, ownerAgentIds),
+    enabled: ownerAgentIds.length > 0,
+    staleTime: 30_000,
+  });
+
+  const budgetsByAgent = useMemo(() => {
+    return new Map(
+      (budgetQuery.data?.budgets || []).map(
+        (budget) => [budget.agentId, budget] as const,
+      ),
+    );
+  }, [budgetQuery.data?.budgets]);
 
   const visibleItemKeys = useMemo(
     () => new Set(visibleItems.map((item) => item.key)),
@@ -802,7 +992,7 @@ export function JobsPage() {
     if (
       !draggedItem ||
       draggedItem.kind !== 'job' ||
-      draggedItem.job.source !== 'config'
+      draggedItem.job.source !== 'job'
     )
       return;
     if (beforeJobId === draggedItem.job.id) {
@@ -836,7 +1026,6 @@ export function JobsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title={`Kanban Board (${visibleItems.length} task${visibleItems.length === 1 ? '' : 's'})`}
         actions={
           <div className="header-actions">
             <input
@@ -845,9 +1034,18 @@ export function JobsPage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search jobs"
             />
-            <a className="primary-button" href="/admin/scheduler">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                void navigate({
+                  to: '/admin/scheduler',
+                  search: { jobId: undefined },
+                }).catch(logNavigationError);
+              }}
+            >
               New Job
-            </a>
+            </button>
           </div>
         }
       />
@@ -879,7 +1077,7 @@ export function JobsPage() {
                 if (
                   !draggedItem ||
                   draggedItem.kind !== 'job' ||
-                  draggedItem.job.source !== 'config'
+                  draggedItem.job.source !== 'job'
                 )
                   return;
                 event.preventDefault();
@@ -924,9 +1122,10 @@ export function JobsPage() {
                     >
                       <JobCard
                         item={item}
+                        budget={budgetsByAgent.get(item.agentKey) || null}
                         selected={item.key === selectedItem?.key}
                         draggable={
-                          item.kind === 'job' && item.job.source === 'config'
+                          item.kind === 'job' && item.job.source === 'job'
                         }
                         onSelect={() =>
                           setSelectedKey((current) =>
@@ -934,10 +1133,7 @@ export function JobsPage() {
                           )
                         }
                         onDragStart={(event) => {
-                          if (
-                            item.kind !== 'job' ||
-                            item.job.source !== 'config'
-                          )
+                          if (item.kind !== 'job' || item.job.source !== 'job')
                             return;
                           event.dataTransfer.effectAllowed = 'move';
                           event.dataTransfer.setData('text/plain', item.key);
@@ -952,13 +1148,10 @@ export function JobsPage() {
                           if (
                             !draggedItem ||
                             draggedItem.kind !== 'job' ||
-                            draggedItem.job.source !== 'config'
+                            draggedItem.job.source !== 'job'
                           )
                             return;
-                          if (
-                            item.kind !== 'job' ||
-                            item.job.source !== 'config'
-                          )
+                          if (item.kind !== 'job' || item.job.source !== 'job')
                             return;
                           event.preventDefault();
                           event.stopPropagation();
@@ -982,10 +1175,7 @@ export function JobsPage() {
                           }
                         }}
                         onDrop={(event) => {
-                          if (
-                            item.kind !== 'job' ||
-                            item.job.source !== 'config'
-                          )
+                          if (item.kind !== 'job' || item.job.source !== 'job')
                             return;
                           event.preventDefault();
                           event.stopPropagation();

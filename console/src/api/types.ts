@@ -1,3 +1,15 @@
+export const LOG_LEVELS = [
+  'fatal',
+  'error',
+  'warn',
+  'info',
+  'debug',
+  'trace',
+  'silent',
+] as const;
+
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -734,6 +746,58 @@ export interface AdminConfig {
     maxConcurrent: number;
     persistBashState: boolean;
   };
+  browser?: {
+    provider:
+      | 'local'
+      | 'camofox'
+      | 'managed-cloud'
+      | 'browser-use-cloud'
+      | 'mac-cua';
+    allowPrivateNetwork: boolean;
+    local: {
+      profileDir: string;
+      headed: boolean;
+    };
+    camofox: {
+      profileDir: string;
+      headed: boolean;
+    };
+    managedCloud: {
+      endpointUrl: string;
+      poolTokenRef:
+        | {
+            source: 'store';
+            id: string;
+          }
+        | undefined;
+      defaultTenantId: string;
+      pricing: {
+        actionUsd: number;
+      };
+    };
+    browserUseCloud: {
+      apiKeyRef:
+        | {
+            source: 'store';
+            id: string;
+          }
+        | undefined;
+      projectId: string;
+      profileId: string;
+      region: string;
+      keepAlive: boolean;
+      pricing: {
+        browserUsdPerMinute: number;
+        actionUsd: number;
+      };
+    };
+    macCua: {
+      browser: 'safari' | 'chrome' | 'firefox' | 'brave' | 'arc';
+      driverCommand: string;
+      driverArgs: string[];
+      screenshotMode: 'som' | 'vision' | 'ax';
+    };
+  };
   ops: {
     healthHost: string;
     healthPort: number;
@@ -741,7 +805,7 @@ export interface AdminConfig {
     gatewayBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
-    logLevel: string;
+    logLevel: LogLevel;
   };
   [key: string]: unknown;
 }
@@ -749,6 +813,25 @@ export interface AdminConfig {
 export interface AdminConfigResponse {
   path: string;
   config: AdminConfig;
+}
+
+export interface AdminBrowserPoolHealthResponse {
+  ok: boolean;
+  status: 'online' | 'offline' | 'disabled';
+  endpointUrl: string;
+  nodeCount: number;
+  healthyNodeCount: number;
+  message: string;
+}
+
+export interface AdminBrowserPoolLaunchResponse {
+  ok: boolean;
+  status: 'started' | 'starting' | 'already-running' | 'unsupported' | 'failed';
+  endpointUrl: string;
+  pid: number | null;
+  message: string;
+  poolTokenRefId?: string;
+  logTail?: string;
 }
 
 export interface SignalLinkResponse {
@@ -801,6 +884,33 @@ export interface AdminModelCatalogEntry extends ChatModel {
 
 export interface AdminModelsResponse {
   defaultModel: string;
+  auxiliaryModels?: {
+    skillsHub: {
+      provider:
+        | 'auto'
+        | 'disabled'
+        | 'hybridai'
+        | 'openai-codex'
+        | 'anthropic'
+        | 'openrouter'
+        | 'mistral'
+        | 'huggingface'
+        | 'gemini'
+        | 'deepseek'
+        | 'xai'
+        | 'zai'
+        | 'kimi'
+        | 'minimax'
+        | 'dashscope'
+        | 'xiaomi'
+        | 'kilo'
+        | 'ollama'
+        | 'lmstudio'
+        | 'llamacpp'
+        | 'vllm';
+      model: string | null;
+    };
+  };
   providerStatus: GatewayStatus['providerHealth'];
   models: AdminModelCatalogEntry[];
 }
@@ -814,7 +924,7 @@ export type AdminSchedulerBoardStatus =
 
 export interface AdminSchedulerJob {
   id: string;
-  source: 'config' | 'task';
+  source: 'job' | 'task';
   name: string;
   description: string | null;
   agentId: string | null;
@@ -971,6 +1081,12 @@ export interface AgentCard {
   stoppedSessions: number;
   effectiveModels: string[];
   lastActive: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  messageCount: number;
+  toolCalls: number;
+  recentSessionId: string | null;
   status: 'active' | 'idle' | 'stopped' | 'unused';
   monthlySpendUsd: number;
 }
@@ -1039,11 +1155,6 @@ export interface AgentsOverviewResponse {
   sessions: AgentSessionCard[];
 }
 
-export type AgentsOverview = Pick<
-  AgentsOverviewResponse,
-  'agents' | 'sessions'
->;
-
 export interface AgentListItem {
   id: string;
   name: string | null;
@@ -1070,8 +1181,58 @@ export interface JobSession {
 
 export interface AdminJobsContextResponse {
   agents: JobAgent[];
+  cards: AdminJobCard[];
   sessions: JobSession[];
   suspendedSessions: AdminSuspendedSession[];
+}
+
+export type AdminJobCardColumn =
+  | 'triage'
+  | 'todo'
+  | 'in_progress'
+  | 'in_review'
+  | 'done';
+
+export type AdminJobCardEdgeKind = 'blocks' | 'blocked_by' | 'related';
+
+export interface AdminJobCardEdge {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  kind: AdminJobCardEdgeKind;
+  createdAt: string;
+}
+
+export interface AdminJobCard {
+  id: string;
+  title: string;
+  body: string;
+  owner: {
+    type: 'agent' | 'user';
+    id: string;
+  };
+  column: AdminJobCardColumn;
+  status: string;
+  source: string;
+  parent: string | null;
+  createdAt: string;
+  updatedAt: string;
+  blocked: boolean;
+  edges: AdminJobCardEdge[];
+}
+
+export type AdminBoardBudgetCurrency = 'USD' | 'EUR';
+
+export interface AdminBoardBudgetSummary {
+  agentId: string;
+  used: number;
+  cap: number;
+  currency: AdminBoardBudgetCurrency;
+  percent: number;
+}
+
+export interface AdminBoardBudgetResponse {
+  budgets: AdminBoardBudgetSummary[];
 }
 
 export interface AdminMcpConfig {
@@ -1112,8 +1273,14 @@ export interface AdminAuditResponse {
   query: string;
   sessionId: string;
   eventType: string;
+  since: string | null;
+  until: string | null;
   limit: number;
   entries: AdminAuditEntry[];
+  /** Opaque cursor for the next page; pass back as `cursor=`. null on the last page. */
+  nextCursor: number | null;
+  /** Total rows matching the filters in the database, independent of pagination. */
+  total: number;
 }
 
 export interface AdminA2AIdentity {
@@ -1256,6 +1423,17 @@ export interface AdminPolicyRuleInput {
   comment?: string;
 }
 
+export type AdminLanHttpAccessMode =
+  | 'off'
+  | 'read-only'
+  | 'read-write'
+  | 'custom';
+
+export interface AdminLanHttpAccessState {
+  mode: AdminLanHttpAccessMode;
+  managedRuleIndexes: number[];
+}
+
 export interface AdminPolicyState {
   exists: boolean;
   policyPath: string;
@@ -1263,6 +1441,7 @@ export interface AdminPolicyState {
   defaultAction: 'allow' | 'deny';
   presets: string[];
   rules: AdminPolicyRule[];
+  lanHttpAccess: AdminLanHttpAccessState;
 }
 
 export interface AdminPolicyPresetSummary {
@@ -1352,6 +1531,68 @@ export interface AdminPluginsResponse {
     hooks: number;
   };
   plugins: AdminPlugin[];
+}
+
+export interface AdminOutputGuardProfile {
+  enabled: boolean;
+  mode: 'block' | 'rewrite' | 'flag';
+  policy: string;
+  doList: string[];
+  dontList: string[];
+  bannedPhrases: string[];
+  bannedPatterns: string[];
+  requirePhrases: string[];
+  classifier: AdminOutputGuardModelConfig;
+  rewriter: AdminOutputGuardModelConfig;
+}
+
+export interface AdminOutputGuardModelConfig {
+  provider: 'default' | 'auxiliary' | 'model';
+  model: string;
+}
+
+export interface AdminOutputGuardRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+}
+
+export interface AdminOutputGuardProfileResponse {
+  profile: AdminOutputGuardProfile;
+  revisions: AdminOutputGuardRevision[];
+}
+
+export interface AdminOutputGuardProfileUpdateResponse
+  extends AdminOutputGuardProfileResponse {
+  changed: boolean;
+  reloadMessage: string;
+}
+
+export interface AdminOutputGuardPreviewViolation {
+  kind: 'banned_phrase' | 'banned_pattern' | 'missing_required';
+  detail: string;
+}
+
+export interface AdminOutputGuardPreviewClassifier {
+  provider: 'default' | 'auxiliary' | 'model';
+  status: 'evaluated' | 'unavailable' | 'unparseable';
+  verdict: 'compliant' | 'non_compliant' | null;
+  severity: 'low' | 'medium' | 'high' | null;
+  reasons: string[];
+  message: string | null;
+  model: string | null;
+}
+
+export interface AdminOutputGuardPreviewResponse {
+  score: number;
+  ruleScore: number;
+  scoreSource: 'classifier' | 'rules';
+  verdict: 'compliant' | 'needs_review' | 'non_compliant';
+  violations: AdminOutputGuardPreviewViolation[];
+  classifier: AdminOutputGuardPreviewClassifier;
 }
 
 export interface AdminAdaptiveSkillErrorCluster {

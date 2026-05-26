@@ -29,7 +29,7 @@ import {
 } from '../gateway/coworker-liveness.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import { getTasksForSession } from '../memory/db.js';
+import { getAllJobs } from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,
@@ -273,7 +273,10 @@ export function startHeartbeat(
         },
       });
 
-      const scheduledTasks = getTasksForSession(sessionId);
+      const scheduledTasks = getAllJobs({
+        kind: 'scheduled_task',
+        sessionId,
+      });
       const output = await runAgent({
         sessionId,
         messages,

@@ -20,7 +20,7 @@ import { logger } from '../logger.js';
 import {
   deleteObservabilityIngestToken,
   getAnyChatbotId,
-  getObservabilityIngestToken,
+  getObservabilityIngestTokenRecord,
   getObservabilityOffset,
   getStructuredAuditAfterId,
   setObservabilityIngestToken,
@@ -38,6 +38,8 @@ const FETCH_LIMIT_FACTOR = 4;
 const TOKEN_ADMIN_PATH = '/api/v1/agent-observability/ingest-token:ensure';
 const OBSERVABILITY_TRANSIENT_WARN_WINDOW_MS = 60_000;
 const OBSERVABILITY_TRANSIENT_WARN_LIMIT = 1;
+const OBSERVABILITY_INGEST_TOKEN_MAX_CACHE_AGE_MS = 20 * 60 * 1000;
+const OBSERVABILITY_INGEST_TOKEN_FUTURE_SKEW_MS = 60 * 1000;
 
 interface ResolvedIngestConfig {
   enabled: boolean;
@@ -447,6 +449,22 @@ function formatGrantError(prefix: string, grant: TokenGrantResult): string {
   return `${prefix}: HTTP ${grant.statusCode}`;
 }
 
+function parseIngestTokenUpdatedMs(updatedAt: string): number {
+  const trimmed = updatedAt.trim();
+  if (!trimmed) return Number.NaN;
+  const sqliteUtcMatch = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed);
+  return Date.parse(sqliteUtcMatch ? `${trimmed.replace(' ', 'T')}Z` : trimmed);
+}
+
+function isFreshIngestToken(updatedAt: string, now = Date.now()): boolean {
+  const updatedMs = parseIngestTokenUpdatedMs(updatedAt);
+  if (!Number.isFinite(updatedMs)) return false;
+  if (updatedMs - now > OBSERVABILITY_INGEST_TOKEN_FUTURE_SKEW_MS) {
+    return false;
+  }
+  return now - updatedMs < OBSERVABILITY_INGEST_TOKEN_MAX_CACHE_AGE_MS;
+}
+
 async function requestIngestToken(
   config: ResolvedIngestConfig,
   rotate = false,
@@ -551,9 +569,26 @@ async function resolveIngestToken(
 
   const tokenKey = buildTokenCacheKey(config);
   if (!forceRefresh) {
-    const cached = getObservabilityIngestToken(tokenKey);
-    if (cached)
-      return { ok: true, token: cached, source: 'cache', reason: null };
+    const cached = getObservabilityIngestTokenRecord(tokenKey);
+    if (cached && isFreshIngestToken(cached.updatedAt)) {
+      return { ok: true, token: cached.token, source: 'cache', reason: null };
+    }
+    if (cached) {
+      const rotated = await requestIngestToken(config, true);
+      if (!rotated.ok) {
+        return { ok: true, token: cached.token, source: 'cache', reason: null };
+      }
+      if (!rotated.token) {
+        return { ok: true, token: cached.token, source: 'cache', reason: null };
+      }
+      setObservabilityIngestToken(tokenKey, rotated.token);
+      return {
+        ok: true,
+        token: rotated.token,
+        source: 'created',
+        reason: null,
+      };
+    }
   } else {
     deleteObservabilityIngestToken(tokenKey);
     const rotated = await requestIngestToken(config, true);

@@ -1,3 +1,5 @@
+import { parseAgentIdentity } from '../identity/agent-id.js';
+import { parseUserId } from '../identity/user-id.js';
 import {
   parseSecretRefInput,
   type SecretRef,
@@ -42,8 +44,17 @@ export interface AgentWebSearchConfig {
   searxngBearerTokenRef?: SecretRef;
 }
 
+export type AgentBudgetCurrency = 'USD' | 'EUR';
+
+export interface AgentBudgetConfig {
+  cap: number;
+  currency: AgentBudgetCurrency;
+}
+
 export interface AgentConfig {
   id: string;
+  canonicalId?: string;
+  ownerUserId?: string;
   name?: string;
   displayName?: string;
   imageAsset?: string;
@@ -61,6 +72,7 @@ export interface AgentConfig {
   escalationTarget?: EscalationTarget;
   a2a?: AgentA2AConfig;
   webSearch?: AgentWebSearchConfig;
+  budget?: AgentBudgetConfig;
 }
 
 export interface AgentDefaultsConfig {
@@ -73,6 +85,55 @@ export interface AgentsConfig {
   defaultAgentId?: string;
   defaults?: AgentDefaultsConfig;
   list?: AgentConfig[];
+}
+
+export function normalizeAgentIdentityFields(params: {
+  canonicalId?: string;
+  ownerUserId?: string;
+  path: string;
+}): Pick<AgentConfig, 'canonicalId' | 'ownerUserId'> {
+  let canonicalId = '';
+  let canonicalUserSlug = '';
+  const rawCanonicalId = params.canonicalId?.trim() || '';
+  if (rawCanonicalId) {
+    try {
+      const parsed = parseAgentIdentity(rawCanonicalId);
+      canonicalId = parsed.id;
+      canonicalUserSlug = parsed.userSlug;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`${params.path}.canonicalId is invalid: ${detail}`);
+    }
+  }
+
+  let ownerUserId = '';
+  let ownerUsername = '';
+  const rawOwnerUserId = params.ownerUserId?.trim() || '';
+  if (rawOwnerUserId) {
+    try {
+      const parsed = parseUserId(rawOwnerUserId);
+      ownerUserId = parsed.id;
+      ownerUsername = parsed.username;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`${params.path}.ownerUserId is invalid: ${detail}`);
+    }
+  }
+
+  if (
+    canonicalUserSlug &&
+    ownerUsername &&
+    canonicalUserSlug !== ownerUsername
+  ) {
+    throw new Error(
+      `${params.path}.ownerUserId username must match ${params.path}.canonicalId user slug`,
+    );
+  }
+
+  return {
+    ...(canonicalId ? { canonicalId } : {}),
+    ...(ownerUserId ? { ownerUserId } : {}),
+  };
 }
 
 export function buildOptionalAgentPresentation(
@@ -133,6 +194,44 @@ export function cloneAgentWebSearchConfig(
       : {}),
   };
   return Object.keys(clone).length > 0 ? clone : undefined;
+}
+
+export function cloneAgentBudgetConfig(
+  value: AgentBudgetConfig | undefined,
+): AgentBudgetConfig | undefined {
+  return value ? { ...value } : undefined;
+}
+
+export function normalizeAgentBudgetConfig(
+  value: unknown,
+  fallback?: AgentBudgetConfig,
+): AgentBudgetConfig | undefined {
+  if (value === undefined) return cloneAgentBudgetConfig(fallback);
+  if (value === null || value === '') return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return cloneAgentBudgetConfig(fallback);
+  }
+
+  const raw = value as Record<string, unknown>;
+  const capValue = raw.cap ?? raw.monthlyCap;
+  const parsedCap =
+    typeof capValue === 'number'
+      ? capValue
+      : typeof capValue === 'string' && capValue.trim()
+        ? Number.parseFloat(capValue)
+        : fallback?.cap;
+  if (!Number.isFinite(parsedCap) || (parsedCap ?? 0) <= 0) return undefined;
+
+  const rawCurrency =
+    typeof raw.currency === 'string'
+      ? raw.currency.trim().toUpperCase()
+      : fallback?.currency;
+  const currency: AgentBudgetCurrency = rawCurrency === 'EUR' ? 'EUR' : 'USD';
+
+  return {
+    cap: parsedCap as number,
+    currency,
+  };
 }
 
 export function normalizeAgentWebSearchConfig(

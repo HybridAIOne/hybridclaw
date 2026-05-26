@@ -4,11 +4,13 @@ import { spawnSync } from 'node:child_process';
 
 const requiredExactPaths = [
   'package.json',
+  'npm-shrinkwrap.json',
   'README.md',
   'LICENSE',
   'dist/cli.js',
   'console/dist/index.html',
   'scripts/postinstall-container.mjs',
+  'container/npm-shrinkwrap.json',
 ];
 
 const requiredPrefixes = [

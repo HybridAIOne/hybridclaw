@@ -19,6 +19,7 @@ import {
   setBrowserGatewayContext,
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
+  usesGatewayManagedBrowser,
 } from './browser-tools.js';
 import {
   type DiagramFixupRequest,
@@ -29,7 +30,10 @@ import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import type { RuntimeProvider } from './providers/provider-ids.js';
+import {
+  type RuntimeProvider,
+  resolveRuntimeProviderContext,
+} from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -775,10 +779,21 @@ export function setGatewayContext(
   apiToken?: string,
   channelId?: string,
   configuredChannels?: string[],
+  browserProvider?: string,
+  sessionId?: string,
+  agentId?: string,
+  browserAllowPrivateNetwork?: boolean,
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
-  setBrowserGatewayContext(gatewayBaseUrl, gatewayApiToken);
+  setBrowserGatewayContext(
+    gatewayBaseUrl,
+    gatewayApiToken,
+    browserProvider,
+    sessionId,
+    agentId,
+    browserAllowPrivateNetwork,
+  );
   gatewayChannelId = String(channelId || '').trim();
   gatewayConfiguredChannels =
     normalizeConfiguredChannelList(configuredChannels);
@@ -795,7 +810,7 @@ export function setModelContext(
   maxTokens?: number,
   debugModelResponses = false,
 ): void {
-  currentModelProvider = provider || 'hybridai';
+  currentModelProvider = resolveRuntimeProviderContext(provider, model);
   currentModelBaseUrl = String(baseUrl || '').trim();
   currentModelApiKey = String(apiKey || '').trim();
   currentModelName = String(model || '').trim();
@@ -807,7 +822,7 @@ export function setModelContext(
       : undefined;
   currentModelDebugResponses = debugModelResponses;
   setBrowserModelContext(
-    provider,
+    currentModelProvider,
     providerMethod,
     baseUrl,
     apiKey,
@@ -1501,6 +1516,9 @@ async function resolveCurrentBrowserHost(): Promise<string> {
       currentSessionId || 'default',
     );
     const structured = parseStructuredToolOutput(snapshot);
+    if (structured?.parked === true) {
+      throw new Error('browser session parked for 2FA');
+    }
     const url = typeof structured?.url === 'string' ? structured.url : '';
     if (!url) return '';
     return new URL(url).hostname;
@@ -2363,7 +2381,7 @@ async function fixDiagramSourceWithAuxiliary(
     const fixed = await callTextAuxiliaryTask({
       runtimeContext,
       task: 'skills_hub',
-      toolName: 'diagram.fixup',
+      toolName: 'diagram_fixup',
       maxTokens: 1600,
       messages: [
         {
@@ -3591,7 +3609,7 @@ async function executeToolInternal(
     case 'browser_network':
     case 'browser_close': {
       const output =
-        name === 'browser_secret_type'
+        name === 'browser_secret_type' && !usesGatewayManagedBrowser()
           ? await executeBrowserSecretType(args)
           : await executeBrowserTool(name, args, currentSessionId || 'default');
       const structured = parseStructuredToolOutput(output);
@@ -4327,6 +4345,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Optional raw text request body. Use `json` instead for JSON payloads.',
           },
+          bodyBase64: {
+            type: 'string',
+            description:
+              'Optional base64-encoded binary request body. Use this for multipart file uploads or other non-text payloads.',
+          },
           json: {
             type: 'object',
             description:
@@ -4369,6 +4392,29 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               'privateKeySecretName',
               'scopes',
             ],
+          },
+          otcAkSk: {
+            type: 'object',
+            description:
+              'T Cloud Public / Open Telekom Cloud AK/SK signing for otc.t-systems.com API requests. The gateway reads the named stored secrets, signs the request server-side, and injects Authorization without exposing AK/SK material.',
+            properties: {
+              accessKeyIdSecretName: {
+                type: 'string',
+                description:
+                  'Stored secret name containing the OTC access key ID, for example OTC_ACCESS_KEY_ID.',
+              },
+              secretAccessKeySecretName: {
+                type: 'string',
+                description:
+                  'Stored secret name containing the OTC secret access key, for example OTC_SECRET_ACCESS_KEY.',
+              },
+              securityTokenSecretName: {
+                type: 'string',
+                description:
+                  'Optional stored secret name containing a temporary OTC session token.',
+              },
+            },
+            required: ['accessKeyIdSecretName', 'secretAccessKeySecretName'],
           },
           secretHeaders: {
             type: 'array',

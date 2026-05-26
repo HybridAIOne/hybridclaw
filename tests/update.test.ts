@@ -21,6 +21,8 @@ describe('runUpdateCommand', () => {
   const originalCwd = process.cwd();
   const originalStdinIsTTY = process.stdin.isTTY;
   const originalStdoutIsTTY = process.stdout.isTTY;
+  const originalNpmConfigUserAgent = process.env.npm_config_user_agent;
+  const originalNpmExecpath = process.env.npm_execpath;
   let tempDir = '';
 
   beforeEach(() => {
@@ -46,6 +48,16 @@ describe('runUpdateCommand', () => {
       value: originalStdoutIsTTY,
       configurable: true,
     });
+    if (originalNpmConfigUserAgent === undefined) {
+      delete process.env.npm_config_user_agent;
+    } else {
+      process.env.npm_config_user_agent = originalNpmConfigUserAgent;
+    }
+    if (originalNpmExecpath === undefined) {
+      delete process.env.npm_execpath;
+    } else {
+      process.env.npm_execpath = originalNpmExecpath;
+    }
     fs.rmSync(tempDir, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
@@ -58,12 +70,18 @@ describe('runUpdateCommand', () => {
       'hybridclaw',
     );
     fs.mkdirSync(path.join(installRoot, 'dist'), { recursive: true });
+    fs.mkdirSync(path.join(installRoot, 'scripts'), { recursive: true });
     fs.writeFileSync(
       path.join(installRoot, 'package.json'),
       JSON.stringify({
         name: '@hybridaione/hybridclaw',
         version,
       }),
+    );
+    fs.writeFileSync(
+      path.join(installRoot, 'scripts', 'postinstall-container.mjs'),
+      '',
+      'utf-8',
     );
     process.chdir(tempDir);
     process.argv = [
@@ -86,6 +104,16 @@ describe('runUpdateCommand', () => {
       if (command === 'npm' && args[0] === '--version') {
         return { status: 0, stdout: '10.0.0\n', stderr: '' };
       }
+      if (command === 'npm' && args[0] === 'rebuild') {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (
+        command === process.execPath &&
+        args[0] ===
+          path.join(installRoot, 'scripts', 'postinstall-container.mjs')
+      ) {
+        return { status: 0, stdout: '', stderr: '' };
+      }
       return { status: 1, stdout: '', stderr: '' };
     });
 
@@ -96,6 +124,8 @@ describe('runUpdateCommand', () => {
         }
       },
     }));
+
+    return { installRoot };
   }
 
   it('skips the restart message when no gateway is running', async () => {
@@ -114,7 +144,7 @@ describe('runUpdateCommand', () => {
     expect(requestExternalGatewayRestartMock).toHaveBeenCalledTimes(1);
     expect(spawnMock).toHaveBeenCalledWith(
       'npm',
-      ['install', '-g', '@hybridaione/hybridclaw@latest'],
+      ['install', '-g', '--ignore-scripts', '@hybridaione/hybridclaw@latest'],
       { stdio: 'inherit' },
     );
     const messages = logSpy.mock.calls.map((call) => call[0]);
@@ -164,6 +194,184 @@ describe('runUpdateCommand', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       'To load the new version, run: hybridclaw gateway restart',
+    );
+  });
+
+  it('runs explicit postinstall from the updated global package root', async () => {
+    const { installRoot } = setupPackageInstall('0.9.8');
+    const globalNodeModules = path.join(tempDir, 'global', 'node_modules');
+    const updatedRoot = path.join(
+      globalNodeModules,
+      '@hybridaione',
+      'hybridclaw',
+    );
+    fs.mkdirSync(path.join(updatedRoot, 'scripts'), { recursive: true });
+    fs.writeFileSync(
+      path.join(updatedRoot, 'package.json'),
+      JSON.stringify({
+        name: '@hybridaione/hybridclaw',
+        version: '0.12.0',
+      }),
+    );
+    fs.writeFileSync(
+      path.join(updatedRoot, 'scripts', 'postinstall-container.mjs'),
+      '',
+      'utf-8',
+    );
+
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      if (command === 'npm' && args[0] === 'view') {
+        return { status: 0, stdout: '0.12.0\n', stderr: '' };
+      }
+      if (command === 'npm' && args[0] === '--version') {
+        return { status: 0, stdout: '10.0.0\n', stderr: '' };
+      }
+      if (command === 'npm' && args.join(' ') === 'root -g') {
+        return { status: 0, stdout: `${globalNodeModules}\n`, stderr: '' };
+      }
+      if (command === 'npm' && args[0] === 'rebuild') {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (
+        command === process.execPath &&
+        args[0] ===
+          path.join(updatedRoot, 'scripts', 'postinstall-container.mjs')
+      ) {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (
+        command === process.execPath &&
+        args[0] ===
+          path.join(installRoot, 'scripts', 'postinstall-container.mjs')
+      ) {
+        return { status: 12, stdout: '', stderr: 'old postinstall' };
+      }
+      return { status: 1, stdout: '', stderr: '' };
+    });
+
+    const { runUpdateCommand } = await import('../src/update.js');
+    await runUpdateCommand(['--yes'], '0.9.8');
+
+    expect(spawnSyncMock).toHaveBeenCalledWith('npm', ['root', '-g'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      'npm',
+      [
+        'rebuild',
+        'better-sqlite3',
+        'node-pty',
+        'onnxruntime-node',
+        '--ignore-scripts=false',
+        '--no-audit',
+        '--fund=false',
+      ],
+      expect.objectContaining({
+        cwd: updatedRoot,
+        stdio: 'inherit',
+      }),
+    );
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      process.execPath,
+      [path.join(updatedRoot, 'scripts', 'postinstall-container.mjs')],
+      { stdio: 'inherit' },
+    );
+  });
+
+  it('runs explicit postinstall from the updated bun global package root', async () => {
+    const { installRoot } = setupPackageInstall('0.9.8');
+    const globalBin = path.join(tempDir, 'bun-global', 'bin');
+    const globalNodeModules = path.join(
+      tempDir,
+      'bun-global',
+      'install',
+      'global',
+      'node_modules',
+    );
+    const updatedRoot = path.join(
+      globalNodeModules,
+      '@hybridaione',
+      'hybridclaw',
+    );
+    fs.mkdirSync(path.join(updatedRoot, 'scripts'), { recursive: true });
+    fs.writeFileSync(
+      path.join(updatedRoot, 'package.json'),
+      JSON.stringify({
+        name: '@hybridaione/hybridclaw',
+        version: '0.12.0',
+      }),
+    );
+    fs.writeFileSync(
+      path.join(updatedRoot, 'scripts', 'postinstall-container.mjs'),
+      '',
+      'utf-8',
+    );
+    process.env.npm_config_user_agent =
+      'bun/1.2.0 npm/? node/v22.22.3 darwin arm64';
+
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      if (command === 'npm' && args[0] === 'view') {
+        return { status: 0, stdout: '0.12.0\n', stderr: '' };
+      }
+      if (command === 'bun' && args[0] === '--version') {
+        return { status: 0, stdout: '1.2.0\n', stderr: '' };
+      }
+      if (command === 'bun' && args.join(' ') === 'pm bin -g') {
+        return { status: 0, stdout: `${globalBin}\n`, stderr: '' };
+      }
+      if (command === 'npm' && args[0] === 'rebuild') {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (
+        command === process.execPath &&
+        args[0] ===
+          path.join(updatedRoot, 'scripts', 'postinstall-container.mjs')
+      ) {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (
+        command === process.execPath &&
+        args[0] ===
+          path.join(installRoot, 'scripts', 'postinstall-container.mjs')
+      ) {
+        return { status: 12, stdout: '', stderr: 'old postinstall' };
+      }
+      return { status: 1, stdout: '', stderr: '' };
+    });
+
+    const { runUpdateCommand } = await import('../src/update.js');
+    await runUpdateCommand(['--yes'], '0.9.8');
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      'bun',
+      ['add', '-g', '--ignore-scripts', '@hybridaione/hybridclaw@latest'],
+      { stdio: 'inherit' },
+    );
+    expect(spawnSyncMock).toHaveBeenCalledWith('bun', ['pm', 'bin', '-g'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      'npm',
+      [
+        'rebuild',
+        'better-sqlite3',
+        'node-pty',
+        'onnxruntime-node',
+        '--ignore-scripts=false',
+        '--no-audit',
+        '--fund=false',
+      ],
+      expect.objectContaining({
+        cwd: updatedRoot,
+        stdio: 'inherit',
+      }),
+    );
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      process.execPath,
+      [path.join(updatedRoot, 'scripts', 'postinstall-container.mjs')],
+      { stdio: 'inherit' },
     );
   });
 });

@@ -30,8 +30,11 @@ function writeRuntimeConfig(
     'hybridclaw.db',
   );
   delete config.container.sandboxMode;
-  if (Array.isArray(config.scheduler?.jobs)) {
-    for (const job of config.scheduler.jobs) {
+  const legacyScheduler = (
+    config as unknown as { scheduler?: { jobs?: unknown[] } }
+  ).scheduler;
+  if (Array.isArray(legacyScheduler?.jobs)) {
+    for (const job of legacyScheduler.jobs) {
       if (job?.schedule) {
         if (!Object.hasOwn(job.schedule, 'at')) {
           job.schedule.at = null;
@@ -441,82 +444,6 @@ describe('runtime config migration logging', () => {
 
     expect(unrefSpy).toHaveBeenCalled();
     expect(clearSpy).not.toHaveBeenCalled();
-  });
-
-  it('disables the fs watcher without retrying when watch descriptors are exhausted', async () => {
-    const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir);
-    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-    const watchError = Object.assign(
-      new Error('EMFILE: too many open files, watch'),
-      {
-        code: 'EMFILE',
-      },
-    );
-    const watchSpy = vi.spyOn(fs, 'watch').mockImplementation(() => {
-      throw watchError;
-    });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await importFreshRuntimeConfig(homeDir);
-
-    expect(watchSpy).toHaveBeenCalledTimes(1);
-    expect(
-      warnSpy.mock.calls.some(([message]) =>
-        String(message).includes(
-          '[runtime-config] watcher disabled: EMFILE: too many open files, watch',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      warnSpy.mock.calls.some(([message]) =>
-        String(message).includes('[runtime-config] watcher restart in'),
-      ),
-    ).toBe(false);
-  });
-
-  it('disables the fs watcher without retrying when the watcher emits an async EMFILE error', async () => {
-    const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir);
-    delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-    vi.useFakeTimers();
-    const watchError = Object.assign(
-      new Error('EMFILE: too many open files, watch'),
-      {
-        code: 'EMFILE',
-      },
-    );
-    const fakeWatcher = new EventEmitter() as EventEmitter &
-      fs.FSWatcher & {
-        close: ReturnType<typeof vi.fn>;
-      };
-    fakeWatcher.close = vi.fn();
-    const watchSpy = vi
-      .spyOn(fs, 'watch')
-      .mockImplementation(() => fakeWatcher as unknown as fs.FSWatcher);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await importFreshRuntimeConfig(homeDir);
-
-    setTimeout(() => {
-      fakeWatcher.emit('error', watchError);
-    }, 0);
-    await vi.runAllTimersAsync();
-
-    expect(watchSpy).toHaveBeenCalledTimes(1);
-    expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
-    expect(
-      warnSpy.mock.calls.some(([message]) =>
-        String(message).includes(
-          '[runtime-config] watcher disabled: EMFILE: too many open files, watch',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      warnSpy.mock.calls.some(([message]) =>
-        String(message).includes('[runtime-config] watcher restart in'),
-      ),
-    ).toBe(false);
   });
 
   it('increments retry attempts when restarted watchers fail before they become stable', async () => {

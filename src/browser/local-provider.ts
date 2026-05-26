@@ -12,9 +12,11 @@ import {
 } from './profile-dir.js';
 import type {
   BrowserProvider,
+  BrowserProviderCapabilities,
   BrowserSession,
   SessionOptions,
 } from './provider.js';
+import { DEFAULT_BROWSER_PROVIDER_CAPABILITIES } from './provider.js';
 
 type PlaywrightPage = PlaywrightPageShape;
 type PlaywrightContext = PlaywrightContextShape<PlaywrightPage>;
@@ -37,6 +39,7 @@ export interface LocalBrowserProviderOptions {
   dataDir?: string;
   profileRoot?: string;
   headed?: boolean;
+  allowPrivateNetwork?: boolean;
   playwright?: LocalBrowserPlaywrightModule;
   secretAudit?: (handle: SecretHandle, reason: string) => void;
 }
@@ -83,9 +86,14 @@ export class LocalBrowserProvider implements BrowserProvider {
       page,
       this.options.secretAudit,
       opts.metering,
+      this.options.allowPrivateNetwork,
     );
     this.contexts.set(session, context);
     return session;
+  }
+
+  getCapabilities(): BrowserProviderCapabilities {
+    return DEFAULT_BROWSER_PROVIDER_CAPABILITIES;
   }
 
   async closeSession(session: BrowserSession): Promise<void> {

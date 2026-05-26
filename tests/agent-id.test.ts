@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   AgentIdentityValidationError,
+  deriveLocalAgentIdentity,
   formatAgentIdentity,
   formatLocalInstanceIdFromUuid,
+  formatLocalOwnerUserId,
   isAgentIdentityComponent,
   isCanonicalAgentIdentity,
   parseAgentIdentity,
@@ -107,6 +109,25 @@ describe('canonical agent identities', () => {
       'user',
     );
     expect(slugifyAgentIdentityComponent(' !!! ', 'local')).toBe('local');
+  });
+
+  test('derives local owner user ids with the local authority by default', () => {
+    expect(formatLocalOwnerUserId(' Benedikt ')).toBe('benedikt@local');
+    expect(formatLocalOwnerUserId('Ada@HybridAI')).toBe('ada@hybridai');
+    expect(formatLocalOwnerUserId('')).toBe('local@local');
+  });
+
+  test('derives local agent identities from agent id, owner, and instance id', () => {
+    expect(
+      deriveLocalAgentIdentity({
+        agentId: 'Research Agent',
+        owner: 'Benedikt',
+        instanceId: 'inst-test',
+      }),
+    ).toEqual({
+      canonicalId: 'research-agent@benedikt@inst-test',
+      ownerUserId: 'benedikt@local',
+    });
   });
 });
 

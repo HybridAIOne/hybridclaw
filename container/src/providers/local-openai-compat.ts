@@ -803,6 +803,7 @@ export async function callLocalOpenAICompatProviderStream(
       : undefined;
     if (!choice) return;
 
+    let usedMessageContent = false;
     if (choice.message) {
       if (typeof choice.message.role === 'string' && choice.message.role) {
         role = choice.message.role;
@@ -814,6 +815,7 @@ export async function callLocalOpenAICompatProviderStream(
           : nextRawContent;
         rawTextContent = nextRawContent;
         if (delta) {
+          usedMessageContent = true;
           flushReasoningPreview();
           if (qwenVisibleFilter) {
             qwenVisibleFilter.push(delta);
@@ -860,7 +862,11 @@ export async function callLocalOpenAICompatProviderStream(
       if (typeof choice.delta.role === 'string' && choice.delta.role) {
         role = choice.delta.role;
       }
-      if (typeof choice.delta.content === 'string' && choice.delta.content) {
+      if (
+        !usedMessageContent &&
+        typeof choice.delta.content === 'string' &&
+        choice.delta.content
+      ) {
         rawTextContent += choice.delta.content;
         flushReasoningPreview();
         if (qwenVisibleFilter) {

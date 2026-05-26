@@ -1353,6 +1353,7 @@
     const openSchedulerButtonEl = document.getElementById('openSchedulerButton');
     const urlParams = new URLSearchParams(window.location.search);
     const queryToken = urlParams.get('token') || '';
+    const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
     let apiToken = queryToken || localStorage.getItem('hybridclaw_token') || '';
     const savedOutputState = loadOpenOutputState();
 
@@ -1377,6 +1378,59 @@
 
     if (queryToken) {
       localStorage.setItem('hybridclaw_token', queryToken);
+    }
+
+    function hasStoredWebToken() {
+      return Boolean((localStorage.getItem('hybridclaw_token') || '').trim());
+    }
+
+    function localWebSurfacePath(path) {
+      if (!hasStoredWebToken()) return path;
+      const url = new URL(path, window.location.origin);
+      url.searchParams.set(LOCAL_TOKEN_BOOTSTRAP_PARAM, '1');
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+
+    function navigateLocalWebSurface(path) {
+      window.location.assign(localWebSurfacePath(path));
+    }
+
+    function localWebSurfaceLinkPath(anchor) {
+      if (
+        anchor.target ||
+        anchor.hasAttribute('download') ||
+        anchor.origin !== window.location.origin
+      ) {
+        return null;
+      }
+      if (anchor.pathname === '/chat' || anchor.pathname.startsWith('/chat/')) {
+        return `${anchor.pathname}${anchor.search}${anchor.hash}`;
+      }
+      if (anchor.pathname === '/admin' || anchor.pathname.startsWith('/admin/')) {
+        return `${anchor.pathname}${anchor.search}${anchor.hash}`;
+      }
+      return null;
+    }
+
+    function handleLocalWebSurfaceClick(event) {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target = event.target;
+      const element = target instanceof Element ? target : target?.parentElement;
+      const anchor = element?.closest('a[href]');
+      if (!anchor) return;
+      const path = localWebSurfaceLinkPath(anchor);
+      if (!path || !hasStoredWebToken()) return;
+      event.preventDefault();
+      navigateLocalWebSurface(path);
     }
 
     function loadOpenOutputState() {
@@ -2093,12 +2147,12 @@
 
       if (action === 'open-chat') {
         localStorage.setItem('hybridclaw_session', session.sessionId);
-        window.location.assign('/chat');
+        navigateLocalWebSurface('/chat');
         return;
       }
 
       if (action === 'open-admin') {
-        window.location.assign('/admin/sessions');
+        navigateLocalWebSurface('/admin/sessions');
         return;
       }
 
@@ -2189,17 +2243,18 @@
       const next = !layoutEl.classList.contains('is-sidebar-collapsed');
       setSidebarCollapsed(next);
     });
+    document.addEventListener('click', handleLocalWebSurfaceClick);
 
     openChatButtonEl.addEventListener('click', () => {
-      window.location.assign('/chat');
+      navigateLocalWebSurface('/chat');
     });
 
     openSessionsButtonEl.addEventListener('click', () => {
-      window.location.assign('/admin/sessions');
+      navigateLocalWebSurface('/admin/sessions');
     });
 
     openSchedulerButtonEl.addEventListener('click', () => {
-      window.location.assign('/admin/scheduler');
+      navigateLocalWebSurface('/admin/scheduler');
     });
 
     setSidebarCollapsed(localStorage.getItem('hybridclaw_agents_sidebar_collapsed') === '1');

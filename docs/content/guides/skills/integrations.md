@@ -135,6 +135,112 @@ providers need a reusable billing-portal login profile.
 
 ---
 
+## hubspot
+
+Read HubSpot CRM contacts, companies, deals, and properties; plan guarded deal
+stage, lifecycle stage, note, and task writes through gateway-managed bearer
+tokens.
+
+**Prerequisites** — a HubSpot Service Key, legacy private app token, or OAuth
+credential stored in HybridClaw runtime secrets. For normal single-account
+REST API use, prefer a Service Key from HubSpot **Development > Keys > Service
+keys**.
+
+```bash
+hybridclaw secret set HUBSPOT_ACCESS_TOKEN
+```
+
+or store it explicitly:
+
+```bash
+hybridclaw auth login hubspot \
+  --access-token "<hubspot-service-key>" \
+  --account sales@example.com
+```
+
+OAuth client credentials are also supported when the HubSpot account is
+installed through a public app:
+
+```bash
+hybridclaw auth login hubspot \
+  --client-id "<hubspot-oauth-client-id>" \
+  --client-secret "<hubspot-oauth-client-secret>" \
+  --refresh-token "<refresh-token>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with read-only object searches and property inspection before planning
+> writes.
+>
+> The helper uses `bearerSecretName: "HUBSPOT_ACCESS_TOKEN"` so the gateway
+> injects the bearer token server-side.
+>
+> Deal-stage updates, lifecycle-stage updates, notes, and tasks require
+> explicit operator approval.
+
+> 🎯 **Try it yourself**
+>
+> `Find HubSpot deals closing this month and group them by stage`
+>
+> `Look up the HubSpot contact for alex@example.com and show associated company and deals`
+>
+> `Plan a HubSpot note on this deal without executing it`
+
+**Troubleshooting**
+
+- **401 or 403** — verify the Service Key or token scopes include the target
+  CRM object operations.
+- **Invalid stage value** — inspect deal or lifecycle properties first and use
+  HubSpot's internal option value, not the display label.
+- **Rate limits** — narrow the search and avoid broad polling loops.
+
+---
+
+## lexware-office
+
+Work with Lexware Office contacts, invoice articles, invoices, bookkeeping
+vouchers, receipt files, posting categories, payment status, and guarded
+invoice or expense writes through the Lexware Public API.
+
+**Prerequisites** — a Lexware Office plan with Public API access and an API key
+stored in the encrypted HybridClaw runtime secret store.
+
+```bash
+hybridclaw secret set LEXWARE_OFFICE_API_KEY "<api-key>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> The helper emits `bearerSecretName: "LEXWARE_OFFICE_API_KEY"` so the gateway injects the API key server-side.
+>
+> Start with read-only calls such as `profile`, `list-contacts`, `list-invoices`, `list-expenses`, `get-payment`, and `posting-categories`.
+>
+> Invoice creation, contact creation, voucher updates, receipt uploads, and expense logging require explicit operator grant.
+>
+> Public API payment reads show payment items. The skill can score bank transactions against open invoices and write an operator-approved reconciliation note, while making clear that the public docs do not expose a direct banking-module assignment mutation.
+
+> 🎯 **Try it yourself**
+>
+> `Show the open invoices in Lexware Office`
+>
+> `Generate a draft invoice for Acme GmbH for last month's consulting hours`
+>
+> `Sync this receipt as a Reisekosten expense in Lexware Office`
+>
+> `Export a Q4 income statement plan from Lexware Office data`
+
+**Troubleshooting**
+
+- **401 or 403** — verify the key belongs to the active Lexware Office
+  organization and that Public API access is enabled.
+- **429** — reduce request rate; Lexware documents a 2-request-per-second
+  resource endpoint limit.
+- **voucher update conflict** — read the voucher again and include the current
+  `version` value before retrying with operator approval.
+
+---
+
 ## google-ads
 
 Use the Google Ads skill for GAQL performance reporting, MCC account
@@ -650,6 +756,58 @@ Return the current system time and timezone.
 > `1. What time is it right now?`
 > `2. What time is that in Tokyo?`
 > `3. How many hours until midnight UTC?`
+
+---
+
+## distil-pii-redactor
+
+Redact or anonymize PII locally with Distil-PII and `llama.cpp`, keeping
+personal data out of external model calls, logs, and chat.
+
+**Prerequisites** — `python3`, `bash`, `curl`, and `llama-server`.
+
+```bash
+hybridclaw skill install distil-pii-redactor llama-server
+bash skills/distil-pii-redactor/scripts/setup.sh
+```
+
+The setup script stores the model under `~/.hybridclaw/distil-pii` by default,
+downloads the public Distil-PII 1B GGUF model if missing, and starts
+`llama-server` on `127.0.0.1:8712`.
+
+Stop the local server when you are done:
+
+```bash
+bash skills/distil-pii-redactor/scripts/stop.sh
+```
+
+> 💡 **Tips & Tricks**
+>
+> Prefer file input and output for sensitive text so raw PII does not get
+> repeated in chat.
+>
+> The skill has no credentials because local inference does not need API
+> keys. Any downstream authenticated tool should use that tool's SecretRefs.
+>
+> Do not use `--show-entities` in normal workflows; it includes original
+> sensitive values for debugging.
+
+> 🎯 **Try it yourself**
+>
+> `Redact PII from sensitive.txt and write the result to redacted.txt`
+>
+> `Anonymize this customer-support transcript before I send it to another model`
+>
+> `Sanitize this CSV export and replace emails, phones, IBANs, and addresses with placeholders`
+
+**Troubleshooting**
+
+- **`llama-server` missing** — run
+  `hybridclaw skill install distil-pii-redactor llama-server`.
+- **Server not reachable** — rerun the setup script and confirm the local
+  server is listening on `127.0.0.1:8712`.
+- **Remote endpoint blocked** — the redactor refuses non-loopback server URLs
+  unless the operator explicitly accepts `--unsafe-allow-remote`.
 
 ---
 

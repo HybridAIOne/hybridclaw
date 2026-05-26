@@ -744,7 +744,8 @@ test('checkDocker errors when configured sandbox requires Docker and Docker is m
   expect(result.severity).toBe('error');
   expect(result.message).toContain('Docker unavailable');
   expect(result.message).toContain('sandbox mode `container` requires Docker');
-  expect(result.message).toContain('set `container.sandboxMode` to `host`');
+  expect(result.message).toContain('/config set container.sandboxMode host');
+  expect(result.message).toContain('/admin/config');
 });
 
 test('checkDocker only warns when sandbox is host and Docker is missing', async () => {

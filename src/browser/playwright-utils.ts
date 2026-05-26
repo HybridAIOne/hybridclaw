@@ -7,21 +7,29 @@ import {
   recordSecretUnsafeEscaped,
 } from '../gateway/gateway-secret-injection.js';
 import type { SecretHandle } from '../security/secret-handles.js';
-import { unsafeEscapeSecretHandle } from '../security/secret-handles.js';
+import {
+  isSecretHandle,
+  unsafeEscapeSecretHandle,
+} from '../security/secret-handles.js';
 import { normalizeSecretString as normalizeString } from '../security/secret-normalization.js';
 import {
   hardenSecretRef,
   resolveSecretHandleInput,
-  type SecretInput,
   type SecretRef,
 } from '../security/secret-refs.js';
 import type {
+  BrowserConsoleMessage,
   BrowserEvaluateFunction,
+  BrowserFillInput,
   BrowserSession,
   BrowserSessionMeteringContext,
+  BrowserWaypointEvent,
+  BrowserWaypointOptions,
   ClickOptions,
+  ConsoleMessageOptions,
   HistoryNavigationOptions,
   NavigateOptions,
+  PdfOptions,
   ScreenshotOptions,
   ScrollOptions,
   WaitOptions,
@@ -40,13 +48,22 @@ export type PlaywrightNavigationOptions = {
 export type PlaywrightPageShape = {
   evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
   screenshot(opts?: PlaywrightScreenshotOptions): Promise<Buffer | Uint8Array>;
+  pdf?(opts?: {
+    printBackground?: boolean;
+    format?: string;
+  }): Promise<Buffer | Uint8Array>;
   goto(url: string, opts?: PlaywrightNavigationOptions): Promise<unknown>;
   goBack(opts?: PlaywrightNavigationOptions): Promise<unknown>;
   goForward(opts?: PlaywrightNavigationOptions): Promise<unknown>;
   reload(opts?: PlaywrightNavigationOptions): Promise<unknown>;
   click(selector: string, opts?: { timeout?: number }): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
+  setInputFiles?(selector: string, files: string[]): Promise<void>;
   url(): string;
+  on?(
+    event: 'console',
+    handler: (message: { type(): string; text(): string }) => void,
+  ): void;
   mouse: {
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
@@ -87,6 +104,8 @@ export class PlaywrightBrowserSession<
   TPage extends PlaywrightPageShape = PlaywrightPageShape,
 > implements BrowserSession
 {
+  private readonly consoleLog: BrowserConsoleMessage[] = [];
+
   constructor(
     protected readonly page: TPage,
     private readonly secretAudit?: (
@@ -94,7 +113,19 @@ export class PlaywrightBrowserSession<
       reason: string,
     ) => void,
     private readonly metering?: BrowserSessionMeteringContext,
-  ) {}
+    private readonly allowPrivateNetwork = false,
+  ) {
+    this.page.on?.('console', (message) => {
+      this.consoleLog.push({
+        level: message.type(),
+        text: message.text(),
+        timestamp: Date.now(),
+      });
+      if (this.consoleLog.length > 500) {
+        this.consoleLog.splice(0, this.consoleLog.length - 500);
+      }
+    });
+  }
 
   async evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T> {
     return await this.page.evaluate(fn);
@@ -109,7 +140,9 @@ export class PlaywrightBrowserSession<
   }
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
-    const parsed = await assertBrowserNavigationUrl(url);
+    const parsed = await assertBrowserNavigationUrl(url, {
+      allowPrivateNetwork: this.allowPrivateNetwork,
+    });
     await this.page.goto(parsed.toString(), toNavigationOptions(opts));
   }
 
@@ -129,7 +162,7 @@ export class PlaywrightBrowserSession<
     await this.page.click(selector, { timeout: opts?.timeoutMs });
   }
 
-  async fill(selector: string, value: SecretInput): Promise<void> {
+  async fill(selector: string, value: BrowserFillInput): Promise<void> {
     await fillBrowserField(
       this.page,
       selector,
@@ -158,6 +191,43 @@ export class PlaywrightBrowserSession<
       state: opts?.state,
       timeout: opts?.timeoutMs,
     });
+  }
+
+  async upload(selector: string, files: string[]): Promise<void> {
+    if (typeof this.page.setInputFiles !== 'function') {
+      throw new Error('Browser provider does not support file uploads.');
+    }
+    await this.page.setInputFiles(selector, files);
+  }
+
+  async pdf(opts?: PdfOptions): Promise<Buffer> {
+    if (typeof this.page.pdf !== 'function') {
+      throw new Error('Browser provider does not support PDF generation.');
+    }
+    const bytes = await this.page.pdf({
+      printBackground: opts?.printBackground,
+      format: opts?.format,
+    });
+    return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  }
+
+  async consoleMessages(
+    opts?: ConsoleMessageOptions,
+  ): Promise<BrowserConsoleMessage[]> {
+    const limit =
+      typeof opts?.limit === 'number' && Number.isFinite(opts.limit)
+        ? Math.max(0, Math.floor(opts.limit))
+        : 200;
+    const messages = this.consoleLog.slice(-limit);
+    if (opts?.clear) this.consoleLog.length = 0;
+    return messages;
+  }
+
+  async waypoint(
+    _event: BrowserWaypointEvent,
+    _opts?: BrowserWaypointOptions,
+  ): Promise<void> {
+    // Local browser providers do not emit external waypoint events.
   }
 }
 
@@ -375,12 +445,21 @@ async function fillBrowserCredentialField(
 export async function fillBrowserField(
   page: PlaywrightFillPage,
   selector: string,
-  value: SecretInput,
+  value: BrowserFillInput,
   secretAudit?: (handle: SecretHandle, reason: string) => void,
   context?: BrowserSessionMeteringContext,
 ): Promise<void> {
   if (typeof value === 'string') {
     await page.fill(selector, value);
+    return;
+  }
+  if (isSecretHandle(value)) {
+    await injectSecretIntoElement(page.locator(selector), value, {
+      selector,
+      host: resolvePageHost(page, selector),
+      context,
+      secretAudit,
+    });
     return;
   }
   await fillBrowserCredentialField(page, selector, value, secretAudit, context);

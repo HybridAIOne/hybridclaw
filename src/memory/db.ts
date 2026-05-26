@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -12,6 +12,7 @@ import {
   normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentIdentityFields,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
 import {
@@ -23,6 +24,7 @@ import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
   getRuntimeConfig,
+  type RuntimeSchedulerJob,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import {
@@ -30,8 +32,17 @@ import {
   runtimeConfigRevisionStorePath,
   syncRuntimeAssetRevisionStateInOpenDatabase,
 } from '../config/runtime-config-revisions.js';
+import {
+  AGENT_IDENTITY_COMPONENT_MAX_LENGTH,
+  deriveLocalAgentIdentity,
+  formatAgentIdentity,
+  formatLocalOwnerUserId,
+  parseAgentIdentity,
+} from '../identity/agent-id.js';
+import { parseUserId } from '../identity/user-id.js';
 import { logger } from '../logger.js';
 import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
+import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
 import {
   buildRecentChatSearchMatchQuery,
   MAX_RECENT_CHAT_SESSION_LIMIT,
@@ -62,6 +73,7 @@ import { resolveSessionRoutingScope } from '../session/session-routing.js';
 import type {
   AgentSkillScore,
   SkillAmendment,
+  SkillAmendmentProposalMetadata,
   SkillAmendmentStatus,
   SkillErrorCategory,
   SkillExecutionOutcome,
@@ -69,6 +81,8 @@ import type {
   SkillHealthMetrics,
   SkillObservation,
   SkillObservationSummary,
+  SkillOptLiteEdit,
+  SkillOptLiteRejectedEditMemory,
 } from '../skills/adaptive-skills-types.js';
 import type { SkillGuardVerdict } from '../skills/skills-guard.js';
 import type {
@@ -135,8 +149,11 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
+const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 32;
+export const DATABASE_SCHEMA_VERSION = 40;
+const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
+const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -178,6 +195,8 @@ interface ColumnInfoRow {
 
 type AgentRow = {
   id: AgentConfig['id'];
+  canonical_id: string | null;
+  owner_user_id: string | null;
   name: string | null;
   display_name: string | null;
   image_asset: string | null;
@@ -242,12 +261,18 @@ type SkillObservationErrorClusterRow = {
 
 type SkillAmendmentRow = Omit<
   SkillAmendment,
-  'guard_verdict' | 'metrics_at_proposal' | 'metrics_post_apply'
+  | 'guard_verdict'
+  | 'metrics_at_proposal'
+  | 'metrics_post_apply'
+  | 'proposal_metadata'
 > & {
   guard_verdict: string;
   metrics_at_proposal: string | null;
   metrics_post_apply: string | null;
+  proposal_metadata: string | null;
 };
+
+type SkillOptLiteRejectedEditRow = SkillOptLiteRejectedEditMemory;
 
 function getSchemaVersion(database: Database.Database): number {
   const raw = database.pragma('user_version', { simple: true });
@@ -484,8 +509,21 @@ function boardCardsNeedMigration(database: Database.Database): boolean {
   return !tableExists(database, 'board_cards');
 }
 
+function boardCardEdgesNeedMigration(database: Database.Database): boolean {
+  return (
+    !tableExists(database, 'board_card_edges') ||
+    !indexExists(database, 'idx_board_card_edges_logical_unique')
+  );
+}
+
 function threadGoalsNeedMigration(database: Database.Database): boolean {
   return !tableExists(database, 'thread_goals');
+}
+
+function budgetSoftWarnEventsNeedMigration(
+  database: Database.Database,
+): boolean {
+  return !tableExists(database, 'budget_soft_warn_events');
 }
 
 function messageAgentIdentityNeedMigration(
@@ -1002,6 +1040,8 @@ function migrateV4(database: Database.Database): void {
       total_tokens INTEGER NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0.0,
       tool_calls INTEGER NOT NULL DEFAULT 0,
+      billable_unit TEXT,
+      billable_quantity REAL NOT NULL DEFAULT 0.0,
       batch_id TEXT,
       batch_hash TEXT
     );
@@ -1435,6 +1475,7 @@ function migrateV9(
       guard_findings_count INTEGER NOT NULL DEFAULT 0,
       metrics_at_proposal TEXT,
       metrics_post_apply TEXT,
+      proposal_metadata TEXT,
       runs_since_apply INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -2411,6 +2452,294 @@ function migrateV32(database: Database.Database): void {
   recordMigration(database, 32, 'Persist per-thread standing goal state');
 }
 
+function migrateV33(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS budget_soft_warn_events (
+      agent_id TEXT NOT NULL,
+      billing_window TEXT NOT NULL,
+      emitted_at TEXT NOT NULL,
+      used REAL NOT NULL,
+      cap REAL NOT NULL,
+      currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR')),
+      percent REAL NOT NULL,
+      PRIMARY KEY (agent_id, billing_window)
+    );
+    CREATE INDEX IF NOT EXISTS idx_budget_soft_warn_events_window
+      ON budget_soft_warn_events(billing_window);
+  `);
+  recordMigration(
+    database,
+    33,
+    'Persist monthly budget soft-warning event markers',
+  );
+}
+
+function migrateV34(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('scheduler_job', 'scheduled_task')),
+      legacy_task_id INTEGER UNIQUE,
+      session_id TEXT,
+      channel_id TEXT,
+      name TEXT,
+      description TEXT,
+      agent_id TEXT,
+      board_status TEXT CHECK (board_status IS NULL OR board_status IN ('backlog', 'in_progress', 'review', 'done', 'cancelled')),
+      max_retries INTEGER,
+      schedule TEXT NOT NULL,
+      action TEXT NOT NULL,
+      delivery TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run TEXT,
+      last_status TEXT CHECK (last_status IS NULL OR last_status IN ('success', 'error')),
+      consecutive_errors INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_jobs_kind_sort
+      ON jobs(kind, sort_order, created_at);
+    CREATE INDEX IF NOT EXISTS idx_jobs_legacy_task
+      ON jobs(legacy_task_id);
+    CREATE INDEX IF NOT EXISTS idx_jobs_agent
+      ON jobs(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_jobs_board_status
+      ON jobs(board_status);
+  `);
+  recordMigration(database, 34, 'Persist scheduler jobs in SQLite');
+}
+
+function migrateV35(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'billable_unit',
+    ddl: 'billable_unit TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'billable_quantity',
+    ddl: 'billable_quantity REAL NOT NULL DEFAULT 0.0',
+    quiet,
+  });
+  if (tableExists(database, 'usage_events')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_usage_events_billable_unit_time
+        ON usage_events(billable_unit, timestamp);
+    `);
+  }
+  recordMigration(database, 35, 'Persist non-token billable usage units');
+}
+
+function backfillAgentCanonicalIdentities(database: Database.Database): void {
+  if (!tableExists(database, 'agents')) return;
+  if (!columnExists(database, 'agents', 'canonical_id')) return;
+  if (!columnExists(database, 'agents', 'owner_user_id')) return;
+
+  const ownerSelect = columnExists(database, 'agents', 'owner')
+    ? 'owner'
+    : 'NULL AS owner';
+  const rows = database
+    .prepare(
+      `SELECT id, ${ownerSelect}, canonical_id, owner_user_id
+       FROM agents
+       ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
+    )
+    .all(DEFAULT_AGENT_ID) as Array<{
+    id: string;
+    owner: string | null;
+    canonical_id: string | null;
+    owner_user_id: string | null;
+  }>;
+
+  const update = database.prepare(
+    `UPDATE agents
+     SET canonical_id = ?, owner_user_id = ?, updated_at = datetime('now')
+     WHERE id = ?`,
+  );
+  const conflictStatement =
+    prepareCanonicalAgentIdentityConflictStatement(database);
+  for (const row of rows) {
+    const existingCanonicalId = normalizeStoredCanonicalAgentId(
+      row.canonical_id,
+      row.id,
+    );
+    const existingOwnerUserId = normalizeStoredOwnerUserId(
+      row.owner_user_id,
+      row.id,
+    );
+    if (existingCanonicalId && existingOwnerUserId) continue;
+
+    const identity = allocateCanonicalAgentIdentity({
+      database,
+      conflictStatement,
+      agentId: row.id,
+      owner: row.owner,
+      ownerUserId: existingOwnerUserId || undefined,
+    });
+    update.run(
+      existingCanonicalId || identity.canonicalId,
+      existingOwnerUserId || identity.ownerUserId,
+      row.id,
+    );
+  }
+}
+
+function agentCanonicalIdentityNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    (!columnExists(database, 'agents', 'canonical_id') ||
+      !columnExists(database, 'agents', 'owner_user_id') ||
+      !indexExists(database, 'idx_agents_canonical_id') ||
+      !indexExists(database, 'idx_agents_owner_user_id'))
+  );
+}
+
+function migrateV36(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'canonical_id',
+    ddl: 'canonical_id TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'owner_user_id',
+    ddl: 'owner_user_id TEXT',
+    quiet,
+  });
+  backfillAgentCanonicalIdentities(database);
+  if (tableExists(database, 'agents')) {
+    database.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_canonical_id
+        ON agents(canonical_id)
+        WHERE canonical_id IS NOT NULL AND TRIM(canonical_id) != '';
+      CREATE INDEX IF NOT EXISTS idx_agents_owner_user_id
+        ON agents(owner_user_id);
+    `);
+  }
+  recordMigration(
+    database,
+    36,
+    'Persist canonical local agent and owner user identities',
+  );
+}
+
+function migrateV37(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS board_card_edges (
+      id TEXT PRIMARY KEY,
+      from_card_id TEXT NOT NULL REFERENCES board_cards(id),
+      to_card_id TEXT NOT NULL REFERENCES board_cards(id),
+      kind TEXT NOT NULL CHECK (kind IN ('blocks', 'related')),
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      CHECK (from_card_id <> to_card_id),
+      UNIQUE (from_card_id, to_card_id, kind)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_board_card_edges_logical_unique
+      ON board_card_edges(
+        CASE
+          WHEN kind = 'related' AND from_card_id > to_card_id THEN to_card_id
+          ELSE from_card_id
+        END,
+        CASE
+          WHEN kind = 'related' AND from_card_id > to_card_id THEN from_card_id
+          ELSE to_card_id
+        END,
+        kind
+      );
+    CREATE INDEX IF NOT EXISTS idx_board_card_edges_from
+      ON board_card_edges(from_card_id, kind);
+    CREATE INDEX IF NOT EXISTS idx_board_card_edges_to
+      ON board_card_edges(to_card_id, kind);
+  `);
+  recordMigration(database, 37, 'Persist typed board card dependency edges');
+}
+
+function migrateV38(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'skill_amendments',
+    column: 'proposal_metadata',
+    ddl: 'proposal_metadata TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(
+    database,
+    38,
+    'Persist adaptive skill amendment proposal metadata',
+  );
+}
+
+function migrateV39(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS skillopt_rejected_edits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill_name TEXT NOT NULL,
+      edit_hash TEXT NOT NULL,
+      op TEXT NOT NULL,
+      target TEXT NOT NULL,
+      content_preview TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      support_count INTEGER NOT NULL DEFAULT 1,
+      reason TEXT NOT NULL,
+      evidence_source TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      UNIQUE(skill_name, edit_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_skillopt_rejected_edits_skill_created
+      ON skillopt_rejected_edits(skill_name, created_at DESC, id DESC);
+  `);
+  recordMigration(database, 39, 'Persist rejected SkillOpt-lite edit memory');
+}
+
+function auditTimestampIndexNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'audit_events') &&
+    !indexExists(database, 'idx_audit_events_timestamp')
+  );
+}
+
+function migrateV40(database: Database.Database): void {
+  // Lets the admin audit list seek by timestamp (range pills) and id
+  // (cursor paging) when there's no event_type/session predicate to lean
+  // on; without it the query table-scans audit_events. Added as its own
+  // migration (not folded into migrateV1) so existing databases — which
+  // never re-run migrateV1 — actually pick the index up.
+  if (tableExists(database, 'audit_events')) {
+    database.exec(
+      'CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events(timestamp)',
+    );
+  }
+  recordMigration(
+    database,
+    40,
+    'Index audit_events(timestamp) for admin audit range + cursor paging',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2487,6 +2816,26 @@ function runMigrations(
   if (currentVersion < 32 || threadGoalsNeedMigration(database)) {
     migrateV32(database);
   }
+  if (currentVersion < 33 || budgetSoftWarnEventsNeedMigration(database)) {
+    migrateV33(database);
+  }
+  if (currentVersion < 34) migrateV34(database);
+  if (currentVersion < 35) migrateV35(database, opts);
+  if (currentVersion < 36 || agentCanonicalIdentityNeedMigration(database)) {
+    migrateV36(database, opts);
+  }
+  if (currentVersion < 37 || boardCardEdgesNeedMigration(database)) {
+    migrateV37(database);
+  }
+  if (currentVersion < 38) {
+    migrateV38(database, opts);
+  }
+  if (currentVersion < 39) {
+    migrateV39(database);
+  }
+  if (currentVersion < 40 || auditTimestampIndexNeedMigration(database)) {
+    migrateV40(database);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2504,8 +2853,13 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   db = new Database(dbPath);
   usageEventBatchInsertStatement = null;
   db.pragma('journal_mode = WAL');
+  // SQLite foreign-key enforcement is connection-scoped, so enable it before
+  // running migrations or accepting writes on this writable connection.
+  db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
   runMigrations(db, opts);
+  migrateLegacyTasksToJobsTable();
+  ensureDefaultSchedulerJobs();
   databaseInitialized = true;
   if (!quiet) logger.info({ path: dbPath }, 'Database initialized');
 }
@@ -2746,7 +3100,159 @@ function parseAgentA2AConfig(rawConfig: string | null): AgentConfig['a2a'] {
   }
 }
 
+function normalizeStoredIdentityField(
+  value: string | null,
+  parseIdentity: (normalized: string) => { id: string },
+  params: {
+    agentId: string;
+    lengthKey: string;
+    warning: string;
+  },
+): string {
+  const normalized = value?.trim() || '';
+  if (!normalized) return '';
+  try {
+    return parseIdentity(normalized).id;
+  } catch {
+    logger.warn(
+      { agentId: params.agentId, [params.lengthKey]: normalized.length },
+      params.warning,
+    );
+    return '';
+  }
+}
+
+function normalizeStoredCanonicalAgentId(
+  value: string | null,
+  agentId: string,
+): string {
+  return normalizeStoredIdentityField(value, parseAgentIdentity, {
+    agentId,
+    lengthKey: 'canonicalIdLength',
+    warning: 'Ignoring invalid persisted canonical agent identity',
+  });
+}
+
+function normalizeStoredOwnerUserId(
+  value: string | null,
+  agentId: string,
+): string {
+  return normalizeStoredIdentityField(value, parseUserId, {
+    agentId,
+    lengthKey: 'ownerUserIdLength',
+    warning: 'Ignoring invalid persisted agent owner user id',
+  });
+}
+
+function prepareCanonicalAgentIdentityConflictStatement(
+  database: Database.Database,
+): Database.Statement | null {
+  if (!tableExists(database, 'agents')) return null;
+  if (!columnExists(database, 'agents', 'canonical_id')) return null;
+  return database.prepare(
+    `SELECT id
+     FROM agents
+     WHERE canonical_id = ? AND id != ?
+     LIMIT 1`,
+  );
+}
+
+function canonicalAgentIdentityExists(
+  statement: Database.Statement,
+  canonicalId: string,
+  agentId: string,
+): boolean {
+  const row = statement.get(canonicalId, agentId) as { id: string } | undefined;
+  return Boolean(row);
+}
+
+function addCollisionSuffixToAgentSlug(slug: string, index: number): string {
+  const suffix = `-${index}`;
+  return `${slug.slice(0, AGENT_IDENTITY_COMPONENT_MAX_LENGTH - suffix.length)}${suffix}`;
+}
+
+function ownerUserIdMatchesCanonicalAgentId(
+  canonicalId: string,
+  ownerUserId: string | undefined,
+): boolean {
+  if (!ownerUserId) return false;
+  try {
+    normalizeAgentIdentityFields({
+      canonicalId,
+      ownerUserId,
+      path: 'agents',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isDefaultPlaceholderIdentity(
+  agent: AgentConfig | null | undefined,
+): boolean {
+  return (
+    Boolean(agent) &&
+    !agent?.owner &&
+    agent?.ownerUserId === DEFAULT_LOCAL_OWNER_USER_ID
+  );
+}
+
+function allocateCanonicalAgentIdentity(params: {
+  database: Database.Database;
+  conflictStatement?: Database.Statement | null;
+  agentId: string;
+  owner?: string | null;
+  ownerUserId?: string | null;
+}): { canonicalId: string; ownerUserId: string } {
+  const identity = deriveLocalAgentIdentity({
+    agentId: params.agentId,
+    owner: params.owner ?? undefined,
+    ownerUserId: params.ownerUserId ?? undefined,
+  });
+  const conflictStatement =
+    params.conflictStatement ??
+    prepareCanonicalAgentIdentityConflictStatement(params.database);
+  if (!conflictStatement) return identity;
+  if (
+    !canonicalAgentIdentityExists(
+      conflictStatement,
+      identity.canonicalId,
+      params.agentId,
+    )
+  ) {
+    return identity;
+  }
+
+  const parsed = parseAgentIdentity(identity.canonicalId);
+  for (let index = 2; index <= AGENT_CANONICAL_ID_COLLISION_LIMIT; index += 1) {
+    const canonicalId = formatAgentIdentity(
+      addCollisionSuffixToAgentSlug(parsed.agentSlug, index),
+      parsed.userSlug,
+      parsed.instanceId,
+    );
+    if (
+      !canonicalAgentIdentityExists(
+        conflictStatement,
+        canonicalId,
+        params.agentId,
+      )
+    ) {
+      return {
+        canonicalId,
+        ownerUserId: identity.ownerUserId,
+      };
+    }
+  }
+
+  throw new Error(
+    `Could not allocate a unique canonical agent identity for ${params.agentId}.`,
+  );
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
+  const canonicalId = normalizeStoredCanonicalAgentId(row.canonical_id, row.id);
+  const ownerUserId = normalizeStoredOwnerUserId(row.owner_user_id, row.id);
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
   const imageAsset = row.image_asset?.trim() || '';
@@ -2764,6 +3270,8 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const a2a = parseAgentA2AConfig(row.a2a);
   return {
     id: row.id,
+    ...(canonicalId ? { canonicalId } : {}),
+    ...(ownerUserId ? { ownerUserId } : {}),
     ...(name ? { name } : {}),
     ...(displayName ? { displayName } : {}),
     ...(imageAsset ? { imageAsset } : {}),
@@ -2786,7 +3294,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, created_at, updated_at';
+  'id, canonical_id, owner_user_id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -2817,6 +3325,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   if (!normalizedId) {
     throw new Error('Agent id is required.');
   }
+  const existingAgent = getAgentById(normalizedId);
   const normalizedName = agent.name?.trim() || null;
   const normalizedDisplayName = agent.displayName?.trim() || null;
   const normalizedImageAsset = agent.imageAsset?.trim() || null;
@@ -2834,11 +3343,53 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     agent.escalationTarget,
   );
   const normalizedA2A = serializeAgentA2AConfig(agent.a2a);
+  const explicitIdentity = normalizeAgentIdentityFields({
+    canonicalId: agent.canonicalId,
+    ownerUserId: agent.ownerUserId,
+    path: 'agents',
+  });
+  const explicitOwnerUserId = explicitIdentity.ownerUserId || '';
+  const explicitCanonicalId = explicitIdentity.canonicalId || '';
+  const shouldReplaceDefaultIdentity =
+    !explicitOwnerUserId &&
+    !explicitCanonicalId &&
+    Boolean(normalizedOwner) &&
+    isDefaultPlaceholderIdentity(existingAgent);
+  const existingOwnerUserId = shouldReplaceDefaultIdentity
+    ? undefined
+    : existingAgent?.ownerUserId;
+  const existingCanonicalId = shouldReplaceDefaultIdentity
+    ? undefined
+    : existingAgent?.canonicalId;
+  const compatibleExistingOwnerUserId =
+    explicitCanonicalId && !explicitOwnerUserId
+      ? ownerUserIdMatchesCanonicalAgentId(
+          explicitCanonicalId,
+          existingOwnerUserId,
+        )
+        ? existingOwnerUserId
+        : undefined
+      : existingOwnerUserId;
+  const normalizedOwnerUserId =
+    explicitOwnerUserId || compatibleExistingOwnerUserId || null;
+  const identity = explicitCanonicalId
+    ? null
+    : allocateCanonicalAgentIdentity({
+        database: db,
+        agentId: normalizedId,
+        owner: normalizedOwner,
+        ownerUserId: normalizedOwnerUserId,
+      });
+  const canonicalId =
+    explicitCanonicalId || existingCanonicalId || identity?.canonicalId || null;
+  const ownerUserId = normalizedOwnerUserId || identity?.ownerUserId || null;
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
     `INSERT INTO agents (
        id,
+       canonical_id,
+       owner_user_id,
        name,
        display_name,
        image_asset,
@@ -2857,8 +3408,10 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        a2a,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
+       canonical_id = excluded.canonical_id,
+       owner_user_id = excluded.owner_user_id,
        name = excluded.name,
        display_name = excluded.display_name,
        image_asset = excluded.image_asset,
@@ -2878,6 +3431,8 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
+    canonicalId,
+    ownerUserId,
     normalizedName,
     normalizedDisplayName,
     normalizedImageAsset,
@@ -3515,12 +4070,166 @@ export interface RecordUsageEventEntry {
   toolCalls?: number;
   costUsd?: number;
   timestamp?: string;
+  billableUnit?: string;
+  billableQuantity?: number;
 }
 
 export interface RecordUsageEventBatchEntry extends RecordUsageEventEntry {
   id?: string;
   batchId?: string;
   batchHash?: string;
+}
+
+export type UsageRecordSubscriber = (agentIds: string[]) => unknown;
+
+export interface BudgetSoftWarnMarkerEntry {
+  agentId: string;
+  billingWindow: string;
+  emittedAt: string;
+  used: number;
+  cap: number;
+  currency: 'USD' | 'EUR';
+  percent: number;
+}
+
+export type MonthlySpendUsdByAgent = Map<string, number>;
+
+function schedulerJobToDbValues(job: RuntimeSchedulerJob): {
+  name: string | null;
+  description: string | null;
+  agentId: string | null;
+  boardStatus: string | null;
+  maxRetries: number | null;
+  schedule: string;
+  action: string;
+  delivery: string;
+  enabled: number;
+} {
+  return {
+    name: job.name?.trim() || null,
+    description: job.description?.trim() || null,
+    agentId: job.agentId?.trim() || null,
+    boardStatus: job.boardStatus || null,
+    maxRetries:
+      typeof job.maxRetries === 'number' && Number.isFinite(job.maxRetries)
+        ? Math.floor(job.maxRetries)
+        : null,
+    schedule: JSON.stringify(job.schedule),
+    action: JSON.stringify(job.action),
+    delivery: JSON.stringify(job.delivery),
+    enabled: job.enabled ? 1 : 0,
+  };
+}
+
+function nextSchedulerJobSortOrder(): number {
+  const row = queryOne<{ next_order: number | null }>(
+    db,
+    "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM jobs WHERE kind = 'scheduler_job'",
+  );
+  return Math.max(0, Math.floor(row?.next_order ?? 0));
+}
+
+function schedulerJobExists(jobId: string): boolean {
+  const row = queryOne<{ id: string }, [string]>(
+    db,
+    "SELECT id FROM jobs WHERE kind = 'scheduler_job' AND id = ?",
+    jobId,
+  );
+  return Boolean(row);
+}
+
+function upsertDefaultSchedulerJob(job: RuntimeSchedulerJob): void {
+  const jobId = job.id.trim();
+  if (!jobId) return;
+  const values = schedulerJobToDbValues({ ...job, id: jobId });
+  db.prepare(
+    `INSERT INTO jobs
+      (id, kind, name, description, agent_id, board_status, max_retries, schedule, action, delivery, enabled, sort_order, created_at, updated_at)
+     VALUES (?, 'scheduler_job', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+     ON CONFLICT(id) DO NOTHING`,
+  ).run(
+    jobId,
+    values.name,
+    values.description,
+    values.agentId,
+    values.boardStatus,
+    values.maxRetries,
+    values.schedule,
+    values.action,
+    values.delivery,
+    values.enabled,
+    nextSchedulerJobSortOrder(),
+  );
+}
+
+function ensureDefaultSchedulerJobs(): void {
+  const defaults = [
+    DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB as RuntimeSchedulerJob,
+  ];
+  for (const job of defaults) {
+    if (schedulerJobExists(job.id)) continue;
+    upsertDefaultSchedulerJob(job);
+  }
+}
+
+function migrateLegacyTasksToJobsTable(): void {
+  if (!tableExists(db, 'tasks')) return;
+  const legacyTasks = queryAll<ScheduledTask>(
+    db,
+    'SELECT * FROM tasks ORDER BY id ASC',
+  );
+  if (legacyTasks.length === 0) return;
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO jobs
+      (id, kind, legacy_task_id, session_id, channel_id, schedule, action, delivery,
+       enabled, last_run, last_status, consecutive_errors, sort_order, created_at, updated_at)
+     VALUES (?, 'scheduled_task', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+  );
+  const transaction = db.transaction((tasks: ScheduledTask[]) => {
+    for (const task of tasks) {
+      const schedule: RuntimeSchedulerJob['schedule'] = task.run_at
+        ? { kind: 'at', at: task.run_at, everyMs: null, expr: null, tz: '' }
+        : task.every_ms
+          ? {
+              kind: 'every',
+              at: null,
+              everyMs: task.every_ms,
+              expr: null,
+              tz: '',
+            }
+          : {
+              kind: 'cron',
+              at: null,
+              everyMs: null,
+              expr: task.cron_expr || '',
+              tz: '',
+            };
+      insert.run(
+        `task:${task.id}`,
+        task.id,
+        task.session_id,
+        task.channel_id,
+        JSON.stringify(schedule),
+        JSON.stringify({ kind: 'agent_turn', message: task.prompt }),
+        JSON.stringify({
+          kind: 'channel',
+          channel: 'session',
+          to: task.channel_id,
+          webhookUrl: '',
+        }),
+        task.enabled,
+        task.last_run,
+        task.last_status === 'success' || task.last_status === 'error'
+          ? task.last_status
+          : null,
+        Math.max(0, Math.floor(task.consecutive_errors || 0)),
+        0,
+        task.created_at,
+      );
+    }
+  });
+  transaction(legacyTasks);
 }
 
 type NormalizedUsageEventRow = {
@@ -3534,9 +4243,19 @@ type NormalizedUsageEventRow = {
   totalTokens: number;
   costUsd: number;
   toolCalls: number;
+  billableUnit: string | null;
+  billableQuantity: number;
   batchId: string | null;
   batchHash: string | null;
 };
+
+function normalizeBillableUnit(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (!/^[a-z][a-z0-9._-]{0,62}$/u.test(normalized)) return null;
+  return normalized;
+}
 
 function normalizeUsageEntry(
   entry: RecordUsageEventBatchEntry,
@@ -3566,6 +4285,8 @@ function normalizeUsageEntry(
     totalTokens,
     costUsd: normalizeUsageCost(entry.costUsd),
     toolCalls: normalizeUsageNumber(entry.toolCalls),
+    billableUnit: normalizeBillableUnit(entry.billableUnit),
+    billableQuantity: normalizeUsageCost(entry.billableQuantity),
     batchId:
       typeof entry.batchId === 'string' && entry.batchId.trim()
         ? entry.batchId.trim()
@@ -3577,12 +4298,99 @@ function normalizeUsageEntry(
   };
 }
 
+export function subscribeUsageRecords(
+  subscriber: UsageRecordSubscriber,
+): () => void {
+  usageRecordSubscribers.add(subscriber);
+  return () => {
+    usageRecordSubscribers.delete(subscriber);
+  };
+}
+
+function notifyUsageRecords(agentIds: Iterable<string>): void {
+  if (usageRecordSubscribers.size === 0) return;
+  const normalizedAgentIds = Array.from(
+    new Set(
+      Array.from(agentIds)
+        .map((agentId) => agentId.trim())
+        .filter(Boolean),
+    ),
+  );
+  if (normalizedAgentIds.length === 0) return;
+
+  queueMicrotask(() => {
+    notifyUsageRecordSubscribers(normalizedAgentIds);
+  });
+}
+
+function notifyUsageRecordSubscribers(agentIds: string[]): void {
+  let subscriberIndex = 0;
+  for (const subscriber of usageRecordSubscribers) {
+    subscriberIndex += 1;
+    try {
+      subscriber(agentIds);
+    } catch (error) {
+      logger.warn(
+        {
+          subscriberIndex,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Usage record subscriber failed',
+      );
+    }
+  }
+}
+
+export function hasBudgetSoftWarnMarker(
+  agentId: string,
+  billingWindow: string,
+): boolean {
+  const normalizedAgentId = agentId.trim();
+  const normalizedBillingWindow = billingWindow.trim();
+  if (!normalizedAgentId || !normalizedBillingWindow) return false;
+  const row = queryOne<{ agent_id: string }, [string, string]>(
+    db,
+    `SELECT agent_id
+     FROM budget_soft_warn_events
+     WHERE agent_id = ?
+       AND billing_window = ?
+     LIMIT 1`,
+    normalizedAgentId,
+    normalizedBillingWindow,
+  );
+  return Boolean(row);
+}
+
+export function recordBudgetSoftWarnMarker(
+  entry: BudgetSoftWarnMarkerEntry,
+): boolean {
+  const agentId = entry.agentId.trim();
+  const billingWindow = entry.billingWindow.trim();
+  if (!agentId || !billingWindow) return false;
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO budget_soft_warn_events
+        (agent_id, billing_window, emitted_at, used, cap, currency, percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      agentId,
+      billingWindow,
+      entry.emittedAt,
+      normalizeUsageCost(entry.used),
+      normalizeUsageCost(entry.cap),
+      entry.currency,
+      normalizeUsageCost(entry.percent),
+    );
+  return result.changes > 0;
+}
+
 function getUsageEventBatchInsertStatement(): Database.Statement {
   if (!usageEventBatchInsertStatement) {
     usageEventBatchInsertStatement = db.prepare(
       `INSERT INTO usage_events
-        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, batch_id, batch_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity, batch_id, batch_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
   }
   return usageEventBatchInsertStatement;
@@ -3594,8 +4402,8 @@ export function recordUsageEvent(params: RecordUsageEventEntry): void {
 
   db.prepare(
     `INSERT INTO usage_events
-      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.id,
     row.sessionId,
@@ -3607,7 +4415,10 @@ export function recordUsageEvent(params: RecordUsageEventEntry): void {
     row.totalTokens,
     row.costUsd,
     row.toolCalls,
+    row.billableUnit,
+    row.billableQuantity,
   );
+  notifyUsageRecords([row.agentId]);
 }
 
 export interface UsageBatchHashRecord {
@@ -3658,12 +4469,15 @@ export function recordUsageEventBatch(
         row.totalTokens,
         row.costUsd,
         row.toolCalls,
+        row.billableUnit,
+        row.billableQuantity,
         row.batchId,
         row.batchHash,
       );
     }
   });
   transaction(normalized);
+  notifyUsageRecords(normalized.map((row) => row.agentId));
 }
 
 export function listUsageEventsByBatchId(
@@ -3797,6 +4611,10 @@ export function getUsageTotals(params?: {
 
   const callCount = normalizeUsageNumber(row.call_count);
   const totalCostUsd = normalizeUsageCost(row.total_cost_usd);
+  const billableUnits = getUsageBillableUnitTotals({
+    agentId: params?.agentId,
+    window: params?.window,
+  });
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
@@ -3805,7 +4623,45 @@ export function getUsageTotals(params?: {
     cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
     call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
+    ...(billableUnits.length > 0 ? { billable_units: billableUnits } : {}),
   };
+}
+
+export function getUsageBillableUnitTotals(params?: {
+  agentId?: string;
+  window?: UsageWindow;
+}): Array<{ unit: string; quantity: number; cost_usd: number }> {
+  const whereClauses = [
+    'billable_unit IS NOT NULL',
+    "billable_unit <> ''",
+    'billable_quantity > 0',
+  ];
+  const args: unknown[] = [];
+  applyUsageFilters({
+    whereClauses,
+    args,
+    agentId: params?.agentId,
+    window: params?.window,
+  });
+  return queryAll<
+    { unit: string; quantity: number | null; cost_usd: number | null },
+    unknown[]
+  >(
+    db,
+    `SELECT
+       billable_unit AS unit,
+       COALESCE(SUM(billable_quantity), 0.0) AS quantity,
+       COALESCE(SUM(cost_usd), 0.0) AS cost_usd
+     FROM usage_events
+     WHERE ${whereClauses.join(' AND ')}
+     GROUP BY billable_unit
+     ORDER BY billable_unit ASC`,
+    ...args,
+  ).map((row) => ({
+    unit: row.unit,
+    quantity: normalizeUsageCost(row.quantity),
+    cost_usd: normalizeUsageCost(row.cost_usd),
+  }));
 }
 
 export function monthlySpendUsd(agentId: string): number {
@@ -3818,6 +4674,40 @@ export function monthlySpendUsd(agentId: string): number {
 
 export function monthlySpendEur(agentId: string): number {
   return monthlySpendUsd(agentId) / MODEL_METADATA_USD_TO_EUR.usdPerEur;
+}
+
+export function monthlySpendUsdByAgent(
+  agentIds: string[],
+  now = new Date(),
+): MonthlySpendUsdByAgent {
+  const normalizedAgentIds = Array.from(
+    new Set(agentIds.map((agentId) => agentId.trim()).filter(Boolean)),
+  );
+  const spendByAgent = new Map<string, number>();
+  if (normalizedAgentIds.length === 0) return spendByAgent;
+
+  const placeholders = normalizedAgentIds.map(() => '?').join(', ');
+  const monthStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  ).toISOString();
+  const rows = queryAll<
+    { agent_id: string; total_cost_usd: number | null },
+    unknown[]
+  >(
+    db,
+    `SELECT agent_id,
+            COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd
+     FROM usage_events
+     WHERE timestamp >= ?
+       AND agent_id IN (${placeholders})
+     GROUP BY agent_id`,
+    monthStart,
+    ...normalizedAgentIds,
+  );
+  for (const row of rows) {
+    spendByAgent.set(row.agent_id, normalizeUsageCost(row.total_cost_usd));
+  }
+  return spendByAgent;
 }
 
 export function getSessionUsageTotals(sessionId: string): UsageTotals {
@@ -5527,6 +6417,9 @@ export function createFreshSessionInstance(
       nextSessionId,
       previousSession.id,
     );
+    db.prepare(
+      "UPDATE jobs SET session_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE kind = 'scheduled_task' AND session_id = ?",
+    ).run(nextSessionId, previousSession.id);
     copySessionKvStore(previousSession.id, nextSessionId);
   });
   rotate();
@@ -6147,9 +7040,15 @@ export function deleteSessionData(sessionId: string): {
     const deletedSemanticMemories = db
       .prepare('DELETE FROM semantic_memories WHERE session_id = ?')
       .run(value).changes;
-    const deletedTasks = db
+    const deletedLegacyTasks = db
       .prepare('DELETE FROM tasks WHERE session_id = ?')
       .run(value).changes;
+    const deletedScheduledTaskJobs = db
+      .prepare(
+        "DELETE FROM jobs WHERE kind = 'scheduled_task' AND session_id = ?",
+      )
+      .run(value).changes;
+    const deletedTasks = deletedLegacyTasks + deletedScheduledTaskJobs;
     const deletedAuditEntries = db
       .prepare('DELETE FROM audit_log WHERE session_id = ?')
       .run(value).changes;
@@ -7593,106 +8492,6 @@ export function markSessionMemoryFlush(sessionId: string): void {
   ).run(resolvedSessionId);
 }
 
-export function createTask(
-  sessionId: string,
-  channelId: string,
-  cronExpr: string,
-  prompt: string,
-  runAt?: string,
-  everyMs?: number,
-): number {
-  const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  const result = db
-    .prepare(
-      'INSERT INTO tasks (session_id, channel_id, cron_expr, prompt, run_at, every_ms) VALUES (?, ?, ?, ?, ?, ?)',
-    )
-    .run(
-      resolvedSessionId,
-      channelId,
-      cronExpr,
-      prompt,
-      runAt || null,
-      everyMs || null,
-    );
-  return result.lastInsertRowid as number;
-}
-
-export function getTasksForSession(sessionId: string): ScheduledTask[] {
-  const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  return queryAll<ScheduledTask, [string]>(
-    db,
-    'SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at DESC',
-    resolvedSessionId,
-  );
-}
-
-export function getAllTasks(): ScheduledTask[] {
-  return queryAll<ScheduledTask>(
-    db,
-    'SELECT * FROM tasks ORDER BY created_at DESC',
-  );
-}
-
-export function getAllEnabledTasks(): ScheduledTask[] {
-  return queryAll<ScheduledTask>(db, 'SELECT * FROM tasks WHERE enabled = 1');
-}
-
-export function updateTaskLastRun(taskId: number): void {
-  db.prepare(
-    "UPDATE tasks SET last_run = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
-  ).run(taskId);
-}
-
-export function markTaskSuccess(taskId: number): void {
-  db.prepare(
-    'UPDATE tasks SET last_status = ?, consecutive_errors = 0 WHERE id = ?',
-  ).run('success', taskId);
-}
-
-export function markTaskFailure(
-  taskId: number,
-  maxConsecutiveErrors = 5,
-): { disabled: boolean; consecutiveErrors: number } {
-  const row = queryOne<Pick<ScheduledTask, 'consecutive_errors'>, [number]>(
-    db,
-    'SELECT consecutive_errors FROM tasks WHERE id = ?',
-    taskId,
-  );
-  if (!row) {
-    return { disabled: false, consecutiveErrors: 0 };
-  }
-
-  const nextCount = Math.max(0, Math.floor(row.consecutive_errors || 0)) + 1;
-  const shouldDisable =
-    nextCount >= Math.max(1, Math.floor(maxConsecutiveErrors));
-  db.prepare(
-    'UPDATE tasks SET last_status = ?, consecutive_errors = ?, enabled = ? WHERE id = ?',
-  ).run('error', nextCount, shouldDisable ? 0 : 1, taskId);
-  return {
-    disabled: shouldDisable,
-    consecutiveErrors: nextCount,
-  };
-}
-
-export function toggleTask(taskId: number, enabled: boolean): void {
-  db.prepare('UPDATE tasks SET enabled = ? WHERE id = ?').run(
-    enabled ? 1 : 0,
-    taskId,
-  );
-}
-
-export function pauseTask(taskId: number): void {
-  toggleTask(taskId, false);
-}
-
-export function resumeTask(taskId: number): void {
-  toggleTask(taskId, true);
-}
-
-export function deleteTask(taskId: number): void {
-  db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
-}
-
 function parseSkillMetricsJson(raw: string | null): SkillHealthMetrics | null {
   const normalized = raw?.trim() || '';
   if (!normalized) return null;
@@ -7713,6 +8512,33 @@ function serializeSkillMetricsJson(
   if (!metrics) return null;
   try {
     return JSON.stringify(metrics);
+  } catch {
+    return null;
+  }
+}
+
+function parseSkillAmendmentProposalMetadataJson(
+  raw: string | null,
+): SkillAmendmentProposalMetadata | null {
+  const normalized = raw?.trim() || '';
+  if (!normalized) return null;
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as SkillAmendmentProposalMetadata;
+  } catch {
+    return null;
+  }
+}
+
+function serializeSkillAmendmentProposalMetadataJson(
+  metadata: SkillAmendmentProposalMetadata | null | undefined,
+): string | null {
+  if (!metadata) return null;
+  try {
+    return JSON.stringify(metadata);
   } catch {
     return null;
   }
@@ -7825,6 +8651,9 @@ function mapSkillAmendmentRow(row: SkillAmendmentRow): SkillAmendment {
     ),
     metrics_at_proposal: parseSkillMetricsJson(row.metrics_at_proposal),
     metrics_post_apply: parseSkillMetricsJson(row.metrics_post_apply),
+    proposal_metadata: parseSkillAmendmentProposalMetadataJson(
+      row.proposal_metadata,
+    ),
     runs_since_apply: Math.max(0, Math.floor(row.runs_since_apply || 0)),
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -8473,6 +9302,7 @@ export function createSkillAmendment(input: {
   guardFindingsCount?: number;
   metricsAtProposal?: SkillHealthMetrics | null;
   metricsPostApply?: SkillHealthMetrics | null;
+  proposalMetadata?: SkillAmendmentProposalMetadata | null;
   runsSinceApply?: number;
 }): SkillAmendment {
   const skillName = input.skillName.trim();
@@ -8506,8 +9336,9 @@ export function createSkillAmendment(input: {
          guard_findings_count,
          metrics_at_proposal,
          metrics_post_apply,
+         proposal_metadata,
          runs_since_apply
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       skillName,
@@ -8529,6 +9360,7 @@ export function createSkillAmendment(input: {
       Math.max(0, Math.floor(input.guardFindingsCount || 0)),
       serializeSkillMetricsJson(input.metricsAtProposal),
       serializeSkillMetricsJson(input.metricsPostApply),
+      serializeSkillAmendmentProposalMetadataJson(input.proposalMetadata),
       Math.max(0, Math.floor(input.runsSinceApply || 0)),
     );
 
@@ -8541,6 +9373,106 @@ export function createSkillAmendment(input: {
     throw new Error('Failed to read persisted skill amendment.');
   }
   return mapSkillAmendmentRow(row);
+}
+
+function skillOptLiteEditHash(edit: SkillOptLiteEdit): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        op: edit.op,
+        target: edit.target.trim(),
+        content: edit.content.trim(),
+      }),
+    )
+    .digest('hex');
+}
+
+function mapSkillOptLiteRejectedEditRow(
+  row: SkillOptLiteRejectedEditRow,
+): SkillOptLiteRejectedEditMemory {
+  return {
+    id: Math.floor(row.id),
+    skill_name: row.skill_name,
+    edit_hash: row.edit_hash,
+    op: row.op,
+    target: row.target,
+    content_preview: row.content_preview,
+    rationale: row.rationale,
+    source_type: row.source_type,
+    support_count: Math.max(1, Math.floor(row.support_count || 1)),
+    reason: row.reason,
+    evidence_source: row.evidence_source,
+    created_at: row.created_at,
+  };
+}
+
+export function recordSkillOptLiteRejectedEdits(input: {
+  skillName: string;
+  edits: SkillOptLiteEdit[];
+  reason: string;
+  evidenceSource?: 'trajectories' | 'observations' | null;
+}): number {
+  const skillName = input.skillName.trim();
+  if (!skillName || input.edits.length === 0) return 0;
+  const reason = input.reason.trim() || 'Rejected by SkillOpt-lite gate.';
+  const insert = db.prepare(
+    `INSERT INTO skillopt_rejected_edits (
+       skill_name,
+       edit_hash,
+       op,
+       target,
+       content_preview,
+       rationale,
+       source_type,
+       support_count,
+       reason,
+       evidence_source
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(skill_name, edit_hash) DO UPDATE SET
+       reason = excluded.reason,
+       evidence_source = excluded.evidence_source,
+       created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+  );
+  const transaction = db.transaction((edits: SkillOptLiteEdit[]) => {
+    let written = 0;
+    for (const edit of edits) {
+      const result = insert.run(
+        skillName,
+        skillOptLiteEditHash(edit),
+        edit.op,
+        edit.target,
+        edit.content.trim().slice(0, 200),
+        edit.rationale.trim(),
+        edit.source_type,
+        Math.max(1, Math.floor(edit.support_count || 1)),
+        reason,
+        input.evidenceSource || null,
+      );
+      written += result.changes > 0 ? 1 : 0;
+    }
+    return written;
+  });
+  return transaction(input.edits);
+}
+
+export function getSkillOptLiteRejectedEdits(input: {
+  skillName: string;
+  limit?: number;
+}): SkillOptLiteRejectedEditMemory[] {
+  const skillName = input.skillName.trim();
+  if (!skillName) return [];
+  const limit = Math.max(0, Math.min(input.limit ?? 20, 100));
+  if (limit === 0) return [];
+  return queryAll<SkillOptLiteRejectedEditRow, [string, number]>(
+    db,
+    `SELECT *
+     FROM skillopt_rejected_edits
+     WHERE skill_name = ?
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`,
+    skillName,
+    limit,
+  ).map(mapSkillOptLiteRejectedEditRow);
 }
 
 export function getSkillAmendmentById(
@@ -8855,10 +9787,92 @@ export function getWeeklyAgentAnomalyRollups(
   );
 }
 
+function escapeSqlLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
+// Shared WHERE-clause builder for the structured-audit filters (session,
+// event type, free-text query, time range). Deliberately excludes the
+// pagination cursor (`beforeId`) so the same predicates drive both the page
+// query and the total-count query.
+function buildStructuredAuditFilterClauses(params: {
+  sessionId?: string;
+  eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
+  query?: string;
+  since?: string;
+  until?: string;
+}): { clauses: string[]; values: Array<string | number> } {
+  const sessionId = String(params.sessionId || '').trim();
+  const eventType = String(params.eventType || '').trim();
+  const query = String(params.query || '').trim();
+  const since = String(params.since || '').trim();
+  const until = String(params.until || '').trim();
+  const clauses: string[] = [];
+  const values: Array<string | number> = [];
+  if (sessionId) {
+    clauses.push('session_id = ?');
+    values.push(sessionId);
+  }
+  if (eventType) {
+    if (params.eventTypeMatch === 'prefix') {
+      clauses.push("event_type LIKE ? ESCAPE '\\'");
+      values.push(`${escapeSqlLikePattern(eventType)}%`);
+    } else {
+      clauses.push('event_type = ?');
+      values.push(eventType);
+    }
+  }
+  if (query) {
+    const like = `%${query}%`;
+    clauses.push(
+      '(event_type LIKE ? OR payload LIKE ? OR session_id LIKE ? OR run_id LIKE ?)',
+    );
+    values.push(like, like, like, like);
+  }
+  if (since) {
+    clauses.push('timestamp >= ?');
+    values.push(since);
+  }
+  if (until) {
+    clauses.push('timestamp <= ?');
+    values.push(until);
+  }
+  return { clauses, values };
+}
+
+/**
+ * Count audit events matching the given filters, ignoring pagination. Lets the
+ * admin audit list report the true number of matching rows in the database
+ * rather than how many the client has paged in so far.
+ */
+export function countStructuredAuditEntries(params?: {
+  sessionId?: string;
+  eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
+  query?: string;
+  since?: string;
+  until?: string;
+}): number {
+  ensureDatabaseReady();
+  const { clauses, values } = buildStructuredAuditFilterClauses(params ?? {});
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const row = queryOne<{ count: number }, Array<string | number>>(
+    db,
+    `SELECT COUNT(*) AS count FROM audit_events ${where}`,
+    ...values,
+  );
+  return row?.count ?? 0;
+}
+
 function queryStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
+  since?: string;
+  until?: string;
+  beforeId?: number;
   limit?: number;
   maxLimit?: number;
   orderBy?: 'id' | 'seq';
@@ -8867,27 +9881,27 @@ function queryStructuredAuditEntries(params?: {
   const sessionId = String(params?.sessionId || '').trim();
   const eventType = String(params?.eventType || '').trim();
   const query = String(params?.query || '').trim();
+  const since = String(params?.since || '').trim();
+  const until = String(params?.until || '').trim();
+  const beforeId =
+    typeof params?.beforeId === 'number' && Number.isFinite(params.beforeId)
+      ? Math.max(0, Math.floor(params.beforeId))
+      : 0;
   const orderBy = params?.orderBy === 'seq' ? 'seq' : 'id';
   const sortDirection = params?.sortDirection === 'ASC' ? 'ASC' : 'DESC';
   ensureDatabaseReady();
 
-  const clauses: string[] = [];
-  const values: Array<string | number> = [];
-
-  if (sessionId) {
-    clauses.push('session_id = ?');
-    values.push(sessionId);
-  }
-  if (eventType) {
-    clauses.push('event_type = ?');
-    values.push(eventType);
-  }
-  if (query) {
-    const like = `%${query}%`;
-    clauses.push(
-      '(event_type LIKE ? OR payload LIKE ? OR session_id LIKE ? OR run_id LIKE ?)',
-    );
-    values.push(like, like, like, like);
+  const { clauses, values } = buildStructuredAuditFilterClauses({
+    sessionId,
+    eventType,
+    eventTypeMatch: params?.eventTypeMatch,
+    query,
+    since,
+    until,
+  });
+  if (beforeId > 0) {
+    clauses.push('id < ?');
+    values.push(beforeId);
   }
 
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -9013,14 +10027,24 @@ export function getStructuredAuditForSession(
 export function listStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
+  since?: string;
+  until?: string;
+  beforeId?: number;
   limit?: number;
+  maxLimit?: number;
 }): StructuredAuditEntry[] {
   return queryStructuredAuditEntries({
     sessionId: params?.sessionId,
     eventType: params?.eventType,
+    eventTypeMatch: params?.eventTypeMatch,
     query: params?.query,
+    since: params?.since,
+    until: params?.until,
+    beforeId: params?.beforeId,
     limit: params?.limit ?? 50,
+    maxLimit: params?.maxLimit,
     orderBy: 'id',
     sortDirection: 'DESC',
   });
@@ -9120,17 +10144,32 @@ export function setObservabilityOffset(
   `).run(normalized, boundedLastEventId);
 }
 
-export function getObservabilityIngestToken(tokenKey: string): string | null {
+export interface ObservabilityIngestTokenRecord {
+  token: string;
+  updatedAt: string;
+}
+
+export function getObservabilityIngestTokenRecord(
+  tokenKey: string,
+): ObservabilityIngestTokenRecord | null {
   const normalized = tokenKey.trim();
   if (!normalized) return null;
-  const row = queryOne<{ token: string }, [string]>(
+  const row = queryOne<{ token: string; updated_at: string }, [string]>(
     db,
-    'SELECT token FROM observability_ingest_tokens WHERE token_key = ?',
+    'SELECT token, updated_at FROM observability_ingest_tokens WHERE token_key = ?',
     normalized,
   );
   if (!row || typeof row.token !== 'string') return null;
   const token = row.token.trim();
-  return token || null;
+  if (!token) return null;
+  return {
+    token,
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : '',
+  };
+}
+
+export function getObservabilityIngestToken(tokenKey: string): string | null {
+  return getObservabilityIngestTokenRecord(tokenKey)?.token ?? null;
 }
 
 export function setObservabilityIngestToken(

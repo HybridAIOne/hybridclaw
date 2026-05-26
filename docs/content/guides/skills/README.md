@@ -6,13 +6,16 @@ sidebar_position: 1
 
 # Skills Catalog
 
-HybridClaw ships **50+ bundled skills** across eight categories. Each page below
+HybridClaw ships **68 bundled skills** across ten categories. Each page below
 covers every skill in its category with prerequisites, install commands,
 tips & tricks, ready-to-try example prompts, and troubleshooting.
 
 For CLI management commands see [Bundled Skills](../bundled-skills.md); for
 resolution rules and runtime internals see
 [Skills Internals](../../extensibility/skills.md).
+For authoring conventions, helper-script patterns, approval handling, and
+testing expectations see
+[Skill Authoring Best Practices](../../extensibility/skills.md#skill-authoring-best-practices).
 For production package requirements see
 [How to Ship a Business Skill](./business-skills.md).
 
@@ -29,12 +32,14 @@ For production package requirements see
 |---|---|---|
 | Office | pdf, xlsx, docx, pptx, office-workflows | [Office Skills](./office.md) |
 | Development | code-review, gh-issues, github-pr-workflow, salesforce, skill-creator, warehouse-sql | [Development Skills](./development.md) |
-| Communication | discord, channel-catchup | [Communication Skills](./communication.md) |
+| Infrastructure & Production Ops | hetzner-cloud, hetzner-dns, hetzner-storage-box, mittwald, t-cloud-public, zabbix, shelly | [Development Skills](./development.md#hetzner-devops) |
+| Communication | brand-voice, discord, channel-catchup, fax-send | [Communication Skills](./communication.md) |
 | Apple | apple-calendar, apple-music, apple-passwords | [Apple Skills](./apple.md) |
 | Productivity | feature-planning, project-manager, trello | [Productivity Skills](./productivity.md) |
 | Memory & Knowledge | llm-wiki, notion, obsidian, personality, zettelkasten | [Memory & Knowledge Skills](./memory-knowledge.md) |
 | Publishing | diagram, excalidraw, hermes3000-writing, image-generation, manim-video, video-generation, video.from-script, wordpress, write-blog-post | [Publishing Skills](./publishing.md) |
-| Integrations & Utilities | 1password, stripe, download-platform-invoices, airtable, fastbill, firecrawl, ga4, google-ads, heygen, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
+| Integrations & Utilities | 1password, stripe, download-platform-invoices, airtable, fastbill, hubspot, lexware-office, firecrawl, ga4, google-ads, heygen, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
+| Security & Privacy | distil-pii-redactor | [Integrations & Utilities](./integrations.md#distil-pii-redactor) |
 
 ## Evaluating Example Prompts
 

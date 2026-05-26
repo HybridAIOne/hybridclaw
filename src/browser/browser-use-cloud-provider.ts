@@ -9,7 +9,6 @@ import {
 import {
   hardenSecretRef,
   resolveSecretHandleInput,
-  type SecretInput,
   type SecretRef,
 } from '../security/secret-refs.js';
 import {
@@ -22,7 +21,9 @@ import {
 } from './playwright-utils.js';
 import type {
   BrowserEvaluateFunction,
+  BrowserFillInput,
   BrowserProvider,
+  BrowserProviderCapabilities,
   BrowserSession,
   BrowserSessionMeteringContext,
   ClickOptions,
@@ -33,6 +34,7 @@ import type {
   SessionOptions,
   WaitOptions,
 } from './provider.js';
+import { DEFAULT_BROWSER_PROVIDER_CAPABILITIES } from './provider.js';
 
 type BrowserUseCloudFetch = (
   input: string,
@@ -124,6 +126,7 @@ export interface BrowserUseCloudProviderOptions {
   apiKeyRef?: SecretRef;
   baseUrl?: string;
   browser?: BrowserUseCloudSessionConfig;
+  allowPrivateNetwork?: boolean;
   fetch?: BrowserUseCloudFetch;
   playwright?: BrowserUseCloudPlaywrightModule;
   pricing?: Partial<BrowserUseCloudPricing>;
@@ -317,6 +320,7 @@ class BrowserUseCloudSession implements BrowserSession {
     private readonly page: BrowserUseCloudPage,
     private readonly recordAction: (name: string) => void,
     private readonly metering: BrowserSessionMeteringContext,
+    private readonly allowPrivateNetwork: boolean | undefined,
     private readonly secretAudit?: (
       handle: SecretHandle,
       reason: string,
@@ -339,7 +343,9 @@ class BrowserUseCloudSession implements BrowserSession {
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
     this.recordAction('navigate');
-    const parsed = await assertBrowserNavigationUrl(url);
+    const parsed = await assertBrowserNavigationUrl(url, {
+      allowPrivateNetwork: this.allowPrivateNetwork,
+    });
     await this.page.goto(parsed.toString(), toNavigationOptions(opts));
   }
 
@@ -363,7 +369,7 @@ class BrowserUseCloudSession implements BrowserSession {
     await this.page.click(selector, { timeout: opts?.timeoutMs });
   }
 
-  async fill(selector: string, value: SecretInput): Promise<void> {
+  async fill(selector: string, value: BrowserFillInput): Promise<void> {
     this.recordAction('fill');
     await fillBrowserField(
       this.page,
@@ -442,6 +448,7 @@ export class BrowserUseCloudProvider implements BrowserProvider {
         page,
         (name) => this.recordActionUsage(metering, name),
         metering,
+        this.options.allowPrivateNetwork,
         this.options.secretAudit,
       );
 
@@ -486,6 +493,10 @@ export class BrowserUseCloudProvider implements BrowserProvider {
       await this.cleanupFailedLaunch(apiKeyRef, cloud, browser);
       throw error;
     }
+  }
+
+  getCapabilities(): BrowserProviderCapabilities {
+    return DEFAULT_BROWSER_PROVIDER_CAPABILITIES;
   }
 
   async closeSession(session: BrowserSession): Promise<void> {

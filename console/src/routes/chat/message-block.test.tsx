@@ -103,6 +103,39 @@ describe('MessageBlock artifacts', () => {
     ).toBeNull();
   });
 
+  it('renders artifact-only assistant turns without an empty text bubble', async () => {
+    fetchArtifactBlobMock.mockResolvedValue(
+      new Blob(['image-bytes'], { type: 'image/png' }),
+    );
+
+    const { container } = render(
+      <MessageBlock
+        message={makeMessage(
+          [
+            {
+              path: '/tmp/hybridclaw_io.png',
+              filename: 'hybridclaw_io.png',
+              mimeType: 'image/png',
+            },
+          ],
+          { content: '' },
+        )}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('p')).toBeNull();
+    expect(await screen.findByAltText('hybridclaw_io.png')).toBeTruthy();
+  });
+
   it('preserves SVG preview mime type when artifact downloads are forced attachments', async () => {
     fetchArtifactBlobMock.mockResolvedValue(
       new Blob(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], {
@@ -174,6 +207,46 @@ describe('MessageBlock artifacts', () => {
     expect(
       container.querySelector('[src*="token="], [href*="token="]'),
     ).toBeNull();
+  });
+
+  it('renders video previews from authenticated blob URLs', async () => {
+    fetchArtifactBlobMock.mockResolvedValue(
+      new Blob(['video-bytes'], { type: 'application/octet-stream' }),
+    );
+
+    const { container } = render(
+      <MessageBlock
+        message={makeMessage([
+          {
+            path: '/tmp/demo.mp4',
+            filename: 'demo.mp4',
+            mimeType: 'video/mp4',
+          },
+        ])}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        container.querySelector('video[src="blob:artifact"]'),
+      ).toBeTruthy();
+    });
+    const [previewBlob] = vi.mocked(URL.createObjectURL).mock.calls[0] ?? [];
+    expect(previewBlob).toBeInstanceOf(Blob);
+    expect((previewBlob as Blob).type).toBe('video/mp4');
+    expect(fetchArtifactBlobMock).toHaveBeenCalledWith(
+      'test-token',
+      '/tmp/demo.mp4',
+    );
   });
 
   it('renders assistant avatars through the authenticated blob helper', async () => {

@@ -48,6 +48,12 @@ interface PackageInfo {
   version: string | null;
 }
 
+const REVIEWED_NATIVE_REBUILD_PACKAGES = [
+  'better-sqlite3',
+  'node-pty',
+  'onnxruntime-node',
+];
+
 function readPackageInfo(packageJsonPath: string): PackageInfo {
   try {
     const raw = fs.readFileSync(packageJsonPath, 'utf-8');
@@ -292,21 +298,140 @@ function buildUpdateCommand(
 ): UpdateCommand {
   switch (packageManager) {
     case 'pnpm': {
-      const args = ['add', '-g', `${packageName}@latest`];
+      const args = ['add', '-g', '--ignore-scripts', `${packageName}@latest`];
       return { bin: 'pnpm', args, display: `pnpm ${args.join(' ')}` };
     }
     case 'yarn': {
-      const args = ['global', 'add', `${packageName}@latest`];
+      const args = [
+        'global',
+        'add',
+        '--ignore-scripts',
+        `${packageName}@latest`,
+      ];
       return { bin: 'yarn', args, display: `yarn ${args.join(' ')}` };
     }
     case 'bun': {
-      const args = ['add', '-g', `${packageName}@latest`];
+      const args = ['add', '-g', '--ignore-scripts', `${packageName}@latest`];
       return { bin: 'bun', args, display: `bun ${args.join(' ')}` };
     }
     default: {
-      const args = ['install', '-g', `${packageName}@latest`];
+      const args = [
+        'install',
+        '-g',
+        '--ignore-scripts',
+        `${packageName}@latest`,
+      ];
       return { bin: 'npm', args, display: `npm ${args.join(' ')}` };
     }
+  }
+}
+
+function packagePathFromNodeModulesRoot(
+  nodeModulesRoot: string | null,
+  packageName: string,
+): string | null {
+  if (!nodeModulesRoot) return null;
+  const segments = packageName.split('/').filter(Boolean);
+  if (segments.length === 0) return null;
+
+  const packageRoot = path.join(nodeModulesRoot, ...segments);
+  const info = readPackageInfo(path.join(packageRoot, 'package.json'));
+  return info.name === packageName ? packageRoot : null;
+}
+
+function resolveBunGlobalNodeModulesRoot(globalBinDir: string): string {
+  return path.resolve(globalBinDir, '..', 'install', 'global', 'node_modules');
+}
+
+function resolveUpdatedPackageRoot(
+  packageManager: PackageManager,
+  packageName: string,
+): string | null {
+  const command =
+    packageManager === 'yarn'
+      ? { bin: 'yarn', args: ['global', 'dir'] }
+      : packageManager === 'bun'
+        ? { bin: 'bun', args: ['pm', 'bin', '-g'] }
+        : { bin: packageManager, args: ['root', '-g'] };
+  const result = spawnSync(command.bin, command.args, {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (result.error || result.status !== 0) return null;
+
+  const rawRoot = (result.stdout || '').trim().split('\n').pop()?.trim();
+  if (!rawRoot) return null;
+  const nodeModulesRoot =
+    packageManager === 'yarn'
+      ? path.join(rawRoot, 'node_modules')
+      : packageManager === 'bun'
+        ? resolveBunGlobalNodeModulesRoot(rawRoot)
+        : rawRoot;
+  return packagePathFromNodeModulesRoot(nodeModulesRoot, packageName);
+}
+
+function runExplicitPostinstall(installRoot: string | null): void {
+  if (!installRoot) return;
+  const scriptPath = path.join(
+    installRoot,
+    'scripts',
+    'postinstall-container.mjs',
+  );
+  if (!fs.existsSync(scriptPath)) return;
+
+  const result = spawnSync(process.execPath, [scriptPath], {
+    stdio: 'inherit',
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      `Container dependency bootstrap failed with exit code ${result.status ?? 1}.`,
+    );
+  }
+}
+
+function buildRebuildEnv(env = process.env): NodeJS.ProcessEnv {
+  const nextEnv = { ...env };
+  delete nextEnv.npm_command;
+  delete nextEnv.npm_config_global;
+  delete nextEnv.npm_config_local_prefix;
+  delete nextEnv.npm_config_prefix;
+  delete nextEnv.npm_config_user_agent;
+  delete nextEnv.npm_execpath;
+  delete nextEnv.npm_lifecycle_event;
+  delete nextEnv.npm_lifecycle_script;
+  delete nextEnv.npm_prefix;
+  nextEnv.ONNXRUNTIME_NODE_INSTALL_CUDA = 'skip';
+  for (const key of Object.keys(nextEnv)) {
+    if (key.startsWith('npm_package_')) {
+      delete nextEnv[key];
+    }
+  }
+  return nextEnv;
+}
+
+function rebuildReviewedNativeDependencies(installRoot: string | null): void {
+  if (!installRoot) return;
+  const result = spawnSync(
+    'npm',
+    [
+      'rebuild',
+      ...REVIEWED_NATIVE_REBUILD_PACKAGES,
+      '--ignore-scripts=false',
+      '--no-audit',
+      '--fund=false',
+    ],
+    {
+      cwd: installRoot,
+      env: buildRebuildEnv(),
+      stdio: 'inherit',
+    },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      `Native dependency rebuild failed with exit code ${result.status ?? 1}.`,
+    );
   }
 }
 
@@ -440,6 +565,10 @@ export async function runUpdateCommand(
   if (exitCode !== 0) {
     throw new Error(`Update command failed with exit code ${exitCode}.`);
   }
+  const updatedRoot =
+    resolveUpdatedPackageRoot(manager, packageName) || install.root;
+  rebuildReviewedNativeDependencies(updatedRoot);
+  runExplicitPostinstall(updatedRoot);
 
   console.log('Update complete. Re-run `hybridclaw update --check` to verify.');
 

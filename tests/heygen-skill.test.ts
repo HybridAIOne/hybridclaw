@@ -1,20 +1,39 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 
-import { expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 const helperPath = path.join(process.cwd(), 'skills', 'heygen', 'heygen.cjs');
 const skillPath = path.join(process.cwd(), 'skills', 'heygen', 'SKILL.md');
 const require = createRequire(import.meta.url);
 const heygen = require('../skills/heygen/heygen.cjs');
+const ORIGINAL_HEYGEN_ASSET_CACHE_DIR = process.env.HEYGEN_ASSET_CACHE_DIR;
+
+let assetCacheDir = '';
 
 function runHelper(args: string[]) {
   return spawnSync('node', [helperPath, ...args], {
     encoding: 'utf-8',
   });
 }
+
+beforeEach(() => {
+  assetCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-heygen-'));
+  process.env.HEYGEN_ASSET_CACHE_DIR = assetCacheDir;
+});
+
+afterEach(() => {
+  if (ORIGINAL_HEYGEN_ASSET_CACHE_DIR == null) {
+    delete process.env.HEYGEN_ASSET_CACHE_DIR;
+  } else {
+    process.env.HEYGEN_ASSET_CACHE_DIR = ORIGINAL_HEYGEN_ASSET_CACHE_DIR;
+  }
+  fs.rmSync(assetCacheDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
+});
 
 test('HeyGen skill manifest declares credential and safety metadata', () => {
   const skill = fs.readFileSync(skillPath, 'utf-8');
@@ -43,6 +62,7 @@ test('HeyGen helper --help exits cleanly without exposing auth escape hatches', 
   expect(result.stdout).toContain('--output-languages <language>');
   expect(result.stdout).toContain('--translate-audio-only');
   expect(result.stdout).toContain('request <operation>');
+  expect(result.stdout).toContain('--watch');
   expect(result.stdout).toContain('classify-rate-limit');
   expect(result.stdout).not.toContain('--api-key ');
   expect(result.stdout).not.toContain('--api-key-secret');
@@ -147,6 +167,175 @@ test('HeyGen client retries 429 responses with Retry-After before succeeding', a
   expect(result.videoTranslateId).toBe('vt_123');
 });
 
+test('HeyGen client fails clearly when gateway truncates a response', async () => {
+  const {
+    executeHeyGenGatewayRequest,
+    HeyGenApiError,
+  } = require('../skills/heygen/client.cjs');
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    headers: new Headers(),
+    text: async () =>
+      JSON.stringify({
+        ok: true,
+        status: 200,
+        body: '{"data":{"avatars":[',
+        bodyTruncated: true,
+        bodyBytes: 5_100_000,
+        maxResponseBytes: 5_000_000,
+      }),
+  });
+
+  await expect(
+    executeHeyGenGatewayRequest(
+      heygen.buildRequest(['list-avatars']).httpRequest,
+      {
+        fetch: fetchMock,
+      },
+    ),
+  ).rejects.toMatchObject({
+    name: 'HeyGenApiError',
+    code: 'HEYGEN_RESPONSE_TRUNCATED',
+    retryable: false,
+  });
+  await expect(
+    executeHeyGenGatewayRequest(
+      heygen.buildRequest(['list-avatars']).httpRequest,
+      {
+        fetch: fetchMock,
+      },
+    ),
+  ).rejects.toBeInstanceOf(HeyGenApiError);
+});
+
+test('HeyGen request command summarizes large asset lists by default', async () => {
+  const previousFetch = globalThis.fetch;
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    headers: new Headers(),
+    text: async () =>
+      JSON.stringify({
+        ok: true,
+        status: 200,
+        url: 'https://api.heygen.com/v2/avatars',
+        bodyBytes: 1234,
+        maxResponseBytes: 5_000_000,
+        body: JSON.stringify({
+          data: {
+            avatars: [
+              {
+                avatar_id: 'avatar_1',
+                name: 'Presenter One',
+                gender: 'female',
+                preview_url: 'https://example.com/preview.mp4',
+              },
+              { avatar_id: 'avatar_2', name: 'Presenter Two' },
+            ],
+          },
+        }),
+      }),
+  });
+
+  try {
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const args = ['list-avatars', '--limit', '1'];
+    const result = await heygen.executeRequestCommand(args);
+
+    expect(args).toEqual([]);
+    expect(result).toMatchObject({
+      kind: 'avatar',
+      count: 2,
+      returned: 1,
+      items: [
+        {
+          id: 'avatar_1',
+          name: 'Presenter One',
+          gender: 'female',
+          previewUrl: 'https://example.com/preview.mp4',
+        },
+      ],
+    });
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.maxResponseBytes).toBe(5_000_000);
+    expect(heygen.readAssetCache('avatar')).toMatchObject([
+      {
+        id: 'avatar_1',
+        name: 'Presenter One',
+      },
+      {
+        id: 'avatar_2',
+        name: 'Presenter Two',
+      },
+    ]);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('HeyGen request command watches status with a bounded poll budget', async () => {
+  const previousFetch = globalThis.fetch;
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      text: async () =>
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          body: JSON.stringify({ data: { status: 'processing' } }),
+        }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      text: async () =>
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          body: JSON.stringify({
+            data: {
+              status: 'completed',
+              video_id: 'video_123',
+              video_url: 'https://example.com/video.mp4',
+            },
+          }),
+        }),
+    });
+
+  try {
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const result = await heygen.executeRequestCommand([
+      'video-status',
+      '--video-id',
+      'video_123',
+      '--watch',
+      '--max-polls',
+      '2',
+      '--interval-seconds',
+      '0',
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      watch: true,
+      terminal: true,
+      pollCount: 2,
+      status: 'completed',
+      result: {
+        videoId: 'video_123',
+        videoUrl: 'https://example.com/video.mp4',
+      },
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test('HeyGen client fails closed for requests missing F13 secret binding', async () => {
   const {
     executeHeyGenGatewayRequest,
@@ -219,6 +408,7 @@ test('HeyGen helper emits gateway-proxied read requests with secret header bindi
   expect(payload.httpRequest).toMatchObject({
     method: 'GET',
     url: 'https://api.heygen.com/v2/avatars',
+    maxResponseBytes: 5_000_000,
     skillName: 'heygen',
     secretHeaders: [
       {
@@ -231,6 +421,20 @@ test('HeyGen helper emits gateway-proxied read requests with secret header bindi
   expect(payload.costMeasurement.system).toBe('UsageTotals');
   expect(payload.rateLimit.retryableStatuses).toContain(429);
   expect(JSON.stringify(payload)).not.toContain('api-key-value');
+});
+
+test('HeyGen helper gives large asset discovery endpoints enough response budget', () => {
+  expect(heygen.buildRequest(['list-avatars']).httpRequest).toMatchObject({
+    url: 'https://api.heygen.com/v2/avatars',
+    maxResponseBytes: 5_000_000,
+  });
+  expect(heygen.buildRequest(['list-voices']).httpRequest).toMatchObject({
+    url: 'https://api.heygen.com/v2/voices',
+    maxResponseBytes: 5_000_000,
+  });
+  expect(
+    heygen.buildRequest(['list-translation-languages']).httpRequest,
+  ).not.toHaveProperty('maxResponseBytes');
 });
 
 test('HeyGen helper plans generate and translate requests as guarded operations', () => {
@@ -322,6 +526,127 @@ test('HeyGen helper emits generate and translate payloads with validated bodies'
       output_language: 'de',
       mode: 'fast',
     },
+  });
+});
+
+test('HeyGen helper catches display names and stale cached asset ids before API calls', () => {
+  heygen.writeAssetCache('avatar', [
+    {
+      id: 'avatar_123',
+      name: 'Adriana Business',
+    },
+  ]);
+  heygen.writeAssetCache('voice', [
+    {
+      id: 'voice_123',
+      name: 'Monika Sogam',
+    },
+  ]);
+
+  const valid = heygen.buildRequest([
+    'generate-video',
+    '--avatar-id',
+    'avatar_123',
+    '--voice-id',
+    'voice_123',
+    '--script',
+    'Approved script',
+    '--operator-grant',
+  ]);
+  expect(valid.httpRequest.json).toMatchObject({
+    avatar_id: 'avatar_123',
+    voice_id: 'voice_123',
+  });
+
+  const displayName = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'generate-video',
+    '--avatar-id',
+    'Adriana Business',
+    '--voice-id',
+    'voice_123',
+    '--script',
+    'Approved script',
+    '--operator-grant',
+  ]);
+  const staleId = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'generate-video',
+    '--avatar-id',
+    'avatar_missing',
+    '--voice-id',
+    'voice_123',
+    '--script',
+    'Approved script',
+    '--operator-grant',
+  ]);
+  const privateId = heygen.buildRequest([
+    'generate-video',
+    '--avatar-id',
+    'private_avatar',
+    '--voice-id',
+    'private_voice',
+    '--script',
+    'Approved script',
+    '--operator-grant',
+    '--skip-cache-validation',
+  ]);
+
+  expect(displayName.status).not.toBe(0);
+  expect(displayName.stderr).toContain(
+    '--avatar-id must be a HeyGen avatar id, not a display name',
+  );
+  expect(staleId.status).not.toBe(0);
+  expect(staleId.stderr).toContain(
+    '--avatar-id was not found in the cached HeyGen avatar list',
+  );
+  expect(privateId.httpRequest.json).toMatchObject({
+    avatar_id: 'private_avatar',
+    voice_id: 'private_voice',
+  });
+});
+
+test('HeyGen helper skip-cache-validation bypasses stale cache failures explicitly', () => {
+  heygen.writeAssetCache('avatar', [{ id: 'avatar_cached' }]);
+  heygen.writeAssetCache('voice', [{ id: 'voice_cached' }]);
+
+  const missingId = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'generate-video',
+    '--avatar-id',
+    'avatar_private',
+    '--voice-id',
+    'voice_cached',
+    '--script',
+    'Approved script',
+    '--operator-grant',
+  ]);
+  expect(missingId.status).not.toBe(0);
+  expect(missingId.stderr).toContain(
+    '--avatar-id was not found in the cached HeyGen avatar list',
+  );
+
+  expect(
+    heygen.buildRequest([
+      'generate-video',
+      '--avatar-id',
+      'avatar_private',
+      '--voice-id',
+      'voice_cached',
+      '--script',
+      'Approved script',
+      '--operator-grant',
+      '--skip-cache-validation',
+    ]).httpRequest.json,
+  ).toMatchObject({
+    avatar_id: 'avatar_private',
+    voice_id: 'voice_cached',
   });
 });
 

@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import {
+  EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE,
+  EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE,
+} from '../../container/shared/two-factor-detection.js';
+import {
   extractA2AMtlsPublicKeyPem,
   handleA2AJsonRpcInbound,
   resolveA2AAgentCardPeerTrust,
@@ -18,6 +22,29 @@ import {
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
+import { getBoardBudgetSummaries } from '../board/budget-chip.js';
+import {
+  addEdge,
+  type BoardCardActor,
+  type BoardCardEdgeKind,
+  type BoardCardMutationContext,
+  isBlocked,
+  listEdgeRevisions,
+  listEdges,
+  removeEdge,
+  restoreEdgeRevision,
+} from '../board/card-store.js';
+import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
+import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
+import type {
+  BrowserFillInput,
+  BrowserProvider,
+  BrowserSession,
+  BrowserTwoFactorState,
+  BrowserWaypointEvent,
+} from '../browser/provider.js';
+import { createBrowserProvider } from '../browser/provider-factory.js';
+import { browserSessionConfigSignature } from '../browser/session-config-signature.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -48,6 +75,7 @@ import {
   WEB_API_TOKEN,
 } from '../config/config.js';
 import type {
+  RuntimeBrowserProviderKind,
   RuntimeConfig,
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
@@ -76,6 +104,10 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { isAdminActionAllowed } from '../security/admin-rbac.js';
+import { createSecretHandle } from '../security/secret-handles.js';
+import type { SecretInput } from '../security/secret-refs.js';
+import { hardenSecretRef } from '../security/secret-refs.js';
 import {
   normalizeRecentChatSearchQuery,
   normalizeRecentChatSessionLimit,
@@ -120,6 +152,12 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { serveDocs } from './docs.js';
+import {
+  getGatewayAdminSecrets,
+  overwriteGatewayAdminSecret,
+  recordGatewayAdminSecretMutationFailure,
+  unsetGatewayAdminSecret,
+} from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
@@ -196,6 +234,7 @@ import {
   saveGatewayAdminDiscordWebhookTarget,
   saveGatewayAdminModels,
   saveGatewayAdminPolicyDefault,
+  saveGatewayAdminPolicyLanHttpAccess,
   saveGatewayAdminPolicyRule,
   saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
@@ -216,10 +255,15 @@ import type {
   GatewayChatResult,
   GatewayCommandRequest,
 } from './gateway-types.js';
-import { resolveWorkspaceRelativePath } from './gateway-utils.js';
 import {
+  extensionToMimeType,
+  resolveWorkspaceRelativePath,
+} from './gateway-utils.js';
+import {
+  clearOperatorReturn,
   consumeOperatorReturn,
   createSuspendedSession,
+  detectTwoFactorChallenge,
   emitInteractionNeededEvent,
   findPendingSuspendedSessionForOperator,
   formatInteractionRequest,
@@ -227,6 +271,7 @@ import {
   type InteractionModality,
   type OperatorReturn,
   parseOperatorReturnText,
+  peekOperatorReturn,
   resumeWith,
   resumeWithText,
 } from './interactive-escalation.js';
@@ -235,6 +280,11 @@ import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import {
+  getGatewayAdminOutputGuardProfile,
+  previewGatewayAdminOutputGuardProfile,
+  updateGatewayAdminOutputGuardProfile,
+} from './output-guard-admin.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
@@ -262,6 +312,9 @@ const SITE_MIME_TYPES: Record<string, string> = {
   '.js': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
+  '.m4v': extensionToMimeType('.m4v'),
+  '.mov': extensionToMimeType('.mov'),
+  '.mp4': extensionToMimeType('.mp4'),
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
@@ -279,10 +332,14 @@ const SAFE_INLINE_ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
+  '.m4v': extensionToMimeType('.m4v'),
+  '.mov': extensionToMimeType('.mov'),
+  '.mp4': extensionToMimeType('.mp4'),
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.webm': extensionToMimeType('.webm'),
   '.webp': 'image/webp',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
@@ -309,9 +366,1110 @@ type ApiAdminPolicyRequestBody = {
   agentId?: unknown;
   index?: unknown;
   defaultAction?: unknown;
+  lanHttpAccessMode?: unknown;
   presetName?: unknown;
   rule?: unknown;
 };
+
+type GatewayBrowserSessionEntry = {
+  provider: BrowserProvider;
+  providerKind: RuntimeBrowserProviderKind;
+  configSignature: string;
+  session: BrowserSession;
+  skillName: string;
+};
+
+const gatewayBrowserSessions = new Map<string, GatewayBrowserSessionEntry>();
+
+async function handleApiAdminBrowserPoolHealth(
+  res: ServerResponse,
+): Promise<void> {
+  const browserConfig = getRuntimeConfig().browser;
+  if (browserConfig.provider !== 'managed-cloud') {
+    sendJson(res, 200, {
+      ok: false,
+      status: 'disabled',
+      endpointUrl: browserConfig.managedCloud.endpointUrl,
+      nodeCount: 0,
+      healthyNodeCount: 0,
+      message: 'Browser provider is not managed-cloud.',
+    });
+    return;
+  }
+  const health = await checkManagedBrowserPoolHealth(
+    browserConfig.managedCloud.endpointUrl,
+  );
+  sendJson(res, 200, {
+    ...health,
+    status: health.ok ? 'online' : 'offline',
+  });
+}
+
+async function handleApiAdminBrowserPoolStart(
+  res: ServerResponse,
+): Promise<void> {
+  sendJson(res, 200, await startLocalManagedBrowserPool());
+}
+
+function normalizeGatewayBrowserSessionId(value: unknown): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) throw new GatewayRequestError(400, 'Missing `sessionId`.');
+  return normalized;
+}
+
+function normalizeGatewayBrowserAgentId(value: unknown): string {
+  const normalized = String(value || '').trim();
+  return normalized || DEFAULT_AGENT_ID;
+}
+
+function gatewayBrowserTextPreviewHint(params: {
+  contentLength: number;
+  hasNoscript: boolean;
+  rootShell: boolean;
+}): string {
+  if (params.contentLength > 0) return 'ok';
+  if (params.hasNoscript) return 'javascript_required';
+  if (params.rootShell) return 'spa_shell_only';
+  return 'empty_extraction';
+}
+
+function normalizeGatewayBrowserSkillName(value: unknown): string {
+  const normalized = String(value || '').trim();
+  return normalized || 'browser';
+}
+
+function getGatewayBrowserSelector(
+  args: Record<string, unknown>,
+  opts?: { allowAtRef?: boolean },
+): string {
+  const selector = String(args.selector || '').trim();
+  if (selector) return selector;
+  const ref = String(args.ref || '').trim();
+  if (!ref) return '';
+  if (ref.startsWith('@') && opts?.allowAtRef !== true) return '';
+  return ref;
+}
+
+function getGatewayBrowserActionSelector(
+  active: GatewayBrowserSessionEntry,
+  args: Record<string, unknown>,
+): string {
+  return getGatewayBrowserSelector(args, {
+    allowAtRef: isMacCuaGatewaySession(active),
+  });
+}
+
+async function getGatewayBrowserResumeSelector(
+  active: GatewayBrowserSessionEntry,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const explicitSelector = getGatewayBrowserActionSelector(active, args);
+  if (explicitSelector) return explicitSelector;
+  if (!isMacCuaGatewaySession(active)) return '';
+  const state = await active.session.inspectTwoFactorChallenge?.();
+  return state?.selectors?.[0] || '';
+}
+
+function parseGatewayBrowserCoordinate(
+  args: Record<string, unknown>,
+): { x: number; y: number } | null {
+  const ref = String(args.ref || '').trim();
+  const refMatch = ref.match(/^@?viewport-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/i);
+  const rawX = refMatch ? refMatch[1] : args.x;
+  const rawY = refMatch ? refMatch[2] : args.y;
+  if (rawX == null && rawY == null) return null;
+  const x = Number(rawX);
+  const y = Number(rawY);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
+    throw new GatewayRequestError(
+      400,
+      'x and y must be non-negative viewport coordinates.',
+    );
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+function browserRendererFunction<T>(source: string): () => T {
+  return new Function(`return (${source});`)() as () => T;
+}
+
+function unsupportedGatewayBrowserTool(toolName: string): never {
+  throw new GatewayRequestError(
+    400,
+    `${toolName} is not supported by the configured browser provider.`,
+  );
+}
+
+function isMacCuaGatewaySession(active: GatewayBrowserSessionEntry): boolean {
+  return active.providerKind === 'mac-cua';
+}
+
+function sanitizeGatewayUploadName(value: unknown, index: number): string {
+  const basename = path.basename(String(value || '').trim());
+  const sanitized = basename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `${index + 1}-${sanitized || 'upload'}`;
+}
+
+function writeGatewayBrowserUploadFiles(args: Record<string, unknown>): {
+  dir: string;
+  paths: string[];
+} {
+  const payloads = Array.isArray(args.filePayloads) ? args.filePayloads : [];
+  if (payloads.length === 0) {
+    throw new GatewayRequestError(
+      400,
+      'browser_upload requires filePayloads when using managed-cloud.',
+    );
+  }
+  const dir = path.join(
+    DATA_DIR,
+    'tmp',
+    'managed-browser-uploads',
+    randomUUID(),
+  );
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const paths: string[] = [];
+  try {
+    payloads.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new GatewayRequestError(
+          400,
+          'Invalid browser_upload file payload.',
+        );
+      }
+      const record = entry as Record<string, unknown>;
+      const dataBase64 = String(record.dataBase64 || '');
+      if (!dataBase64) {
+        throw new GatewayRequestError(
+          400,
+          'Invalid browser_upload file payload: missing dataBase64.',
+        );
+      }
+      const filePath = path.join(
+        dir,
+        sanitizeGatewayUploadName(record.name, index),
+      );
+      fs.writeFileSync(filePath, Buffer.from(dataBase64, 'base64'), {
+        mode: 0o600,
+      });
+      paths.push(filePath);
+    });
+    return { dir, paths };
+  } catch (error) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function normalizeGatewayBrowserWaypoint(
+  toolName: string,
+): BrowserWaypointEvent {
+  if (
+    toolName === 'browser_await_two_factor' ||
+    toolName === 'browser_resume_interaction'
+  ) {
+    return toolName;
+  }
+  throw new GatewayRequestError(400, `Invalid browser waypoint: ${toolName}`);
+}
+
+function safeGatewayBrowserUrlHost(url: string): string | null {
+  try {
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+async function readGatewayBrowserTwoFactorPageState(
+  active: GatewayBrowserSessionEntry,
+): Promise<{
+  url: string;
+  title: string;
+  preview: string;
+  selectors: string[];
+  nativeDetection?: BrowserTwoFactorState;
+}> {
+  if (isMacCuaGatewaySession(active)) {
+    const nativeDetection = await active.session.inspectTwoFactorChallenge?.();
+    return {
+      url: nativeDetection?.url || 'about:blank',
+      title: nativeDetection?.title || '',
+      preview: nativeDetection?.preview || '',
+      selectors: nativeDetection?.selectors || [],
+      ...(nativeDetection ? { nativeDetection } : {}),
+    };
+  }
+  const pageState = await active.session.evaluate(
+    browserRendererFunction<{
+      url: string;
+      title: string;
+      preview: string;
+      selectors: string[];
+    }>(EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE),
+  );
+  return {
+    url: pageState.url,
+    title: pageState.title,
+    preview: pageState.preview,
+    selectors: pageState.selectors,
+  };
+}
+
+async function parkGatewayBrowserTwoFactor(params: {
+  active: GatewayBrowserSessionEntry;
+  activeSseResponses: Set<ServerResponse>;
+  sessionId: string;
+  agentId: string;
+  args: Record<string, unknown>;
+  pageState?: {
+    url: string;
+    title: string;
+    preview: string;
+    selectors: string[];
+    nativeDetection?: BrowserTwoFactorState;
+  };
+}): Promise<Record<string, unknown> | null> {
+  const pageState =
+    params.pageState ||
+    (await readGatewayBrowserTwoFactorPageState(params.active));
+  const detection = pageState.nativeDetection?.detected
+    ? {
+        detected: true,
+        modality: pageState.nativeDetection.modality || 'totp',
+        signals: pageState.nativeDetection.signals || ['native 2fa signal'],
+        selectors: pageState.nativeDetection.selectors || [],
+        ...(pageState.preview ? { textPreview: pageState.preview } : {}),
+      }
+    : detectTwoFactorChallenge({
+        args: params.args,
+        title: pageState.title,
+        text: pageState.preview,
+        selectors: pageState.selectors,
+      });
+  if (!detection.detected) return null;
+
+  const modality = parseInteractionModality(
+    params.args.modality || detection.modality || 'totp',
+  );
+  const prompt =
+    normalizeOptionalString(params.args.prompt) ||
+    `A ${modality} challenge needs operator input.`;
+  const targetChannel = normalizeOptionalString(params.args.escalationChannel);
+  const targetRecipient = normalizeOptionalString(
+    params.args.escalationRecipient,
+  );
+  const escalationTarget =
+    targetChannel && targetRecipient
+      ? { channel: targetChannel, recipient: targetRecipient }
+      : undefined;
+  const image = await params.active.session.screenshot({
+    fullPage: true,
+    type: 'png',
+  });
+  const screenshotBase64 = Buffer.from(image).toString('base64');
+  const screenshotRef = `managed-browser://${params.sessionId}/two-factor-${randomUUID()}.png`;
+  const session = createSuspendedSession({
+    prompt,
+    userId:
+      normalizeOptionalString(params.args.userId) ||
+      escalationTarget?.recipient ||
+      'operator',
+    modality,
+    frameSnapshot: {
+      url: pageState.url || 'about:blank',
+      title: pageState.title || '',
+      browserSessionKey: params.sessionId,
+      screenshotRef,
+    },
+    context: {
+      host: safeGatewayBrowserUrlHost(pageState.url || ''),
+      pageTitle: pageState.title || null,
+      url: pageState.url || 'about:blank',
+    },
+    agentId: params.agentId,
+    skillId: normalizeOptionalString(params.args.skillId) || null,
+    escalationTarget,
+    ttlMs:
+      typeof params.args.ttlMs === 'number' &&
+      Number.isFinite(params.args.ttlMs)
+        ? params.args.ttlMs
+        : null,
+    artifacts: {
+      screenshotBase64,
+    },
+  });
+  await params.active.session.waypoint?.('browser_await_two_factor', {
+    modality,
+    prompt,
+    sessionId: session.sessionId,
+  });
+  emitInteractionNeededEvent({ session });
+  const notification = queueInteractionNotification(session);
+  const payload = { session, notification };
+  broadcastSseEvent(params.activeSseResponses, 'interaction_needed', payload);
+  return {
+    parked: true,
+    modality,
+    suspended_session_id: session.sessionId,
+    approval_id: session.approvalId,
+    two_factor_detection: detection,
+    detected_selectors: pageState.selectors,
+    text_preview: pageState.preview,
+    screenshot: session.frameSnapshot.screenshotRef || null,
+    interaction: payload,
+  };
+}
+
+async function sendGatewayBrowserActionJson(
+  res: ServerResponse,
+  params: {
+    active: GatewayBrowserSessionEntry;
+    activeSseResponses: Set<ServerResponse>;
+    sessionId: string;
+    agentId: string;
+    args: Record<string, unknown>;
+    fields: Record<string, unknown>;
+  },
+): Promise<void> {
+  const parked = await parkGatewayBrowserTwoFactor(params);
+  sendJson(res, 200, {
+    success: true,
+    ...params.fields,
+    ...(parked || {}),
+  });
+}
+
+async function getGatewayBrowserSession(
+  sessionId: string,
+  agentId: string,
+  opts?: { headed?: boolean; skillName?: string },
+): Promise<GatewayBrowserSessionEntry> {
+  const browserConfig = getRuntimeConfig().browser;
+  const configSignature = browserSessionConfigSignature(browserConfig);
+  const existing = gatewayBrowserSessions.get(sessionId);
+  if (existing) {
+    if (existing.configSignature === configSignature) return existing;
+    try {
+      await existing.provider.closeSession(existing.session);
+    } catch (err) {
+      logger.warn(
+        { err, sessionId },
+        'Failed to close stale gateway browser session after browser config change',
+      );
+    }
+    gatewayBrowserSessions.delete(sessionId);
+  }
+  const provider = createBrowserProvider(browserConfig);
+  const skillName = normalizeGatewayBrowserSkillName(opts?.skillName);
+  const session = await provider.launchSession({
+    headed: opts?.headed,
+    timeoutMs: 60_000,
+    metering: {
+      sessionId,
+      agentId,
+      auditRunId: `gateway_browser_${randomUUID().replace(/-/g, '')}`,
+      skillName,
+    },
+  });
+  const entry = {
+    provider,
+    providerKind: browserConfig.provider,
+    configSignature,
+    session,
+    skillName,
+  };
+  gatewayBrowserSessions.set(sessionId, entry);
+  return entry;
+}
+
+async function handleApiBrowserTool(
+  req: IncomingMessage,
+  res: ServerResponse,
+  activeSseResponses: Set<ServerResponse>,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as Record<string, unknown>;
+  const toolName = String(body.toolName || '').trim();
+  const sessionId = normalizeGatewayBrowserSessionId(body.sessionId);
+  const agentId = normalizeGatewayBrowserAgentId(body.agentId);
+  const args =
+    body.args && typeof body.args === 'object' && !Array.isArray(body.args)
+      ? (body.args as Record<string, unknown>)
+      : {};
+
+  if (toolName === 'browser_close') {
+    const active = gatewayBrowserSessions.get(sessionId);
+    if (active) {
+      await active.provider.closeSession(active.session);
+      gatewayBrowserSessions.delete(sessionId);
+    }
+    sendJson(res, 200, { success: true, closed: true });
+    return;
+  }
+
+  if (toolName === 'browser_navigate') {
+    const url = String(args.url || '').trim();
+    if (!url) throw new GatewayRequestError(400, 'Missing `args.url`.');
+    const active = await getGatewayBrowserSession(sessionId, agentId, {
+      headed: args.headed === true || args.headful === true,
+    });
+    if (isMacCuaGatewaySession(active)) {
+      await active.session.navigate(url);
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: {
+          url,
+          title: '',
+          content_text_length: 0,
+          content_preview_truncated: false,
+          ready_state: 'native',
+          read_extraction_hint: 'native_browser',
+        },
+      });
+      return;
+    }
+    await active.session.navigate(url, {
+      timeoutMs: 60_000,
+      waitUntil: 'domcontentloaded',
+    });
+    const pageState = await active.session.evaluate(
+      browserRendererFunction<{
+        url: string;
+        title: string;
+        text_length: number;
+        preview: string;
+        preview_truncated: boolean;
+        has_noscript: boolean;
+        root_shell: boolean;
+        ready_state: string;
+      }>(EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE),
+    );
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: {
+        url: pageState.url || url,
+        title: pageState.title || '',
+        content_text_length: pageState.text_length || 0,
+        ...(pageState.preview ? { content_preview: pageState.preview } : {}),
+        content_preview_truncated: pageState.preview_truncated === true,
+        ready_state: pageState.ready_state || '',
+        read_extraction_hint: gatewayBrowserTextPreviewHint({
+          contentLength: pageState.text_length || 0,
+          hasNoscript: pageState.has_noscript === true,
+          rootShell: pageState.root_shell === true,
+        }),
+      },
+    });
+    return;
+  }
+
+  if (toolName === 'browser_screenshot') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const image = await active.session.screenshot({
+      fullPage: args.fullPage === true,
+      type: 'png',
+    });
+    sendJson(res, 200, {
+      success: true,
+      imageBase64: Buffer.from(image).toString('base64'),
+    });
+    return;
+  }
+
+  if (toolName === 'browser_snapshot') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isMacCuaGatewaySession(active)) {
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: {
+          snapshot:
+            'Native macOS browser provider does not expose a DOM snapshot. Use browser_screenshot for visual state and AX selectors such as ax:1 or query text for actions.',
+          truncated: false,
+          element_count: 0,
+          url: '',
+          title: '',
+          mode: String(args.mode || 'default'),
+          frames: [],
+          two_factor_detection: { detected: false, signals: [] },
+        },
+      });
+      return;
+    }
+    const pageState = await active.session.evaluate(() => {
+      const bodyText = document.body
+        ? String(document.body.innerText || '')
+        : '';
+      const normalized = bodyText
+        .replace(/\r/g, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      const elements = Array.from(
+        document.querySelectorAll(
+          'a,button,input,textarea,select,summary,[role="button"],[role="link"]',
+        ),
+      )
+        .slice(0, 100)
+        .map((element, index) => {
+          const tag = String(element.tagName || '').toLowerCase();
+          const label = String(
+            element.getAttribute('aria-label') ||
+              element.getAttribute('placeholder') ||
+              element.textContent ||
+              element.getAttribute('value') ||
+              '',
+          )
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 160);
+          const id = element.id ? `#${element.id}` : '';
+          const name = element.getAttribute('name') || '';
+          return `@managed-${index + 1} ${tag}${id}${name ? ` [name="${name}"]` : ''}${label ? ` - ${label}` : ''}`;
+        });
+      const snapshot = [
+        `URL: ${String(window.location.href || '')}`,
+        `Title: ${String(document.title || '')}`,
+        '',
+        normalized.slice(0, 12_000),
+        elements.length ? '\nInteractive elements:' : '',
+        ...elements,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      return {
+        url: String(window.location.href || ''),
+        title: String(document.title || ''),
+        snapshot,
+        truncated: normalized.length > 12_000,
+        elementCount: elements.length,
+      };
+    });
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: {
+        snapshot: pageState.snapshot,
+        truncated: pageState.truncated === true,
+        element_count: pageState.elementCount || 0,
+        url: pageState.url || '',
+        title: pageState.title || '',
+        mode: String(args.mode || 'default'),
+        frames: [],
+        two_factor_detection: { detected: false, signals: [] },
+      },
+    });
+    return;
+  }
+
+  if (toolName === 'browser_click') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const selector = getGatewayBrowserActionSelector(active, args);
+    const text = String(args.text || '').trim();
+    const coordinate = parseGatewayBrowserCoordinate(args);
+    if (selector) {
+      await active.session.click(selector, { timeoutMs: 30_000 });
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { selector },
+      });
+      return;
+    }
+    if (text) {
+      if (isMacCuaGatewaySession(active)) {
+        await active.session.click(text, { timeoutMs: 30_000 });
+        await sendGatewayBrowserActionJson(res, {
+          active,
+          activeSseResponses,
+          sessionId,
+          agentId,
+          args,
+          fields: { text },
+        });
+        return;
+      }
+      const clicked = await active.session.evaluate(
+        browserRendererFunction<boolean>(`
+          () => {
+            const needle = ${JSON.stringify(text.toLowerCase())};
+            const candidates = Array.from(document.querySelectorAll('a,button,input,summary,[role="button"],[role="link"],label'));
+            const target = candidates.find((element) => {
+              const value = String(
+                element.getAttribute('aria-label') ||
+                element.getAttribute('value') ||
+                element.textContent ||
+                '',
+              ).replace(/\\s+/g, ' ').trim().toLowerCase();
+              return value === needle || value.includes(needle);
+            });
+            if (!target) return false;
+            if (typeof target.scrollIntoView === 'function') {
+              target.scrollIntoView({ block: 'center', inline: 'center' });
+            }
+            if (typeof target.click === 'function') {
+              target.click();
+              return true;
+            }
+            return false;
+          }
+        `),
+      );
+      if (!clicked) {
+        throw new GatewayRequestError(
+          404,
+          `No managed browser element matched text: ${text}`,
+        );
+      }
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { text },
+      });
+      return;
+    }
+    if (coordinate) {
+      if (isMacCuaGatewaySession(active)) {
+        throw new GatewayRequestError(
+          400,
+          'mac-cua requires AX or query targeting; raw x/y coordinates are only available as provider-controlled pixel fallback.',
+        );
+      }
+      const clicked = await active.session.evaluate(
+        browserRendererFunction<boolean>(`
+          () => {
+            const element = document.elementFromPoint(${coordinate.x}, ${coordinate.y});
+            if (!element || typeof element.click !== 'function') return false;
+            element.click();
+            return true;
+          }
+        `),
+      );
+      if (!clicked) {
+        throw new GatewayRequestError(
+          404,
+          `No managed browser element found at ${coordinate.x},${coordinate.y}`,
+        );
+      }
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { x: coordinate.x, y: coordinate.y },
+      });
+      return;
+    }
+    throw new GatewayRequestError(
+      400,
+      'browser_click requires selector, text, or x/y coordinates.',
+    );
+  }
+
+  if (toolName === 'browser_type' || toolName === 'browser_secret_type') {
+    const skillName = normalizeGatewayBrowserSkillName(args.skillName);
+    const active = await getGatewayBrowserSession(sessionId, agentId, {
+      skillName,
+    });
+    const selector = getGatewayBrowserActionSelector(active, args);
+    if (!selector) {
+      throw new GatewayRequestError(
+        400,
+        `${toolName} requires a selector when using the configured browser provider.`,
+      );
+    }
+    const value: SecretInput =
+      toolName === 'browser_secret_type'
+        ? {
+            source: 'store',
+            id: String(args.secretName || '').trim(),
+          }
+        : String(args.text || '');
+    if (
+      toolName === 'browser_secret_type' &&
+      !String(args.secretName || '').trim()
+    ) {
+      throw new GatewayRequestError(
+        400,
+        'browser_secret_type requires secretName.',
+      );
+    }
+    const preFillParked = await parkGatewayBrowserTwoFactor({
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+    });
+    if (preFillParked) {
+      sendJson(res, 200, {
+        success: true,
+        selector,
+        typed_chars: 0,
+        secret_injected: false,
+        code_injected: false,
+        ...preFillParked,
+      });
+      return;
+    }
+    await active.session.fill(selector, value);
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: {
+        selector,
+        typed_chars:
+          toolName === 'browser_secret_type'
+            ? 0
+            : String(args.text || '').length,
+        secret_injected: toolName === 'browser_secret_type',
+      },
+    });
+    return;
+  }
+
+  if (toolName === 'browser_scroll') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const direction = String(args.direction || 'down').toLowerCase();
+    if (
+      direction !== 'up' &&
+      direction !== 'down' &&
+      direction !== 'left' &&
+      direction !== 'right'
+    ) {
+      throw new GatewayRequestError(
+        400,
+        'browser_scroll direction must be up, down, left, or right.',
+      );
+    }
+    const rawPixels = Number(args.pixels);
+    const pixels =
+      Number.isFinite(rawPixels) && rawPixels > 0 ? Math.floor(rawPixels) : 800;
+    await active.session.scroll({
+      direction,
+      deltaY: direction === 'up' ? -pixels : direction === 'down' ? pixels : 0,
+      deltaX:
+        direction === 'left' ? -pixels : direction === 'right' ? pixels : 0,
+    });
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: { direction, pixels },
+    });
+    return;
+  }
+
+  if (toolName === 'browser_back') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isMacCuaGatewaySession(active)) {
+      await active.session.back();
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { url: '' },
+      });
+      return;
+    }
+    await active.session.back({
+      timeoutMs: 30_000,
+      waitUntil: 'domcontentloaded',
+    });
+    const url = await active.session.evaluate(() =>
+      String(window.location.href || ''),
+    );
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: { url },
+    });
+    return;
+  }
+
+  if (toolName === 'browser_press') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const key = String(args.key || '').trim();
+    if (!key) throw new GatewayRequestError(400, 'browser_press requires key.');
+    if (isMacCuaGatewaySession(active)) {
+      if (!active.session.press) unsupportedGatewayBrowserTool(toolName);
+      await active.session.press(key);
+      await sendGatewayBrowserActionJson(res, {
+        active,
+        activeSseResponses,
+        sessionId,
+        agentId,
+        args,
+        fields: { key },
+      });
+      return;
+    }
+    const pressed = await active.session.evaluate(
+      browserRendererFunction<boolean>(`
+        () => {
+          const key = ${JSON.stringify(key)};
+          const target = document.activeElement;
+          if (!target) return false;
+          const eventInit = { key, bubbles: true, cancelable: true };
+          target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+          target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+          return true;
+        }
+      `),
+    );
+    if (!pressed) unsupportedGatewayBrowserTool(toolName);
+    await sendGatewayBrowserActionJson(res, {
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args,
+      fields: { key },
+    });
+    return;
+  }
+
+  if (toolName === 'browser_get_images') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isMacCuaGatewaySession(active)) {
+      unsupportedGatewayBrowserTool(toolName);
+    }
+    const images = await active.session.evaluate(() =>
+      Array.from(document.images)
+        .map((img) => ({
+          src: String(img.currentSrc || img.src || ''),
+          alt: String(img.alt || ''),
+          width: Number(img.naturalWidth || img.width || 0),
+          height: Number(img.naturalHeight || img.height || 0),
+        }))
+        .filter((img) => img.src),
+    );
+    sendJson(res, 200, {
+      success: true,
+      count: images.length,
+      images,
+    });
+    return;
+  }
+
+  if (toolName === 'browser_network') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (isMacCuaGatewaySession(active)) {
+      unsupportedGatewayBrowserTool(toolName);
+    }
+    const filter = String(args.filter || '').trim();
+    const entries = await active.session.evaluate(() =>
+      performance
+        .getEntriesByType('resource')
+        .map((entry) => ({
+          url: String(entry.name || ''),
+          method: 'GET',
+          status: null,
+          type: String(
+            (entry as PerformanceResourceTiming).initiatorType || '',
+          ),
+          startTime: Number(entry.startTime || 0),
+          duration: Number(entry.duration || 0),
+        }))
+        .filter((entry) => entry.url),
+    );
+    const requests = filter
+      ? entries.filter((entry) => entry.url.includes(filter))
+      : entries;
+    sendJson(res, 200, {
+      success: true,
+      requests,
+      count: requests.length,
+      source: 'performance',
+    });
+    return;
+  }
+
+  if (toolName === 'browser_upload') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (!active.session.upload) unsupportedGatewayBrowserTool(toolName);
+    const selector = getGatewayBrowserSelector(args);
+    if (!selector) {
+      throw new GatewayRequestError(
+        400,
+        'browser_upload requires a CSS selector when using managed-cloud.',
+      );
+    }
+    const upload = writeGatewayBrowserUploadFiles(args);
+    try {
+      await active.session.upload(selector, upload.paths);
+      sendJson(res, 200, {
+        success: true,
+        selector,
+        target: selector,
+        uploaded_count: upload.paths.length,
+      });
+    } finally {
+      fs.rmSync(upload.dir, { recursive: true, force: true });
+    }
+    return;
+  }
+
+  if (toolName === 'browser_pdf') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (!active.session.pdf) unsupportedGatewayBrowserTool(toolName);
+    const pdf = await active.session.pdf({
+      printBackground: args.printBackground !== false,
+      format: typeof args.format === 'string' ? args.format : undefined,
+    });
+    sendJson(res, 200, {
+      success: true,
+      pdfBase64: Buffer.from(pdf).toString('base64'),
+    });
+    return;
+  }
+
+  if (toolName === 'browser_console') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    if (!active.session.consoleMessages)
+      unsupportedGatewayBrowserTool(toolName);
+    const rawLimit = Number(args.limit);
+    const limit =
+      Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(Math.floor(rawLimit), 500)
+        : 200;
+    const messages = await active.session.consoleMessages({
+      clear: args.clear === true,
+      limit,
+    });
+    sendJson(res, 200, {
+      success: true,
+      messages,
+      count: messages.length,
+      cleared: args.clear === true,
+    });
+    return;
+  }
+
+  if (toolName === 'browser_await_two_factor') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const payload = await parkGatewayBrowserTwoFactor({
+      active,
+      activeSseResponses,
+      sessionId,
+      agentId,
+      args: { ...args, expects_2fa: true },
+    });
+    if (!payload) {
+      throw new GatewayRequestError(409, 'No 2FA challenge was detected.');
+    }
+    sendJson(res, 200, {
+      success: true,
+      ...payload,
+    });
+    return;
+  }
+
+  if (toolName === 'browser_resume_interaction') {
+    const active = await getGatewayBrowserSession(sessionId, agentId);
+    const waypoint = normalizeGatewayBrowserWaypoint(toolName);
+    const suspendedSessionId =
+      normalizeOptionalString(args.sessionId) || sessionId;
+    const response = peekOperatorReturn(suspendedSessionId);
+    if (!response) {
+      throw new GatewayRequestError(
+        404,
+        'No operator response is available for this suspended session.',
+      );
+    }
+    if (response.kind === 'code') {
+      const explicitSelector = getGatewayBrowserActionSelector(active, args);
+      const selector = explicitSelector
+        ? explicitSelector
+        : await getGatewayBrowserResumeSelector(active, args);
+      let filledSelector = selector;
+      let fillStrategy = selector ? 'selector' : '';
+      let codeSubmitted = false;
+      if (explicitSelector || selector) {
+        await active.session.fill(
+          selector,
+          createOperatorReturnCodeHandle(response.value),
+        );
+      } else if (active.session.fillTwoFactorCode) {
+        const result = await active.session.fillTwoFactorCode(
+          createOperatorReturnCodeHandle(response.value),
+        );
+        filledSelector = result.selector || '';
+        fillStrategy = result.strategy;
+        codeSubmitted = result.submitted === true;
+      } else {
+        throw new GatewayRequestError(
+          400,
+          'browser_resume_interaction requires selector for code injection with managed-cloud.',
+        );
+      }
+      await active.session.waypoint?.(waypoint, {
+        sessionId: suspendedSessionId,
+        responseKind: response.kind,
+      });
+      clearOperatorReturn(suspendedSessionId);
+      sendJson(res, 200, {
+        success: true,
+        resumed: true,
+        response_kind: 'code',
+        code_injected: true,
+        ...(filledSelector ? { selector: filledSelector } : {}),
+        fill_strategy: fillStrategy,
+        ...(codeSubmitted ? { code_submitted: true } : {}),
+      });
+      return;
+    }
+    await active.session.waypoint?.(waypoint, {
+      sessionId: suspendedSessionId,
+      responseKind: response.kind,
+    });
+    clearOperatorReturn(suspendedSessionId);
+    sendJson(res, 200, {
+      success: true,
+      resumed: true,
+      response_kind: response.kind,
+      operator_completed_challenge:
+        response.kind === 'approved' || response.kind === 'scanned',
+    });
+    return;
+  }
+
+  throw new GatewayRequestError(
+    400,
+    `Unsupported gateway browser tool: ${toolName}`,
+  );
+}
 
 function normalizeStringListInput(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
@@ -839,6 +1997,62 @@ function hasApiTokenValue(token: string): boolean {
   return Boolean(GATEWAY_API_TOKEN) && trimmed === GATEWAY_API_TOKEN;
 }
 
+function readRecordProperty(
+  record: Record<string, unknown>,
+  keys: string[],
+): unknown {
+  for (const key of keys) {
+    if (Object.hasOwn(record, key)) {
+      return record[key];
+    }
+  }
+  return undefined;
+}
+
+function resolveAdminSessionActor(
+  payload: Record<string, unknown> | null,
+): string | null {
+  if (!payload) return null;
+  const value = readRecordProperty(payload, [
+    'actor',
+    'sub',
+    'email',
+    'userId',
+    'user_id',
+    'username',
+  ]);
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function resolveAdminSessionAuditId(
+  payload: Record<string, unknown> | null,
+): string | null {
+  if (!payload) return null;
+  const value = readRecordProperty(payload, [
+    'sessionId',
+    'sid',
+    'jti',
+    'sub',
+    'actor',
+  ]);
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function resolveAdminSecretAuditContext(
+  req: IncomingMessage,
+  sessionPayload: Record<string, unknown> | null,
+): {
+  sessionId?: string;
+  actor?: string | null;
+  sourceIp?: string | null;
+} {
+  return {
+    sessionId: resolveAdminSessionAuditId(sessionPayload) || undefined,
+    actor: resolveAdminSessionActor(sessionPayload),
+    sourceIp: req.socket.remoteAddress || null,
+  };
+}
+
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   const authHeader = req.headers.authorization || '';
   if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
@@ -1013,6 +2227,8 @@ function resolveHybridAILoginUrl(): string | null {
 
 function isConsoleSpaPath(pathname: string): boolean {
   return (
+    pathname === '/agents' ||
+    pathname.startsWith('/agents/') ||
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||
@@ -2281,6 +3497,177 @@ function handleApiAdminJobsContext(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminJobsContext());
 }
 
+function parseJobBudgetAgentIds(url: URL): string[] | undefined {
+  const values = url.searchParams
+    .getAll('agentId')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
+}
+
+function handleApiAdminJobsBudgets(res: ServerResponse, url: URL): void {
+  sendJson(
+    res,
+    200,
+    getBoardBudgetSummaries({
+      agentIds: parseJobBudgetAgentIds(url),
+    }),
+  );
+}
+
+function normalizeBoardEdgeKind(value: unknown): BoardCardEdgeKind | undefined {
+  const normalized = String(value || '').trim();
+  if (!normalized) return undefined;
+  if (
+    normalized === 'blocks' ||
+    normalized === 'blocked_by' ||
+    normalized === 'related'
+  ) {
+    return normalized;
+  }
+  throw new GatewayRequestError(400, 'Invalid board edge kind.');
+}
+
+function normalizeBoardCardId(value: unknown, field: string): string {
+  if (value == null)
+    throw new GatewayRequestError(400, `Missing \`${field}\`.`);
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `\`${field}\` must be a string.`);
+  }
+  const normalized = value.trim();
+  if (!normalized) throw new GatewayRequestError(400, `Missing \`${field}\`.`);
+  return normalized;
+}
+
+function normalizeBoardRevisionId(value: unknown): number {
+  if (value == null) {
+    throw new GatewayRequestError(400, 'Missing `revisionId`.');
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new GatewayRequestError(
+      400,
+      '`revisionId` must be a positive integer.',
+    );
+  }
+  return value;
+}
+
+function normalizeBoardActorField(
+  record: Record<string, unknown>,
+  field: 'system' | 'userId' | 'agentId',
+): string {
+  const value = record[field];
+  if (value == null) return '';
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `\`actor.${field}\` must be a string.`);
+  }
+  return value.trim();
+}
+
+function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
+  if (value == null) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(400, '`actor` must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const system = normalizeBoardActorField(record, 'system');
+  const userId = normalizeBoardActorField(record, 'userId');
+  const agentId = normalizeBoardActorField(record, 'agentId');
+  const actorCount = [system, userId, agentId].filter(Boolean).length;
+  if (actorCount !== 1) {
+    throw new GatewayRequestError(
+      400,
+      '`actor` must contain exactly one of system, userId, or agentId.',
+    );
+  }
+  if (system) {
+    if (system !== 'gateway') {
+      throw new GatewayRequestError(400, '`actor.system` must be gateway.');
+    }
+    return { system };
+  }
+  if (userId) return { userId };
+  return { agentId };
+}
+
+function extractBoardEdgeContext(
+  body: Record<string, unknown>,
+): BoardCardMutationContext {
+  return {
+    actor: normalizeBoardEdgeActor(body.actor),
+    sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+    runId: typeof body.runId === 'string' ? body.runId : null,
+  };
+}
+
+async function handleApiAdminJobsEdges(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (req.method === 'GET') {
+    const cardId = normalizeBoardCardId(
+      url.searchParams.get('cardId'),
+      'cardId',
+    );
+    const kind = normalizeBoardEdgeKind(url.searchParams.get('kind'));
+    sendJson(res, 200, { edges: listEdges(cardId, kind) });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const fromCardId = normalizeBoardCardId(body.fromCardId, 'fromCardId');
+    const toCardId = normalizeBoardCardId(body.toCardId, 'toCardId');
+    const kind = normalizeBoardEdgeKind(body.kind);
+    if (!kind) throw new GatewayRequestError(400, 'Missing `kind`.');
+    sendJson(res, 200, {
+      edge: addEdge(fromCardId, toCardId, kind, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  if (req.method === 'DELETE') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const id = normalizeBoardCardId(url.searchParams.get('id'), 'id');
+    sendJson(res, 200, {
+      edge: removeEdge(id, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+async function handleApiAdminJobsEdgeRevisions(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (req.method === 'GET') {
+    const id = normalizeBoardCardId(url.searchParams.get('id'), 'id');
+    sendJson(res, 200, { revisions: listEdgeRevisions(id) });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const id = normalizeBoardCardId(body.id, 'id');
+    const revisionId = normalizeBoardRevisionId(body.revisionId);
+    sendJson(res, 200, {
+      edge: restoreEdgeRevision(id, revisionId, extractBoardEdgeContext(body)),
+    });
+    return;
+  }
+
+  sendJson(res, 405, { error: 'Method Not Allowed' });
+}
+
+function handleApiAdminJobsBlocked(res: ServerResponse, url: URL): void {
+  const cardId = normalizeBoardCardId(url.searchParams.get('cardId'), 'cardId');
+  sendJson(res, 200, { cardId, blocked: isBlocked(cardId) });
+}
+
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
   const channelId = (url.searchParams.get('channelId') || '').trim();
   if (!channelId) {
@@ -2344,6 +3731,130 @@ function handleApiConfigReload(res: ServerResponse): void {
 
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
+}
+
+function handleApiAdminSecrets(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  const sessionPayload = getSessionAuthPayload(req);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.list_metadata')) {
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  sendJson(
+    res,
+    200,
+    getGatewayAdminSecrets({
+      audit: resolveAdminSecretAuditContext(req, sessionPayload),
+    }),
+  );
+}
+
+function parseApiAdminSecretName(pathname: string): string | null {
+  const prefix = '/api/admin/secrets/';
+  if (!pathname.startsWith(prefix)) return null;
+  const encoded = pathname.slice(prefix.length);
+  if (!encoded || encoded.includes('/')) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new GatewayRequestError(400, 'Invalid secret name in request path.');
+  }
+}
+
+function readAdminSecretBodyValue(body: unknown): unknown {
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    return (body as { value?: unknown }).value;
+  }
+  return undefined;
+}
+
+async function handleApiAdminSecretOverwrite(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+): Promise<void> {
+  const sessionPayload = getSessionAuthPayload(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.overwrite')) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.overwritten',
+      name,
+      audit,
+      errorCode: 'forbidden',
+    });
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.overwritten',
+      name,
+      audit,
+      errorCode:
+        error instanceof GatewayRequestError ? 'bad_request' : 'write_failed',
+    });
+    throw error;
+  }
+  sendJson(
+    res,
+    200,
+    overwriteGatewayAdminSecret({
+      name,
+      value: readAdminSecretBodyValue(body),
+      audit,
+    }),
+  );
+}
+
+async function handleApiAdminSecretUnset(
+  req: IncomingMessage,
+  res: ServerResponse,
+  name: string,
+): Promise<void> {
+  const sessionPayload = getSessionAuthPayload(req);
+  const audit = resolveAdminSecretAuditContext(req, sessionPayload);
+  if (!isAdminActionAllowed(sessionPayload, 'secret.unset')) {
+    recordGatewayAdminSecretMutationFailure({
+      type: 'secret.unset',
+      name,
+      audit,
+      errorCode: 'forbidden',
+    });
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return;
+  }
+
+  sendJson(res, 200, unsetGatewayAdminSecret({ name, audit }));
+}
+
+function recordUnauthenticatedAdminSecretMutation(
+  req: IncomingMessage,
+  pathname: string,
+  method: string,
+): void {
+  if (method !== 'PUT' && method !== 'DELETE') return;
+  let name: string | null = null;
+  try {
+    name = parseApiAdminSecretName(pathname);
+  } catch {
+    return;
+  }
+  if (name === null) return;
+  recordGatewayAdminSecretMutationFailure({
+    type: method === 'PUT' ? 'secret.overwritten' : 'secret.unset',
+    name,
+    audit: {
+      sourceIp: req.socket.remoteAddress || null,
+    },
+    errorCode: 'unauthorized',
+  });
 }
 
 async function handleApiAdminTunnelReconnect(
@@ -3340,7 +4851,7 @@ async function handleApiAdminScheduler(
     const source =
       (url.searchParams.get('source') || '').trim().toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const rawId =
       source === 'task'
         ? (url.searchParams.get('taskId') || '').trim()
@@ -3364,7 +4875,7 @@ async function handleApiAdminScheduler(
         .trim()
         .toLowerCase() === 'task'
         ? 'task'
-        : 'config';
+        : 'job';
     const jobId = String(
       source === 'task' ? body.taskId || '' : body.jobId || '',
     ).trim();
@@ -3451,6 +4962,10 @@ async function handleApiAdminMcp(
 function handleApiAdminAudit(res: ServerResponse, url: URL): void {
   const parsedLimit = parseInt(url.searchParams.get('limit') || '60', 10);
   const limit = Number.isNaN(parsedLimit) ? 60 : parsedLimit;
+  const rawCursor = url.searchParams.get('cursor');
+  const parsedCursor = rawCursor ? parseInt(rawCursor, 10) : Number.NaN;
+  const cursor =
+    Number.isFinite(parsedCursor) && parsedCursor > 0 ? parsedCursor : 0;
   sendJson(
     res,
     200,
@@ -3458,6 +4973,9 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
       query: url.searchParams.get('query') || '',
       sessionId: url.searchParams.get('sessionId') || '',
       eventType: url.searchParams.get('eventType') || '',
+      since: url.searchParams.get('since') || '',
+      until: url.searchParams.get('until') || '',
+      cursor,
       limit,
     }),
   );
@@ -3488,7 +5006,6 @@ function parseInteractionFrameSnapshot(value: unknown): {
   url: string;
   title?: string | null;
   browserSessionKey?: string | null;
-  storageStateRef?: string | null;
   screenshotRef?: string | null;
 } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -3506,7 +5023,6 @@ function parseInteractionFrameSnapshot(value: unknown): {
     url,
     title: normalizeOptionalString(raw.title) || null,
     browserSessionKey: normalizeOptionalString(raw.browserSessionKey) || null,
-    storageStateRef: normalizeOptionalString(raw.storageStateRef) || null,
     screenshotRef: normalizeOptionalString(raw.screenshotRef) || null,
   };
 }
@@ -3549,6 +5065,17 @@ function parseOperatorReturn(value: unknown): OperatorReturn | null {
     return reason ? { kind, reason } : { kind };
   }
   return null;
+}
+
+function createOperatorReturnCodeHandle(value: string): BrowserFillInput {
+  return createSecretHandle(
+    hardenSecretRef({
+      source: 'store',
+      id: `OPERATOR_RETURN_${randomUUID().replace(/-/g, '').toUpperCase()}`,
+    }),
+    value,
+    'dom',
+  );
 }
 
 function broadcastSseEvent(
@@ -3762,6 +5289,9 @@ async function handleApiCreateInteractiveEscalation(
         typeof body.ttlMs === 'number' && Number.isFinite(body.ttlMs)
           ? body.ttlMs
           : null,
+      artifacts: {
+        screenshotBase64: normalizeOptionalString(body.screenshotBase64),
+      },
     });
     emitInteractionNeededEvent({ session });
     const notification = queueInteractionNotification(session);
@@ -3828,6 +5358,31 @@ async function handleApiAdminPolicy(
         );
         return;
       }
+      if (body.lanHttpAccessMode !== undefined) {
+        const mode = String(body.lanHttpAccessMode || '')
+          .trim()
+          .toLowerCase();
+        if (
+          mode !== 'off' &&
+          mode !== 'read-only' &&
+          mode !== 'read-write' &&
+          mode !== 'custom'
+        ) {
+          throw new GatewayRequestError(
+            400,
+            'Expected `lanHttpAccessMode` to be `off`, `read-only`, `read-write`, or `custom`.',
+          );
+        }
+        sendJson(
+          res,
+          200,
+          saveGatewayAdminPolicyLanHttpAccess({
+            agentId: normalizeOptionalString(body.agentId),
+            mode,
+          }),
+        );
+        return;
+      }
       sendJson(
         res,
         200,
@@ -3870,6 +5425,57 @@ async function handleApiAdminTools(res: ServerResponse): Promise<void> {
 
 async function handleApiAdminPlugins(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminPlugins());
+}
+
+async function handleApiAdminOutputGuard(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = req.method || 'GET';
+
+  if (method === 'GET') {
+    sendJson(res, 200, getGatewayAdminOutputGuardProfile());
+    return;
+  }
+
+  if (method === 'PUT') {
+    try {
+      sendJson(
+        res,
+        200,
+        await updateGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+      );
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  sendMethodNotAllowed(res);
+}
+
+async function handleApiAdminOutputGuardPreview(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') !== 'POST') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  try {
+    sendJson(
+      res,
+      200,
+      await previewGatewayAdminOutputGuardProfile(await readJsonBody(req)),
+    );
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function handleApiAdminSkills(
@@ -4633,6 +6239,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           requireSameOrigin: method !== 'GET',
         })
       ) {
+        recordUnauthenticatedAdminSecretMutation(req, pathname, method);
         sendJson(res, 401, {
           error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
         });
@@ -4660,6 +6267,33 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
             await handleApiAdminOverview(res);
+            return;
+          }
+          if (pathname === '/api/admin/secrets' && method === 'GET') {
+            handleApiAdminSecrets(req, res);
+            return;
+          }
+          const adminSecretName = parseApiAdminSecretName(pathname);
+          if (adminSecretName !== null) {
+            if (method === 'GET') {
+              sendJson(res, 405, {
+                error: 'Secret values are write-only on this route.',
+              });
+              return;
+            }
+            if (method === 'PUT') {
+              await handleApiAdminSecretOverwrite(req, res, adminSecretName);
+              return;
+            }
+            if (method === 'DELETE') {
+              await handleApiAdminSecretUnset(req, res, adminSecretName);
+              return;
+            }
+            sendMethodNotAllowed(res);
+            return;
+          }
+          if (pathname === '/api/admin/secrets') {
+            sendMethodNotAllowed(res);
             return;
           }
           if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {
@@ -4748,6 +6382,20 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminConfig(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/browser-pool/health' &&
+            method === 'GET'
+          ) {
+            await handleApiAdminBrowserPoolHealth(res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/browser-pool/start' &&
+            method === 'POST'
+          ) {
+            await handleApiAdminBrowserPoolStart(res);
             return;
           }
           if (
@@ -4856,6 +6504,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminPlugins(res);
             return;
           }
+          if (pathname === '/api/admin/output-guard') {
+            await handleApiAdminOutputGuard(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/output-guard/preview') {
+            await handleApiAdminOutputGuardPreview(req, res);
+            return;
+          }
           if (pathname === '/api/admin/skills') {
             await handleApiAdminSkills(req, res);
             return;
@@ -4870,6 +6526,28 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {
             handleApiAdminJobsContext(res);
+            return;
+          }
+          if (pathname === '/api/admin/jobs/budgets' && method === 'GET') {
+            handleApiAdminJobsBudgets(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/jobs/edges' &&
+            (method === 'GET' || method === 'POST' || method === 'DELETE')
+          ) {
+            await handleApiAdminJobsEdges(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/jobs/edge-revisions' &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            await handleApiAdminJobsEdgeRevisions(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/jobs/blocked' && method === 'GET') {
+            handleApiAdminJobsBlocked(res, url);
             return;
           }
           if (
@@ -4950,6 +6628,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/http/request' && method === 'POST') {
             await handleApiHttpRequest(req, res);
+            return;
+          }
+          if (pathname === '/api/browser/tool' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiBrowserTool(req, res, activeSseResponses);
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {

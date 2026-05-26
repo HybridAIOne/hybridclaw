@@ -15,6 +15,13 @@ test('GatewayRequestError carries its HTTP status code', () => {
   expect(error.statusCode).toBe(418);
 });
 
+test('GatewayRequestError preserves error causes', () => {
+  const cause = new Error('root cause');
+  const error = new GatewayRequestError(502, 'upstream failed', { cause });
+
+  expect(error.cause).toBe(cause);
+});
+
 test('GatewayRequestError rejects invalid HTTP status codes', () => {
   expect(() => new GatewayRequestError(99, 'too low')).toThrow(
     new RangeError('Invalid HTTP status code: 99'),

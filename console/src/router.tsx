@@ -10,6 +10,7 @@ import { A2AInboxPage } from './routes/a2a-inbox';
 import { A2ATrustPage } from './routes/a2a-trust';
 import { AgentsPage } from './routes/agent-scoreboard';
 import { AgentFilesPage } from './routes/agents';
+import { AgentsOverviewPage } from './routes/agents-overview';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
@@ -20,6 +21,7 @@ import { GatewayPage } from './routes/gateway';
 import { JobsPage } from './routes/jobs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
+import { OutputGuardPage } from './routes/output-guard';
 import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
 import { SessionsPage } from './routes/sessions';
@@ -53,18 +55,32 @@ function ChatRouteComponent() {
   );
 }
 
+function optionalStringSearchValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
 });
 
-const adminLayoutRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  id: '_admin_layout',
-  component: () => (
+function AppShellRouteComponent() {
+  return (
     <AppShell>
       <Outlet />
     </AppShell>
-  ),
+  );
+}
+
+const adminLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: '_admin_layout',
+  component: AppShellRouteComponent,
+});
+
+const agentsOverviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/agents',
+  component: AgentsOverviewPage,
 });
 
 const dashboardRoute = createRoute({
@@ -124,6 +140,9 @@ const gatewayRoute = createRoute({
 const sessionsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/sessions',
+  validateSearch: (search: Record<string, unknown>) => ({
+    sessionId: optionalStringSearchValue(search.sessionId),
+  }),
   component: SessionsPage,
 });
 
@@ -154,6 +173,9 @@ const modelsRoute = createRoute({
 const schedulerRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/scheduler',
+  validateSearch: (search: Record<string, unknown>) => ({
+    jobId: optionalStringSearchValue(search.jobId),
+  }),
   component: SchedulerPage,
 });
 
@@ -172,6 +194,10 @@ const mcpRoute = createRoute({
 const auditRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/audit',
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: optionalStringSearchValue(search.q),
+    range: optionalStringSearchValue(search.range),
+  }),
   component: AuditPage,
 });
 
@@ -185,6 +211,12 @@ const pluginsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/plugins',
   component: PluginsPage,
+});
+
+const outputGuardRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/output-guard',
+  component: OutputGuardPage,
 });
 
 const toolsRoute = createRoute({
@@ -226,8 +258,10 @@ const routeTree = rootRoute.addChildren([
     auditRoute,
     skillsRoute,
     pluginsRoute,
+    outputGuardRoute,
     toolsRoute,
   ]),
+  agentsOverviewRoute,
   chatRoute.addChildren([chatSessionRoute]),
 ]);
 

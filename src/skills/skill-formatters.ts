@@ -88,6 +88,42 @@ export function formatSkillAmendment(
         : `Diff: ${amendment.diff_summary}`,
     );
   }
+  if (amendment.proposal_metadata?.kind === 'skillopt_lite') {
+    const metadata = amendment.proposal_metadata;
+    const selectedCount = metadata.selected_edits?.length ?? 0;
+    const appliedCount =
+      metadata.apply_report?.filter((entry) =>
+        entry.status.startsWith('applied'),
+      ).length ?? 0;
+    const source = metadata.evidence?.source ?? 'observations';
+    const evidenceCount =
+      (metadata.evidence?.training_count ?? 0) +
+      (metadata.evidence?.held_out_count ?? 0);
+    lines.push(
+      style === 'compact'
+        ? `  skillopt-lite: ${selectedCount} edit(s), ${appliedCount} applied, evidence=${source}/${evidenceCount}`
+        : `SkillOpt-lite: ${selectedCount} edit(s), ${appliedCount} applied, evidence=${source}/${evidenceCount}`,
+    );
+    if (metadata.gate) {
+      const scoreSummary =
+        typeof metadata.gate.current_score === 'number' &&
+        typeof metadata.gate.candidate_score === 'number'
+          ? ` score=${metadata.gate.candidate_score.toFixed(2)}/${metadata.gate.current_score.toFixed(2)}`
+          : '';
+      lines.push(
+        style === 'compact'
+          ? `  gate: ${metadata.gate.accepted ? 'accepted' : 'rejected'}${scoreSummary} (${metadata.gate.reason})`
+          : `Gate: ${metadata.gate.accepted ? 'accepted' : 'rejected'}${scoreSummary} (${metadata.gate.reason})`,
+      );
+    }
+    if (metadata.rejected_edit_count != null) {
+      lines.push(
+        style === 'compact'
+          ? `  rejected-memory: ${metadata.rejected_edit_count} edit(s)`
+          : `Rejected memory: ${metadata.rejected_edit_count} edit(s)`,
+      );
+    }
+  }
   return lines.join('\n');
 }
 

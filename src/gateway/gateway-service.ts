@@ -69,12 +69,16 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
-import {
-  getAnthropicAuthStatus,
-  isAnthropicAuthReadyForMethod,
-} from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import {
+  type Card as BoardCard,
+  type Edge as BoardCardEdge,
+  isBlocked as isBoardCardBlocked,
+  listCards,
+  listEdges,
+} from '../board/card-store.js';
+import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
@@ -187,6 +191,7 @@ import { handleGoalCommand } from '../goals/goal-command.js';
 import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
+import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
@@ -194,11 +199,10 @@ import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
+  countStructuredAuditEntries,
   createFreshSessionInstance,
-  createTask,
   deleteMemoryValue,
   deleteSessionData,
-  deleteTask,
   enqueueProactiveMessage,
   getAllSessions,
   getFullAutoSessionCount,
@@ -217,7 +221,6 @@ import {
   getSessionUsageTotalsSince,
   getStatisticsTotals,
   getStructuredAuditForSession,
-  getTasksForSession,
   getUsageTotals,
   listMessageTrendByDay,
   listSemanticMemoriesForSession,
@@ -229,9 +232,7 @@ import {
   listUsageByModel,
   listUsageBySession,
   listUsageDailyBreakdown,
-  pauseTask,
   recordRequestLog,
-  resumeTask,
   setMemoryValue,
   updateSessionAgent,
   updateSessionChatbot,
@@ -239,6 +240,12 @@ import {
   updateSessionRag,
   updateSessionShowMode,
 } from '../memory/db.js';
+import {
+  createJob,
+  deleteJob,
+  getAllJobs,
+  setJobEnabled,
+} from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   ensurePluginManagerInitialized,
@@ -253,6 +260,7 @@ import {
   addPolicyRule,
   deletePolicyRule,
   readPolicyState,
+  setLanHttpAccessMode,
   setPolicyDefault,
   updatePolicyRule,
 } from '../policy/policy-store.js';
@@ -263,18 +271,12 @@ import {
   removeHttpSecretRouteFromWorkspacePolicy,
   restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
-import {
-  discoverCodexModels,
-  getDiscoveredCodexModelNames,
-} from '../providers/codex-discovery.js';
+import { discoverCodexModels } from '../providers/codex-discovery.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
-import {
-  discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelNames,
-} from '../providers/huggingface-discovery.js';
+import { discoverHuggingFaceModels } from '../providers/huggingface-discovery.js';
 import {
   fetchHybridAIAccountChatbotId,
   fetchHybridAIBots,
@@ -283,7 +285,6 @@ import {
 import { getLocalModelInfo } from '../providers/local-discovery.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import {
@@ -303,12 +304,13 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
-import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
-import {
-  discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelNames,
-} from '../providers/openrouter-discovery.js';
+import { discoverOpenRouterModels } from '../providers/openrouter-discovery.js';
+import { isRuntimeProviderId } from '../providers/provider-ids.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
+import {
+  normalizeAuxiliaryProviderModel,
+  resolveDefaultAuxiliaryModelForProvider,
+} from '../providers/task-routing.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
 import {
@@ -364,7 +366,7 @@ import {
 } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
-import type { MediaContextItem } from '../types/container.js';
+import type { ContainerOutput, MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   ToolExecution,
@@ -489,7 +491,10 @@ import {
   type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
   type GatewayAdminEmailMessageResponse,
+  type GatewayAdminJobCard,
+  type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
+  type GatewayAdminLanHttpAccessMode,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
@@ -521,7 +526,6 @@ import {
   type GatewayCommandResult,
   type GatewayHistorySummary,
   type GatewayModelProviderKey,
-  type GatewayProviderHealthEntry,
   type GatewayRecentChatSession,
   type GatewayStatus,
   renderGatewayCommand,
@@ -536,6 +540,10 @@ import { initializeGoalContinuationRunner } from './goal-continuation-runner.js'
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
+import {
+  buildGatewayProviderHealth,
+  getGatewayAdminProviderStatus,
+} from './provider-status.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
   describeSessionShowMode,
@@ -551,6 +559,7 @@ initializeGoalContinuationRunner();
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
 const TRACE_EXPORT_ALL_CONCURRENCY = 4;
+const GATEWAY_PROCESS_STARTED_AT = new Date().toISOString();
 const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
@@ -899,6 +908,16 @@ interface DelegationTaskRunInput {
   onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
+function resolveTurnRuntimeAuditLabel(
+  model: string,
+  output: Pick<ContainerOutput, 'codexRuntime'> | undefined,
+): 'codex' | 'hybridclaw' {
+  return resolveModelProvider(model) === 'openai-codex' &&
+    output?.codexRuntime === 'app-server'
+    ? 'codex'
+    : 'hybridclaw';
+}
+
 async function persistDelegationAttempt(params: {
   sessionId: string;
   model: string;
@@ -929,6 +948,8 @@ async function persistDelegationAttempt(params: {
         type: 'model.usage',
         provider: resolveModelProvider(params.model),
         model: params.model,
+        runtime: resolveTurnRuntimeAuditLabel(params.model, params.output),
+        codexRuntime: params.output.codexRuntime || null,
         durationMs: params.durationMs,
         toolCallCount,
         ...usagePayload,
@@ -1702,108 +1723,6 @@ function getAdminChannelDisabledSkills(
   );
 }
 
-function buildGatewayProviderHealth(params: {
-  localBackends: GatewayStatus['localBackends'];
-  codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridaiHealth: GatewayProviderHealthEntry;
-}): NonNullable<GatewayStatus['providerHealth']> {
-  const runtimeConfig = getRuntimeConfig();
-  const anthropicStatus = getAnthropicAuthStatus();
-  const anthropicReady = isAnthropicAuthReadyForMethod(
-    anthropicStatus,
-    runtimeConfig.anthropic.method,
-  );
-  const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: params.hybridaiHealth,
-    codex: {
-      kind: 'remote',
-      reachable: params.codex.authenticated && !params.codex.reloginRequired,
-      ...(params.codex.authenticated && !params.codex.reloginRequired
-        ? {}
-        : {
-            error: params.codex.reloginRequired
-              ? 'Login required'
-              : 'Not authenticated',
-          }),
-      ...(params.codex.reloginRequired ? { loginRequired: true } : {}),
-      modelCount: dedupeStrings(getDiscoveredCodexModelNames()).length,
-      detail:
-        params.codex.authenticated && !params.codex.reloginRequired
-          ? `Authenticated${params.codex.source ? ` via ${params.codex.source}` : ''}`
-          : params.codex.reloginRequired
-            ? 'Login required'
-            : 'Not authenticated',
-    },
-  };
-  if (runtimeConfig.anthropic.enabled || anthropicStatus.authenticated) {
-    providerHealth.anthropic = {
-      kind: 'remote',
-      reachable: anthropicReady,
-      ...(anthropicReady ? {} : { error: 'Not authenticated' }),
-      modelCount: dedupeStrings(runtimeConfig.anthropic.models).length,
-      detail: anthropicReady
-        ? `Authenticated${anthropicStatus.source ? ` via ${anthropicStatus.source}` : ''}`
-        : anthropicStatus.authenticated && anthropicStatus.method
-          ? `Detected ${anthropicStatus.method}, configured ${runtimeConfig.anthropic.method}`
-          : 'Not authenticated',
-    };
-  }
-  const optionalRemoteProviders = [
-    {
-      key: 'openrouter',
-      enabled: runtimeConfig.openrouter.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('openrouter', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredOpenRouterModelNames()).length,
-    },
-    {
-      key: 'mistral',
-      enabled: runtimeConfig.mistral.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('mistral', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredMistralModelNames()).length,
-    },
-    {
-      key: 'huggingface',
-      enabled: runtimeConfig.huggingface.enabled,
-      authenticated: Boolean(
-        readApiKeyForOpenAICompatProvider('huggingface', { required: false }),
-      ),
-      modelCount: dedupeStrings(getDiscoveredHuggingFaceModelNames()).length,
-    },
-  ] as const;
-
-  for (const provider of optionalRemoteProviders) {
-    if (!provider.enabled) continue;
-    providerHealth[provider.key] = {
-      kind: 'remote',
-      reachable: provider.authenticated,
-      ...(provider.authenticated ? {} : { error: 'Not authenticated' }),
-      modelCount: provider.modelCount,
-      detail: provider.authenticated ? 'Authenticated' : 'Not authenticated',
-    };
-  }
-
-  for (const [name, status] of Object.entries(params.localBackends || {})) {
-    providerHealth[name as keyof typeof providerHealth] = {
-      kind: 'local',
-      reachable: status.reachable,
-      latencyMs: status.latencyMs,
-      ...(status.error ? { error: status.error } : {}),
-      ...(typeof status.modelCount === 'number'
-        ? { modelCount: status.modelCount }
-        : {}),
-      detail: status.reachable
-        ? `${status.latencyMs}ms`
-        : status.error || 'unreachable',
-    };
-  }
-
-  return providerHealth;
-}
-
 async function getGatewayStatusForModelSubcommand(
   subcommand: string | undefined,
 ): Promise<GatewayStatus> {
@@ -1902,7 +1821,10 @@ function mapAdminSession(session: Session): GatewayAdminSession {
     messageCount: session.message_count,
     summary: session.session_summary,
     compactionCount: session.compaction_count,
-    taskCount: getTasksForSession(session.id).length,
+    taskCount: getAllJobs({
+      kind: 'scheduled_task',
+      sessionId: session.id,
+    }).length,
     createdAt: session.created_at,
     lastActive: session.last_active,
   };
@@ -3791,6 +3713,123 @@ export function buildTokenUsageAuditPayload(
   };
 }
 
+type GatewayBuildDiagnostics = NonNullable<GatewayStatus['build']>;
+type GatewayBuildFileDiagnostics = GatewayBuildDiagnostics['files'][number];
+
+const GATEWAY_BUILD_FILE_PAIRS: Array<{
+  name: string;
+  sourcePath: string;
+  buildPath: string;
+}> = [
+  {
+    name: 'cli',
+    sourcePath: 'src/cli.ts',
+    buildPath: 'dist/cli.js',
+  },
+  {
+    name: 'gateway-service',
+    sourcePath: 'src/gateway/gateway-service.ts',
+    buildPath: 'dist/gateway/gateway-service.js',
+  },
+  {
+    name: 'gateway-http-proxy',
+    sourcePath: 'src/gateway/gateway-http-proxy.ts',
+    buildPath: 'dist/gateway/gateway-http-proxy.js',
+  },
+  {
+    name: 'container-tools',
+    sourcePath: 'container/src/tools.ts',
+    buildPath: 'container/dist/tools.js',
+  },
+];
+
+function readFileModifiedAt(
+  filePath: string,
+): { timeMs: number; iso: string } | null {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      timeMs: stat.mtimeMs,
+      iso: stat.mtime.toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getBuildFileStatus(
+  packageRoot: string,
+  filePair: (typeof GATEWAY_BUILD_FILE_PAIRS)[number],
+): GatewayBuildFileDiagnostics {
+  const sourcePath = path.join(packageRoot, filePair.sourcePath);
+  const buildPath = path.join(packageRoot, filePair.buildPath);
+  const sourceModified = readFileModifiedAt(sourcePath);
+  const buildModified = readFileModifiedAt(buildPath);
+  let status: GatewayBuildFileDiagnostics['status'] = 'ok';
+  if (!sourceModified) {
+    status = 'missing_source';
+  } else if (!buildModified) {
+    status = 'missing_build';
+  } else if (sourceModified.timeMs > buildModified.timeMs + 1000) {
+    status = 'source_newer';
+  }
+
+  return {
+    name: filePair.name,
+    sourcePath,
+    sourceModifiedAt: sourceModified?.iso ?? null,
+    buildPath,
+    buildModifiedAt: buildModified?.iso ?? null,
+    status,
+  };
+}
+
+function readGitValue(packageRoot: string, args: string[]): string | null {
+  const result = spawnSync('git', args, {
+    cwd: packageRoot,
+    encoding: 'utf-8',
+    maxBuffer: 64 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 1000,
+  });
+  if (result.status !== 0) return null;
+  const value = result.stdout.trim();
+  return value || null;
+}
+
+function isStaleBuildStatus(status: GatewayBuildFileDiagnostics['status']) {
+  return status === 'source_newer' || status === 'missing_build';
+}
+
+function getGatewayBuildDiagnostics(): GatewayBuildDiagnostics {
+  const packageRoot = resolveInstallRoot();
+  const files = GATEWAY_BUILD_FILE_PAIRS.map((filePair) =>
+    getBuildFileStatus(packageRoot, filePair),
+  );
+  const gitBranch = readGitValue(packageRoot, [
+    'rev-parse',
+    '--abbrev-ref',
+    'HEAD',
+  ]);
+
+  return {
+    version: APP_VERSION,
+    gitCommit: readGitValue(packageRoot, ['rev-parse', '--verify', 'HEAD']),
+    gitBranch: gitBranch === 'HEAD' ? null : gitBranch,
+    packageRoot,
+    entrypoint: process.argv[1] || null,
+    cwd: process.cwd(),
+    execPath: process.execPath,
+    nodeVersion: process.version,
+    pid: process.pid,
+    ppid: process.ppid,
+    startedAt: GATEWAY_PROCESS_STARTED_AT,
+    staleBuild: files.some((file) => isStaleBuildStatus(file.status)),
+    files,
+  };
+}
+
 export async function getGatewayStatus(
   options: GatewayHealthOptions = {},
 ): Promise<GatewayStatus> {
@@ -3947,6 +3986,7 @@ export async function getGatewayStatus(
     pid: process.pid,
     lifecycle: getGatewayLifecycleStatus(),
     version: APP_VERSION,
+    build: getGatewayBuildDiagnostics(),
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
@@ -4643,6 +4683,7 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
   const allSessions = getAllSessions();
+  const cards = listCards().map(mapGatewayAdminJobCard);
   const sessions = allSessions
     .map((session) =>
       mapSessionCard({
@@ -4681,6 +4722,9 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const agentIds = Array.from(
     new Set([
       ...listAgents().map((agent) => agent.id),
+      ...cards
+        .map((card) => (card.owner.type === 'agent' ? card.owner.id : null))
+        .filter((agentId): agentId is string => Boolean(agentId)),
       ...sessions.map((session) => session.agentId),
       ...suspendedSessions
         .map(
@@ -4699,10 +4743,48 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
         name: agent.name || null,
       };
     }),
+    cards,
     sessions,
     suspendedSessions: suspendedSessions.map((session) =>
       mapGatewayAdminSuspendedSession(session, sessionAgentIds),
     ),
+  };
+}
+
+function mapGatewayAdminJobCard(card: BoardCard): GatewayAdminJobCard {
+  let owner: GatewayAdminJobCard['owner'];
+  if ('agentId' in card.owner && card.owner.agentId) {
+    owner = { type: 'agent', id: card.owner.agentId };
+  } else if ('userId' in card.owner && card.owner.userId) {
+    owner = { type: 'user', id: card.owner.userId };
+  } else {
+    throw new Error(`Board card ${card.id} has an invalid owner.`);
+  }
+  return {
+    id: card.id,
+    title: card.title,
+    body: card.body,
+    owner,
+    column: card.column,
+    status: card.status,
+    source: card.source,
+    parent: card.parent,
+    createdAt: card.createdAt,
+    updatedAt: card.updatedAt,
+    blocked: isBoardCardBlocked(card.id),
+    edges: listEdges(card.id).map(mapGatewayAdminJobCardEdge),
+  };
+}
+
+function mapGatewayAdminJobCardEdge(
+  edge: BoardCardEdge,
+): GatewayAdminJobCardEdge {
+  return {
+    id: edge.id,
+    fromCardId: edge.fromCardId,
+    toCardId: edge.toCardId,
+    kind: edge.kind,
+    createdAt: edge.createdAt,
   };
 }
 
@@ -5598,6 +5680,25 @@ function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
   return 'hybridai';
 }
 
+function resolveSkillsHubAuxiliaryModel(
+  runtimeConfig: RuntimeConfig,
+): string | null {
+  const policy = runtimeConfig.auxiliaryModels.skills_hub;
+  const model = policy.model.trim();
+  if (policy.provider === 'disabled') return null;
+  if (policy.provider === 'auto') return model || null;
+  if (!isRuntimeProviderId(policy.provider)) return model || null;
+  try {
+    return normalizeAuxiliaryProviderModel({
+      provider: policy.provider,
+      model:
+        model || resolveDefaultAuxiliaryModelForProvider(policy.provider) || '',
+    });
+  } catch {
+    return model || null;
+  }
+}
+
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
   await refreshAvailableModelCatalogs({ includeHybridAI: true });
 
@@ -5609,49 +5710,17 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     listUsageByModel({ window: 'monthly' }).map((row) => [row.model, row]),
   );
 
+  const skillsHubAuxiliaryModel = resolveSkillsHubAuxiliaryModel(runtimeConfig);
   const modelIds = dedupeStrings([
     runtimeConfig.hybridai.defaultModel,
+    ...(skillsHubAuxiliaryModel ? [skillsHubAuxiliaryModel] : []),
     ...getAvailableModelList(),
   ]);
   const defaultModel = resolveRequestedCatalogModelName(
     runtimeConfig.hybridai.defaultModel,
     modelIds,
   );
-  const status = await getGatewayStatus();
-  const providerStatus = Object.fromEntries(
-    Object.entries(status.providerHealth || {}).map(([name, value]) => [
-      name,
-      { ...value },
-    ]),
-  ) as NonNullable<GatewayAdminModelsResponse['providerStatus']>;
-  const REMOTE_OPENAI_COMPAT_KEYS = [
-    'openrouter',
-    'mistral',
-    'huggingface',
-    'gemini',
-    'deepseek',
-    'xai',
-    'zai',
-    'kimi',
-    'minimax',
-    'dashscope',
-    'xiaomi',
-    'kilo',
-  ] as const;
-  for (const key of REMOTE_OPENAI_COMPAT_KEYS) {
-    if (providerStatus[key]) continue;
-    const diagnostic = diagnoseProviderForModels(key, status.providerHealth);
-    providerStatus[key] = {
-      kind: 'remote',
-      reachable: diagnostic === null,
-      ...(diagnostic
-        ? {
-            error: diagnostic.message,
-            loginRequired: diagnostic.kind === 'unauthorized',
-          }
-        : {}),
-    };
-  }
+  const providerStatus = await getGatewayAdminProviderStatus();
   const modelCountByProvider = new Map<
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
@@ -5695,6 +5764,12 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
 
   return {
     defaultModel,
+    auxiliaryModels: {
+      skillsHub: {
+        provider: runtimeConfig.auxiliaryModels.skills_hub.provider,
+        model: skillsHubAuxiliaryModel,
+      },
+    },
     providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
@@ -5796,24 +5871,61 @@ export function getGatewayAdminAudit(params?: {
   query?: string;
   sessionId?: string;
   eventType?: string;
+  since?: string;
+  until?: string;
+  cursor?: number;
   limit?: number;
 }): GatewayAdminAuditResponse {
   const query = String(params?.query || '').trim();
   const sessionId = String(params?.sessionId || '').trim();
   const eventType = String(params?.eventType || '').trim();
+  const since = String(params?.since || '').trim();
+  const until = String(params?.until || '').trim();
+  const cursor =
+    typeof params?.cursor === 'number' && Number.isFinite(params.cursor)
+      ? Math.max(0, Math.floor(params.cursor))
+      : 0;
   const limit = Math.max(1, Math.min(params?.limit ?? 60, 200));
+
+  // Fetch one extra row so we can detect a next page without a separate count.
+  // `maxLimit` must also be lifted past the default 200 cap, or the +1 row gets
+  // silently clamped away and `hasMore` is wrong at the page boundary.
+  const rows = listStructuredAuditEntries({
+    query,
+    sessionId,
+    eventType,
+    eventTypeMatch: 'prefix',
+    since: since || undefined,
+    until: until || undefined,
+    beforeId: cursor > 0 ? cursor : undefined,
+    limit: limit + 1,
+    maxLimit: limit + 1,
+  });
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const nextCursor = hasMore ? (page[page.length - 1]?.id ?? null) : null;
+
+  // Total rows matching the filters (ignoring the page cursor/limit) so the UI
+  // can report the real match count, not just how many have been paged in.
+  const total = countStructuredAuditEntries({
+    query,
+    sessionId,
+    eventType,
+    eventTypeMatch: 'prefix',
+    since: since || undefined,
+    until: until || undefined,
+  });
 
   return {
     query,
     sessionId,
     eventType,
+    since: since || null,
+    until: until || null,
     limit,
-    entries: listStructuredAuditEntries({
-      query,
-      sessionId,
-      eventType,
-      limit,
-    }).map(mapAdminAuditEntry),
+    entries: page.map(mapAdminAuditEntry),
+    nextCursor,
+    total,
   };
 }
 
@@ -5865,6 +5977,10 @@ function mapGatewayAdminPolicyStateValue(
     defaultAction: state.defaultAction,
     presets: [...state.presets],
     rules: state.rules.map(mapGatewayAdminPolicyRule),
+    lanHttpAccess: {
+      mode: state.lanHttpAccess.mode,
+      managedRuleIndexes: [...state.lanHttpAccess.managedRuleIndexes],
+    },
   };
 }
 
@@ -5966,6 +6082,17 @@ export function getGatewayAdminApprovals(params?: {
   };
 }
 
+function syncManagedBrowserTenantPolicyProjection(): void {
+  try {
+    syncLocalManagedBrowserTenantPolicyFromAdminPolicies();
+  } catch (error) {
+    logger.warn(
+      { error },
+      'Failed to sync managed browser tenant policy from admin policy',
+    );
+  }
+}
+
 export function saveGatewayAdminPolicyRule(input: {
   agentId?: string;
   index?: number | null;
@@ -5977,6 +6104,7 @@ export function saveGatewayAdminPolicyRule(input: {
       input.index != null
         ? updatePolicyRule(workspacePath, input.index, input.rule)
         : addPolicyRule(workspacePath, input.rule);
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -5993,6 +6121,7 @@ export function deleteGatewayAdminPolicyRule(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = deletePolicyRule(workspacePath, String(input.index)).state;
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6009,6 +6138,24 @@ export function saveGatewayAdminPolicyDefault(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = setPolicyDefault(workspacePath, input.defaultAction);
+    syncManagedBrowserTenantPolicyProjection();
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function saveGatewayAdminPolicyLanHttpAccess(input: {
+  agentId?: string;
+  mode: GatewayAdminLanHttpAccessMode;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = setLanHttpAccessMode(workspacePath, input.mode);
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6025,6 +6172,7 @@ export function applyGatewayAdminPolicyPreset(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = applyPolicyPreset(workspacePath, input.presetName).state;
+    syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {
     throw new GatewayRequestError(
@@ -6885,6 +7033,8 @@ export async function ensureGatewayBootstrapAutostart(params: {
         type: 'model.usage',
         provider,
         model: resolved.model,
+        runtime: resolveTurnRuntimeAuditLabel(resolved.model, output),
+        codexRuntime: output.codexRuntime || null,
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
         ...usagePayload,
@@ -10661,7 +10811,13 @@ export async function handleGatewayCommand(
             : contextSnapshot.contextUsedTokens != null
               ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
-        const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+        const sandboxMode = status.sandbox?.mode || 'container';
+        const sandboxLabel = `${sandboxMode} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
+        const turnRuntimeLabel =
+          resolveModelProvider(sessionModel) === 'openai-codex' &&
+          getRuntimeConfig().codex.turnRuntime === 'app-server'
+            ? 'codex'
+            : 'hybridclaw';
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
@@ -10712,7 +10868,7 @@ export async function handleGatewayCommand(
                   .join(' · ')}`,
               ]
             : []),
-          `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
+          `⚙️ Runtime: ${turnRuntimeLabel} · Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
           `🩺 Agents: ${coworkerHealthLabel}`,
@@ -11021,13 +11177,14 @@ export async function handleGatewayCommand(
                 `\`${runAtRaw}\` is not a valid ISO timestamp.`,
               );
             }
-            const taskId = createTask(
-              session.id,
-              req.channelId,
-              '',
+            const taskId = createJob({
+              kind: 'scheduled_task',
+              sessionId: session.id,
+              channelId: req.channelId,
+              cronExpr: '',
               prompt,
-              parsedDate.toISOString(),
-            );
+              runAt: parsedDate.toISOString(),
+            });
             rearmScheduler();
             return plainCommand(
               `Task #${taskId} created: one-shot at \`${parsedDate.toISOString()}\` — ${prompt}`,
@@ -11044,14 +11201,14 @@ export async function handleGatewayCommand(
                 'Interval must be at least 10000ms.',
               );
             }
-            const taskId = createTask(
-              session.id,
-              req.channelId,
-              '',
+            const taskId = createJob({
+              kind: 'scheduled_task',
+              sessionId: session.id,
+              channelId: req.channelId,
+              cronExpr: '',
               prompt,
-              undefined,
               everyMs,
-            );
+            });
             rearmScheduler();
             return plainCommand(
               `Task #${taskId} created: every \`${everyMs}ms\` — ${prompt}`,
@@ -11074,12 +11231,13 @@ export async function handleGatewayCommand(
               `\`${cronExpr}\` is not a valid cron expression.`,
             );
           }
-          const taskId = createTask(
-            session.id,
-            req.channelId,
+          const taskId = createJob({
+            kind: 'scheduled_task',
+            sessionId: session.id,
+            channelId: req.channelId,
             cronExpr,
             prompt,
-          );
+          });
           rearmScheduler();
           return plainCommand(
             `Task #${taskId} created: cron \`${cronExpr}\` — ${prompt}`,
@@ -11087,7 +11245,10 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'list') {
-          const tasks = getTasksForSession(session.id);
+          const tasks = getAllJobs({
+            kind: 'scheduled_task',
+            sessionId: session.id,
+          });
           if (tasks.length === 0) return plainCommand('No scheduled tasks.');
           const list = tasks
             .map((task) => {
@@ -11113,7 +11274,7 @@ export async function handleGatewayCommand(
           const taskId = parseIntegerArg(req.args, 2);
           if (!taskId)
             return badCommand('Usage', 'Usage: `schedule remove <id>`');
-          deleteTask(taskId);
+          deleteJob(taskId);
           rearmScheduler();
           return plainCommand(`Task #${taskId} removed.`);
         }
@@ -11122,7 +11283,10 @@ export async function handleGatewayCommand(
           const taskId = parseIntegerArg(req.args, 2);
           if (!taskId)
             return badCommand('Usage', 'Usage: `schedule toggle <id>`');
-          const tasks = getTasksForSession(session.id);
+          const tasks = getAllJobs({
+            kind: 'scheduled_task',
+            sessionId: session.id,
+          });
           const task = tasks.find((t) => t.id === taskId);
           if (!task)
             return badCommand(
@@ -11130,9 +11294,9 @@ export async function handleGatewayCommand(
               `Task #${taskId} was not found in this session.`,
             );
           if (task.enabled) {
-            pauseTask(taskId);
+            setJobEnabled(taskId, false);
           } else {
-            resumeTask(taskId);
+            setJobEnabled(taskId, true);
           }
           rearmScheduler();
           return plainCommand(

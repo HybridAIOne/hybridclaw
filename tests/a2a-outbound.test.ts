@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
+import fs from 'node:fs';
 import { describe, expect, test, vi } from 'vitest';
 
 import {
@@ -232,6 +233,73 @@ describe('A2A outbound adapter', () => {
     expect(
       requests.find((request) => request.ifNoneMatch === '"card-v1"'),
     ).toBeTruthy();
+  });
+
+  test('uses one default audit session for queued send and delivery events', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const audit = await import('../src/audit/audit-trail.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-a2a-default-audit'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        url: 'http://127.0.0.1:65535/a2a',
+      },
+      transportRegistry: registry,
+    });
+
+    const fetchImpl = vi.fn(
+      async (_url: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'GET') {
+          return Response.json({
+            name: 'Peer',
+            url: 'http://127.0.0.1:65535/a2a',
+            capabilities: [],
+          });
+        }
+        return Response.json({ jsonrpc: '2.0', result: { kind: 'message' } });
+      },
+    );
+
+    await expect(
+      a2a.processA2AOutbox({
+        fetchImpl,
+        now: () => new Date('2030-01-01T00:00:00.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      delivered: 1,
+    });
+
+    const sessionId = 'a2a:thread:thread-a2a';
+    const records = fs
+      .readFileSync(audit.getAuditWirePath(sessionId), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .slice(1)
+      .map((line) => JSON.parse(line));
+    const canonicalEvents = records.filter((record) =>
+      ['a2a.send', 'a2a.deliver'].includes(record.event.type),
+    );
+
+    expect(canonicalEvents.map((record) => record.event.type)).toEqual([
+      'a2a.send',
+      'a2a.deliver',
+    ]);
+    expect(canonicalEvents.map((record) => record.event.transport)).toEqual([
+      'a2a',
+      'a2a',
+    ]);
+    expect(audit.verifyAuditSessionChain(sessionId)).toMatchObject({
+      ok: true,
+      errors: [],
+    });
   });
 
   test('honors delegation token revocations and expiry', async () => {
@@ -630,6 +698,83 @@ describe('A2A outbound adapter', () => {
     expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
       status: 'failed',
       lastError: 'a2a.bearerTokenRef is required for non-loopback peers',
+    });
+  });
+
+  test('fails unresolved recipients without retrying missing identity records', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const { IdentityNotFoundError } = await import(
+      '../src/identity/resolver.ts'
+    );
+
+    initDatabase({ quiet: true });
+    a2a.enqueueUnresolvedA2AEnvelope(
+      sampleA2AEnvelope('msg-missing-identity'),
+      'remote@team@peer-instance',
+    );
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      identityResolution: {
+        status: 'unresolved',
+        canonicalId: 'remote@team@peer-instance',
+      },
+    });
+
+    await expect(
+      a2a.processA2AOutbox({
+        identityResolver: {
+          async resolve(canonicalId: string) {
+            throw new IdentityNotFoundError(canonicalId);
+          },
+        },
+        now: () => new Date('2030-01-01T00:00:00.000Z'),
+        jitterRatio: 0,
+      }),
+    ).resolves.toMatchObject({ processed: 1, failed: 1 });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+      lastError:
+        'No identity discovery record found for remote@team@peer-instance.',
+    });
+  });
+
+  test('fails closed when identity discovery returns an unsupported public key', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    a2a.enqueueUnresolvedA2AEnvelope(
+      sampleA2AEnvelope('msg-invalid-discovery-key'),
+      'remote@team@peer-instance',
+    );
+
+    await expect(
+      a2a.processA2AOutbox({
+        identityResolver: {
+          async resolve() {
+            return {
+              url: 'http://127.0.0.1:8787',
+              publicKey: 'not-a-valid-key',
+            };
+          },
+        },
+        fetchImpl: vi.fn().mockResolvedValue(
+          Response.json({
+            url: 'http://127.0.0.1:8787/a2a',
+            capabilities: [],
+          }),
+        ),
+      }),
+    ).resolves.toMatchObject({ processed: 1, failed: 1 });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      identityResolution: {
+        status: 'resolved',
+        canonicalId: 'remote@team@peer-instance',
+        publicKey: 'not-a-valid-key',
+      },
+      lastError: expect.stringContaining('unsupported public key format'),
     });
   });
 

@@ -7,6 +7,11 @@ metadata:
   hybridclaw:
     category: misc
     short_description: "Current time and timezone."
+    tags:
+      - time
+      - date
+      - timezone
+      - utility
 ---
 # Current Time
 

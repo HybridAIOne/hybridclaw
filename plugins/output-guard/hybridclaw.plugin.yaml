@@ -1,0 +1,118 @@
+id: output-guard
+name: Output Guard
+version: 0.1.0
+kind: middleware
+description: Output policy guard that scans final agent responses for banned phrases and rule violations, then rewrites, blocks, or flags before the message ships.
+entrypoint: src/index.js
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    enabled:
+      type: boolean
+      default: true
+      description: Master switch for the guard.
+    mode:
+      type: string
+      enum: [block, rewrite, flag]
+      default: rewrite
+      description: How to handle non-compliant output. `flag` only logs.
+    policy:
+      type: string
+      default: ''
+      description: One-paragraph description of the output guard (formal, playful, …).
+    doList:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Positive policy guidelines the assistant should follow.
+    dontList:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Policy guidelines the assistant should avoid.
+    policyFile:
+      type: string
+      description: Path to a markdown file with the output guard guidelines. Loaded once at registration.
+    bannedPhrases:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Case-insensitive substrings that must never appear in output.
+    bannedPatterns:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Regular-expression patterns (with optional `/flags`) that must never appear in output.
+    requirePhrases:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Phrases that must appear in output. Missing any triggers non-compliant output.
+    blockMessage:
+      type: string
+      default: 'Output blocked by output guard.'
+      description: Replacement text when blocking.
+    minLength:
+      type: number
+      default: 0
+      minimum: 0
+      description: Skip the guard for outputs shorter than this many characters.
+    failureMode:
+      type: string
+      enum: [allow, block]
+      default: allow
+      description: What to do when the classifier or rewriter errors.
+    classifier:
+      type: object
+      additionalProperties: false
+      default: {}
+      properties:
+        provider:
+          type: string
+          enum: [default, auxiliary, model]
+          default: default
+        model:
+          type: string
+          default: ''
+    rewriter:
+      type: object
+      additionalProperties: false
+      default: {}
+      properties:
+        provider:
+          type: string
+          enum: [default, auxiliary, model]
+          default: default
+        model:
+          type: string
+          default: ''
+configUiHints:
+  policy:
+    label: Output guard description
+    placeholder: Friendly, plainspoken, no jargon. Confident but never cocky.
+  doList:
+    label: Do
+    help: Positive policy rules, one per array entry.
+  dontList:
+    label: Don't
+    help: Policy rules to avoid, one per array entry.
+  policyFile:
+    label: Path to output guard markdown
+  bannedPhrases:
+    label: Banned phrases
+    help: Case-insensitive substrings; one per array entry.
+  bannedPatterns:
+    label: Banned regex patterns
+    help: 'Examples: `dumb`, `/\\bguarantee[sd]?\\b/i`'
+  requirePhrases:
+    label: Phrases that must appear
+  classifier.provider:
+    label: Classifier model source
+  rewriter.provider:
+    label: Rewriter model source

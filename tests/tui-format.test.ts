@@ -2,14 +2,18 @@ import { expect, test } from 'vitest';
 
 import {
   formatTuiMarkdownOutput,
+  formatTuiSkillListLines,
   formatTuiTitledCommandBlock,
   formatTuiToolActivityBlock,
   formatTuiToolActivityLine,
+  hasTuiMarkdownFormatting,
   isMutedSkillListLine,
   isPluginListHeaderLine,
   nextActiveDelegateToolCount,
   parseTuiSectionCards,
   renderTuiEvalResultsPanel,
+  shouldBufferTuiFormattedStream,
+  shouldReplayTuiFormattedText,
   visibleTuiLength,
 } from '../src/tui.ts';
 
@@ -35,11 +39,32 @@ test('formats titled command blocks with the standard left gutter', () => {
   ]);
 });
 
-test('mutes disabled and install hint lines in the skill list', () => {
+test('mutes disabled skill and install hint lines in the skill list', () => {
   expect(isMutedSkillListLine('  apple-music [disabled]')).toBe(true);
+  expect(isMutedSkillListLine('      ↳ installs: brew (brew)')).toBe(true);
   expect(isMutedSkillListLine('      installs: brew (brew)')).toBe(true);
-  expect(isMutedSkillListLine('  apple-music [available]')).toBe(false);
+  expect(isMutedSkillListLine('  apple-music [enabled]')).toBe(false);
   expect(isMutedSkillListLine('Apple:')).toBe(false);
+});
+
+test('keeps wrapped skill install lines muted and aligned', () => {
+  const lines = formatTuiSkillListLines(
+    [
+      'Publishing:',
+      '    ↳ installs: manim (uv) — Install Manim Community Edition with uv; ffmpeg (brew) — Install ffmpeg (brew)',
+    ].join('\n'),
+    78,
+  );
+  const installLines = lines.slice(1);
+
+  expect(installLines.length).toBeGreaterThan(1);
+  expect(installLines.every((line) => line.muted)).toBe(true);
+  expect(installLines.map((line) => stripAnsi(line.line))).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/^ {6}↳ installs:/u),
+      expect.stringMatching(/^ {6}.*ffmpeg \(brew\)/u),
+    ]),
+  );
 });
 
 test('identifies only plugin list section headers for accent color', () => {
@@ -148,6 +173,23 @@ test('renders markdown tables as wrapped terminal tables', () => {
   expect(plainLines.every((line) => visibleTuiLength(line) <= 82)).toBe(true);
 });
 
+test('buffers streamed markdown before terminal replay', () => {
+  expect(shouldBufferTuiFormattedStream('Alles klar')).toBe(false);
+  expect(
+    shouldBufferTuiFormattedStream(
+      [
+        'Alles klar',
+        '',
+        '**Lesend (keine Genehmigung nötig):**',
+        '',
+        '| Bereich | Aktionen |',
+        '|---|---|',
+        '| **Account** | `whoami` — Profildaten abrufen |',
+      ].join('\n'),
+    ),
+  ).toBe(true);
+});
+
 test('formats inline markdown emphasis in regular tui output', () => {
   const rendered = formatTuiMarkdownOutput(
     'Also **Add pricing signals.** -> should be formatted.',
@@ -159,6 +201,42 @@ test('formats inline markdown emphasis in regular tui output', () => {
   );
   expect(rendered).toContain('\x1b[1mAdd pricing signals.\x1b[22m');
   expect(rendered).not.toContain('\x1b[0m');
+});
+
+test('detects markdown that needs final tui replay after streaming', () => {
+  expect(hasTuiMarkdownFormatting('Plain text only.')).toBe(false);
+  expect(hasTuiMarkdownFormatting('Use **bold** text.')).toBe(true);
+  expect(
+    hasTuiMarkdownFormatting(
+      ['| A | B |', '|---|---|', '| 1 | 2 |'].join('\n'),
+    ),
+  ).toBe(true);
+  expect(hasTuiMarkdownFormatting('```\n| not | table |\n```')).toBe(false);
+});
+
+test('replays streamed tui output only when markdown can be cleared safely', () => {
+  const base = {
+    finalText: 'Use **bold** text.',
+    interrupted: false,
+    pendingApproval: false,
+    sawVisibleTextDelta: true,
+    status: 'success' as const,
+    stdoutIsTTY: true,
+  };
+
+  expect(shouldReplayTuiFormattedText(base)).toBe(true);
+  expect(
+    shouldReplayTuiFormattedText({ ...base, finalText: 'Plain text only.' }),
+  ).toBe(false);
+  expect(shouldReplayTuiFormattedText({ ...base, stdoutIsTTY: false })).toBe(
+    false,
+  );
+  expect(
+    shouldReplayTuiFormattedText({ ...base, sawVisibleTextDelta: false }),
+  ).toBe(false);
+  expect(shouldReplayTuiFormattedText({ ...base, status: 'error' })).toBe(
+    false,
+  );
 });
 
 test('keeps wide glyph markdown table rows inside the terminal width', () => {
@@ -174,6 +252,23 @@ test('keeps wide glyph markdown table rows inside the terminal width', () => {
 
   expect(stripAnsi(rendered)).toContain('界界');
   expect(lines.every((line) => visibleTuiLength(line) <= 36)).toBe(true);
+});
+
+test('counts emoji checkmarks correctly in markdown table padding', () => {
+  const text = [
+    '|              | Before                      | After                       |',
+    '|--------------|-----------------------------|-----------------------------|',
+    '| Status       | off -> migrating -> running ✅ |                             |',
+    '| IP           | 116.203.47.17               | 116.203.47.17 ✅ (preserved) |',
+    '| IPv6         | 2a01:4f8:c0c:9b6a::/64      | 2a01:4f8:c0c:9b6a::/64 ✅    |',
+  ].join('\n');
+
+  const rendered = formatTuiMarkdownOutput(text, 76);
+  const lines = rendered.split('\n');
+
+  expect(visibleTuiLength('✅')).toBe(2);
+  expect(stripAnsi(rendered)).toContain('running ✅');
+  expect(lines.every((line) => visibleTuiLength(line) <= 76)).toBe(true);
 });
 
 test('delegate text suppression only remains active while delegate tools are in flight', () => {

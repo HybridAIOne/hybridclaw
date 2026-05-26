@@ -12,6 +12,22 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
     ResizeObserverPolyfill as unknown as typeof ResizeObserver;
 }
 
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+  class IntersectionObserverPolyfill {
+    readonly root = null;
+    readonly rootMargin = '';
+    readonly thresholds: ReadonlyArray<number> = [];
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+    takeRecords(): IntersectionObserverEntry[] {
+      return [];
+    }
+  }
+  globalThis.IntersectionObserver =
+    IntersectionObserverPolyfill as unknown as typeof IntersectionObserver;
+}
+
 if (
   typeof Element !== 'undefined' &&
   typeof Element.prototype.scrollIntoView !== 'function'

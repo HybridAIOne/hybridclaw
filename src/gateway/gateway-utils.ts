@@ -3,6 +3,29 @@ import path from 'node:path';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import { finiteNumberOrNull } from '../utils/number-normalization.js';
 
+const COMMON_EXTENSION_MIME_TYPES: Record<string, string> = {
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.m4v': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.mp4': 'video/mp4',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webm': 'video/webm',
+  '.webp': 'image/webp',
+};
+
+export function extensionToMimeType(
+  extension: string,
+  fallback = 'application/octet-stream',
+): string {
+  const normalized = extension.startsWith('.')
+    ? extension.toLowerCase()
+    : `.${extension.toLowerCase()}`;
+  return COMMON_EXTENSION_MIME_TYPES[normalized] ?? fallback;
+}
+
 export function numberFromUnknown(value: unknown): number | null {
   return finiteNumberOrNull(value);
 }

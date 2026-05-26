@@ -1,22 +1,26 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AdminJobCard,
   AdminSchedulerJob,
   AdminSchedulerResponse,
   JobSession,
 } from '../api/types';
-import { ToastProvider } from '../components/toast';
+import { renderWithProviders } from '../test-utils';
 import { JobsPage } from './jobs';
 
+const fetchBoardBudgetSummariesMock = vi.fn();
 const fetchJobsContextMock = vi.fn();
 const fetchSchedulerMock = vi.fn<() => Promise<AdminSchedulerResponse>>();
 const moveSchedulerJobMock = vi.fn();
+const navigateMock = vi.fn();
 const resumeInteractiveEscalationMock = vi.fn();
 const saveSchedulerJobMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchBoardBudgetSummaries: (...args: unknown[]) =>
+    fetchBoardBudgetSummariesMock(...args),
   fetchJobsContext: (...args: unknown[]) => fetchJobsContextMock(...args),
   fetchScheduler: () => fetchSchedulerMock(),
   moveSchedulerJob: (...args: unknown[]) => moveSchedulerJobMock(...args),
@@ -29,12 +33,16 @@ vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
 
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => navigateMock,
+}));
+
 function makeConfigJob(
   overrides: Partial<AdminSchedulerJob> = {},
 ): AdminSchedulerJob {
   return {
     id: 'release-reminder',
-    source: 'config',
+    source: 'job',
     name: 'Release Reminder',
     description: 'Send the release reminder.',
     agentId: 'main',
@@ -71,6 +79,39 @@ function makeConfigJob(
   };
 }
 
+function makeJobCard(overrides: Partial<AdminJobCard> = {}): AdminJobCard {
+  return {
+    id: 'edge-blocked',
+    title: 'Edge Blocked',
+    body: 'Waiting on another card.',
+    owner: { type: 'agent', id: 'main' },
+    column: 'in_review',
+    status: 'ready',
+    source: 'manual',
+    parent: null,
+    createdAt: '2026-04-12T18:40:00.000Z',
+    updatedAt: '2026-04-12T18:44:15.000Z',
+    blocked: true,
+    edges: [
+      {
+        id: 'edge-1',
+        fromCardId: 'edge-blocked',
+        toCardId: 'edge-blocker',
+        kind: 'blocked_by',
+        createdAt: '2026-04-12T18:44:15.000Z',
+      },
+      {
+        id: 'edge-2',
+        fromCardId: 'edge-blocked',
+        toCardId: 'related-card',
+        kind: 'related',
+        createdAt: '2026-04-12T18:44:16.000Z',
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function makeJobSession(overrides: Partial<JobSession> = {}): JobSession {
   return {
     sessionId: 'scheduler:release-reminder',
@@ -85,26 +126,17 @@ function makeJobSession(overrides: Partial<JobSession> = {}): JobSession {
 }
 
 function renderJobsPage(): void {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <JobsPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<JobsPage />);
 }
 
 describe('JobsPage', () => {
   beforeEach(() => {
     fetchJobsContextMock.mockReset();
+    fetchBoardBudgetSummariesMock.mockReset();
     fetchSchedulerMock.mockReset();
     moveSchedulerJobMock.mockReset();
+    navigateMock.mockReset();
+    navigateMock.mockResolvedValue(undefined);
     resumeInteractiveEscalationMock.mockReset();
     saveSchedulerJobMock.mockReset();
     useAuthMock.mockReset();
@@ -113,11 +145,15 @@ describe('JobsPage', () => {
     });
     fetchJobsContextMock.mockResolvedValue({
       agents: [{ id: 'main', name: 'Main' }],
+      cards: [],
       sessions: [],
       suspendedSessions: [],
     });
     fetchSchedulerMock.mockResolvedValue({
       jobs: [makeConfigJob()],
+    });
+    fetchBoardBudgetSummariesMock.mockResolvedValue({
+      budgets: [],
     });
     resumeInteractiveEscalationMock.mockResolvedValue({
       session: {
@@ -153,9 +189,98 @@ describe('JobsPage', () => {
     expect(screen.queryByText('never')).toBeNull();
   });
 
+  it('renders budget chips with threshold and currency formatting', async () => {
+    fetchSchedulerMock.mockResolvedValue({
+      jobs: [
+        makeConfigJob({
+          id: 'neutral-job',
+          name: 'Neutral Budget',
+          agentId: 'main',
+        }),
+        makeConfigJob({
+          id: 'warn-job',
+          name: 'Warn Budget',
+          agentId: 'agent-warn',
+        }),
+        makeConfigJob({
+          id: 'hard-job',
+          name: 'Hard Budget',
+          agentId: 'agent-hard',
+        }),
+        makeConfigJob({
+          id: 'no-budget-job',
+          name: 'No Budget',
+          agentId: 'agent-no-budget',
+        }),
+      ],
+    });
+    fetchJobsContextMock.mockResolvedValue({
+      agents: [
+        { id: 'main', name: 'Main' },
+        { id: 'agent-warn', name: 'Warn' },
+        { id: 'agent-hard', name: 'Hard' },
+        { id: 'agent-no-budget', name: 'No Budget Agent' },
+      ],
+      cards: [],
+      sessions: [],
+      suspendedSessions: [],
+    });
+    fetchBoardBudgetSummariesMock.mockResolvedValue({
+      budgets: [
+        {
+          agentId: 'main',
+          used: 3.4,
+          cap: 60,
+          currency: 'USD',
+          percent: 79.5,
+        },
+        {
+          agentId: 'agent-warn',
+          used: 81,
+          cap: 100,
+          currency: 'USD',
+          percent: 99.5,
+        },
+        {
+          agentId: 'agent-hard',
+          used: 12,
+          cap: 10,
+          currency: 'EUR',
+          percent: 120,
+        },
+      ],
+    });
+
+    renderJobsPage();
+
+    const neutral = await screen.findByText('$3.40 / $60');
+    const warn = await screen.findByText('$81 / $100');
+    const hard = await screen.findByText('€12 / €10');
+
+    expect(neutral.getAttribute('data-tone')).toBe('neutral');
+    expect(neutral.getAttribute('title')).toBe('79% used');
+    const neutralAgentRow = neutral.closest('.jobs-card-agent-row');
+    expect(neutralAgentRow).not.toBeNull();
+    expect(
+      within(neutralAgentRow as HTMLElement).getByText('Main'),
+    ).toBeTruthy();
+    expect(warn.getAttribute('data-tone')).toBe('warn');
+    expect(warn.getAttribute('title')).toBe('99% used');
+    const warnAgentRow = warn.closest('.jobs-card-agent-row');
+    expect(warnAgentRow).not.toBeNull();
+    expect(within(warnAgentRow as HTMLElement).getByText('Warn')).toBeTruthy();
+    expect(hard.getAttribute('data-tone')).toBe('hard');
+    expect(hard.getAttribute('title')).toBe('120% used');
+    const hardAgentRow = hard.closest('.jobs-card-agent-row');
+    expect(hardAgentRow).not.toBeNull();
+    expect(within(hardAgentRow as HTMLElement).getByText('Hard')).toBeTruthy();
+    expect(screen.queryByText('$0 / $0')).toBeNull();
+  });
+
   it('uses the linked session start time as the created timestamp', async () => {
     fetchJobsContextMock.mockResolvedValue({
       agents: [{ id: 'main', name: 'Main' }],
+      cards: [],
       sessions: [makeJobSession()],
       suspendedSessions: [],
     });
@@ -186,9 +311,26 @@ describe('JobsPage', () => {
     expect(screen.queryByText('never')).toBeNull();
   });
 
+  it('opens the scheduler editor with SPA navigation', async () => {
+    renderJobsPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Release Reminder')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Release Reminder'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/admin/scheduler',
+      search: { jobId: 'release-reminder' },
+    });
+  });
+
   it('shows blocked sessions on the board and resumes them from the detail pane', async () => {
     fetchJobsContextMock.mockResolvedValue({
       agents: [{ id: 'main', name: 'Main' }],
+      cards: [],
       sessions: [],
       suspendedSessions: [
         {
@@ -233,5 +375,32 @@ describe('JobsPage', () => {
         },
       );
     });
+  });
+
+  it('shows dependency edges for job cards on the jobs board', async () => {
+    fetchJobsContextMock.mockResolvedValue({
+      agents: [{ id: 'main', name: 'Main' }],
+      cards: [makeJobCard()],
+      sessions: [],
+      suspendedSessions: [],
+    });
+    fetchSchedulerMock.mockResolvedValue({ jobs: [] });
+
+    renderJobsPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Edge Blocked')).toBeTruthy();
+    });
+    expect(screen.getByText('Blocked')).toBeTruthy();
+    expect(screen.getByText('Blocked by edge-blocker')).toBeTruthy();
+    expect(screen.getByText('Related related-card')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Edge Blocked'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Dependencies')).toBeTruthy();
+    });
+    expect(screen.getAllByText('Blocked by edge-blocker').length).toBe(2);
+    expect(screen.getAllByText('Related related-card').length).toBe(2);
   });
 });

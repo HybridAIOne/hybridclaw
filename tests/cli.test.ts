@@ -334,7 +334,7 @@ async function importFreshCli(options?: {
   pluginCheckResult?: {
     pluginId: string;
     pluginDir: string;
-    source: 'home' | 'project' | 'config';
+    source: 'home' | 'project' | 'bundled' | 'config';
     requiresEnv: string[];
     missingEnv: string[];
     requiredConfigKeys: string[];
@@ -385,7 +385,7 @@ async function importFreshCli(options?: {
     name?: string;
     version?: string;
     description?: string;
-    source: 'home' | 'project' | 'config';
+    source: 'home' | 'project' | 'bundled' | 'config';
     enabled: boolean;
     error?: string;
     commands: string[];
@@ -1104,6 +1104,30 @@ async function importFreshCli(options?: {
       status: 'ok',
       pid: 12345,
       version: '0.4.1',
+      build: {
+        version: '0.4.1',
+        gitCommit: 'abcdef1234567890',
+        gitBranch: 'main',
+        packageRoot: '/repo',
+        entrypoint: '/repo/dist/cli.js',
+        cwd: '/repo',
+        execPath: '/node',
+        nodeVersion: 'v22.0.0',
+        pid: 12345,
+        ppid: 111,
+        startedAt: '2026-05-26T08:00:00.000Z',
+        staleBuild: true,
+        files: [
+          {
+            name: 'gateway-http-proxy',
+            sourcePath: '/repo/src/gateway/gateway-http-proxy.ts',
+            sourceModifiedAt: '2026-05-26T08:01:00.000Z',
+            buildPath: '/repo/dist/gateway/gateway-http-proxy.js',
+            buildModifiedAt: '2026-05-26T08:00:00.000Z',
+            status: 'source_newer',
+          },
+        ],
+      },
       uptime: 1,
       sessions: 1,
       activeContainers: 0,
@@ -3079,7 +3103,7 @@ describe('CLI hybridai commands', () => {
       'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Required env vars: EXAMPLE_PLUGIN_TOKEN',
+      'Required runtime secrets: EXAMPLE_PLUGIN_TOKEN',
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Add a plugins.list[] override in '),
@@ -4720,6 +4744,29 @@ describe('CLI hybridai commands', () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it('prints gateway build diagnostics for gateway status', async () => {
+    const { cli, gatewayStatus } = await importFreshCli({
+      gatewayReachable: true,
+      gatewayStatusSandboxMode: 'host',
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['gateway', 'status']);
+
+    expect(gatewayStatus).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'Gateway process: pid 12345 | ppid 111 | node v22.0.0',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Gateway build: v0.4.1 | main@abcdef123456 | stale: yes',
+    );
+    expect(logSpy).toHaveBeenCalledWith('Entrypoint: /repo/dist/cli.js');
+    expect(logSpy).toHaveBeenCalledWith('Package root: /repo');
+    expect(logSpy).toHaveBeenCalledWith(
+      'Stale build files: gateway-http-proxy (source_newer)',
+    );
+  });
+
   it('writes and cleans up a managed PID file for gateway start --foreground', async () => {
     const {
       cli,
@@ -5120,6 +5167,99 @@ describe('CLI hybridai commands', () => {
       discord: ['docx'],
     });
     expect(logSpy).toHaveBeenCalledWith('Enabled pdf in global scope.');
+  });
+
+  it('prints disabled skills correctly in the local skill list', async () => {
+    vi.resetModules();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.doMock('../src/skills/skills-management.js', () => ({
+      listSkillCatalogEntries: () => [
+        {
+          name: 'enabled-skill',
+          category: 'development',
+          available: true,
+          enabled: true,
+          missing: [],
+          installs: [],
+        },
+        {
+          name: 'disabled-skill',
+          category: 'development',
+          available: true,
+          enabled: false,
+          missing: [],
+          installs: [],
+        },
+        {
+          name: 'missing-bin-skill',
+          category: 'office',
+          available: false,
+          enabled: true,
+          missing: ['bin:node'],
+          installs: [],
+        },
+      ],
+    }));
+
+    const { handleSkillCommand } = await import('../src/cli/skill-command.ts');
+    await handleSkillCommand(['list']);
+
+    expect(logSpy).toHaveBeenCalledWith('development:');
+    expect(logSpy).toHaveBeenCalledWith('  enabled-skill [enabled]');
+    expect(logSpy).toHaveBeenCalledWith('  disabled-skill [disabled]');
+    expect(logSpy).toHaveBeenCalledWith('office:');
+    expect(logSpy).toHaveBeenCalledWith('  missing-bin-skill [bin:node]');
+
+    vi.doUnmock('../src/skills/skills-management.js');
+  });
+
+  it('initializes the database before printing local skill runs', async () => {
+    vi.resetModules();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const initAgentRegistry = vi.fn();
+    const isDatabaseInitialized = vi.fn(() => false);
+    const initDatabase = vi.fn();
+    const getSkillExecutionRuns = vi.fn(() => [
+      {
+        id: 1,
+        skill_name: 'warehouse-sql',
+        agent_id: 'main',
+        session_id: 'session-1',
+        run_id: 'run-1',
+        outcome: 'success',
+        error_category: null,
+        error_detail: null,
+        tool_calls_attempted: 1,
+        tool_calls_failed: 0,
+        duration_ms: 42,
+        user_feedback: null,
+        feedback_sentiment: null,
+        created_at: '2026-05-26T00:00:00.000Z',
+      },
+    ]);
+    vi.doMock('../src/memory/db.js', () => ({
+      initDatabase,
+      isDatabaseInitialized,
+    }));
+    vi.doMock('../src/agents/agent-registry.js', () => ({
+      initAgentRegistry,
+    }));
+    vi.doMock('../src/skills/skills-management.js', () => ({
+      getSkillExecutionRuns,
+    }));
+
+    const { handleSkillCommand } = await import('../src/cli/skill-command.ts');
+    await handleSkillCommand(['runs', 'warehouse-sql']);
+
+    expect(initDatabase).toHaveBeenCalledWith({ quiet: true });
+    expect(initAgentRegistry).toHaveBeenCalled();
+    expect(getSkillExecutionRuns).toHaveBeenCalledWith('warehouse-sql');
+    expect(logSpy).toHaveBeenCalledWith('Run: run-1');
+    expect(logSpy).toHaveBeenCalledWith('Outcome: success');
+
+    vi.doUnmock('../src/memory/db.js');
+    vi.doUnmock('../src/agents/agent-registry.js');
+    vi.doUnmock('../src/skills/skills-management.js');
   });
 
   it('disables a built-in tool globally', async () => {

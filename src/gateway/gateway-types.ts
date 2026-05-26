@@ -3,6 +3,7 @@ import type { BaseMessageOptions } from 'discord.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
+import type { AgentBudgetCurrency } from '../agents/agent-types.js';
 import type {
   AgentTeamStructureDiff,
   AgentTeamStructureSnapshot,
@@ -345,6 +346,28 @@ export interface GatewayStatus {
     restartReason: string | null;
   };
   version: string;
+  build?: {
+    version: string;
+    gitCommit: string | null;
+    gitBranch: string | null;
+    packageRoot: string;
+    entrypoint: string | null;
+    cwd: string;
+    execPath: string;
+    nodeVersion: string;
+    pid: number;
+    ppid: number;
+    startedAt: string;
+    staleBuild: boolean;
+    files: Array<{
+      name: string;
+      sourcePath: string;
+      sourceModifiedAt: string | null;
+      buildPath: string;
+      buildModifiedAt: string | null;
+      status: 'ok' | 'source_newer' | 'missing_source' | 'missing_build';
+    }>;
+  };
   uptime: number;
   sessions: number;
   activeContainers: number;
@@ -807,8 +830,58 @@ export interface GatewayAdminJobSession {
 
 export interface GatewayAdminJobsContextResponse {
   agents: GatewayAdminJobAgent[];
+  cards: GatewayAdminJobCard[];
   sessions: GatewayAdminJobSession[];
   suspendedSessions: GatewayAdminSuspendedSession[];
+}
+
+export interface GatewayAdminJobCardOwner {
+  type: 'agent' | 'user';
+  id: string;
+}
+
+export type GatewayAdminJobCardColumn =
+  | 'triage'
+  | 'todo'
+  | 'in_progress'
+  | 'in_review'
+  | 'done';
+
+export type GatewayAdminJobCardEdgeKind = 'blocks' | 'blocked_by' | 'related';
+
+export interface GatewayAdminJobCardEdge {
+  id: string;
+  fromCardId: string;
+  toCardId: string;
+  kind: GatewayAdminJobCardEdgeKind;
+  createdAt: string;
+}
+
+export interface GatewayAdminJobCard {
+  id: string;
+  title: string;
+  body: string;
+  owner: GatewayAdminJobCardOwner;
+  column: GatewayAdminJobCardColumn;
+  status: string;
+  source: string;
+  parent: string | null;
+  createdAt: string;
+  updatedAt: string;
+  blocked: boolean;
+  edges: GatewayAdminJobCardEdge[];
+}
+
+export interface GatewayAdminBoardBudgetSummary {
+  agentId: string;
+  used: number;
+  cap: number;
+  currency: AgentBudgetCurrency;
+  percent: number;
+}
+
+export interface GatewayAdminBoardBudgetResponse {
+  budgets: GatewayAdminBoardBudgetSummary[];
 }
 
 export interface GatewayAdminDeleteSessionResult {
@@ -1084,13 +1157,40 @@ export interface GatewayAdminModelCatalogEntry {
 
 export interface GatewayAdminModelsResponse {
   defaultModel: string;
+  auxiliaryModels?: {
+    skillsHub: {
+      provider:
+        | 'auto'
+        | 'disabled'
+        | 'hybridai'
+        | 'openai-codex'
+        | 'anthropic'
+        | 'openrouter'
+        | 'mistral'
+        | 'huggingface'
+        | 'gemini'
+        | 'deepseek'
+        | 'xai'
+        | 'zai'
+        | 'kimi'
+        | 'minimax'
+        | 'dashscope'
+        | 'xiaomi'
+        | 'kilo'
+        | 'ollama'
+        | 'lmstudio'
+        | 'llamacpp'
+        | 'vllm';
+      model: string | null;
+    };
+  };
   providerStatus: GatewayStatus['providerHealth'];
   models: GatewayAdminModelCatalogEntry[];
 }
 
 export interface GatewayAdminSchedulerJob {
   id: string;
-  source: 'config' | 'task';
+  source: 'job' | 'task';
   name: string;
   description: string | null;
   agentId: string | null;
@@ -1142,8 +1242,14 @@ export interface GatewayAdminAuditResponse {
   query: string;
   sessionId: string;
   eventType: string;
+  since: string | null;
+  until: string | null;
   limit: number;
   entries: GatewayAdminAuditEntry[];
+  /** Opaque cursor for the next page; pass back as `cursor=`. null when this is the last page. */
+  nextCursor: number | null;
+  /** Total rows matching the filters in the database, independent of pagination. */
+  total: number;
 }
 
 export interface GatewayAdminApprovalAgent {
@@ -1199,6 +1305,17 @@ export interface GatewayAdminPolicyRule {
   managedByPreset?: string;
 }
 
+export type GatewayAdminLanHttpAccessMode =
+  | 'off'
+  | 'read-only'
+  | 'read-write'
+  | 'custom';
+
+export interface GatewayAdminLanHttpAccessState {
+  mode: GatewayAdminLanHttpAccessMode;
+  managedRuleIndexes: number[];
+}
+
 export interface GatewayAdminPolicyState {
   exists: boolean;
   policyPath: string;
@@ -1206,6 +1323,7 @@ export interface GatewayAdminPolicyState {
   defaultAction: 'allow' | 'deny';
   presets: string[];
   rules: GatewayAdminPolicyRule[];
+  lanHttpAccess: GatewayAdminLanHttpAccessState;
 }
 
 export interface GatewayAdminPolicyPresetSummary {
@@ -1272,7 +1390,7 @@ export interface GatewayAdminPlugin {
   name: string | null;
   version: string | null;
   description: string | null;
-  source: 'home' | 'project' | 'config';
+  source: 'home' | 'project' | 'bundled' | 'config';
   enabled: boolean;
   status: 'loaded' | 'failed';
   error: string | null;
@@ -1291,6 +1409,68 @@ export interface GatewayAdminPluginsResponse {
     hooks: number;
   };
   plugins: GatewayAdminPlugin[];
+}
+
+export interface GatewayAdminOutputGuardProfile {
+  enabled: boolean;
+  mode: 'block' | 'rewrite' | 'flag';
+  policy: string;
+  doList: string[];
+  dontList: string[];
+  bannedPhrases: string[];
+  bannedPatterns: string[];
+  requirePhrases: string[];
+  classifier: GatewayAdminOutputGuardModelConfig;
+  rewriter: GatewayAdminOutputGuardModelConfig;
+}
+
+export interface GatewayAdminOutputGuardModelConfig {
+  provider: 'default' | 'auxiliary' | 'model';
+  model: string;
+}
+
+export interface GatewayAdminOutputGuardRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+}
+
+export interface GatewayAdminOutputGuardProfileResponse {
+  profile: GatewayAdminOutputGuardProfile;
+  revisions: GatewayAdminOutputGuardRevision[];
+}
+
+export interface GatewayAdminOutputGuardProfileUpdateResponse
+  extends GatewayAdminOutputGuardProfileResponse {
+  changed: boolean;
+  reloadMessage: string;
+}
+
+export interface GatewayAdminOutputGuardPreviewViolation {
+  kind: 'banned_phrase' | 'banned_pattern' | 'missing_required';
+  detail: string;
+}
+
+export interface GatewayAdminOutputGuardPreviewClassifier {
+  provider: 'default' | 'auxiliary' | 'model';
+  status: 'evaluated' | 'unavailable' | 'unparseable';
+  verdict: 'compliant' | 'non_compliant' | null;
+  severity: 'low' | 'medium' | 'high' | null;
+  reasons: string[];
+  message: string | null;
+  model: string | null;
+}
+
+export interface GatewayAdminOutputGuardPreviewResponse {
+  score: number;
+  ruleScore: number;
+  scoreSource: 'classifier' | 'rules';
+  verdict: 'compliant' | 'needs_review' | 'non_compliant';
+  violations: GatewayAdminOutputGuardPreviewViolation[];
+  classifier: GatewayAdminOutputGuardPreviewClassifier;
 }
 
 export interface GatewayAdminToolCatalogEntry {

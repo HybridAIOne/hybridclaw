@@ -1,6 +1,6 @@
 {
   "name": "hybridclaw-agent",
-  "version": "0.19.2",
+  "version": "0.20.0",
   "type": "module",
   "main": "dist/index.js",
   "packageManager": "npm@11.10.0",
@@ -25,12 +25,14 @@
     "@modelcontextprotocol/sdk": "1.27.1",
     "@mozilla/readability": "0.6.0",
     "agent-browser": "0.15.1",
+    "dompurify": "3.3.1",
     "jszip": "3.10.1",
     "linkedom": "0.18.12",
+    "mermaid": "11.14.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.5.207",
     "playwright": "1.58.2",
-    "yaml": "^2.8.3"
+    "yaml": "2.8.3"
   },
   "optionalDependencies": {
     "@napi-rs/canvas": "0.1.96"
@@ -40,6 +42,9 @@
     "typescript": "5.9.3"
   },
   "overrides": {
+    "@mermaid-js/parser": "1.1.0",
+    "katex": "0.16.45",
+    "langium": "4.2.3",
     "hono": "4.12.8",
     "fast-xml-parser": "5.5.6",
     "@appium/logger": "2.0.5",

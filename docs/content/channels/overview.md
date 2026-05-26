@@ -25,6 +25,7 @@ If you are still in first-run onboarding mode, start with
 | Signal | Private Signal DMs through a signal-cli compatible daemon | `hybridclaw channels signal setup ...` | [Signal](./signal.md) |
 | Threema | Outbound Gateway Basic-mode text delivery | `hybridclaw channels threema setup ...` | [Threema](./threema.md) |
 | Email | Mailbox-driven workflows and threaded replies | `hybridclaw channels email setup ...` | [Email](./email.md) |
+| Fax | Fax-to-email inbound PDFs and guarded outbound PDF fax delivery | `hybridclaw channels email setup ...` + `fax-send` skill | [Fax](./fax.md) |
 | WhatsApp | Linked-device QR pairing and phone-based DM tests | `hybridclaw channels whatsapp setup ...` | [WhatsApp](./whatsapp.md) |
 | Twilio Voice | Phone calls when you already have a public HTTPS/WSS endpoint | `/admin/channels` | [Twilio Voice](../guides/twilio-voice.md) |
 | iMessage | Local Mac runtime or remote BlueBubbles relay | `hybridclaw channels imessage setup ...` | [iMessage](./imessage.md) |
@@ -49,7 +50,7 @@ config edits because it also depends on public webhook and relay URL settings.
 
 ## Shared Inbound Media Cache
 
-Email, Telegram, WhatsApp, and Microsoft Teams stage locally materialized
+Email, Fax, Telegram, WhatsApp, and Microsoft Teams stage locally materialized
 inbound attachments under one shared runtime directory:
 
 - host path: `~/.hybridclaw/data/uploaded-media-cache/`

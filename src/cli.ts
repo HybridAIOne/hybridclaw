@@ -11,6 +11,7 @@ import { makeLazyApi, normalizeArgs } from './cli/common.js';
 import {
   isHelpRequest,
   printAuditUsage,
+  printBrowserPoolUsage,
   printBrowserUsage,
   printDeprecatedProviderAliasWarning,
   printDoctorUsage,
@@ -68,6 +69,7 @@ import {
   removeGatewayPidFile,
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
+import type { GatewayStatus } from './gateway/gateway-types.js';
 import { logger } from './logger.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
@@ -1012,6 +1014,32 @@ async function stopGatewayBackend(): Promise<void> {
   await stopManagedGatewayByPid(state);
 }
 
+function printGatewayBuildStatus(build: GatewayStatus['build']): void {
+  if (!build) return;
+
+  const commit = build.gitCommit ? build.gitCommit.slice(0, 12) : 'unknown';
+  const branch = build.gitBranch ? `${build.gitBranch}@` : '';
+  console.log(
+    `Gateway process: pid ${build.pid} | ppid ${build.ppid} | node ${build.nodeVersion}`,
+  );
+  console.log(
+    `Gateway build: v${build.version} | ${branch}${commit} | stale: ${build.staleBuild ? 'yes' : 'no'}`,
+  );
+  console.log(`Entrypoint: ${build.entrypoint ?? '(unknown)'}`);
+  console.log(`Package root: ${build.packageRoot}`);
+
+  const staleFiles = build.files.filter(
+    (file) => file.status === 'source_newer' || file.status === 'missing_build',
+  );
+  if (staleFiles.length > 0) {
+    console.log(
+      `Stale build files: ${staleFiles
+        .map((file) => `${file.name} (${file.status})`)
+        .join(', ')}`,
+    );
+  }
+}
+
 async function printGatewayLifecycleStatus(): Promise<void> {
   const state = readGatewayPid();
   const runningByPid = Boolean(state && isPidRunning(state.pid));
@@ -1035,6 +1063,7 @@ async function printGatewayLifecycleStatus(): Promise<void> {
       console.log(
         `Uptime: ${status.uptime}s | Sessions: ${status.sessions} | Sandbox: ${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`,
       );
+      printGatewayBuildStatus(status.build);
       if ((status.sandbox?.activeSessionIds?.length || 0) > 0) {
         console.log('Active sandbox sessions:');
         for (const sessionId of status.sandbox?.activeSessionIds || []) {
@@ -1488,6 +1517,26 @@ async function handleBrowserCommand(args: string[]): Promise<void> {
   );
 }
 
+async function handleBrowserPoolCommand(args: string[]): Promise<void> {
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printBrowserPoolUsage();
+    return;
+  }
+  const sub = normalized[0].toLowerCase();
+  if (sub !== 'doctor') {
+    throw new Error(`Unknown browser-pool subcommand: ${sub}. Use \`doctor\`.`);
+  }
+  const { checkManagedBrowserPoolHealth } = await import(
+    './browser/managed-cloud-doctor.js'
+  );
+  const result = await checkManagedBrowserPoolHealth();
+  console.log(result.message);
+  console.log(`Endpoint: ${result.endpointUrl}`);
+  console.log(`Nodes: ${result.healthyNodeCount}/${result.nodeCount}`);
+  if (!result.ok) process.exitCode = 1;
+}
+
 async function handleHybridAICommand(args: string[]): Promise<void> {
   const cliAuth = await import('./cli/auth-command.js');
   await cliAuth.handleHybridAICommand(args);
@@ -1671,6 +1720,9 @@ export async function main(
     case 'browser':
       await handleBrowserCommand(subargs);
       break;
+    case 'browser-pool':
+      await handleBrowserPoolCommand(subargs);
+      break;
     case 'migrate':
       await handleMigrateCommand(subargs);
       break;
@@ -1786,16 +1838,16 @@ function printMissingEnvVarError(message: string, envVar?: string): void {
     HF_TOKEN: 'Hugging Face provider is not configured.',
   };
   const envVarHint: Record<string, string> = {
-    HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
-    ANTHROPIC_API_KEY: `Run \`hybridclaw auth login anthropic --method api-key\`, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli\`, or set ANTHROPIC_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
-    OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
-    MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
-    HF_TOKEN: `Run \`hybridclaw auth login huggingface\`, or set HF_TOKEN in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or store HYBRIDAI_API_KEY with \`hybridclaw secret set HYBRIDAI_API_KEY <key>\` or in TUI with \`/secret set HYBRIDAI_API_KEY <key>\`, then run the command again.`,
+    ANTHROPIC_API_KEY: `Run \`hybridclaw auth login anthropic --method api-key\`, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli\`, or store ANTHROPIC_API_KEY with \`hybridclaw secret set ANTHROPIC_API_KEY <key>\` or in TUI with \`/secret set ANTHROPIC_API_KEY <key>\`, then run the command again.`,
+    OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or store OPENROUTER_API_KEY with \`hybridclaw secret set OPENROUTER_API_KEY <key>\` or in TUI with \`/secret set OPENROUTER_API_KEY <key>\`, then run the command again.`,
+    MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or store MISTRAL_API_KEY with \`hybridclaw secret set MISTRAL_API_KEY <key>\` or in TUI with \`/secret set MISTRAL_API_KEY <key>\`, then run the command again.`,
+    HF_TOKEN: `Run \`hybridclaw auth login huggingface\`, or store HF_TOKEN with \`hybridclaw secret set HF_TOKEN <key>\` or in TUI with \`/secret set HF_TOKEN <key>\`, then run the command again.`,
   };
   const renderedMessage = envVar ? envVarMessage[envVar] || message : message;
   const hint = envVar
     ? envVarHint[envVar]
-    : 'Set this variable and rerun the command.';
+    : 'Configure the required value with `hybridclaw config set` or `hybridclaw secret set`, or in TUI with `/config set` or `/secret set`, then rerun the command.';
   console.error(`hybridclaw error: ${renderedMessage}`);
   console.error(`Hint: ${hint}`);
   console.error(

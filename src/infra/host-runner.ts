@@ -8,11 +8,16 @@ import type {
   ExecutorSessionHealthSnapshot,
 } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
+import {
+  getGoogleWorkspaceRuntimeEnvRecoveryHint,
+  resolveGoogleWorkspaceRuntimeEnv,
+} from '../auth/google-auth.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
+  BROWSER_ALLOW_PRIVATE_NETWORK,
   BROWSER_PROVIDER,
+  CODEX_RUNTIME,
   CONTAINER_BINDS,
   CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
@@ -40,6 +45,7 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
@@ -87,6 +93,7 @@ import {
   isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
+import { parseToolProgressLine } from './tool-progress-parser.js';
 import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
@@ -111,9 +118,6 @@ import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
 const HOST_CAPACITY_POLL_MS = 100;
-const TOOL_RESULT_RE =
-  /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
-const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 
 function resolveExecutorMaxTokens(params: {
@@ -194,6 +198,7 @@ interface PoolEntry extends WarmRunnerEntry {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
+  codexRuntime?: CodexTurnRuntime;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
@@ -324,34 +329,14 @@ function emitThinkingDelta(entry: PoolEntry, line: string): void {
 function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
+  const parsed = parseToolProgressLine(line);
+  if (!parsed) return;
 
-  const resultMatch = line.match(TOOL_RESULT_RE);
-  if (resultMatch) {
-    try {
-      callback({
-        sessionId: entry.sessionId,
-        toolName: resultMatch[1],
-        phase: 'finish',
-        durationMs: parseInt(resultMatch[2], 10),
-        preview: redactCredentialSecrets(resultMatch[3]),
-      });
-    } catch (err) {
-      logger.debug(
-        { sessionId: entry.sessionId, err },
-        'Tool progress callback failed',
-      );
-    }
-    return;
-  }
-
-  const startMatch = line.match(TOOL_START_RE);
-  if (!startMatch) return;
   try {
     callback({
       sessionId: entry.sessionId,
-      toolName: startMatch[1],
-      phase: 'start',
-      preview: redactCredentialSecrets(startMatch[2]),
+      ...parsed,
+      preview: redactCredentialSecrets(parsed.preview || ''),
     });
   } catch (err) {
     logger.debug(
@@ -657,6 +642,9 @@ function getOrSpawnHostProcess(
     HYBRIDCLAW_RETRY_MAX_DELAY_MS: String(PROACTIVE_AUTO_RETRY_MAX_DELAY_MS),
     HYBRIDCLAW_RALPH_MAX_ITERATIONS: String(PROACTIVE_RALPH_MAX_ITERATIONS),
     HYBRIDCLAW_BROWSER_PROVIDER: BROWSER_PROVIDER,
+    BROWSER_ALLOW_PRIVATE_NETWORK: BROWSER_ALLOW_PRIVATE_NETWORK
+      ? 'true'
+      : 'false',
     HYBRIDCLAW_WEB_SEARCH_PROVIDER: WEB_SEARCH_PROVIDER,
     HYBRIDCLAW_WEB_SEARCH_FALLBACK_PROVIDERS:
       WEB_SEARCH_FALLBACK_PROVIDERS.join(','),
@@ -918,9 +906,10 @@ async function runHostProcessInner(
     sessionModel: modelRuntime.model || model,
   });
   const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
+    const recoveryHint = getGoogleWorkspaceRuntimeEnvRecoveryHint(error);
     logger.warn(
-      { error },
-      'Failed to resolve Google access token for Workspace CLI runtime environment',
+      { error, recoveryHint },
+      `Failed to resolve Google access token for Workspace CLI runtime environment. ${recoveryHint}`,
     );
     return {};
   });
@@ -946,9 +935,14 @@ async function runHostProcessInner(
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
+  const existingEntry = pool.get(sessionId);
+  const selectedCodexRuntime =
+    modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
+  const codexRuntime = existingEntry?.codexRuntime || selectedCodexRuntime;
 
   const input: ContainerInput = {
     sessionId,
+    agentId,
     messages,
     chatbotId: modelRuntime.chatbotId,
     enableRag: modelRuntime.enableRag,
@@ -962,7 +956,10 @@ async function runHostProcessInner(
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: GATEWAY_BASE_URL,
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
+    browserProvider: BROWSER_PROVIDER,
+    browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model,
+    codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
@@ -1014,17 +1011,18 @@ async function runHostProcessInner(
     agentId,
     provider: input.provider,
     providerMethod: input.providerMethod,
+    codexRuntime: input.codexRuntime,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
     browserProvider: BROWSER_PROVIDER,
+    browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     taskModels: input.taskModels,
     providerCredentials: input.providerCredentials,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,
   });
-  const existingEntry = pool.get(sessionId);
   if (existingEntry && existingEntry.workerSignature !== workerSignature) {
     logger.info(
       { sessionId, agentId, provider: input.provider },
@@ -1069,6 +1067,7 @@ async function runHostProcessInner(
   cleanupIpc(entry.ipcSessionId);
   ensureSessionDirs(entry.ipcSessionId);
   entry.workerSignature = workerSignature;
+  entry.codexRuntime = input.codexRuntime;
 
   const activity = createActivityTracker();
   entry.onTextDelta = onTextDelta;

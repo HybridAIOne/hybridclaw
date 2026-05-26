@@ -20,8 +20,8 @@ credentials, approvals, persistent memory, and admin surfaces behind a single
 gateway.
 
 Connect it to Discord, Discord Incoming Webhooks, Slack, Slack Incoming
-Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, email, Twilio voice, or
-the web. Run it locally, deploy it for business workflows, and keep your
+Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, email, fax, Twilio
+voice, or the web. Run it locally, deploy it for business workflows, and keep your
 agents, secrets, and data under your control.
 
 [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart) ·
@@ -79,7 +79,8 @@ Open locally:
 
 - Chat UI: `http://127.0.0.1:9090/chat`
 - Admin UI: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, statistics, config, and channel-specific instructions
+  scheduler, audit, statistics, config, secrets, output guard, and
+  channel-specific instructions
 - Agents UI: `http://127.0.0.1:9090/agents`
 - OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
 
@@ -117,10 +118,11 @@ Once the gateway is running, open HybridClaw locally:
   active, so you can ask an ephemeral follow-up without interrupting the
   current run
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, statistics, config, and channel-specific instructions
+  scheduler, audit, statistics, config, secrets, output guard, A2A inbox threads, and
+  channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Discord, Discord Incoming Webhooks, Slack, Slack Incoming
-  Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, Email
+  Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, Email, Fax
 
 ## Operator workflows
 
@@ -151,6 +153,11 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/channels` edits transport config, encrypted channel credentials,
   Signal QR linking, Twilio voice settings, and per-channel instructions that
   are injected into prompts at runtime.
+- `/admin/secrets` lists stored and declared-but-empty secrets by metadata
+  only, supports overwrite and unset actions, and never returns cleartext
+  secret values to the browser.
+- `/admin/output-guard` configures response guardrails and plugin-backed
+  output classification without editing runtime config by hand.
 - `slack_webhook` targets provide outbound-only Slack Incoming Webhook delivery
   with encrypted webhook URLs, named destinations, Block Kit text chunking,
   reachability status, and POST-only network policy grants.
@@ -160,6 +167,8 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/approvals` manages approval policies from the browser.
 - Approval policy evaluation runs through a hook-fed rule pipeline, so
   workspace policy ordering and plugin tool-use hooks share one approval path.
+- `/admin/a2a-inbox` shows read-only A2A message threads across the instance,
+  with sender, recipient, timestamp, intent, and content for each message.
 - `/admin/a2a-trust` shows the local A2A public-key trust ledger for paired
   peer instances.
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
@@ -212,6 +221,10 @@ Once the gateway is running, open HybridClaw locally:
 - `hybridclaw skill list blocked` and `hybridclaw skill unblock <name>` let
   local operators review scanner-blocked skills and record a bypass marker for
   the installed copy when the finding has been accepted.
+- Bundled skills include CRM, finance, infrastructure, monitoring,
+  home-automation, fax, local PII redaction, media, search, and office
+  workflows. Skill setup guides live in the
+  [Skills Catalog](https://hybridaione.github.io/hybridclaw/docs/guides/skills/).
 - The bundled tutorials cover owner, GTM, marketing, sales, DevRel, content,
   invoicing, webinar, and release-launch workflows that can run from the TUI,
   web chat, or connected channels.
@@ -264,7 +277,7 @@ Once the gateway is running, open HybridClaw locally:
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
   Salesforce inspection, GitHub issue queue processing (`gh-issues`),
   monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
-  FastBill, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
+  FastBill, Lexware Office, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
   HeyGen, Hermes3000 long-form writing, natural-language warehouse SQL
   (`warehouse-sql`), brand-voice drafting, speech transcription and language
   detection (`speech.transcribe`, `speech.detect-language`), validated

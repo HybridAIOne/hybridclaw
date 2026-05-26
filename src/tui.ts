@@ -31,12 +31,15 @@ import {
   gatewayChatStream,
   gatewayCommand,
   gatewayHistory,
+  gatewayListInteractiveEscalations,
   gatewayPullProactive,
+  gatewayResumeInteractiveEscalation,
   gatewayStatus,
   gatewayUploadMedia,
   renderGatewayCommand,
   saveGatewayAdminSkillEnabled,
 } from './gateway/gateway-client.js';
+import type { GatewayAdminSuspendedSession } from './gateway/gateway-types.js';
 import {
   DEFAULT_SESSION_SHOW_MODE,
   isSessionShowMode,
@@ -116,7 +119,6 @@ import {
 } from './tui-slash-menu.js';
 import { stopTuiRun } from './tui-stop.js';
 import {
-  appendTerminalRowCount,
   countTerminalRows,
   createTuiStreamFormatState,
   createTuiThinkingStreamState,
@@ -897,6 +899,7 @@ function tuiCharacterWidth(symbol: string): number {
       (code >= 0xfe30 && code <= 0xfe6f) ||
       (code >= 0xff00 && code <= 0xff60) ||
       (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x2600 && code <= 0x27bf) ||
       (code >= 0x1f300 && code <= 0x1faff) ||
       (code >= 0x20000 && code <= 0x3fffd))
   ) {
@@ -1177,7 +1180,7 @@ function parseTuiMarkdownTableAt(
   return rows.length > 1 ? { rows, endLine } : null;
 }
 
-function hasTuiMarkdownFormatting(text: string): boolean {
+export function hasTuiMarkdownFormatting(text: string): boolean {
   const lines = String(text || '')
     .replace(/\r\n?/g, '\n')
     .split('\n');
@@ -1193,6 +1196,28 @@ function hasTuiMarkdownFormatting(text: string): boolean {
     if (parseTuiMarkdownTableAt(lines, index)) return true;
   }
   return false;
+}
+
+export function shouldReplayTuiFormattedText(params: {
+  finalText: string;
+  interrupted: boolean;
+  pendingApproval: boolean;
+  sawVisibleTextDelta: boolean;
+  status: GatewayChatResult['status'];
+  stdoutIsTTY: boolean;
+}): boolean {
+  return (
+    !params.pendingApproval &&
+    !params.interrupted &&
+    params.status !== 'error' &&
+    params.sawVisibleTextDelta &&
+    params.stdoutIsTTY &&
+    hasTuiMarkdownFormatting(params.finalText)
+  );
+}
+
+export function shouldBufferTuiFormattedStream(text: string): boolean {
+  return hasTuiMarkdownFormatting(text);
 }
 
 function wrapAnsiTuiVisibleLine(value: string, width: number): string[] {
@@ -1556,8 +1581,32 @@ function terminalColumns(): number {
   return Math.max(24, process.stdout.columns || 120);
 }
 
+function terminalRows(): number {
+  return Math.max(8, process.stdout.rows || 24);
+}
+
 function formatTuiOutput(text: string): string {
   return formatTuiMarkdownOutput(text, terminalColumns(), '  ');
+}
+
+export function formatTuiSkillListLines(
+  text: string,
+  columns: number,
+): Array<{ line: string; muted: boolean }> {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .flatMap((rawLine) => {
+      const leadingWhitespace = rawLine.match(/^\s*/u)?.[0] || '';
+      const content = rawLine.slice(leadingWhitespace.length);
+      const muted = isMutedSkillListLine(rawLine);
+      return wrapTuiBlock(content, columns, `  ${leadingWhitespace}`)
+        .split('\n')
+        .map((line) => ({
+          line: formatInlineMarkdownForTui(line),
+          muted,
+        }));
+    });
 }
 
 export function formatTuiTitledCommandBlock(
@@ -1571,7 +1620,11 @@ export function formatTuiTitledCommandBlock(
 }
 
 export function isMutedSkillListLine(line: string): boolean {
-  return /\[disabled\]/i.test(line) || /^\s*installs:/i.test(line);
+  return /\[disabled\]/i.test(line) || isSkillInstallHintLine(line);
+}
+
+function isSkillInstallHintLine(line: string): boolean {
+  return /^\s*(?:↳\s*)?installs:/u.test(line);
 }
 
 export function isPluginListHeaderLine(line: string): boolean {
@@ -1597,8 +1650,11 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.title === 'Skills') {
     clearTuiSlashMenu();
     console.log();
-    for (const line of formatTuiOutput(rendered).split('\n')) {
-      const color = isMutedSkillListLine(line) ? MUTED : GOLD;
+    for (const { line, muted } of formatTuiSkillListLines(
+      rendered,
+      terminalColumns(),
+    )) {
+      const color = muted ? MUTED : GOLD;
       console.log(`${color}${line}${RESET}`);
     }
     console.log();
@@ -1643,6 +1699,17 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
         console.log(`${GOLD}${line}${RESET}`);
       }
     }
+    console.log();
+    return;
+  }
+  if (result.title === 'BTW') {
+    clearTuiSlashMenu();
+    console.log();
+    console.log(
+      `${GOLD}${wrapTuiBlock(result.title, terminalColumns(), '  ')}${RESET}`,
+    );
+    console.log();
+    console.log(wrapTuiBlock(result.text, terminalColumns(), '  '));
     console.log();
     return;
   }
@@ -1719,7 +1786,7 @@ function spinner(): {
   finishTool: (toolName: string, preview?: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
-  clearVisibleText: () => void;
+  clearVisibleText: () => boolean;
   trailingNewlinesAfterVisibleText: () => string;
   setThinkingPreview: (preview: string | null) => void;
   clearThinkingPreview: () => void;
@@ -1736,6 +1803,7 @@ function spinner(): {
   const toolEntries: SpinnerToolEntry[] = [];
   let hasVisibleText = false;
   let visibleTextState = createTuiStreamFormatState();
+  let visibleTextOutput = '';
   let visibleTextRows = 0;
   let thinkingPreviewRows = 0;
   let toolActivityRows = 0;
@@ -1750,6 +1818,15 @@ function spinner(): {
       if (row < normalizedRows - 1) process.stdout.write('\n');
     }
     if (normalizedRows > 1) process.stdout.write(`\x1b[${normalizedRows - 1}A`);
+  };
+  const deleteRenderedRows = (rows: number) => {
+    const normalizedRows = Math.max(0, rows);
+    if (normalizedRows <= 0 || !process.stdout.isTTY) return;
+    process.stdout.write('\r');
+    if (normalizedRows > 1) {
+      process.stdout.write(`\x1b[${normalizedRows - 1}A`);
+    }
+    process.stdout.write(`\x1b[${normalizedRows}M`);
   };
   const hideCursor = () => {
     if (cursorHidden || !process.stdout.isTTY) return;
@@ -1811,14 +1888,19 @@ function spinner(): {
     }
   };
 
+  const repaintThinkingPreview = (preview: string) => {
+    const formatted = wrapTuiBlock(preview, terminalColumns(), '  ');
+    if (process.stdout.isTTY) {
+      process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
+    } else {
+      process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
+    }
+    thinkingPreviewRows = countTerminalRows(formatted, terminalColumns());
+  };
+
   const clearThinkingPreview = () => {
     if (thinkingPreviewRows <= 0) return;
-    for (let row = 0; row < thinkingPreviewRows; row += 1) {
-      clearLine();
-      if (row < thinkingPreviewRows - 1) {
-        process.stdout.write('\x1b[1A');
-      }
-    }
+    deleteRenderedRows(thinkingPreviewRows);
     thinkingPreviewRows = 0;
     if (!stopped && showActivityPreview && !hasVisibleText) {
       render();
@@ -1826,22 +1908,25 @@ function spinner(): {
   };
 
   const clearVisibleText = () => {
-    if (!hasVisibleText) return;
+    if (!hasVisibleText) return true;
+    const canClear = process.stdout.isTTY;
     if (process.stdout.isTTY) {
       const rows = Math.max(1, visibleTextRows);
-      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
-      for (let row = 0; row < rows; row += 1) {
-        clearLine();
-        if (row < rows - 1) process.stdout.write('\n');
+      const safeClearRows = Math.max(1, terminalRows() - 2);
+      if (rows <= safeClearRows) {
+        clearRows(rows);
+      } else {
+        process.stdout.write('\n');
       }
-      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
     }
     hasVisibleText = false;
     visibleTextState = createTuiStreamFormatState();
+    visibleTextOutput = '';
     visibleTextRows = 0;
     if (!stopped && showActivityPreview && thinkingPreviewRows === 0) {
       render();
     }
+    return canClear;
   };
 
   const setThinkingPreview = (preview: string | null) => {
@@ -1855,9 +1940,7 @@ function spinner(): {
     if (toolEntries.length > 0) return;
     clearThinkingPreview();
     clearLine();
-    const formatted = wrapTuiBlock(normalizedPreview, terminalColumns(), '  ');
-    process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
-    thinkingPreviewRows = Math.max(1, formatted.split('\n').length);
+    repaintThinkingPreview(normalizedPreview);
   };
 
   hideCursor();
@@ -1951,7 +2034,8 @@ function spinner(): {
       visibleTextState = formatted.state;
       if (!formatted.text) return;
       hasVisibleText = true;
-      visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);
+      visibleTextOutput += formatted.text;
+      visibleTextRows = countTerminalRows(visibleTextOutput, terminalColumns());
       process.stdout.write(formatted.text);
     },
     flushVisibleText: () => {
@@ -1967,7 +2051,8 @@ function spinner(): {
         clearLine();
         hasVisibleText = true;
       }
-      visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);
+      visibleTextOutput += formatted.text;
+      visibleTextRows = countTerminalRows(visibleTextOutput, terminalColumns());
       process.stdout.write(formatted.text);
     },
     clearVisibleText,
@@ -2033,6 +2118,70 @@ function restorePendingMedia(
   if (media.length === 0) return;
   tuiPendingMedia = [...media, ...tuiPendingMedia];
   refreshPrompt(rl);
+}
+
+function looksLikeTuiInteractiveReply(input: string): boolean {
+  const trimmed = input.trim();
+  return (
+    /^\d{4,10}$/u.test(trimmed) ||
+    /^(?:approved|approve|done|scanned|declined|decline|cancel|timeout)$/iu.test(
+      trimmed,
+    )
+  );
+}
+
+function isTuiRoutableInteractiveReplySession(
+  entry: GatewayAdminSuspendedSession,
+): boolean {
+  const userId = String(entry.userId || '').trim();
+  return (
+    entry.status === 'pending' &&
+    entry.expectedReturnKinds.includes('code') &&
+    (!userId || userId === TUI_USER_ID || userId === 'operator')
+  );
+}
+
+export function selectTuiInteractiveReplySession(
+  sessions: GatewayAdminSuspendedSession[],
+): GatewayAdminSuspendedSession | null {
+  return (
+    sessions
+      .filter(isTuiRoutableInteractiveReplySession)
+      .sort(
+        (left, right) =>
+          Date.parse(right.createdAt) - Date.parse(left.createdAt),
+      )[0] || null
+  );
+}
+
+async function tryRouteTuiInteractiveReply(
+  input: string,
+  rl: readline.Interface,
+): Promise<boolean> {
+  const trimmed = input.trim();
+  if (!looksLikeTuiInteractiveReply(trimmed)) return false;
+  const pending = await gatewayListInteractiveEscalations().catch(() => null);
+  const session = pending
+    ? selectTuiInteractiveReplySession(pending.sessions)
+    : null;
+  if (!session) return false;
+
+  await gatewayResumeInteractiveEscalation({
+    sessionId: session.sessionId,
+    text: trimmed,
+  });
+  printInfo(
+    `Captured operator response for suspended session ${session.sessionId}.`,
+  );
+  await processMessage(
+    [
+      `Operator response has been captured for suspended session ${session.sessionId}.`,
+      'Resume the browser interaction now with browser_resume_interaction.',
+      'Do not ask for the code again and do not use browser_type for the code.',
+    ].join(' '),
+    rl,
+  );
+  return true;
 }
 
 function buildGatewayChatRequest(
@@ -2710,6 +2859,8 @@ async function processMessage(
       `${toolName}\0${preview}`;
     let sawStreamEvent = false;
     let sawVisibleTextDelta = false;
+    let streamedVisibleText = '';
+    let bufferFormattedReplayText = false;
     let activeDelegateToolCount = 0;
     let streamedApproval: GatewayChatApprovalEvent | null = null;
     let result: GatewayChatResult;
@@ -2728,7 +2879,18 @@ async function processMessage(
             const streamed = streamState.push(event.delta);
             if (streamed.visibleDelta) {
               sawVisibleTextDelta = true;
-              s.addVisibleTextDelta(streamed.visibleDelta);
+              streamedVisibleText += streamed.visibleDelta;
+              if (
+                !bufferFormattedReplayText &&
+                process.stdout.isTTY &&
+                shouldBufferTuiFormattedStream(streamedVisibleText)
+              ) {
+                bufferFormattedReplayText = true;
+                s.clearVisibleText();
+              }
+              if (!bufferFormattedReplayText) {
+                s.addVisibleTextDelta(streamed.visibleDelta);
+              }
             } else if (streamed.thinkingPreview) {
               s.setThinkingPreview(streamed.thinkingPreview);
             }
@@ -2838,18 +3000,18 @@ async function processMessage(
       resolveCachedApprovalDetails(tuiPendingApproval),
     );
     const interrupted = isInterruptedResult(result);
-    const shouldReplayFormattedText =
-      !pendingApproval &&
-      !interrupted &&
-      result.status !== 'error' &&
-      sawVisibleTextDelta &&
-      process.stdout.isTTY &&
-      hasTuiMarkdownFormatting(finalText);
+    const wantsFormattedReplay = shouldReplayTuiFormattedText({
+      finalText,
+      interrupted,
+      pendingApproval: !!pendingApproval,
+      sawVisibleTextDelta,
+      status: result.status,
+      stdoutIsTTY: process.stdout.isTTY,
+    });
 
     s.flushVisibleText();
-    if (shouldReplayFormattedText) {
-      s.clearVisibleText();
-    }
+    const shouldReplayFormattedText =
+      wantsFormattedReplay && s.clearVisibleText();
     s.stop();
     s.clearThinkingPreview();
     const hasStreamedText = sawVisibleTextDelta && !shouldReplayFormattedText;
@@ -3383,6 +3545,14 @@ async function main(): Promise<void> {
             promptTuiInput(rl);
             return;
           }
+        }
+        if (
+          !input.includes('\n') &&
+          !hasPendingMedia &&
+          (await tryRouteTuiInteractiveReply(input, rl))
+        ) {
+          promptTuiInput(rl);
+          return;
         }
         if (shouldRouteTuiInputToFullAuto(tuiFullAutoState)) {
           const liveFullAutoState = await syncFullAutoStateFromGateway(rl);

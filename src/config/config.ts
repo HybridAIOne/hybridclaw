@@ -481,6 +481,7 @@ export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
+export let CODEX_RUNTIME: RuntimeConfig['codex']['runtime'] = 'hybridclaw';
 export let ANTHROPIC_ENABLED = false;
 export let ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
 export let ANTHROPIC_METHOD: RuntimeConfig['anthropic']['method'] = 'api-key';
@@ -560,6 +561,7 @@ export let CONTAINER_WARM_POOL: RuntimeConfig['container']['warmPool'] = {
 };
 export let MCP_SERVERS: RuntimeConfig['mcpServers'] = {};
 export let BROWSER_PROVIDER: RuntimeConfig['browser']['provider'] = 'local';
+export let BROWSER_ALLOW_PRIVATE_NETWORK = false;
 export let WEB_SEARCH_PROVIDER: RuntimeConfig['web']['search']['provider'] =
   'auto';
 export let WEB_SEARCH_FALLBACK_PROVIDERS: RuntimeConfig['web']['search']['fallbackProviders'] =
@@ -1042,6 +1044,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
+  CODEX_RUNTIME = config.codex.turnRuntime;
   ANTHROPIC_ENABLED = config.anthropic.enabled;
   ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
   ANTHROPIC_METHOD = config.anthropic.method;
@@ -1106,6 +1109,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CONTAINER_WARM_POOL = structuredClone(config.container.warmPool);
   MCP_SERVERS = structuredClone(config.mcpServers || {});
   BROWSER_PROVIDER = config.browser.provider;
+  BROWSER_ALLOW_PRIVATE_NETWORK = config.browser.allowPrivateNetwork;
   WEB_SEARCH_PROVIDER = config.web.search.provider;
   WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];
   WEB_SEARCH_DEFAULT_COUNT = Math.max(

@@ -11,6 +11,9 @@ import type {
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
+  AdminBoardBudgetResponse,
+  AdminBrowserPoolHealthResponse,
+  AdminBrowserPoolLaunchResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
@@ -25,9 +28,14 @@ import type {
   AdminInteractionResponse,
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
+  AdminLanHttpAccessMode,
   AdminMcpConfig,
   AdminMcpResponse,
   AdminModelsResponse,
+  AdminOutputGuardPreviewResponse,
+  AdminOutputGuardProfile,
+  AdminOutputGuardProfileResponse,
+  AdminOutputGuardProfileUpdateResponse,
   AdminOverview,
   AdminPluginsResponse,
   AdminPolicyRuleInput,
@@ -46,7 +54,6 @@ import type {
   AdminTunnelStatus,
   AgentListItem,
   AgentListResponse,
-  AgentsOverview,
   AgentsOverviewResponse,
   DeleteSessionResult,
   GatewayStatus,
@@ -414,7 +421,9 @@ export function adminTerminalSocketUrl(
   return url.toString();
 }
 
-export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
+export function fetchAgentsOverview(
+  token: string,
+): Promise<AgentsOverviewResponse> {
   return requestJson<AgentsOverviewResponse>('/api/agents', { token });
 }
 
@@ -531,6 +540,22 @@ export function fetchJobsContext(
   return requestJson<AdminJobsContextResponse>('/api/admin/jobs/context', {
     token,
   });
+}
+
+export function fetchBoardBudgetSummaries(
+  token: string,
+  agentIds?: string[],
+): Promise<AdminBoardBudgetResponse> {
+  const params = new URLSearchParams();
+  for (const agentId of agentIds || []) {
+    const normalized = agentId.trim();
+    if (normalized) params.append('agentId', normalized);
+  }
+  const query = params.toString();
+  return requestJson<AdminBoardBudgetResponse>(
+    `/api/admin/jobs/budgets${query ? `?${query}` : ''}`,
+    { token },
+  );
 }
 
 export async function fetchSessions(token: string): Promise<AdminSession[]> {
@@ -661,6 +686,27 @@ export function deleteChannel(
 
 export function fetchConfig(token: string): Promise<AdminConfigResponse> {
   return requestJson<AdminConfigResponse>('/api/admin/config', { token });
+}
+
+export function fetchBrowserPoolHealth(
+  token: string,
+): Promise<AdminBrowserPoolHealthResponse> {
+  return requestJson<AdminBrowserPoolHealthResponse>(
+    '/api/admin/browser-pool/health',
+    { token },
+  );
+}
+
+export function startBrowserPool(
+  token: string,
+): Promise<AdminBrowserPoolLaunchResponse> {
+  return requestJson<AdminBrowserPoolLaunchResponse>(
+    '/api/admin/browser-pool/start',
+    {
+      method: 'POST',
+      token,
+    },
+  );
 }
 
 export function fetchEmailConfig(token: string): Promise<unknown> {
@@ -809,7 +855,7 @@ export function deleteSchedulerJob(
 export function setSchedulerJobPaused(
   token: string,
   payload:
-    | { source: 'config'; jobId: string; action: 'pause' | 'resume' }
+    | { source: 'job'; jobId: string; action: 'pause' | 'resume' }
     | { source: 'task'; taskId: number; action: 'pause' | 'resume' },
 ): Promise<AdminSchedulerResponse> {
   return requestJson<AdminSchedulerResponse>('/api/admin/scheduler', {
@@ -869,6 +915,9 @@ export function fetchAudit(
     query?: string;
     sessionId?: string;
     eventType?: string;
+    since?: string;
+    until?: string;
+    cursor?: number;
     limit?: number;
   },
 ): Promise<AdminAuditResponse> {
@@ -876,6 +925,11 @@ export function fetchAudit(
   if (params.query) queryParams.set('query', params.query);
   if (params.sessionId) queryParams.set('sessionId', params.sessionId);
   if (params.eventType) queryParams.set('eventType', params.eventType);
+  if (params.since) queryParams.set('since', params.since);
+  if (params.until) queryParams.set('until', params.until);
+  if (typeof params.cursor === 'number' && params.cursor > 0) {
+    queryParams.set('cursor', String(params.cursor));
+  }
   if (typeof params.limit === 'number') {
     queryParams.set('limit', String(params.limit));
   }
@@ -947,6 +1001,23 @@ export function saveAdminPolicyDefault(
     token,
     method: 'PUT',
     body: params,
+  });
+}
+
+export function saveAdminPolicyLanHttpAccess(
+  token: string,
+  params: {
+    agentId: string;
+    mode: AdminLanHttpAccessMode;
+  },
+): Promise<AdminPolicyState> {
+  return requestJson<AdminPolicyState>('/api/admin/policy', {
+    token,
+    method: 'PUT',
+    body: {
+      agentId: params.agentId,
+      lanHttpAccessMode: params.mode,
+    },
   });
 }
 
@@ -1030,6 +1101,46 @@ export function unblockSkill(
 
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {
   return requestJson<AdminPluginsResponse>('/api/admin/plugins', { token });
+}
+
+export function fetchOutputGuardProfile(
+  token: string,
+): Promise<AdminOutputGuardProfileResponse> {
+  return requestJson<AdminOutputGuardProfileResponse>(
+    '/api/admin/output-guard',
+    {
+      token,
+    },
+  );
+}
+
+export function saveOutputGuardProfile(
+  token: string,
+  profile: AdminOutputGuardProfile,
+): Promise<AdminOutputGuardProfileUpdateResponse> {
+  return requestJson<AdminOutputGuardProfileUpdateResponse>(
+    '/api/admin/output-guard',
+    {
+      token,
+      method: 'PUT',
+      body: { profile },
+    },
+  );
+}
+
+export function previewOutputGuardProfile(
+  token: string,
+  profile: AdminOutputGuardProfile,
+  sample: string,
+): Promise<AdminOutputGuardPreviewResponse> {
+  return requestJson<AdminOutputGuardPreviewResponse>(
+    '/api/admin/output-guard/preview',
+    {
+      token,
+      method: 'POST',
+      body: { profile, sample },
+    },
+  );
 }
 
 export function fetchAdaptiveSkillHealth(

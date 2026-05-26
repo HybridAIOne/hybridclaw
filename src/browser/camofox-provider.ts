@@ -14,11 +14,13 @@ import {
 } from './profile-dir.js';
 import type {
   BrowserProvider,
+  BrowserProviderCapabilities,
   BrowserSession,
   BrowserSessionMeteringContext,
   NavigateOptions,
   SessionOptions,
 } from './provider.js';
+import { DEFAULT_BROWSER_PROVIDER_CAPABILITIES } from './provider.js';
 
 type CamofoxPage = PlaywrightPageShape;
 type CamofoxContext = PlaywrightContextShape<CamofoxPage>;
@@ -35,6 +37,7 @@ export interface CamofoxProviderOptions {
   policyWorkspacePath?: string;
   profileRoot?: string;
   headed?: boolean;
+  allowPrivateNetwork?: boolean;
   launchOptions?: CamofoxLaunchOptions;
   camofox?: CamofoxModule;
   secretAudit?: (handle: SecretHandle, reason: string) => void;
@@ -101,16 +104,19 @@ class CamofoxSession extends PlaywrightBrowserSession<CamofoxPage> {
     page: CamofoxPage,
     secretAudit: ((handle: SecretHandle, reason: string) => void) | undefined,
     private readonly meteringContext: BrowserSessionMeteringContext | undefined,
+    private readonly allowPrivateNetworkOverride: boolean | undefined,
     private readonly stealthPolicy: (context: {
       host: string;
       metering?: BrowserSessionMeteringContext;
     }) => void | Promise<void>,
   ) {
-    super(page, secretAudit, meteringContext);
+    super(page, secretAudit, meteringContext, allowPrivateNetworkOverride);
   }
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
-    const parsed = await assertBrowserNavigationUrl(url);
+    const parsed = await assertBrowserNavigationUrl(url, {
+      allowPrivateNetwork: this.allowPrivateNetworkOverride,
+    });
     if (parsed.hostname) {
       await this.stealthPolicy({
         host: parsed.hostname,
@@ -156,6 +162,7 @@ export class CamofoxProvider implements BrowserProvider {
       page,
       this.options.secretAudit,
       opts.metering,
+      this.options.allowPrivateNetwork,
       this.options.stealthPolicy ||
         ((policyContext) => {
           assertBrowserStealthAllowed({
@@ -170,6 +177,10 @@ export class CamofoxProvider implements BrowserProvider {
     );
     this.contexts.set(session, context);
     return session;
+  }
+
+  getCapabilities(): BrowserProviderCapabilities {
+    return DEFAULT_BROWSER_PROVIDER_CAPABILITIES;
   }
 
   async closeSession(session: BrowserSession): Promise<void> {

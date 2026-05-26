@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { deleteMcpServer, fetchMcp, saveMcpServer } from '../api/client';
 import type { AdminMcpConfig, AdminMcpServer } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import {
   Card,
   CardContent,
@@ -10,8 +11,13 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Field, FieldContent, FieldLabel } from '../components/field';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
-import { BooleanField, BooleanPill, PageHeader } from '../components/ui';
+import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 
 interface McpDraft {
@@ -159,10 +165,9 @@ export function McpPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="MCP"
         actions={
-          <button
-            className="ghost-button"
+          <Button
+            variant="ghost"
             type="button"
             onClick={() => {
               setSelectedName(null);
@@ -170,7 +175,7 @@ export function McpPage() {
             }}
           >
             New server
-          </button>
+          </Button>
         }
       />
 
@@ -225,9 +230,9 @@ export function McpPage() {
           <CardContent>
             <div className="stack-form">
               <div className="field-grid">
-                <label className="field">
-                  <span>Name</span>
-                  <input
+                <Field>
+                  <FieldLabel>Name</FieldLabel>
+                  <Input
                     value={draft.name}
                     onChange={(event) =>
                       setDraft((current) => ({
@@ -237,10 +242,10 @@ export function McpPage() {
                     }
                     placeholder="github"
                   />
-                </label>
-                <label className="field">
-                  <span>Transport</span>
-                  <select
+                </Field>
+                <Field>
+                  <FieldLabel>Transport</FieldLabel>
+                  <NativeSelect
                     value={draft.transport}
                     onChange={(event) =>
                       setDraft((current) => ({
@@ -249,31 +254,30 @@ export function McpPage() {
                       }))
                     }
                   >
-                    <option value="stdio">stdio</option>
-                    <option value="http">http</option>
-                    <option value="sse">sse</option>
-                  </select>
-                </label>
+                    <NativeSelectOption value="stdio">stdio</NativeSelectOption>
+                    <NativeSelectOption value="http">http</NativeSelectOption>
+                    <NativeSelectOption value="sse">sse</NativeSelectOption>
+                  </NativeSelect>
+                </Field>
               </div>
 
-              <BooleanField
-                label="Server state"
-                value={draft.enabled}
-                trueLabel="on"
-                falseLabel="off"
-                onChange={(enabled) =>
-                  setDraft((current) => ({
-                    ...current,
-                    enabled,
-                  }))
-                }
-              />
+              <Field orientation="horizontal">
+                <Switch
+                  checked={draft.enabled}
+                  onCheckedChange={(enabled) =>
+                    setDraft((current) => ({ ...current, enabled }))
+                  }
+                />
+                <FieldContent>
+                  <FieldLabel>Server state</FieldLabel>
+                </FieldContent>
+              </Field>
 
               {draft.transport === 'stdio' ? (
                 <>
-                  <label className="field">
-                    <span>Command</span>
-                    <input
+                  <Field>
+                    <FieldLabel>Command</FieldLabel>
+                    <Input
                       value={draft.command}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -283,11 +287,11 @@ export function McpPage() {
                       }
                       placeholder="docker"
                     />
-                  </label>
+                  </Field>
                   <div className="field-grid">
-                    <label className="field">
-                      <span>Arguments</span>
-                      <textarea
+                    <Field>
+                      <FieldLabel>Arguments</FieldLabel>
+                      <Textarea
                         rows={4}
                         value={draft.args}
                         onChange={(event) =>
@@ -298,10 +302,10 @@ export function McpPage() {
                         }
                         placeholder="One argument per line"
                       />
-                    </label>
-                    <label className="field">
-                      <span>Working directory</span>
-                      <input
+                    </Field>
+                    <Field>
+                      <FieldLabel>Working directory</FieldLabel>
+                      <Input
                         value={draft.cwd}
                         onChange={(event) =>
                           setDraft((current) => ({
@@ -311,11 +315,11 @@ export function McpPage() {
                         }
                         placeholder="/workspace"
                       />
-                    </label>
+                    </Field>
                   </div>
-                  <label className="field">
-                    <span>Environment JSON</span>
-                    <textarea
+                  <Field>
+                    <FieldLabel>Environment JSON</FieldLabel>
+                    <Textarea
                       rows={5}
                       value={draft.envJson}
                       onChange={(event) =>
@@ -326,13 +330,13 @@ export function McpPage() {
                       }
                       placeholder='{"GITHUB_TOKEN":"..."}'
                     />
-                  </label>
+                  </Field>
                 </>
               ) : (
                 <>
-                  <label className="field">
-                    <span>URL</span>
-                    <input
+                  <Field>
+                    <FieldLabel>URL</FieldLabel>
+                    <Input
                       value={draft.url}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -342,10 +346,10 @@ export function McpPage() {
                       }
                       placeholder="https://example.test/mcp"
                     />
-                  </label>
-                  <label className="field">
-                    <span>Headers JSON</span>
-                    <textarea
+                  </Field>
+                  <Field>
+                    <FieldLabel>Headers JSON</FieldLabel>
+                    <Textarea
                       rows={5}
                       value={draft.headersJson}
                       onChange={(event) =>
@@ -356,28 +360,29 @@ export function McpPage() {
                       }
                       placeholder='{"Authorization":"Bearer ..."}'
                     />
-                  </label>
+                  </Field>
                 </>
               )}
 
               <div className="button-row">
-                <button
-                  className="primary-button"
+                <Button
                   type="button"
+                  loading={saveMutation.isPending}
                   disabled={saveMutation.isPending}
                   onClick={() => saveMutation.mutate()}
                 >
                   {saveMutation.isPending ? 'Saving...' : 'Save server'}
-                </button>
+                </Button>
                 {selectedServer ? (
-                  <button
-                    className="danger-button"
+                  <Button
+                    variant="danger"
                     type="button"
+                    loading={deleteMutation.isPending}
                     disabled={deleteMutation.isPending}
                     onClick={() => deleteMutation.mutate()}
                   >
                     {deleteMutation.isPending ? 'Deleting...' : 'Delete server'}
-                  </button>
+                  </Button>
                 ) : null}
               </div>
 

@@ -145,7 +145,7 @@ test('skill list groups skills by category in concise gateway command output', a
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Skills');
-  expect(result.text).toContain('Apple:\n  apple-music [available]');
+  expect(result.text).toContain('Apple:\n  apple-music [enabled]');
   expect(result.text).toContain('Memory:\n  obsidian* [disabled]');
   expect(result.text).toContain('Office:\n  pdf [bin:node]');
   expect(result.text).toContain('Uncategorized:\n  Agents* [disabled]');
@@ -292,7 +292,7 @@ Use Himalaya for terminal-native email workflows.
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.text).toContain('  himalaya [available]');
+  expect(result.text).toContain('  himalaya [enabled]');
 });
 
 test('skill inspect command reports observed skill health', async () => {
@@ -849,6 +849,208 @@ Keep the response concise.
   expect(history.title).toBe(`Skill History (${context.skillName})`);
   expect(history.text).toContain('Version: 1');
   expect(history.text).toContain('Status: staged');
+});
+
+test('skill learn stages SkillOpt-lite structured edits', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    outcome: 'failure',
+    errorCategory: 'model_error',
+    errorDetail: 'missing step planning instructions',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 0,
+    durationMs: 90,
+  });
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-2',
+    runId: 'run-2',
+    outcome: 'success',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 0,
+    durationMs: 75,
+  });
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: JSON.stringify({
+      rationale: 'Clarify the expected steps without changing the whole skill.',
+      validation: {
+        action: 'accept',
+        reason: 'The edit addresses the failure and preserves concise output.',
+      },
+      edits: [
+        {
+          op: 'insert_after',
+          target: "Follow the user's request carefully.",
+          content: 'List the requested steps before acting.',
+          rationale: 'The failed run needed explicit step planning.',
+          source_type: 'failure',
+          support_count: 2,
+        },
+      ],
+    }),
+    toolsUsed: [],
+  });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  const staged = await handleGatewayCommand({
+    sessionId: 'session-skillopt-amend',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'learn', context.skillName],
+  });
+
+  expect(staged.kind).toBe('info');
+  if (staged.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${staged.kind}`);
+  }
+  expect(staged.text).toContain('SkillOpt-lite: 1 edit(s), 1 applied');
+  expect(staged.text).toContain('Gate: accepted');
+  expect(staged.text).toContain('score=');
+  expect(fs.readFileSync(context.skillFilePath, 'utf-8')).not.toContain(
+    'List the requested steps before acting.',
+  );
+
+  const amendment = context.dbModule.getLatestSkillAmendment({
+    skillName: context.skillName,
+    status: 'staged',
+  });
+  expect(amendment?.proposal_metadata?.kind).toBe('skillopt_lite');
+  expect(amendment?.proposal_metadata?.selected_edits).toHaveLength(1);
+  expect(amendment?.proposed_content).toContain(
+    'List the requested steps before acting.',
+  );
+
+  const applied = await handleGatewayCommand({
+    sessionId: 'session-skillopt-amend',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'learn', context.skillName, '--apply'],
+  });
+
+  expect(applied.kind).toBe('plain');
+  expect(applied.text).toContain('Applied staged amendment');
+  expect(fs.readFileSync(context.skillFilePath, 'utf-8')).toContain(
+    'List the requested steps before acting.',
+  );
+
+  const rolledBack = await handleGatewayCommand({
+    sessionId: 'session-skillopt-amend',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'learn', context.skillName, '--rollback'],
+  });
+
+  expect(rolledBack.kind).toBe('plain');
+  expect(rolledBack.text).toContain('Rolled back amendment');
+  expect(fs.readFileSync(context.skillFilePath, 'utf-8')).not.toContain(
+    'List the requested steps before acting.',
+  );
+});
+
+test('skill learn rejects SkillOpt-lite candidates that fail validation', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    outcome: 'failure',
+    errorCategory: 'model_error',
+    errorDetail: 'instructions too vague',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 0,
+    durationMs: 90,
+  });
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: JSON.stringify({
+      rationale: 'The candidate overfits the failure.',
+      validation: {
+        action: 'reject',
+        reason: 'Held-out examples regressed.',
+      },
+      edits: [
+        {
+          op: 'append',
+          target: '',
+          content: 'Over-specific recovery rule.',
+          rationale: 'Only helps the failed trace.',
+          source_type: 'failure',
+          support_count: 1,
+        },
+      ],
+    }),
+    toolsUsed: [],
+  });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  await expect(
+    handleGatewayCommand({
+      sessionId: 'session-skillopt-reject',
+      guildId: null,
+      channelId: 'web',
+      args: ['skill', 'learn', context.skillName],
+    }),
+  ).rejects.toThrow('Held-out examples regressed.');
+  expect(fs.readFileSync(context.skillFilePath, 'utf-8')).not.toContain(
+    'Over-specific recovery rule.',
+  );
+  expect(
+    context.dbModule.getLatestSkillAmendment({
+      skillName: context.skillName,
+      status: 'staged',
+    }),
+  ).toBeNull();
+  expect(
+    context.dbModule.getSkillOptLiteRejectedEdits({
+      skillName: context.skillName,
+      limit: 5,
+    }),
+  ).toMatchObject([
+    {
+      op: 'append',
+      content_preview: 'Over-specific recovery rule.',
+      reason: 'Held-out examples regressed.',
+    },
+  ]);
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: JSON.stringify({
+      rationale: 'Retry the same rejected candidate.',
+      validation: { action: 'accept', reason: 'Looks plausible.' },
+      edits: [
+        {
+          op: 'append',
+          target: '',
+          content: 'Over-specific recovery rule.',
+          rationale: 'Only helps the failed trace.',
+          source_type: 'failure',
+          support_count: 1,
+        },
+      ],
+    }),
+    toolsUsed: [],
+  });
+  await expect(
+    handleGatewayCommand({
+      sessionId: 'session-skillopt-reject-repeat',
+      guildId: null,
+      channelId: 'web',
+      args: ['skill', 'learn', context.skillName],
+    }),
+  ).rejects.toThrow('only repeated rejected edits');
 });
 
 test('skill learn --apply command applies the latest staged amendment', async () => {

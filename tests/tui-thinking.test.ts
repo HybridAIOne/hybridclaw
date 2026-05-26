@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   appendTerminalRowCount,
+  countTerminalRows,
   createTuiStreamFormatState,
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
@@ -231,6 +232,17 @@ test('strips Qwen tool markup from transient thinking previews', () => {
   });
 });
 
+test('keeps full transient thinking previews for the TUI alternate screen', () => {
+  const state = createTuiThinkingStreamState();
+  const result = state.push(
+    `<think>${Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n')}</think>`,
+  );
+
+  expect(result.thinkingPreview?.split('\n')).toHaveLength(20);
+  expect(result.thinkingPreview).toContain('line 1');
+  expect(result.thinkingPreview).toContain('line 20');
+});
+
 test('suppresses unmatched thinking close markers from visible stream text', () => {
   const state = createTuiThinkingStreamState();
 
@@ -337,4 +349,15 @@ test('indents every line in a transient thinking block by two spaces', () => {
 
 test('wraps printed tui blocks while preserving the left indent', () => {
   expect(wrapTuiBlock('alpha beta gamma', 10)).toBe('  alpha\n  beta\n  gamma');
+});
+
+test('counts physical terminal rows across wrapping, ansi, and wide glyphs', () => {
+  expect(countTerminalRows('123456789', 4)).toBe(3);
+  expect(countTerminalRows('\x1b[31m123456\x1b[0m', 4)).toBe(2);
+  expect(countTerminalRows('🪼🪼x', 4)).toBe(2);
+  expect(countTerminalRows('a\n\nb', 80)).toBe(3);
+});
+
+test('wraps wide glyphs using terminal cell width', () => {
+  expect(wrapTuiBlock('🪼🪼x', 4, '')).toBe('🪼🪼\nx');
 });

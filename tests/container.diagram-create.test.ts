@@ -99,6 +99,11 @@ describe('diagram tools', () => {
         source_artifact_ref: string;
         type: string;
         format: string;
+        artifacts: Array<{
+          path: string;
+          kind: string;
+          scope: { type: string; id: string };
+        }>;
       };
 
       expect(result.isError).toBe(false);
@@ -108,6 +113,23 @@ describe('diagram tools', () => {
       expect(parsed.format).toBe('mermaid');
       expect(parsed.source_artifact_ref).toContain(
         '/workspace/.generated-diagrams/skills/diagram/',
+      );
+      expect(path.dirname(parsed.rendered_artifact_ref)).toBe(
+        path.dirname(parsed.source_artifact_ref),
+      );
+      expect(parsed.artifacts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: parsed.source_artifact_ref,
+            kind: 'source',
+            scope: { type: 'skill', id: 'diagram' },
+          }),
+          expect.objectContaining({
+            path: parsed.rendered_artifact_ref,
+            kind: 'rendered',
+            scope: { type: 'skill', id: 'diagram' },
+          }),
+        ]),
       );
       expect(fs.existsSync(hostPath(parsed.source_artifact_ref))).toBe(true);
       expect(fs.existsSync(hostPath(parsed.rendered_artifact_ref))).toBe(true);
@@ -199,8 +221,64 @@ describe('diagram tools', () => {
     expect(result.isError).toBe(false);
     expect(parsed.success).toBe(true);
     expect(parsed.valid).toBe(false);
-    expect(parsed.errors.join('\n')).toContain('unbalanced');
+    expect(parsed.errors.join('\n')).toContain(
+      'Mermaid parser rejected source',
+    );
     expect(parsed.suggested_fix).toContain('flowchart TD');
+  });
+
+  test('Mermaid parser catches syntax errors beyond structural checks', async () => {
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_validate',
+      JSON.stringify({
+        source: 'flowchart TD\n  A -->',
+        type: 'flowchart',
+        format: 'mermaid',
+      }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      valid: boolean;
+      errors: string[];
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.valid).toBe(false);
+    expect(parsed.errors.join('\n')).toContain(
+      'Mermaid parser rejected source',
+    );
+  });
+
+  test('Mermaid validation does not leave browser globals behind', async () => {
+    const hadWindow = Object.hasOwn(globalThis, 'window');
+    const hadDocument = Object.hasOwn(globalThis, 'document');
+    const hadDOMPurify = Object.hasOwn(globalThis, 'DOMPurify');
+    const previousWindow = (globalThis as { window?: unknown }).window;
+    const previousDocument = (globalThis as { document?: unknown }).document;
+    const previousDOMPurify = (globalThis as { DOMPurify?: unknown }).DOMPurify;
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_validate',
+      JSON.stringify({
+        source: 'flowchart TD\n  A --> B',
+        type: 'flowchart',
+        format: 'mermaid',
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(Object.hasOwn(globalThis, 'window')).toBe(hadWindow);
+    expect(Object.hasOwn(globalThis, 'document')).toBe(hadDocument);
+    expect(Object.hasOwn(globalThis, 'DOMPurify')).toBe(hadDOMPurify);
+    expect((globalThis as { window?: unknown }).window).toBe(previousWindow);
+    expect((globalThis as { document?: unknown }).document).toBe(
+      previousDocument,
+    );
+    expect((globalThis as { DOMPurify?: unknown }).DOMPurify).toBe(
+      previousDOMPurify,
+    );
   });
 
   test('accepts CRLF fenced source and escaped quotes during validation', async () => {
@@ -313,6 +391,26 @@ describe('diagram tools', () => {
     expect(result.isError).toBe(true);
     expect(result.output).toContain(
       'PlantUML server request timed out after 15000ms',
+    );
+  });
+
+  test('rejects non-local insecure PlantUML server URLs', async () => {
+    process.env.HYBRIDCLAW_PLANTUML_SERVER_URL = 'http://internal-service.test';
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_create',
+      JSON.stringify({
+        description: 'sequence diagram for unsafe PlantUML render',
+        type: 'sequence',
+        format: 'plantuml',
+        render_to: 'svg',
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(
+      'PlantUML server URL must use https unless it targets localhost.',
     );
   });
 

@@ -6,12 +6,16 @@
  * explicit response-field capture.
  */
 
-import { createSign } from 'node:crypto';
+import { createHash, createHmac, createSign } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
 
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
+import {
+  HUBSPOT_ACCESS_TOKEN_SECRET,
+  resolveHubSpotAccessToken,
+} from '../auth/hubspot-auth.js';
 import type {
   RuntimeConfig,
   RuntimeHttpRequestGoogleOAuthSecretRef,
@@ -22,6 +26,8 @@ import {
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
+import { evaluateNetworkPolicyAccess } from '../policy/network-policy.js';
+import { readPolicyState } from '../policy/policy-store.js';
 import {
   isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
@@ -73,11 +79,13 @@ type ApiHttpRequestBody = {
   method?: unknown;
   headers?: unknown;
   body?: unknown;
+  bodyBase64?: unknown;
   json?: unknown;
   bearerSecretName?: unknown;
   bearerSecretRef?: unknown;
   secretHeaders?: unknown;
   googleServiceAccount?: unknown;
+  otcAkSk?: unknown;
   replaceSecretPlaceholders?: unknown;
   captureResponseFields?: unknown;
   timeoutMs?: unknown;
@@ -98,6 +106,12 @@ type GoogleServiceAccountAuthRule = {
   privateKeySecretName: string;
   scopes: string[];
   subjectSecretName?: string;
+};
+
+type OtcAkSkAuthRule = {
+  accessKeyIdSecretName: string;
+  secretAccessKeySecretName: string;
+  securityTokenSecretName?: string;
 };
 
 type SecretResolveContext = {
@@ -143,74 +157,182 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-async function isPrivateHost(hostname: string): Promise<boolean> {
+function formatOutboundHttpError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const message = error.message || error.name || String(error);
+  const cause = formatErrorCause(error.cause);
+  if (!cause || message.includes(cause)) {
+    return message;
+  }
+  return `${message} (${cause})`;
+}
+
+function formatErrorCause(cause: unknown): string {
+  if (cause == null) {
+    return '';
+  }
+  if (cause instanceof Error) {
+    const message = cause.message || cause.name || String(cause);
+    const nestedCause = formatErrorCause(cause.cause);
+    if (!nestedCause || message.includes(nestedCause)) {
+      return message;
+    }
+    return `${message} (${nestedCause})`;
+  }
+  if (typeof cause === 'string') {
+    return cause;
+  }
+  if (typeof cause === 'object') {
+    const record = cause as Record<string, unknown>;
+    const message =
+      typeof record.message === 'string' ? record.message.trim() : '';
+    const code = typeof record.code === 'string' ? record.code.trim() : '';
+    if (message) {
+      return code && !message.includes(code) ? `${code} ${message}` : message;
+    }
+    return code;
+  }
+  return String(cause);
+}
+
+type PrivateHostCheck = {
+  blocked: boolean;
+  reason: 'private' | 'dns_failed';
+};
+
+async function checkPrivateHost(hostname: string): Promise<PrivateHostCheck> {
   const host = hostname.trim().toLowerCase();
-  if (!host) return true;
+  if (!host) return { blocked: true, reason: 'private' };
   if (
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     host.endsWith('.local')
   ) {
-    return true;
+    return { blocked: true, reason: 'private' };
   }
-  if (net.isIP(host) > 0) return isPrivateIp(host);
+  if (net.isIP(host) > 0) {
+    return { blocked: isPrivateIp(host), reason: 'private' };
+  }
   try {
     const resolved = await lookup(host, { all: true, verbatim: true });
-    if (resolved.length === 0) return false;
-    return resolved.some((entry) => isPrivateIp(entry.address));
+    if (resolved.length === 0) return { blocked: false, reason: 'private' };
+    return {
+      blocked: resolved.some((entry) => isPrivateIp(entry.address)),
+      reason: 'private',
+    };
   } catch (error) {
     logger.warn(
       { host, error },
       'DNS lookup failed during SSRF host check; treating host as private/blocked',
     );
-    return true;
+    return { blocked: true, reason: 'dns_failed' };
   }
 }
+
+function getUrlPort(url: URL): number {
+  if (url.port) {
+    const parsed = Number.parseInt(url.port, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return url.protocol === 'https:' ? 443 : 80;
+}
+
+function isPrivateHttpRequestAllowedByPolicy(params: {
+  url: URL;
+  method: string;
+  agentId?: string;
+}): boolean {
+  try {
+    const state = readPolicyState(process.cwd());
+    const evaluation = evaluateNetworkPolicyAccess({
+      defaultAction: state.defaultAction,
+      rules: state.rules,
+      host: params.url.hostname,
+      port: getUrlPort(params.url),
+      method: params.method,
+      path: params.url.pathname || '/',
+      agentId: params.agentId,
+    });
+    return evaluation.decision === 'allow' && Boolean(evaluation.matchedRule);
+  } catch (error) {
+    logger.warn(
+      { host: params.url.hostname, error },
+      'Failed to evaluate network policy for private http_request target; blocking request',
+    );
+    return false;
+  }
+}
+
+type HttpResponseReadResult = {
+  buffer: Buffer;
+  bytesRead: number;
+  truncated: boolean;
+};
 
 async function readHttpResponseBuffer(
   response: Response,
   maxResponseBytes: number,
-): Promise<Buffer> {
+): Promise<HttpResponseReadResult> {
   if (!response.body) {
     if (typeof response.arrayBuffer === 'function') {
       const buffered = Buffer.from(await response.arrayBuffer());
-      if (buffered.length > maxResponseBytes) {
-        throw new GatewayRequestError(
-          413,
-          `Outbound response exceeded limit (${buffered.length} bytes > ${maxResponseBytes}).`,
-        );
+      if (buffered.length <= maxResponseBytes) {
+        return {
+          buffer: buffered,
+          bytesRead: buffered.length,
+          truncated: false,
+        };
       }
-      return buffered;
+      return {
+        buffer: buffered.subarray(0, maxResponseBytes),
+        bytesRead: buffered.length,
+        truncated: true,
+      };
     }
-    return Buffer.alloc(0);
+    return { buffer: Buffer.alloc(0), bytesRead: 0, truncated: false };
   }
   const reader = response.body.getReader();
   const chunks: Buffer[] = [];
-  let totalBytes = 0;
+  let bytesRead = 0;
+  let bufferedBytes = 0;
+  let truncated = false;
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value || value.byteLength === 0) continue;
-      totalBytes += value.byteLength;
-      if (totalBytes > maxResponseBytes) {
+      bytesRead += value.byteLength;
+      const remainingBytes = maxResponseBytes - bufferedBytes;
+      if (value.byteLength > remainingBytes) {
+        if (remainingBytes > 0) {
+          chunks.push(Buffer.from(value.subarray(0, remainingBytes)));
+          bufferedBytes += remainingBytes;
+        }
+        truncated = true;
         await reader.cancel();
-        throw new GatewayRequestError(
-          413,
-          `Outbound response exceeded limit (${totalBytes} bytes > ${maxResponseBytes}).`,
-        );
+        break;
       }
       chunks.push(Buffer.from(value));
+      bufferedBytes += value.byteLength;
     }
   } finally {
     reader.releaseLock();
   }
 
-  return Buffer.concat(chunks);
+  return {
+    buffer: Buffer.concat(chunks),
+    bytesRead,
+    truncated,
+  };
 }
 
-async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
+async function assertHttpRequestUrl(
+  raw: unknown,
+  context: { method: string; agentId?: string },
+): Promise<URL> {
   const input = String(raw || '').trim();
   if (!input) {
     throw new GatewayRequestError(400, 'Missing `url` in request body.');
@@ -230,7 +352,20 @@ async function assertHttpRequestUrl(raw: unknown): Promise<URL> {
     );
   }
 
-  if (await isPrivateHost(parsed.hostname)) {
+  const privateHostCheck = await checkPrivateHost(parsed.hostname);
+  if (privateHostCheck.blocked) {
+    const isAllowlisted = isPrivateHttpRequestAllowedByPolicy({
+      url: parsed,
+      method: context.method,
+      agentId: context.agentId,
+    });
+    if (isAllowlisted) return parsed;
+    if (privateHostCheck.reason === 'private') {
+      throw new GatewayRequestError(
+        400,
+        `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}) is not allowlisted by workspace network policy for ${context.method} ${parsed.pathname || '/'} on port ${getUrlPort(parsed)}.`,
+      );
+    }
     throw new GatewayRequestError(
       400,
       `HTTP request blocked by SSRF guard: private or loopback host (${parsed.hostname}).`,
@@ -353,52 +488,106 @@ function isGoogleApisHost(host?: string): boolean {
   );
 }
 
+function isHubSpotApiHost(host?: string): boolean {
+  const normalized = normalizeSecretString(host).toLowerCase();
+  return (
+    normalized === 'api.hubapi.com' ||
+    normalized.endsWith('.api.hubapi.com') ||
+    normalized === 'api.hubspot.com' ||
+    normalized.endsWith('.api.hubspot.com')
+  );
+}
+
 function isGoogleOAuthHttpAuthRuleSecret(
   value: unknown,
 ): value is RuntimeHttpRequestGoogleOAuthSecretRef {
   return isGoogleOAuthSecretRef(value);
 }
 
-async function resolveGoogleOAuthTokenOrThrow(
-  secretName: string,
-  context: SecretResolveContext,
-): Promise<string> {
-  if (!isGoogleApisHost(context.host)) {
+async function resolveOAuthTokenOrThrow(params: {
+  secretName: string;
+  context: SecretResolveContext;
+  isAllowedHost: (host?: string) => boolean;
+  allowedHostDescription: string;
+  resolveToken: () => Promise<{
+    accessToken: string;
+    source: 'store' | 'google-oauth' | 'hubspot-oauth';
+  } | null>;
+  loginHint: string;
+}): Promise<string> {
+  if (!params.isAllowedHost(params.context.host)) {
     throw new GatewayRequestError(
       403,
-      `${secretName} can only be injected into googleapis.com requests.`,
+      `${params.secretName} can only be injected into ${params.allowedHostDescription} requests.`,
     );
   }
 
-  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
-  const token = normalizeSecretString(runtimeEnv[secretName]);
+  const resolved = await params.resolveToken();
+  if (!resolved?.accessToken) {
+    throw new GatewayRequestError(400, params.loginHint);
+  }
+  const token = normalizeSecretString(resolved.accessToken);
   if (!token) {
-    throw new GatewayRequestError(
-      400,
-      `${secretName} is not available. Run \`hybridclaw auth login google\` and start a fresh agent runtime.`,
-    );
+    throw new GatewayRequestError(400, params.loginHint);
   }
 
   const auditContext = {
-    sessionId: context.sessionId,
-    skillName: context.skillName,
-    secretSource: 'google-oauth' as const,
-    secretId: secretName,
+    sessionId: params.context.sessionId,
+    skillName: params.context.skillName,
+    secretSource: resolved.source,
+    secretId: params.secretName,
     sinkKind: 'http' as const,
-    host: context.host,
-    selector: context.selector,
+    host: params.context.host,
+    selector: params.context.selector,
   };
   recordSecretResolved(auditContext);
   recordSecretUnsafeEscaped({
     ...auditContext,
-    reason: `inject ${secretName} into http sink`,
+    reason: `inject ${params.secretName} into http sink`,
   });
   rememberResolvedSecretForLeakScan({
-    sessionId: normalizeSecretSessionId(context.sessionId),
-    secretId: secretName,
+    sessionId: normalizeSecretSessionId(params.context.sessionId),
+    secretId: params.secretName,
     value: token,
   });
   return token;
+}
+
+async function resolveGoogleOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isGoogleApisHost,
+    allowedHostDescription: 'googleapis.com',
+    resolveToken: async () => {
+      const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
+      const accessToken = normalizeSecretString(runtimeEnv[secretName]);
+      return accessToken
+        ? {
+            accessToken,
+            source: 'google-oauth',
+          }
+        : null;
+    },
+    loginHint: `${secretName} is not available. Run \`hybridclaw auth login google\` and start a fresh agent runtime.`,
+  });
+}
+
+async function resolveHubSpotOAuthTokenOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): Promise<string> {
+  return await resolveOAuthTokenOrThrow({
+    secretName,
+    context,
+    isAllowedHost: isHubSpotApiHost,
+    allowedHostDescription: 'HubSpot API',
+    resolveToken: resolveHubSpotAccessToken,
+    loginHint: `${secretName} is not available. Store a HubSpot Service Key with \`hybridclaw secret set HUBSPOT_ACCESS_TOKEN <token>\` or in TUI with \`/secret set HUBSPOT_ACCESS_TOKEN <token>\`, or run \`hybridclaw auth login hubspot --access-token <token>\`.`,
+  });
 }
 
 async function resolveHttpSecretOrThrow(
@@ -410,6 +599,9 @@ async function resolveHttpSecretOrThrow(
   }
   if (isGoogleWorkspaceRuntimeTokenName(secretName)) {
     return await resolveGoogleOAuthTokenOrThrow(secretName, context);
+  }
+  if (secretName === HUBSPOT_ACCESS_TOKEN_SECRET) {
+    return await resolveHubSpotOAuthTokenOrThrow(secretName, context);
   }
   return resolveStoredSecretForInjection({
     secretName,
@@ -725,6 +917,242 @@ function normalizeGoogleServiceAccountAuth(
   };
 }
 
+function normalizeOtcAkSkAuth(value: unknown): OtcAkSkAuthRule | null {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(400, 'otcAkSk must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const accessKeyIdSecretName =
+    typeof record.accessKeyIdSecretName === 'string'
+      ? record.accessKeyIdSecretName.trim()
+      : '';
+  const secretAccessKeySecretName =
+    typeof record.secretAccessKeySecretName === 'string'
+      ? record.secretAccessKeySecretName.trim()
+      : '';
+  const securityTokenSecretName =
+    typeof record.securityTokenSecretName === 'string'
+      ? record.securityTokenSecretName.trim()
+      : '';
+
+  if (!accessKeyIdSecretName || !isRuntimeSecretName(accessKeyIdSecretName)) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk.accessKeyIdSecretName must be a valid secret name.',
+    );
+  }
+  if (
+    !secretAccessKeySecretName ||
+    !isRuntimeSecretName(secretAccessKeySecretName)
+  ) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk.secretAccessKeySecretName must be a valid secret name.',
+    );
+  }
+  if (
+    securityTokenSecretName &&
+    !isRuntimeSecretName(securityTokenSecretName)
+  ) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk.securityTokenSecretName must be a valid secret name.',
+    );
+  }
+  return {
+    accessKeyIdSecretName,
+    secretAccessKeySecretName,
+    ...(securityTokenSecretName ? { securityTokenSecretName } : {}),
+  };
+}
+
+function assertOtcAkSkHost(url: URL): void {
+  const host = url.hostname.toLowerCase();
+  if (
+    host === 'otc.t-systems.com' ||
+    host.endsWith('.otc.t-systems.com') ||
+    host.endsWith('.sc.otc.t-systems.com')
+  ) {
+    return;
+  }
+  throw new GatewayRequestError(
+    403,
+    'otcAkSk can only be used for T Cloud Public / Open Telekom Cloud API hosts.',
+  );
+}
+
+function encodeCanonicalQueryPart(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function canonicalizeOtcQuery(url: URL): string {
+  return Array.from(url.searchParams.entries())
+    .map(([key, value]) => [
+      encodeCanonicalQueryPart(key),
+      encodeCanonicalQueryPart(value),
+    ])
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+      leftKey === rightKey
+        ? leftValue.localeCompare(rightValue)
+        : leftKey.localeCompare(rightKey),
+    )
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+}
+
+function decodePathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function canonicalizeOtcPath(url: URL): string {
+  const path = url.pathname || '/';
+  const canonical = path
+    .split('/')
+    .map((segment) => encodeCanonicalQueryPart(decodePathSegment(segment)))
+    .join('/');
+  return canonical.endsWith('/') ? canonical : `${canonical}/`;
+}
+
+function sha256Hex(value: string | Uint8Array | undefined): string {
+  return createHash('sha256')
+    .update(value ?? '')
+    .digest('hex');
+}
+
+function hmacSha256Hex(secret: string, value: string): string {
+  return createHmac('sha256', secret).update(value).digest('hex');
+}
+
+function formatOtcSdkDate(now = new Date()): string {
+  return now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+}
+
+function normalizeCanonicalHeaderValue(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function assertOtcSecretIsNotPlaceholder(
+  secretName: string,
+  value: string,
+): void {
+  const normalized = value.trim().toLowerCase();
+  const placeholders = new Set([
+    'test-access-key',
+    'test-secret-key',
+    '<your-real-access-key-id>',
+    '<your-real-secret-access-key>',
+    'your-real-access-key-id',
+    'your-real-secret-access-key',
+  ]);
+  if (placeholders.has(normalized)) {
+    throw new GatewayRequestError(
+      400,
+      `${secretName} contains a placeholder value. Replace it with the real T Cloud Public / Open Telekom Cloud credential before retrying.`,
+    );
+  }
+}
+
+async function applyOtcAkSkSigning(params: {
+  rule: OtcAkSkAuthRule;
+  url: URL;
+  method: string;
+  headers: Record<string, string>;
+  body: BodyInit | undefined;
+  context: SecretResolveContext;
+}): Promise<void> {
+  assertOtcAkSkHost(params.url);
+  if (params.url.protocol !== 'https:') {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk signing requires an HTTPS T Cloud Public / Open Telekom Cloud URL.',
+    );
+  }
+  if (hasHeaderValue(params.headers, 'Authorization')) {
+    throw new GatewayRequestError(
+      400,
+      'otcAkSk cannot be combined with an explicit Authorization header.',
+    );
+  }
+
+  const accessKeyId = await resolveHttpSecretOrThrow(
+    params.rule.accessKeyIdSecretName,
+    {
+      ...params.context,
+      selector: 'otcAkSk.accessKeyId',
+    },
+  );
+  assertOtcSecretIsNotPlaceholder(
+    params.rule.accessKeyIdSecretName,
+    accessKeyId,
+  );
+  const secretAccessKey = await resolveHttpSecretOrThrow(
+    params.rule.secretAccessKeySecretName,
+    {
+      ...params.context,
+      selector: 'otcAkSk.secretAccessKey',
+    },
+  );
+  assertOtcSecretIsNotPlaceholder(
+    params.rule.secretAccessKeySecretName,
+    secretAccessKey,
+  );
+  const securityToken = params.rule.securityTokenSecretName
+    ? await resolveHttpSecretOrThrow(params.rule.securityTokenSecretName, {
+        ...params.context,
+        selector: 'otcAkSk.securityToken',
+      })
+    : '';
+
+  const sdkDate = formatOtcSdkDate();
+  const bodyHash = sha256Hex(
+    typeof params.body === 'string' || params.body instanceof Uint8Array
+      ? params.body
+      : undefined,
+  );
+  setHeaderValue(params.headers, 'X-Sdk-Date', sdkDate);
+  if (securityToken) {
+    setHeaderValue(params.headers, 'X-Security-Token', securityToken);
+  }
+
+  const signedHeaderNames = ['host', 'x-sdk-date'];
+  if (securityToken) signedHeaderNames.push('x-security-token');
+  const headerValues = new Map<string, string>();
+  for (const [name, value] of Object.entries(params.headers)) {
+    headerValues.set(name.toLowerCase(), normalizeCanonicalHeaderValue(value));
+  }
+  headerValues.set('host', params.url.host);
+  const canonicalHeaders = signedHeaderNames
+    .map((name) => `${name}:${headerValues.get(name) || ''}\n`)
+    .join('');
+  const signedHeaders = signedHeaderNames.join(';');
+  const canonicalRequest = [
+    params.method.toUpperCase(),
+    canonicalizeOtcPath(params.url),
+    canonicalizeOtcQuery(params.url),
+    canonicalHeaders,
+    signedHeaders,
+    bodyHash,
+  ].join('\n');
+  const algorithm = 'SDK-HMAC-SHA256';
+  const stringToSign = [algorithm, sdkDate, sha256Hex(canonicalRequest)].join(
+    '\n',
+  );
+  const signature = hmacSha256Hex(secretAccessKey, stringToSign);
+  setHeaderValue(
+    params.headers,
+    'Authorization',
+    `${algorithm} Access=${accessKeyId}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+  );
+}
+
 function extractBindingDomainFromResponse(
   responseJson: Record<string, unknown>,
   requestUrl: URL,
@@ -968,12 +1396,15 @@ export async function handleApiHttpRequest(
         selector: 'url',
       })
     : body.url;
-  const url = await assertHttpRequestUrl(rawUrl);
+  const method = normalizeHttpRequestMethod(body.method);
+  const url = await assertHttpRequestUrl(rawUrl, {
+    method,
+    agentId: baseSecretContext.agentId,
+  });
   const secretContext = {
     ...baseSecretContext,
     host: url.hostname,
   };
-  const method = normalizeHttpRequestMethod(body.method);
   const timeoutMs =
     parsePositiveInteger(body.timeoutMs) ?? HTTP_REQUEST_TIMEOUT_MS;
   const maxResponseBytes =
@@ -997,15 +1428,17 @@ export async function handleApiHttpRequest(
   const googleServiceAccount = normalizeGoogleServiceAccountAuth(
     body.googleServiceAccount,
   );
+  const otcAkSk = normalizeOtcAkSkAuth(body.otcAkSk);
   const authModes = [
     bearerSecretName ? 'bearerSecretName' : '',
     body.bearerSecretRef !== undefined ? 'bearerSecretRef' : '',
     googleServiceAccount ? 'googleServiceAccount' : '',
+    otcAkSk ? 'otcAkSk' : '',
   ].filter(Boolean);
   if (authModes.length > 1) {
     throw new GatewayRequestError(
       400,
-      'Use only one of bearerSecretName, bearerSecretRef, or googleServiceAccount.',
+      'Use only one of bearerSecretName, bearerSecretRef, googleServiceAccount, or otcAkSk.',
     );
   }
   if (bearerSecretName) {
@@ -1087,7 +1520,19 @@ export async function handleApiHttpRequest(
     }
   }
 
-  let payloadBody: string | undefined;
+  const payloadSources = [
+    body.json !== undefined,
+    body.body !== undefined,
+    body.bodyBase64 !== undefined,
+  ].filter(Boolean).length;
+  if (payloadSources > 1) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `json`, `body`, or `bodyBase64`.',
+    );
+  }
+
+  let payloadBody: BodyInit | undefined;
   if (body.json !== undefined) {
     const jsonValue = replacePlaceholders
       ? await replaceSecretPlaceholders(body.json, {
@@ -1113,6 +1558,33 @@ export async function handleApiHttpRequest(
       400,
       '`body` must be a string when provided. Use `json` for structured payloads.',
     );
+  } else if (typeof body.bodyBase64 === 'string') {
+    let payloadBuffer: Buffer;
+    try {
+      payloadBuffer = Buffer.from(body.bodyBase64, 'base64');
+    } catch {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    if (payloadBuffer.toString('base64') !== body.bodyBase64.trim()) {
+      throw new GatewayRequestError(400, '`bodyBase64` must be valid base64.');
+    }
+    payloadBody = new Uint8Array(payloadBuffer);
+  } else if (body.bodyBase64 !== undefined) {
+    throw new GatewayRequestError(
+      400,
+      '`bodyBase64` must be a base64 string when provided.',
+    );
+  }
+
+  if (otcAkSk) {
+    await applyOtcAkSkSigning({
+      rule: otcAkSk,
+      url,
+      method,
+      headers,
+      body: payloadBody,
+      context: secretContext,
+    });
   }
 
   const controller = new AbortController();
@@ -1127,10 +1599,10 @@ export async function handleApiHttpRequest(
       redirect: 'manual',
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     throw new GatewayRequestError(
       502,
-      `Outbound HTTP request failed: ${message}`,
+      `Outbound HTTP request failed: ${formatOutboundHttpError(error)}`,
+      { cause: error },
     );
   } finally {
     clearTimeout(timeout);
@@ -1150,24 +1622,31 @@ export async function handleApiHttpRequest(
     String(response.headers.get('content-length') || ''),
     10,
   );
-  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
-    throw new GatewayRequestError(
-      413,
-      `Outbound response exceeded limit (${contentLength} bytes > ${maxResponseBytes}).`,
-    );
-  }
+  const responseBody =
+    Number.isFinite(contentLength) && contentLength > maxResponseBytes
+      ? {
+          buffer: Buffer.alloc(0),
+          bytesRead: contentLength,
+          truncated: true,
+        }
+      : await readHttpResponseBuffer(response, maxResponseBytes);
+  const declaredBodyBytes = Number.isFinite(contentLength)
+    ? contentLength
+    : undefined;
+  const bodyBytes =
+    responseBody.truncated && declaredBodyBytes !== undefined
+      ? declaredBodyBytes
+      : responseBody.bytesRead;
+  const bodyTruncated = responseBody.truncated;
 
-  const responseBuffer = await readHttpResponseBuffer(
-    response,
-    maxResponseBytes,
-  );
-
-  const responseText = responseBuffer.toString('utf-8');
+  const responseText = responseBody.buffer.toString('utf-8');
   let responseJson: unknown;
-  try {
-    responseJson = JSON.parse(responseText) as unknown;
-  } catch {
-    responseJson = undefined;
+  if (!bodyTruncated) {
+    try {
+      responseJson = JSON.parse(responseText) as unknown;
+    } catch {
+      responseJson = undefined;
+    }
   }
 
   // Capture selected response fields into the secret store and return only a
@@ -1193,6 +1672,13 @@ export async function handleApiHttpRequest(
     url: response.url,
     headers: Object.fromEntries(response.headers.entries()),
     body: responseText,
+    ...(bodyTruncated
+      ? {
+          bodyTruncated: true,
+          bodyBytes,
+          maxResponseBytes,
+        }
+      : {}),
     ...(responseJson === undefined ? {} : { json: responseJson }),
   });
 }

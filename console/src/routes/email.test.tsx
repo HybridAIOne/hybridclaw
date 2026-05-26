@@ -1,5 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminEmailDeleteResponse,
@@ -7,7 +6,7 @@ import type {
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
 } from '../api/types';
-import { ToastProvider } from '../components/toast';
+import { renderWithProviders } from '../test-utils';
 import { EmailPage } from './email';
 
 const fetchAdminEmailMailboxMock =
@@ -33,6 +32,7 @@ const deleteAdminEmailMessageMock =
       params: { folder: string; uid: number },
     ) => Promise<AdminEmailDeleteResponse>
   >();
+const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 const useAppShellConfigMock = vi.fn();
 
@@ -54,6 +54,10 @@ vi.mock('../api/client', () => ({
 
 vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
+}));
+
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => navigateMock,
 }));
 
 vi.mock('../components/app-shell', () => ({
@@ -85,23 +89,10 @@ function makeMailboxResponse(): AdminEmailMailboxResponse {
 }
 
 function renderEmailPage(options?: { emailEnabled?: boolean }): void {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
   useAppShellConfigMock.mockReturnValue({
     emailEnabled: options?.emailEnabled ?? true,
   });
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <EmailPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<EmailPage />);
 }
 
 describe('EmailPage', () => {
@@ -110,6 +101,8 @@ describe('EmailPage', () => {
     fetchAdminEmailFolderMock.mockReset();
     fetchAdminEmailMessageMock.mockReset();
     deleteAdminEmailMessageMock.mockReset();
+    navigateMock.mockReset();
+    navigateMock.mockResolvedValue(undefined);
     useAuthMock.mockReset();
     useAppShellConfigMock.mockReset();
     useAuthMock.mockReturnValue({ token: 'test-token' });
@@ -545,7 +538,7 @@ describe('EmailPage', () => {
       ),
     ).not.toBeNull();
     expect(
-      screen.getByRole('link', { name: /open channel settings/i }),
+      screen.getByRole('button', { name: /open channel settings/i }),
     ).not.toBeNull();
     expect(fetchAdminEmailMailboxMock).not.toHaveBeenCalled();
   });

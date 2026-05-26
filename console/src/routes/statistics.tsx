@@ -67,7 +67,7 @@ export function StatisticsPage() {
   if (statisticsQuery.isLoading && !statistics) {
     return (
       <div className="page-stack">
-        <PageHeader title="Statistics" actions={rangeSelect} />
+        <PageHeader actions={rangeSelect} />
         <div className="empty-state">Loading statistics…</div>
       </div>
     );
@@ -76,7 +76,7 @@ export function StatisticsPage() {
   if (statisticsQuery.isError && !statistics) {
     return (
       <div className="page-stack">
-        <PageHeader title="Statistics" actions={rangeSelect} />
+        <PageHeader actions={rangeSelect} />
         <div className="empty-state error">
           {getErrorMessage(statisticsQuery.error)}
         </div>
@@ -87,7 +87,7 @@ export function StatisticsPage() {
   if (!statistics || !totals) {
     return (
       <div className="page-stack">
-        <PageHeader title="Statistics" actions={rangeSelect} />
+        <PageHeader actions={rangeSelect} />
         <div className="empty-state">No statistics available.</div>
       </div>
     );
@@ -98,7 +98,6 @@ export function StatisticsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Statistics"
         description={`Activity across the last ${pluralize(statistics.rangeDays, 'day')} (${rangeDescription}).`}
         actions={rangeSelect}
       />

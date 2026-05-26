@@ -13,13 +13,16 @@ import {
   type AgentsConfig,
   buildOptionalAgentPresentation,
   cloneAgentA2AConfig,
+  cloneAgentBudgetConfig,
   cloneAgentCv,
   cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
   normalizeAgentA2AConfig,
+  normalizeAgentBudgetConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentIdentityFields,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
@@ -70,7 +73,6 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
-import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
@@ -130,7 +132,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 28;
+export const CONFIG_VERSION = 29;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -242,6 +244,7 @@ export const SCHEDULER_BOARD_STATUSES = [
 export type SchedulerBoardStatus = (typeof SCHEDULER_BOARD_STATUSES)[number];
 const SCHEDULER_BOARD_STATUS_SET = new Set<string>(SCHEDULER_BOARD_STATUSES);
 export type ContainerSandboxMode = 'container' | 'host';
+export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
 export type RuntimeWebSearchProvider =
   | 'auto'
   | 'brave'
@@ -256,7 +259,16 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
 export type RuntimeBrowserProviderKind =
   | 'local'
   | 'camofox'
-  | 'browser-use-cloud';
+  | 'managed-cloud'
+  | 'browser-use-cloud'
+  | 'mac-cua';
+export type RuntimeBrowserMacCuaBrowser =
+  | 'safari'
+  | 'chrome'
+  | 'firefox'
+  | 'brave'
+  | 'arc';
+export type RuntimeBrowserMacCuaScreenshotMode = 'som' | 'vision' | 'ax';
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SlackDmPolicy = 'open' | 'allowlist' | 'disabled';
@@ -361,11 +373,31 @@ export interface RuntimeBrowserUseCloudConfig {
   };
 }
 
+export interface RuntimeBrowserMacCuaConfig {
+  browser: RuntimeBrowserMacCuaBrowser;
+  driverCommand: string;
+  driverArgs: string[];
+  screenshotMode: RuntimeBrowserMacCuaScreenshotMode;
+}
+
+export interface RuntimeManagedCloudBrowserConfig {
+  endpointUrl: string;
+  poolTokenRef?: SecretRef;
+  defaultTenantId: string;
+  pricing: {
+    browserUsdPerMinute?: number;
+    actionUsd?: number;
+  };
+}
+
 export interface RuntimeBrowserConfig {
   provider: RuntimeBrowserProviderKind;
+  allowPrivateNetwork: boolean;
   local: RuntimeBrowserLocalConfig;
   camofox: RuntimeBrowserCamofoxConfig;
+  managedCloud: RuntimeManagedCloudBrowserConfig;
   browserUseCloud: RuntimeBrowserUseCloudConfig;
+  macCua: RuntimeBrowserMacCuaConfig;
 }
 
 export interface RuntimeAudioProviderModelConfig {
@@ -951,6 +983,8 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
+    runtime: CodexTurnRuntime;
+    turnRuntime: CodexTurnRuntime;
     models: string[];
   };
   anthropic: {
@@ -1030,6 +1064,7 @@ export interface RuntimeConfig {
     goal_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
+    btw: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
     cv_narration: RuntimeAuxiliaryModelPolicyConfig;
   };
@@ -1187,9 +1222,6 @@ export interface RuntimeConfig {
       maxIterations: number;
     };
   };
-  scheduler: {
-    jobs: RuntimeSchedulerJob[];
-  };
 }
 
 export interface RuntimeSkillScopeConfigDraft {
@@ -1285,6 +1317,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   browser: {
     provider: 'local',
+    allowPrivateNetwork: false,
     local: {
       profileRoot: '',
       headed: false,
@@ -1294,6 +1327,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       headed: false,
       launchOptions: {},
     },
+    managedCloud: {
+      endpointUrl: 'http://127.0.0.1:8787',
+      defaultTenantId: '',
+      pricing: {},
+    },
     browserUseCloud: {
       apiKeyRef: {
         source: 'store',
@@ -1302,6 +1340,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       baseUrl: '',
       browser: {},
       pricing: {},
+    },
+    macCua: {
+      browser: 'chrome',
+      driverCommand: '',
+      driverArgs: [],
+      screenshotMode: 'som',
     },
   },
   agents: {
@@ -1359,6 +1403,15 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     autoApplyEnabled: false,
     evaluationRunsBeforeRollback: 10,
     rollbackImprovementThreshold: 0.05,
+    optimization: {
+      editBudget: 4,
+      minTrajectoryEvidence: 2,
+      maxEvidenceExamples: 12,
+      heldOutRatio: 0.25,
+      trajectorySampleSeed: 'skillopt-lite',
+      minCandidateScoreDelta: 0.01,
+      rejectedEditMemoryLimit: 20,
+    },
   },
   discord: {
     prefix: '!claw',
@@ -1582,6 +1635,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
+    runtime: 'hybridclaw',
+    turnRuntime: 'hybridclaw',
     models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   anthropic: {
@@ -1729,6 +1784,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       provider: 'auto',
       model: '',
       maxTokens: 0,
+    },
+    btw: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 160,
     },
     session_title: {
       provider: 'auto',
@@ -1896,9 +1956,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxIterations: 0,
     },
   },
-  scheduler: {
-    jobs: [DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB],
-  },
 };
 
 const CONFIG_PATH = path.join(DEFAULT_RUNTIME_HOME_DIR, CONFIG_FILE_NAME);
@@ -1916,6 +1973,8 @@ type RuntimeConfigSecretInputPath = (typeof SECRET_INPUT_PATHS)[number];
 
 let currentConfig: RuntimeConfig = cloneConfig(DEFAULT_RUNTIME_CONFIG);
 let currentConfigSource: Record<string, unknown> = {};
+let pendingLegacySchedulerJobs: RuntimeSchedulerJob[] = [];
+let pendingLegacySchedulerJobsSeen = false;
 let currentConfigMetadata = {
   containerSandboxModeExplicit: false,
   containerMaxConcurrentExplicit: false,
@@ -1928,15 +1987,9 @@ const WATCHER_RETRY_BASE_DELAY_MS = 1_000;
 const WATCHER_RETRY_MAX_DELAY_MS = 60_000;
 const WATCHER_RETRY_MAX_ATTEMPTS = 10;
 const WATCHER_STABLE_RESET_DELAY_MS = 1_000;
-const NON_RETRYABLE_WATCHER_ERROR_CODES = new Set([
-  'EMFILE',
-  'ENFILE',
-  'ENOSPC',
-]);
 let watcherRetryAttempt = 0;
 let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherStableTimer: ReturnType<typeof setTimeout> | null = null;
-let watcherPermanentlyDisabled = false;
 
 function detachTimer(timer: ReturnType<typeof setTimeout>): void {
   if (
@@ -1963,30 +2016,6 @@ function isRuntimeConfigWatcherDisabled(): boolean {
     .trim()
     .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes';
-}
-
-function getWatcherErrorCode(err: unknown): string {
-  if (!err || typeof err !== 'object') return '';
-  const code = (err as { code?: unknown }).code;
-  return typeof code === 'string' ? code.trim().toUpperCase() : '';
-}
-
-function disableWatcher(reason: string): void {
-  watcherPermanentlyDisabled = true;
-  if (watcherRestartTimer) {
-    clearTimeout(watcherRestartTimer);
-    watcherRestartTimer = null;
-  }
-  if (watcherStableTimer) {
-    clearTimeout(watcherStableTimer);
-    watcherStableTimer = null;
-  }
-  console.warn(`[runtime-config] watcher disabled: ${reason}`);
-}
-
-function shouldRetryWatcherError(err: unknown): boolean {
-  const code = getWatcherErrorCode(err);
-  return !NON_RETRYABLE_WATCHER_ERROR_CODES.has(code);
 }
 
 function cloneConfig<T>(value: T): T {
@@ -2626,6 +2655,23 @@ function normalizeAgentConfig(
     allowEmpty: false,
   });
   if (!id) return null;
+  const identityFields = normalizeAgentIdentityFields({
+    canonicalId: normalizeString(
+      value.canonicalId,
+      fallback?.canonicalId ?? '',
+      {
+        allowEmpty: true,
+      },
+    ),
+    ownerUserId: normalizeString(
+      value.ownerUserId,
+      fallback?.ownerUserId ?? '',
+      {
+        allowEmpty: true,
+      },
+    ),
+    path: 'agents.list[]',
+  });
   const name = normalizeString(value.name, fallback?.name ?? '', {
     allowEmpty: true,
   });
@@ -2710,8 +2756,12 @@ function normalizeAgentConfig(
         fallback?.webSearch,
       )
     : cloneAgentWebSearchConfig(fallback?.webSearch);
+  const budget = Object.hasOwn(value, 'budget')
+    ? normalizeAgentBudgetConfig(value.budget, fallback?.budget)
+    : cloneAgentBudgetConfig(fallback?.budget);
   return {
     id,
+    ...identityFields,
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset),
     ...(model ? { model } : {}),
@@ -2728,6 +2778,7 @@ function normalizeAgentConfig(
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
     ...(webSearch ? { webSearch } : {}),
+    ...(budget ? { budget } : {}),
   };
 }
 
@@ -2901,6 +2952,20 @@ function normalizeCodexModelArray(
     return [...DEFAULT_CODEX_MODEL_LIST];
   }
   return normalized;
+}
+
+export function normalizeCodexTurnRuntime(value: unknown): CodexTurnRuntime {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return normalized === 'app-server' ? 'app-server' : 'hybridclaw';
+}
+
+function normalizeCodexTurnRuntimeConfig(rawCodex: Record<string, unknown>) {
+  if (Object.hasOwn(rawCodex, 'turnRuntime')) {
+    return normalizeCodexTurnRuntime(rawCodex.turnRuntime);
+  }
+  return normalizeCodexTurnRuntime(rawCodex.runtime);
 }
 
 function normalizePathForCompare(value: string): string {
@@ -4593,6 +4658,25 @@ function normalizeSchedulerJobList(
   return jobs;
 }
 
+function readLegacySchedulerJobsFromSource(source: Record<string, unknown>): {
+  hasJobs: boolean;
+  jobs: RuntimeSchedulerJob[];
+} {
+  const rawScheduler = isRecord(source.scheduler) ? source.scheduler : {};
+  const hasJobs = hasOwn(rawScheduler, 'jobs');
+  return {
+    hasJobs,
+    jobs: normalizeSchedulerJobList(rawScheduler.jobs, []),
+  };
+}
+
+function rememberLegacySchedulerJobs(source: Record<string, unknown>): void {
+  const legacy = readLegacySchedulerJobsFromSource(source);
+  if (!legacy.hasJobs) return;
+  pendingLegacySchedulerJobs = legacy.jobs;
+  pendingLegacySchedulerJobsSeen = true;
+}
+
 function normalizeLogLevel(value: unknown, fallback: LogLevel): LogLevel {
   const normalized = normalizeString(value, fallback, {
     allowEmpty: false,
@@ -5125,8 +5209,40 @@ function normalizeBrowserProviderKind(
   if (
     normalized === 'local' ||
     normalized === 'camofox' ||
-    normalized === 'browser-use-cloud'
+    normalized === 'managed-cloud' ||
+    normalized === 'browser-use-cloud' ||
+    normalized === 'mac-cua'
   ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeBrowserMacCuaBrowser(
+  value: unknown,
+  fallback: RuntimeBrowserMacCuaBrowser,
+): RuntimeBrowserMacCuaBrowser {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'safari' ||
+    normalized === 'chrome' ||
+    normalized === 'firefox' ||
+    normalized === 'brave' ||
+    normalized === 'arc'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeBrowserMacCuaScreenshotMode(
+  value: unknown,
+  fallback: RuntimeBrowserMacCuaScreenshotMode,
+): RuntimeBrowserMacCuaScreenshotMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'som' || normalized === 'vision' || normalized === 'ax') {
     return normalized;
   }
   return fallback;
@@ -5636,6 +5752,26 @@ function normalizeBrowserUseCloudPricing(
   };
 }
 
+function normalizeManagedCloudBrowserConfig(
+  value: unknown,
+  fallback: RuntimeManagedCloudBrowserConfig,
+): RuntimeManagedCloudBrowserConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    endpointUrl: normalizeBaseUrl(raw.endpointUrl, fallback.endpointUrl),
+    poolTokenRef: normalizeOptionalSecretRef(
+      raw.poolTokenRef,
+      'browser.managedCloud.poolTokenRef',
+    ),
+    defaultTenantId: normalizeString(
+      raw.defaultTenantId,
+      fallback.defaultTenantId,
+      { allowEmpty: true },
+    ),
+    pricing: normalizeBrowserUseCloudPricing(raw.pricing, fallback.pricing),
+  };
+}
+
 function normalizeBrowserConfig(
   value: unknown,
   fallback: RuntimeBrowserConfig,
@@ -5643,11 +5779,17 @@ function normalizeBrowserConfig(
   const raw = isRecord(value) ? value : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawCamofox = isRecord(raw.camofox) ? raw.camofox : {};
+  const rawManagedCloud = isRecord(raw.managedCloud) ? raw.managedCloud : {};
   const rawBrowserUseCloud = isRecord(raw.browserUseCloud)
     ? raw.browserUseCloud
     : {};
+  const rawMacCua = isRecord(raw.macCua) ? raw.macCua : {};
   return {
     provider: normalizeBrowserProviderKind(raw.provider, fallback.provider),
+    allowPrivateNetwork: normalizeBoolean(
+      raw.allowPrivateNetwork,
+      fallback.allowPrivateNetwork,
+    ),
     local: {
       profileRoot: normalizeString(
         rawLocal.profileRoot,
@@ -5668,6 +5810,10 @@ function normalizeBrowserConfig(
         fallback.camofox.launchOptions,
       ),
     },
+    managedCloud: normalizeManagedCloudBrowserConfig(
+      rawManagedCloud,
+      fallback.managedCloud,
+    ),
     browserUseCloud: {
       apiKeyRef: normalizeBrowserUseCloudApiKeyRef(
         rawBrowserUseCloud.apiKeyRef,
@@ -5684,6 +5830,24 @@ function normalizeBrowserConfig(
       pricing: normalizeBrowserUseCloudPricing(
         rawBrowserUseCloud.pricing,
         fallback.browserUseCloud.pricing,
+      ),
+    },
+    macCua: {
+      browser: normalizeBrowserMacCuaBrowser(
+        rawMacCua.browser,
+        fallback.macCua.browser,
+      ),
+      driverCommand: normalizeString(
+        rawMacCua.driverCommand,
+        fallback.macCua.driverCommand,
+        { allowEmpty: true },
+      ),
+      driverArgs:
+        normalizeOptionalTrimmedUniqueStringArray(rawMacCua.driverArgs) ??
+        fallback.macCua.driverArgs,
+      screenshotMode: normalizeBrowserMacCuaScreenshotMode(
+        rawMacCua.screenshotMode,
+        fallback.macCua.screenshotMode,
       ),
     },
   };
@@ -5922,6 +6086,9 @@ function normalizeRuntimeConfig(
   const rawTrajectoryCapture = isRecord(rawAdaptiveSkills.trajectoryCapture)
     ? rawAdaptiveSkills.trajectoryCapture
     : {};
+  const rawAdaptiveSkillsOptimization = isRecord(rawAdaptiveSkills.optimization)
+    ? rawAdaptiveSkills.optimization
+    : {};
   const rawChannelInstructions = isRecord(raw.channelInstructions)
     ? raw.channelInstructions
     : {};
@@ -5995,6 +6162,9 @@ function normalizeRuntimeConfig(
   )
     ? rawAuxiliaryModels.flush_memories
     : {};
+  const rawBtwAuxiliaryModel = isRecord(rawAuxiliaryModels.btw)
+    ? rawAuxiliaryModels.btw
+    : {};
   const rawSessionTitleAuxiliaryModel = isRecord(
     rawAuxiliaryModels.session_title,
   )
@@ -6066,7 +6236,6 @@ function normalizeRuntimeConfig(
     ? rawProactive.autoRetry
     : {};
   const rawRalph = isRecord(rawProactive.ralph) ? rawProactive.ralph : {};
-  const rawScheduler = isRecord(raw.scheduler) ? raw.scheduler : {};
 
   const defaultOps = DEFAULT_RUNTIME_CONFIG.ops;
   const emailEnabled = normalizeBoolean(
@@ -6450,6 +6619,48 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.rollbackImprovementThreshold,
         { min: 0, max: 1 },
       ),
+      optimization: {
+        editBudget: normalizeInteger(
+          rawAdaptiveSkillsOptimization.editBudget,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization.editBudget,
+          { min: 1, max: 20 },
+        ),
+        minTrajectoryEvidence: normalizeInteger(
+          rawAdaptiveSkillsOptimization.minTrajectoryEvidence,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .minTrajectoryEvidence,
+          { min: 0, max: 100 },
+        ),
+        maxEvidenceExamples: normalizeInteger(
+          rawAdaptiveSkillsOptimization.maxEvidenceExamples,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .maxEvidenceExamples,
+          { min: 1, max: 100 },
+        ),
+        heldOutRatio: normalizeNumber(
+          rawAdaptiveSkillsOptimization.heldOutRatio,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization.heldOutRatio,
+          { min: 0, max: 0.8 },
+        ),
+        trajectorySampleSeed: normalizeString(
+          rawAdaptiveSkillsOptimization.trajectorySampleSeed,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .trajectorySampleSeed,
+          { allowEmpty: false },
+        ),
+        minCandidateScoreDelta: normalizeNumber(
+          rawAdaptiveSkillsOptimization.minCandidateScoreDelta,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .minCandidateScoreDelta,
+          { min: 0, max: 1 },
+        ),
+        rejectedEditMemoryLimit: normalizeInteger(
+          rawAdaptiveSkillsOptimization.rejectedEditMemoryLimit,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .rejectedEditMemoryLimit,
+          { min: 0, max: 100 },
+        ),
+      },
     },
     discord: {
       prefix: normalizeString(
@@ -6621,6 +6832,8 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
+      runtime: normalizeCodexTurnRuntimeConfig(rawCodex),
+      turnRuntime: normalizeCodexTurnRuntimeConfig(rawCodex),
       models: codexModelList,
     },
     anthropic: {
@@ -7003,6 +7216,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawFlushMemoriesAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      btw: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawBtwAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.provider,
+        ),
+        model: normalizeString(
+          rawBtwAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawBtwAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },
@@ -7500,12 +7729,6 @@ function normalizeRuntimeConfig(
         ),
       },
     },
-    scheduler: {
-      jobs: normalizeSchedulerJobList(
-        rawScheduler.jobs,
-        DEFAULT_RUNTIME_CONFIG.scheduler.jobs,
-      ),
-    },
   };
 }
 
@@ -7552,6 +7775,7 @@ function buildSerializableConfig(
     : null;
   if (serializableCodex) {
     delete (serializableCodex as { models?: string[] }).models;
+    delete (serializableCodex as { runtime?: string }).runtime;
   }
   const serializableContainer = isRecord(serializable.container)
     ? serializable.container
@@ -7647,6 +7871,7 @@ function loadRuntimeConfigFromSources(
     }
   }
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
+  rememberLegacySchedulerJobs(diskSource);
   currentConfigSource = cloneConfig(diskSource);
   currentConfigMetadata = {
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
@@ -7690,7 +7915,7 @@ function scheduleReload(trigger: string): void {
 }
 
 function scheduleWatcherRestart(reason: string): void {
-  if (isRuntimeConfigWatcherDisabled() || watcherPermanentlyDisabled) return;
+  if (isRuntimeConfigWatcherDisabled()) return;
   if (watcherRestartTimer) return;
   if (watcherStableTimer) {
     clearTimeout(watcherStableTimer);
@@ -7727,7 +7952,7 @@ function markWatcherStable(activeWatcher: fs.FSWatcher): void {
 }
 
 function startWatcher(): void {
-  if (isRuntimeConfigWatcherDisabled() || watcherPermanentlyDisabled) return;
+  if (isRuntimeConfigWatcherDisabled()) return;
   if (configWatcher) return;
 
   try {
@@ -7761,19 +7986,11 @@ function startWatcher(): void {
         clearTimeout(watcherStableTimer);
         watcherStableTimer = null;
       }
-      if (!shouldRetryWatcherError(err)) {
-        disableWatcher(reason);
-        return;
-      }
       console.warn(`[runtime-config] watcher error: ${reason}`);
       scheduleWatcherRestart(`watcher error: ${reason}`);
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    if (!shouldRetryWatcherError(err)) {
-      disableWatcher(reason);
-      return;
-    }
     console.warn(`[runtime-config] watcher setup failed: ${reason}`);
     scheduleWatcherRestart(`watcher setup failed: ${reason}`);
   }
@@ -7834,6 +8051,7 @@ function migrateConfigSchemaOnStartup(): void {
 
   try {
     const parsedRecord = parsed as Record<string, unknown>;
+    rememberLegacySchedulerJobs(parsedRecord);
     const rawContainer = isRecord(parsedRecord.container)
       ? parsedRecord.container
       : {};
@@ -8070,6 +8288,46 @@ export function updateRuntimeConfig(
   const draft = cloneConfig(baseConfig);
   mutator(draft);
   return saveRuntimeConfig(draft, meta);
+}
+
+export function migrateLegacySchedulerJobsFromRuntimeConfig(
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeSchedulerJob[] {
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-scheduler-job-migration',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] scheduler job migration using in-memory config source after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const currentLegacy = readLegacySchedulerJobsFromSource(baseSource);
+  const legacyJobs = currentLegacy.hasJobs
+    ? currentLegacy.jobs
+    : pendingLegacySchedulerJobsSeen
+      ? pendingLegacySchedulerJobs
+      : [];
+  pendingLegacySchedulerJobs = [];
+  pendingLegacySchedulerJobsSeen = false;
+  if (!currentLegacy.hasJobs) return legacyJobs;
+
+  const nextSource = cloneConfig(baseSource);
+  const nextScheduler = isRecord(nextSource.scheduler)
+    ? { ...nextSource.scheduler }
+    : {};
+  delete (nextScheduler as { jobs?: unknown }).jobs;
+  if (Object.keys(nextScheduler).length === 0) {
+    delete (nextSource as { scheduler?: unknown }).scheduler;
+  } else {
+    nextSource.scheduler = nextScheduler;
+  }
+  saveRuntimeConfigSource(nextSource, meta);
+  return legacyJobs;
 }
 
 export function setRuntimeConfigSecretInput(
