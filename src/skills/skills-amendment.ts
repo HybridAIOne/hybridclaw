@@ -49,7 +49,7 @@ function sha256(content: string): string {
 
 function resolveSkillCatalogEntry(skillName: string) {
   const normalized = skillName.trim().toLowerCase();
-  const match = loadSkillCatalog().find(
+  const match = loadSkillCatalog({ logBlockedSkills: false }).find(
     (skill) => skill.name.trim().toLowerCase() === normalized,
   );
   if (!match) {
@@ -109,6 +109,29 @@ function parseProposalOutput(text: string): {
     content,
     metadata: { kind: 'full_content' },
   };
+}
+
+function isLegacyFullContentProposal(text: string): boolean {
+  try {
+    const parsed = extractJsonObject(text);
+    return typeof parsed.content === 'string' && parsed.content.trim() !== '';
+  } catch {
+    return false;
+  }
+}
+
+function isSkillOptLiteProposalLike(text: string): boolean {
+  try {
+    const parsed = extractJsonObject(text);
+    return (
+      Object.hasOwn(parsed, 'edits') ||
+      Object.hasOwn(parsed, 'failure_edits') ||
+      Object.hasOwn(parsed, 'success_edits') ||
+      Object.hasOwn(parsed, 'validation')
+    );
+  } catch {
+    return false;
+  }
 }
 
 function parseSkillOptLiteProposalOutput(input: {
@@ -481,9 +504,8 @@ export async function proposeAmendment(input: {
     }
   } catch (error) {
     if (
-      output.result.includes('"edits"') ||
-      output.result.includes('"failure_edits"') ||
-      output.result.includes('"success_edits"')
+      isSkillOptLiteProposalLike(output.result) ||
+      !isLegacyFullContentProposal(output.result)
     ) {
       recordAuditEvent({
         sessionId: runtime.sessionId,

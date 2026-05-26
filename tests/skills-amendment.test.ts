@@ -159,6 +159,42 @@ test('fails clearly when the amendment proposal is not valid json', async () => 
   ).rejects.toThrow('Skill amendment proposal did not return valid JSON.');
 });
 
+test('keeps malformed SkillOpt-lite proposals on the structured error path', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    outcome: 'failure',
+    errorCategory: 'model_error',
+    errorDetail: 'needs a clearer checklist',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 0,
+    durationMs: 100,
+  });
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: JSON.stringify({
+      rationale: 'No useful amendment.',
+    }),
+    toolsUsed: [],
+  });
+
+  const { inspectSkill } = await import('../src/skills/skills-inspection.ts');
+  const { proposeAmendment } = await import(
+    '../src/skills/skills-amendment.ts'
+  );
+
+  await expect(
+    proposeAmendment({
+      skillName: context.skillName,
+      metrics: inspectSkill(context.skillName),
+      agentId: 'main',
+    }),
+  ).rejects.toThrow('SkillOpt-lite proposal did not include usable edits.');
+});
+
 test('applyAmendment refuses to overwrite concurrent skill edits', async () => {
   context = await createAdaptiveSkillsTestContext();
   context.dbModule.recordSkillObservation({

@@ -1734,6 +1734,10 @@ export interface SkillCatalogEntry {
   missing: string[];
 }
 
+export interface LoadSkillCatalogOptions {
+  logBlockedSkills?: boolean;
+}
+
 export interface BlockedSkillCatalogEntry extends SkillCandidate {
   blocked: true;
   blockedReason: string;
@@ -2026,14 +2030,19 @@ export function unblockGuardedSkill(
 
 function filterGuardedSkillCandidates(
   skills: SkillCandidate[],
+  options: LoadSkillCatalogOptions = {},
 ): SkillCandidate[] {
-  return partitionGuardedSkillCandidates(skills).allowed;
+  return partitionGuardedSkillCandidates(skills, options).allowed;
 }
 
-function partitionGuardedSkillCandidates(skills: SkillCandidate[]): {
+function partitionGuardedSkillCandidates(
+  skills: SkillCandidate[],
+  options: LoadSkillCatalogOptions = {},
+): {
   allowed: SkillCandidate[];
   blocked: BlockedSkillCatalogEntry[];
 } {
+  const logBlockedSkills = options.logBlockedSkills ?? true;
   const allowed: SkillCandidate[] = [];
   const blocked: BlockedSkillCatalogEntry[] = [];
 
@@ -2054,7 +2063,7 @@ function partitionGuardedSkillCandidates(skills: SkillCandidate[]): {
     }
 
     const fingerprint = `${path.resolve(skill.baseDir)}:${decision.result.verdict}:${decision.result.findings.length}`;
-    if (!warnedBlockedSkills.has(fingerprint)) {
+    if (logBlockedSkills && !warnedBlockedSkills.has(fingerprint)) {
       warnedBlockedSkills.add(fingerprint);
       logger.warn(
         {
@@ -2180,9 +2189,12 @@ export function persistThirdPartySkillDiscoveryDefaults(): void {
   );
 }
 
-export function loadSkillCatalog(): SkillCatalogEntry[] {
+export function loadSkillCatalog(
+  options: LoadSkillCatalogOptions = {},
+): SkillCatalogEntry[] {
   const candidates = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
+    options,
   );
   const disabled = applyThirdPartySkillDefaultsAndGetDisabled(candidates);
   return mapSkillCatalogEntries(candidates, disabled);
