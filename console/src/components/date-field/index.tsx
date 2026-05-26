@@ -1,5 +1,5 @@
 import { type ComponentProps, useCallback, useMemo } from 'react';
-import { useFieldContext } from '../field/context';
+import { useFieldContext } from '../field';
 import { Input } from '../input';
 
 export type DateFieldGranularity = 'day' | 'minute' | 'second';

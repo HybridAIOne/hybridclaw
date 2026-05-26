@@ -72,6 +72,13 @@ describe('Switch', () => {
     expect(getHiddenInput(container)?.value).toBe('enabled');
   });
 
+  it('omits the hidden input when disabled, matching native submit semantics', () => {
+    const { container } = render(
+      <Switch checked={true} disabled name="enabled" />,
+    );
+    expect(getHiddenInput(container)).toBeNull();
+  });
+
   it('sets aria-required only when required is true', () => {
     const { rerender } = render(<Switch checked={false} />);
     const button = screen.getByRole('switch');

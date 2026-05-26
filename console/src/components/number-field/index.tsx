@@ -1,6 +1,6 @@
 import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import { useStableCallback } from '../../lib/use-stable-callback';
-import { useFieldContext } from '../field/context';
+import { useFieldContext } from '../field';
 import { Input } from '../input';
 
 export type NumberFieldProps = Omit<

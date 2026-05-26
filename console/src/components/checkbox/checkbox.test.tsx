@@ -74,6 +74,13 @@ describe('Checkbox', () => {
     expect(hidden?.value).toBe('yes');
   });
 
+  it('omits the hidden input when disabled, matching native submit semantics', () => {
+    const { container } = render(
+      <Checkbox checked={true} disabled name="agreed" />,
+    );
+    expect(getHiddenInput(container)).toBeNull();
+  });
+
   it('sets aria-required only when required is true', () => {
     const { rerender } = render(<Checkbox checked={false} />);
     const button = screen.getByRole('checkbox');

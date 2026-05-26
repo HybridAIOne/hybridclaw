@@ -36,7 +36,19 @@ export function useFormMutation<TInput, TOutput>(
 ): UseMutationResult<TOutput, Error, TInput> {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: opts.mutationFn,
+    // Normalize non-Error rejections at the source: React Query stores
+    // whatever the mutationFn throws verbatim in `result.error`, so wrapping
+    // here (not just in onError) keeps the returned mutation state's `.error`
+    // consistent with the hook's `Error`-typed contract.
+    mutationFn: async (input: TInput) => {
+      try {
+        return await opts.mutationFn(input);
+      } catch (error) {
+        throw error instanceof Error
+          ? error
+          : new Error(String(error), { cause: error });
+      }
+    },
     onSuccess: (output, input) => {
       opts.onSuccess?.(output, input);
       for (const key of opts.invalidates ?? []) {
@@ -44,11 +56,8 @@ export function useFormMutation<TInput, TOutput>(
       }
     },
     onError: (error, input) => {
-      const normalized =
-        error instanceof Error
-          ? error
-          : new Error(String(error), { cause: error });
-      opts.onError?.(normalized, input);
+      // mutationFn above guarantees an Error instance reaches here.
+      opts.onError?.(error, input);
     },
   });
 }

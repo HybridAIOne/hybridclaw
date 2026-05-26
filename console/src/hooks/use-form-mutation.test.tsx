@@ -115,6 +115,28 @@ describe('useFormMutation', () => {
     expect(error).toBe(original);
   });
 
+  it('exposes a normalised Error in the returned mutation state, not the raw rejection', async () => {
+    // React Query stores whatever mutationFn throws verbatim; the hook must
+    // normalise at the source so `result.error` honours its Error-typed
+    // contract, not just the onError callback.
+    const { Wrapper } = wrapper();
+    const mutationFn = vi.fn(async () => {
+      throw 'boom';
+    });
+
+    const { result } = renderHook(() => useFormMutation({ mutationFn }), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({});
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error).toBeInstanceOf(Error);
+    expect(result.current.error?.message).toBe('boom');
+  });
+
   it('succeeds without invoking invalidateQueries when no keys are configured', async () => {
     const { Wrapper, invalidateSpy } = wrapper();
     const mutationFn = vi.fn(async (input: { value: number }) => ({

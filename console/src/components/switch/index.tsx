@@ -13,9 +13,10 @@ export type SwitchProps = Omit<
   onCheckedChange?: (checked: boolean) => void;
   size?: SwitchSize;
   /**
-   * When set, a hidden form input is emitted *only while checked*, mirroring
-   * native checkbox submit semantics. Forms that need an explicit "off" value
-   * should read state directly rather than relying on form serialization.
+   * When set, a hidden form input is emitted *only while checked and enabled*,
+   * mirroring native checkbox submit semantics (disabled controls are excluded
+   * from submission). Forms that need an explicit "off" value should read state
+   * directly rather than relying on form serialization.
    */
   name?: string;
   value?: string;
@@ -80,7 +81,7 @@ export function Switch({
           className={styles.thumb}
         />
       </button>
-      {name && checked ? (
+      {name && checked && !isDisabled ? (
         <input type="hidden" name={name} value={value} />
       ) : null}
     </>
