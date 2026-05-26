@@ -48,6 +48,7 @@ export interface BrowserTwoFactorState {
 export interface BrowserTwoFactorCodeFillResult {
   selector?: string;
   strategy: string;
+  submitted?: boolean;
 }
 
 export type BrowserWaypointEvent =

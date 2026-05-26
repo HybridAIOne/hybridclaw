@@ -1097,7 +1097,8 @@ class MacCuaBrowserSession implements BrowserSession {
     const selector = state.selectors?.[0];
     if (selector) {
       await this.fill(selector, value);
-      return { selector, strategy: 'ax-selector' };
+      await this.press('Enter');
+      return { selector, strategy: 'ax-selector', submitted: true };
     }
 
     let strategy = 'native-focus';
@@ -1110,6 +1111,7 @@ class MacCuaBrowserSession implements BrowserSession {
         );
         if (filled) {
           strategy = 'native-set-value';
+          await this.driver.pressKey(this.sessionId, 'return');
           return;
         }
       }
@@ -1123,8 +1125,9 @@ class MacCuaBrowserSession implements BrowserSession {
         throw new Error('mac-cua could not focus the detected 2FA input.');
       }
       await this.driver.typeTextChars(this.sessionId, payload);
+      await this.driver.pressKey(this.sessionId, 'return');
     });
-    return { strategy };
+    return { strategy, submitted: true };
   }
 
   private buildFillPayload(

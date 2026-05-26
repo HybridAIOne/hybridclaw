@@ -490,11 +490,13 @@ test('mac-cua provider resumes 2FA through native OTP set_value when AX selector
 
   await expect(session.fillTwoFactorCode?.(handle)).resolves.toEqual({
     strategy: 'native-set-value',
+    submitted: true,
   });
 
   expect(driver.fillTwoFactorInput).toHaveBeenCalledWith('cua-session-1', {
     text: '123456',
   });
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
   expect(driver.focusTwoFactorInput).not.toHaveBeenCalled();
   expect(driver.typeTextChars).not.toHaveBeenCalled();
   expect(driver.click).not.toHaveBeenCalled();
@@ -526,6 +528,7 @@ test('mac-cua provider falls back to focus and type when native OTP set_value ca
 
   await expect(session.fillTwoFactorCode?.(handle)).resolves.toEqual({
     strategy: 'native-focus',
+    submitted: true,
   });
 
   expect(driver.fillTwoFactorInput).toHaveBeenCalledWith('cua-session-1', {
@@ -535,6 +538,7 @@ test('mac-cua provider falls back to focus and type when native OTP set_value ca
   expect(driver.typeTextChars).toHaveBeenCalledWith('cua-session-1', {
     text: '123456',
   });
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
 });
 
 test('mac-cua provider blocks shell-injection typed payloads before driver input', async () => {

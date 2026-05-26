@@ -1400,6 +1400,7 @@ async function handleApiBrowserTool(
         : await getGatewayBrowserResumeSelector(active, args);
       let filledSelector = selector;
       let fillStrategy = selector ? 'selector' : '';
+      let codeSubmitted = false;
       if (explicitSelector || selector) {
         await active.session.fill(
           selector,
@@ -1411,6 +1412,7 @@ async function handleApiBrowserTool(
         );
         filledSelector = result.selector || '';
         fillStrategy = result.strategy;
+        codeSubmitted = result.submitted === true;
       } else {
         throw new GatewayRequestError(
           400,
@@ -1429,6 +1431,7 @@ async function handleApiBrowserTool(
         code_injected: true,
         ...(filledSelector ? { selector: filledSelector } : {}),
         fill_strategy: fillStrategy,
+        ...(codeSubmitted ? { code_submitted: true } : {}),
       });
       return;
     }
