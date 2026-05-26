@@ -27,6 +27,7 @@ import type {
   BrowserProviderCapabilities,
   BrowserSession,
   BrowserSessionMeteringContext,
+  BrowserTwoFactorCodeFillResult,
   BrowserTwoFactorState,
   BrowserWaypointEvent,
   BrowserWaypointOptions,
@@ -118,6 +119,7 @@ export interface MacCuaDriver {
   detectTwoFactorWaypoint?(
     sessionId: string,
   ): Promise<{ detected: boolean; signals?: string[]; selectors?: string[] }>;
+  focusTwoFactorInput?(sessionId: string): Promise<boolean>;
   getEnvironmentState(): Promise<MacCuaEnvironmentState>;
 }
 
@@ -665,6 +667,47 @@ class StdioMacCuaDriver implements MacCuaDriver {
     };
   }
 
+  async focusTwoFactorInput(sessionId: string): Promise<boolean> {
+    const session = this.requireSession(sessionId);
+    const record = await this.callToolRecord('page', {
+      pid: session.pid,
+      window_id: session.windowId,
+      action: 'execute_javascript',
+      javascript: `(() => {
+        const selectors = [
+          'input[autocomplete="one-time-code"]',
+          'input[inputmode="numeric"]',
+          'input[name*="otp" i]',
+          'input[id*="otp" i]',
+          'input[name*="totp" i]',
+          'input[id*="totp" i]',
+          'input[name*="code" i]',
+          'input[id*="code" i]',
+          'input[type="tel"]',
+          'input[type="number"]',
+          'input[type="text"]',
+          'textarea'
+        ];
+        const element = selectors
+          .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
+          .find((candidate) => {
+            const input = candidate;
+            if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+              return false;
+            }
+            if (input.disabled || input.readOnly) return false;
+            const rect = input.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          });
+        if (!element) return false;
+        element.focus();
+        if (typeof element.select === 'function') element.select();
+        return document.activeElement === element;
+      })()`,
+    });
+    return record.result === true || record.value === true;
+  }
+
   async getEnvironmentState(): Promise<MacCuaEnvironmentState> {
     const [cursorText, apps, windows] = await Promise.all([
       this.callToolText('get_cursor_position', {}),
@@ -938,39 +981,7 @@ class MacCuaBrowserSession implements BrowserSession {
   async fill(selector: string, value: BrowserFillInput): Promise<void> {
     const requestedTarget = parseMacCuaTarget(selector);
     await this.runAction('fill', async () => {
-      const payload =
-        typeof value === 'string'
-          ? driverPayloadForText(value)
-          : isSecretHandle(value)
-            ? (() => {
-                try {
-                  return driverPayloadForText(
-                    unsafeEscapeSecretHandle(value, {
-                      reason: `fill browser field ${selector}`,
-                      audit: (handle, reason) => {
-                        recordSecretUnsafeEscaped({
-                          sessionId: this.metering?.sessionId,
-                          runId: this.runId,
-                          skillName: this.metering?.skillName,
-                          secretSource: handle.ref.source,
-                          secretId: handle.ref.id,
-                          sinkKind: 'dom',
-                          selector,
-                          reason,
-                        });
-                      },
-                    }),
-                  );
-                } finally {
-                  value.dispose();
-                }
-              })()
-            : (() => {
-                const hardened = hardenSecretRef(value);
-                return {
-                  secretRef: { source: hardened.source, id: hardened.id },
-                };
-              })();
+      const payload = this.buildFillPayload(selector, value);
       const target = await this.resolveActionTarget(
         'fill',
         selector,
@@ -985,6 +996,68 @@ class MacCuaBrowserSession implements BrowserSession {
         this.recordCredentialFilled(selector, payload.secretRef);
       }
     });
+  }
+
+  async fillTwoFactorCode(
+    value: BrowserFillInput,
+  ): Promise<BrowserTwoFactorCodeFillResult> {
+    const state = await this.inspectTwoFactorChallenge();
+    const selector = state.selectors?.[0];
+    if (selector) {
+      await this.fill(selector, value);
+      return { selector, strategy: 'ax-selector' };
+    }
+
+    await this.runAction('browser_resume_interaction', async () => {
+      if (!this.driver.focusTwoFactorInput) {
+        throw new Error(
+          'mac-cua cannot focus the 2FA input because the driver does not expose a native 2FA focus primitive.',
+        );
+      }
+      const focused = await this.driver.focusTwoFactorInput(this.sessionId);
+      if (!focused) {
+        throw new Error('mac-cua could not focus the detected 2FA input.');
+      }
+      await this.driver.typeTextChars(
+        this.sessionId,
+        this.buildFillPayload('detected 2FA input', value),
+      );
+    });
+    return { strategy: 'native-focus' };
+  }
+
+  private buildFillPayload(
+    selector: string,
+    value: BrowserFillInput,
+  ): { text: string } | { secretRef: SecretRef } {
+    if (typeof value === 'string') return driverPayloadForText(value);
+    if (isSecretHandle(value)) {
+      try {
+        return driverPayloadForText(
+          unsafeEscapeSecretHandle(value, {
+            reason: `fill browser field ${selector}`,
+            audit: (handle, reason) => {
+              recordSecretUnsafeEscaped({
+                sessionId: this.metering?.sessionId,
+                runId: this.runId,
+                skillName: this.metering?.skillName,
+                secretSource: handle.ref.source,
+                secretId: handle.ref.id,
+                sinkKind: 'dom',
+                selector,
+                reason,
+              });
+            },
+          }),
+        );
+      } finally {
+        value.dispose();
+      }
+    }
+    const hardened = hardenSecretRef(value);
+    return {
+      secretRef: { source: hardened.source, id: hardened.id },
+    };
   }
 
   async scroll(opts: ScrollOptions): Promise<void> {

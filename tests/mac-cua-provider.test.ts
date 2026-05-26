@@ -63,6 +63,7 @@ function createMockDriver(options?: {
   getAddressBarValue: ReturnType<typeof vi.fn>;
   getCurrentUrl: ReturnType<typeof vi.fn>;
   detectTwoFactorWaypoint: ReturnType<typeof vi.fn>;
+  focusTwoFactorInput: ReturnType<typeof vi.fn>;
   getEnvironmentState: ReturnType<typeof vi.fn>;
 } {
   const stableState: MacCuaEnvironmentState = {
@@ -93,6 +94,7 @@ function createMockDriver(options?: {
     getAddressBarValue: vi.fn(async () => 'https://example.com/login'),
     getCurrentUrl: vi.fn(async () => 'https://example.com/'),
     detectTwoFactorWaypoint: vi.fn(async () => ({ detected: false })),
+    focusTwoFactorInput: vi.fn(async () => true),
     getEnvironmentState: vi.fn(async () => states.shift() || states[0]),
   };
 }
@@ -413,6 +415,40 @@ test('mac-cua provider audits and disposes SecretHandle fills', async () => {
       );
     }),
   ).toBe(true);
+});
+
+test('mac-cua provider resumes 2FA by focusing native OTP input when AX selectors are unavailable', async () => {
+  const root = makeTempRoot();
+  const { initDatabase } = await import('../src/memory/db.js');
+  initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { createSecretHandle } = await import(
+    '../src/security/secret-handles.js'
+  );
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
+    detected: true,
+    signals: ['one-time-code'],
+  });
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+  const handle = createSecretHandle(
+    { source: 'store', id: 'OPERATOR_RETURN_test' },
+    '123456',
+    'dom',
+  );
+
+  await expect(session.fillTwoFactorCode?.(handle)).resolves.toEqual({
+    strategy: 'native-focus',
+  });
+
+  expect(driver.focusTwoFactorInput).toHaveBeenCalledWith('cua-session-1');
+  expect(driver.typeTextChars).toHaveBeenCalledWith('cua-session-1', {
+    text: '123456',
+  });
+  expect(driver.click).not.toHaveBeenCalled();
 });
 
 test('mac-cua provider blocks shell-injection typed payloads before driver input', async () => {

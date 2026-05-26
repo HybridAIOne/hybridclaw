@@ -259,6 +259,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import {
+  clearOperatorReturn,
   consumeOperatorReturn,
   createSuspendedSession,
   detectTwoFactorChallenge,
@@ -269,6 +270,7 @@ import {
   type InteractionModality,
   type OperatorReturn,
   parseOperatorReturnText,
+  peekOperatorReturn,
   resumeWith,
   resumeWithText,
 } from './interactive-escalation.js';
@@ -463,7 +465,7 @@ async function getGatewayBrowserResumeSelector(
   if (explicitSelector) return explicitSelector;
   if (!isMacCuaGatewaySession(active)) return '';
   const state = await active.session.inspectTwoFactorChallenge?.();
-  return state?.selectors?.[0] || 'verification code';
+  return state?.selectors?.[0] || '';
 }
 
 function parseGatewayBrowserCoordinate(
@@ -1374,7 +1376,7 @@ async function handleApiBrowserTool(
     const waypoint = normalizeGatewayBrowserWaypoint(toolName);
     const suspendedSessionId =
       normalizeOptionalString(args.sessionId) || sessionId;
-    const response = consumeOperatorReturn(suspendedSessionId);
+    const response = peekOperatorReturn(suspendedSessionId);
     if (!response) {
       throw new GatewayRequestError(
         404,
@@ -1382,27 +1384,41 @@ async function handleApiBrowserTool(
       );
     }
     if (response.kind === 'code') {
-      const selector = await getGatewayBrowserResumeSelector(active, args);
-      if (!selector) {
+      const explicitSelector = getGatewayBrowserActionSelector(active, args);
+      const selector = explicitSelector
+        ? explicitSelector
+        : await getGatewayBrowserResumeSelector(active, args);
+      let filledSelector = selector;
+      let fillStrategy = selector ? 'selector' : '';
+      if (explicitSelector || selector) {
+        await active.session.fill(
+          selector,
+          createOperatorReturnCodeHandle(response.value),
+        );
+      } else if (active.session.fillTwoFactorCode) {
+        const result = await active.session.fillTwoFactorCode(
+          createOperatorReturnCodeHandle(response.value),
+        );
+        filledSelector = result.selector || '';
+        fillStrategy = result.strategy;
+      } else {
         throw new GatewayRequestError(
           400,
           'browser_resume_interaction requires selector for code injection with managed-cloud.',
         );
       }
-      await active.session.fill(
-        selector,
-        createOperatorReturnCodeHandle(response.value),
-      );
       await active.session.waypoint?.(waypoint, {
         sessionId: suspendedSessionId,
         responseKind: response.kind,
       });
+      clearOperatorReturn(suspendedSessionId);
       sendJson(res, 200, {
         success: true,
         resumed: true,
         response_kind: 'code',
         code_injected: true,
-        selector,
+        ...(filledSelector ? { selector: filledSelector } : {}),
+        fill_strategy: fillStrategy,
       });
       return;
     }
@@ -1410,6 +1426,7 @@ async function handleApiBrowserTool(
       sessionId: suspendedSessionId,
       responseKind: response.kind,
     });
+    clearOperatorReturn(suspendedSessionId);
     sendJson(res, 200, {
       success: true,
       resumed: true,

@@ -45,6 +45,11 @@ export interface BrowserTwoFactorState {
   selectors?: string[];
 }
 
+export interface BrowserTwoFactorCodeFillResult {
+  selector?: string;
+  strategy: string;
+}
+
 export type BrowserWaypointEvent =
   | 'browser_await_two_factor'
   | 'browser_resume_interaction';
@@ -76,6 +81,9 @@ export interface BrowserSession {
    * form values.
    */
   fill(selector: string, value: BrowserFillInput): Promise<void>;
+  fillTwoFactorCode?(
+    value: BrowserFillInput,
+  ): Promise<BrowserTwoFactorCodeFillResult>;
   scroll(opts: ScrollOptions): Promise<void>;
   waitForSelector(selector: string, opts?: WaitOptions): Promise<void>;
   upload?(selector: string, files: string[]): Promise<void>;

@@ -156,6 +156,10 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
     response: { kind: 'code', valueRedacted: true },
   });
   expect(JSON.stringify(resumed)).not.toContain('123456');
+  expect(reloaded.peekOperatorReturn('session-2fa')).toEqual({
+    kind: 'code',
+    value: '123456',
+  });
   expect(reloaded.consumeOperatorReturn('session-2fa')).toEqual({
     kind: 'code',
     value: '123456',
@@ -236,6 +240,7 @@ test('operator return cache expires unconsumed responses', async () => {
   });
   vi.setSystemTime(new Date('2026-04-30T12:31:00Z'));
 
+  expect(escalation.peekOperatorReturn('session-unconsumed')).toBeNull();
   expect(escalation.consumeOperatorReturn('session-unconsumed')).toBeNull();
 });
 

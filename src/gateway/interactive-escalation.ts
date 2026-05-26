@@ -722,6 +722,19 @@ export function consumeOperatorReturn(
   return entry?.response || null;
 }
 
+export function peekOperatorReturn(sessionId: string): OperatorReturn | null {
+  const normalized = sessionId.trim();
+  if (!normalized) return null;
+  cleanupOperatorReturns();
+  return operatorReturnBySession.get(normalized)?.response || null;
+}
+
+export function clearOperatorReturn(sessionId: string): void {
+  const normalized = sessionId.trim();
+  if (!normalized) return;
+  operatorReturnBySession.delete(normalized);
+}
+
 export function resumeWithText(
   sessionId: string,
   text: string,
