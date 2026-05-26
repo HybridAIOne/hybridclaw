@@ -32,7 +32,7 @@ DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60
 DEFAULT_MAX_ROWS = 200
 WRITE_GRANT_ENV = "HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT"
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:9090"
-DEFAULT_MODEL_REVIEW_MODEL = "gpt-5"
+DEFAULT_MODEL_REVIEW_MODEL = "auxiliary/eval_judge"
 CONNECTOR_ENV_PASSTHROUGH = {
     "HOME",
     "LANG",
@@ -1136,10 +1136,13 @@ def openai_chat_completion_content(
     try:
         payload = json.loads(raw)
         content = payload["choices"][0]["message"]["content"]
+        response_model = payload.get("model")
     except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
         raise WarehouseSqlError(f"{label} response did not match OpenAI-compatible chat completion shape.") from exc
     if not isinstance(content, str):
         raise WarehouseSqlError(f"{label} response content must be a string.")
+    if isinstance(response_model, str) and response_model.strip():
+        return response_model.strip(), content
     return model, content
 
 

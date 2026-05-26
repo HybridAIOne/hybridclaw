@@ -689,6 +689,84 @@ test('warehouse SQL helper invokes model review through an OpenAI-compatible end
   });
 });
 
+test('warehouse SQL helper defaults model review to the auxiliary eval judge alias', async () => {
+  const received = await new Promise<{
+    body: string;
+    result: { status: number | null; stdout: string; stderr: string };
+  }>((resolve, reject) => {
+    let requestBody = '';
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        requestBody = body;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    status: 'pass',
+                    summary: 'SQL answers the order question.',
+                    findings: [],
+                  }),
+                },
+              },
+            ],
+          }),
+        );
+      });
+    });
+    server.listen(0, '127.0.0.1', async () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Expected TCP test server address.'));
+        return;
+      }
+      try {
+        const result = await runHelperAsync([
+          '--format',
+          'json',
+          'review',
+          '--model-review',
+          '--model-review-url',
+          `http://127.0.0.1:${address.port}/v1/chat/completions`,
+          '--question',
+          'largest orders',
+          'SELECT o_orderkey, o_totalprice FROM orders ORDER BY o_totalprice DESC LIMIT 10',
+        ]);
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve({ body: requestBody, result });
+        });
+      } catch (error) {
+        server.close(() => {
+          reject(error);
+        });
+      }
+    });
+  });
+
+  expect(received.result.status).toBe(0);
+  const requestPayload = JSON.parse(received.body);
+  expect(requestPayload.model).toBe('auxiliary/eval_judge');
+  const payload = JSON.parse(received.result.stdout);
+  expect(payload.review.modelReview).toMatchObject({
+    enabled: true,
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    status: 'pass',
+    summary: 'SQL answers the order question.',
+  });
+});
+
 test('warehouse SQL helper honors write grants during SQLite execution', async () => {
   const dbPath = createFixtureDb();
   const result = await withModelReviewServer(async ({ requests, url }) => {

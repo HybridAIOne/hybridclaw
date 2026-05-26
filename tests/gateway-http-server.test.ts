@@ -632,6 +632,11 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
+  const callAuxiliaryModel = vi.fn(async () => ({
+    provider: 'vllm' as const,
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    content: '{"status":"pass","summary":"ok","findings":[]}',
+  }));
   const mapOpenAICompatibleUsageToTokenStats = vi.fn(() => undefined);
   const forkSessionBranch = vi.fn(() => ({
     session: {
@@ -1894,6 +1899,9 @@ async function importFreshHealth(options?: {
     callOpenAICompatibleModelStream,
     mapOpenAICompatibleUsageToTokenStats,
   }));
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel,
+  }));
   vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
     getGatewayAdminScheduler,
     moveGatewayAdminSchedulerJob,
@@ -2030,6 +2038,7 @@ async function importFreshHealth(options?: {
     buildConversationContext,
     callOpenAICompatibleModel,
     callOpenAICompatibleModelStream,
+    callAuxiliaryModel,
     loggerDebug,
     loggerError,
     loggerWarn,
@@ -2849,6 +2858,45 @@ describe('gateway HTTP server', () => {
 
     const payload = JSON.parse(res.body);
     expect(payload.model).toBe('gpt-5');
+  });
+
+  test('routes auxiliary eval judge OpenAI requests through the auxiliary model caller', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'auxiliary/eval_judge',
+        messages: [
+          { role: 'system', content: 'Return JSON only.' },
+          { role: 'user', content: '{"question":"largest orders"}' },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(state.callAuxiliaryModel).toHaveBeenCalledWith({
+      task: 'eval_judge',
+      messages: [
+        { role: 'system', content: 'Return JSON only.' },
+        { role: 'user', content: '{"question":"largest orders"}' },
+      ],
+      fallbackModel: expect.any(String),
+      agentId: 'main',
+      temperature: 0,
+    });
+
+    const payload = JSON.parse(res.body);
+    expect(payload.model).toBe('vllm/Qwen/Qwen3.6-27B-FP8');
+    expect(payload.choices[0].message.content).toBe(
+      '{"status":"pass","summary":"ok","findings":[]}',
+    );
+    expect(res.getHeader('x-hybridclaw-auxiliary-task')).toBe('eval_judge');
+    expect(res.getHeader('x-hybridclaw-auxiliary-provider')).toBe('vllm');
   });
 
   test('routes eval-profiled OpenAI requests to a fresh temporary agent workspace', async () => {

@@ -139,7 +139,7 @@ automatically. Execution is blocked unless both the deterministic guardrail and
 model review pass.
 
 Model review defaults to `HYBRIDCLAW_GATEWAY_URL` / `GATEWAY_BASE_URL` plus
-`/v1/chat/completions`, with authentication from
+`/v1/chat/completions` and model `auxiliary/eval_judge`, with authentication from
 `HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN`, `HYBRIDCLAW_GATEWAY_TOKEN`, or
 `GATEWAY_API_TOKEN`. Use `--model-review-url`, `--model-review-model`,
 `--schema-cache`, and `--question` to make the review explicit in tests or
