@@ -1279,6 +1279,8 @@ export interface AdminAuditResponse {
   entries: AdminAuditEntry[];
   /** Opaque cursor for the next page; pass back as `cursor=`. null on the last page. */
   nextCursor: number | null;
+  /** Total rows matching the filters in the database, independent of pagination. */
+  total: number;
 }
 
 export interface AdminA2AIdentity {

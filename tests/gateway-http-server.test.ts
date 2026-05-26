@@ -1293,6 +1293,7 @@ async function importFreshHealth(options?: {
     limit: 60,
     entries: [],
     nextCursor: null,
+    total: 0,
   }));
   const getGatewayAdminApprovals = vi.fn(() => ({
     selectedAgentId: 'main',

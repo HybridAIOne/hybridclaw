@@ -226,6 +226,10 @@ export function AuditPage() {
     [auditQuery.data],
   );
 
+  // Total rows matching the current filters in the DB (server-reported), not
+  // just how many pages have been fetched. Same across pages, so read page 0.
+  const total = auditQuery.data?.pages[0]?.total ?? entries.length;
+
   const activeCategory = useMemo(
     () => filterCategory(parsed.eventType),
     [parsed.eventType],
@@ -323,7 +327,7 @@ export function AuditPage() {
           <div className={styles.meta} aria-live="polite">
             {auditQuery.isLoading
               ? 'Loading…'
-              : `${entries.length} event${entries.length === 1 ? '' : 's'}`}
+              : `${total} event${total === 1 ? '' : 's'}`}
           </div>
         </div>
 

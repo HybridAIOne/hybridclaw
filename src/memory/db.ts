@@ -9791,6 +9791,80 @@ function escapeSqlLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
 
+// Shared WHERE-clause builder for the structured-audit filters (session,
+// event type, free-text query, time range). Deliberately excludes the
+// pagination cursor (`beforeId`) so the same predicates drive both the page
+// query and the total-count query.
+function buildStructuredAuditFilterClauses(params: {
+  sessionId?: string;
+  eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
+  query?: string;
+  since?: string;
+  until?: string;
+}): { clauses: string[]; values: Array<string | number> } {
+  const sessionId = String(params.sessionId || '').trim();
+  const eventType = String(params.eventType || '').trim();
+  const query = String(params.query || '').trim();
+  const since = String(params.since || '').trim();
+  const until = String(params.until || '').trim();
+  const clauses: string[] = [];
+  const values: Array<string | number> = [];
+  if (sessionId) {
+    clauses.push('session_id = ?');
+    values.push(sessionId);
+  }
+  if (eventType) {
+    if (params.eventTypeMatch === 'prefix') {
+      clauses.push("event_type LIKE ? ESCAPE '\\'");
+      values.push(`${escapeSqlLikePattern(eventType)}%`);
+    } else {
+      clauses.push('event_type = ?');
+      values.push(eventType);
+    }
+  }
+  if (query) {
+    const like = `%${query}%`;
+    clauses.push(
+      '(event_type LIKE ? OR payload LIKE ? OR session_id LIKE ? OR run_id LIKE ?)',
+    );
+    values.push(like, like, like, like);
+  }
+  if (since) {
+    clauses.push('timestamp >= ?');
+    values.push(since);
+  }
+  if (until) {
+    clauses.push('timestamp <= ?');
+    values.push(until);
+  }
+  return { clauses, values };
+}
+
+/**
+ * Count audit events matching the given filters, ignoring pagination. Lets the
+ * admin audit list report the true number of matching rows in the database
+ * rather than how many the client has paged in so far.
+ */
+export function countStructuredAuditEntries(params?: {
+  sessionId?: string;
+  eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
+  query?: string;
+  since?: string;
+  until?: string;
+}): number {
+  ensureDatabaseReady();
+  const { clauses, values } = buildStructuredAuditFilterClauses(params ?? {});
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const row = queryOne<{ count: number }, Array<string | number>>(
+    db,
+    `SELECT COUNT(*) AS count FROM audit_events ${where}`,
+    ...values,
+  );
+  return row?.count ?? 0;
+}
+
 function queryStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;
@@ -9817,37 +9891,14 @@ function queryStructuredAuditEntries(params?: {
   const sortDirection = params?.sortDirection === 'ASC' ? 'ASC' : 'DESC';
   ensureDatabaseReady();
 
-  const clauses: string[] = [];
-  const values: Array<string | number> = [];
-
-  if (sessionId) {
-    clauses.push('session_id = ?');
-    values.push(sessionId);
-  }
-  if (eventType) {
-    if (params?.eventTypeMatch === 'prefix') {
-      clauses.push("event_type LIKE ? ESCAPE '\\'");
-      values.push(`${escapeSqlLikePattern(eventType)}%`);
-    } else {
-      clauses.push('event_type = ?');
-      values.push(eventType);
-    }
-  }
-  if (query) {
-    const like = `%${query}%`;
-    clauses.push(
-      '(event_type LIKE ? OR payload LIKE ? OR session_id LIKE ? OR run_id LIKE ?)',
-    );
-    values.push(like, like, like, like);
-  }
-  if (since) {
-    clauses.push('timestamp >= ?');
-    values.push(since);
-  }
-  if (until) {
-    clauses.push('timestamp <= ?');
-    values.push(until);
-  }
+  const { clauses, values } = buildStructuredAuditFilterClauses({
+    sessionId,
+    eventType,
+    eventTypeMatch: params?.eventTypeMatch,
+    query,
+    since,
+    until,
+  });
   if (beforeId > 0) {
     clauses.push('id < ?');
     values.push(beforeId);

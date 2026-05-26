@@ -192,6 +192,10 @@ test('admin audit returns nextCursor and paginates back via the cursor', async (
   });
   expect(lastPage.entries).toHaveLength(1);
   expect(lastPage.nextCursor).toBeNull();
+  // `total` reports all matching rows on every page, regardless of page size.
+  expect(firstPage.total).toBe(5);
+  expect(secondPage.total).toBe(5);
+  expect(lastPage.total).toBe(5);
 });
 
 test('admin audit returns nextCursor when limit equals the DB maxLimit cap', async () => {

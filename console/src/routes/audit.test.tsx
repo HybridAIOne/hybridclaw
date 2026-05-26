@@ -57,6 +57,7 @@ function makeEntry(overrides: Partial<AdminAuditEntry> = {}): AdminAuditEntry {
 function makeResponse(
   entries: AdminAuditEntry[],
   nextCursor: number | null = null,
+  total: number = entries.length,
 ): AdminAuditResponse {
   return {
     query: '',
@@ -67,6 +68,7 @@ function makeResponse(
     limit: 200,
     entries,
     nextCursor,
+    total,
   };
 }
 
@@ -95,6 +97,24 @@ describe('AuditPage', () => {
     expect(await screen.findByText('#100')).toBeTruthy();
     expect(screen.getByText('#101')).toBeTruthy();
     expect(screen.getByText('2 events')).toBeTruthy();
+  });
+
+  it('shows the server-reported total, not just the number of loaded rows', async () => {
+    fetchAuditMock.mockResolvedValue(
+      makeResponse(
+        [
+          makeEntry({ id: 100, eventType: 'tool.call' }),
+          makeEntry({ id: 101, eventType: 'tool.result' }),
+        ],
+        /* nextCursor */ 99,
+        /* total */ 57,
+      ),
+    );
+    renderWithProviders(<AuditPage />);
+    await screen.findByText('#100');
+    // Two rows loaded, but 57 match in the DB — the count reflects the total.
+    expect(screen.getByText('57 events')).toBeTruthy();
+    expect(screen.queryByText('2 events')).toBeNull();
   });
 
   it('shows an empty state when no entries match', async () => {

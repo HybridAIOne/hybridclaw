@@ -199,6 +199,7 @@ import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
+  countStructuredAuditEntries,
   createFreshSessionInstance,
   deleteMemoryValue,
   deleteSessionData,
@@ -5904,6 +5905,17 @@ export function getGatewayAdminAudit(params?: {
   const page = hasMore ? rows.slice(0, limit) : rows;
   const nextCursor = hasMore ? (page[page.length - 1]?.id ?? null) : null;
 
+  // Total rows matching the filters (ignoring the page cursor/limit) so the UI
+  // can report the real match count, not just how many have been paged in.
+  const total = countStructuredAuditEntries({
+    query,
+    sessionId,
+    eventType,
+    eventTypeMatch: 'prefix',
+    since: since || undefined,
+    until: until || undefined,
+  });
+
   return {
     query,
     sessionId,
@@ -5913,6 +5925,7 @@ export function getGatewayAdminAudit(params?: {
     limit,
     entries: page.map(mapAdminAuditEntry),
     nextCursor,
+    total,
   };
 }
 
