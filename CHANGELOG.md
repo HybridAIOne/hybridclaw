@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.20.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.20.0) - 2026-05-26
+
 ### Added
 
 - **Codex app-server runtime**: Added an optional `openai-codex/*` runtime
