@@ -53,14 +53,15 @@ warehouse, analytics database, or TPC-H-style reporting dataset.
 3. Return the SQL to the user before execution when the user asks for review,
    when the query is broad, or when the result could expose sensitive business
    data.
-4. Execute only after the SQL review passes:
+4. Execute only after the SQL review passes and include the original question:
    ```bash
-   python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json query --backend sqlite --database ./warehouse.db --execute "SELECT c_name FROM customer LIMIT 10"
+   python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json query --backend sqlite --database ./warehouse.db --execute --question "Show the first 10 customers" "SELECT c_name FROM customer LIMIT 10"
    ```
    `query --execute` always invokes model review before running SQL. Configure
    model review with `HYBRIDCLAW_GATEWAY_URL` / `GATEWAY_BASE_URL` and
    `HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN`, `HYBRIDCLAW_GATEWAY_TOKEN`, or
-   `GATEWAY_API_TOKEN`.
+   `GATEWAY_API_TOKEN`. Execution requires `--question` so the model can check
+   whether the SQL answers the user's request.
 
 ## Backend Contract
 
@@ -158,6 +159,15 @@ dataset using TPC-H-style tables (`customer`, `orders`, `lineitem`, `supplier`,
 coverage, not a TPC-H benchmark run. The scenario file at
 `evals/tpch_scenarios.json` verifies read-only review and execution against
 deterministic answers.
+
+To measure model SQL generation against the same deterministic fixture, run the
+model-backed planner:
+
+```bash
+python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json eval-scenarios --model-planner --model-review-model gpt-5
+```
+
+Use `--scenario-id <id>` to isolate one scenario while iterating.
 
 ## Validation
 

@@ -119,6 +119,7 @@ async function withModelReviewServer<T>(
     url: string;
   }) => Promise<T>,
   response: {
+    content?: unknown;
     findings?: string[];
     status?: 'pass' | 'block';
     summary?: string;
@@ -141,12 +142,14 @@ async function withModelReviewServer<T>(
           choices: [
             {
               message: {
-                content: JSON.stringify({
-                  status: response.status ?? 'pass',
-                  summary:
-                    response.summary ?? 'SQL answers the requested question.',
-                  findings: response.findings ?? [],
-                }),
+                content: JSON.stringify(
+                  response.content ?? {
+                    status: response.status ?? 'pass',
+                    summary:
+                      response.summary ?? 'SQL answers the requested question.',
+                    findings: response.findings ?? [],
+                  },
+                ),
               },
             },
           ],
@@ -370,6 +373,8 @@ test('warehouse SQL helper refreshes and executes non-SQLite backends through co
         '--execute',
         '--model-review-url',
         url,
+        '--question',
+        'Check connector environment isolation',
         'SELECT env_check LIMIT 1',
       ],
       {
@@ -400,6 +405,8 @@ test('warehouse SQL helper refreshes and executes non-SQLite backends through co
       '--execute',
       '--model-review-url',
       url,
+      '--question',
+      'Exercise invalid backend rows',
       'SELECT bad_rows LIMIT 1',
     ]);
     expect(badRows.status).toBe(2);
@@ -544,6 +551,26 @@ test('warehouse SQL helper ignores comments and literals during safety review', 
   const commentedPayload = JSON.parse(commentedKeyword.stdout);
   expect(commentedPayload.review.status).toBe('pass');
 
+  const replaceFunction = runHelper([
+    '--format',
+    'json',
+    'review',
+    "SELECT REPLACE(c_name, 'Customer', 'Client') AS c_name FROM customer LIMIT 1",
+  ]);
+  expect(replaceFunction.status).toBe(0);
+  const replacePayload = JSON.parse(replaceFunction.stdout);
+  expect(replacePayload.review.status).toBe('pass');
+
+  const quotedSyntax = runHelper([
+    '--format',
+    'json',
+    'review',
+    'SELECT $$DROP TABLE customer$$ AS note, [DROP TABLE] AS label FROM customer LIMIT 1',
+  ]);
+  expect(quotedSyntax.status).toBe(0);
+  const quotedPayload = JSON.parse(quotedSyntax.stdout);
+  expect(quotedPayload.review.status).toBe('pass');
+
   const commentMarkerInLiteral = runHelper([
     '--format',
     'json',
@@ -680,6 +707,8 @@ test('warehouse SQL helper honors write grants during SQLite execution', async (
         'test-grant',
         '--model-review-url',
         url,
+        '--question',
+        'Rename one customer',
         "UPDATE customer SET c_name = 'Updated Customer' WHERE c_custkey = 101",
       ],
       { HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT: 'test-grant' },
@@ -749,6 +778,25 @@ test('warehouse SQL helper executes reviewed SQLite queries only when requested'
     'query --execute requires a model-review endpoint',
   );
 
+  const missingQuestion = runHelper([
+    '--format',
+    'json',
+    'query',
+    '--backend',
+    'sqlite',
+    '--database',
+    dbPath,
+    '--execute',
+    '--model-review-url',
+    'http://127.0.0.1:1/v1/chat/completions',
+    'SELECT c_name FROM customer LIMIT 1',
+  ]);
+  expect(missingQuestion.status).toBe(2);
+  const missingQuestionPayload = JSON.parse(missingQuestion.stdout);
+  expect(missingQuestionPayload.error).toContain(
+    'query --execute requires --question',
+  );
+
   const deterministicBlock = runHelper([
     '--format',
     'json',
@@ -760,6 +808,8 @@ test('warehouse SQL helper executes reviewed SQLite queries only when requested'
     '--execute',
     '--model-review-url',
     'http://127.0.0.1:1/v1/chat/completions',
+    '--question',
+    'Rename customers',
     "UPDATE customer SET c_name = 'Blocked'",
   ]);
   expect(deterministicBlock.status).toBe(0);
@@ -812,6 +862,8 @@ test('warehouse SQL helper executes reviewed SQLite queries only when requested'
         '--execute',
         '--model-review-url',
         url,
+        '--question',
+        'Show one customer',
         'SELECT c_name FROM customer LIMIT 1',
       ]),
     {
@@ -842,6 +894,52 @@ test('warehouse SQL helper eval suite covers TPC-H-style scenarios', () => {
     pricing: 1,
     revenue: 3,
     supplier: 1,
+  });
+});
+
+test('warehouse SQL helper eval suite can use a model-backed planner', async () => {
+  const result = await withModelReviewServer(
+    async ({ requests, url }) => {
+      const helperResult = await runHelperAsync([
+        '--format',
+        'json',
+        'eval-scenarios',
+        '--scenario-id',
+        'largest-orders',
+        '--model-planner',
+        '--model-review-url',
+        url,
+        '--model-review-model',
+        'test-model',
+      ]);
+      expect(requests).toHaveLength(1);
+      expect(JSON.parse(requests[0]).messages[1].content).toContain(
+        'largest orders',
+      );
+      return helperResult;
+    },
+    {
+      content: {
+        sql: `
+SELECT o_orderkey, o_orderdate, o_totalprice
+FROM orders
+ORDER BY o_totalprice DESC
+LIMIT 10
+      `.trim(),
+        parameters: [],
+      },
+    },
+  );
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.planner).toBe('model');
+  expect(payload.scenarioCount).toBe(1);
+  expect(payload.failed).toBe(0);
+  expect(payload.results[0]).toMatchObject({
+    id: 'largest-orders',
+    planner: 'model',
+    status: 'pass',
   });
 });
 
