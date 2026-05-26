@@ -488,6 +488,131 @@ describe('A2A envelope persistence', () => {
     ).toBe(legacyContent);
   });
 
+  test('derives ownership from legacy handoff envelopes without rewriting state', async () => {
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const store = await import('../src/a2a/store.ts');
+    const revisions = await import('../src/config/runtime-config-revisions.ts');
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [
+        { id: 'main', owner: 'team' },
+        { id: 'writer', owner: 'team' },
+        { id: 'reviewer', owner: 'team' },
+      ];
+    });
+
+    const legacyState = {
+      version: 1,
+      thread_id: 'thread-legacy-handoff',
+      envelopes: [
+        {
+          id: 'msg-older-handoff',
+          sender_agent_id: 'main',
+          recipient_agent_id: 'writer',
+          thread_id: 'thread-legacy-handoff',
+          intent: 'handoff',
+          content: 'Please write this.',
+          created_at: '2026-04-28T10:00:00.000Z',
+        },
+        {
+          id: 'msg-newer-handoff',
+          sender_agent_id: 'writer',
+          recipient_agent_id: 'reviewer',
+          thread_id: 'thread-legacy-handoff',
+          intent: 'handoff',
+          content: 'Please review this.',
+          created_at: '2026-04-28T10:05:00.000Z',
+        },
+      ],
+    };
+    const assetPath = store.a2aThreadAssetPath('thread-legacy-handoff');
+    const legacyContent = JSON.stringify(legacyState);
+
+    revisions.syncRuntimeAssetRevisionState(
+      'a2a',
+      assetPath,
+      {
+        actor: 'test',
+        route: 'test.a2a.legacy-handoff',
+        source: 'internal',
+      },
+      {
+        exists: true,
+        content: legacyContent,
+      },
+    );
+
+    expect(store.listA2AThreads()).toEqual([
+      expect.objectContaining({
+        thread_id: 'thread-legacy-handoff',
+        owner_coworker_id: 'reviewer@team@local-dev',
+      }),
+    ]);
+    expect(store.listA2AInboxThreads('reviewer')).toEqual([
+      expect.objectContaining({
+        thread_id: 'thread-legacy-handoff',
+        owner_coworker_id: 'reviewer@team@local-dev',
+      }),
+    ]);
+    expect(
+      revisions.getRuntimeAssetRevisionState('a2a', assetPath)?.content,
+    ).toBe(legacyContent);
+  });
+
+  test('normalizes persisted owner ids before inbox ownership filtering', async () => {
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const store = await import('../src/a2a/store.ts');
+    const revisions = await import('../src/config/runtime-config-revisions.ts');
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [
+        { id: 'main', owner: 'team' },
+        { id: 'writer', owner: 'team' },
+      ];
+    });
+
+    const legacyState = {
+      version: 1,
+      thread_id: 'thread-local-owner',
+      owner_coworker_id: 'writer',
+      envelopes: [
+        {
+          id: 'msg-owner-chat',
+          sender_agent_id: 'main',
+          recipient_agent_id: 'main',
+          thread_id: 'thread-local-owner',
+          intent: 'chat',
+          content: 'Ownership was stored as a local id.',
+          created_at: '2026-04-28T10:00:00.000Z',
+        },
+      ],
+    };
+    const assetPath = store.a2aThreadAssetPath('thread-local-owner');
+    const legacyContent = JSON.stringify(legacyState);
+
+    revisions.syncRuntimeAssetRevisionState(
+      'a2a',
+      assetPath,
+      {
+        actor: 'test',
+        route: 'test.a2a.local-owner',
+        source: 'internal',
+      },
+      {
+        exists: true,
+        content: legacyContent,
+      },
+    );
+
+    expect(store.listA2AInboxThreads('writer')).toEqual([
+      expect.objectContaining({
+        thread_id: 'thread-local-owner',
+        owner_coworker_id: 'writer@team@local-dev',
+      }),
+    ]);
+    expect(
+      revisions.getRuntimeAssetRevisionState('a2a', assetPath)?.content,
+    ).toBe(legacyContent);
+  });
+
   test('rejects unknown local agent ids without default-agent fallback', async () => {
     const store = await import('../src/a2a/store.ts');
     const envelopeMod = await import('../src/a2a/envelope.ts');

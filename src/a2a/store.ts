@@ -11,6 +11,7 @@ import {
   type A2AEnvelope,
   A2AEnvelopeDuplicateError,
   A2AEnvelopeValidationError,
+  classifyA2AAgentId,
   isA2AOpaqueId,
   validateA2AEnvelope,
 } from './envelope.js';
@@ -72,6 +73,22 @@ function a2aEnvelopeIdempotencyKey(envelope: A2AEnvelope): string {
   return `${envelope.id}\u0000${envelope.sender_instance_id ?? ''}`;
 }
 
+function compareA2AEnvelopes(left: A2AEnvelope, right: A2AEnvelope): number {
+  const createdAtOrder = left.created_at.localeCompare(right.created_at);
+  if (createdAtOrder !== 0) return createdAtOrder;
+  return left.id.localeCompare(right.id);
+}
+
+function normalizeThreadOwnerCoworkerId(value: string, field: string): string {
+  const normalized = value.trim();
+  const kind = classifyA2AAgentId(normalized);
+  if (kind === 'canonical') return normalized.toLowerCase();
+  if (kind === 'local') return resolveA2AAgentId(normalized);
+  throw new A2AEnvelopeValidationError([
+    `${field} must be a local agent id or canonical agent id (agent-slug@user@instance-id)`,
+  ]);
+}
+
 export function a2aThreadAssetPath(threadId: string): string {
   const normalizedThreadId = normalizeThreadId(threadId);
   return path.join(
@@ -131,11 +148,17 @@ function parsePersistedThreadState(
     if (typeof parsed.owner_coworker_id !== 'string') {
       issues.push('owner_coworker_id must be a string or null');
     } else {
-      ownerCoworkerId = parsed.owner_coworker_id.trim();
-      if (!ownerCoworkerId || !isA2AOpaqueId(ownerCoworkerId)) {
-        issues.push(
-          'owner_coworker_id must be a non-empty id without whitespace',
+      try {
+        ownerCoworkerId = normalizeThreadOwnerCoworkerId(
+          parsed.owner_coworker_id,
+          'owner_coworker_id',
         );
+      } catch (error) {
+        if (error instanceof A2AEnvelopeValidationError) {
+          issues.push(...error.issues);
+        } else {
+          throw error;
+        }
       }
     }
   }
@@ -178,6 +201,27 @@ function parsePersistedThreadState(
     });
   }
 
+  if (ownerCoworkerId === null && envelopes.length > 0) {
+    const latestHandoff = [...envelopes]
+      .sort(compareA2AEnvelopes)
+      .filter((envelope) => envelope.intent === 'handoff')
+      .at(-1);
+    if (latestHandoff) {
+      try {
+        ownerCoworkerId = normalizeThreadOwnerCoworkerId(
+          latestHandoff.recipient_agent_id,
+          'handoff recipient_agent_id',
+        );
+      } catch (error) {
+        if (error instanceof A2AEnvelopeValidationError) {
+          issues.push(...error.issues);
+        } else {
+          throw error;
+        }
+      }
+    }
+  }
+
   if (issues.length > 0) {
     throw new A2AEnvelopeValidationError(issues);
   }
@@ -206,12 +250,6 @@ function serializeThreadState(state: A2AThreadState): string {
 
 export function listA2AThreadEnvelopes(threadId: string): A2AEnvelope[] {
   return readThreadState(threadId).envelopes;
-}
-
-function compareA2AEnvelopes(left: A2AEnvelope, right: A2AEnvelope): number {
-  const createdAtOrder = left.created_at.localeCompare(right.created_at);
-  if (createdAtOrder !== 0) return createdAtOrder;
-  return left.id.localeCompare(right.id);
 }
 
 function summarizeThreadState(state: A2AThreadState): A2AThreadSummary {
