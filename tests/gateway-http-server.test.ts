@@ -4165,7 +4165,10 @@ describe('gateway HTTP server', () => {
     expect(state.ensureGatewayBootstrapAutostart).toHaveBeenCalledWith({
       sessionId: 's1',
     });
-    expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2);
+    expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2, {
+      operatorUserId: 'web',
+      sourceSurface: 'web',
+    });
     expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1', {
       sinceMs: null,
     });
