@@ -44,6 +44,7 @@ import type {
   BrowserWaypointEvent,
 } from '../browser/provider.js';
 import { createBrowserProvider } from '../browser/provider-factory.js';
+import { browserSessionConfigSignature } from '../browser/session-config-signature.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -373,6 +374,7 @@ type ApiAdminPolicyRequestBody = {
 type GatewayBrowserSessionEntry = {
   provider: BrowserProvider;
   providerKind: RuntimeBrowserProviderKind;
+  configSignature: string;
   session: BrowserSession;
   skillName: string;
 };
@@ -743,9 +745,21 @@ async function getGatewayBrowserSession(
   agentId: string,
   opts?: { headed?: boolean; skillName?: string },
 ): Promise<GatewayBrowserSessionEntry> {
-  const existing = gatewayBrowserSessions.get(sessionId);
-  if (existing) return existing;
   const browserConfig = getRuntimeConfig().browser;
+  const configSignature = browserSessionConfigSignature(browserConfig);
+  const existing = gatewayBrowserSessions.get(sessionId);
+  if (existing) {
+    if (existing.configSignature === configSignature) return existing;
+    try {
+      await existing.provider.closeSession(existing.session);
+    } catch (err) {
+      logger.warn(
+        { err, sessionId },
+        'Failed to close stale gateway browser session after browser config change',
+      );
+    }
+    gatewayBrowserSessions.delete(sessionId);
+  }
   const provider = createBrowserProvider(browserConfig);
   const skillName = normalizeGatewayBrowserSkillName(opts?.skillName);
   const session = await provider.launchSession({
@@ -761,6 +775,7 @@ async function getGatewayBrowserSession(
   const entry = {
     provider,
     providerKind: browserConfig.provider,
+    configSignature,
     session,
     skillName,
   };
