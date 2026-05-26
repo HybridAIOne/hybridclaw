@@ -4,6 +4,7 @@ import { afterEach, expect, test } from 'vitest';
 import {
   applySkillOptLiteEdits,
   filterRejectedSkillOptLiteEdits,
+  findSkillOptLiteBestPracticeViolations,
   gateSkillOptLiteCandidate,
   normalizeSkillOptLiteEdits,
   rankAndClipSkillOptLiteEdits,
@@ -177,6 +178,37 @@ test('SkillOpt-lite gate rejects edits that miss held-out failures', () => {
     reason: 'Candidate edits do not cover any held-out failure evidence.',
     held_out_failure_count: 1,
     matched_held_out_failures: 0,
+  });
+});
+
+test('SkillOpt-lite gate rejects prompt-specific skill amendments', () => {
+  const selectedEdits = normalizeSkillOptLiteEdits([
+    {
+      op: 'append',
+      content: 'When the user says "make it pop", answer with three bullets.',
+      rationale:
+        'One-off wording from this conversation should not enter a skill.',
+      source_type: 'failure',
+      support_count: 1,
+    },
+  ]);
+  const applied = applySkillOptLiteEdits('Existing skill.\n', selectedEdits);
+
+  expect(findSkillOptLiteBestPracticeViolations(selectedEdits)).toEqual([
+    'Edit appears to add prompt-specific steering, transcript material, or one-off troubleshooting text.',
+  ]);
+  expect(
+    gateSkillOptLiteCandidate({
+      originalContent: 'Existing skill.\n',
+      proposedContent: applied.content,
+      applyReport: applied.report,
+      selectedEdits,
+      validationDecision: { action: 'accept' },
+    }),
+  ).toMatchObject({
+    accepted: false,
+    reason:
+      'Edit appears to add prompt-specific steering, transcript material, or one-off troubleshooting text.',
   });
 });
 

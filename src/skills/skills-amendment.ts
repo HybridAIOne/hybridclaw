@@ -342,6 +342,9 @@ function buildSkillOptLitePrompt(input: {
   return [
     'You are improving a HybridClaw SKILL.md file using a SkillOpt-lite amendment loop.',
     'Treat the skill document as the trainable artifact. Do not rewrite the whole file.',
+    'Follow HybridClaw skill-development best practices: SKILL.md content must stay generic, stable, and abstract.',
+    'Reject prompt-specific steering, transcripts, one-off troubleshooting patches, or text that teaches the model to match a particular user wording.',
+    'When a behavior depends on request shape, prefer a generic helper/API contract and regression-testable rule over prose tailored to one prompt.',
     'Run two reflection passes internally: a failure analyst proposes fixes, then a success analyst removes edits that would regress successful behavior.',
     'Failure-driven edits have priority, but successful examples are preservation constraints.',
     'Do not repeat rejected edit memory unless the held-out evidence clearly changed.',

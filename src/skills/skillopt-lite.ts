@@ -248,6 +248,16 @@ export function gateSkillOptLiteCandidate(input: {
       ...score,
     };
   }
+  const bestPracticeViolations = findSkillOptLiteBestPracticeViolations(
+    input.selectedEdits ?? [],
+  );
+  if (bestPracticeViolations.length > 0) {
+    return {
+      accepted: false,
+      reason: bestPracticeViolations[0],
+      ...score,
+    };
+  }
   if (
     (score.held_out_failure_count ?? 0) > 0 &&
     typeof score.current_score === 'number' &&
@@ -302,6 +312,30 @@ const HELD_OUT_STOP_WORDS = new Set([
   'error',
   'failure',
 ]);
+
+const PROMPT_SPECIFIC_PATTERNS = [
+  /\bthis (?:conversation|chat|thread|turn|prompt|request)\b/iu,
+  /\b(?:above|previous|last) (?:message|answer|response|conversation|turn)\b/iu,
+  /\bwhen the user (?:says|asks|writes|mentions) ["'`]/iu,
+  /\bmatch(?:es)? the user's exact wording\b/iu,
+  /\btranscript\b/iu,
+  /\bone[- ]off\b/iu,
+];
+
+function bestPracticeViolation(edit: SkillOptLiteEdit): string | null {
+  const text = [edit.target, edit.content, edit.rationale].join('\n');
+  return PROMPT_SPECIFIC_PATTERNS.some((pattern) => pattern.test(text))
+    ? 'Edit appears to add prompt-specific steering, transcript material, or one-off troubleshooting text.'
+    : null;
+}
+
+export function findSkillOptLiteBestPracticeViolations(
+  edits: SkillOptLiteEdit[],
+): string[] {
+  return edits
+    .map(bestPracticeViolation)
+    .filter((reason): reason is string => Boolean(reason));
+}
 
 function textTokens(value: unknown): Set<string> {
   const text =
