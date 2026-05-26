@@ -560,6 +560,7 @@ export function getSkillRunTrajectories(params: {
   skillName: string;
   agentId?: string | null;
   limit?: number;
+  seed?: string | null;
   config?: RuntimeConfig;
 }): SkillRunTrajectoryRecord[] {
   const runtimeConfig = params.config ?? getRuntimeConfig();
@@ -569,6 +570,7 @@ export function getSkillRunTrajectories(params: {
   const skillName = params.skillName.trim();
   const agentId = params.agentId?.trim() || '';
   const limit = Math.max(1, Math.min(params.limit || 100, 1_000));
+  const seed = params.seed?.trim() || '';
   const records: SkillRunTrajectoryRecord[] = [];
 
   try {
@@ -599,13 +601,28 @@ export function getSkillRunTrajectories(params: {
           records.push(record);
         }
       }
-      if (records.length >= limit) break;
+      if (!seed && records.length >= limit) break;
     }
   } catch (error) {
     logger.warn(
       { storeDir, skillName, agentId: agentId || null, error },
       'Failed to read skill run trajectories',
     );
+  }
+
+  if (seed) {
+    return records
+      .map((record) => ({
+        record,
+        sampleKey: createHash('sha256')
+          .update(
+            `${seed}\0${record.skill_id}\0${record.agent_id}\0${record.run_id}\0${record.captured_at}`,
+          )
+          .digest('hex'),
+      }))
+      .sort((left, right) => left.sampleKey.localeCompare(right.sampleKey))
+      .map((entry) => entry.record)
+      .slice(0, limit);
   }
 
   return records

@@ -12,6 +12,8 @@ import {
   getLatestSkillAmendment,
   getSkillAmendmentById,
   getSkillObservations,
+  getSkillOptLiteRejectedEdits,
+  recordSkillOptLiteRejectedEdits,
   updateAmendmentStatus,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
@@ -31,6 +33,7 @@ import {
 import {
   applySkillOptLiteEdits,
   buildSkillOptLiteMetadata,
+  filterRejectedSkillOptLiteEdits,
   gateSkillOptLiteCandidate,
   normalizeSkillOptLiteEdits,
   rankAndClipSkillOptLiteEdits,
@@ -112,7 +115,10 @@ function parseSkillOptLiteProposalOutput(input: {
   text: string;
   originalContent: string;
   metadataEvidence: NonNullable<SkillAmendmentProposalMetadata['evidence']>;
+  heldOutEvidence: Record<string, unknown>[];
   editBudget: number;
+  minCandidateScoreDelta: number;
+  rejectedEdits: ReturnType<typeof getSkillOptLiteRejectedEdits>;
 }): {
   rationale: string;
   content: string;
@@ -138,12 +144,25 @@ function parseSkillOptLiteProposalOutput(input: {
     throw new Error('SkillOpt-lite proposal did not include usable edits.');
   }
 
-  const selectedEdits = rankAndClipSkillOptLiteEdits(edits, input.editBudget);
+  const eligibleEdits = filterRejectedSkillOptLiteEdits(
+    edits,
+    input.rejectedEdits,
+  );
+  if (eligibleEdits.length === 0) {
+    throw new Error('SkillOpt-lite proposal only repeated rejected edits.');
+  }
+  const selectedEdits = rankAndClipSkillOptLiteEdits(
+    eligibleEdits,
+    input.editBudget,
+  );
   const applied = applySkillOptLiteEdits(input.originalContent, selectedEdits);
   const gate = gateSkillOptLiteCandidate({
     originalContent: input.originalContent,
     proposedContent: applied.content,
     applyReport: applied.report,
+    selectedEdits,
+    heldOutEvidence: input.heldOutEvidence,
+    minScoreDelta: input.minCandidateScoreDelta,
     validationDecision: parsed.validation,
   });
   const metadata = buildSkillOptLiteMetadata({
@@ -153,10 +172,8 @@ function parseSkillOptLiteProposalOutput(input: {
     selectedEdits,
     applyReport: applied.report,
     gate,
+    rejectedEditCount: input.rejectedEdits.length,
   });
-  if (!gate.accepted) {
-    throw new Error(`SkillOpt-lite candidate rejected: ${gate.reason}`);
-  }
   return {
     rationale,
     content: applied.content,
@@ -261,6 +278,8 @@ function compactTrajectory(
 function buildSkillOptEvidence(input: { skillName: string; agentId: string }): {
   evidence: NonNullable<SkillAmendmentProposalMetadata['evidence']>;
   training: Record<string, unknown>[];
+  failureTraining: Record<string, unknown>[];
+  successTraining: Record<string, unknown>[];
   heldOut: Record<string, unknown>[];
 } {
   const config = getRuntimeConfig().adaptiveSkills.optimization;
@@ -268,9 +287,11 @@ function buildSkillOptEvidence(input: { skillName: string; agentId: string }): {
     skillName: input.skillName,
     agentId: input.agentId,
     limit: config.maxEvidenceExamples,
+    seed: `${config.trajectorySampleSeed}:${input.skillName}:${input.agentId}`,
   });
   if (trajectories.length >= config.minTrajectoryEvidence) {
     const split = splitHeldOut(trajectories, config.heldOutRatio);
+    const training = split.training.map(compactTrajectory);
     return {
       evidence: {
         trajectory_count: trajectories.length,
@@ -279,7 +300,9 @@ function buildSkillOptEvidence(input: { skillName: string; agentId: string }): {
         held_out_count: split.heldOut.length,
         source: 'trajectories',
       },
-      training: split.training.map(compactTrajectory),
+      training,
+      failureTraining: training.filter((entry) => entry.outcome !== 'success'),
+      successTraining: training.filter((entry) => entry.outcome === 'success'),
       heldOut: split.heldOut.map(compactTrajectory),
     };
   }
@@ -289,6 +312,7 @@ function buildSkillOptEvidence(input: { skillName: string; agentId: string }): {
     limit: config.maxEvidenceExamples,
   });
   const split = splitHeldOut(observations, config.heldOutRatio);
+  const training = split.training.map(compactObservation);
   return {
     evidence: {
       trajectory_count: trajectories.length,
@@ -297,7 +321,9 @@ function buildSkillOptEvidence(input: { skillName: string; agentId: string }): {
       held_out_count: split.heldOut.length,
       source: 'observations',
     },
-    training: split.training.map(compactObservation),
+    training,
+    failureTraining: training.filter((entry) => entry.outcome !== 'success'),
+    successTraining: training.filter((entry) => entry.outcome === 'success'),
     heldOut: split.heldOut.map(compactObservation),
   };
 }
@@ -307,16 +333,23 @@ function buildSkillOptLitePrompt(input: {
   skillFilePath: string;
   metrics: SkillHealthMetrics;
   originalContent: string;
-  trainingEvidence: Record<string, unknown>[];
+  failureEvidence: Record<string, unknown>[];
+  successEvidence: Record<string, unknown>[];
   heldOutEvidence: Record<string, unknown>[];
+  rejectedEditMemory: ReturnType<typeof getSkillOptLiteRejectedEdits>;
   editBudget: number;
 }): string {
   return [
     'You are improving a HybridClaw SKILL.md file using a SkillOpt-lite amendment loop.',
     'Treat the skill document as the trainable artifact. Do not rewrite the whole file.',
-    'Reflect on training evidence, preserve successful behavior, and propose bounded structured edits only.',
+    'Follow HybridClaw skill-development best practices: SKILL.md content must stay generic, stable, and abstract.',
+    'Reject prompt-specific steering, transcripts, one-off troubleshooting patches, or text that teaches the model to match a particular user wording.',
+    'When a behavior depends on request shape, prefer a generic helper/API contract and regression-testable rule over prose tailored to one prompt.',
+    'Run two reflection passes internally: a failure analyst proposes fixes, then a success analyst removes edits that would regress successful behavior.',
     'Failure-driven edits have priority, but successful examples are preservation constraints.',
+    'Do not repeat rejected edit memory unless the held-out evidence clearly changed.',
     `Return JSON only with this exact shape: {"rationale":"...","validation":{"action":"accept|reject","reason":"..."},"edits":[{"op":"append|insert_after|replace|delete","target":"exact existing text for insert_after/replace/delete, empty only for append","content":"new text, empty for delete","rationale":"...","source_type":"failure|success","support_count":1}]}.`,
+    'You may also return `failure_edits` and `success_edits` instead of `edits`; they will be merged failure-first.',
     `Use at most ${input.editBudget} high-impact edits. Prefer append or insert_after for clarifications; use replace/delete only when the target text is clearly harmful.`,
     '',
     `Skill name: ${input.skillName}`,
@@ -325,11 +358,17 @@ function buildSkillOptLitePrompt(input: {
     'Health metrics:',
     JSON.stringify(input.metrics, null, 2),
     '',
-    'Training evidence:',
-    JSON.stringify(input.trainingEvidence, null, 2),
+    'Failure analyst training evidence:',
+    JSON.stringify(input.failureEvidence, null, 2),
+    '',
+    'Success analyst preservation evidence:',
+    JSON.stringify(input.successEvidence, null, 2),
     '',
     'Held-out evidence for candidate validation:',
     JSON.stringify(input.heldOutEvidence, null, 2),
+    '',
+    'Rejected edit memory to avoid retrying:',
+    JSON.stringify(input.rejectedEditMemory, null, 2),
     '',
     'Current SKILL.md:',
     input.originalContent,
@@ -348,14 +387,20 @@ export async function proposeAmendment(input: {
     skillName: skill.name,
     agentId: input.agentId,
   });
+  const rejectedEditMemory = getSkillOptLiteRejectedEdits({
+    skillName: skill.name,
+    limit: optimizationConfig.rejectedEditMemoryLimit,
+  });
 
   const proposalPrompt = buildSkillOptLitePrompt({
     skillName: skill.name,
     skillFilePath: skill.filePath,
     metrics: input.metrics,
     originalContent,
-    trainingEvidence: evidence.training,
+    failureEvidence: evidence.failureTraining,
+    successEvidence: evidence.successTraining,
     heldOutEvidence: evidence.heldOut,
+    rejectedEditMemory,
     editBudget: optimizationConfig.editBudget,
   });
 
@@ -394,7 +439,10 @@ export async function proposeAmendment(input: {
       text: output.result,
       originalContent,
       metadataEvidence: evidence.evidence,
+      heldOutEvidence: evidence.heldOut,
       editBudget: optimizationConfig.editBudget,
+      minCandidateScoreDelta: optimizationConfig.minCandidateScoreDelta,
+      rejectedEdits: rejectedEditMemory,
     });
     if (proposal.metadata?.gate) {
       recordAuditEvent({
@@ -409,6 +457,27 @@ export async function proposeAmendment(input: {
           evidence: evidence.evidence,
         },
       });
+    }
+    if (proposal.metadata?.gate && !proposal.metadata.gate.accepted) {
+      const written = recordSkillOptLiteRejectedEdits({
+        skillName: skill.name,
+        edits: proposal.metadata.selected_edits ?? [],
+        reason: proposal.metadata.gate.reason,
+        evidenceSource: evidence.evidence.source,
+      });
+      recordAuditEvent({
+        sessionId: runtime.sessionId,
+        runId: makeAuditRunId('skill-amendment'),
+        event: {
+          type: 'skill.amendment.rejected_edit_memory',
+          skillName: skill.name,
+          rejectedEditCount: written,
+          reason: proposal.metadata.gate.reason,
+        },
+      });
+      throw new Error(
+        `SkillOpt-lite candidate rejected: ${proposal.metadata.gate.reason}`,
+      );
     }
   } catch (error) {
     if (

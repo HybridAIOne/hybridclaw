@@ -407,6 +407,7 @@ describe('A2A runtime API', () => {
     );
     expect(events.map((event) => event.event_type)).toEqual([
       'escalation.interaction_needed',
+      'browser.escalation_2fa',
       'approval.request',
       'escalation.decision',
       'authorization.check',

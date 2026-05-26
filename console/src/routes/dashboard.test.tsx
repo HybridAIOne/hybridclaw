@@ -193,7 +193,7 @@ describe('DashboardPage', () => {
 
   it('does not repeat the same tunnel and reconnect error', async () => {
     const message =
-      'ngrok auth token is not configured in encrypted runtime secrets. Store it with `hybridclaw secret set NGROK_AUTHTOKEN <token>`.';
+      'ngrok auth token is not configured in encrypted runtime secrets. Store it with `hybridclaw secret set NGROK_AUTHTOKEN <token>` or in TUI with `/secret set NGROK_AUTHTOKEN <token>`.';
     fetchOverviewMock.mockResolvedValue(
       makeOverview(
         makeTunnelStatus({

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -81,6 +81,8 @@ import type {
   SkillHealthMetrics,
   SkillObservation,
   SkillObservationSummary,
+  SkillOptLiteEdit,
+  SkillOptLiteRejectedEditMemory,
 } from '../skills/adaptive-skills-types.js';
 import type { SkillGuardVerdict } from '../skills/skills-guard.js';
 import type {
@@ -149,7 +151,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 39;
+export const DATABASE_SCHEMA_VERSION = 40;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -269,6 +271,8 @@ type SkillAmendmentRow = Omit<
   metrics_post_apply: string | null;
   proposal_metadata: string | null;
 };
+
+type SkillOptLiteRejectedEditRow = SkillOptLiteRejectedEditMemory;
 
 function getSchemaVersion(database: Database.Database): number {
   const raw = database.pragma('user_version', { simple: true });
@@ -2686,6 +2690,29 @@ function migrateV38(
   );
 }
 
+function migrateV39(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS skillopt_rejected_edits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill_name TEXT NOT NULL,
+      edit_hash TEXT NOT NULL,
+      op TEXT NOT NULL,
+      target TEXT NOT NULL,
+      content_preview TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      support_count INTEGER NOT NULL DEFAULT 1,
+      reason TEXT NOT NULL,
+      evidence_source TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      UNIQUE(skill_name, edit_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_skillopt_rejected_edits_skill_created
+      ON skillopt_rejected_edits(skill_name, created_at DESC, id DESC);
+  `);
+  recordMigration(database, 39, 'Persist rejected SkillOpt-lite edit memory');
+}
+
 function auditTimestampIndexNeedMigration(
   database: Database.Database,
 ): boolean {
@@ -2695,7 +2722,7 @@ function auditTimestampIndexNeedMigration(
   );
 }
 
-function migrateV39(database: Database.Database): void {
+function migrateV40(database: Database.Database): void {
   // Lets the admin audit list seek by timestamp (range pills) and id
   // (cursor paging) when there's no event_type/session predicate to lean
   // on; without it the query table-scans audit_events. Added as its own
@@ -2708,7 +2735,7 @@ function migrateV39(database: Database.Database): void {
   }
   recordMigration(
     database,
-    39,
+    40,
     'Index audit_events(timestamp) for admin audit range + cursor paging',
   );
 }
@@ -2803,8 +2830,11 @@ function runMigrations(
   if (currentVersion < 38) {
     migrateV38(database, opts);
   }
-  if (currentVersion < 39 || auditTimestampIndexNeedMigration(database)) {
+  if (currentVersion < 39) {
     migrateV39(database);
+  }
+  if (currentVersion < 40 || auditTimestampIndexNeedMigration(database)) {
+    migrateV40(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -9343,6 +9373,106 @@ export function createSkillAmendment(input: {
     throw new Error('Failed to read persisted skill amendment.');
   }
   return mapSkillAmendmentRow(row);
+}
+
+function skillOptLiteEditHash(edit: SkillOptLiteEdit): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        op: edit.op,
+        target: edit.target.trim(),
+        content: edit.content.trim(),
+      }),
+    )
+    .digest('hex');
+}
+
+function mapSkillOptLiteRejectedEditRow(
+  row: SkillOptLiteRejectedEditRow,
+): SkillOptLiteRejectedEditMemory {
+  return {
+    id: Math.floor(row.id),
+    skill_name: row.skill_name,
+    edit_hash: row.edit_hash,
+    op: row.op,
+    target: row.target,
+    content_preview: row.content_preview,
+    rationale: row.rationale,
+    source_type: row.source_type,
+    support_count: Math.max(1, Math.floor(row.support_count || 1)),
+    reason: row.reason,
+    evidence_source: row.evidence_source,
+    created_at: row.created_at,
+  };
+}
+
+export function recordSkillOptLiteRejectedEdits(input: {
+  skillName: string;
+  edits: SkillOptLiteEdit[];
+  reason: string;
+  evidenceSource?: 'trajectories' | 'observations' | null;
+}): number {
+  const skillName = input.skillName.trim();
+  if (!skillName || input.edits.length === 0) return 0;
+  const reason = input.reason.trim() || 'Rejected by SkillOpt-lite gate.';
+  const insert = db.prepare(
+    `INSERT INTO skillopt_rejected_edits (
+       skill_name,
+       edit_hash,
+       op,
+       target,
+       content_preview,
+       rationale,
+       source_type,
+       support_count,
+       reason,
+       evidence_source
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(skill_name, edit_hash) DO UPDATE SET
+       reason = excluded.reason,
+       evidence_source = excluded.evidence_source,
+       created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+  );
+  const transaction = db.transaction((edits: SkillOptLiteEdit[]) => {
+    let written = 0;
+    for (const edit of edits) {
+      const result = insert.run(
+        skillName,
+        skillOptLiteEditHash(edit),
+        edit.op,
+        edit.target,
+        edit.content.trim().slice(0, 200),
+        edit.rationale.trim(),
+        edit.source_type,
+        Math.max(1, Math.floor(edit.support_count || 1)),
+        reason,
+        input.evidenceSource || null,
+      );
+      written += result.changes > 0 ? 1 : 0;
+    }
+    return written;
+  });
+  return transaction(input.edits);
+}
+
+export function getSkillOptLiteRejectedEdits(input: {
+  skillName: string;
+  limit?: number;
+}): SkillOptLiteRejectedEditMemory[] {
+  const skillName = input.skillName.trim();
+  if (!skillName) return [];
+  const limit = Math.max(0, Math.min(input.limit ?? 20, 100));
+  if (limit === 0) return [];
+  return queryAll<SkillOptLiteRejectedEditRow, [string, number]>(
+    db,
+    `SELECT *
+     FROM skillopt_rejected_edits
+     WHERE skill_name = ?
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`,
+    skillName,
+    limit,
+  ).map(mapSkillOptLiteRejectedEditRow);
 }
 
 export function getSkillAmendmentById(

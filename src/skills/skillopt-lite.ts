@@ -4,6 +4,7 @@ import type {
   SkillOptLiteEdit,
   SkillOptLiteEditOperation,
   SkillOptLiteEditSource,
+  SkillOptLiteRejectedEditMemory,
 } from './adaptive-skills-types.js';
 
 const EDIT_OPERATIONS = new Set<SkillOptLiteEditOperation>([
@@ -69,6 +70,26 @@ export function rankAndClipSkillOptLiteEdits(
   return [...edits]
     .sort((left, right) => editPriority(right) - editPriority(left))
     .slice(0, maxEdits);
+}
+
+export function filterRejectedSkillOptLiteEdits(
+  edits: SkillOptLiteEdit[],
+  rejectedEdits: SkillOptLiteRejectedEditMemory[],
+): SkillOptLiteEdit[] {
+  if (rejectedEdits.length === 0) return edits;
+  const rejectedKeys = new Set(
+    rejectedEdits.map((edit) =>
+      [edit.op, edit.target.trim(), edit.content_preview.trim()].join('\0'),
+    ),
+  );
+  return edits.filter((edit) => {
+    const key = [
+      edit.op,
+      edit.target.trim(),
+      edit.content.trim().slice(0, 200),
+    ].join('\0');
+    return !rejectedKeys.has(key);
+  });
 }
 
 function preview(content: string): string {
@@ -186,8 +207,11 @@ export function gateSkillOptLiteCandidate(input: {
   originalContent: string;
   proposedContent: string;
   applyReport: SkillOptLiteApplyReport[];
+  selectedEdits?: SkillOptLiteEdit[];
+  heldOutEvidence?: Record<string, unknown>[];
+  minScoreDelta?: number;
   validationDecision?: unknown;
-}): { accepted: boolean; reason: string } {
+}): NonNullable<SkillAmendmentProposalMetadata['gate']> {
   const normalizedDecision =
     input.validationDecision &&
     typeof input.validationDecision === 'object' &&
@@ -202,13 +226,16 @@ export function gateSkillOptLiteCandidate(input: {
     return {
       accepted: false,
       reason: reason || 'Optimizer validation rejected the candidate.',
+      ...scoreSkillOptLiteCandidate(input),
     };
   }
 
+  const score = scoreSkillOptLiteCandidate(input);
   if (input.originalContent === input.proposedContent) {
     return {
       accepted: false,
       reason: 'Candidate does not change the skill document.',
+      ...score,
     };
   }
   const appliedCount = input.applyReport.filter((entry) =>
@@ -218,6 +245,39 @@ export function gateSkillOptLiteCandidate(input: {
     return {
       accepted: false,
       reason: 'No structured edits applied cleanly.',
+      ...score,
+    };
+  }
+  const bestPracticeViolations = findSkillOptLiteBestPracticeViolations(
+    input.selectedEdits ?? [],
+  );
+  if (bestPracticeViolations.length > 0) {
+    return {
+      accepted: false,
+      reason: bestPracticeViolations[0],
+      ...score,
+    };
+  }
+  if (
+    (score.held_out_failure_count ?? 0) > 0 &&
+    typeof score.current_score === 'number' &&
+    typeof score.candidate_score === 'number' &&
+    score.candidate_score < score.current_score + (input.minScoreDelta ?? 0)
+  ) {
+    return {
+      accepted: false,
+      reason: `Candidate did not improve held-out score (${score.candidate_score.toFixed(2)} <= ${score.current_score.toFixed(2)}).`,
+      ...score,
+    };
+  }
+  if (
+    (score.held_out_failure_count ?? 0) > 0 &&
+    (score.matched_held_out_failures ?? 0) === 0
+  ) {
+    return {
+      accepted: false,
+      reason: 'Candidate edits do not cover any held-out failure evidence.',
+      ...score,
     };
   }
   return {
@@ -226,6 +286,150 @@ export function gateSkillOptLiteCandidate(input: {
       typeof normalizedDecision?.reason === 'string'
         ? normalizedDecision.reason.trim() || 'Candidate passed local gate.'
         : 'Candidate passed local gate.',
+    ...score,
+  };
+}
+
+function evidenceOutcomeScore(evidence: Record<string, unknown>): number {
+  if (evidence.outcome === 'success') return 1;
+  if (evidence.outcome === 'partial') return 0.5;
+  return 0;
+}
+
+const HELD_OUT_STOP_WORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'that',
+  'this',
+  'from',
+  'into',
+  'user',
+  'skill',
+  'request',
+  'response',
+  'error',
+  'failure',
+]);
+
+const PROMPT_SPECIFIC_PATTERNS = [
+  /\bthis (?:conversation|chat|thread|turn|prompt|request)\b/iu,
+  /\b(?:above|previous|last) (?:message|answer|response|conversation|turn)\b/iu,
+  /\bwhen the user (?:says|asks|writes|mentions) ["'`]/iu,
+  /\bmatch(?:es)? the user's exact wording\b/iu,
+  /\btranscript\b/iu,
+  /\bone[- ]off\b/iu,
+];
+
+function bestPracticeViolation(edit: SkillOptLiteEdit): string | null {
+  const text = [edit.target, edit.content, edit.rationale].join('\n');
+  return PROMPT_SPECIFIC_PATTERNS.some((pattern) => pattern.test(text))
+    ? 'Edit appears to add prompt-specific steering, transcript material, or one-off troubleshooting text.'
+    : null;
+}
+
+export function findSkillOptLiteBestPracticeViolations(
+  edits: SkillOptLiteEdit[],
+): string[] {
+  return edits
+    .map(bestPracticeViolation)
+    .filter((reason): reason is string => Boolean(reason));
+}
+
+function textTokens(value: unknown): Set<string> {
+  const text =
+    typeof value === 'string'
+      ? value
+      : value == null
+        ? ''
+        : JSON.stringify(value);
+  return new Set(
+    text
+      .toLowerCase()
+      .match(/[a-z0-9][a-z0-9_-]{2,}/g)
+      ?.filter((token) => !HELD_OUT_STOP_WORDS.has(token)) ?? [],
+  );
+}
+
+function heldOutEvidenceTokens(evidence: Record<string, unknown>): Set<string> {
+  return textTokens([
+    evidence.errorCategory,
+    evidence.errorDetail,
+    evidence.userFeedback,
+    evidence.input,
+    evidence.output,
+    evidence.errors,
+    evidence.tools,
+  ]);
+}
+
+function editTokens(edit: SkillOptLiteEdit): Set<string> {
+  return textTokens([edit.target, edit.content, edit.rationale]);
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function scoreSkillOptLiteCandidate(input: {
+  selectedEdits?: SkillOptLiteEdit[];
+  heldOutEvidence?: Record<string, unknown>[];
+}): Omit<
+  NonNullable<SkillAmendmentProposalMetadata['gate']>,
+  'accepted' | 'reason'
+> {
+  const heldOutEvidence = input.heldOutEvidence ?? [];
+  if (heldOutEvidence.length === 0) {
+    return {
+      current_score: 0,
+      candidate_score: 0.01,
+      best_score: 0.01,
+      held_out_count: 0,
+      held_out_failure_count: 0,
+      matched_held_out_failures: 0,
+    };
+  }
+
+  const selectedEdits = input.selectedEdits ?? [];
+  const failureEdits = selectedEdits.filter(
+    (edit) => edit.source_type === 'failure',
+  );
+  const selectedEditTokens = new Set(
+    failureEdits.flatMap((edit) => [...editTokens(edit)]),
+  );
+  let heldOutFailureCount = 0;
+  let matchedHeldOutFailures = 0;
+  for (const evidence of heldOutEvidence) {
+    if (evidence.outcome === 'success') continue;
+    heldOutFailureCount += 1;
+    const tokens = heldOutEvidenceTokens(evidence);
+    if ([...tokens].some((token) => selectedEditTokens.has(token))) {
+      matchedHeldOutFailures += 1;
+    }
+  }
+
+  const currentScore = average(heldOutEvidence.map(evidenceOutcomeScore));
+  const coverage =
+    heldOutFailureCount > 0 ? matchedHeldOutFailures / heldOutFailureCount : 1;
+  const supportBoost = Math.min(
+    0.2,
+    failureEdits.reduce((sum, edit) => sum + edit.support_count, 0) / 100,
+  );
+  const candidateScore = Math.min(
+    1,
+    currentScore +
+      (heldOutFailureCount > 0 ? coverage * 0.25 : 0.01) +
+      supportBoost,
+  );
+  return {
+    current_score: Number(currentScore.toFixed(4)),
+    candidate_score: Number(candidateScore.toFixed(4)),
+    best_score: Number(Math.max(currentScore, candidateScore).toFixed(4)),
+    held_out_count: heldOutEvidence.length,
+    held_out_failure_count: heldOutFailureCount,
+    matched_held_out_failures: matchedHeldOutFailures,
   };
 }
 
@@ -236,6 +440,7 @@ export function buildSkillOptLiteMetadata(input: {
   selectedEdits: SkillOptLiteEdit[];
   applyReport: SkillOptLiteApplyReport[];
   gate: NonNullable<SkillAmendmentProposalMetadata['gate']>;
+  rejectedEditCount?: number;
 }): SkillAmendmentProposalMetadata {
   return {
     kind: 'skillopt_lite',
@@ -245,5 +450,6 @@ export function buildSkillOptLiteMetadata(input: {
     selected_edits: input.selectedEdits,
     apply_report: input.applyReport,
     gate: input.gate,
+    rejected_edit_count: input.rejectedEditCount,
   };
 }

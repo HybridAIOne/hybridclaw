@@ -1529,7 +1529,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
   }
   if (!hasCredentials) {
     logger.info(
-      'Microsoft Teams integration disabled: MSTEAMS_APP_ID or MSTEAMS_APP_PASSWORD is missing',
+      'Microsoft Teams integration disabled: msteams.appId config or MSTEAMS_APP_PASSWORD runtime secret is missing',
     );
     return false;
   }
@@ -2435,7 +2435,7 @@ async function startSlackIntegration(): Promise<boolean> {
   }
   if (!hasCredentials) {
     logger.info(
-      'Slack integration disabled: SLACK_BOT_TOKEN or SLACK_APP_TOKEN is missing',
+      'Slack integration disabled: SLACK_BOT_TOKEN or SLACK_APP_TOKEN runtime secret is missing',
     );
     return false;
   }

@@ -53,7 +53,10 @@ type DraftSetter = Dispatch<SetStateAction<AdminConfig | null>>;
 
 type BrowserConfig = NonNullable<AdminConfig['browser']>;
 type BrowserProvider = BrowserConfig['provider'];
-type BrowserObjectSection = Exclude<keyof BrowserConfig, 'provider'>;
+type BrowserObjectSection = Exclude<
+  keyof BrowserConfig,
+  'provider' | 'allowPrivateNetwork'
+>;
 const LOCAL_DOCKER_POOL_TENANT_ID = 'main';
 
 const PROVIDER_OPTIONS: ReadonlyArray<{
@@ -64,6 +67,7 @@ const PROVIDER_OPTIONS: ReadonlyArray<{
   { value: 'camofox', label: 'Camoufox (anti-detection)' },
   { value: 'managed-cloud', label: 'Managed cloud (Docker pool)' },
   { value: 'browser-use-cloud', label: 'Browser Use cloud' },
+  { value: 'mac-cua', label: 'Mac CUA (native browser)' },
 ];
 
 const CONTAINER_MEMORY_PATTERN = /^\d+(?:\.\d+)?[kKmMgG]?$/;
@@ -71,6 +75,7 @@ const CONTAINER_MEMORY_PATTERN = /^\d+(?:\.\d+)?[kKmMgG]?$/;
 function defaultBrowserConfig(): BrowserConfig {
   return {
     provider: 'local',
+    allowPrivateNetwork: false,
     local: {
       profileDir: '',
       headed: false,
@@ -97,6 +102,12 @@ function defaultBrowserConfig(): BrowserConfig {
         browserUsdPerMinute: 0,
         actionUsd: 0,
       },
+    },
+    macCua: {
+      browser: 'chrome',
+      driverCommand: '',
+      driverArgs: [],
+      screenshotMode: 'som',
     },
   };
 }
@@ -162,6 +173,10 @@ function browserConfig(config: AdminConfig): BrowserConfig {
         ...defaultBrowserConfig().browserUseCloud.pricing,
         ...(config.browser?.browserUseCloud?.pricing ?? {}),
       },
+    },
+    macCua: {
+      ...defaultBrowserConfig().macCua,
+      ...(config.browser?.macCua ?? {}),
     },
   });
 }
@@ -736,6 +751,27 @@ export function ConfigPage() {
                   </NativeSelect>
                 </Field>
 
+                <Field orientation="horizontal">
+                  <Switch
+                    checked={browser.allowPrivateNetwork}
+                    onCheckedChange={(allowPrivateNetwork) =>
+                      setDraft((current) =>
+                        withBrowser(current, (b) => ({
+                          ...b,
+                          allowPrivateNetwork,
+                        })),
+                      )
+                    }
+                  />
+                  <FieldContent>
+                    <FieldLabel>Allow private network navigation</FieldLabel>
+                    <FieldDescription>
+                      Allow the browser to navigate to private and loopback
+                      network addresses.
+                    </FieldDescription>
+                  </FieldContent>
+                </Field>
+
                 {browser.provider === 'local' ? (
                   <ProfileBrowserFields
                     provider="local"
@@ -954,6 +990,105 @@ export function ConfigPage() {
                         }
                       />
                       <FieldError />
+                    </Field>
+                  </>
+                ) : null}
+                {browser.provider === 'mac-cua' ? (
+                  <>
+                    <Field>
+                      <FieldLabel>Native browser</FieldLabel>
+                      <NativeSelect
+                        value={browser.macCua.browser}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            withBrowser(current, (b) => ({
+                              ...b,
+                              macCua: {
+                                ...b.macCua,
+                                browser: event.target
+                                  .value as BrowserConfig['macCua']['browser'],
+                              },
+                            })),
+                          )
+                        }
+                      >
+                        <NativeSelectOption value="safari">
+                          safari
+                        </NativeSelectOption>
+                        <NativeSelectOption value="chrome">
+                          chrome
+                        </NativeSelectOption>
+                        <NativeSelectOption value="firefox">
+                          firefox
+                        </NativeSelectOption>
+                        <NativeSelectOption value="brave">
+                          brave
+                        </NativeSelectOption>
+                        <NativeSelectOption value="arc">arc</NativeSelectOption>
+                      </NativeSelect>
+                    </Field>
+                    <Field>
+                      <FieldLabel>Driver command</FieldLabel>
+                      <Input
+                        value={browser.macCua.driverCommand}
+                        placeholder="cua-driver"
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            withBrowser(current, (b) => ({
+                              ...b,
+                              macCua: {
+                                ...b.macCua,
+                                driverCommand: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Driver args</FieldLabel>
+                      <Input
+                        value={browser.macCua.driverArgs.join(' ')}
+                        placeholder="mcp --no-daemon-relaunch"
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            withBrowser(current, (b) => ({
+                              ...b,
+                              macCua: {
+                                ...b.macCua,
+                                driverArgs: event.target.value
+                                  .split(/\s+/u)
+                                  .map((part) => part.trim())
+                                  .filter(Boolean),
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Screenshot mode</FieldLabel>
+                      <NativeSelect
+                        value={browser.macCua.screenshotMode}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            withBrowser(current, (b) => ({
+                              ...b,
+                              macCua: {
+                                ...b.macCua,
+                                screenshotMode: event.target
+                                  .value as BrowserConfig['macCua']['screenshotMode'],
+                              },
+                            })),
+                          )
+                        }
+                      >
+                        <NativeSelectOption value="som">som</NativeSelectOption>
+                        <NativeSelectOption value="vision">
+                          vision
+                        </NativeSelectOption>
+                        <NativeSelectOption value="ax">ax</NativeSelectOption>
+                      </NativeSelect>
                     </Field>
                   </>
                 ) : null}

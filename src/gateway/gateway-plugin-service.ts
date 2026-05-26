@@ -323,10 +323,12 @@ function buildPluginCheckLines(result: {
     `Source: ${result.source}`,
   ];
   if (result.requiresEnv.length > 0) {
-    lines.push(`Required env vars: ${result.requiresEnv.join(', ')}`);
+    lines.push(`Required runtime secrets: ${result.requiresEnv.join(', ')}`);
   }
   if (result.missingEnv.length > 0) {
-    lines.push(`Missing env vars: ${result.missingEnv.join(', ')}`);
+    lines.push(
+      `Missing runtime secrets: ${result.missingEnv.join(', ')}. Store them with \`hybridclaw secret set <name> <value>\` or in TUI with \`/secret set <name> <value>\`, then reload plugins.`,
+    );
   }
   if (result.packageJsonDependencies.length > 0) {
     lines.push(
@@ -744,7 +746,7 @@ export async function handlePluginGatewayCommand(params: {
           result.missingRequiredBins,
         ),
         ...(result.requiresEnv.length > 0
-          ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
+          ? [`Required runtime secrets: ${result.requiresEnv.join(', ')}`]
           : []),
         result.requiredConfigKeys.length > 0
           ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
@@ -775,7 +777,7 @@ export async function handlePluginGatewayCommand(params: {
               result.missingRequiredBins,
             ),
             ...(result.requiresEnv.length > 0
-              ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
+              ? [`Required runtime secrets: ${result.requiresEnv.join(', ')}`]
               : []),
             result.requiredConfigKeys.length > 0
               ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
@@ -857,7 +859,7 @@ export async function handlePluginGatewayCommand(params: {
           result.missingRequiredBins,
         ),
         ...(result.requiresEnv.length > 0
-          ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
+          ? [`Required runtime secrets: ${result.requiresEnv.join(', ')}`]
           : []),
         result.requiredConfigKeys.length > 0
           ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
@@ -888,7 +890,7 @@ export async function handlePluginGatewayCommand(params: {
               result.missingRequiredBins,
             ),
             ...(result.requiresEnv.length > 0
-              ? [`Required env vars: ${result.requiresEnv.join(', ')}`]
+              ? [`Required runtime secrets: ${result.requiresEnv.join(', ')}`]
               : []),
             result.requiredConfigKeys.length > 0
               ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
