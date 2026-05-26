@@ -1216,6 +1216,10 @@ export function shouldReplayTuiFormattedText(params: {
   );
 }
 
+export function shouldBufferTuiFormattedStream(text: string): boolean {
+  return hasTuiMarkdownFormatting(text);
+}
+
 function wrapAnsiTuiVisibleLine(value: string, width: number): string[] {
   const safeWidth = Math.max(1, Math.floor(width || 1));
   if (visibleTuiLength(value) <= safeWidth) return [value];
@@ -2855,6 +2859,8 @@ async function processMessage(
       `${toolName}\0${preview}`;
     let sawStreamEvent = false;
     let sawVisibleTextDelta = false;
+    let streamedVisibleText = '';
+    let bufferFormattedReplayText = false;
     let activeDelegateToolCount = 0;
     let streamedApproval: GatewayChatApprovalEvent | null = null;
     let result: GatewayChatResult;
@@ -2873,7 +2879,18 @@ async function processMessage(
             const streamed = streamState.push(event.delta);
             if (streamed.visibleDelta) {
               sawVisibleTextDelta = true;
-              s.addVisibleTextDelta(streamed.visibleDelta);
+              streamedVisibleText += streamed.visibleDelta;
+              if (
+                !bufferFormattedReplayText &&
+                process.stdout.isTTY &&
+                shouldBufferTuiFormattedStream(streamedVisibleText)
+              ) {
+                bufferFormattedReplayText = true;
+                s.clearVisibleText();
+              }
+              if (!bufferFormattedReplayText) {
+                s.addVisibleTextDelta(streamed.visibleDelta);
+              }
             } else if (streamed.thinkingPreview) {
               s.setThinkingPreview(streamed.thinkingPreview);
             }
