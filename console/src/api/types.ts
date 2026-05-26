@@ -735,7 +735,12 @@ export interface AdminConfig {
     persistBashState: boolean;
   };
   browser?: {
-    provider: 'local' | 'camofox' | 'managed-cloud' | 'browser-use-cloud';
+    provider:
+      | 'local'
+      | 'camofox'
+      | 'managed-cloud'
+      | 'browser-use-cloud'
+      | 'mac-cua';
     allowPrivateNetwork: boolean;
     local: {
       profileDir: string;
@@ -773,6 +778,12 @@ export interface AdminConfig {
         browserUsdPerMinute: number;
         actionUsd: number;
       };
+    };
+    macCua: {
+      browser: 'safari' | 'chrome' | 'firefox' | 'brave' | 'arc';
+      driverCommand: string;
+      driverArgs: string[];
+      screenshotMode: 'som' | 'vision' | 'ax';
     };
   };
   ops: {

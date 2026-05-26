@@ -100,6 +100,12 @@ function defaultBrowserConfig(): BrowserConfig {
         actionUsd: 0,
       },
     },
+    macCua: {
+      browser: 'chrome',
+      driverCommand: '',
+      driverArgs: [],
+      screenshotMode: 'som',
+    },
   };
 }
 
@@ -164,6 +170,10 @@ function browserConfig(config: AdminConfig): BrowserConfig {
         ...defaultBrowserConfig().browserUseCloud.pricing,
         ...(config.browser?.browserUseCloud?.pricing ?? {}),
       },
+    },
+    macCua: {
+      ...defaultBrowserConfig().macCua,
+      ...(config.browser?.macCua ?? {}),
     },
   });
 }
@@ -569,6 +579,7 @@ export function ConfigPage() {
                     <option value="camofox">camofox</option>
                     <option value="managed-cloud">managed-cloud</option>
                     <option value="browser-use-cloud">browser-use-cloud</option>
+                    <option value="mac-cua">mac-cua</option>
                   </select>
                 </label>
                 <BooleanField
@@ -923,6 +934,95 @@ export function ConfigPage() {
                           )
                         }
                       />
+                    </label>
+                  </>
+                ) : null}
+                {browser.provider === 'mac-cua' ? (
+                  <>
+                    <label className="field">
+                      <span>Native browser</span>
+                      <select
+                        value={browser.macCua.browser}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              macCua: {
+                                ...currentBrowser.macCua,
+                                browser: event.target
+                                  .value as BrowserConfig['macCua']['browser'],
+                              },
+                            })),
+                          )
+                        }
+                      >
+                        <option value="safari">safari</option>
+                        <option value="chrome">chrome</option>
+                        <option value="firefox">firefox</option>
+                        <option value="brave">brave</option>
+                        <option value="arc">arc</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Driver command</span>
+                      <input
+                        value={browser.macCua.driverCommand}
+                        placeholder="cua-driver"
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              macCua: {
+                                ...currentBrowser.macCua,
+                                driverCommand: event.target.value,
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Driver args</span>
+                      <input
+                        value={browser.macCua.driverArgs.join(' ')}
+                        placeholder="mcp --no-daemon-relaunch"
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              macCua: {
+                                ...currentBrowser.macCua,
+                                driverArgs: event.target.value
+                                  .split(/\s+/u)
+                                  .map((part) => part.trim())
+                                  .filter(Boolean),
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Screenshot mode</span>
+                      <select
+                        value={browser.macCua.screenshotMode}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            updateBrowserConfig(current, (currentBrowser) => ({
+                              ...currentBrowser,
+                              macCua: {
+                                ...currentBrowser.macCua,
+                                screenshotMode: event.target
+                                  .value as BrowserConfig['macCua']['screenshotMode'],
+                              },
+                            })),
+                          )
+                        }
+                      >
+                        <option value="som">som</option>
+                        <option value="vision">vision</option>
+                        <option value="ax">ax</option>
+                      </select>
                     </label>
                   </>
                 ) : null}
