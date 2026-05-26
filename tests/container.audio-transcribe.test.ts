@@ -93,7 +93,7 @@ describe('audio_transcribe tool', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('audio_transcribe is not configured');
-    expect(result.output).toContain('hybridclaw secret set');
+    expect(result.output).toContain('/secret set');
     expect(result.output).not.toContain('env');
   });
 

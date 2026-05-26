@@ -528,7 +528,7 @@ async function resolveGenericProviderApiKey(
 
   const promptedApiKey = await promptForSecretInput({
     prompt: `🔒 Paste ${providerLabel} API key: `,
-    missingMessage: `Missing ${providerLabel} API key. Pass \`--api-key <key>\`, set the appropriate environment variable, or run this command in an interactive terminal to paste it.`,
+    missingMessage: `Missing ${providerLabel} API key. Pass \`--api-key <key>\`, store it with \`hybridclaw secret set <name> <value>\` or in TUI with \`/secret set <name> <value>\`, or run this command in an interactive terminal to paste it.`,
   });
   if (promptedApiKey) return promptedApiKey;
 

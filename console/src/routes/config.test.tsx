@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminBrowserPoolHealthResponse,
@@ -84,6 +90,7 @@ function makeConfig(): AdminConfig {
     },
     browser: {
       provider: 'local',
+      allowPrivateNetwork: false,
       local: {
         profileDir: '',
         headed: false,
@@ -110,6 +117,12 @@ function makeConfig(): AdminConfig {
           browserUsdPerMinute: 0,
           actionUsd: 0,
         },
+      },
+      macCua: {
+        browser: 'chrome',
+        driverCommand: '',
+        driverArgs: [],
+        screenshotMode: 'som',
       },
     },
   } as unknown as AdminConfig;
@@ -171,6 +184,12 @@ describe('ConfigPage', () => {
 
     const provider = await screen.findByDisplayValue('local');
     fireEvent.change(provider, { target: { value: 'managed-cloud' } });
+    const privateNetworkToggle = screen.getByRole('group', {
+      name: /Allow private network navigation/i,
+    });
+    fireEvent.click(
+      within(privateNetworkToggle).getByRole('button', { name: 'on' }),
+    );
     expect(screen.getByDisplayValue('main')).toBeTruthy();
     expect(await screen.findByText(/fetch failed/i)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Start Docker pool' }));
@@ -213,6 +232,7 @@ describe('ConfigPage', () => {
       expect.objectContaining({
         browser: expect.objectContaining({
           provider: 'managed-cloud',
+          allowPrivateNetwork: true,
           managedCloud: expect.objectContaining({
             endpointUrl: 'https://browser.example',
             poolTokenRef: {
@@ -223,6 +243,63 @@ describe('ConfigPage', () => {
               actionUsd: 0.0005,
             },
           }),
+        }),
+      }),
+    );
+  });
+
+  it('shows and saves mac-cua browser config', async () => {
+    const config = makeConfig();
+    if (!config.browser) throw new Error('test config is missing browser');
+    config.browser = {
+      ...config.browser,
+      provider: 'mac-cua',
+      allowPrivateNetwork: true,
+      macCua: {
+        browser: 'safari',
+        driverCommand: '',
+        driverArgs: ['mcp', '--no-daemon-relaunch'],
+        screenshotMode: 'som',
+      },
+    };
+    fetchConfigMock.mockResolvedValueOnce({
+      path: '/tmp/config.json',
+      config,
+    });
+
+    renderConfigPage();
+
+    expect(await screen.findByDisplayValue('mac-cua')).toBeTruthy();
+    expect(screen.getByDisplayValue('safari')).toBeTruthy();
+    expect(screen.getByDisplayValue('mcp --no-daemon-relaunch')).toBeTruthy();
+
+    fireEvent.change(screen.getByDisplayValue('safari'), {
+      target: { value: 'chrome' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('cua-driver'), {
+      target: { value: '/opt/cua-driver' },
+    });
+    fireEvent.change(screen.getByDisplayValue('mcp --no-daemon-relaunch'), {
+      target: { value: 'mcp' },
+    });
+    fireEvent.change(screen.getByDisplayValue('som'), {
+      target: { value: 'ax' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save config' }));
+
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      'admin-token',
+      expect.objectContaining({
+        browser: expect.objectContaining({
+          provider: 'mac-cua',
+          allowPrivateNetwork: true,
+          macCua: {
+            browser: 'chrome',
+            driverCommand: '/opt/cua-driver',
+            driverArgs: ['mcp'],
+            screenshotMode: 'ax',
+          },
         }),
       }),
     );

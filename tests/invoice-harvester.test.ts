@@ -14,6 +14,7 @@ const {
   createGcpInvoiceAdapter,
   createGitHubInvoiceAdapter,
   createGoogleAdsInvoiceAdapter,
+  createPlaywrightScrapeDriver,
   DatevUnternehmenOnlineUploadAdapter,
   DATEV_UNTERNEHMEN_ONLINE_UPLOAD_PLAN,
   generateTotp,
@@ -99,7 +100,9 @@ const invoiceMeta: InvoiceMeta = {
 afterEach(() => {
   delete process.env.HYBRIDCLAW_INVOICE_TEST_SECRET;
   delete process.env.INVOICE_UNVERIFIED_SELECTORS;
+  delete process.env.HYBRIDCLAW_BROWSER_2FA_AUTOFILL;
   vi.restoreAllMocks();
+  vi.doUnmock('playwright');
 });
 
 describe('invoice schema', () => {
@@ -483,6 +486,62 @@ describe('reference invoice adapters', () => {
   test('generates RFC 6238-compatible TOTP codes for scrape MFA', () => {
     expect(generateTotp('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 59_000)).toBe(
       '287082',
+    );
+  });
+
+  test('scrape adapters escalate TOTP instead of auto-filling even when a vault secret and autofill config are present', async () => {
+    process.env.HYBRIDCLAW_BROWSER_2FA_AUTOFILL = 'true';
+    const credentialStore = {
+      get: vi.fn((id: string) =>
+        id === 'GITHUB_TOTP_SECRET'
+          ? { value: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ' }
+          : null,
+      ),
+    };
+    const credentials = resolveInvoiceCredentials(
+      'github',
+      {
+        username: { source: 'store', id: 'GITHUB_USERNAME' },
+        password: { source: 'store', id: 'GITHUB_PASSWORD' },
+        totpSecret: { source: 'store', id: 'GITHUB_TOTP_SECRET' },
+      },
+      {
+        credentialStore: {
+          get: vi.fn((id: string) => {
+            if (id === 'GITHUB_USERNAME') return { value: 'user_a' };
+            if (id === 'GITHUB_PASSWORD') return { value: 'test-password' };
+            return credentialStore.get(id);
+          }),
+        },
+      },
+    );
+    const page = {
+      fill: vi.fn(async () => undefined),
+      waitForSelector: vi.fn(async (selector: string) => {
+        if (selector === INVOICE_SCRAPE_PLANS.github.totpSelector) return {};
+        throw new Error(`missing selector ${selector}`);
+      }),
+    };
+    const driver = createPlaywrightScrapeDriver(INVOICE_SCRAPE_PLANS.github);
+    driver.page = page;
+    driver.providerId = 'github';
+
+    await expect(
+      driver.detectEscalationBlockers(credentials),
+    ).rejects.toMatchObject({
+      code: 'F8_OPERATOR_ESCALATION',
+      reason: 'totp',
+      escalation: expect.objectContaining({
+        type: 'escalation.interaction_needed',
+        modality: 'totp',
+      }),
+    });
+    expect(page.fill).not.toHaveBeenCalledWith(
+      INVOICE_SCRAPE_PLANS.github.totpSelector,
+      expect.any(String),
+    );
+    expect(JSON.stringify(page.fill.mock.calls)).not.toContain(
+      'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
     );
   });
 

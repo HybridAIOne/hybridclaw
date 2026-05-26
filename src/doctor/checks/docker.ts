@@ -47,14 +47,14 @@ export async function checkDocker(): Promise<DiagResult[]> {
         dockerRequired ? 'error' : 'warn',
         dockerAccess.kind === 'missing'
           ? dockerRequired
-            ? `Docker unavailable (${dockerAccess.detail}); sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\` or set \`container.sandboxMode\` to \`host\`.`
+            ? `Docker unavailable (${dockerAccess.detail}); sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\`, run \`/config set container.sandboxMode host\`, or set it in /admin/config.`
             : `Docker unavailable (${dockerAccess.detail})`
           : dockerAccess.kind === 'permission-denied'
             ? dockerRequired
-              ? `Docker is installed but the current user cannot access the Docker daemon (${dockerAccess.detail}); sandbox mode \`${resolvedSandboxMode}\` requires Docker access. Add this user to the \`docker\` group, start a new login shell, or use \`--sandbox=host\` / \`container.sandboxMode=host\`.`
+              ? `Docker is installed but the current user cannot access the Docker daemon (${dockerAccess.detail}); sandbox mode \`${resolvedSandboxMode}\` requires Docker access. Add this user to the \`docker\` group, start a new login shell, use \`--sandbox=host\`, run \`/config set container.sandboxMode host\`, or set it in /admin/config.`
               : `Docker is installed but the current user cannot access the Docker daemon (${dockerAccess.detail}). Add this user to the \`docker\` group or start a new login shell.`
             : dockerRequired
-              ? `Docker daemon not ready (${dockerAccess.detail}); sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\` or set \`container.sandboxMode\` to \`host\`.`
+              ? `Docker daemon not ready (${dockerAccess.detail}); sandbox mode \`${resolvedSandboxMode}\` requires Docker. Use \`--sandbox=host\`, run \`/config set container.sandboxMode host\`, or set it in /admin/config.`
               : `Docker daemon not ready (${dockerAccess.detail})`,
         fix,
       ),

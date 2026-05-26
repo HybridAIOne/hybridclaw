@@ -2,6 +2,7 @@ import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from '../config/config.js';
 import {
   type GatewayAdminSkillsResponse,
+  type GatewayAdminSuspendedSession,
   type GatewayChatApprovalEvent,
   type GatewayChatRequestBody,
   type GatewayChatResult,
@@ -97,6 +98,32 @@ export async function gatewayChat(
     },
     body: JSON.stringify(params),
     signal,
+  });
+}
+
+export async function gatewayListInteractiveEscalations(): Promise<{
+  sessions: GatewayAdminSuspendedSession[];
+}> {
+  return requestJson<{ sessions: GatewayAdminSuspendedSession[] }>(
+    '/api/interactive-escalations',
+    {
+      method: 'GET',
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function gatewayResumeInteractiveEscalation(params: {
+  sessionId: string;
+  text: string;
+}): Promise<unknown> {
+  return requestJson<unknown>('/api/interactive-escalations/resume', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(params),
   });
 }
 

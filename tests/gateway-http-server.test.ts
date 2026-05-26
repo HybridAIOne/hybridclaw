@@ -1009,7 +1009,8 @@ async function importFreshHealth(options?: {
         source: 'project',
         enabled: false,
         status: 'failed',
-        error: 'Missing required env vars: DEMO_PLUGIN_TOKEN.',
+        error:
+          'Missing required runtime secrets: DEMO_PLUGIN_TOKEN. Store them with `hybridclaw secret set <name> <value>` or in TUI with `/secret set <name> <value>`, then reload plugins.',
         commands: [],
         tools: ['broken_tool'],
         hooks: ['gateway_start'],

@@ -3103,7 +3103,7 @@ describe('CLI hybridai commands', () => {
       'Plugin example-plugin will auto-discover from /tmp/.hybridclaw/plugins/example-plugin.',
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Required env vars: EXAMPLE_PLUGIN_TOKEN',
+      'Required runtime secrets: EXAMPLE_PLUGIN_TOKEN',
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Add a plugins.list[] override in '),

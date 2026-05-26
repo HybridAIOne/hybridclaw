@@ -146,6 +146,68 @@ describe.sequential('container tool runtime guards', () => {
     expect(result.output).toContain('Detected test image.');
   });
 
+  test('vision_analyze infers vllm provider from prefixed model context', async () => {
+    tempImagePath = path.join(
+      os.tmpdir(),
+      `hybridclaw-vision-${Date.now()}.jpg`,
+    );
+    fs.writeFileSync(tempImagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: 'Detected test image.',
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { executeToolWithMetadata, setModelContext } = await import(
+      '../container/src/tools.js'
+    );
+    setModelContext(
+      undefined,
+      undefined,
+      'http://haigpu1:8000/v1',
+      '',
+      'vllm/Qwen/Qwen3.5-27B-FP8',
+      '',
+    );
+
+    const result = await executeToolWithMetadata(
+      'vision_analyze',
+      JSON.stringify({
+        image_url: tempImagePath,
+        question: 'What is in this image?',
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://haigpu1:8000/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.not.objectContaining({
+          Authorization: expect.any(String),
+        }),
+      }),
+    );
+    expect(result.output).toContain('"success": true');
+    expect(result.output).toContain('Detected test image.');
+  });
+
   test('vision_analyze uses streaming for openai-codex fallback vision requests', async () => {
     tempImagePath = path.join(
       os.tmpdir(),

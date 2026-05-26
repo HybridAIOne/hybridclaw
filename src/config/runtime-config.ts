@@ -392,6 +392,7 @@ export interface RuntimeManagedCloudBrowserConfig {
 
 export interface RuntimeBrowserConfig {
   provider: RuntimeBrowserProviderKind;
+  allowPrivateNetwork: boolean;
   local: RuntimeBrowserLocalConfig;
   camofox: RuntimeBrowserCamofoxConfig;
   managedCloud: RuntimeManagedCloudBrowserConfig;
@@ -1316,6 +1317,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   browser: {
     provider: 'local',
+    allowPrivateNetwork: false,
     local: {
       profileRoot: '',
       headed: false,
@@ -1982,15 +1984,9 @@ const WATCHER_RETRY_BASE_DELAY_MS = 1_000;
 const WATCHER_RETRY_MAX_DELAY_MS = 60_000;
 const WATCHER_RETRY_MAX_ATTEMPTS = 10;
 const WATCHER_STABLE_RESET_DELAY_MS = 1_000;
-const NON_RETRYABLE_WATCHER_ERROR_CODES = new Set([
-  'EMFILE',
-  'ENFILE',
-  'ENOSPC',
-]);
 let watcherRetryAttempt = 0;
 let watcherRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherStableTimer: ReturnType<typeof setTimeout> | null = null;
-let watcherPermanentlyDisabled = false;
 
 function detachTimer(timer: ReturnType<typeof setTimeout>): void {
   if (
@@ -2017,30 +2013,6 @@ function isRuntimeConfigWatcherDisabled(): boolean {
     .trim()
     .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes';
-}
-
-function getWatcherErrorCode(err: unknown): string {
-  if (!err || typeof err !== 'object') return '';
-  const code = (err as { code?: unknown }).code;
-  return typeof code === 'string' ? code.trim().toUpperCase() : '';
-}
-
-function disableWatcher(reason: string): void {
-  watcherPermanentlyDisabled = true;
-  if (watcherRestartTimer) {
-    clearTimeout(watcherRestartTimer);
-    watcherRestartTimer = null;
-  }
-  if (watcherStableTimer) {
-    clearTimeout(watcherStableTimer);
-    watcherStableTimer = null;
-  }
-  console.warn(`[runtime-config] watcher disabled: ${reason}`);
-}
-
-function shouldRetryWatcherError(err: unknown): boolean {
-  const code = getWatcherErrorCode(err);
-  return !NON_RETRYABLE_WATCHER_ERROR_CODES.has(code);
 }
 
 function cloneConfig<T>(value: T): T {
@@ -5811,6 +5783,10 @@ function normalizeBrowserConfig(
   const rawMacCua = isRecord(raw.macCua) ? raw.macCua : {};
   return {
     provider: normalizeBrowserProviderKind(raw.provider, fallback.provider),
+    allowPrivateNetwork: normalizeBoolean(
+      raw.allowPrivateNetwork,
+      fallback.allowPrivateNetwork,
+    ),
     local: {
       profileRoot: normalizeString(
         rawLocal.profileRoot,
@@ -7918,7 +7894,7 @@ function scheduleReload(trigger: string): void {
 }
 
 function scheduleWatcherRestart(reason: string): void {
-  if (isRuntimeConfigWatcherDisabled() || watcherPermanentlyDisabled) return;
+  if (isRuntimeConfigWatcherDisabled()) return;
   if (watcherRestartTimer) return;
   if (watcherStableTimer) {
     clearTimeout(watcherStableTimer);
@@ -7955,7 +7931,7 @@ function markWatcherStable(activeWatcher: fs.FSWatcher): void {
 }
 
 function startWatcher(): void {
-  if (isRuntimeConfigWatcherDisabled() || watcherPermanentlyDisabled) return;
+  if (isRuntimeConfigWatcherDisabled()) return;
   if (configWatcher) return;
 
   try {
@@ -7989,19 +7965,11 @@ function startWatcher(): void {
         clearTimeout(watcherStableTimer);
         watcherStableTimer = null;
       }
-      if (!shouldRetryWatcherError(err)) {
-        disableWatcher(reason);
-        return;
-      }
       console.warn(`[runtime-config] watcher error: ${reason}`);
       scheduleWatcherRestart(`watcher error: ${reason}`);
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    if (!shouldRetryWatcherError(err)) {
-      disableWatcher(reason);
-      return;
-    }
     console.warn(`[runtime-config] watcher setup failed: ${reason}`);
     scheduleWatcherRestart(`watcher setup failed: ${reason}`);
   }

@@ -101,7 +101,7 @@ function resolveChromeBinary(): string {
   if (playwrightChromium) return playwrightChromium;
 
   throw new Error(
-    'No Chrome or Chromium browser found. Install google-chrome, chromium, or set CHROME_BIN.',
+    'No Chrome or Chromium browser found. Install google-chrome/chromium or choose another browser provider in /admin/config.',
   );
 }
 
