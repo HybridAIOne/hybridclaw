@@ -111,12 +111,17 @@ test('Shelly skill manifest declares optional cloud credential and guarded opera
     'local TUI/web `/policy` command, or the `/admin/approvals` network policy',
   );
   expect(skill).toContain('helper-emitted host,\nport, method, and path.');
+  expect(skill).toContain('method-scoped\n`/rpc/<method>` path');
   expect(skill).toContain('Shelly names can exist in multiple layers');
   expect(skill).toContain('Report the field\n  and API surface');
   expect(skill).toContain('Result Handling');
   expect(skill).toContain(
     'Base status and control answers on successful live Shelly API results',
   );
+  expect(skill).toContain(
+    'When the operator explicitly asks for local, LAN, or RPC access',
+  );
+  expect(skill).toContain('do not substitute a cloud result');
   expect(skill).not.toContain('session_search');
   expect(skill).not.toContain('Response Formatting');
   expect(skill).not.toContain('SSRF');
@@ -246,17 +251,14 @@ test('Shelly helper builds local Gen2 RPC read requests', () => {
     },
   });
   expect(components.httpRequest).toMatchObject({
-    url: 'http://192.0.2.10/rpc',
+    url: 'http://192.0.2.10/rpc/Shelly.GetComponents',
     method: 'POST',
     json: {
-      id: 1,
-      method: 'Shelly.GetComponents',
-      params: {
-        include: ['status', 'config'],
-        keys: ['switch:0'],
-      },
+      include: ['status', 'config'],
+      keys: ['switch:0'],
     },
   });
+  expect(components.rpcMethod).toBe('Shelly.GetComponents');
   expect(coverConfig).toMatchObject({
     operation: 'cover.config',
     stakesTier: 'green',
@@ -382,49 +384,43 @@ test('Shelly helper requires approval before local output changes', () => {
     operation: 'switch.set',
     stakesTier: 'amber',
     httpRequest: {
-      url: 'http://192.0.2.10/rpc',
+      url: 'http://192.0.2.10/rpc/Switch.Set',
       method: 'POST',
       json: {
-        method: 'Switch.Set',
-        params: {
-          id: 0,
-          on: true,
-          toggle_after: 5,
-        },
+        id: 0,
+        on: true,
+        toggle_after: 5,
       },
     },
+    rpcMethod: 'Switch.Set',
   });
   expect(coverOpen).toMatchObject({
     operation: 'cover.open',
     stakesTier: 'amber',
     httpRequest: {
-      url: 'http://192.0.2.10/rpc',
+      url: 'http://192.0.2.10/rpc/Cover.Open',
       method: 'POST',
       json: {
-        method: 'Cover.Open',
-        params: {
-          id: 0,
-          duration: 5,
-          tag: 'hybridclaw',
-        },
+        id: 0,
+        duration: 5,
+        tag: 'hybridclaw',
       },
     },
+    rpcMethod: 'Cover.Open',
   });
   expect(coverGoto).toMatchObject({
     operation: 'cover.goto',
     stakesTier: 'amber',
     httpRequest: {
-      url: 'http://192.0.2.10/rpc',
+      url: 'http://192.0.2.10/rpc/Cover.GoToPosition',
       method: 'POST',
       json: {
-        method: 'Cover.GoToPosition',
-        params: {
-          id: 0,
-          pos: 50,
-          slat_pos: 30,
-        },
+        id: 0,
+        pos: 50,
+        slat_pos: 30,
       },
     },
+    rpcMethod: 'Cover.GoToPosition',
   });
   expect(coverGotoPlan).toMatchObject({
     command: 'approval-plan',
@@ -432,7 +428,7 @@ test('Shelly helper requires approval before local output changes', () => {
     stakesTier: 'amber',
     target: {
       host: '192.0.2.10',
-      path: '/rpc',
+      path: '/rpc/Cover.GoToPosition',
       method: 'POST',
     },
     rpcMethod: 'Cover.GoToPosition',
@@ -451,7 +447,7 @@ test('Shelly helper requires approval before local output changes', () => {
     operation: 'cover.goto',
     target: {
       host: '192.0.2.10',
-      path: '/rpc',
+      path: '/rpc/Cover.GoToPosition',
       method: 'POST',
     },
     params: {
@@ -579,15 +575,13 @@ test('Shelly helper builds generic Gen2 RPC requests', () => {
     operation: 'rpc.call',
     stakesTier: 'amber',
     httpRequest: {
-      url: 'http://192.0.2.10/rpc',
+      url: 'http://192.0.2.10/rpc/Cover.Calibrate',
       method: 'POST',
       json: {
-        method: 'Cover.Calibrate',
-        params: {
-          id: 0,
-        },
+        id: 0,
       },
     },
+    rpcMethod: 'Cover.Calibrate',
   });
   expect(plan).toMatchObject({
     command: 'approval-plan',

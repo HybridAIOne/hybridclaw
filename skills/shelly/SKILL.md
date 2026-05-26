@@ -170,6 +170,11 @@ Supported operation groups:
 5. For control, use the matching helper command and include `--operator-grant`
    only after explicit approval.
 
+When the operator explicitly asks for local, LAN, or RPC access, stay on the
+local helper route. If local execution fails, report the local failure and the
+gateway error; do not substitute a cloud result unless the operator then asks
+for a cloud fallback.
+
 ## Required Inputs
 
 Collect only the inputs needed for the chosen surface.
@@ -192,6 +197,10 @@ port, method, and path. Operators can add policy rules through the CLI, the
 local TUI/web `/policy` command, or the `/admin/approvals` network policy
 editor. If local access is not available, use the cloud APIs or ask for a
 reachable local device URL.
+
+For Gen2+ RPC, authorize the method/path that the helper emits. Some local
+reads and all local control operations use HTTP `POST` to a method-scoped
+`/rpc/<method>` path, even when the RPC method itself is a read.
 
 ## Credentials
 

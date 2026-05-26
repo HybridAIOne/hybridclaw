@@ -416,6 +416,7 @@ function buildPayload(
     captureResponseFields,
     requiresConfiguredSecrets,
     capturesSecrets,
+    rpcMethod,
   },
 ) {
   const tier = OPERATION_TIERS[operation];
@@ -444,6 +445,9 @@ function buildPayload(
   }
   if (captureResponseFields !== undefined) {
     payload.httpRequest.captureResponseFields = captureResponseFields;
+  }
+  if (rpcMethod !== undefined) {
+    payload.rpcMethod = rpcMethod;
   }
   if (operation === 'cloud-oauth-token') {
     payload.secretRefPolicy =
@@ -605,13 +609,10 @@ function buildWebSocketPayload(operation, { urlTemplate, message }) {
 
 function buildRpcPost(operation, base, method, params) {
   return buildPayload(operation, {
-    url: appendPath(base, '/rpc').toString(),
+    url: appendPath(base, `/rpc/${method}`).toString(),
     method: 'POST',
-    json: {
-      id: 1,
-      method,
-      params,
-    },
+    json: params,
+    rpcMethod: method,
   });
 }
 
@@ -1482,10 +1483,14 @@ function buildApprovalPlan(args) {
       'After explicit operator approval in a later message, run approvedHelperCommandText exactly. The helper executes HTTP operations through the HybridClaw gateway.',
     costMeasurement: COST_MEASUREMENT,
   };
-  if (approvedPayload.httpRequest?.json?.method) {
+  if (approvedPayload.rpcMethod) {
+    plan.rpcMethod = approvedPayload.rpcMethod;
+  } else if (approvedPayload.httpRequest?.json?.method) {
     plan.rpcMethod = approvedPayload.httpRequest.json.method;
   }
-  if (approvedPayload.httpRequest?.json?.params) {
+  if (approvedPayload.rpcMethod && approvedPayload.httpRequest?.json) {
+    plan.params = approvedPayload.httpRequest.json;
+  } else if (approvedPayload.httpRequest?.json?.params) {
     plan.params = approvedPayload.httpRequest.json.params;
   } else if (approvedPayload.httpRequest?.json) {
     plan.params = approvedPayload.httpRequest.json;
