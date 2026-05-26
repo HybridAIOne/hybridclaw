@@ -72,6 +72,8 @@
 - **Skill amendment safety**: Skill amendment generation and application now
   enforce tighter best-practice constraints, clearer formatting, and rollback
   evaluation behavior.
+- **SkillOpt roadmap status**: Roadmap docs reflect the full SkillOpt-lite
+  implementation status after the acceptance gates landed.
 - **Auxiliary routing and provider health**: Auxiliary model calls prefer
   healthy local providers when configured and route through health-aware
   fallback decisions.
@@ -87,6 +89,10 @@
 
 - **Remote A2A routing bug**: Fixed `sendMessage` delivery for remote A2A
   recipients that were incorrectly treated as local recipients.
+- **Skill CLI runtime bug**: Fixed skill CLI runtime initialization so skill
+  commands start with the expected runtime context.
+- **Targeted skill learning bug**: Fixed targeted skill learning so quiet
+  learning paths do not emit unnecessary operator-facing output.
 - **Admin SPA navigation bug**: Fixed admin job links that triggered full-page
   reloads instead of staying inside the existing SPA route.
 - **Observability ingest token bug**: Fixed stale observability ingest tokens
