@@ -10166,6 +10166,40 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('preserves outbound http_request fetch failure causes in 502 responses', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('fetch failed', {
+          cause: new Error('connect ECONNREFUSED 192.168.178.198:80'),
+        });
+      }),
+    );
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Outbound HTTP request failed: fetch failed (connect ECONNREFUSED 192.168.178.198:80)',
+    });
+  });
+
   test('fails closed when dns lookup for http_request host fails', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => {

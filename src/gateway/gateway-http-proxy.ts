@@ -157,6 +157,46 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
+function formatOutboundHttpError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const message = error.message || error.name || String(error);
+  const cause = formatErrorCause(error.cause);
+  if (!cause || message.includes(cause)) {
+    return message;
+  }
+  return `${message} (${cause})`;
+}
+
+function formatErrorCause(cause: unknown): string {
+  if (cause == null) {
+    return '';
+  }
+  if (cause instanceof Error) {
+    const message = cause.message || cause.name || String(cause);
+    const nestedCause = formatErrorCause(cause.cause);
+    if (!nestedCause || message.includes(nestedCause)) {
+      return message;
+    }
+    return `${message} (${nestedCause})`;
+  }
+  if (typeof cause === 'string') {
+    return cause;
+  }
+  if (typeof cause === 'object') {
+    const record = cause as Record<string, unknown>;
+    const message =
+      typeof record.message === 'string' ? record.message.trim() : '';
+    const code = typeof record.code === 'string' ? record.code.trim() : '';
+    if (message) {
+      return code && !message.includes(code) ? `${code} ${message}` : message;
+    }
+    return code;
+  }
+  return String(cause);
+}
+
 type PrivateHostCheck = {
   blocked: boolean;
   reason: 'private' | 'dns_failed';
@@ -1559,10 +1599,10 @@ export async function handleApiHttpRequest(
       redirect: 'manual',
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     throw new GatewayRequestError(
       502,
-      `Outbound HTTP request failed: ${message}`,
+      `Outbound HTTP request failed: ${formatOutboundHttpError(error)}`,
+      { cause: error },
     );
   } finally {
     clearTimeout(timeout);
