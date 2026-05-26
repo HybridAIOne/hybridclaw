@@ -105,10 +105,22 @@ export function formatSkillAmendment(
         : `SkillOpt-lite: ${selectedCount} edit(s), ${appliedCount} applied, evidence=${source}/${evidenceCount}`,
     );
     if (metadata.gate) {
+      const scoreSummary =
+        typeof metadata.gate.current_score === 'number' &&
+        typeof metadata.gate.candidate_score === 'number'
+          ? ` score=${metadata.gate.candidate_score.toFixed(2)}/${metadata.gate.current_score.toFixed(2)}`
+          : '';
       lines.push(
         style === 'compact'
-          ? `  gate: ${metadata.gate.accepted ? 'accepted' : 'rejected'} (${metadata.gate.reason})`
-          : `Gate: ${metadata.gate.accepted ? 'accepted' : 'rejected'} (${metadata.gate.reason})`,
+          ? `  gate: ${metadata.gate.accepted ? 'accepted' : 'rejected'}${scoreSummary} (${metadata.gate.reason})`
+          : `Gate: ${metadata.gate.accepted ? 'accepted' : 'rejected'}${scoreSummary} (${metadata.gate.reason})`,
+      );
+    }
+    if (metadata.rejected_edit_count != null) {
+      lines.push(
+        style === 'compact'
+          ? `  rejected-memory: ${metadata.rejected_edit_count} edit(s)`
+          : `Rejected memory: ${metadata.rejected_edit_count} edit(s)`,
       );
     }
   }

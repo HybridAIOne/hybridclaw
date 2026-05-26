@@ -1408,6 +1408,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       minTrajectoryEvidence: 2,
       maxEvidenceExamples: 12,
       heldOutRatio: 0.25,
+      trajectorySampleSeed: 'skillopt-lite',
+      minCandidateScoreDelta: 0.01,
+      rejectedEditMemoryLimit: 20,
     },
   },
   discord: {
@@ -6638,6 +6641,24 @@ function normalizeRuntimeConfig(
           rawAdaptiveSkillsOptimization.heldOutRatio,
           DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization.heldOutRatio,
           { min: 0, max: 0.8 },
+        ),
+        trajectorySampleSeed: normalizeString(
+          rawAdaptiveSkillsOptimization.trajectorySampleSeed,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .trajectorySampleSeed,
+          { allowEmpty: false },
+        ),
+        minCandidateScoreDelta: normalizeNumber(
+          rawAdaptiveSkillsOptimization.minCandidateScoreDelta,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .minCandidateScoreDelta,
+          { min: 0, max: 1 },
+        ),
+        rejectedEditMemoryLimit: normalizeInteger(
+          rawAdaptiveSkillsOptimization.rejectedEditMemoryLimit,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.optimization
+            .rejectedEditMemoryLimit,
+          { min: 0, max: 100 },
         ),
       },
     },

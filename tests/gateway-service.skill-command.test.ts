@@ -859,7 +859,7 @@ test('skill learn stages SkillOpt-lite structured edits', async () => {
     runId: 'run-1',
     outcome: 'failure',
     errorCategory: 'model_error',
-    errorDetail: 'instructions too vague',
+    errorDetail: 'missing step planning instructions',
     toolCallsAttempted: 1,
     toolCallsFailed: 0,
     durationMs: 90,
@@ -913,6 +913,7 @@ test('skill learn stages SkillOpt-lite structured edits', async () => {
   }
   expect(staged.text).toContain('SkillOpt-lite: 1 edit(s), 1 applied');
   expect(staged.text).toContain('Gate: accepted');
+  expect(staged.text).toContain('score=');
   expect(fs.readFileSync(context.skillFilePath, 'utf-8')).not.toContain(
     'List the requested steps before acting.',
   );
@@ -937,6 +938,19 @@ test('skill learn stages SkillOpt-lite structured edits', async () => {
   expect(applied.kind).toBe('plain');
   expect(applied.text).toContain('Applied staged amendment');
   expect(fs.readFileSync(context.skillFilePath, 'utf-8')).toContain(
+    'List the requested steps before acting.',
+  );
+
+  const rolledBack = await handleGatewayCommand({
+    sessionId: 'session-skillopt-amend',
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'learn', context.skillName, '--rollback'],
+  });
+
+  expect(rolledBack.kind).toBe('plain');
+  expect(rolledBack.text).toContain('Rolled back amendment');
+  expect(fs.readFileSync(context.skillFilePath, 'utf-8')).not.toContain(
     'List the requested steps before acting.',
   );
 });
@@ -998,6 +1012,45 @@ test('skill learn rejects SkillOpt-lite candidates that fail validation', async 
       status: 'staged',
     }),
   ).toBeNull();
+  expect(
+    context.dbModule.getSkillOptLiteRejectedEdits({
+      skillName: context.skillName,
+      limit: 5,
+    }),
+  ).toMatchObject([
+    {
+      op: 'append',
+      content_preview: 'Over-specific recovery rule.',
+      reason: 'Held-out examples regressed.',
+    },
+  ]);
+
+  runAgentMock.mockResolvedValueOnce({
+    status: 'success',
+    result: JSON.stringify({
+      rationale: 'Retry the same rejected candidate.',
+      validation: { action: 'accept', reason: 'Looks plausible.' },
+      edits: [
+        {
+          op: 'append',
+          target: '',
+          content: 'Over-specific recovery rule.',
+          rationale: 'Only helps the failed trace.',
+          source_type: 'failure',
+          support_count: 1,
+        },
+      ],
+    }),
+    toolsUsed: [],
+  });
+  await expect(
+    handleGatewayCommand({
+      sessionId: 'session-skillopt-reject-repeat',
+      guildId: null,
+      channelId: 'web',
+      args: ['skill', 'learn', context.skillName],
+    }),
+  ).rejects.toThrow('only repeated rejected edits');
 });
 
 test('skill learn --apply command applies the latest staged amendment', async () => {

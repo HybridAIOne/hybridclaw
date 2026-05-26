@@ -3,6 +3,7 @@ import path from 'node:path';
 import { afterEach, expect, test } from 'vitest';
 import {
   applySkillOptLiteEdits,
+  filterRejectedSkillOptLiteEdits,
   gateSkillOptLiteCandidate,
   normalizeSkillOptLiteEdits,
   rankAndClipSkillOptLiteEdits,
@@ -143,6 +144,80 @@ test('SkillOpt-lite gate rejects optimizer validation failures', () => {
   });
 });
 
+test('SkillOpt-lite gate rejects edits that miss held-out failures', () => {
+  const selectedEdits = normalizeSkillOptLiteEdits([
+    {
+      op: 'append',
+      content: 'Always mention invoices.',
+      rationale: 'Invoice-specific issue.',
+      source_type: 'failure',
+      support_count: 1,
+    },
+  ]);
+  const applied = applySkillOptLiteEdits('Existing skill.\n', selectedEdits);
+
+  expect(
+    gateSkillOptLiteCandidate({
+      originalContent: 'Existing skill.\n',
+      proposedContent: applied.content,
+      applyReport: applied.report,
+      selectedEdits,
+      heldOutEvidence: [
+        {
+          outcome: 'failure',
+          errorCategory: 'model_error',
+          errorDetail: 'Missing calendar timezone conversion.',
+        },
+      ],
+      minScoreDelta: 0.01,
+      validationDecision: { action: 'accept' },
+    }),
+  ).toMatchObject({
+    accepted: false,
+    reason: 'Candidate edits do not cover any held-out failure evidence.',
+    held_out_failure_count: 1,
+    matched_held_out_failures: 0,
+  });
+});
+
+test('filters rejected SkillOpt-lite edit memory before ranking', () => {
+  const edits = normalizeSkillOptLiteEdits([
+    {
+      op: 'append',
+      content: 'Avoid retried patch.',
+      rationale: 'Known bad candidate.',
+      source_type: 'failure',
+      support_count: 10,
+    },
+    {
+      op: 'append',
+      content: 'Use safer fallback.',
+      rationale: 'New candidate.',
+      source_type: 'failure',
+      support_count: 1,
+    },
+  ]);
+
+  expect(
+    filterRejectedSkillOptLiteEdits(edits, [
+      {
+        id: 1,
+        skill_name: 'demo-skill',
+        edit_hash: 'hash',
+        op: 'append',
+        target: '',
+        content_preview: 'Avoid retried patch.',
+        rationale: 'Known bad candidate.',
+        source_type: 'failure',
+        support_count: 10,
+        reason: 'Regressed held-out examples.',
+        evidence_source: 'observations',
+        created_at: '2026-05-26T00:00:00.000Z',
+      },
+    ]).map((edit) => edit.content),
+  ).toEqual(['Use safer fallback.']);
+});
+
 test('samples stored skill trajectories by skill agent and newest-first limit', async () => {
   context = await createAdaptiveSkillsTestContext();
   const storeDir = path.join(context.homeDir, 'trajectory-sampler');
@@ -232,4 +307,22 @@ test('samples stored skill trajectories by skill agent and newest-first limit', 
 
   expect(sampled.map((record) => record.run_id)).toEqual(['run-new']);
   expect(sampled[0]?.input?.content).toBe('new input');
+
+  const seededA = getSkillRunTrajectories({
+    skillName: context.skillName,
+    agentId: 'agent-1',
+    limit: 2,
+    seed: 'stable-seed',
+    config: context.runtimeConfigModule.getRuntimeConfig(),
+  }).map((record) => record.run_id);
+  const seededB = getSkillRunTrajectories({
+    skillName: context.skillName,
+    agentId: 'agent-1',
+    limit: 2,
+    seed: 'stable-seed',
+    config: context.runtimeConfigModule.getRuntimeConfig(),
+  }).map((record) => record.run_id);
+
+  expect(seededA).toEqual(seededB);
+  expect([...seededA].sort()).toEqual(['run-new', 'run-old']);
 });

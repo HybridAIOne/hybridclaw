@@ -56,6 +56,21 @@ export interface SkillOptLiteApplyReport {
     | 'skipped_unknown';
 }
 
+export interface SkillOptLiteRejectedEditMemory {
+  id: number;
+  skill_name: string;
+  edit_hash: string;
+  op: SkillOptLiteEditOperation;
+  target: string;
+  content_preview: string;
+  rationale: string;
+  source_type: SkillOptLiteEditSource;
+  support_count: number;
+  reason: string;
+  evidence_source: 'trajectories' | 'observations' | null;
+  created_at: string;
+}
+
 export interface SkillAmendmentProposalMetadata {
   kind: SkillAmendmentProposalKind;
   edit_budget?: number;
@@ -72,7 +87,14 @@ export interface SkillAmendmentProposalMetadata {
   gate?: {
     accepted: boolean;
     reason: string;
+    current_score?: number;
+    candidate_score?: number;
+    best_score?: number;
+    held_out_count?: number;
+    held_out_failure_count?: number;
+    matched_held_out_failures?: number;
   };
+  rejected_edit_count?: number;
 }
 
 export interface SkillErrorCluster {
@@ -223,5 +245,8 @@ export interface AdaptiveSkillsConfig {
     minTrajectoryEvidence: number;
     maxEvidenceExamples: number;
     heldOutRatio: number;
+    trajectorySampleSeed: string;
+    minCandidateScoreDelta: number;
+    rejectedEditMemoryLimit: number;
   };
 }
