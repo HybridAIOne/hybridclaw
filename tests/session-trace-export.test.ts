@@ -846,6 +846,137 @@ test('gateway export trace command writes the ATIF-compatible trace file', async
   expect(getSessionUsageTotals(session.id).total_tokens).toBe(15);
 });
 
+test('gateway export trace command writes a focused turn trace', async () => {
+  setupHome();
+
+  const { getOrCreateSession, initDatabase, recordUsageEvent, storeMessage } =
+    await import('../src/memory/db.ts');
+  const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const session = getOrCreateSession(
+    'session-trace-turn-command',
+    null,
+    'channel-trace-turn-command',
+  );
+  storeMessage(session.id, 'user-1', 'alice', 'user', 'Prompt 1');
+  storeMessage(session.id, 'assistant', null, 'assistant', 'Assistant 1');
+  storeMessage(session.id, 'user-1', 'alice', 'user', 'Prompt 2');
+  storeMessage(
+    session.id,
+    'assistant',
+    null,
+    'assistant',
+    `Assistant 2 ${'x'.repeat(6000)}`,
+  );
+
+  for (const index of [1, 2]) {
+    const runId = `turn_trace_focus_${index}`;
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.start',
+        turnIndex: index,
+        userInput: `Prompt ${index}`,
+      },
+    });
+    if (index === 2) {
+      emitToolExecutionAuditEvents({
+        sessionId: session.id,
+        runId,
+        toolExecutions: [
+          {
+            name: 'web_fetch',
+            arguments: JSON.stringify({
+              url: 'https://example.com/api?token=sk-test-ABCDEFGHIJKLMNOP1234567890',
+              body: 'large-body-'.repeat(600),
+            }),
+            result: `result sk-test-ABCDEFGHIJKLMNOP1234567890 ${'y'.repeat(6000)}`,
+            durationMs: 99,
+            isError: false,
+          },
+        ],
+      });
+    }
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'turn.end',
+        turnIndex: index,
+        finishReason: 'completed',
+      },
+    });
+  }
+  recordUsageEvent({
+    sessionId: session.id,
+    agentId: session.agent_id,
+    model: 'gpt-5-nano',
+    inputTokens: 20,
+    outputTokens: 10,
+    totalTokens: 30,
+  });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: session.id,
+    guildId: null,
+    channelId: session.channel_id,
+    args: ['export', 'trace', '--turn', '2'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('Turns: 1');
+  expect(result.text).toContain('Runs: turn_trace_focus_2');
+  const fileLine = result.text
+    .split('\n')
+    .find((line) => line.startsWith('File: '));
+  const exportPath = fileLine?.slice('File: '.length) || '';
+  const raw = fs.readFileSync(exportPath, 'utf-8').trim();
+  const record = JSON.parse(raw) as Record<string, unknown>;
+  const steps = record.steps as Array<Record<string, unknown>>;
+  expect(steps).toHaveLength(2);
+  expect(steps[0]).toMatchObject({ role: 'user', content: 'Prompt 2' });
+  expect(String(steps[1]?.content)).toContain('Assistant 2');
+  expect(String(steps[1]?.content).length).toBeLessThan(4100);
+  const serialized = JSON.stringify(record);
+  expect(serialized).toContain('turn_trace_focus_2');
+  expect(serialized).toContain('"turn_traces"');
+  expect(serialized).toContain('web_fetch');
+  expect(serialized).toContain('***REDACTED***');
+  expect(serialized).not.toContain('sk-test-ABCDEFGHIJKLMNOP1234567890');
+  expect(serialized).not.toContain('Prompt 1');
+  const metadata = record.metadata as Record<string, unknown>;
+  const hybridclaw = metadata.hybridclaw as Record<string, unknown>;
+  const turnTrace = (
+    hybridclaw.turn_traces as Array<Record<string, unknown>>
+  )[0];
+  const toolTrace = (turnTrace.tools as Array<Record<string, unknown>>)[0];
+  expect(String(toolTrace.resultSummary)).toContain('result');
+  expect(String(toolTrace.resultSummary).length).toBeLessThanOrEqual(523);
+
+  const runResult = await handleGatewayCommand({
+    sessionId: session.id,
+    guildId: null,
+    channelId: session.channel_id,
+    args: ['export', 'trace', '--run', 'turn_trace_focus_2'],
+  });
+
+  expect(runResult.kind).toBe('info');
+  if (runResult.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${runResult.kind}`);
+  }
+  expect(runResult.text).toContain('Runs: turn_trace_focus_2');
+});
+
 test('trace export adds a fallback limitation when structured turn audit is unavailable', async () => {
   setupHome();
 

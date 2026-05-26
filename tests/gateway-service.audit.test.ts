@@ -61,6 +61,179 @@ test('audit command shows recent structured audit events for the current session
   expect(result.text).toContain('bash ok 12ms');
 });
 
+test('audit command shows latest turn-level tool trace with redacted details', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-turn-audit',
+    runId: 'turn_audit_1',
+    event: {
+      type: 'turn.start',
+      turnIndex: 1,
+      userInput: 'First request',
+    },
+  });
+  recordAuditEvent({
+    sessionId: 'session-turn-audit',
+    runId: 'turn_audit_1',
+    event: { type: 'turn.end', turnIndex: 1, finishReason: 'completed' },
+  });
+
+  recordAuditEvent({
+    sessionId: 'session-turn-audit',
+    runId: 'turn_audit_2',
+    event: {
+      type: 'turn.start',
+      turnIndex: 2,
+      userInput: 'Fetch status with token=sk-test-ABCDEFGHIJKLMNOP1234567890',
+    },
+  });
+  recordAuditEvent({
+    sessionId: 'session-turn-audit',
+    runId: 'turn_audit_2',
+    event: {
+      type: 'model.usage',
+      provider: 'hybridai',
+      model: 'gpt-5-nano',
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
+    },
+  });
+  emitToolExecutionAuditEvents({
+    sessionId: 'session-turn-audit',
+    runId: 'turn_audit_2',
+    toolExecutions: [
+      {
+        name: 'update_plan',
+        arguments: '{"steps":["inspect","fix"]}',
+        result: 'plan updated',
+        durationMs: 2,
+        isError: false,
+      },
+      {
+        name: 'web_fetch',
+        arguments:
+          '{"url":"https://example.com/status?token=sk-test-ABCDEFGHIJKLMNOP1234567890","headers":{"Authorization":"Bearer abcdefghijklmnopqrstuvwxyz"}}',
+        result: 'ok token=sk-test-ABCDEFGHIJKLMNOP1234567890',
+        durationMs: 42,
+        isError: false,
+        approvalDecision: 'implicit',
+        approvalTier: 'yellow',
+      },
+    ],
+  });
+  recordAuditEvent({
+    sessionId: 'session-turn-audit',
+    runId: 'turn_audit_2',
+    event: {
+      type: 'skill.execution',
+      skillName: 'status-check',
+      outcome: 'success',
+      durationMs: 12,
+    },
+  });
+  recordAuditEvent({
+    sessionId: 'session-turn-audit',
+    runId: 'turn_audit_2',
+    event: {
+      type: 'turn.end',
+      turnIndex: 2,
+      finishReason: 'completed',
+      durationMs: 60,
+    },
+  });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-turn-audit',
+    guildId: null,
+    channelId: 'channel-turn-audit',
+    args: ['audit', 'last'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Audit Turn (session-turn-audit)');
+  expect(result.text).toContain('Turn: 2');
+  expect(result.text).toContain('Run: turn_audit_2');
+  expect(result.text).toContain('update_plan (helper/planning) ok');
+  expect(result.text).toContain('web_fetch (network execution) ok');
+  expect(result.text).toContain('authorization:');
+  expect(result.text).toContain('Model usage:');
+  expect(result.text).toContain('status-check: success');
+  expect(result.text).toContain('Duration: total 60ms, tools 44ms');
+  expect(result.text).not.toContain('sk-test-ABCDEFGHIJKLMNOP1234567890');
+  expect(result.text).not.toContain('abcdefghijklmnopqrstuvwxyz');
+  expect(result.text).toContain('***REDACTED***');
+});
+
+test('audit command selects a turn by session id and stable turn index', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+
+  initDatabase({ quiet: true });
+  for (const index of [1, 2]) {
+    recordAuditEvent({
+      sessionId: 'session-turn-select',
+      runId: `turn_select_${index}`,
+      event: {
+        type: 'turn.start',
+        turnIndex: index,
+        userInput: `Prompt ${index}`,
+      },
+    });
+    recordAuditEvent({
+      sessionId: 'session-turn-select',
+      runId: `turn_select_${index}`,
+      event: { type: 'turn.end', turnIndex: index, finishReason: 'completed' },
+    });
+  }
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'current-session',
+    guildId: null,
+    channelId: 'channel-turn-select',
+    args: ['audit', 'session-turn-select', '--turn', '1'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('Run: turn_select_1');
+  expect(result.text).not.toContain('turn_select_2');
+
+  const runResult = await handleGatewayCommand({
+    sessionId: 'session-turn-select',
+    guildId: null,
+    channelId: 'channel-turn-select',
+    args: ['audit', 'run', 'turn_select_2'],
+  });
+
+  expect(runResult.kind).toBe('info');
+  if (runResult.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${runResult.kind}`);
+  }
+  expect(runResult.text).toContain('Run: turn_select_2');
+  expect(runResult.text).not.toContain('turn_select_1');
+});
+
 test('admin tools exposes recent tool error summaries', async () => {
   setupHome();
 

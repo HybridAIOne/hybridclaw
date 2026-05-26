@@ -45,6 +45,10 @@ function summarizeToolResult(text: string): string {
   return truncateAuditText(text, 280);
 }
 
+function previewToolResult(text: string): string {
+  return truncateAuditText(text, 4_000);
+}
+
 type ApprovalTier = NonNullable<ToolExecution['approvalTier']>;
 type ApprovalDecision = NonNullable<ToolExecution['approvalDecision']>;
 type EscalationRoute = NonNullable<ToolExecution['escalationRoute']>;
@@ -314,6 +318,7 @@ export function emitToolExecutionAuditEvents(input: {
         isError: Boolean(execution.isError),
         blocked: Boolean(execution.blocked),
         resultSummary: summarizeToolResult(execution.result || ''),
+        resultPreview: previewToolResult(execution.result || ''),
         durationMs: execution.durationMs,
         anomaly,
       },
