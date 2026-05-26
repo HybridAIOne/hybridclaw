@@ -5213,6 +5213,55 @@ describe('CLI hybridai commands', () => {
     vi.doUnmock('../src/skills/skills-management.js');
   });
 
+  it('initializes the database before printing local skill runs', async () => {
+    vi.resetModules();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const initAgentRegistry = vi.fn();
+    const isDatabaseInitialized = vi.fn(() => false);
+    const initDatabase = vi.fn();
+    const getSkillExecutionRuns = vi.fn(() => [
+      {
+        id: 1,
+        skill_name: 'warehouse-sql',
+        agent_id: 'main',
+        session_id: 'session-1',
+        run_id: 'run-1',
+        outcome: 'success',
+        error_category: null,
+        error_detail: null,
+        tool_calls_attempted: 1,
+        tool_calls_failed: 0,
+        duration_ms: 42,
+        user_feedback: null,
+        feedback_sentiment: null,
+        created_at: '2026-05-26T00:00:00.000Z',
+      },
+    ]);
+    vi.doMock('../src/memory/db.js', () => ({
+      initDatabase,
+      isDatabaseInitialized,
+    }));
+    vi.doMock('../src/agents/agent-registry.js', () => ({
+      initAgentRegistry,
+    }));
+    vi.doMock('../src/skills/skills-management.js', () => ({
+      getSkillExecutionRuns,
+    }));
+
+    const { handleSkillCommand } = await import('../src/cli/skill-command.ts');
+    await handleSkillCommand(['runs', 'warehouse-sql']);
+
+    expect(initDatabase).toHaveBeenCalledWith({ quiet: true });
+    expect(initAgentRegistry).toHaveBeenCalled();
+    expect(getSkillExecutionRuns).toHaveBeenCalledWith('warehouse-sql');
+    expect(logSpy).toHaveBeenCalledWith('Run: run-1');
+    expect(logSpy).toHaveBeenCalledWith('Outcome: success');
+
+    vi.doUnmock('../src/memory/db.js');
+    vi.doUnmock('../src/agents/agent-registry.js');
+    vi.doUnmock('../src/skills/skills-management.js');
+  });
+
   it('disables a built-in tool globally', async () => {
     const { cli, updateRuntimeConfig } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
