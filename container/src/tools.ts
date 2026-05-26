@@ -31,8 +31,8 @@ import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
-  resolveRuntimeProviderContext,
   type RuntimeProvider,
+  resolveRuntimeProviderContext,
 } from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
@@ -782,6 +782,7 @@ export function setGatewayContext(
   browserProvider?: string,
   sessionId?: string,
   agentId?: string,
+  browserAllowPrivateNetwork?: boolean,
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
@@ -791,6 +792,7 @@ export function setGatewayContext(
     browserProvider,
     sessionId,
     agentId,
+    browserAllowPrivateNetwork,
   );
   gatewayChannelId = String(channelId || '').trim();
   gatewayConfiguredChannels =

@@ -227,6 +227,9 @@ let gatewayApiToken = '';
 let gatewayBrowserProvider = '';
 let gatewayBrowserSessionId = '';
 let gatewayBrowserAgentId = '';
+let browserAllowPrivateNetwork =
+  String(process.env.BROWSER_ALLOW_PRIVATE_NETWORK || '').toLowerCase() ===
+  'true';
 const suspendedSessionByBrowserSession = new Map<string, string>();
 
 export function setBrowserGatewayContext(
@@ -235,12 +238,16 @@ export function setBrowserGatewayContext(
   browserProvider?: string,
   sessionId?: string,
   agentId?: string,
+  allowPrivateNetwork?: boolean,
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
   gatewayBrowserProvider = String(browserProvider || '').trim();
   gatewayBrowserSessionId = String(sessionId || '').trim();
   gatewayBrowserAgentId = String(agentId || '').trim();
+  if (typeof allowPrivateNetwork === 'boolean') {
+    browserAllowPrivateNetwork = allowPrivateNetwork;
+  }
 }
 
 function cloneTaskModelPolicies(
@@ -2549,7 +2556,9 @@ export async function executeBrowserTool(
     }
     switch (name) {
       case 'browser_navigate': {
-        const parsed = await assertBrowserNavigationUrl(args.url);
+        const parsed = await assertBrowserNavigationUrl(args.url, {
+          allowPrivateNetwork: browserAllowPrivateNetwork,
+        });
         const headed = parseOptionalBoolean(args.headed ?? args.headful);
         const result = await runAgentBrowser(
           effectiveSessionId,
