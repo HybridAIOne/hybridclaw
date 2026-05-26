@@ -41,6 +41,7 @@ export const TASK_MODEL_KEYS = [
   'mcp',
   'flush_memories',
   'btw',
+  'second_opinion',
   'session_title',
 ] as const;
 

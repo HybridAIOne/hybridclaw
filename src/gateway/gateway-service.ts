@@ -121,6 +121,7 @@ import {
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import { runBtwSideQuestion } from '../commands/btw-command.js';
 import { runPolicyCommand } from '../commands/policy-command.js';
+import { runSecondOpinionCommand } from '../commands/second-opinion-command.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -9195,6 +9196,20 @@ export async function handleGatewayCommand(
         } catch (error) {
           return badCommand(
             'BTW Failed',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
+      case 'second-opinion': {
+        try {
+          return infoCommand(
+            'Second Opinion',
+            await runSecondOpinionCommand(session, req.args.slice(1)),
+          );
+        } catch (error) {
+          return badCommand(
+            'Second Opinion Failed',
             error instanceof Error ? error.message : String(error),
           );
         }

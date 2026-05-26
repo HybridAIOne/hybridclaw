@@ -134,6 +134,7 @@ export interface AuxiliaryModelCallParams {
   temperature?: number;
   timeoutMs?: number;
   extraBody?: Record<string, unknown>;
+  allowFallback?: boolean;
 }
 
 export interface AuxiliaryModelUsage {
@@ -822,6 +823,7 @@ async function resolveExplicitTextCallContextWithFallback(
   try {
     return await resolveExplicitTextCallContext(params);
   } catch (error) {
+    if (params.allowFallback === false) throw error;
     return withAuxiliaryFallbackChain(
       params,
       error,
@@ -1610,7 +1612,10 @@ async function callAuxiliaryTextProviderWithFallback(
       ),
     };
   } catch (error) {
-    if (params.provider && params.provider !== 'auto') {
+    if (
+      params.allowFallback === false ||
+      (params.provider && params.provider !== 'auto')
+    ) {
       throw error;
     }
     const attempted = new Set([auxiliaryContextKey(context)]);

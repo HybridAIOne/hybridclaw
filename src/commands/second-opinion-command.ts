@@ -1,0 +1,576 @@
+import { resolveAgentForRequest } from '../agents/agent-registry.js';
+import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
+import { memoryService } from '../memory/memory-service.js';
+import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import {
+  getAvailableModelList,
+  normalizeModelCatalogProviderFilter,
+  refreshAvailableModelCatalogs,
+} from '../providers/model-catalog.js';
+import { formatModelForDisplay } from '../providers/model-names.js';
+import {
+  isRuntimeProviderId,
+  type RuntimeProviderId,
+} from '../providers/provider-ids.js';
+import {
+  detectRuntimeProviderPrefix,
+  normalizeAuxiliaryProviderModel,
+} from '../providers/task-routing.js';
+import { scanForLeaks } from '../security/confidential-redact.js';
+import {
+  createConfidentialRuntimeContext,
+  type DehydrateMessageContent,
+} from '../security/confidential-runtime.js';
+import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
+import type { ChatMessage } from '../types/api.js';
+import type { Session, StoredMessage } from '../types/session.js';
+import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
+
+const SECOND_OPINION_CONTEXT_MESSAGE_LIMIT = 8;
+const SECOND_OPINION_TIMEOUT_MS = 300_000;
+const SECOND_OPINION_DEFAULT_MAX_TOKENS = 1200;
+const PREFERRED_CODEX_MODEL_RE = /gpt-5\.(?:5|4)|gpt-5/i;
+
+export type SecondOpinionMode = 'compare' | 'validate';
+
+export interface ParsedSecondOpinionArgs {
+  mode: SecondOpinionMode;
+  question: string;
+  model?: string;
+  provider?: RuntimeProviderId;
+  maxContextMessages: number;
+  includeTranscript: boolean;
+}
+
+interface SecondOpinionVerdict {
+  revisedAnswer: string;
+  verdict: string;
+  materialDisagreements: string[];
+  missingCaveats: string[];
+  confidence: string;
+}
+
+interface SecondOpinionTarget {
+  provider?: RuntimeProviderId;
+  model: string;
+  selection: 'requested' | 'configured' | 'default';
+}
+
+type SecondOpinionSynthesisDisposition = 'accepted' | 'revised' | 'unclear';
+
+const SECOND_OPINION_BASE_PROMPT = [
+  'You are a stronger-model second opinion for HybridClaw.',
+  '/no_think',
+  'You receive an original user question, the active assistant draft, and optional recent context.',
+  'Do not use tools, claim you used tools, or ask follow-up questions.',
+  'Do not invent citations or external checks. If live verification would be needed, say so in the revised answer.',
+  'Return exactly one JSON object and no prose, markdown, code fences, or hidden reasoning.',
+  'JSON shape: {"verdict":"...","revised_answer":"...","material_disagreements":["..."],"missing_caveats":["..."],"confidence":"low|medium|high"}.',
+];
+
+const SECOND_OPINION_COMPARE_SYSTEM_PROMPT = [
+  ...SECOND_OPINION_BASE_PROMPT,
+  'Mode: same-question comparison.',
+  'Answer the original question independently first, then compare that independent answer against the active assistant draft.',
+  'Synthesize a corrected final answer rather than pasting two answers side by side.',
+].join('\n');
+
+const SECOND_OPINION_VALIDATE_SYSTEM_PROMPT = [
+  ...SECOND_OPINION_BASE_PROMPT,
+  'Mode: draft-answer validation.',
+  'Fact-check the active assistant draft against the original question and identify factual issues, reasoning gaps, unsupported assumptions, missing caveats, and risky recommendations.',
+  'Synthesize a corrected final answer rather than returning only critique.',
+].join('\n');
+
+function normalizeProvider(value: string): RuntimeProviderId | null {
+  const normalized = normalizeModelCatalogProviderFilter(value);
+  if (!normalized || normalized === 'local') return null;
+  return isRuntimeProviderId(normalized) ? normalized : null;
+}
+
+function parsePositiveInteger(value: string): number | null {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+export function parseSecondOpinionArgs(
+  args: string[],
+): ParsedSecondOpinionArgs | { error: string } {
+  let mode: SecondOpinionMode = 'compare';
+  let model = '';
+  let provider: RuntimeProviderId | undefined;
+  let maxContextMessages = SECOND_OPINION_CONTEXT_MESSAGE_LIMIT;
+  let includeTranscript = true;
+  const questionParts: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    const normalized = arg.trim().toLowerCase();
+    if (normalized === '--validate-last' || normalized === 'validate-last') {
+      mode = 'validate';
+      continue;
+    }
+    if (normalized === '--no-transcript' || normalized === 'no-transcript') {
+      includeTranscript = false;
+      continue;
+    }
+    if (normalized === '--mode') {
+      const value = (args[index + 1] || '').trim().toLowerCase();
+      if (value !== 'compare' && value !== 'validate') {
+        return {
+          error:
+            'Usage: `second-opinion [--mode compare|validate] [--validate-last] [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript] [question]`',
+        };
+      }
+      mode = value;
+      index += 1;
+      continue;
+    }
+    if (normalized === '--model') {
+      const value = (args[index + 1] || '').trim();
+      if (!value || value.startsWith('--')) {
+        return { error: 'Missing model for `--model`.' };
+      }
+      model = value;
+      index += 1;
+      continue;
+    }
+    if (normalized === '--provider') {
+      const value = (args[index + 1] || '').trim();
+      const normalizedProvider = normalizeProvider(value);
+      if (!normalizedProvider) {
+        return {
+          error: `Unknown provider for \`--provider\`: ${value || '(empty)'}.`,
+        };
+      }
+      provider = normalizedProvider;
+      index += 1;
+      continue;
+    }
+    if (normalized === '--max-context') {
+      const value = (args[index + 1] || '').trim();
+      const parsed = parsePositiveInteger(value);
+      if (!parsed) {
+        return { error: 'Missing positive integer for `--max-context`.' };
+      }
+      maxContextMessages = Math.min(parsed, 32);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--')) {
+      return { error: `Unknown second-opinion option: ${arg}.` };
+    }
+    questionParts.push(arg);
+  }
+
+  return {
+    mode,
+    question: questionParts.join(' ').trim(),
+    ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
+    maxContextMessages,
+    includeTranscript,
+  };
+}
+
+function toContextChatMessage(message: StoredMessage): ChatMessage | null {
+  const role =
+    message.role === 'user' || message.role === 'assistant'
+      ? message.role
+      : null;
+  if (!role) return null;
+  const content = typeof message.content === 'string' ? message.content : '';
+  if (!content.trim()) return null;
+  return { role, content };
+}
+
+function findLastAssistantDraft(messages: StoredMessage[]): {
+  draft: StoredMessage | null;
+  question: string;
+} {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== 'assistant' || !message.content.trim()) continue;
+    for (let userIndex = index - 1; userIndex >= 0; userIndex -= 1) {
+      const userMessage = messages[userIndex];
+      if (userMessage?.role === 'user' && userMessage.content.trim()) {
+        return { draft: message, question: userMessage.content.trim() };
+      }
+    }
+    return { draft: message, question: '' };
+  }
+  return { draft: null, question: '' };
+}
+
+function preferModel(models: string[]): string {
+  return (
+    models.find((model) => PREFERRED_CODEX_MODEL_RE.test(model)) ||
+    models[0] ||
+    ''
+  );
+}
+
+function providerForModel(model: string): RuntimeProviderId | undefined {
+  return detectRuntimeProviderPrefix(model) || undefined;
+}
+
+function isLocalSecondOpinionProvider(
+  provider: RuntimeProviderId | undefined,
+): boolean {
+  return (
+    provider === 'ollama' ||
+    provider === 'lmstudio' ||
+    provider === 'llamacpp' ||
+    provider === 'vllm'
+  );
+}
+
+function validateAvailableTarget(target: SecondOpinionTarget): void {
+  if (!target.provider) {
+    throw new Error(
+      `Second-opinion model "${target.model}" must include a provider prefix or be paired with \`--provider <provider>\`.`,
+    );
+  }
+  const available = getAvailableModelList(target.provider);
+  if (!available.includes(target.model)) {
+    const source =
+      target.selection === 'requested'
+        ? 'Requested'
+        : target.selection === 'configured'
+          ? 'Configured'
+          : 'Selected';
+    throw new Error(
+      `${source} second-opinion model "${target.model}" is not available for provider "${target.provider}". Use \`/model\` to pick an available model or configure \`auxiliaryModels.second_opinion\`.`,
+    );
+  }
+}
+
+async function resolveSecondOpinionTarget(
+  parsed: ParsedSecondOpinionArgs,
+): Promise<SecondOpinionTarget> {
+  await refreshAvailableModelCatalogs({ includeHybridAI: true });
+  const configured = getRuntimeConfig().auxiliaryModels.second_opinion;
+  if (configured.provider === 'disabled' && !parsed.model && !parsed.provider) {
+    throw new Error('second_opinion auxiliary model is disabled.');
+  }
+
+  const provider =
+    parsed.provider ??
+    (configured.provider !== 'auto' && configured.provider !== 'disabled'
+      ? configured.provider
+      : undefined);
+  const rawModel = parsed.model || configured.model.trim();
+  if (rawModel) {
+    const model = provider
+      ? normalizeAuxiliaryProviderModel({ provider, model: rawModel })
+      : rawModel;
+    const target: SecondOpinionTarget = {
+      model,
+      selection: parsed.model ? 'requested' : 'configured',
+      ...((provider ?? providerForModel(model))
+        ? { provider: provider ?? providerForModel(model) }
+        : {}),
+    };
+    validateAvailableTarget(target);
+    return target;
+  }
+
+  const providerForCatalog = provider ?? 'openai-codex';
+  const candidates = getAvailableModelList(providerForCatalog);
+  const model = preferModel(candidates);
+  if (!model) {
+    throw new Error(
+      `No available ${providerForCatalog} model is configured for second opinion. Use \`--model <provider/model>\` or configure \`auxiliaryModels.second_opinion\`.`,
+    );
+  }
+  return { model, provider: providerForCatalog, selection: 'default' };
+}
+
+function buildSecondOpinionMessages(params: {
+  mode: SecondOpinionMode;
+  question: string;
+  draftAnswer: string;
+  contextMessages: ChatMessage[];
+}): ChatMessage[] {
+  const systemPrompt =
+    params.mode === 'compare'
+      ? SECOND_OPINION_COMPARE_SYSTEM_PROMPT
+      : SECOND_OPINION_VALIDATE_SYSTEM_PROMPT;
+  return [
+    { role: 'system', content: systemPrompt },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        mode: params.mode,
+        original_question: params.question,
+        active_assistant_draft: params.draftAnswer,
+        recent_context: params.contextMessages,
+      }),
+    },
+  ];
+}
+
+function extractJsonObject(text: string): Record<string, unknown> {
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed) as Record<string, unknown>;
+  } catch {
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start === -1 || end <= start)
+      throw new Error('second_opinion response was not JSON.');
+    return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
+  }
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+export function parseSecondOpinionVerdict(
+  content: string,
+): SecondOpinionVerdict {
+  const parsed = extractJsonObject(content);
+  const revisedAnswer = String(
+    parsed.revised_answer || parsed.revisedAnswer || '',
+  ).trim();
+  if (!revisedAnswer) {
+    throw new Error('second_opinion response is missing `revised_answer`.');
+  }
+  const confidence = String(parsed.confidence || 'medium')
+    .trim()
+    .toLowerCase();
+  return {
+    revisedAnswer,
+    verdict: String(parsed.verdict || '').trim(),
+    materialDisagreements: normalizeStringList(parsed.material_disagreements),
+    missingCaveats: normalizeStringList(parsed.missing_caveats),
+    confidence: ['low', 'medium', 'high'].includes(confidence)
+      ? confidence
+      : 'medium',
+  };
+}
+
+function renderVerdict(params: {
+  verdict: SecondOpinionVerdict;
+  model: string;
+  redactionApplied: boolean;
+}): string {
+  const lines = [
+    params.verdict.revisedAnswer.trim(),
+    '',
+    `Second opinion: ${formatModelForDisplay(params.model)} · confidence: ${params.verdict.confidence}`,
+  ];
+  if (params.verdict.verdict) {
+    lines.push(`Verdict: ${params.verdict.verdict}`);
+  }
+  if (params.verdict.materialDisagreements.length > 0) {
+    lines.push('');
+    lines.push('Material disagreements:');
+    lines.push(
+      ...params.verdict.materialDisagreements.map((item) => `- ${item}`),
+    );
+  }
+  if (params.verdict.missingCaveats.length > 0) {
+    lines.push('');
+    lines.push('Missing caveats:');
+    lines.push(...params.verdict.missingCaveats.map((item) => `- ${item}`));
+  }
+  if (params.redactionApplied) {
+    lines.push('');
+    lines.push(
+      'Confidential terms were redacted before the second-opinion model call.',
+    );
+  }
+  return lines.join('\n');
+}
+
+function classifySynthesisDisposition(
+  verdict: SecondOpinionVerdict,
+): SecondOpinionSynthesisDisposition {
+  if (
+    verdict.materialDisagreements.length > 0 ||
+    verdict.missingCaveats.length > 0
+  ) {
+    return 'revised';
+  }
+  const normalizedVerdict = verdict.verdict.toLowerCase();
+  if (
+    /\b(incorrect|wrong|missed|missing|gap|risk|risky|unsupported|disagree|caveat|revise|corrected)\b/.test(
+      normalizedVerdict,
+    )
+  ) {
+    return 'revised';
+  }
+  if (
+    /\b(acceptable|accepted|correct|sound|valid|no material|no significant)\b/.test(
+      normalizedVerdict,
+    )
+  ) {
+    return 'accepted';
+  }
+  return 'unclear';
+}
+
+export async function runSecondOpinionCommand(
+  session: Session,
+  args: string[],
+): Promise<string> {
+  const parsed = parseSecondOpinionArgs(args);
+  if ('error' in parsed) throw new Error(parsed.error);
+
+  const recentStoredMessages = memoryService.getRecentMessages(
+    session.id,
+    Math.max(parsed.maxContextMessages, 2),
+  );
+  const { draft, question: inferredQuestion } =
+    findLastAssistantDraft(recentStoredMessages);
+  if (!draft) {
+    throw new Error(
+      'No previous assistant answer found. Ask the question first, then run `second-opinion --validate-last` or `second-opinion <question>`.',
+    );
+  }
+  const question = parsed.question || inferredQuestion;
+  if (!question) {
+    throw new Error(
+      'No original question found. Pass the question explicitly after `second-opinion`.',
+    );
+  }
+
+  const target = await resolveSecondOpinionTarget(parsed);
+  const resolved = resolveAgentForRequest({ session });
+  const contextMessages = recentStoredMessages
+    .map(toContextChatMessage)
+    .filter((message): message is ChatMessage => message !== null);
+  const includedContextMessages = parsed.includeTranscript
+    ? contextMessages
+    : [];
+  const confidential = createConfidentialRuntimeContext();
+  const messages = buildSecondOpinionMessages({
+    mode: parsed.mode,
+    question,
+    draftAnswer: draft.content,
+    contextMessages: includedContextMessages,
+  });
+  const outboundConfidentialScan =
+    confidential.enabled && !isLocalSecondOpinionProvider(target.provider)
+      ? scanForLeaks(JSON.stringify(messages), confidential.ruleSet)
+      : null;
+  const hasCriticalConfidentialRule =
+    outboundConfidentialScan?.findings.some(
+      (finding) => finding.sensitivity === 'critical',
+    ) === true;
+  if (hasCriticalConfidentialRule) {
+    const runId = makeAuditRunId('second-opinion');
+    recordAuditEvent({
+      sessionId: session.id,
+      runId,
+      event: {
+        type: 'second_opinion.blocked',
+        mode: parsed.mode,
+        model: target.model,
+        provider:
+          target.provider ||
+          detectRuntimeProviderPrefix(target.model) ||
+          'auto',
+        reason: 'critical_confidential_match',
+        redactionApplied: false,
+        transcriptIncluded: parsed.includeTranscript,
+        confidentialSeverity: outboundConfidentialScan.severity,
+        confidentialMatches: outboundConfidentialScan.totalMatches,
+      },
+    });
+    throw new Error(
+      'Second opinion blocked: outbound payload matched critical confidential policy for a remote model. Use `--no-transcript`, remove the critical term, or choose a local provider.',
+    );
+  }
+  const dehydratedMessages = confidential.dehydrate(
+    messages as DehydrateMessageContent[],
+  ) as ChatMessage[];
+  const redactionApplied = confidential.mappings.byPlaceholder.size > 0;
+  const runId = makeAuditRunId('second-opinion');
+
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'second_opinion.requested',
+      mode: parsed.mode,
+      model: target.model,
+      provider:
+        target.provider || detectRuntimeProviderPrefix(target.model) || 'auto',
+      redactionApplied,
+      transcriptIncluded: parsed.includeTranscript,
+      contextMessages: includedContextMessages.length,
+      confidentialSeverity: outboundConfidentialScan?.severity ?? null,
+      confidentialMatches: outboundConfidentialScan?.totalMatches ?? 0,
+    },
+  });
+
+  const response = await callAuxiliaryModel({
+    task: 'second_opinion',
+    messages: dehydratedMessages,
+    provider: target.provider,
+    model: target.model,
+    fallbackModel: resolved.model,
+    fallbackChatbotId: resolved.chatbotId,
+    agentId: resolved.agentId,
+    tools: [],
+    maxTokens:
+      getRuntimeConfig().auxiliaryModels.second_opinion.maxTokens ||
+      SECOND_OPINION_DEFAULT_MAX_TOKENS,
+    temperature: 0,
+    timeoutMs: SECOND_OPINION_TIMEOUT_MS,
+    allowFallback: false,
+  });
+  const verdict = parseSecondOpinionVerdict(
+    confidential.rehydrate(response.content),
+  );
+  const synthesisDisposition = classifySynthesisDisposition(verdict);
+
+  enqueueTokenUsage({
+    sessionId: session.id,
+    agentId: resolved.agentId,
+    model: response.model,
+    inputTokens:
+      response.usage?.inputTokens ??
+      estimateTokenCountFromMessages(dehydratedMessages),
+    outputTokens: response.usage?.outputTokens ?? 0,
+    totalTokens:
+      response.usage?.totalTokens ??
+      (response.usage?.inputTokens ??
+        estimateTokenCountFromMessages(dehydratedMessages)) +
+        (response.usage?.outputTokens ?? 0),
+    costUsd: response.usage?.costUsd ?? 0,
+  });
+
+  recordAuditEvent({
+    sessionId: session.id,
+    runId,
+    event: {
+      type: 'second_opinion.completed',
+      mode: parsed.mode,
+      model: response.model,
+      provider: response.provider,
+      redactionApplied,
+      transcriptIncluded: parsed.includeTranscript,
+      confidence: verdict.confidence,
+      materialDisagreements: verdict.materialDisagreements.length,
+      missingCaveats: verdict.missingCaveats.length,
+      synthesisDisposition,
+      usage: response.usage || null,
+    },
+  });
+
+  return renderVerdict({
+    verdict,
+    model: response.model,
+    redactionApplied,
+  });
+}

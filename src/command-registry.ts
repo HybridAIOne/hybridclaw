@@ -81,6 +81,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'policy',
   'dream',
   'secret',
+  'second-opinion',
   'concierge',
   'rag',
   'model',
@@ -217,6 +218,12 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   btw: {
     command: '/btw <question>',
     description: BTW_COMMAND_DESCRIPTION,
+  },
+  'second-opinion': {
+    command:
+      '/second-opinion [--validate-last] [--model <model>] [--no-transcript] [question]',
+    description:
+      'Ask a stronger configured model to validate the last answer or compare against a question',
   },
   concierge: {
     command:
@@ -385,6 +392,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'btw':
       return ['btw', ...parts.slice(1)];
+
+    case 'second-opinion':
+      return ['second-opinion', ...parts.slice(1)];
 
     case 'model': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -669,6 +679,50 @@ function buildSlashCommandCatalogDefinitions(
           name: 'question',
           description: 'The side question to answer',
           required: true,
+        },
+      ],
+    },
+    {
+      name: 'second-opinion',
+      description:
+        'Ask a stronger model to validate or compare the active answer',
+      localSurfaces: ['tui', 'web'],
+      tuiMenu: {
+        label: '/second-opinion [--validate-last] [question]',
+        insertText: '/second-opinion ',
+      },
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'compare',
+          description: 'Compare the previous answer against a stronger model',
+          options: [
+            {
+              kind: 'string',
+              name: 'question',
+              description: 'Question to rerun against the stronger model',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'model',
+              description: 'Optional provider/model override',
+              required: false,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'validate',
+          description: 'Validate the previous answer',
+          options: [
+            {
+              kind: 'string',
+              name: 'model',
+              description: 'Optional provider/model override',
+              required: false,
+            },
+          ],
         },
       ],
     },
@@ -2779,6 +2833,25 @@ export function parseCanonicalSlashCommandArgs(
     case 'btw': {
       const question = normalizeStringOption(interaction, 'question', true);
       return question ? ['btw', question] : null;
+    }
+
+    case 'second-opinion': {
+      const subcommand = normalizeSubcommand(interaction);
+      const model = normalizeStringOption(interaction, 'model');
+      if (subcommand === 'compare') {
+        const question = normalizeStringOption(interaction, 'question', true);
+        return question
+          ? ['second-opinion', ...(model ? ['--model', model] : []), question]
+          : null;
+      }
+      if (subcommand === 'validate') {
+        return [
+          'second-opinion',
+          '--validate-last',
+          ...(model ? ['--model', model] : []),
+        ];
+      }
+      return null;
     }
 
     case 'auth': {
