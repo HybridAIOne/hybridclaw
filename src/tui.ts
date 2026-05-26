@@ -133,9 +133,6 @@ const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const BOLD_OFF = '\x1b[22m';
 const JELLYFISH = '🪼';
-const ENTER_ALT_SCREEN = '\x1b[?1049h';
-const EXIT_ALT_SCREEN = '\x1b[?1049l';
-const CLEAR_SCREEN = '\x1b[2J\x1b[H';
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
 const TUI_EXIT_CONFIRM_WINDOW_MS = 5000;
@@ -1805,7 +1802,6 @@ function spinner(): {
   let visibleTextOutput = '';
   let visibleTextRows = 0;
   let thinkingPreviewRows = 0;
-  let thinkingPreviewAltScreen = false;
   let toolActivityRows = 0;
   const clearLine = () => process.stdout.write('\r\x1b[2K');
   const clearRows = (rows: number) => {
@@ -1818,6 +1814,15 @@ function spinner(): {
       if (row < normalizedRows - 1) process.stdout.write('\n');
     }
     if (normalizedRows > 1) process.stdout.write(`\x1b[${normalizedRows - 1}A`);
+  };
+  const deleteRenderedRows = (rows: number) => {
+    const normalizedRows = Math.max(0, rows);
+    if (normalizedRows <= 0 || !process.stdout.isTTY) return;
+    process.stdout.write('\r');
+    if (normalizedRows > 1) {
+      process.stdout.write(`\x1b[${normalizedRows - 1}A`);
+    }
+    process.stdout.write(`\x1b[${normalizedRows}M`);
   };
   const hideCursor = () => {
     if (cursorHidden || !process.stdout.isTTY) return;
@@ -1879,42 +1884,19 @@ function spinner(): {
     }
   };
 
-  const enterThinkingPreviewAltScreen = () => {
-    if (!process.stdout.isTTY || thinkingPreviewAltScreen) return;
-    process.stdout.write(`${ENTER_ALT_SCREEN}${HIDE_CURSOR}${CLEAR_SCREEN}`);
-    thinkingPreviewAltScreen = true;
-  };
-
   const repaintThinkingPreview = (preview: string) => {
     const formatted = wrapTuiBlock(preview, terminalColumns(), '  ');
     if (process.stdout.isTTY) {
-      enterThinkingPreviewAltScreen();
-      process.stdout.write(
-        `${CLEAR_SCREEN}${THINKING_PREVIEW_COLOR}${formatted}${RESET}`,
-      );
+      process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
     } else {
       process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
     }
-    thinkingPreviewRows = Math.max(1, formatted.split('\n').length);
+    thinkingPreviewRows = countTerminalRows(formatted, terminalColumns());
   };
 
   const clearThinkingPreview = () => {
     if (thinkingPreviewRows <= 0) return;
-    if (thinkingPreviewAltScreen) {
-      process.stdout.write(`${EXIT_ALT_SCREEN}${HIDE_CURSOR}`);
-      thinkingPreviewAltScreen = false;
-      thinkingPreviewRows = 0;
-      if (!stopped && showActivityPreview && !hasVisibleText) {
-        render();
-      }
-      return;
-    }
-    for (let row = 0; row < thinkingPreviewRows; row += 1) {
-      clearLine();
-      if (row < thinkingPreviewRows - 1) {
-        process.stdout.write('\x1b[1A');
-      }
-    }
+    deleteRenderedRows(thinkingPreviewRows);
     thinkingPreviewRows = 0;
     if (!stopped && showActivityPreview && !hasVisibleText) {
       render();
