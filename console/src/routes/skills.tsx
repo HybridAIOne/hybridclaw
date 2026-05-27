@@ -1021,114 +1021,111 @@ export function SkillsPage() {
         </CardContent>
       </Card>
 
-      <div className="two-column-grid">
-        <Card id="observed-skill-health">
-          <CardHeader>
-            <CardTitle>Observed skill health</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {healthQuery.isLoading ? (
-              <div className="empty-state">
-                Loading AdaptiveSkills health...
-              </div>
-            ) : sortedHealthMetrics.length === 0 ? (
-              <div className="empty-state">
-                No observed skills match this filter.
-              </div>
-            ) : (
-              <div className="table-shell">
-                <table>
-                  <thead>
-                    <tr>
-                      <SortableHeader
-                        label="Skill"
-                        sortKey="skill"
-                        sortState={observedSkillSortState}
-                        onToggle={toggleObservedSkillSort}
-                      />
-                      <SortableHeader
-                        label="Status"
-                        sortKey="status"
-                        sortState={observedSkillSortState}
-                        onToggle={toggleObservedSkillSort}
-                      />
-                      <SortableHeader
-                        label="Executions"
-                        sortKey="executions"
-                        sortState={observedSkillSortState}
-                        onToggle={toggleObservedSkillSort}
-                      />
-                      <SortableHeader
-                        label="Run success"
-                        sortKey="success"
-                        sortState={observedSkillSortState}
-                        onToggle={toggleObservedSkillSort}
-                      />
-                      <SortableHeader
-                        label="Tool breakage"
-                        sortKey="toolBreakage"
-                        sortState={observedSkillSortState}
-                        onToggle={toggleObservedSkillSort}
-                      />
-                      <SortableHeader
-                        label="Feedback"
-                        sortKey="feedback"
-                        sortState={observedSkillSortState}
-                        onToggle={toggleObservedSkillSort}
-                      />
-                      <SortableHeader
-                        label="Reasons"
-                        sortKey="reasons"
-                        sortState={observedSkillSortState}
-                        onToggle={toggleObservedSkillSort}
-                      />
+      <Card id="observed-skill-health">
+        <CardHeader>
+          <CardTitle>Observed skill health</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {healthQuery.isLoading ? (
+            <div className="empty-state">Loading AdaptiveSkills health...</div>
+          ) : sortedHealthMetrics.length === 0 ? (
+            <div className="empty-state">
+              No observed skills match this filter.
+            </div>
+          ) : (
+            <div className="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <SortableHeader
+                      label="Skill"
+                      sortKey="skill"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Status"
+                      sortKey="status"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Executions"
+                      sortKey="executions"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Run success"
+                      sortKey="success"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Tool breakage"
+                      sortKey="toolBreakage"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Feedback"
+                      sortKey="feedback"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Reasons"
+                      sortKey="reasons"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedHealthMetrics.map((metrics) => (
+                    <tr key={metrics.skill_name}>
+                      <td>
+                        <button
+                          type="button"
+                          className="table-link-button"
+                          onClick={() =>
+                            setSelectedSkillName(metrics.skill_name)
+                          }
+                        >
+                          {metrics.skill_name}
+                        </button>
+                        <small>
+                          Window ending{' '}
+                          {formatDateTime(metrics.window_ended_at)}
+                        </small>
+                      </td>
+                      <td>
+                        <BooleanPill
+                          value={!metrics.degraded}
+                          trueLabel="healthy"
+                          falseLabel="degraded"
+                          falseTone="danger"
+                        />
+                      </td>
+                      <td>{metrics.total_executions}</td>
+                      <td>{formatPercent(metrics.success_rate)}</td>
+                      <td>{formatPercent(metrics.tool_breakage_rate)}</td>
+                      <td>{formatFeedbackCounts(metrics) || null}</td>
+                      <td>
+                        <small>
+                          {metrics.degradation_reasons.join('; ') || 'healthy'}
+                        </small>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {sortedHealthMetrics.map((metrics) => (
-                      <tr key={metrics.skill_name}>
-                        <td>
-                          <button
-                            type="button"
-                            className="table-link-button"
-                            onClick={() =>
-                              setSelectedSkillName(metrics.skill_name)
-                            }
-                          >
-                            {metrics.skill_name}
-                          </button>
-                          <small>
-                            Window ending{' '}
-                            {formatDateTime(metrics.window_ended_at)}
-                          </small>
-                        </td>
-                        <td>
-                          <BooleanPill
-                            value={!metrics.degraded}
-                            trueLabel="healthy"
-                            falseLabel="degraded"
-                            falseTone="danger"
-                          />
-                        </td>
-                        <td>{metrics.total_executions}</td>
-                        <td>{formatPercent(metrics.success_rate)}</td>
-                        <td>{formatPercent(metrics.tool_breakage_rate)}</td>
-                        <td>{formatFeedbackCounts(metrics) || null}</td>
-                        <td>
-                          <small>
-                            {metrics.degradation_reasons.join('; ') ||
-                              'healthy'}
-                          </small>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
+      <div className="two-column-grid skills-review-grid">
         <Card id="staged-amendments" variant="muted">
           <CardHeader>
             <CardTitle>Staged amendments</CardTitle>
@@ -1211,68 +1208,68 @@ export function SkillsPage() {
             )}
           </CardContent>
         </Card>
-      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {effectiveSelectedSkillName
-              ? `Amendment history: ${effectiveSelectedSkillName}`
-              : 'Amendment history'}
-          </CardTitle>
-          <CardDescription>
-            Full review trail for the selected skill
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!effectiveSelectedSkillName ? (
-            <div className="empty-state">
-              Select a skill to inspect its amendment history.
-            </div>
-          ) : historyQuery.isLoading ? (
-            <div className="empty-state">Loading amendment history...</div>
-          ) : historyEntries.length === 0 ? (
-            <div className="empty-state">
-              No amendment history exists for this skill yet.
-            </div>
-          ) : (
-            <div className="list-stack selectable-list">
-              {historyEntries.map((amendment) => (
-                <div className="list-row" key={amendment.id}>
-                  <div>
-                    <strong>
-                      {formatAmendmentStatus(amendment)} ·{' '}
-                      {formatAmendmentTiming(amendment)}
-                    </strong>
-                    <small>
-                      Guard {amendment.guard_verdict}/
-                      {amendment.guard_findings_count} · runs since apply{' '}
-                      {amendment.runs_since_apply}
-                    </small>
-                    <small>
-                      {amendment.rationale || 'No rationale recorded.'}
-                    </small>
-                    <small>
-                      {amendment.diff_summary || 'No diff summary recorded.'}
-                    </small>
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {effectiveSelectedSkillName
+                ? `Amendment history: ${effectiveSelectedSkillName}`
+                : 'Amendment history'}
+            </CardTitle>
+            <CardDescription>
+              Full review trail for the selected skill
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!effectiveSelectedSkillName ? (
+              <div className="empty-state">
+                Select a skill to inspect its amendment history.
+              </div>
+            ) : historyQuery.isLoading ? (
+              <div className="empty-state">Loading amendment history...</div>
+            ) : historyEntries.length === 0 ? (
+              <div className="empty-state">
+                No amendment history exists for this skill yet.
+              </div>
+            ) : (
+              <div className="list-stack selectable-list">
+                {historyEntries.map((amendment) => (
+                  <div className="list-row" key={amendment.id}>
+                    <div>
+                      <strong>
+                        {formatAmendmentStatus(amendment)} ·{' '}
+                        {formatAmendmentTiming(amendment)}
+                      </strong>
+                      <small>
+                        Guard {amendment.guard_verdict}/
+                        {amendment.guard_findings_count} · runs since apply{' '}
+                        {amendment.runs_since_apply}
+                      </small>
+                      <small>
+                        {amendment.rationale || 'No rationale recorded.'}
+                      </small>
+                      <small>
+                        {amendment.diff_summary || 'No diff summary recorded.'}
+                      </small>
+                    </div>
+                    <span
+                      className={
+                        amendment.status === 'applied'
+                          ? 'list-status list-status-success'
+                          : amendment.status === 'rejected'
+                            ? 'list-status list-status-danger'
+                            : 'list-status'
+                      }
+                    >
+                      {amendment.status}
+                    </span>
                   </div>
-                  <span
-                    className={
-                      amendment.status === 'applied'
-                        ? 'list-status list-status-success'
-                        : amendment.status === 'rejected'
-                          ? 'list-status list-status-danger'
-                          : 'list-status'
-                    }
-                  >
-                    {amendment.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
