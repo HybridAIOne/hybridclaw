@@ -357,6 +357,28 @@ export function parseSecondOpinionVerdict(
   };
 }
 
+function rehydrateVerdict(
+  verdict: SecondOpinionVerdict,
+  rehydrate: (text: string | null | undefined) => string,
+): SecondOpinionVerdict {
+  return {
+    revisedAnswer: rehydrate(verdict.revisedAnswer),
+    verdict: rehydrate(verdict.verdict),
+    materialDisagreements: verdict.materialDisagreements.map((item) =>
+      rehydrate(item),
+    ),
+    missingCaveats: verdict.missingCaveats.map((item) => rehydrate(item)),
+    confidence: verdict.confidence,
+  };
+}
+
+export function parseAndRehydrateSecondOpinionVerdict(
+  content: string,
+  rehydrate: (text: string | null | undefined) => string,
+): SecondOpinionVerdict {
+  return rehydrateVerdict(parseSecondOpinionVerdict(content), rehydrate);
+}
+
 function renderVerdict(params: {
   verdict: SecondOpinionVerdict;
   model: string;
@@ -529,8 +551,9 @@ export async function runSecondOpinionCommand(
     timeoutMs: SECOND_OPINION_TIMEOUT_MS,
     allowFallback: false,
   });
-  const verdict = parseSecondOpinionVerdict(
-    confidential.rehydrate(response.content),
+  const verdict = parseAndRehydrateSecondOpinionVerdict(
+    response.content,
+    confidential.rehydrate,
   );
   const synthesisDisposition = classifySynthesisDisposition(verdict);
 

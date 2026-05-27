@@ -395,6 +395,37 @@ test('second-opinion redacts confidential terms before the stronger model call',
   expect(JSON.stringify(call?.messages)).toContain('«CONF:CLIENT_001»');
 });
 
+test('second-opinion parses JSON before rehydrating confidential placeholders', async () => {
+  setupHome();
+  const { parseAndRehydrateSecondOpinionVerdict } = await import(
+    '../src/commands/second-opinion-command.ts'
+  );
+
+  const verdict = parseAndRehydrateSecondOpinionVerdict(
+    JSON.stringify({
+      verdict: 'The draft is acceptable for «CONF:PATTERN_001».',
+      revised_answer: 'Proceed with the plan for «CONF:PATTERN_001».',
+      material_disagreements: ['No issue for «CONF:PATTERN_001».'],
+      missing_caveats: [],
+      confidence: 'medium',
+    }),
+    (text) => (text || '').replaceAll('«CONF:PATTERN_001»', 'Client "Quoted"'),
+  );
+
+  expect(verdict).toMatchObject({
+    revisedAnswer: 'Proceed with the plan for Client "Quoted".',
+    verdict: 'The draft is acceptable for Client "Quoted".',
+    materialDisagreements: ['No issue for Client "Quoted".'],
+  });
+  expect(() =>
+    JSON.parse(
+      JSON.stringify({
+        revised_answer: 'Proceed with the plan for «CONF:PATTERN_001».',
+      }).replaceAll('«CONF:PATTERN_001»', 'Client "Quoted"'),
+    ),
+  ).toThrow();
+});
+
 test('second-opinion blocks critical confidential payloads for remote stronger models', async () => {
   setupHome();
   mockModelCatalog(['openai-codex/gpt-5.5']);

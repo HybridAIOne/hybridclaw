@@ -221,7 +221,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   'second-opinion': {
     command:
-      '/second-opinion [--validate-last] [--model <model>] [--no-transcript] [question]',
+      '/second-opinion [--mode compare|validate] [--validate-last] [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript] [question]',
     description:
       'Ask a stronger configured model to validate the last answer or compare against a question',
   },
@@ -337,6 +337,21 @@ function normalizeStringOption(
 ): string | null {
   const value = interaction.getString(name, required)?.trim() ?? '';
   return value || null;
+}
+
+function buildSecondOpinionSlashFlags(
+  interaction: CanonicalSlashInteractionInput,
+): string[] {
+  const model = normalizeStringOption(interaction, 'model');
+  const provider = normalizeStringOption(interaction, 'provider');
+  const maxContext = normalizeStringOption(interaction, 'max-context');
+  const noTranscript = normalizeStringOption(interaction, 'no-transcript');
+  return [
+    ...(model ? ['--model', model] : []),
+    ...(provider ? ['--provider', provider] : []),
+    ...(maxContext ? ['--max-context', maxContext] : []),
+    ...(noTranscript ? ['--no-transcript'] : []),
+  ];
 }
 
 function normalizeSubcommand(
@@ -709,6 +724,25 @@ function buildSlashCommandCatalogDefinitions(
               description: 'Optional provider/model override',
               required: false,
             },
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Optional provider override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'max-context',
+              description: 'Maximum recent context messages to include',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'no-transcript',
+              description: 'Do not send recent transcript context',
+              choices: [{ name: '--no-transcript', value: '--no-transcript' }],
+              required: false,
+            },
           ],
         },
         {
@@ -720,6 +754,25 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'model',
               description: 'Optional provider/model override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Optional provider override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'max-context',
+              description: 'Maximum recent context messages to include',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'no-transcript',
+              description: 'Do not send recent transcript context',
+              choices: [{ name: '--no-transcript', value: '--no-transcript' }],
               required: false,
             },
           ],
@@ -2837,19 +2890,13 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'second-opinion': {
       const subcommand = normalizeSubcommand(interaction);
-      const model = normalizeStringOption(interaction, 'model');
+      const flags = buildSecondOpinionSlashFlags(interaction);
       if (subcommand === 'compare') {
         const question = normalizeStringOption(interaction, 'question', true);
-        return question
-          ? ['second-opinion', ...(model ? ['--model', model] : []), question]
-          : null;
+        return question ? ['second-opinion', ...flags, question] : null;
       }
       if (subcommand === 'validate') {
-        return [
-          'second-opinion',
-          '--validate-last',
-          ...(model ? ['--model', model] : []),
-        ];
+        return ['second-opinion', '--validate-last', ...flags];
       }
       return null;
     }
