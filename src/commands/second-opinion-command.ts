@@ -610,7 +610,7 @@ function renderVerdict(params: {
   const lines = [
     params.verdict.revisedAnswer.trim(),
     '',
-    `Second opinion: ${formatModelForDisplay(params.model)} · confidence: ${params.verdict.confidence}`,
+    `Reviewer model: ${formatModelForDisplay(params.model)} · confidence: ${params.verdict.confidence}`,
   ];
   if (params.verdict.verdict) {
     lines.push(`Verdict: ${params.verdict.verdict}`);
@@ -622,6 +622,15 @@ function renderVerdict(params: {
     lines.push(
       `Web search/fetch: ${params.webSearchEvidence.provider} · ${params.webSearchEvidence.results.length} result${params.webSearchEvidence.results.length === 1 ? '' : 's'} · ${fetchedCount} fetched`,
     );
+    if (params.webSearchEvidence.results.length > 0) {
+      lines.push('');
+      lines.push('Sources used:');
+      lines.push(
+        ...params.webSearchEvidence.results.map(
+          (result, index) => `${index + 1}. ${result.title} — ${result.url}`,
+        ),
+      );
+    }
   }
   if (params.verdict.materialDisagreements.length > 0) {
     lines.push('');

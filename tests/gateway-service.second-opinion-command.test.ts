@@ -228,6 +228,7 @@ test('second-opinion validate-last sends the previous answer to a stronger tool-
   if (result.kind !== 'info') throw new Error('Expected info result.');
   expect(result.title).toBe('Second Opinion');
   expect(result.text).toContain('verify backups first');
+  expect(result.text).toContain('Reviewer model: openai-codex/gpt-5.5');
   expect(result.text).toContain('Backup validation was missing.');
 
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
@@ -331,6 +332,10 @@ test('second-opinion fact-check adds web search and fetch evidence to validation
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') throw new Error('Expected info result.');
   expect(result.text).toContain('Web search/fetch: tavily · 10 results · 10 fetched');
+  expect(result.text).toContain('Reviewer model: openai-codex/gpt-5.5');
+  expect(result.text).toContain('Sources used:');
+  expect(result.text).toContain('1. Source 1 — https://example.com/source-1');
+  expect(result.text).toContain('10. Source 10 — https://example.com/source-10');
   expect(runSecondOpinionWebSearchMock).toHaveBeenCalledWith({
     queries: [
       'age of universe latest cosmology measurements',
@@ -402,6 +407,7 @@ test('second-opinion question mode uses a same-question comparison prompt', asyn
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') throw new Error('Expected info result.');
   expect(result.text).toContain('Ship the canary');
+  expect(result.text).toContain('Reviewer model: openai-codex/gpt-5.5');
 
   const call = callAuxiliaryModelMock.mock.calls[0]?.[0];
   expect(call?.messages?.[0]?.content).toContain('same-question comparison');
