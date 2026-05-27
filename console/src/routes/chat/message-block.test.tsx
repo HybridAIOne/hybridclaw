@@ -492,6 +492,8 @@ describe('MessageBlock artifacts', () => {
     });
     expect(up.getAttribute('aria-pressed')).toBe('true');
     expect(down.getAttribute('aria-pressed')).toBe('false');
+    expect(up.getAttribute('data-rating-locked')).toBe('true');
+    expect(down.getAttribute('data-rating-locked')).toBe('true');
     expect(up.hasAttribute('disabled')).toBe(false);
     expect(down.hasAttribute('disabled')).toBe(true);
     expect(up.querySelector('svg')?.getAttribute('fill')).toBe('currentColor');

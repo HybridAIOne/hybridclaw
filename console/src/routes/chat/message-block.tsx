@@ -461,6 +461,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                     : 'Rate response thumbs up'
                 }
                 aria-pressed={msg.responseRating === 'up'}
+                data-rating-locked={msg.responseRating ? 'true' : undefined}
                 disabled={
                   props.ratingBusy === true ||
                   !msg.messageId ||
@@ -494,6 +495,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                     : 'Rate response thumbs down'
                 }
                 aria-pressed={msg.responseRating === 'down'}
+                data-rating-locked={msg.responseRating ? 'true' : undefined}
                 disabled={
                   props.ratingBusy === true ||
                   !msg.messageId ||

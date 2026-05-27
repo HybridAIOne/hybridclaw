@@ -748,14 +748,17 @@ aside[data-state="collapsed"] .chatSidebarContent {
   font-size: 0.82rem;
 }
 
-.messageActions .actionButton:hover:not(:disabled):not([data-disabled]) {
+.messageActions
+  .actionButton:hover:not(:disabled):not([data-disabled]):not(
+    [data-rating-locked]
+  ) {
   background: var(--chat-hover-bg);
   color: var(--foreground);
 }
 
 .messageActions .actionButtonSelected {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: transparent;
+  color: var(--foreground);
 }
 
 .messageActions .actionButtonSuccess {
