@@ -63,6 +63,7 @@ Usage:
   node skills/homematic/homematic.cjs --format json http-request auth-token --hcu-url https://hcu1-1234.local
   node skills/homematic/homematic.cjs --format json http-request confirm-token --hcu-url https://hcu1-1234.local
   node skills/homematic/homematic.cjs --format json websocket-message get-state --hcu-url https://hcu1-1234.local
+  node skills/homematic/homematic.cjs --format json --hmip-system-events websocket-message get-state --hcu-url https://hcu1-1234.local
   node skills/homematic/homematic.cjs --format json websocket-message set-switch-state --hcu-url https://hcu1-1234.local --device-id ID --channel-index 1 --on true --operator-grant approve-homematic-write
   HOMEMATIC_HCU_AUTH_TOKEN=<token> node skills/homematic/homematic.cjs --format json run-websocket get-state --hcu-url https://hcu1-1234.local
   node skills/homematic/homematic.cjs --format json policy-rules --hcu-url https://hcu1-1234.local --agent main
@@ -75,6 +76,7 @@ Global options:
   --request-id UUID                Optional deterministic message id for tests or trace correlation.
   --friendly-name-en TEXT          English plugin name for HCU auth/plugin-ready messages.
   --friendly-name-de TEXT          German plugin name for HCU auth/plugin-ready messages.
+  --hmip-system-events             Subscribe to HCU HMIP_SYSTEM_EVENT push messages on connect.
   --insecure-local-tls             Allow self-signed HCU WebSocket TLS only for local/private hosts.
   --help                           Show this help.
 
@@ -83,7 +85,7 @@ Commands:
   approval-plan set-switch-state|set-set-point-temperature|set-shutter-level|start-light-scene|acknowledge-safety-alarm
   http-request auth-token|confirm-token
   websocket-message plugin-ready|get-state|get-system-state|set-switch-state|set-set-point-temperature|set-shutter-level|start-light-scene|acknowledge-safety-alarm
-  run-websocket plugin-ready|get-state|get-system-state|set-switch-state|set-set-point-temperature|set-shutter-level|start-light-scene|acknowledge-safety-alarm
+  run-websocket plugin-ready|get-state|get-system-state
   policy-rules --hcu-url URL [--agent AGENT_ID]
   summarize-fixture --fixture PATH
 
@@ -110,6 +112,10 @@ function parseGlobalArgs(argv) {
     }
     if (arg === '--insecure-local-tls') {
       opts.insecureLocalTls = true;
+      continue;
+    }
+    if (arg === '--hmip-system-events') {
+      opts.hmipSystemEvents = true;
       continue;
     }
     rejectSecretFlag(arg);
@@ -421,6 +427,10 @@ function buildWebSocketMessage(operation, args, opts) {
   const stakesTier = operationTier(operation);
   const connectionUrl = normalizeHcuWebSocketUrl(hcuUrlFromOptions(opts));
   const connectionHostname = new URL(connectionUrl).hostname;
+  const headers = {
+    'plugin-id': pluginId,
+    ...(opts.hmipSystemEvents ? { 'hmip-system-events': 'true' } : {}),
+  };
 
   validateOperatorGrant(operation, stakesTier, parsed.operatorGrant);
 
@@ -455,9 +465,7 @@ function buildWebSocketMessage(operation, args, opts) {
       transport: 'websocket',
       protocol: 'homematic-ip-connect-api',
       url: connectionUrl,
-      headers: {
-        'plugin-id': pluginId,
-      },
+      headers,
       secretHeaders: [
         {
           name: 'authtoken',
@@ -833,6 +841,9 @@ function rawWebSocketToString(raw) {
 }
 
 function executeHcuWebSocketMessage(payload, options = {}) {
+  if (payload.stakesTier !== 'green') {
+    throw new Error('run-websocket is restricted to green read-only Homematic operations.');
+  }
   const WebSocketClass = options.WebSocketClass || loadWebSocketClass();
   const authToken = options.authToken || readAuthTokenFromEnv(options.env);
   const timeoutMs = options.timeoutMs || DEFAULT_WEBSOCKET_TIMEOUT_MS;

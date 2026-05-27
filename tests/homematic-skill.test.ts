@@ -58,6 +58,9 @@ test('Homematic skill manifest declares HCU credentials and safety metadata', ()
   ]);
   expect(skill).toContain('category: home-automation');
   expect(skill).toContain('stakes_tiers:');
+  expect(skill).toContain('- auth-token');
+  expect(skill).toContain('- confirm-token');
+  expect(skill).not.toContain('auth-token-enrollment');
   expect(skill).toContain('hcu-get-state');
   expect(skill).toContain('safety-alarm-acknowledge');
   expect(skill).toContain('confirm-each');
@@ -71,6 +74,7 @@ test('Homematic helper --help exits cleanly without secret flags', () => {
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Homematic skill helper');
   expect(result.stdout).toContain('auth-token');
+  expect(result.stdout).toContain('--hmip-system-events');
   expect(result.stdout).toContain('websocket-message');
   expect(result.stdout).toContain('set-switch-state');
   expect(result.stdout).toContain('summarize-fixture');
@@ -262,6 +266,31 @@ test('Homematic helper builds read-only HCU websocket messages', () => {
     ],
   });
   expect(JSON.stringify(payload)).not.toContain('authtoken":"');
+});
+
+test('Homematic helper can opt into HCU system event stream headers', () => {
+  const payload = homematic.buildRequest([
+    '--hmip-system-events',
+    'websocket-message',
+    'get-system-state',
+    '--hcu-url',
+    'https://hcu1-1234.local',
+  ]);
+
+  expect(payload).toMatchObject({
+    operation: 'get-system-state',
+    connection: {
+      headers: {
+        'plugin-id': 'com.hybridaione.hybridclaw.homematic',
+        'hmip-system-events': 'true',
+      },
+    },
+    message: {
+      body: {
+        path: '/hmip/home/getSystemState',
+      },
+    },
+  });
 });
 
 test('Homematic helper only expects self-signed gateway TLS for local/private HCU hosts', () => {
@@ -634,6 +663,33 @@ test('Homematic live WebSocket executor only disables TLS verification by explic
     }),
   ).toThrow(
     '--insecure-local-tls is only allowed for local/private HCU hosts.',
+  );
+});
+
+test('Homematic live WebSocket executor rejects write operations', () => {
+  const request = homematic.buildRequest([
+    'websocket-message',
+    'set-switch-state',
+    '--hcu-url',
+    'https://hcu1-1234.local',
+    '--device-id',
+    '3014F711A000000000001234',
+    '--channel-index',
+    '1',
+    '--on',
+    'true',
+    '--operator-grant',
+    'approve-homematic-write',
+  ]);
+
+  expect(() =>
+    homematic.executeHcuWebSocketMessage(request, {
+      WebSocketClass: class {},
+      env: {},
+      timeoutMs: 10,
+    }),
+  ).toThrow(
+    'run-websocket is restricted to green read-only Homematic operations.',
   );
 });
 

@@ -52,7 +52,8 @@ metadata:
         - hcu-get-system-state
         - plugin-ready
       amber:
-        - auth-token-enrollment
+        - auth-token
+        - confirm-token
         - switch-control
         - thermostat-control
         - shutter-control
@@ -76,6 +77,11 @@ WebSocket. Treat CCU/RaspberryMatic and Homematic IP Access Point cloud support
 as separate compatibility paths until their protocols are implemented and
 tested.
 
+This v1 targets remote HCU Connect API clients. The HTTPS port `6969` auth
+helpers implement the remote-client enrollment flow. Installed HCU plugin
+containers instead receive their token from the HCU container environment and
+mounted `/TOKEN` file; this helper does not implement container installation.
+
 ## Safety Rules
 
 1. Start with `plan`, `summarize-fixture`, `plugin-ready`, `get-state`, or
@@ -85,9 +91,10 @@ tested.
 3. For HCU WebSocket operations, use helper `websocket-message` output as the
    source of truth for connection headers, message type, path, stakes tier, and
    approval requirement.
-4. For a local operator-owned smoke test, `run-websocket` can open the HCU
-   WebSocket directly using `HOMEMATIC_HCU_AUTH_TOKEN` from the helper
-   environment. Do not pass that token as an argument.
+4. For a local operator-owned read-only smoke test, `run-websocket` can open
+   the HCU WebSocket directly using `HOMEMATIC_HCU_AUTH_TOKEN` from the helper
+   environment. Do not pass that token as an argument. Use gateway-managed
+   execution for any amber/red operation.
 5. Reads are green but still privacy-sensitive because home occupancy, alarms,
    temperatures, shutters, and energy state can reveal living patterns.
 6. Mutating device or group actions are amber unless they affect alarms,
@@ -138,6 +145,9 @@ node skills/homematic/homematic.cjs --format json websocket-message get-state \
   --hcu-url https://hcu1-1234.local
 
 node skills/homematic/homematic.cjs --format json websocket-message get-system-state \
+  --hcu-url https://hcu1-1234.local
+
+node skills/homematic/homematic.cjs --format json --hmip-system-events websocket-message get-state \
   --hcu-url https://hcu1-1234.local
 ```
 
@@ -211,6 +221,43 @@ The helper returns `auditEvents` payloads for planned and live read/control
 operations. These are structured for the F2 audit rail and intentionally carry
 SecretRef ids, never secret values.
 
+## Required Inputs
+
+- HCU URL: use the local HCUweb hostname, usually
+  `https://hcu1-XXXX.local`, where `XXXX` are the last four SGTIN digits shown
+  on the underside of the Home Control Unit.
+- Developer mode: enable HCU developer mode in HCUweb before creating remote
+  Connect API credentials.
+- WebSocket exposure: enable Connect API WebSocket exposure in HCUweb for
+  remote-client reads and guarded message planning.
+- Plugin id: use a stable reverse-DNS style id and keep it identical for auth
+  enrollment and WebSocket messages.
+- Credentials: store activation keys and auth tokens in HybridClaw secrets;
+  never paste values into chat or CLI arguments.
+
+## Access To Local Devices
+
+HCU v1 requires local network reachability to `hcu1-XXXX.local` on HTTPS port
+`6969` for remote-client auth enrollment and WSS port `9001` for Connect API
+messages. On macOS, the terminal or agent host may need Local Network access
+before `.local` mDNS names resolve or WebSocket connections succeed. If mDNS is
+unavailable, use the HCU's local IP address and keep the host allowlist scoped
+to that address.
+
+CCU/RaspberryMatic and Homematic IP Access Point cloud setups are not HCU
+Connect API endpoints. CCU/RaspberryMatic needs its local CCU API path, and the
+Access Point cloud path uses a separate cloud REST API. Treat both as follow-up
+compatibility work, not as prerequisites for this HCU skill.
+
+## V1 Coverage
+
+This helper emits `PLUGIN_STATE_RESPONSE` and `HMIP_SYSTEM_REQUEST` messages for
+read/state and guarded native Homematic IP control paths. Connect API plugin
+device inclusion (`DISCOVER_*`, `INCLUSION_EVENT`, `EXCLUSION_EVENT`),
+plugin-device control/status (`CONTROL_*`, `STATUS_*`), HCUweb configuration
+templates (`CONFIG_TEMPLATE_*`, `CONFIG_UPDATE_*`), system info, and user
+message flows are intentionally deferred follow-up surfaces.
+
 ## References
 
 - Official Homematic IP Connect API:
@@ -228,8 +275,12 @@ Relevant HCU Connect API notes:
 - WebSocket connection headers include `plugin-id` and `authtoken`.
 - HCU auth enrollment uses HTTPS port `6969`, header `VERSION: 12`, and the
   `requestConnectApiAuthToken` / `confirmConnectApiAuthToken` endpoints.
+- Add `hmip-system-events: true` to the WebSocket handshake when subscribing
+  to HCU `HMIP_SYSTEM_EVENT` push messages.
 - HCU system requests use `type: "HMIP_SYSTEM_REQUEST"` and a `body.path`
   such as `/hmip/home/getState`,
   `/hmip/device/control/setSwitchState`,
   `/hmip/group/heating/setSetPointTemperature`, or
   `/hmip/home/security/acknowledgeSafetyAlarm`.
+- `/hmip/home/getState` is the HCU Connect API path. `/hmip/home/getCurrentState`
+  belongs to the separate Homematic IP REST / Access Point API surface.
