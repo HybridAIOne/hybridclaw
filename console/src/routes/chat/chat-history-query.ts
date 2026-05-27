@@ -59,6 +59,7 @@ export function buildChatHistoryUiData(
       replayRequest:
         replayContent !== null ? { content: replayContent, media: [] } : null,
       assistantPresentation: msg.assistantPresentation ?? null,
+      responseRating: msg.response_rating ?? null,
       branchKey:
         msg.id !== undefined && msg.id !== null
           ? (branchKeysByMessageId.get(msg.id) ?? null)
@@ -79,7 +80,8 @@ export function chatHistoryQueryKey(
 export async function loadChatHistoryUi(
   token: string,
   sessionId: string,
+  userId?: string,
 ): Promise<ChatHistoryUiData> {
-  const raw = await fetchChatHistory(token, sessionId);
+  const raw = await fetchChatHistory(token, sessionId, 80, userId);
   return buildChatHistoryUiData(raw, sessionId);
 }

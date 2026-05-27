@@ -114,6 +114,8 @@ import type {
   ConversationHistoryPage,
   ForkSessionBranchParams,
   ForkSessionBranchResult,
+  ResponseRatingRecord,
+  ResponseRatingValue,
   Session,
   SessionShowMode,
   SessionTitleSource,
@@ -152,7 +154,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 41;
+export const DATABASE_SCHEMA_VERSION = 42;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -230,6 +232,31 @@ interface ConversationHistoryPageRow {
   content: string | null;
   artifacts_json: string | null;
   created_at: string | null;
+}
+
+interface ResponseRatingRow {
+  session_id: string;
+  message_id: number;
+  operator_user_id: string;
+  rating: string;
+  agent_id: string | null;
+  model: string | null;
+  provider: string | null;
+  skill_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResponseRatingTarget {
+  session_id: string;
+  message_id: number;
+  agent_id: string | null;
+  role: string;
+  model: string | null;
+  provider: string | null;
+  skill_observation_id: number | null;
+  skill_run_id: string | null;
+  skill_name: string | null;
 }
 
 interface SessionBranchRow {
@@ -862,6 +889,7 @@ function migrateV1(database: Database.Database): void {
       description TEXT
     );
   `);
+  createResponseRatingsSchema(database);
   recordMigration(database, 1, 'Initial schema');
 }
 
@@ -2818,6 +2846,104 @@ function migrateV41(database: Database.Database): void {
   );
 }
 
+function createResponseRatingsSchema(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS response_ratings (
+      session_id TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      operator_user_id TEXT NOT NULL,
+      rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+      agent_id TEXT,
+      model TEXT,
+      provider TEXT,
+      skill_name TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      PRIMARY KEY (session_id, message_id, operator_user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_response_ratings_message
+      ON response_ratings(session_id, message_id);
+  `);
+}
+
+function responseRatingsNeedMigration(database: Database.Database): boolean {
+  if (!tableExists(database, 'response_ratings')) return false;
+  const columns = queryAll<ColumnInfoRow>(
+    database,
+    'PRAGMA table_info(response_ratings)',
+  );
+  if (columns.some((column) => column.name === 'source_surface')) return true;
+  const primaryKeyColumns = columns
+    .filter((column) => column.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((column) => column.name);
+  return (
+    primaryKeyColumns.join(',') !== 'session_id,message_id,operator_user_id'
+  );
+}
+
+function migrateResponseRatingsSchema(database: Database.Database): void {
+  if (!responseRatingsNeedMigration(database)) {
+    createResponseRatingsSchema(database);
+    return;
+  }
+
+  database.transaction(() => {
+    database.exec(`
+        ALTER TABLE response_ratings RENAME TO response_ratings_v42_legacy;
+        DROP INDEX IF EXISTS idx_response_ratings_message;
+        DROP INDEX IF EXISTS idx_response_ratings_updated;
+      `);
+    createResponseRatingsSchema(database);
+    database.exec(`
+        INSERT INTO response_ratings (
+          session_id,
+          message_id,
+          operator_user_id,
+          rating,
+          agent_id,
+          model,
+          provider,
+          skill_name,
+          created_at,
+          updated_at
+        )
+        SELECT
+          legacy.session_id,
+          legacy.message_id,
+          legacy.operator_user_id,
+          legacy.rating,
+          legacy.agent_id,
+          legacy.model,
+          legacy.provider,
+          legacy.skill_name,
+          legacy.created_at,
+          legacy.updated_at
+        FROM response_ratings_v42_legacy AS legacy
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM response_ratings_v42_legacy AS newer
+          WHERE newer.session_id = legacy.session_id
+            AND newer.message_id = legacy.message_id
+            AND newer.operator_user_id = legacy.operator_user_id
+            AND (
+              newer.updated_at > legacy.updated_at
+              OR (
+                newer.updated_at = legacy.updated_at
+                AND newer.rowid > legacy.rowid
+              )
+            )
+        );
+        DROP TABLE response_ratings_v42_legacy;
+      `);
+  })();
+}
+
+function migrateV42(database: Database.Database): void {
+  migrateResponseRatingsSchema(database);
+  recordMigration(database, 42, 'Persist per-response operator ratings');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2920,6 +3046,9 @@ function runMigrations(
     budgetSoftWarnEventUnitKeyNeedMigration(database)
   ) {
     migrateV41(database);
+  }
+  if (currentVersion < 42 || responseRatingsNeedMigration(database)) {
+    migrateV42(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -7228,6 +7357,31 @@ function parseMessageArtifacts(raw: string | null): ArtifactMetadata[] {
   }
 }
 
+function normalizeResponseRatingValue(
+  value: string | null | undefined,
+): ResponseRatingValue | null {
+  return value === 'up' || value === 'down' ? value : null;
+}
+
+function mapResponseRatingRow(
+  row: ResponseRatingRow,
+): ResponseRatingRecord | null {
+  const rating = normalizeResponseRatingValue(row.rating);
+  if (!rating) return null;
+  return {
+    session_id: row.session_id,
+    message_id: row.message_id,
+    operator_user_id: row.operator_user_id,
+    rating,
+    agent_id: row.agent_id,
+    model: row.model,
+    provider: row.provider,
+    skill_name: row.skill_name,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 export function storeMessage(
   sessionId: string,
   userId: string,
@@ -7242,7 +7396,16 @@ export function storeMessage(
   const artifactsJson = serializeMessageArtifacts(artifacts);
   const result = db
     .prepare(
-      'INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO messages (
+         session_id,
+         user_id,
+         username,
+         role,
+         agent_id,
+         content,
+         artifacts_json,
+         created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
     )
     .run(
       resolvedSessionId,
@@ -7272,6 +7435,196 @@ export function getConversationHistory(
     resolvedSessionId,
     limit,
   );
+}
+
+function inferProviderFromModel(model: string | null): string | null {
+  const trimmed = model?.trim() || '';
+  if (!trimmed) return null;
+  const slashIndex = trimmed.indexOf('/');
+  return slashIndex > 0 ? trimmed.slice(0, slashIndex) : null;
+}
+
+export function getResponseRatingTarget(params: {
+  sessionId: string;
+  messageId: number;
+}): ResponseRatingTarget | null {
+  const sessionId = resolveSessionIdCompat(params.sessionId);
+  const row = queryOne<
+    {
+      session_id: string;
+      message_id: number;
+      agent_id: string | null;
+      role: string;
+      model: string | null;
+      skill_observation_id: number | null;
+      skill_run_id: string | null;
+      skill_name: string | null;
+    },
+    [string, number]
+  >(
+    db,
+    `WITH target_message AS (
+       SELECT
+         m.session_id,
+         m.id AS message_id,
+         m.agent_id,
+         m.role,
+         m.created_at,
+         s.model,
+         (
+           SELECT julianday(MAX(previous_user_message.created_at))
+           FROM messages previous_user_message
+           WHERE previous_user_message.session_id = m.session_id
+             AND previous_user_message.id < m.id
+             AND previous_user_message.role = 'user'
+         ) AS turn_started_at
+       FROM messages m
+       LEFT JOIN sessions s ON s.id = m.session_id
+       WHERE m.session_id = ? AND m.id = ?
+       LIMIT 1
+     ),
+     attributed_skill AS (
+       SELECT
+         skill_observation.id,
+         skill_observation.run_id,
+         skill_observation.skill_name
+       FROM skill_observations skill_observation
+       JOIN target_message ON target_message.session_id = skill_observation.session_id
+       WHERE (
+           target_message.agent_id IS NULL
+           OR skill_observation.agent_id IS NULL
+           OR skill_observation.agent_id = target_message.agent_id
+         )
+         AND julianday(skill_observation.created_at) <= julianday(target_message.created_at)
+         AND julianday(skill_observation.created_at) >= COALESCE(target_message.turn_started_at, 0)
+       ORDER BY julianday(skill_observation.created_at) DESC, skill_observation.id DESC
+       LIMIT 1
+     )
+     SELECT
+       target_message.session_id,
+       target_message.message_id,
+       target_message.agent_id,
+       target_message.role,
+       target_message.model,
+       attributed_skill.id AS skill_observation_id,
+       attributed_skill.run_id AS skill_run_id,
+       attributed_skill.skill_name
+     FROM target_message
+     LEFT JOIN attributed_skill`,
+    sessionId,
+    params.messageId,
+  );
+  if (!row) return null;
+  return {
+    ...row,
+    provider: inferProviderFromModel(row.model),
+  };
+}
+
+export function upsertResponseRating(input: {
+  sessionId: string;
+  messageId: number;
+  operatorUserId: string;
+  rating: ResponseRatingValue;
+  agentId?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  skillName?: string | null;
+}): ResponseRatingRecord {
+  const sessionId = resolveSessionIdCompat(input.sessionId);
+  const operatorUserId = input.operatorUserId.trim();
+  const row = db
+    .prepare(
+      `INSERT INTO response_ratings (
+       session_id,
+       message_id,
+       operator_user_id,
+       rating,
+       agent_id,
+       model,
+       provider,
+       skill_name
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id, message_id, operator_user_id)
+     DO UPDATE SET
+       rating = excluded.rating,
+       agent_id = excluded.agent_id,
+       model = excluded.model,
+       provider = excluded.provider,
+       skill_name = excluded.skill_name,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     RETURNING *`,
+    )
+    .get(
+      sessionId,
+      input.messageId,
+      operatorUserId,
+      input.rating,
+      input.agentId?.trim() || null,
+      input.model?.trim() || null,
+      input.provider?.trim() || null,
+      input.skillName?.trim() || null,
+    ) as ResponseRatingRow | undefined;
+  const rating = row ? mapResponseRatingRow(row) : null;
+  if (!rating) {
+    throw new Error('Failed to read persisted response rating.');
+  }
+  return rating;
+}
+
+export function clearResponseRating(input: {
+  sessionId: string;
+  messageId: number;
+  operatorUserId: string;
+}): void {
+  db.prepare(
+    `DELETE FROM response_ratings
+     WHERE session_id = ?
+       AND message_id = ?
+       AND operator_user_id = ?`,
+  ).run(
+    resolveSessionIdCompat(input.sessionId),
+    input.messageId,
+    input.operatorUserId.trim(),
+  );
+}
+
+export function getResponseRatingsForMessages(input: {
+  sessionId: string;
+  messageIds: number[];
+  operatorUserId: string;
+}): Map<number, ResponseRatingValue> {
+  const sessionId = resolveSessionIdCompat(input.sessionId);
+  const messageIds = [
+    ...new Set(
+      input.messageIds
+        .filter((id) => Number.isInteger(id) && id > 0)
+        .map((id) => Math.floor(id)),
+    ),
+  ];
+  const operatorUserId = input.operatorUserId.trim();
+  if (messageIds.length === 0 || !operatorUserId) return new Map();
+  const placeholders = messageIds.map(() => '?').join(', ');
+  const rows = queryAll<
+    Pick<ResponseRatingRow, 'message_id' | 'rating'>,
+    Array<string | number>
+  >(
+    db,
+    `SELECT message_id, rating
+     FROM response_ratings
+     WHERE session_id = ?
+       AND operator_user_id = ?
+       AND message_id IN (${placeholders})`,
+    sessionId,
+    operatorUserId,
+    ...messageIds,
+  );
+  const ratings = new Map<number, ResponseRatingValue>();
+  for (const row of rows) {
+    const rating = normalizeResponseRatingValue(row.rating);
+    if (rating) ratings.set(row.message_id, rating);
+  }
+  return ratings;
 }
 
 function getBranchVariantMessageId(
@@ -9388,6 +9741,35 @@ export function attachFeedbackToObservation(input: {
     db,
     'SELECT * FROM skill_observations WHERE id = ?',
     target.id,
+  );
+  if (!row) {
+    throw new Error('Failed to read updated skill observation.');
+  }
+  return mapSkillObservationRow(row);
+}
+
+export function attachFeedbackToObservationById(input: {
+  observationId: number;
+  feedback: string;
+  sentiment: SkillFeedbackSentiment;
+}): SkillObservation | null {
+  const observationId = Math.floor(input.observationId);
+  if (!Number.isInteger(observationId) || observationId <= 0) return null;
+
+  const result = db
+    .prepare(
+      `UPDATE skill_observations
+       SET user_feedback = ?,
+           feedback_sentiment = ?
+       WHERE id = ?`,
+    )
+    .run(input.feedback.trim() || null, input.sentiment, observationId);
+  if (Number(result.changes || 0) <= 0) return null;
+
+  const row = queryOne<SkillObservationRow, [number]>(
+    db,
+    'SELECT * FROM skill_observations WHERE id = ?',
+    observationId,
   );
   if (!row) {
     throw new Error('Failed to read updated skill observation.');

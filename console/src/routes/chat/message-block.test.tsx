@@ -461,4 +461,114 @@ describe('MessageBlock artifacts', () => {
     expect(renderMarkdownMock).toHaveBeenCalledTimes(3);
     expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABCD');
   });
+
+  it('renders accessible response rating controls and clears the selected rating', () => {
+    const onRate = vi.fn();
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          messageId: 42,
+          responseRating: 'up',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={onRate}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const up = screen.getByRole('button', {
+      name: 'Clear thumbs up rating',
+    });
+    const down = screen.getByRole('button', {
+      name: 'Rate response thumbs down',
+    });
+    expect(up.getAttribute('aria-pressed')).toBe('true');
+    expect(down.getAttribute('aria-pressed')).toBe('false');
+    expect(up.getAttribute('data-rating-locked')).toBe('true');
+    expect(down.getAttribute('data-rating-locked')).toBe('true');
+    expect(up.hasAttribute('disabled')).toBe(false);
+    expect(down.hasAttribute('disabled')).toBe(true);
+    expect(up.querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
+    expect(down.querySelector('svg')?.getAttribute('fill')).toBe('none');
+
+    fireEvent.click(up);
+    expect(onRate).toHaveBeenCalledWith(expect.any(Object), null);
+  });
+
+  it('disables thumbs up after a thumbs down rating is selected', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          messageId: 42,
+          responseRating: 'down',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={vi.fn()}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs up' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole('button', { name: 'Clear thumbs down rating' })
+        .hasAttribute('disabled'),
+    ).toBe(false);
+    expect(
+      screen
+        .getByRole('button', { name: 'Clear thumbs down rating' })
+        .querySelector('svg')
+        ?.getAttribute('fill'),
+    ).toBe('currentColor');
+  });
+
+  it('keeps response rating controls visible but disabled before message persistence', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], { messageId: null })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={vi.fn()}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs up' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs down' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+  });
 });
