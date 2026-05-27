@@ -86,6 +86,20 @@ describe('Composer', () => {
     expect(onAgentSwitch).toHaveBeenCalledWith('charly');
   });
 
+  it('preserves internal newlines when sending a multiline message', () => {
+    const onSend = vi.fn();
+    renderComposer({ onSend });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, {
+      target: { value: 'first line\nsecond line\nthird line' },
+    });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith(
+      'first line\nsecond line\nthird line',
+      [],
+    );
+  });
+
   describe('slash command suggestion panel', () => {
     async function showPanel(
       commands: ChatCommandSuggestion[],
