@@ -133,11 +133,30 @@ test('maps Discord-style slash commands to gateway command args', () => {
   expect(
     mapTuiSlashCommandToGatewayArgs(['export', 'trace', 'session-1']),
   ).toEqual(['export', 'trace', 'session-1']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs([
+      'export',
+      'trace',
+      'session-1',
+      '--turn',
+      '2',
+    ]),
+  ).toEqual(['export', 'trace', 'session-1', '--turn', '2']);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['export', 'trace', '--run', 'run-1']),
+  ).toEqual(['export', 'trace', '--run', 'run-1']);
   expect(mapTuiSlashCommandToGatewayArgs(['export', 'trace', 'all'])).toEqual([
     'export',
     'trace',
     'all',
   ]);
+  expect(mapTuiSlashCommandToGatewayArgs(['audit', 'last'])).toEqual([
+    'audit',
+    'last',
+  ]);
+  expect(
+    mapTuiSlashCommandToGatewayArgs(['audit', 'session-1', '--turn', '2']),
+  ).toEqual(['audit', 'session-1', '--turn', '2']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['agent', 'create', 'research', 'gpt-5']),
   ).toEqual(['agent', 'create', 'research', '--model', 'gpt-5']);

@@ -40,6 +40,7 @@ import {
   saveGatewayAdminSkillEnabled,
 } from './gateway/gateway-client.js';
 import type { GatewayAdminSuspendedSession } from './gateway/gateway-types.js';
+import { shouldSuppressProactiveMessage } from './gateway/proactive-delivery.js';
 import {
   DEFAULT_SESSION_SHOW_MODE,
   isSessionShowMode,
@@ -3381,16 +3382,20 @@ async function pollProactiveMessages(
       TUI_PROACTIVE_PULL_LIMIT,
     );
     if (!Array.isArray(result.messages) || result.messages.length === 0) return;
+    const messages = result.messages.filter(
+      (message) => !shouldSuppressProactiveMessage(message),
+    );
+    if (messages.length === 0) return;
 
     clearTuiSlashMenu();
-    const regularMessages = result.messages.filter(
+    const regularMessages = messages.filter(
       (message) =>
         !isDelegateStatusMessage(message.text) ||
         isDelegateStreamSource(message.source),
     );
     let latestDelegateStatus: GatewayProactiveMessage | undefined;
-    for (let idx = result.messages.length - 1; idx >= 0; idx -= 1) {
-      const message = result.messages[idx];
+    for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
+      const message = messages[idx];
       if (message && isDelegateStatusMessage(message.text)) {
         latestDelegateStatus = message;
         break;

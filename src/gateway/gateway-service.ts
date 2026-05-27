@@ -344,6 +344,10 @@ import {
 import { exportSessionTraceAtifJsonl } from '../session/session-trace-export.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import {
+  type AuditTurnTraceSelector,
+  formatAuditTurnTrace,
+} from '../session/session-turn-trace.js';
+import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
@@ -2026,6 +2030,167 @@ function summarizeAuditPayload(payloadRaw: string): string {
   }
 }
 
+function parseTurnTraceSelectorFlag(args: readonly unknown[]): {
+  selector: AuditTurnTraceSelector | null;
+  error: string | null;
+} {
+  const selector: AuditTurnTraceSelector = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = parseLowerArg(args, index);
+    if (!arg) continue;
+    if (arg === '--last' || arg === '--latest') {
+      selector.latest = true;
+      continue;
+    }
+    if (arg === '--turn') {
+      const turnIndex = parseIntegerArg(args, index + 1);
+      if (!turnIndex || turnIndex < 1) {
+        return {
+          selector: null,
+          error: 'Expected a positive turn number after `--turn`.',
+        };
+      }
+      selector.turnIndex = turnIndex;
+      index += 1;
+      continue;
+    }
+    if (arg === '--run') {
+      const runId = parseIdArg(args, index + 1);
+      if (!runId) {
+        return { selector: null, error: 'Expected a run id after `--run`.' };
+      }
+      selector.runId = runId;
+      index += 1;
+      continue;
+    }
+    return {
+      selector: null,
+      error: `Unknown trace selector option \`${parseIdArg(args, index)}\`.`,
+    };
+  }
+
+  const selectedSelectorCount = [
+    selector.latest,
+    selector.runId,
+    selector.turnIndex != null,
+  ].filter(Boolean).length;
+  if (selectedSelectorCount > 1) {
+    return {
+      selector: null,
+      error: 'Use only one of `--last`, `--turn`, or `--run`.',
+    };
+  }
+  return {
+    selector:
+      selector.latest || selector.runId || selector.turnIndex != null
+        ? selector
+        : null,
+    error: null,
+  };
+}
+
+function parseAuditTraceCommand(
+  args: readonly unknown[],
+  currentSessionId: string,
+): {
+  targetSessionId: string;
+  selector: AuditTurnTraceSelector | null;
+  error: string | null;
+  recentOnly: boolean;
+} {
+  const first = parseLowerArg(args, 1);
+  if (!first) {
+    return {
+      targetSessionId: currentSessionId,
+      selector: null,
+      error: null,
+      recentOnly: true,
+    };
+  }
+  if (first === 'last') {
+    return {
+      targetSessionId: currentSessionId,
+      selector: { latest: true },
+      error: null,
+      recentOnly: false,
+    };
+  }
+  if (first === 'turn') {
+    const turnIndex = parseIntegerArg(args, 2);
+    return {
+      targetSessionId: currentSessionId,
+      selector: turnIndex && turnIndex > 0 ? { turnIndex } : null,
+      error: turnIndex && turnIndex > 0 ? null : 'Usage: `audit turn <n>`',
+      recentOnly: false,
+    };
+  }
+  if (first === 'run') {
+    const runId = parseIdArg(args, 2);
+    return {
+      targetSessionId: currentSessionId,
+      selector: runId ? { runId } : null,
+      error: runId ? null : 'Usage: `audit run <runId>`',
+      recentOnly: false,
+    };
+  }
+
+  const targetSessionId = parseIdArg(args, 1) || currentSessionId;
+  const parsed = parseTurnTraceSelectorFlag(args.slice(2));
+  return {
+    targetSessionId,
+    selector: parsed.selector,
+    error: parsed.error,
+    recentOnly: !parsed.selector && !parsed.error,
+  };
+}
+
+function parseExportTraceTarget(
+  args: readonly unknown[],
+  currentSessionId: string,
+): {
+  targetSessionId: string;
+  exportAll: boolean;
+  selector: AuditTurnTraceSelector | null;
+  error: string | null;
+} {
+  const first = parseIdArg(args, 2);
+  const firstLower = first.toLowerCase();
+  if (firstLower === 'all' || firstLower === '--all') {
+    const parsed = parseTurnTraceSelectorFlag(args.slice(3));
+    if (parsed.selector) {
+      return {
+        targetSessionId: '',
+        exportAll: false,
+        selector: null,
+        error: '`export trace all` does not support turn selectors.',
+      };
+    }
+    return {
+      targetSessionId: '',
+      exportAll: true,
+      selector: null,
+      error: parsed.error,
+    };
+  }
+
+  const hasLeadingSelector =
+    first === '--last' ||
+    first === '--latest' ||
+    first === '--turn' ||
+    first === '--run';
+  const targetSessionId = hasLeadingSelector
+    ? currentSessionId
+    : first || currentSessionId;
+  const selectorArgs = hasLeadingSelector ? args.slice(2) : args.slice(3);
+  const parsed = parseTurnTraceSelectorFlag(selectorArgs);
+  return {
+    targetSessionId,
+    exportAll: false,
+    selector: parsed.selector,
+    error: parsed.error,
+  };
+}
+
 function boundAuditActorField(
   value: string | null | undefined,
 ): string | null | undefined {
@@ -2617,6 +2782,7 @@ type TraceExportResult = Awaited<
 
 async function exportTraceForSession(
   session: Session,
+  selector?: AuditTurnTraceSelector | null,
 ): Promise<TraceExportResult> {
   return exportSessionTraceAtifJsonl({
     agentId: resolveSessionAgentId(session),
@@ -2624,6 +2790,7 @@ async function exportTraceForSession(
     messages: memoryService.getRecentMessages(session.id),
     auditEntries: getStructuredAuditForSession(session.id),
     usageTotals: getSessionUsageTotals(session.id),
+    selector,
   });
 }
 
@@ -5408,6 +5575,7 @@ function mapA2AThreadSummary(
 ): GatewayAdminA2AThreadSummary {
   return {
     id: thread.thread_id,
+    ownerCoworkerId: thread.owner_coworker_id,
     messageCount: thread.message_count,
     participants: thread.participants,
     latestMessage:
@@ -11053,18 +11221,30 @@ export async function handleGatewayCommand(
             'Usage: `export session [sessionId]` or `export trace [sessionId|all|--all]`',
           );
         }
-        const traceTarget = parseIdArg(req.args, 2);
-        const exportAllTraces =
-          sub === 'trace' &&
-          (traceTarget.toLowerCase() === 'all' || traceTarget === '--all');
+        const parsedTrace =
+          sub === 'trace'
+            ? parseExportTraceTarget(req.args, session.id)
+            : {
+                targetSessionId: parseIdArg(req.args, 2) || session.id,
+                exportAll: false,
+                selector: null,
+                error: null,
+              };
+        if (parsedTrace.error) {
+          return badCommand(
+            'Usage',
+            `${parsedTrace.error}\nUsage: \`export trace [sessionId|all|--all] [--turn <n>|--run <runId>]\``,
+          );
+        }
+        const exportAllTraces = sub === 'trace' && parsedTrace.exportAll;
         const targetSessionId = exportAllTraces
           ? ''
-          : traceTarget || session.id;
+          : parsedTrace.targetSessionId;
         if (!exportAllTraces && !targetSessionId) {
           return badCommand(
             'Usage',
             sub === 'trace'
-              ? 'Usage: `export trace [sessionId|all|--all]`'
+              ? 'Usage: `export trace [sessionId|all|--all] [--turn <n>|--run <runId>]`'
               : 'Usage: `export session [sessionId]`',
           );
         }
@@ -11116,11 +11296,16 @@ export async function handleGatewayCommand(
         }
         const messages = memoryService.getRecentMessages(targetSessionId);
         if (sub === 'trace') {
-          const exported = await exportTraceForSession(targetSession);
+          const exported = await exportTraceForSession(
+            targetSession,
+            parsedTrace.selector,
+          );
           if (!exported) {
             return badCommand(
               'Export Failed',
-              'Failed to write ATIF-compatible trace export JSONL file. Check gateway logs for details.',
+              parsedTrace.selector
+                ? 'Failed to write focused turn trace export JSONL file. Check that the selected turn exists, then check gateway logs for details.'
+                : 'Failed to write ATIF-compatible trace export JSONL file. Check gateway logs for details.',
             );
           }
           return infoCommand(
@@ -11129,6 +11314,12 @@ export async function handleGatewayCommand(
               `File: ${exported.path}`,
               `Trace ID: ${exported.traceId}`,
               `Steps: ${exported.stepCount}`,
+              ...(parsedTrace.selector
+                ? [
+                    `Turns: ${exported.turnCount}`,
+                    `Runs: ${exported.runIds.join(', ') || '(none)'}`,
+                  ]
+                : []),
               `Messages: ${messages.length}`,
             ].join('\n'),
           );
@@ -11158,10 +11349,32 @@ export async function handleGatewayCommand(
       }
 
       case 'audit': {
-        const targetSessionId = parseIdArg(req.args, 1) || session.id;
-        if (!targetSessionId) {
-          return badCommand('Usage', 'Usage: `audit [sessionId]`');
+        const parsedAudit = parseAuditTraceCommand(req.args, session.id);
+        if (parsedAudit.error) {
+          return badCommand(
+            'Usage',
+            `${parsedAudit.error}\nUsage: \`audit [sessionId] | audit last | audit turn <n> | audit run <runId> | audit <sessionId> [--turn <n>|--run <runId>]\``,
+          );
         }
+        const targetSessionId = parsedAudit.targetSessionId;
+        if (!targetSessionId) {
+          return badCommand(
+            'Usage',
+            'Usage: `audit [sessionId] | audit last | audit turn <n> | audit run <runId>`',
+          );
+        }
+        if (!parsedAudit.recentOnly && parsedAudit.selector) {
+          const trace = formatAuditTurnTrace({
+            sessionId: targetSessionId,
+            auditEntries: getStructuredAuditForSession(targetSessionId),
+            selector: parsedAudit.selector,
+          });
+          if ('error' in trace) {
+            return plainCommand(trace.error);
+          }
+          return infoCommand(trace.title, trace.text);
+        }
+
         const rows = getRecentStructuredAuditForSession(targetSessionId, 20);
         if (rows.length === 0) {
           return plainCommand(

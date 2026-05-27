@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatArtifact, ChatMessage } from '../../api/chat-types';
+import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
 import { MessageBlock } from './message-block';
 
@@ -64,6 +65,30 @@ describe('MessageBlock artifacts', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('renders multiline user message bubbles with newline-preserving styling', () => {
+    const content = 'first line\nsecond line\nthird line';
+    render(
+      <MessageBlock
+        message={makeMessage([], { role: 'user', content })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const bubble = screen.getByText(
+      (_text, element) => element?.textContent === content,
+    );
+    expect(bubble.textContent).toBe(content);
+    expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
   });
 
   it('renders image previews from blob URLs instead of tokenized artifact URLs', async () => {

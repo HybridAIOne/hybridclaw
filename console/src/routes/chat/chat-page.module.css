@@ -597,6 +597,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   background: linear-gradient(135deg, var(--primary), var(--ring));
   color: var(--primary-foreground);
   border-bottom-right-radius: 4px;
+  white-space: pre-wrap;
 }
 
 .bubbleAssistant {
