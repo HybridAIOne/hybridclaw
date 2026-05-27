@@ -18,6 +18,7 @@ import { ConfigPage } from './routes/config';
 import { DashboardPage } from './routes/dashboard';
 import { EmailPage } from './routes/email';
 import { GatewayPage } from './routes/gateway';
+import { HarnessEvolutionPage } from './routes/harness-evolution';
 import { JobsPage } from './routes/jobs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
@@ -185,6 +186,12 @@ const jobsRoute = createRoute({
   component: JobsPage,
 });
 
+const harnessEvolutionRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/harness-evolution',
+  component: HarnessEvolutionPage,
+});
+
 const mcpRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/mcp',
@@ -194,6 +201,10 @@ const mcpRoute = createRoute({
 const auditRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/audit',
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: optionalStringSearchValue(search.q),
+    range: optionalStringSearchValue(search.range),
+  }),
   component: AuditPage,
 });
 
@@ -250,6 +261,7 @@ const routeTree = rootRoute.addChildren([
     modelsRoute,
     schedulerRoute,
     jobsRoute,
+    harnessEvolutionRoute,
     mcpRoute,
     auditRoute,
     skillsRoute,

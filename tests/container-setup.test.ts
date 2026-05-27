@@ -842,7 +842,7 @@ describe('ensureContainerImageReady', () => {
         cwd,
       }),
     ).rejects.toThrow(
-      "hybridclaw gateway restart: Required container image 'custom-hybridclaw' not found. Packaged installs only support pulling published runtime images automatically. Set `container.image` to a registry-qualified image name or set `HYBRIDCLAW_CONTAINER_PULL_IMAGE`. Details: No pullable container image source is configured for 'custom-hybridclaw'. Packaged installs only support pulling published runtime images. Set `container.image` to a registry-qualified image name or set `HYBRIDCLAW_CONTAINER_PULL_IMAGE`.",
+      "hybridclaw gateway restart: Required container image 'custom-hybridclaw' not found. Packaged installs only support pulling published runtime images automatically. Run `/config set container.image <registry/image:tag>` or set `container.image` in /admin/config. Details: No pullable container image source is configured for 'custom-hybridclaw'. Packaged installs only support pulling published runtime images. Run `/config set container.image <registry/image:tag>` or set `container.image` in /admin/config.",
     );
     expect(
       spawnMock.mock.calls.some(

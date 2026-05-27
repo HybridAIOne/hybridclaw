@@ -202,6 +202,12 @@ npm run dev                          # tsx src/cli.ts gateway (hot reload)
 npm run tui                          # tsx src/cli.ts tui
 ```
 
+### Runtime Diagnostics
+
+```bash
+hybridclaw gateway status             # gateway liveness, PID, build/version diagnostics
+```
+
 ---
 
 ## 6) Working Rules
@@ -222,6 +228,16 @@ npm run tui                          # tsx src/cli.ts tui
 - **README tone:** Describe the current state of the product, not changes
   relative to a prior version. Avoid "now", "no longer", "deprecated … for
   now", "recently added". The changelog is the place for transition language.
+
+### Diagnostics
+
+- Before diagnosing gateway/runtime issues, inspect the actual checkout, the
+  running process, runtime state, logs, and `hybridclaw gateway status`.
+- Use `hybridclaw gateway status` to compare the PID file, API-reported PID,
+  entrypoint, package root, Node version, Git commit/branch, and
+  source-vs-build freshness before concluding that a gateway is stale.
+- Do not restart the gateway unless the user explicitly requests or approves a
+  restart. If a restart would help, report the exact reason and command instead.
 
 ### Coding Style
 

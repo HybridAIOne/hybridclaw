@@ -290,7 +290,6 @@ export function TerminalPage() {
   return (
     <div className="page-stack terminal-page">
       <PageHeader
-        title="Terminal"
         actions={
           <div className="button-row">
             <span className="status-pill">

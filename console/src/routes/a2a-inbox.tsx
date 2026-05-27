@@ -75,7 +75,7 @@ export function A2AInboxPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader title="A2A Inbox" />
+      <PageHeader />
       <div className="mailbox-shell a2a-inbox-shell">
         <section className="mailbox-main">
           <div className="mailbox-column-header">
@@ -162,7 +162,10 @@ export function A2AInboxPage() {
                   </div>
                   <p className="supporting-text">
                     {participantLabel(selectedThread)} ·{' '}
-                    {messageCountLabel(selectedThread.messageCount)}
+                    {messageCountLabel(selectedThread.messageCount)} ·{' '}
+                    {selectedThread.ownerCoworkerId
+                      ? `Owned by ${selectedThread.ownerCoworkerId}`
+                      : 'No owner'}
                   </p>
                   {selectedThread.latestMessage ? (
                     <p className="supporting-text">

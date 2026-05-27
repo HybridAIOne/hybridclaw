@@ -31,12 +31,15 @@ import {
   gatewayChatStream,
   gatewayCommand,
   gatewayHistory,
+  gatewayListInteractiveEscalations,
   gatewayPullProactive,
+  gatewayResumeInteractiveEscalation,
   gatewayStatus,
   gatewayUploadMedia,
   renderGatewayCommand,
   saveGatewayAdminSkillEnabled,
 } from './gateway/gateway-client.js';
+import type { GatewayAdminSuspendedSession } from './gateway/gateway-types.js';
 import {
   DEFAULT_SESSION_SHOW_MODE,
   isSessionShowMode,
@@ -1213,6 +1216,10 @@ export function shouldReplayTuiFormattedText(params: {
   );
 }
 
+export function shouldBufferTuiFormattedStream(text: string): boolean {
+  return hasTuiMarkdownFormatting(text);
+}
+
 function wrapAnsiTuiVisibleLine(value: string, width: number): string[] {
   const safeWidth = Math.max(1, Math.floor(width || 1));
   if (visibleTuiLength(value) <= safeWidth) return [value];
@@ -1574,6 +1581,10 @@ function terminalColumns(): number {
   return Math.max(24, process.stdout.columns || 120);
 }
 
+function terminalRows(): number {
+  return Math.max(8, process.stdout.rows || 24);
+}
+
 function formatTuiOutput(text: string): string {
   return formatTuiMarkdownOutput(text, terminalColumns(), '  ');
 }
@@ -1808,6 +1819,15 @@ function spinner(): {
     }
     if (normalizedRows > 1) process.stdout.write(`\x1b[${normalizedRows - 1}A`);
   };
+  const deleteRenderedRows = (rows: number) => {
+    const normalizedRows = Math.max(0, rows);
+    if (normalizedRows <= 0 || !process.stdout.isTTY) return;
+    process.stdout.write('\r');
+    if (normalizedRows > 1) {
+      process.stdout.write(`\x1b[${normalizedRows - 1}A`);
+    }
+    process.stdout.write(`\x1b[${normalizedRows}M`);
+  };
   const hideCursor = () => {
     if (cursorHidden || !process.stdout.isTTY) return;
     process.stdout.write(HIDE_CURSOR);
@@ -1868,14 +1888,19 @@ function spinner(): {
     }
   };
 
+  const repaintThinkingPreview = (preview: string) => {
+    const formatted = wrapTuiBlock(preview, terminalColumns(), '  ');
+    if (process.stdout.isTTY) {
+      process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
+    } else {
+      process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
+    }
+    thinkingPreviewRows = countTerminalRows(formatted, terminalColumns());
+  };
+
   const clearThinkingPreview = () => {
     if (thinkingPreviewRows <= 0) return;
-    for (let row = 0; row < thinkingPreviewRows; row += 1) {
-      clearLine();
-      if (row < thinkingPreviewRows - 1) {
-        process.stdout.write('\x1b[1A');
-      }
-    }
+    deleteRenderedRows(thinkingPreviewRows);
     thinkingPreviewRows = 0;
     if (!stopped && showActivityPreview && !hasVisibleText) {
       render();
@@ -1887,8 +1912,12 @@ function spinner(): {
     const canClear = process.stdout.isTTY;
     if (process.stdout.isTTY) {
       const rows = Math.max(1, visibleTextRows);
-      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
-      process.stdout.write('\r\x1b[0J');
+      const safeClearRows = Math.max(1, terminalRows() - 2);
+      if (rows <= safeClearRows) {
+        clearRows(rows);
+      } else {
+        process.stdout.write('\n');
+      }
     }
     hasVisibleText = false;
     visibleTextState = createTuiStreamFormatState();
@@ -1911,9 +1940,7 @@ function spinner(): {
     if (toolEntries.length > 0) return;
     clearThinkingPreview();
     clearLine();
-    const formatted = wrapTuiBlock(normalizedPreview, terminalColumns(), '  ');
-    process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
-    thinkingPreviewRows = Math.max(1, formatted.split('\n').length);
+    repaintThinkingPreview(normalizedPreview);
   };
 
   hideCursor();
@@ -2091,6 +2118,70 @@ function restorePendingMedia(
   if (media.length === 0) return;
   tuiPendingMedia = [...media, ...tuiPendingMedia];
   refreshPrompt(rl);
+}
+
+function looksLikeTuiInteractiveReply(input: string): boolean {
+  const trimmed = input.trim();
+  return (
+    /^\d{4,10}$/u.test(trimmed) ||
+    /^(?:approved|approve|done|scanned|declined|decline|cancel|timeout)$/iu.test(
+      trimmed,
+    )
+  );
+}
+
+function isTuiRoutableInteractiveReplySession(
+  entry: GatewayAdminSuspendedSession,
+): boolean {
+  const userId = String(entry.userId || '').trim();
+  return (
+    entry.status === 'pending' &&
+    entry.expectedReturnKinds.includes('code') &&
+    (!userId || userId === TUI_USER_ID || userId === 'operator')
+  );
+}
+
+export function selectTuiInteractiveReplySession(
+  sessions: GatewayAdminSuspendedSession[],
+): GatewayAdminSuspendedSession | null {
+  return (
+    sessions
+      .filter(isTuiRoutableInteractiveReplySession)
+      .sort(
+        (left, right) =>
+          Date.parse(right.createdAt) - Date.parse(left.createdAt),
+      )[0] || null
+  );
+}
+
+async function tryRouteTuiInteractiveReply(
+  input: string,
+  rl: readline.Interface,
+): Promise<boolean> {
+  const trimmed = input.trim();
+  if (!looksLikeTuiInteractiveReply(trimmed)) return false;
+  const pending = await gatewayListInteractiveEscalations().catch(() => null);
+  const session = pending
+    ? selectTuiInteractiveReplySession(pending.sessions)
+    : null;
+  if (!session) return false;
+
+  await gatewayResumeInteractiveEscalation({
+    sessionId: session.sessionId,
+    text: trimmed,
+  });
+  printInfo(
+    `Captured operator response for suspended session ${session.sessionId}.`,
+  );
+  await processMessage(
+    [
+      `Operator response has been captured for suspended session ${session.sessionId}.`,
+      'Resume the browser interaction now with browser_resume_interaction.',
+      'Do not ask for the code again and do not use browser_type for the code.',
+    ].join(' '),
+    rl,
+  );
+  return true;
 }
 
 function buildGatewayChatRequest(
@@ -2768,6 +2859,8 @@ async function processMessage(
       `${toolName}\0${preview}`;
     let sawStreamEvent = false;
     let sawVisibleTextDelta = false;
+    let streamedVisibleText = '';
+    let bufferFormattedReplayText = false;
     let activeDelegateToolCount = 0;
     let streamedApproval: GatewayChatApprovalEvent | null = null;
     let result: GatewayChatResult;
@@ -2786,7 +2879,18 @@ async function processMessage(
             const streamed = streamState.push(event.delta);
             if (streamed.visibleDelta) {
               sawVisibleTextDelta = true;
-              s.addVisibleTextDelta(streamed.visibleDelta);
+              streamedVisibleText += streamed.visibleDelta;
+              if (
+                !bufferFormattedReplayText &&
+                process.stdout.isTTY &&
+                shouldBufferTuiFormattedStream(streamedVisibleText)
+              ) {
+                bufferFormattedReplayText = true;
+                s.clearVisibleText();
+              }
+              if (!bufferFormattedReplayText) {
+                s.addVisibleTextDelta(streamed.visibleDelta);
+              }
             } else if (streamed.thinkingPreview) {
               s.setThinkingPreview(streamed.thinkingPreview);
             }
@@ -3441,6 +3545,14 @@ async function main(): Promise<void> {
             promptTuiInput(rl);
             return;
           }
+        }
+        if (
+          !input.includes('\n') &&
+          !hasPendingMedia &&
+          (await tryRouteTuiInteractiveReply(input, rl))
+        ) {
+          promptTuiInput(rl);
+          return;
         }
         if (shouldRouteTuiInputToFullAuto(tuiFullAutoState)) {
           const liveFullAutoState = await syncFullAutoStateFromGateway(rl);

@@ -361,7 +361,7 @@ function resolveMasterKey(options?: { allowCreateLocalFallback?: boolean }): {
 
   if (!options?.allowCreateLocalFallback) {
     throw new Error(
-      `no master key available; set HYBRIDCLAW_MASTER_KEY, mount ${RUNTIME_MASTER_KEY_SECRET_PATH}, or restore ${localKeyPath}`,
+      `no master key available; mount ${RUNTIME_MASTER_KEY_SECRET_PATH} or restore ${localKeyPath}`,
     );
   }
 

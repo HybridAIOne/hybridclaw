@@ -33,6 +33,7 @@ export function createBrowserProvider(
       return new CamofoxProvider({
         profileRoot: config.camofox.profileRoot || undefined,
         headed: config.camofox.headed,
+        allowPrivateNetwork: config.allowPrivateNetwork,
         launchOptions: config.camofox.launchOptions,
         camofox: deps.camofox,
         secretAudit: deps.secretAudit,
@@ -42,6 +43,7 @@ export function createBrowserProvider(
         apiKeyRef: config.browserUseCloud.apiKeyRef,
         baseUrl: config.browserUseCloud.baseUrl || undefined,
         browser: config.browserUseCloud.browser,
+        allowPrivateNetwork: config.allowPrivateNetwork,
         pricing: config.browserUseCloud.pricing,
         secretAudit: deps.secretAudit,
       });
@@ -51,6 +53,7 @@ export function createBrowserProvider(
         driverCommand: config.macCua.driverCommand || undefined,
         driverArgs: config.macCua.driverArgs,
         screenshotMode: config.macCua.screenshotMode,
+        allowPrivateNetwork: config.allowPrivateNetwork,
         driver: deps.macCuaDriver,
       });
     case 'managed-cloud':
@@ -58,6 +61,7 @@ export function createBrowserProvider(
         endpointUrl: config.managedCloud.endpointUrl || undefined,
         poolTokenRef: config.managedCloud.poolTokenRef,
         defaultTenantId: config.managedCloud.defaultTenantId || undefined,
+        allowPrivateNetwork: config.allowPrivateNetwork,
         pricing: config.managedCloud.pricing,
         playwright: deps.managedCloudPlaywright,
         secretAudit: deps.secretAudit,
@@ -66,6 +70,7 @@ export function createBrowserProvider(
       return new LocalBrowserProvider({
         profileRoot: config.local.profileRoot || undefined,
         headed: config.local.headed,
+        allowPrivateNetwork: config.allowPrivateNetwork,
         playwright: deps.localPlaywright,
         secretAudit: deps.secretAudit,
       });

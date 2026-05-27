@@ -116,7 +116,6 @@ export function PluginsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Plugins"
         description="Discovery and runtime load status for configured HybridClaw plugins."
         actions={
           <input

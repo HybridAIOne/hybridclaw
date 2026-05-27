@@ -12,6 +12,7 @@ import {
   nextActiveDelegateToolCount,
   parseTuiSectionCards,
   renderTuiEvalResultsPanel,
+  shouldBufferTuiFormattedStream,
   shouldReplayTuiFormattedText,
   visibleTuiLength,
 } from '../src/tui.ts';
@@ -170,6 +171,23 @@ test('renders markdown tables as wrapped terminal tables', () => {
   expect(plain).not.toContain('|---------|');
   expect(plain).not.toContain('**Authority + Unity**');
   expect(plainLines.every((line) => visibleTuiLength(line) <= 82)).toBe(true);
+});
+
+test('buffers streamed markdown before terminal replay', () => {
+  expect(shouldBufferTuiFormattedStream('Alles klar')).toBe(false);
+  expect(
+    shouldBufferTuiFormattedStream(
+      [
+        'Alles klar',
+        '',
+        '**Lesend (keine Genehmigung nötig):**',
+        '',
+        '| Bereich | Aktionen |',
+        '|---|---|',
+        '| **Account** | `whoami` — Profildaten abrufen |',
+      ].join('\n'),
+    ),
+  ).toBe(true);
 });
 
 test('formats inline markdown emphasis in regular tui output', () => {

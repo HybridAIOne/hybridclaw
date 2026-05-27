@@ -45,10 +45,12 @@ export interface AgentWebSearchConfig {
 }
 
 export type AgentBudgetCurrency = 'USD' | 'EUR';
+export type AgentBudgetUnit = AgentBudgetCurrency | 'tokens';
 
 export interface AgentBudgetConfig {
   cap: number;
   currency: AgentBudgetCurrency;
+  unit: AgentBudgetUnit;
 }
 
 export interface AgentConfig {
@@ -199,7 +201,20 @@ export function cloneAgentWebSearchConfig(
 export function cloneAgentBudgetConfig(
   value: AgentBudgetConfig | undefined,
 ): AgentBudgetConfig | undefined {
-  return value ? { ...value } : undefined;
+  return value ? { ...value, unit: value.unit ?? value.currency } : undefined;
+}
+
+function resolveAgentBudgetUnit(params: {
+  rawUnit?: string;
+  rawCurrency?: string;
+  fallback?: AgentBudgetConfig;
+}): AgentBudgetUnit {
+  if (params.rawUnit === 'tokens') return 'tokens';
+  if (params.rawUnit === 'eur') return 'EUR';
+  if (params.rawUnit === 'usd') return 'USD';
+  if (params.fallback?.unit) return params.fallback.unit;
+  if (params.rawCurrency === 'EUR') return 'EUR';
+  return 'USD';
 }
 
 export function normalizeAgentBudgetConfig(
@@ -220,17 +235,34 @@ export function normalizeAgentBudgetConfig(
       : typeof capValue === 'string' && capValue.trim()
         ? Number.parseFloat(capValue)
         : fallback?.cap;
-  if (!Number.isFinite(parsedCap) || (parsedCap ?? 0) <= 0) return undefined;
+  if (
+    typeof parsedCap !== 'number' ||
+    !Number.isFinite(parsedCap) ||
+    parsedCap <= 0
+  ) {
+    return undefined;
+  }
 
   const rawCurrency =
     typeof raw.currency === 'string'
       ? raw.currency.trim().toUpperCase()
       : fallback?.currency;
-  const currency: AgentBudgetCurrency = rawCurrency === 'EUR' ? 'EUR' : 'USD';
+  const rawUnit =
+    typeof raw.unit === 'string'
+      ? raw.unit.trim().toLowerCase()
+      : typeof raw.currency === 'string'
+        ? raw.currency.trim().toLowerCase()
+        : fallback?.unit?.toLowerCase();
+  const unit = resolveAgentBudgetUnit({ rawUnit, rawCurrency, fallback });
+  const currency: AgentBudgetCurrency =
+    unit === 'EUR' || rawCurrency === 'EUR' ? 'EUR' : 'USD';
+  const cap = unit === 'tokens' ? Math.floor(parsedCap) : parsedCap;
+  if (!Number.isFinite(cap) || cap <= 0) return undefined;
 
   return {
-    cap: parsedCap as number,
+    cap,
     currency,
+    unit,
   };
 }
 

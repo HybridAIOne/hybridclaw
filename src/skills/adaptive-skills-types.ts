@@ -18,6 +18,85 @@ export type SkillAmendmentStatus =
   | 'rolled_back'
   | 'rejected';
 
+export type SkillAmendmentProposalKind = 'full_content' | 'skillopt_lite';
+
+export type SkillOptLiteEditOperation =
+  | 'append'
+  | 'insert_after'
+  | 'replace'
+  | 'delete';
+
+export type SkillOptLiteEditSource = 'failure' | 'success';
+
+export interface SkillOptLiteEdit {
+  op: SkillOptLiteEditOperation;
+  target: string;
+  content: string;
+  rationale: string;
+  source_type: SkillOptLiteEditSource;
+  support_count: number;
+}
+
+export interface SkillOptLiteApplyReport {
+  index: number;
+  op: SkillOptLiteEditOperation;
+  target: string;
+  content_preview: string;
+  source_type: SkillOptLiteEditSource;
+  support_count: number;
+  status:
+    | 'applied_append'
+    | 'applied_insert_after'
+    | 'applied_insert_after_fallback_append'
+    | 'applied_replace'
+    | 'applied_delete'
+    | 'skipped_missing_target'
+    | 'skipped_target_not_found'
+    | 'skipped_empty_content'
+    | 'skipped_unknown';
+}
+
+export interface SkillOptLiteRejectedEditMemory {
+  id: number;
+  skill_name: string;
+  edit_hash: string;
+  op: SkillOptLiteEditOperation;
+  target: string;
+  content_preview: string;
+  rationale: string;
+  source_type: SkillOptLiteEditSource;
+  support_count: number;
+  reason: string;
+  evidence_source: 'trajectories' | 'observations' | null;
+  created_at: string;
+}
+
+export interface SkillAmendmentProposalMetadata {
+  kind: SkillAmendmentProposalKind;
+  edit_budget?: number;
+  evidence?: {
+    trajectory_count: number;
+    observation_count: number;
+    training_count: number;
+    held_out_count: number;
+    source: 'trajectories' | 'observations';
+  };
+  edits?: SkillOptLiteEdit[];
+  selected_edits?: SkillOptLiteEdit[];
+  apply_report?: SkillOptLiteApplyReport[];
+  gate?: {
+    accepted: boolean;
+    reason: string;
+    current_score?: number;
+    candidate_score?: number;
+    best_score?: number;
+    held_out_count?: number;
+    held_out_failure_count?: number;
+    matched_held_out_failures?: number;
+  };
+  rejected_edit_count?: number;
+}
+
 export interface SkillErrorCluster {
   category: SkillErrorCategory;
   count: number;
@@ -128,6 +207,7 @@ export interface SkillAmendment {
   guard_findings_count: number;
   metrics_at_proposal: SkillHealthMetrics | null;
   metrics_post_apply: SkillHealthMetrics | null;
+  proposal_metadata: SkillAmendmentProposalMetadata | null;
   runs_since_apply: number;
   created_at: string;
   updated_at: string;
@@ -160,4 +240,13 @@ export interface AdaptiveSkillsConfig {
   autoApplyEnabled: boolean;
   evaluationRunsBeforeRollback: number;
   rollbackImprovementThreshold: number;
+  optimization: {
+    editBudget: number;
+    minTrajectoryEvidence: number;
+    maxEvidenceExamples: number;
+    heldOutRatio: number;
+    trajectorySampleSeed: string;
+    minCandidateScoreDelta: number;
+    rejectedEditMemoryLimit: number;
+  };
 }

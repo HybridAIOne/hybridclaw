@@ -577,6 +577,329 @@ describe('A2A outbound adapter', () => {
     ).toContain('a2a.trust.granted');
   });
 
+  test('resolves canonical A2A peer destinations through identity discovery', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+    const peerKey = publicKeyJwk();
+    const resolver = {
+      resolve: vi.fn(async (canonicalId: string) => {
+        expect(canonicalId).toBe('remote@team@peer-instance');
+        return {
+          url: 'https://peer.example.com',
+          publicKey: JSON.stringify(peerKey),
+        };
+      }),
+    };
+    const requests: Array<{
+      url: string;
+      method: string;
+      authorization: string;
+      body: string;
+    }> = [];
+    const fetchImpl = vi.fn(
+      async (url: RequestInfo | URL, init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string>;
+        requests.push({
+          url: String(url),
+          method: init?.method || 'GET',
+          authorization: headers?.authorization || '',
+          body: String(init?.body || ''),
+        });
+        if (init?.method === 'GET') {
+          return Response.json({
+            url: 'https://peer.example.com/a2a',
+            capabilities: [],
+            hybridclaw: {
+              instanceId: 'peer-prod',
+              publicKeyJwk: peerKey,
+            },
+          });
+        }
+        return Response.json({ jsonrpc: '2.0', result: { ok: true } });
+      },
+    );
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-resolved-peer'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        canonicalId: 'remote@team@peer-instance',
+      },
+      transportRegistry: registry,
+    });
+
+    await expect(
+      a2a.processA2AOutbox({ fetchImpl, identityResolver: resolver }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      delivered: 1,
+    });
+
+    expect(requests[0]).toMatchObject({
+      url: 'https://peer.example.com/.well-known/agent.json',
+      method: 'GET',
+      authorization: expect.stringMatching(/^Bearer [A-Za-z0-9_-]+\./),
+    });
+    expect(requests[1]).toMatchObject({
+      url: 'https://peer.example.com/a2a',
+      method: 'POST',
+      authorization: expect.stringMatching(/^Bearer [A-Za-z0-9_-]+\./),
+    });
+    expect(trust.getA2ATrustedPublicKeyPeer('peer-prod')).toMatchObject({
+      publicKeyFingerprint: trust.fingerprintA2APublicKey(peerKey),
+      status: 'trusted',
+    });
+  });
+
+  test('uses the default A2A resolver for trusted canonical peers', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+    const peerKey = publicKeyJwk();
+    trust.upsertA2ATrustedPublicKeyPeer({
+      peerId: 'peer-instance',
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://peer.example.com/a2a',
+      publicKeyJwk: peerKey,
+    });
+    const requests: Array<{ url: string; method: string }> = [];
+    const fetchImpl = vi.fn(
+      async (url: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({
+          url: String(url),
+          method: init?.method || 'GET',
+        });
+        if (init?.method === 'GET') {
+          return Response.json({
+            url: 'https://peer.example.com/a2a',
+            capabilities: [],
+            hybridclaw: {
+              instanceId: 'peer-instance',
+              publicKeyJwk: peerKey,
+            },
+          });
+        }
+        return Response.json({ jsonrpc: '2.0', result: { ok: true } });
+      },
+    );
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-default-resolver'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        canonicalId: 'remote@team@peer-instance',
+      },
+      transportRegistry: registry,
+    });
+
+    await expect(a2a.processA2AOutbox({ fetchImpl })).resolves.toMatchObject({
+      processed: 1,
+      delivered: 1,
+    });
+    expect(requests).toEqual([
+      {
+        url: 'https://peer.example.com/.well-known/agent.json',
+        method: 'GET',
+      },
+      {
+        url: 'https://peer.example.com/a2a',
+        method: 'POST',
+      },
+    ]);
+  });
+
+  test('records resolved canonical peer destinations on retry audits', async () => {
+    const { getRecentStructuredAuditForSession, initDatabase } = await import(
+      '../src/memory/db.ts'
+    );
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+    const peerKey = publicKeyJwk();
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-resolved-peer-retry'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        canonicalId: 'remote@team@peer-instance',
+      },
+      transportRegistry: registry,
+      sessionId: 'session-resolved-peer-retry',
+    });
+
+    await expect(
+      a2a.processA2AOutbox({
+        identityResolver: {
+          async resolve() {
+            return {
+              url: 'https://peer.example.com',
+              publicKey: JSON.stringify(peerKey),
+            };
+          },
+        },
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValueOnce(
+            Response.json({
+              url: 'https://peer.example.com/a2a',
+              capabilities: [],
+              hybridclaw: {
+                instanceId: 'peer-prod',
+                publicKeyJwk: peerKey,
+              },
+            }),
+          )
+          .mockResolvedValueOnce(new Response('', { status: 503 })),
+        now: () => new Date('2030-01-01T00:00:00.000Z'),
+        jitterRatio: 0,
+      }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      retried: 1,
+    });
+
+    const retryAudit = getRecentStructuredAuditForSession(
+      'session-resolved-peer-retry',
+      5,
+    )
+      .map((event) => JSON.parse(event.payload || '{}'))
+      .find((event) => event.type === 'a2a.outbound.delivery_retry');
+    expect(retryAudit).toMatchObject({
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      canonicalId: 'remote@team@peer-instance',
+      statusCode: 503,
+    });
+  });
+
+  test('rejects resolved peers whose Agent Card key does not match discovery', async () => {
+    const { getRecentStructuredAuditForSession, initDatabase } = await import(
+      '../src/memory/db.ts'
+    );
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+    const resolverKey = publicKeyJwk();
+    const cardKey = publicKeyJwk();
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-resolved-peer-mismatch'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        canonicalId: 'remote@team@peer-instance',
+      },
+      transportRegistry: registry,
+      sessionId: 'session-resolved-peer-mismatch',
+    });
+
+    await expect(
+      a2a.processA2AOutbox({
+        identityResolver: {
+          async resolve() {
+            return {
+              url: 'https://peer.example.com',
+              publicKey: JSON.stringify(resolverKey),
+            };
+          },
+        },
+        fetchImpl: vi.fn().mockResolvedValue(
+          Response.json({
+            url: 'https://peer.example.com/a2a',
+            capabilities: [],
+            hybridclaw: {
+              instanceId: 'peer-prod',
+              publicKeyJwk: cardKey,
+            },
+          }),
+        ),
+      }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      failed: 1,
+    });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      lastError:
+        'A2A identity discovery public key mismatch for remote@team@peer-instance',
+    });
+    const failureAudit = getRecentStructuredAuditForSession(
+      'session-resolved-peer-mismatch',
+      5,
+    )
+      .map((event) => JSON.parse(event.payload || '{}'))
+      .find((event) => event.type === 'a2a.outbound.delivery_failed');
+    expect(failureAudit).toMatchObject({
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      canonicalId: 'remote@team@peer-instance',
+    });
+  });
+
+  test('rejects malformed resolved public key fingerprints before mismatch checks', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+    const cardKey = publicKeyJwk();
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-resolved-peer-bad-key'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        canonicalId: 'remote@team@peer-instance',
+      },
+      transportRegistry: registry,
+    });
+
+    await expect(
+      a2a.processA2AOutbox({
+        identityResolver: {
+          async resolve() {
+            return {
+              url: 'https://peer.example.com',
+              publicKey: 'not-a-valid-fingerprint',
+            };
+          },
+        },
+        fetchImpl: vi.fn().mockResolvedValue(
+          Response.json({
+            url: 'https://peer.example.com/a2a',
+            capabilities: [],
+            hybridclaw: {
+              instanceId: 'peer-prod',
+              publicKeyJwk: cardKey,
+            },
+          }),
+        ),
+      }),
+    ).resolves.toMatchObject({
+      processed: 1,
+      failed: 1,
+    });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      lastError: expect.stringContaining('unsupported public key format'),
+    });
+  });
+
   test('fails and audits when a TOFU peer key changes', async () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
@@ -698,6 +1021,83 @@ describe('A2A outbound adapter', () => {
     expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
       status: 'failed',
       lastError: 'a2a.bearerTokenRef is required for non-loopback peers',
+    });
+  });
+
+  test('fails unresolved recipients without retrying missing identity records', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const { IdentityNotFoundError } = await import(
+      '../src/identity/resolver.ts'
+    );
+
+    initDatabase({ quiet: true });
+    a2a.enqueueUnresolvedA2AEnvelope(
+      sampleA2AEnvelope('msg-missing-identity'),
+      'remote@team@peer-instance',
+    );
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      identityResolution: {
+        status: 'unresolved',
+        canonicalId: 'remote@team@peer-instance',
+      },
+    });
+
+    await expect(
+      a2a.processA2AOutbox({
+        identityResolver: {
+          async resolve(canonicalId: string) {
+            throw new IdentityNotFoundError(canonicalId);
+          },
+        },
+        now: () => new Date('2030-01-01T00:00:00.000Z'),
+        jitterRatio: 0,
+      }),
+    ).resolves.toMatchObject({ processed: 1, failed: 1 });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+      lastError:
+        'No identity discovery record found for remote@team@peer-instance.',
+    });
+  });
+
+  test('fails closed when identity discovery returns an unsupported public key', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    a2a.enqueueUnresolvedA2AEnvelope(
+      sampleA2AEnvelope('msg-invalid-discovery-key'),
+      'remote@team@peer-instance',
+    );
+
+    await expect(
+      a2a.processA2AOutbox({
+        identityResolver: {
+          async resolve() {
+            return {
+              url: 'http://127.0.0.1:8787',
+              publicKey: 'not-a-valid-key',
+            };
+          },
+        },
+        fetchImpl: vi.fn().mockResolvedValue(
+          Response.json({
+            url: 'http://127.0.0.1:8787/a2a',
+            capabilities: [],
+          }),
+        ),
+      }),
+    ).resolves.toMatchObject({ processed: 1, failed: 1 });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      identityResolution: {
+        status: 'resolved',
+        canonicalId: 'remote@team@peer-instance',
+        publicKey: 'not-a-valid-key',
+      },
+      lastError: expect.stringContaining('unsupported public key format'),
     });
   });
 

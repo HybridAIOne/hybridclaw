@@ -13,10 +13,23 @@ import {
 } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
+import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ChannelLogo } from '../components/channel-logo';
+import { Field, FieldContent, FieldLabel } from '../components/field';
+import {
+  Form,
+  FormField,
+  type UseFormControllerReturn,
+  useForm,
+} from '../components/form';
+import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import { NumberField } from '../components/number-field';
+import { Switch } from '../components/switch';
+import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
-import { BooleanField } from '../components/ui';
+import { useFormMutation } from '../hooks/use-form-mutation';
 import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
 import {
@@ -26,18 +39,8 @@ import {
   countTeamsOverrides,
 } from './channels-catalog';
 
-type ConfigUpdater = (updater: (current: AdminConfig) => AdminConfig) => void;
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
 type ChannelInstructionKind = keyof AdminConfig['channelInstructions'];
-
-function cloneConfig<T>(value: T): T {
-  return structuredClone(value);
-}
-
-function parseInteger(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 function isDiscordEnabled(config: AdminConfig): boolean {
   return (
@@ -52,23 +55,11 @@ function isWhatsAppEnabled(config: AdminConfig): boolean {
   );
 }
 
-function isSlackEnabled(config: AdminConfig): boolean {
-  return config.slack.enabled;
-}
-
 function isTelegramInboundEnabled(config: AdminConfig): boolean {
   return (
     config.telegram.dmPolicy !== 'disabled' ||
     config.telegram.groupPolicy !== 'disabled'
   );
-}
-
-function isSignalEnabled(config: AdminConfig): boolean {
-  return config.signal.enabled;
-}
-
-function isVoiceEnabled(config: AdminConfig): boolean {
-  return config.voice.enabled;
 }
 
 function ListField(props: {
@@ -81,7 +72,7 @@ function ListField(props: {
   return (
     <label className="field textarea-field">
       <span>{props.label}</span>
-      <textarea
+      <Textarea
         rows={props.rows ?? 3}
         value={joinStringList(props.value)}
         onChange={(event) =>
@@ -93,29 +84,21 @@ function ListField(props: {
   );
 }
 
-function ChannelInstructionsField(props: {
-  kind: ChannelInstructionKind;
-  draft: AdminConfig;
-  updateDraft: ConfigUpdater;
-}) {
+function ChannelInstructionsField(props: { kind: ChannelInstructionKind }) {
   return (
-    <label className="field textarea-field">
-      <span>Channel instructions</span>
-      <textarea
-        rows={4}
-        value={props.draft.channelInstructions[props.kind]}
-        onChange={(event) =>
-          props.updateDraft((current) => ({
-            ...current,
-            channelInstructions: {
-              ...current.channelInstructions,
-              [props.kind]: event.target.value,
-            },
-          }))
-        }
-        placeholder="Optional extra instructions for this channel only."
-      />
-    </label>
+    <FormField
+      name={`channelInstructions.${props.kind}`}
+      render={({ field }) => (
+        <Field>
+          <FieldLabel>Channel instructions</FieldLabel>
+          <Textarea
+            rows={4}
+            {...field}
+            placeholder="Optional extra instructions for this channel only."
+          />
+        </Field>
+      )}
+    />
   );
 }
 
@@ -170,8 +153,8 @@ function ManagedSecretField(props: {
       <span>{props.label}</span>
       {!isEditing ? (
         <div className="button-row">
-          <button
-            className="ghost-button"
+          <Button
+            variant="ghost"
             type="button"
             onClick={() => {
               saveSecretMutation.reset();
@@ -180,35 +163,35 @@ function ManagedSecretField(props: {
             }}
           >
             {actionLabel}
-          </button>
+          </Button>
         </div>
       ) : null}
 
       {isEditing ? (
         <div className="managed-secret-editor">
-          <label className="field">
-            <span>{`New ${props.secretLabel}`}</span>
-            <input
+          <Field>
+            <FieldLabel>{`New ${props.secretLabel}`}</FieldLabel>
+            <Input
               type="password"
               value={nextValue}
               autoComplete="new-password"
               onChange={(event) => setNextValue(event.target.value)}
             />
-          </label>
+          </Field>
 
           <div className="button-row">
-            <button
-              className="primary-button"
+            <Button
               type="button"
+              loading={saveSecretMutation.isPending}
               disabled={!nextValue.trim() || saveSecretMutation.isPending}
               onClick={() => saveSecretMutation.mutate(nextValue)}
             >
               {saveSecretMutation.isPending
                 ? 'Saving...'
                 : `Save ${props.secretLabel}`}
-            </button>
-            <button
-              className="ghost-button"
+            </Button>
+            <Button
+              variant="ghost"
               type="button"
               disabled={saveSecretMutation.isPending}
               onClick={() => {
@@ -218,7 +201,7 @@ function ManagedSecretField(props: {
               }}
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -228,7 +211,7 @@ function ManagedSecretField(props: {
 
 function DiscordChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
   tokenConfigured: boolean;
   tokenSource: SecretSource;
   token: string;
@@ -236,29 +219,28 @@ function DiscordChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isDiscordEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discord: {
-              ...current.discord,
-              groupPolicy:
-                enabled &&
-                current.discord.groupPolicy === 'disabled' &&
-                !current.discord.commandsOnly
-                  ? 'open'
-                  : enabled
-                    ? current.discord.groupPolicy
-                    : 'disabled',
-              commandsOnly: enabled ? current.discord.commandsOnly : false,
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={isDiscordEnabled(props.draft)}
+          onCheckedChange={(enabled) => {
+            const discord = props.draft.discord;
+            const groupPolicy =
+              enabled &&
+              discord.groupPolicy === 'disabled' &&
+              !discord.commandsOnly
+                ? 'open'
+                : enabled
+                  ? discord.groupPolicy
+                  : 'disabled';
+            const commandsOnly = enabled ? discord.commandsOnly : false;
+            props.form.setField('discord.groupPolicy', groupPolicy);
+            props.form.setField('discord.commandsOnly', commandsOnly);
+          }}
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <ManagedSecretField
         label="Bot token"
@@ -271,319 +253,277 @@ function DiscordChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Prefix</span>
-          <input
-            value={props.draft.discord.prefix}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  prefix: event.target.value,
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
-            value={props.draft.discord.groupPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  groupPolicy: event.target
-                    .value as AdminConfig['discord']['groupPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+        <FormField
+          name="discord.prefix"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Prefix</FieldLabel>
+              <Input {...field} />
+            </Field>
+          )}
+        />
+        <FormField
+          name="discord.groupPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
       </div>
 
-      <BooleanField
-        label="Commands only"
-        value={props.draft.discord.commandsOnly}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(commandsOnly) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discord: {
-              ...current.discord,
-              commandsOnly,
-            },
-          }))
-        }
+      <FormField
+        name="discord.commandsOnly"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Commands only</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Command mode</span>
-          <select
-            value={props.draft.discord.commandMode}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  commandMode: event.target
-                    .value as AdminConfig['discord']['commandMode'],
-                },
-              }))
-            }
-          >
-            <option value="public">public</option>
-            <option value="restricted">restricted</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Send policy</span>
-          <select
-            value={props.draft.discord.sendPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  sendPolicy: event.target
-                    .value as AdminConfig['discord']['sendPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+        <FormField
+          name="discord.commandMode"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Command mode</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="public">public</NativeSelectOption>
+                <NativeSelectOption value="restricted">
+                  restricted
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="discord.sendPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Send policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
       </div>
 
-      <ListField
-        label="Allowed command user IDs"
-        value={props.draft.discord.commandAllowedUserIds}
-        rows={3}
-        placeholder="comma or newline separated"
-        onChange={(commandAllowedUserIds) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discord: {
-              ...current.discord,
-              commandAllowedUserIds,
-            },
-          }))
-        }
+      <FormField
+        name="discord.commandAllowedUserIds"
+        render={({ field }) => (
+          <ListField
+            label="Allowed command user IDs"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
       />
 
-      <ListField
-        label="Allowed outbound channel IDs"
-        value={props.draft.discord.sendAllowedChannelIds}
-        rows={3}
-        placeholder="comma or newline separated"
-        onChange={(sendAllowedChannelIds) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discord: {
-              ...current.discord,
-              sendAllowedChannelIds,
-            },
-          }))
-        }
+      <FormField
+        name="discord.sendAllowedChannelIds"
+        render={({ field }) => (
+          <ListField
+            label="Allowed outbound channel IDs"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
       />
 
-      <ListField
-        label="Free response channel IDs"
-        value={props.draft.discord.freeResponseChannels}
-        rows={3}
-        placeholder="comma or newline separated"
-        onChange={(freeResponseChannels) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discord: {
-              ...current.discord,
-              freeResponseChannels,
-            },
-          }))
-        }
+      <FormField
+        name="discord.freeResponseChannels"
+        render={({ field }) => (
+          <ListField
+            label="Free response channel IDs"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Typing mode</span>
-          <select
-            value={props.draft.discord.typingMode}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  typingMode: event.target
-                    .value as AdminConfig['discord']['typingMode'],
-                },
-              }))
-            }
-          >
-            <option value="instant">instant</option>
-            <option value="thinking">thinking</option>
-            <option value="streaming">streaming</option>
-            <option value="never">never</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Ack reaction</span>
-          <input
-            value={props.draft.discord.ackReaction}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  ackReaction: event.target.value,
-                },
-              }))
-            }
-            placeholder="👀"
-          />
-        </label>
+        <FormField
+          name="discord.typingMode"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Typing mode</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="instant">instant</NativeSelectOption>
+                <NativeSelectOption value="thinking">
+                  thinking
+                </NativeSelectOption>
+                <NativeSelectOption value="streaming">
+                  streaming
+                </NativeSelectOption>
+                <NativeSelectOption value="never">never</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="discord.ackReaction"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Ack reaction</FieldLabel>
+              <Input {...field} placeholder="👀" />
+            </Field>
+          )}
+        />
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Ack reaction scope</span>
-          <select
-            value={props.draft.discord.ackReactionScope}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  ackReactionScope: event.target
-                    .value as AdminConfig['discord']['ackReactionScope'],
-                },
-              }))
-            }
-          >
-            <option value="all">all</option>
-            <option value="group-mentions">group-mentions</option>
-            <option value="direct">direct</option>
-            <option value="off">off</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.textChunkLimit)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  textChunkLimit: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="discord.ackReactionScope"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Ack reaction scope</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="all">all</NativeSelectOption>
+                <NativeSelectOption value="group-mentions">
+                  group-mentions
+                </NativeSelectOption>
+                <NativeSelectOption value="direct">direct</NativeSelectOption>
+                <NativeSelectOption value="off">off</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="discord.textChunkLimit"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Debounce ms</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.debounceMs)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  debounceMs: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Max lines per message</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.maxLinesPerMessage)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  maxLinesPerMessage: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="discord.debounceMs"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Debounce ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="discord.maxLinesPerMessage"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Max lines per message</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Rate limit per user</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.rateLimitPerUser)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  rateLimitPerUser: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Max concurrent per channel</span>
-          <input
-            type="number"
-            value={String(props.draft.discord.maxConcurrentPerChannel)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                discord: {
-                  ...current.discord,
-                  maxConcurrentPerChannel: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="discord.rateLimitPerUser"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Rate limit per user</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="discord.maxConcurrentPerChannel"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Max concurrent per channel</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
-      <BooleanField
-        label="Remove ack after reply"
-        value={props.draft.discord.removeAckAfterReply}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(removeAckAfterReply) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discord: {
-              ...current.discord,
-              removeAckAfterReply,
-            },
-          }))
-        }
+      <FormField
+        name="discord.removeAckAfterReply"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Remove ack after reply</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
-      <ChannelInstructionsField
-        kind="discord"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="discord" />
       <p className="muted-copy">
         Discord guild defaults and explicit per-channel overrides stay intact.
         This page edits the transport defaults that apply across the space.
@@ -594,76 +534,75 @@ function DiscordChannelEditor(props: {
 
 function WhatsAppChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
   linked: boolean;
   pairingQrText: string | null;
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isWhatsAppEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            whatsapp: {
-              ...current.whatsapp,
-              dmPolicy:
-                enabled && current.whatsapp.dmPolicy === 'disabled'
-                  ? 'pairing'
-                  : enabled
-                    ? current.whatsapp.dmPolicy
-                    : 'disabled',
-              groupPolicy: enabled ? current.whatsapp.groupPolicy : 'disabled',
-            },
-          }))
-        }
-      />
+      <Field orientation="horizontal">
+        <Switch
+          checked={isWhatsAppEnabled(props.draft)}
+          onCheckedChange={(enabled) => {
+            const whatsapp = props.draft.whatsapp;
+            const dmPolicy =
+              enabled && whatsapp.dmPolicy === 'disabled'
+                ? 'pairing'
+                : enabled
+                  ? whatsapp.dmPolicy
+                  : 'disabled';
+            const groupPolicy = enabled ? whatsapp.groupPolicy : 'disabled';
+            props.form.setField('whatsapp.dmPolicy', dmPolicy);
+            props.form.setField('whatsapp.groupPolicy', groupPolicy);
+          }}
+        />
+        <FieldContent>
+          <FieldLabel>Enabled</FieldLabel>
+        </FieldContent>
+      </Field>
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
-            value={props.draft.whatsapp.dmPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                whatsapp: {
-                  ...current.whatsapp,
-                  dmPolicy: event.target
-                    .value as AdminConfig['whatsapp']['dmPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="pairing">pairing</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
-            value={props.draft.whatsapp.groupPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                whatsapp: {
-                  ...current.whatsapp,
-                  groupPolicy: event.target
-                    .value as AdminConfig['whatsapp']['groupPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+        <FormField
+          name="whatsapp.dmPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="pairing">pairing</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="whatsapp.groupPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
       </div>
 
       {isWhatsAppEnabled(props.draft) && !props.linked ? (
@@ -685,134 +624,111 @@ function WhatsAppChannelEditor(props: {
         </div>
       ) : null}
 
-      <ListField
-        label="Allowed DM senders"
-        value={props.draft.whatsapp.allowFrom}
-        rows={3}
-        placeholder="comma or newline separated"
-        onChange={(allowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            whatsapp: {
-              ...current.whatsapp,
-              allowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="whatsapp.allowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed DM senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
       />
 
-      <ListField
-        label="Allowed group senders"
-        value={props.draft.whatsapp.groupAllowFrom}
-        rows={3}
-        placeholder="comma or newline separated"
-        onChange={(groupAllowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            whatsapp: {
-              ...current.whatsapp,
-              groupAllowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="whatsapp.groupAllowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed group senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Debounce ms</span>
-          <input
-            type="number"
-            value={String(props.draft.whatsapp.debounceMs)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                whatsapp: {
-                  ...current.whatsapp,
-                  debounceMs: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Ack reaction</span>
-          <input
-            value={props.draft.whatsapp.ackReaction}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                whatsapp: {
-                  ...current.whatsapp,
-                  ackReaction: event.target.value,
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="whatsapp.debounceMs"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Debounce ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="whatsapp.ackReaction"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Ack reaction</FieldLabel>
+              <Input {...field} />
+            </Field>
+          )}
+        />
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.whatsapp.textChunkLimit)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                whatsapp: {
-                  ...current.whatsapp,
-                  textChunkLimit: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.whatsapp.mediaMaxMb)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                whatsapp: {
-                  ...current.whatsapp,
-                  mediaMaxMb: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="whatsapp.textChunkLimit"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="whatsapp.mediaMaxMb"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
-      <BooleanField
-        label="Send read receipts"
-        value={props.draft.whatsapp.sendReadReceipts}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(sendReadReceipts) =>
-          props.updateDraft((current) => ({
-            ...current,
-            whatsapp: {
-              ...current.whatsapp,
-              sendReadReceipts,
-            },
-          }))
-        }
+      <FormField
+        name="whatsapp.sendReadReceipts"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Send read receipts</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
-      <ChannelInstructionsField
-        kind="whatsapp"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="whatsapp" />
     </>
   );
 }
 
 function TelegramChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
   tokenConfigured: boolean;
   tokenSource: SecretSource;
   token: string;
@@ -820,20 +736,19 @@ function TelegramChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.telegram.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            telegram: {
-              ...current.telegram,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="telegram.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       <div className="field-grid">
@@ -847,148 +762,135 @@ function TelegramChannelEditor(props: {
           token={props.token}
           onSecretSaved={props.onSecretSaved}
         />
-        <label className="field">
-          <span>Poll interval ms</span>
-          <input
-            type="number"
-            value={String(props.draft.telegram.pollIntervalMs)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                telegram: {
-                  ...current.telegram,
-                  pollIntervalMs: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="telegram.pollIntervalMs"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Poll interval ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
-            value={props.draft.telegram.dmPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                telegram: {
-                  ...current.telegram,
-                  dmPolicy: event.target
-                    .value as AdminConfig['telegram']['dmPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
-            value={props.draft.telegram.groupPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                telegram: {
-                  ...current.telegram,
-                  groupPolicy: event.target
-                    .value as AdminConfig['telegram']['groupPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+        <FormField
+          name="telegram.dmPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="telegram.groupPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
       </div>
 
-      <BooleanField
-        label="Require mention in groups"
-        value={props.draft.telegram.requireMention}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(requireMention) =>
-          props.updateDraft((current) => ({
-            ...current,
-            telegram: {
-              ...current.telegram,
-              requireMention,
-            },
-          }))
-        }
+      <FormField
+        name="telegram.requireMention"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Require mention in groups</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
-      <ListField
-        label="Allowed DM senders"
-        value={props.draft.telegram.allowFrom}
-        rows={3}
-        placeholder="numeric user id, @username, or *"
-        onChange={(allowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            telegram: {
-              ...current.telegram,
-              allowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="telegram.allowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed DM senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="numeric user id, @username, or *"
+            onChange={field.onChange}
+          />
+        )}
       />
 
-      <ListField
-        label="Allowed group senders"
-        value={props.draft.telegram.groupAllowFrom}
-        rows={3}
-        placeholder="numeric user id, @username, or *"
-        onChange={(groupAllowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            telegram: {
-              ...current.telegram,
-              groupAllowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="telegram.groupAllowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed group senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="numeric user id, @username, or *"
+            onChange={field.onChange}
+          />
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.telegram.textChunkLimit)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                telegram: {
-                  ...current.telegram,
-                  textChunkLimit: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.telegram.mediaMaxMb)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                telegram: {
-                  ...current.telegram,
-                  mediaMaxMb: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="telegram.textChunkLimit"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="telegram.mediaMaxMb"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
       <p className="muted-copy">
@@ -1001,18 +903,14 @@ function TelegramChannelEditor(props: {
           remain the only transports with per-channel override bindings.
         </p>
       ) : null}
-      <ChannelInstructionsField
-        kind="telegram"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="telegram" />
     </>
   );
 }
 
 function ThreemaChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
   secretConfigured: boolean;
   secretSource: SecretSource;
   token: string;
@@ -1020,39 +918,31 @@ function ThreemaChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.threema.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            threema: {
-              ...current.threema,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="threema.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Gateway identity</span>
-          <input
-            value={props.draft.threema.identity}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                threema: {
-                  ...current.threema,
-                  identity: event.target.value,
-                },
-              }))
-            }
-            placeholder="*HYBRID1"
-          />
-        </label>
+        <FormField
+          name="threema.identity"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Gateway identity</FieldLabel>
+              <Input {...field} placeholder="*HYBRID1" />
+            </Field>
+          )}
+        />
         <ManagedSecretField
           label="Gateway secret"
           secretName="THREEMA_GATEWAY_SECRET"
@@ -1066,110 +956,93 @@ function ThreemaChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>API base URL</span>
-          <input
-            value={props.draft.threema.apiBaseUrl}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                threema: {
-                  ...current.threema,
-                  apiBaseUrl: event.target.value,
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>DM policy</span>
-          <select
-            value={props.draft.threema.dmPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                threema: {
-                  ...current.threema,
-                  dmPolicy: event.target
-                    .value as AdminConfig['threema']['dmPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+        <FormField
+          name="threema.apiBaseUrl"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>API base URL</FieldLabel>
+              <Input {...field} />
+            </Field>
+          )}
+        />
+        <FormField
+          name="threema.dmPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
       </div>
 
-      <ListField
-        label="Allowed senders"
-        value={props.draft.threema.allowFrom}
-        rows={3}
-        placeholder="threema:ABCDEFGH, threema:phone:41791234567, or *"
-        onChange={(allowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            threema: {
-              ...current.threema,
-              allowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="threema.allowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="threema:ABCDEFGH, threema:phone:41791234567, or *"
+            onChange={field.onChange}
+          />
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.threema.textChunkLimit)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                threema: {
-                  ...current.threema,
-                  textChunkLimit: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Outbound delay ms</span>
-          <input
-            type="number"
-            value={String(props.draft.threema.outboundDelayMs)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                threema: {
-                  ...current.threema,
-                  outboundDelayMs: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="threema.textChunkLimit"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="threema.outboundDelayMs"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Outbound delay ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
       <p className="muted-copy">
         Threema Gateway Basic mode supports outbound text only. Inbound chat
         history, typing, and attachments are not available.
       </p>
-      <ChannelInstructionsField
-        kind="threema"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="threema" />
     </>
   );
 }
 
 function SignalChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
   token: string;
   cliAvailable: boolean;
   cliVersion: string | null;
@@ -1208,47 +1081,47 @@ function SignalChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isSignalEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            signal: {
-              ...current.signal,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="signal.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>signal-cli path</span>
-          <input
+        <Field>
+          <FieldLabel>signal-cli path</FieldLabel>
+          <Input
             value={signalCliPath}
             onChange={(event) => setSignalCliPath(event.target.value)}
             placeholder="signal-cli"
           />
-        </label>
-        <label className="field">
-          <span>Device name</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Device name</FieldLabel>
+          <Input
             value={deviceName}
             onChange={(event) => setDeviceName(event.target.value)}
             placeholder="HybridClaw"
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field whatsapp-pairing-field">
         <span>Linked-device QR</span>
         <div className="button-row">
-          <button
+          <Button
             type="button"
-            className="ghost-button"
+            variant="ghost"
+            loading={signalLinkMutation.isPending}
             disabled={
               !props.cliAvailable ||
               signalLinkMutation.isPending ||
@@ -1258,7 +1131,7 @@ function SignalChannelEditor(props: {
             onClick={() => signalLinkMutation.mutate()}
           >
             {signalLinkMutation.isPending ? 'Starting...' : 'Start QR link'}
-          </button>
+          </Button>
         </div>
         {!props.cliAvailable ? (
           <p className="muted-copy">
@@ -1295,164 +1168,138 @@ function SignalChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Daemon URL</span>
-          <input
-            value={props.draft.signal.daemonUrl}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                signal: {
-                  ...current.signal,
-                  daemonUrl: event.target.value,
-                },
-              }))
-            }
-            placeholder="http://127.0.0.1:8080"
-          />
-        </label>
-        <label className="field">
-          <span>Account</span>
-          <input
-            value={props.draft.signal.account}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                signal: {
-                  ...current.signal,
-                  account: event.target.value,
-                },
-              }))
-            }
-            placeholder="+14155550123"
-          />
-        </label>
+        <FormField
+          name="signal.daemonUrl"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Daemon URL</FieldLabel>
+              <Input {...field} placeholder="http://127.0.0.1:8080" />
+            </Field>
+          )}
+        />
+        <FormField
+          name="signal.account"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Account</FieldLabel>
+              <Input {...field} placeholder="+14155550123" />
+            </Field>
+          )}
+        />
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
-            value={props.draft.signal.dmPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                signal: {
-                  ...current.signal,
-                  dmPolicy: event.target
-                    .value as AdminConfig['signal']['dmPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
-            value={props.draft.signal.groupPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                signal: {
-                  ...current.signal,
-                  groupPolicy: event.target
-                    .value as AdminConfig['signal']['groupPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+        <FormField
+          name="signal.dmPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="signal.groupPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
       </div>
 
-      <ListField
-        label="Allowed DM senders"
-        value={props.draft.signal.allowFrom}
-        rows={3}
-        placeholder="+14155551212, Signal UUID, or *"
-        onChange={(allowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            signal: {
-              ...current.signal,
-              allowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="signal.allowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed DM senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="+14155551212, Signal UUID, or *"
+            onChange={field.onChange}
+          />
+        )}
       />
 
-      <ListField
-        label="Allowed group senders"
-        value={props.draft.signal.groupAllowFrom}
-        rows={3}
-        placeholder="+14155551212, Signal UUID, or *"
-        onChange={(groupAllowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            signal: {
-              ...current.signal,
-              groupAllowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="signal.groupAllowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed group senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="+14155551212, Signal UUID, or *"
+            onChange={field.onChange}
+          />
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.signal.textChunkLimit)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                signal: {
-                  ...current.signal,
-                  textChunkLimit: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Reconnect interval ms</span>
-          <input
-            type="number"
-            value={String(props.draft.signal.reconnectIntervalMs)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                signal: {
-                  ...current.signal,
-                  reconnectIntervalMs: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Outbound delay ms</span>
-          <input
-            type="number"
-            value={String(props.draft.signal.outboundDelayMs)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                signal: {
-                  ...current.signal,
-                  outboundDelayMs: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="signal.textChunkLimit"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="signal.reconnectIntervalMs"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Reconnect interval ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="signal.outboundDelayMs"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Outbound delay ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
       <p className="muted-copy">
@@ -1460,18 +1307,14 @@ function SignalChannelEditor(props: {
         daemon URL here. Groups stay disabled by default; start with one
         allowlisted DM sender.
       </p>
-      <ChannelInstructionsField
-        kind="signal"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="signal" />
     </>
   );
 }
 
 function EmailChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
   passwordConfigured: boolean;
   passwordSource: SecretSource;
   hybridaiApiKeyConfigured: boolean;
@@ -1518,17 +1361,15 @@ function EmailChannelEditor(props: {
         return;
       }
 
-      props.updateDraft((current) => ({
-        ...current,
-        email: {
-          ...current.email,
-          ...(creds.email ? { address: creds.email } : {}),
-          ...(creds.imap_host ? { imapHost: creds.imap_host } : {}),
-          ...(creds.imap_port != null ? { imapPort: creds.imap_port } : {}),
-          ...(creds.smtp_host ? { smtpHost: creds.smtp_host } : {}),
-          ...(creds.smtp_port != null ? { smtpPort: creds.smtp_port } : {}),
-        },
-      }));
+      if (creds.email) props.form.setField('email.address', creds.email);
+      if (creds.imap_host)
+        props.form.setField('email.imapHost', creds.imap_host);
+      if (creds.imap_port != null)
+        props.form.setField('email.imapPort', creds.imap_port);
+      if (creds.smtp_host)
+        props.form.setField('email.smtpHost', creds.smtp_host);
+      if (creds.smtp_port != null)
+        props.form.setField('email.smtpPort', creds.smtp_port);
 
       // Save password as runtime secret before showing success
       if (creds.password) {
@@ -1555,52 +1396,45 @@ function EmailChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.email.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            email: {
-              ...current.email,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="email.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       {props.hybridaiApiKeyConfigured ? (
         <div className="button-row">
-          <button
+          <Button
             type="button"
-            className="ghost-button"
+            variant="ghost"
+            loading={fetchingEmailConfig}
             disabled={fetchingEmailConfig}
             onClick={handleFetchEmailConfig}
           >
             {fetchingEmailConfig ? 'Fetching…' : 'Fetch HybridAI Agent Email'}
-          </button>
+          </Button>
         </div>
       ) : null}
 
       <div className="field-grid">
-        <label className="field">
-          <span>Address</span>
-          <input
-            value={props.draft.email.address}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                email: {
-                  ...current.email,
-                  address: event.target.value,
-                },
-              }))
-            }
-            placeholder="bot@example.com"
-          />
-        </label>
+        <FormField
+          name="email.address"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Address</FieldLabel>
+              <Input {...field} placeholder="bot@example.com" />
+            </Field>
+          )}
+        />
         <ManagedSecretField
           label="Password"
           secretName="EMAIL_PASSWORD"
@@ -1614,201 +1448,167 @@ function EmailChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>IMAP host</span>
-          <input
-            value={props.draft.email.imapHost}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                email: {
-                  ...current.email,
-                  imapHost: event.target.value,
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>SMTP host</span>
-          <input
-            value={props.draft.email.smtpHost}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                email: {
-                  ...current.email,
-                  smtpHost: event.target.value,
-                },
-              }))
-            }
-          />
-        </label>
-      </div>
-
-      <div className="field-grid">
-        <label className="field">
-          <span>IMAP port</span>
-          <input
-            type="number"
-            value={String(props.draft.email.imapPort)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                email: {
-                  ...current.email,
-                  imapPort: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>SMTP port</span>
-          <input
-            type="number"
-            value={String(props.draft.email.smtpPort)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                email: {
-                  ...current.email,
-                  smtpPort: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-      </div>
-
-      <div className="field-grid">
-        <BooleanField
-          label="IMAP secure"
-          value={props.draft.email.imapSecure}
-          trueLabel="on"
-          falseLabel="off"
-          onChange={(imapSecure) =>
-            props.updateDraft((current) => ({
-              ...current,
-              email: {
-                ...current.email,
-                imapSecure,
-              },
-            }))
-          }
+        <FormField
+          name="email.imapHost"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>IMAP host</FieldLabel>
+              <Input {...field} />
+            </Field>
+          )}
         />
-        <BooleanField
-          label="SMTP secure"
-          value={props.draft.email.smtpSecure}
-          trueLabel="on"
-          falseLabel="off"
-          onChange={(smtpSecure) =>
-            props.updateDraft((current) => ({
-              ...current,
-              email: {
-                ...current.email,
-                smtpSecure,
-              },
-            }))
-          }
+        <FormField
+          name="email.smtpHost"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>SMTP host</FieldLabel>
+              <Input {...field} />
+            </Field>
+          )}
         />
       </div>
 
-      <ListField
-        label="Folders"
-        value={props.draft.email.folders}
-        rows={3}
-        placeholder="INBOX, Support"
-        onChange={(folders) =>
-          props.updateDraft((current) => ({
-            ...current,
-            email: {
-              ...current.email,
-              folders,
-            },
-          }))
-        }
+      <div className="field-grid">
+        <FormField
+          name="email.imapPort"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>IMAP port</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="email.smtpPort"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>SMTP port</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+      </div>
+
+      <div className="field-grid">
+        <FormField
+          name="email.imapSecure"
+          render={({ field }) => (
+            <Field orientation="horizontal">
+              <Switch
+                checked={Boolean(field.value)}
+                onCheckedChange={field.onChange}
+              />
+              <FieldContent>
+                <FieldLabel>IMAP secure</FieldLabel>
+              </FieldContent>
+            </Field>
+          )}
+        />
+        <FormField
+          name="email.smtpSecure"
+          render={({ field }) => (
+            <Field orientation="horizontal">
+              <Switch
+                checked={Boolean(field.value)}
+                onCheckedChange={field.onChange}
+              />
+              <FieldContent>
+                <FieldLabel>SMTP secure</FieldLabel>
+              </FieldContent>
+            </Field>
+          )}
+        />
+      </div>
+
+      <FormField
+        name="email.folders"
+        render={({ field }) => (
+          <ListField
+            label="Folders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="INBOX, Support"
+            onChange={field.onChange}
+          />
+        )}
       />
 
-      <ListField
-        label="Allowed senders"
-        value={props.draft.email.allowFrom}
-        rows={3}
-        placeholder="name@example.com, *@example.com"
-        onChange={(allowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            email: {
-              ...current.email,
-              allowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="email.allowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="name@example.com, *@example.com"
+            onChange={field.onChange}
+          />
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Poll interval ms</span>
-          <input
-            type="number"
-            value={String(props.draft.email.pollIntervalMs)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                email: {
-                  ...current.email,
-                  pollIntervalMs: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.email.textChunkLimit)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                email: {
-                  ...current.email,
-                  textChunkLimit: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="email.pollIntervalMs"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Poll interval ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="email.textChunkLimit"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
-      <label className="field">
-        <span>Media max MB</span>
-        <input
-          type="number"
-          value={String(props.draft.email.mediaMaxMb)}
-          onChange={(event) =>
-            props.updateDraft((current) => ({
-              ...current,
-              email: {
-                ...current.email,
-                mediaMaxMb: parseInteger(event.target.value),
-              },
-            }))
-          }
-        />
-      </label>
-      <ChannelInstructionsField
-        kind="email"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
+      <FormField
+        name="email.mediaMaxMb"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Media max MB</FieldLabel>
+            <NumberField
+              integer
+              min={0}
+              value={field.value as number}
+              onValueChange={field.onChange}
+            />
+          </Field>
+        )}
       />
+      <ChannelInstructionsField kind="email" />
     </>
   );
 }
 
 function VoiceChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
   authTokenConfigured: boolean;
   authTokenSource: SecretSource;
   token: string;
@@ -1816,61 +1616,40 @@ function VoiceChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isVoiceEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            voice: {
-              ...current.voice,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="voice.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Twilio account SID</span>
-          <input
-            value={props.draft.voice.twilio.accountSid}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                voice: {
-                  ...current.voice,
-                  twilio: {
-                    ...current.voice.twilio,
-                    accountSid: event.target.value,
-                  },
-                },
-              }))
-            }
-            placeholder="AC..."
-          />
-        </label>
-        <label className="field">
-          <span>From number</span>
-          <input
-            value={props.draft.voice.twilio.fromNumber}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                voice: {
-                  ...current.voice,
-                  twilio: {
-                    ...current.voice.twilio,
-                    fromNumber: event.target.value,
-                  },
-                },
-              }))
-            }
-            placeholder="+14155550123"
-          />
-        </label>
+        <FormField
+          name="voice.twilio.accountSid"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Twilio account SID</FieldLabel>
+              <Input {...field} placeholder="AC..." />
+            </Field>
+          )}
+        />
+        <FormField
+          name="voice.twilio.fromNumber"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>From number</FieldLabel>
+              <Input {...field} placeholder="+14155550123" />
+            </Field>
+          )}
+        />
       </div>
 
       <ManagedSecretField
@@ -1885,173 +1664,114 @@ function VoiceChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Webhook path</span>
-          <input
-            value={props.draft.voice.webhookPath}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                voice: {
-                  ...current.voice,
-                  webhookPath: event.target.value,
-                },
-              }))
-            }
-            placeholder="/voice"
-          />
-        </label>
-        <label className="field">
-          <span>Max concurrent calls</span>
-          <input
-            type="number"
-            value={String(props.draft.voice.maxConcurrentCalls)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                voice: {
-                  ...current.voice,
-                  maxConcurrentCalls: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-      </div>
-
-      <div className="field-grid">
-        <label className="field">
-          <span>TTS provider</span>
-          <select
-            value={props.draft.voice.relay.ttsProvider}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                voice: {
-                  ...current.voice,
-                  relay: {
-                    ...current.voice.relay,
-                    ttsProvider: event.target
-                      .value as AdminConfig['voice']['relay']['ttsProvider'],
-                  },
-                },
-              }))
-            }
-          >
-            <option value="default">default</option>
-            <option value="google">google</option>
-            <option value="amazon">amazon</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Voice</span>
-          <input
-            value={props.draft.voice.relay.voice}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                voice: {
-                  ...current.voice,
-                  relay: {
-                    ...current.voice.relay,
-                    voice: event.target.value,
-                  },
-                },
-              }))
-            }
-            placeholder="en-US-Journey-D"
-          />
-        </label>
-      </div>
-
-      <div className="field-grid">
-        <label className="field">
-          <span>Transcription provider</span>
-          <select
-            value={props.draft.voice.relay.transcriptionProvider}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                voice: {
-                  ...current.voice,
-                  relay: {
-                    ...current.voice.relay,
-                    transcriptionProvider: event.target
-                      .value as AdminConfig['voice']['relay']['transcriptionProvider'],
-                  },
-                },
-              }))
-            }
-          >
-            <option value="default">default</option>
-            <option value="deepgram">deepgram</option>
-            <option value="google">google</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Language</span>
-          <input
-            value={props.draft.voice.relay.language}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                voice: {
-                  ...current.voice,
-                  relay: {
-                    ...current.voice.relay,
-                    language: event.target.value,
-                  },
-                },
-              }))
-            }
-            placeholder="en-US"
-          />
-        </label>
-      </div>
-
-      <BooleanField
-        label="Interruptible"
-        value={props.draft.voice.relay.interruptible}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(interruptible) =>
-          props.updateDraft((current) => ({
-            ...current,
-            voice: {
-              ...current.voice,
-              relay: {
-                ...current.voice.relay,
-                interruptible,
-              },
-            },
-          }))
-        }
-      />
-
-      <label className="field textarea-field">
-        <span>Welcome greeting</span>
-        <textarea
-          rows={3}
-          value={props.draft.voice.relay.welcomeGreeting}
-          onChange={(event) =>
-            props.updateDraft((current) => ({
-              ...current,
-              voice: {
-                ...current.voice,
-                relay: {
-                  ...current.voice.relay,
-                  welcomeGreeting: event.target.value,
-                },
-              },
-            }))
-          }
+        <FormField
+          name="voice.webhookPath"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Webhook path</FieldLabel>
+              <Input {...field} placeholder="/voice" />
+            </Field>
+          )}
         />
-      </label>
-      <ChannelInstructionsField
-        kind="voice"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
+        <FormField
+          name="voice.maxConcurrentCalls"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Max concurrent calls</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+      </div>
+
+      <div className="field-grid">
+        <FormField
+          name="voice.relay.ttsProvider"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>TTS provider</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="default">default</NativeSelectOption>
+                <NativeSelectOption value="google">google</NativeSelectOption>
+                <NativeSelectOption value="amazon">amazon</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="voice.relay.voice"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Voice</FieldLabel>
+              <Input {...field} placeholder="en-US-Journey-D" />
+            </Field>
+          )}
+        />
+      </div>
+
+      <div className="field-grid">
+        <FormField
+          name="voice.relay.transcriptionProvider"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Transcription provider</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="default">default</NativeSelectOption>
+                <NativeSelectOption value="deepgram">
+                  deepgram
+                </NativeSelectOption>
+                <NativeSelectOption value="google">google</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="voice.relay.language"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Language</FieldLabel>
+              <Input {...field} placeholder="en-US" />
+            </Field>
+          )}
+        />
+      </div>
+
+      <FormField
+        name="voice.relay.interruptible"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Interruptible</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
+
+      <FormField
+        name="voice.relay.welcomeGreeting"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Welcome greeting</FieldLabel>
+            <Textarea rows={3} {...field} />
+          </Field>
+        )}
+      />
+      <ChannelInstructionsField kind="voice" />
 
       <p className="muted-copy">
         Voice uses Twilio ConversationRelay. Expose the configured webhook path
@@ -2064,7 +1784,7 @@ function VoiceChannelEditor(props: {
 
 function TeamsChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
 }) {
   const teamCount = countTeams(props.draft);
   const overrideCount = countTeamsOverrides(props.draft);
@@ -2084,237 +1804,197 @@ function TeamsChannelEditor(props: {
         </div>
       </div>
 
-      <BooleanField
-        label="Enabled"
-        value={props.draft.msteams.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            msteams: {
-              ...current.msteams,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="msteams.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>App ID</span>
-          <input
-            value={props.draft.msteams.appId}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                msteams: {
-                  ...current.msteams,
-                  appId: event.target.value,
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Tenant ID</span>
-          <input
-            value={props.draft.msteams.tenantId}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                msteams: {
-                  ...current.msteams,
-                  tenantId: event.target.value,
-                },
-              }))
-            }
-          />
-        </label>
-      </div>
-
-      <div className="field-grid">
-        <label className="field">
-          <span>Webhook path</span>
-          <input
-            value={props.draft.msteams.webhook.path}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                msteams: {
-                  ...current.msteams,
-                  webhook: {
-                    ...current.msteams.webhook,
-                    path: event.target.value,
-                  },
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Webhook port</span>
-          <input
-            type="number"
-            value={String(props.draft.msteams.webhook.port)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                msteams: {
-                  ...current.msteams,
-                  webhook: {
-                    ...current.msteams.webhook,
-                    port: parseInteger(event.target.value),
-                  },
-                },
-              }))
-            }
-          />
-        </label>
-      </div>
-
-      <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
-            value={props.draft.msteams.dmPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                msteams: {
-                  ...current.msteams,
-                  dmPolicy: event.target
-                    .value as AdminConfig['msteams']['dmPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
-            value={props.draft.msteams.groupPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                msteams: {
-                  ...current.msteams,
-                  groupPolicy: event.target
-                    .value as AdminConfig['msteams']['groupPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="field-grid">
-        <BooleanField
-          label="Require mention"
-          value={props.draft.msteams.requireMention}
-          trueLabel="on"
-          falseLabel="off"
-          onChange={(requireMention) =>
-            props.updateDraft((current) => ({
-              ...current,
-              msteams: {
-                ...current.msteams,
-                requireMention,
-              },
-            }))
-          }
+        <FormField
+          name="msteams.appId"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>App ID</FieldLabel>
+              <Input {...field} />
+            </Field>
+          )}
         />
-        <label className="field">
-          <span>Reply style</span>
-          <select
-            value={props.draft.msteams.replyStyle}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                msteams: {
-                  ...current.msteams,
-                  replyStyle: event.target
-                    .value as AdminConfig['msteams']['replyStyle'],
-                },
-              }))
-            }
-          >
-            <option value="thread">thread</option>
-            <option value="top-level">top-level</option>
-          </select>
-        </label>
+        <FormField
+          name="msteams.tenantId"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Tenant ID</FieldLabel>
+              <Input {...field} />
+            </Field>
+          )}
+        />
       </div>
 
-      <ListField
-        label="Allowed AAD object IDs"
-        value={props.draft.msteams.allowFrom}
-        rows={4}
-        placeholder="comma or newline separated"
-        onChange={(allowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            msteams: {
-              ...current.msteams,
-              allowFrom,
-            },
-          }))
-        }
+      <div className="field-grid">
+        <FormField
+          name="msteams.webhook.path"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Webhook path</FieldLabel>
+              <Input {...field} />
+            </Field>
+          )}
+        />
+        <FormField
+          name="msteams.webhook.port"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Webhook port</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                max={65535}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+      </div>
+
+      <div className="field-grid">
+        <FormField
+          name="msteams.dmPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="msteams.groupPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+      </div>
+
+      <div className="field-grid">
+        <FormField
+          name="msteams.requireMention"
+          render={({ field }) => (
+            <Field orientation="horizontal">
+              <Switch
+                checked={Boolean(field.value)}
+                onCheckedChange={field.onChange}
+              />
+              <FieldContent>
+                <FieldLabel>Require mention</FieldLabel>
+              </FieldContent>
+            </Field>
+          )}
+        />
+        <FormField
+          name="msteams.replyStyle"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Reply style</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="thread">thread</NativeSelectOption>
+                <NativeSelectOption value="top-level">
+                  top-level
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+      </div>
+
+      <FormField
+        name="msteams.allowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed AAD object IDs"
+            value={field.value as string[]}
+            rows={4}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.msteams.textChunkLimit)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                msteams: {
-                  ...current.msteams,
-                  textChunkLimit: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.msteams.mediaMaxMb)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                msteams: {
-                  ...current.msteams,
-                  mediaMaxMb: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="msteams.textChunkLimit"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="msteams.mediaMaxMb"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
-      <ChannelInstructionsField
-        kind="msteams"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="msteams" />
     </>
   );
 }
 
 function SlackChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
   botTokenConfigured: boolean;
   botTokenSource: SecretSource;
   appTokenConfigured: boolean;
@@ -2324,20 +2004,19 @@ function SlackChannelEditor(props: {
 }) {
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={isSlackEnabled(props.draft)}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            slack: {
-              ...current.slack,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="slack.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       <ManagedSecretField
@@ -2361,161 +2040,144 @@ function SlackChannelEditor(props: {
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
-            value={props.draft.slack.dmPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                slack: {
-                  ...current.slack,
-                  dmPolicy: event.target
-                    .value as AdminConfig['slack']['dmPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
-            value={props.draft.slack.groupPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                slack: {
-                  ...current.slack,
-                  groupPolicy: event.target
-                    .value as AdminConfig['slack']['groupPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="field-grid">
-        <BooleanField
-          label="Require mention"
-          value={props.draft.slack.requireMention}
-          trueLabel="on"
-          falseLabel="off"
-          onChange={(requireMention) =>
-            props.updateDraft((current) => ({
-              ...current,
-              slack: {
-                ...current.slack,
-                requireMention,
-              },
-            }))
-          }
+        <FormField
+          name="slack.dmPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
         />
-        <label className="field">
-          <span>Reply style</span>
-          <select
-            value={props.draft.slack.replyStyle}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                slack: {
-                  ...current.slack,
-                  replyStyle: event.target
-                    .value as AdminConfig['slack']['replyStyle'],
-                },
-              }))
-            }
-          >
-            <option value="thread">thread</option>
-            <option value="top-level">top-level</option>
-          </select>
-        </label>
+        <FormField
+          name="slack.groupPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
       </div>
 
-      <ListField
-        label="Allowed DM Slack user IDs"
-        value={props.draft.slack.allowFrom}
-        rows={4}
-        placeholder="comma or newline separated"
-        onChange={(allowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            slack: {
-              ...current.slack,
-              allowFrom,
-            },
-          }))
-        }
+      <div className="field-grid">
+        <FormField
+          name="slack.requireMention"
+          render={({ field }) => (
+            <Field orientation="horizontal">
+              <Switch
+                checked={Boolean(field.value)}
+                onCheckedChange={field.onChange}
+              />
+              <FieldContent>
+                <FieldLabel>Require mention</FieldLabel>
+              </FieldContent>
+            </Field>
+          )}
+        />
+        <FormField
+          name="slack.replyStyle"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Reply style</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="thread">thread</NativeSelectOption>
+                <NativeSelectOption value="top-level">
+                  top-level
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+      </div>
+
+      <FormField
+        name="slack.allowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed DM Slack user IDs"
+            value={field.value as string[]}
+            rows={4}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
       />
 
-      <ListField
-        label="Allowed channel Slack user IDs"
-        value={props.draft.slack.groupAllowFrom}
-        rows={4}
-        placeholder="comma or newline separated"
-        onChange={(groupAllowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            slack: {
-              ...current.slack,
-              groupAllowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="slack.groupAllowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed channel Slack user IDs"
+            value={field.value as string[]}
+            rows={4}
+            placeholder="comma or newline separated"
+            onChange={field.onChange}
+          />
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.slack.textChunkLimit)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                slack: {
-                  ...current.slack,
-                  textChunkLimit: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.slack.mediaMaxMb)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                slack: {
-                  ...current.slack,
-                  mediaMaxMb: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="slack.textChunkLimit"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="slack.mediaMaxMb"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
       <p className="muted-copy">
         Slack runs through Socket Mode. HybridClaw needs both a bot token and an
         app token before the gateway can connect.
       </p>
-      <ChannelInstructionsField
-        kind="slack"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="slack" />
     </>
   );
 }
@@ -2524,7 +2186,7 @@ function SlackWebhookChannelEditor(props: {
   draft: AdminConfig;
   onConfigSaved: (config: AdminConfig) => void;
   token: string;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
 }) {
   const toast = useToast();
   const targets = Object.keys(props.draft.slackWebhook.webhooks).sort();
@@ -2562,20 +2224,19 @@ function SlackWebhookChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.slackWebhook.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            slackWebhook: {
-              ...current.slackWebhook,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="slackWebhook.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       <div className="field">
@@ -2586,22 +2247,22 @@ function SlackWebhookChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Target</span>
-          <input
+        <Field>
+          <FieldLabel>Target</FieldLabel>
+          <Input
             list="slack-webhook-targets"
             value={target}
             onChange={(event) => setTarget(event.target.value)}
           />
           <datalist id="slack-webhook-targets">
             {targets.map((entry) => (
-              <option key={entry} value={entry} />
+              <NativeSelectOption key={entry} value={entry} />
             ))}
           </datalist>
-        </label>
-        <label className="field">
-          <span>Webhook URL</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Webhook URL</FieldLabel>
+          <Input
             type="password"
             autoComplete="off"
             placeholder={
@@ -2610,33 +2271,33 @@ function SlackWebhookChannelEditor(props: {
             value={webhookUrl}
             onChange={(event) => setWebhookUrl(event.target.value)}
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Username</span>
-          <input
+        <Field>
+          <FieldLabel>Username</FieldLabel>
+          <Input
             value={defaultUsername}
             onChange={(event) => setDefaultUsername(event.target.value)}
           />
-        </label>
-        <label className="field">
-          <span>Icon emoji</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Icon emoji</FieldLabel>
+          <Input
             value={defaultIconEmoji}
             onChange={(event) => setDefaultIconEmoji(event.target.value)}
           />
-        </label>
+        </Field>
       </div>
 
-      <label className="field">
-        <span>Icon URL</span>
-        <input
+      <Field>
+        <FieldLabel>Icon URL</FieldLabel>
+        <Input
           value={defaultIconUrl}
           onChange={(event) => setDefaultIconUrl(event.target.value)}
         />
-      </label>
+      </Field>
 
       <div className="button-row">
         <button
@@ -2654,11 +2315,7 @@ function SlackWebhookChannelEditor(props: {
         after save.
       </p>
 
-      <ChannelInstructionsField
-        kind="slack_webhook"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="slack_webhook" />
     </>
   );
 }
@@ -2667,7 +2324,7 @@ function DiscordWebhookChannelEditor(props: {
   draft: AdminConfig;
   onConfigSaved: (config: AdminConfig) => void;
   token: string;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
 }) {
   const toast = useToast();
   const targets = Object.keys(props.draft.discordWebhook.webhooks).sort();
@@ -2702,20 +2359,19 @@ function DiscordWebhookChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.discordWebhook.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            discordWebhook: {
-              ...current.discordWebhook,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="discordWebhook.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
       <div className="field">
@@ -2726,22 +2382,22 @@ function DiscordWebhookChannelEditor(props: {
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Target</span>
-          <input
+        <Field>
+          <FieldLabel>Target</FieldLabel>
+          <Input
             list="discord-webhook-targets"
             value={target}
             onChange={(event) => setTarget(event.target.value)}
           />
           <datalist id="discord-webhook-targets">
             {targets.map((entry) => (
-              <option key={entry} value={entry} />
+              <NativeSelectOption key={entry} value={entry} />
             ))}
           </datalist>
-        </label>
-        <label className="field">
-          <span>Webhook URL</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Webhook URL</FieldLabel>
+          <Input
             type="password"
             autoComplete="off"
             placeholder={
@@ -2750,24 +2406,24 @@ function DiscordWebhookChannelEditor(props: {
             value={webhookUrl}
             onChange={(event) => setWebhookUrl(event.target.value)}
           />
-        </label>
+        </Field>
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Username</span>
-          <input
+        <Field>
+          <FieldLabel>Username</FieldLabel>
+          <Input
             value={defaultUsername}
             onChange={(event) => setDefaultUsername(event.target.value)}
           />
-        </label>
-        <label className="field">
-          <span>Avatar URL</span>
-          <input
+        </Field>
+        <Field>
+          <FieldLabel>Avatar URL</FieldLabel>
+          <Input
             value={defaultAvatarUrl}
             onChange={(event) => setDefaultAvatarUrl(event.target.value)}
           />
-        </label>
+        </Field>
       </div>
 
       <div className="button-row">
@@ -2786,18 +2442,14 @@ function DiscordWebhookChannelEditor(props: {
         after save.
       </p>
 
-      <ChannelInstructionsField
-        kind="discord_webhook"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="discord_webhook" />
     </>
   );
 }
 
 function IMessageChannelEditor(props: {
   draft: AdminConfig;
-  updateDraft: ConfigUpdater;
+  form: UseFormControllerReturn<AdminConfig>;
   passwordConfigured: boolean;
   passwordSource: SecretSource;
   token: string;
@@ -2807,60 +2459,51 @@ function IMessageChannelEditor(props: {
 
   return (
     <>
-      <BooleanField
-        label="Enabled"
-        value={props.draft.imessage.enabled}
-        trueLabel="on"
-        falseLabel="off"
-        onChange={(enabled) =>
-          props.updateDraft((current) => ({
-            ...current,
-            imessage: {
-              ...current.imessage,
-              enabled,
-            },
-          }))
-        }
+      <FormField
+        name="imessage.enabled"
+        render={({ field }) => (
+          <Field orientation="horizontal">
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={field.onChange}
+            />
+            <FieldContent>
+              <FieldLabel>Enabled</FieldLabel>
+            </FieldContent>
+          </Field>
+        )}
       />
 
-      <label className="field">
-        <span>Backend</span>
-        <select
-          value={props.draft.imessage.backend}
-          onChange={(event) =>
-            props.updateDraft((current) => ({
-              ...current,
-              imessage: {
-                ...current.imessage,
-                backend: event.target
-                  .value as AdminConfig['imessage']['backend'],
-              },
-            }))
-          }
-        >
-          <option value="local">local</option>
-          <option value="bluebubbles">remote</option>
-        </select>
-      </label>
+      <FormField
+        name="imessage.backend"
+        render={({ field }) => (
+          <Field>
+            <FieldLabel>Backend</FieldLabel>
+            <NativeSelect
+              value={field.value as string}
+              onChange={field.onChange}
+            >
+              <NativeSelectOption value="local">local</NativeSelectOption>
+              <NativeSelectOption value="bluebubbles">
+                remote
+              </NativeSelectOption>
+            </NativeSelect>
+          </Field>
+        )}
+      />
 
       {isRemote ? (
         <>
           <div className="field-grid">
-            <label className="field">
-              <span>Server URL</span>
-              <input
-                value={props.draft.imessage.serverUrl}
-                onChange={(event) =>
-                  props.updateDraft((current) => ({
-                    ...current,
-                    imessage: {
-                      ...current.imessage,
-                      serverUrl: event.target.value,
-                    },
-                  }))
-                }
-              />
-            </label>
+            <FormField
+              name="imessage.serverUrl"
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel>Server URL</FieldLabel>
+                  <Input {...field} />
+                </Field>
+              )}
+            />
             <ManagedSecretField
               label="Password"
               secretName="IMESSAGE_PASSWORD"
@@ -2873,224 +2516,187 @@ function IMessageChannelEditor(props: {
             />
           </div>
 
-          <label className="field">
-            <span>Webhook path</span>
-            <input
-              value={props.draft.imessage.webhookPath}
-              onChange={(event) =>
-                props.updateDraft((current) => ({
-                  ...current,
-                  imessage: {
-                    ...current.imessage,
-                    webhookPath: event.target.value,
-                  },
-                }))
-              }
-            />
-          </label>
+          <FormField
+            name="imessage.webhookPath"
+            render={({ field }) => (
+              <Field>
+                <FieldLabel>Webhook path</FieldLabel>
+                <Input {...field} />
+              </Field>
+            )}
+          />
 
-          <BooleanField
-            label="Allow private network"
-            value={props.draft.imessage.allowPrivateNetwork}
-            trueLabel="on"
-            falseLabel="off"
-            onChange={(allowPrivateNetwork) =>
-              props.updateDraft((current) => ({
-                ...current,
-                imessage: {
-                  ...current.imessage,
-                  allowPrivateNetwork,
-                },
-              }))
-            }
+          <FormField
+            name="imessage.allowPrivateNetwork"
+            render={({ field }) => (
+              <Field orientation="horizontal">
+                <Switch
+                  checked={Boolean(field.value)}
+                  onCheckedChange={field.onChange}
+                />
+                <FieldContent>
+                  <FieldLabel>Allow private network</FieldLabel>
+                </FieldContent>
+              </Field>
+            )}
           />
         </>
       ) : (
         <div className="field-grid">
-          <label className="field">
-            <span>CLI path</span>
-            <input
-              value={props.draft.imessage.cliPath}
-              onChange={(event) =>
-                props.updateDraft((current) => ({
-                  ...current,
-                  imessage: {
-                    ...current.imessage,
-                    cliPath: event.target.value,
-                  },
-                }))
-              }
-            />
-          </label>
-          <label className="field">
-            <span>Database path</span>
-            <input
-              value={props.draft.imessage.dbPath}
-              onChange={(event) =>
-                props.updateDraft((current) => ({
-                  ...current,
-                  imessage: {
-                    ...current.imessage,
-                    dbPath: event.target.value,
-                  },
-                }))
-              }
-            />
-          </label>
+          <FormField
+            name="imessage.cliPath"
+            render={({ field }) => (
+              <Field>
+                <FieldLabel>CLI path</FieldLabel>
+                <Input {...field} />
+              </Field>
+            )}
+          />
+          <FormField
+            name="imessage.dbPath"
+            render={({ field }) => (
+              <Field>
+                <FieldLabel>Database path</FieldLabel>
+                <Input {...field} />
+              </Field>
+            )}
+          />
         </div>
       )}
 
       <div className="field-grid">
-        <label className="field">
-          <span>DM policy</span>
-          <select
-            value={props.draft.imessage.dmPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                imessage: {
-                  ...current.imessage,
-                  dmPolicy: event.target
-                    .value as AdminConfig['imessage']['dmPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Group policy</span>
-          <select
-            value={props.draft.imessage.groupPolicy}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                imessage: {
-                  ...current.imessage,
-                  groupPolicy: event.target
-                    .value as AdminConfig['imessage']['groupPolicy'],
-                },
-              }))
-            }
-          >
-            <option value="open">open</option>
-            <option value="allowlist">allowlist</option>
-            <option value="disabled">disabled</option>
-          </select>
-        </label>
+        <FormField
+          name="imessage.dmPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>DM policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
+          name="imessage.groupPolicy"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Group policy</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="open">open</NativeSelectOption>
+                <NativeSelectOption value="allowlist">
+                  allowlist
+                </NativeSelectOption>
+                <NativeSelectOption value="disabled">
+                  disabled
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
       </div>
 
-      <ListField
-        label="Allowed DM senders"
-        value={props.draft.imessage.allowFrom}
-        rows={3}
-        placeholder="phone, email, or chat:id"
-        onChange={(allowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            imessage: {
-              ...current.imessage,
-              allowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="imessage.allowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed DM senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="phone, email, or chat:id"
+            onChange={field.onChange}
+          />
+        )}
       />
 
-      <ListField
-        label="Allowed group senders"
-        value={props.draft.imessage.groupAllowFrom}
-        rows={3}
-        placeholder="phone, email, or chat:id"
-        onChange={(groupAllowFrom) =>
-          props.updateDraft((current) => ({
-            ...current,
-            imessage: {
-              ...current.imessage,
-              groupAllowFrom,
-            },
-          }))
-        }
+      <FormField
+        name="imessage.groupAllowFrom"
+        render={({ field }) => (
+          <ListField
+            label="Allowed group senders"
+            value={field.value as string[]}
+            rows={3}
+            placeholder="phone, email, or chat:id"
+            onChange={field.onChange}
+          />
+        )}
       />
 
       <div className="field-grid">
-        <label className="field">
-          <span>
-            {isRemote ? 'Webhook / poll interval ms' : 'Poll interval ms'}
-          </span>
-          <input
-            type="number"
-            value={String(props.draft.imessage.pollIntervalMs)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                imessage: {
-                  ...current.imessage,
-                  pollIntervalMs: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Debounce ms</span>
-          <input
-            type="number"
-            value={String(props.draft.imessage.debounceMs)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                imessage: {
-                  ...current.imessage,
-                  debounceMs: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="imessage.pollIntervalMs"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>
+                {isRemote ? 'Webhook / poll interval ms' : 'Poll interval ms'}
+              </FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="imessage.debounceMs"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Debounce ms</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
 
       <div className="field-grid">
-        <label className="field">
-          <span>Text chunk limit</span>
-          <input
-            type="number"
-            value={String(props.draft.imessage.textChunkLimit)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                imessage: {
-                  ...current.imessage,
-                  textChunkLimit: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>Media max MB</span>
-          <input
-            type="number"
-            value={String(props.draft.imessage.mediaMaxMb)}
-            onChange={(event) =>
-              props.updateDraft((current) => ({
-                ...current,
-                imessage: {
-                  ...current.imessage,
-                  mediaMaxMb: parseInteger(event.target.value),
-                },
-              }))
-            }
-          />
-        </label>
+        <FormField
+          name="imessage.textChunkLimit"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Text chunk limit</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
+        <FormField
+          name="imessage.mediaMaxMb"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Media max MB</FieldLabel>
+              <NumberField
+                integer
+                min={0}
+                value={field.value as number}
+                onValueChange={field.onChange}
+              />
+            </Field>
+          )}
+        />
       </div>
-      <ChannelInstructionsField
-        kind="imessage"
-        draft={props.draft}
-        updateDraft={props.updateDraft}
-      />
+      <ChannelInstructionsField kind="imessage" />
     </>
   );
 }
@@ -3098,7 +2704,7 @@ function IMessageChannelEditor(props: {
 function renderSelectedEditor(
   kind: ChannelKind,
   draft: AdminConfig,
-  updateDraft: ConfigUpdater,
+  form: UseFormControllerReturn<AdminConfig>,
   token: string,
   secretStatus: {
     discord: {
@@ -3150,7 +2756,7 @@ function renderSelectedEditor(
       return (
         <DiscordChannelEditor
           draft={draft}
-          updateDraft={updateDraft}
+          form={form}
           tokenConfigured={secretStatus.discord.configured}
           tokenSource={secretStatus.discord.source}
           token={token}
@@ -3161,7 +2767,7 @@ function renderSelectedEditor(
       return (
         <WhatsAppChannelEditor
           draft={draft}
-          updateDraft={updateDraft}
+          form={form}
           linked={whatsappStatus.linked}
           pairingQrText={whatsappStatus.pairingQrText}
         />
@@ -3170,7 +2776,7 @@ function renderSelectedEditor(
       return (
         <SlackChannelEditor
           draft={draft}
-          updateDraft={updateDraft}
+          form={form}
           botTokenConfigured={secretStatus.slack.botConfigured}
           botTokenSource={secretStatus.slack.botSource}
           appTokenConfigured={secretStatus.slack.appConfigured}
@@ -3185,7 +2791,7 @@ function renderSelectedEditor(
           draft={draft}
           onConfigSaved={onConfigSaved}
           token={token}
-          updateDraft={updateDraft}
+          form={form}
         />
       );
     case 'discord_webhook':
@@ -3194,14 +2800,14 @@ function renderSelectedEditor(
           draft={draft}
           onConfigSaved={onConfigSaved}
           token={token}
-          updateDraft={updateDraft}
+          form={form}
         />
       );
     case 'telegram':
       return (
         <TelegramChannelEditor
           draft={draft}
-          updateDraft={updateDraft}
+          form={form}
           tokenConfigured={secretStatus.telegram.configured}
           tokenSource={secretStatus.telegram.source}
           token={token}
@@ -3212,7 +2818,7 @@ function renderSelectedEditor(
       return (
         <SignalChannelEditor
           draft={draft}
-          updateDraft={updateDraft}
+          form={form}
           token={token}
           cliAvailable={signalStatus.cliAvailable}
           cliVersion={signalStatus.cliVersion}
@@ -3223,7 +2829,7 @@ function renderSelectedEditor(
       return (
         <ThreemaChannelEditor
           draft={draft}
-          updateDraft={updateDraft}
+          form={form}
           secretConfigured={secretStatus.threema.configured}
           secretSource={secretStatus.threema.source}
           token={token}
@@ -3234,7 +2840,7 @@ function renderSelectedEditor(
       return (
         <VoiceChannelEditor
           draft={draft}
-          updateDraft={updateDraft}
+          form={form}
           authTokenConfigured={secretStatus.voice.configured}
           authTokenSource={secretStatus.voice.source}
           token={token}
@@ -3245,7 +2851,7 @@ function renderSelectedEditor(
       return (
         <EmailChannelEditor
           draft={draft}
-          updateDraft={updateDraft}
+          form={form}
           passwordConfigured={secretStatus.email.configured}
           passwordSource={secretStatus.email.source}
           hybridaiApiKeyConfigured={hybridaiApiKeyConfigured}
@@ -3254,12 +2860,12 @@ function renderSelectedEditor(
         />
       );
     case 'msteams':
-      return <TeamsChannelEditor draft={draft} updateDraft={updateDraft} />;
+      return <TeamsChannelEditor draft={draft} form={form} />;
     case 'imessage':
       return (
         <IMessageChannelEditor
           draft={draft}
-          updateDraft={updateDraft}
+          form={form}
           passwordConfigured={secretStatus.imessage.configured}
           passwordSource={secretStatus.imessage.source}
           token={token}
@@ -3273,7 +2879,6 @@ export function ChannelsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [draft, setDraft] = useState<AdminConfig | null>(null);
   const [selectedKind, setSelectedKind] = useState<ChannelKind | null>(null);
 
   const configQuery = useQuery({
@@ -3287,27 +2892,23 @@ export function ChannelsPage() {
     refetchInterval: 3_000,
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async (nextConfig: AdminConfig) => {
-      return saveConfig(auth.token, nextConfig);
-    },
+  const form = useForm<AdminConfig>({
+    source: configQuery.data?.config,
+  });
+  const { draft, isDirty, commit } = form;
+
+  const saveMutation = useFormMutation({
+    mutationFn: (nextConfig: AdminConfig) => saveConfig(auth.token, nextConfig),
     onSuccess: (payload) => {
       queryClient.setQueryData(['config', auth.token], payload);
-      void queryClient.invalidateQueries({
-        queryKey: ['status', auth.token],
-      });
-      setDraft(cloneConfig(payload.config));
+      commit(payload.config);
       toast.success('Channel settings saved.');
     },
     onError: (error) => {
-      toast.error('Save failed', getErrorMessage(error));
+      toast.error('Save failed', error.message);
     },
+    invalidates: [['status', auth.token], ['overview']],
   });
-
-  useEffect(() => {
-    if (!configQuery.data || draft) return;
-    setDraft(cloneConfig(configQuery.data.config));
-  }, [configQuery.data, draft]);
 
   const catalog = draft
     ? buildChannelCatalog(draft, {
@@ -3343,10 +2944,15 @@ export function ChannelsPage() {
     });
   }, [catalog]);
 
-  const updateDraft: ConfigUpdater = (updater) => {
-    saveMutation.reset();
-    setDraft((current) => (current ? updater(current) : current));
-  };
+  // Clear any prior save success/error state as soon as the user resumes
+  // editing, so a stale toast or button label doesn't follow them around.
+  // `saveMutation` itself is left out of deps — its identity changes every
+  // render (useMutation returns a fresh object); the `.reset()` callback
+  // is stable enough via closure.
+  const saveMutationReset = saveMutation.reset;
+  useEffect(() => {
+    if (isDirty) saveMutationReset();
+  }, [isDirty, saveMutationReset]);
 
   if (configQuery.isLoading && !draft) {
     return <div className="empty-state">Loading channel settings...</div>;
@@ -3358,9 +2964,6 @@ export function ChannelsPage() {
 
   const selectedChannel =
     catalog.find((entry) => entry.kind === selectedKind) ?? catalog[0] ?? null;
-  const isDirty = configQuery.data
-    ? JSON.stringify(draft) !== JSON.stringify(configQuery.data.config)
-    : false;
   const secretStatus = {
     discord: {
       configured: statusQuery.data?.discord?.tokenConfigured ?? false,
@@ -3440,72 +3043,76 @@ export function ChannelsPage() {
           </div>
         </Card>
 
-        <Card variant="muted">
-          <CardHeader>
-            <CardTitle>
-              {selectedChannel
-                ? `${selectedChannel.label} settings`
-                : 'Channels'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="stack-form">
-              {selectedChannel
-                ? renderSelectedEditor(
-                    selectedChannel.kind,
-                    draft,
-                    updateDraft,
-                    auth.token,
-                    secretStatus,
-                    hybridaiApiKeyConfigured,
-                    whatsappStatus,
-                    signalStatus,
-                    (config) => {
-                      const payload = {
-                        path: configQuery.data?.path || '',
-                        config,
-                      };
-                      queryClient.setQueryData(['config', auth.token], payload);
-                      setDraft(cloneConfig(config));
-                      void queryClient.invalidateQueries({
-                        queryKey: ['status', auth.token],
-                      });
-                    },
-                    () => {
-                      void queryClient.invalidateQueries({
-                        queryKey: ['status', auth.token],
-                      });
-                    },
-                  )
-                : null}
+        <Form form={form} onSubmit={() => saveMutation.mutate(draft)}>
+          <Card variant="muted">
+            <CardHeader>
+              <CardTitle>
+                {selectedChannel
+                  ? `${selectedChannel.label} settings`
+                  : 'Channels'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="stack-form">
+                {selectedChannel
+                  ? renderSelectedEditor(
+                      selectedChannel.kind,
+                      draft,
+                      form,
+                      auth.token,
+                      secretStatus,
+                      hybridaiApiKeyConfigured,
+                      whatsappStatus,
+                      signalStatus,
+                      (config) => {
+                        const payload = {
+                          path: configQuery.data?.path || '',
+                          config,
+                        };
+                        queryClient.setQueryData(
+                          ['config', auth.token],
+                          payload,
+                        );
+                        commit(config);
+                        void queryClient.invalidateQueries({
+                          queryKey: ['status', auth.token],
+                        });
+                      },
+                      () => {
+                        void queryClient.invalidateQueries({
+                          queryKey: ['status', auth.token],
+                        });
+                      },
+                    )
+                  : null}
 
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={!isDirty || saveMutation.isPending}
-                  onClick={() => saveMutation.mutate(draft)}
-                >
-                  {saveMutation.isPending
-                    ? 'Saving...'
-                    : 'Save channel settings'}
-                </button>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  disabled={!isDirty || !configQuery.data}
-                  onClick={() => {
-                    if (!configQuery.data) return;
-                    saveMutation.reset();
-                    setDraft(cloneConfig(configQuery.data.config));
-                  }}
-                >
-                  Reset changes
-                </button>
+                <div className="button-row">
+                  <Button
+                    type="submit"
+                    loading={saveMutation.isPending}
+                    disabled={!isDirty || saveMutation.isPending}
+                  >
+                    {saveMutation.isPending
+                      ? 'Saving...'
+                      : 'Save channel settings'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    disabled={!isDirty || !configQuery.data}
+                    onClick={() => {
+                      if (!configQuery.data) return;
+                      saveMutation.reset();
+                      form.discard();
+                    }}
+                  >
+                    Reset changes
+                  </Button>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Form>
       </div>
     </div>
   );

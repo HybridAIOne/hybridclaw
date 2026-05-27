@@ -19,9 +19,11 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { Field, FieldContent, FieldLabel } from '../components/field';
 import { Trash } from '../components/icons';
+import { Switch } from '../components/switch';
 import { useToast } from '../components/toast';
-import { BooleanField, PageHeader, SegmentedToggle } from '../components/ui';
+import { PageHeader, SegmentedToggle } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 import { ModelSwitchSelect, parseModel } from './chat/model-switch-select';
@@ -390,7 +392,6 @@ export function OutputGuardPage() {
   return (
     <div className="page-stack output-guard-page">
       <PageHeader
-        title="Output Guard"
         description="Operator controls for output policy, rules, classifier, and rewrite behavior."
         actions={
           <button
@@ -419,13 +420,17 @@ export function OutputGuardPage() {
               </div>
             ) : (
               <div className="stack-form">
-                <BooleanField
-                  label="Enabled"
-                  value={profile.enabled}
-                  onChange={(enabled) =>
-                    setProfile((current) => ({ ...current, enabled }))
-                  }
-                />
+                <Field orientation="horizontal">
+                  <Switch
+                    checked={profile.enabled}
+                    onCheckedChange={(enabled) =>
+                      setProfile((current) => ({ ...current, enabled }))
+                    }
+                  />
+                  <FieldContent>
+                    <FieldLabel>Enabled</FieldLabel>
+                  </FieldContent>
+                </Field>
                 <div className="field">
                   <span>Mode</span>
                   <SegmentedToggle

@@ -632,6 +632,11 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
+  const callAuxiliaryModel = vi.fn(async () => ({
+    provider: 'vllm' as const,
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    content: '{"status":"pass","summary":"ok","findings":[]}',
+  }));
   const mapOpenAICompatibleUsageToTokenStats = vi.fn(() => undefined);
   const forkSessionBranch = vi.fn(() => ({
     session: {
@@ -1009,7 +1014,8 @@ async function importFreshHealth(options?: {
         source: 'project',
         enabled: false,
         status: 'failed',
-        error: 'Missing required env vars: DEMO_PLUGIN_TOKEN.',
+        error:
+          'Missing required runtime secrets: DEMO_PLUGIN_TOKEN. Store them with `hybridclaw secret set <name> <value>` or in TUI with `/secret set <name> <value>`, then reload plugins.',
         commands: [],
         tools: ['broken_tool'],
         hooks: ['gateway_start'],
@@ -1282,8 +1288,12 @@ async function importFreshHealth(options?: {
     query: '',
     sessionId: '',
     eventType: '',
+    since: null,
+    until: null,
     limit: 60,
     entries: [],
+    nextCursor: null,
+    total: 0,
   }));
   const getGatewayAdminApprovals = vi.fn(() => ({
     selectedAgentId: 'main',
@@ -1315,6 +1325,10 @@ async function importFreshHealth(options?: {
       policyPath: '/tmp/main/workspace/.hybridclaw/policy.yaml',
       workspacePath: '/tmp/main/workspace',
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: ['github'],
       rules: [
         {
@@ -1358,6 +1372,10 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: [],
       rules: [
         {
@@ -1373,6 +1391,27 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: params.defaultAction,
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
+      presets: [],
+      rules: [],
+    }),
+  );
+  const saveGatewayAdminPolicyLanHttpAccess = vi.fn(
+    (params: {
+      agentId?: string;
+      mode: 'off' | 'read-only' | 'read-write' | 'custom';
+    }) => ({
+      exists: true,
+      policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
+      workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
+      defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: params.mode,
+        managedRuleIndexes: params.mode === 'off' ? [] : [2, 3, 4],
+      },
       presets: [],
       rules: [],
     }),
@@ -1383,6 +1422,10 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: [params.presetName],
       rules: [
         {
@@ -1404,6 +1447,10 @@ async function importFreshHealth(options?: {
       policyPath: `/tmp/${params.agentId || 'main'}/workspace/.hybridclaw/policy.yaml`,
       workspacePath: `/tmp/${params.agentId || 'main'}/workspace`,
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: [],
       rules: [],
       deletedIndex: params.index,
@@ -1634,6 +1681,7 @@ async function importFreshHealth(options?: {
         agentId: 'main',
         used: 3.4,
         cap: 60,
+        unit: 'USD',
         currency: 'USD',
         percent: 5.666,
       },
@@ -1826,6 +1874,7 @@ async function importFreshHealth(options?: {
     saveGatewayAdminSlackWebhookTarget,
     saveGatewayAdminAgentMarkdownFile,
     saveGatewayAdminPolicyDefault,
+    saveGatewayAdminPolicyLanHttpAccess,
     saveGatewayAdminPolicyRule,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
@@ -1854,6 +1903,9 @@ async function importFreshHealth(options?: {
     callOpenAICompatibleModel,
     callOpenAICompatibleModelStream,
     mapOpenAICompatibleUsageToTokenStats,
+  }));
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel,
   }));
   vi.doMock('../src/gateway/gateway-scheduled-task-service.js', () => ({
     getGatewayAdminScheduler,
@@ -1939,6 +1991,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
     saveGatewayAdminPolicyDefault,
+    saveGatewayAdminPolicyLanHttpAccess,
     applyGatewayAdminPolicyPreset,
     saveGatewayAdminPolicyRule,
     deleteGatewayAdminPolicyRule,
@@ -1990,6 +2043,7 @@ async function importFreshHealth(options?: {
     buildConversationContext,
     callOpenAICompatibleModel,
     callOpenAICompatibleModelStream,
+    callAuxiliaryModel,
     loggerDebug,
     loggerError,
     loggerWarn,
@@ -2809,6 +2863,45 @@ describe('gateway HTTP server', () => {
 
     const payload = JSON.parse(res.body);
     expect(payload.model).toBe('gpt-5');
+  });
+
+  test('routes auxiliary eval judge OpenAI requests through the auxiliary model caller', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      body: {
+        model: 'auxiliary/eval_judge',
+        messages: [
+          { role: 'system', content: 'Return JSON only.' },
+          { role: 'user', content: '{"question":"largest orders"}' },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(state.callAuxiliaryModel).toHaveBeenCalledWith({
+      task: 'eval_judge',
+      messages: [
+        { role: 'system', content: 'Return JSON only.' },
+        { role: 'user', content: '{"question":"largest orders"}' },
+      ],
+      fallbackModel: expect.any(String),
+      agentId: 'main',
+      temperature: 0,
+    });
+
+    const payload = JSON.parse(res.body);
+    expect(payload.model).toBe('vllm/Qwen/Qwen3.6-27B-FP8');
+    expect(payload.choices[0].message.content).toBe(
+      '{"status":"pass","summary":"ok","findings":[]}',
+    );
+    expect(res.getHeader('x-hybridclaw-auxiliary-task')).toBe('eval_judge');
+    expect(res.getHeader('x-hybridclaw-auxiliary-provider')).toBe('vllm');
   });
 
   test('routes eval-profiled OpenAI requests to a fresh temporary agent workspace', async () => {
@@ -6099,6 +6192,7 @@ describe('gateway HTTP server', () => {
           agentId: 'main',
           used: 3.4,
           cap: 60,
+          unit: 'USD',
           currency: 'USD',
           percent: 5.666,
         },
@@ -6586,8 +6680,46 @@ describe('gateway HTTP server', () => {
       limit: 25,
       query: 'approval',
       sessionId: 's1',
+      since: '',
+      until: '',
+      cursor: 0,
     });
     expect(res.statusCode).toBe(200);
+  });
+
+  test('forwards since/until/cursor pagination params on admin audit requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/audit?since=2026-05-01T00:00:00.000Z&until=2026-05-23T00:00:00.000Z&cursor=512&limit=50',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAudit).toHaveBeenCalledWith({
+      eventType: '',
+      limit: 50,
+      query: '',
+      sessionId: '',
+      since: '2026-05-01T00:00:00.000Z',
+      until: '2026-05-23T00:00:00.000Z',
+      cursor: 512,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('admin audit `cursor` defaults to 0 when missing or non-positive', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/audit?cursor=-1' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: 0 }),
+    );
   });
 
   test('returns pending approvals and policy state for authorized API requests', async () => {
@@ -6827,6 +6959,34 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toMatchObject({
       workspacePath: '/tmp/writer/workspace',
       defaultAction: 'allow',
+    });
+  });
+
+  test('saves the admin LAN HTTP policy mode for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/policy',
+      body: {
+        agentId: 'writer',
+        lanHttpAccessMode: 'read-write',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.saveGatewayAdminPolicyLanHttpAccess).toHaveBeenCalledWith({
+      agentId: 'writer',
+      mode: 'read-write',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      workspacePath: '/tmp/writer/workspace',
+      lanHttpAccess: {
+        mode: 'read-write',
+      },
     });
   });
 
@@ -9575,6 +9735,67 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  test('allows unbound bearerSecretName during deprecation window with a warning', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-unbound-bearer-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      EXTERNAL_ACCESS_TOKEN: 'external-access-token',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.example.com/v1/items',
+        bearerSecretName: 'EXTERNAL_ACCESS_TOKEN',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer external-access-token',
+        }),
+      }),
+    );
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      {
+        secretName: 'EXTERNAL_ACCESS_TOKEN',
+        targetHost: 'api.example.com',
+        bindingKey: 'EXTERNAL_ACCESS_TOKEN_BOUND_DOMAIN',
+      },
+      expect.stringContaining('without a domain binding'),
+    );
+  });
+
   test('captures explicit bearer token fields without exposing the response body', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-');
     process.env.HOME = homeDir;
@@ -10099,6 +10320,40 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('preserves outbound http_request fetch failure causes in 502 responses', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('fetch failed', {
+          cause: new Error('connect ECONNREFUSED 192.168.178.198:80'),
+        });
+      }),
+    );
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hybridai.one/v1/completions',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'Outbound HTTP request failed: fetch failed (connect ECONNREFUSED 192.168.178.198:80)',
+    });
+  });
+
   test('fails closed when dns lookup for http_request host fails', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => {
@@ -10131,6 +10386,176 @@ describe('gateway HTTP server', () => {
       }),
       'DNS lookup failed during SSRF host check; treating host as private/blocked',
     );
+  });
+
+  test('allows private outbound http_request targets only when explicitly allowlisted by policy', async () => {
+    const workspacePath = makeTempDocsRoot();
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: 80',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /rpc/**',
+        '      agent: "*"',
+        '  presets: []',
+      ].join('\n'),
+      'utf8',
+    );
+    const originalCwd = process.cwd();
+    const state = await importFreshHealth({
+      gatewayApiToken: 'gateway-token',
+    });
+    process.chdir(workspacePath);
+    try {
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ id: 0, name: 'Living room' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/http/request',
+        headers: { authorization: 'Bearer gateway-token' },
+        body: {
+          url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
+          method: 'GET',
+        },
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(200);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('keeps private outbound http_request targets blocked when policy path does not match', async () => {
+    const workspacePath = makeTempDocsRoot();
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.178.198',
+        '      port: 80',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /rpc/**',
+        '      agent: "*"',
+        '  presets: []',
+      ].join('\n'),
+      'utf8',
+    );
+    const originalCwd = process.cwd();
+    const state = await importFreshHealth({
+      gatewayApiToken: 'gateway-token',
+    });
+    process.chdir(workspacePath);
+    try {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/http/request',
+        headers: { authorization: 'Bearer gateway-token' },
+        body: {
+          url: 'http://192.168.178.198/debug',
+          method: 'GET',
+        },
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({
+        error:
+          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for GET /debug on port 80.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('reports private outbound http_request method mismatches against policy', async () => {
+    const workspacePath = makeTempDocsRoot();
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.178.198',
+        '      port: 80',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /rpc/**',
+        '      agent: "*"',
+        '  presets: []',
+      ].join('\n'),
+      'utf8',
+    );
+    const originalCwd = process.cwd();
+    const state = await importFreshHealth({
+      gatewayApiToken: 'gateway-token',
+    });
+    process.chdir(workspacePath);
+    try {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/http/request',
+        headers: { authorization: 'Bearer gateway-token' },
+        body: {
+          url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
+          method: 'POST',
+        },
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await settle();
+
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({
+        error:
+          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for POST /rpc/Cover.GetConfig on port 80.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      process.chdir(originalCwd);
+    }
   });
 
   test('streams outbound http_request responses and truncates once the size limit is exceeded', async () => {

@@ -81,6 +81,55 @@ test('runDoctor fixes insecure credentials permissions and reruns the check', as
   expect(fs.statSync(credentialsPath).mode & 0o777).toBe(0o600);
 });
 
+test('checkSecurity warns on stored bearer secrets without domain bindings', async () => {
+  const homeDir = createTempDir('hybridclaw-doctor-security-');
+  const dataDir = path.join(homeDir, '.hybridclaw', 'data');
+  process.env.HOME = homeDir;
+  fs.mkdirSync(path.join(dataDir, 'audit'), { recursive: true });
+
+  vi.doMock('../src/config/config.js', () => ({
+    DATA_DIR: dataDir,
+  }));
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    getRuntimeConfig: () => ({}),
+    isSecurityTrustAccepted: () => true,
+  }));
+  vi.doMock('../src/security/instruction-integrity.js', () => ({
+    summarizeInstructionIntegrity: () => 'instruction integrity OK',
+    syncRuntimeInstructionCopies: vi.fn(),
+    verifyInstructionIntegrity: () => ({ ok: true, files: [] }),
+  }));
+
+  try {
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      EXTERNAL_ACCESS_TOKEN: 'external-token',
+      GOG_ACCESS_TOKEN: 'google-token',
+      HUBSPOT_ACCESS_TOKEN: 'hubspot-token',
+      SF_ACCESS_TOKEN: 'salesforce-token',
+      SF_ACCESS_TOKEN_BOUND_DOMAIN: 'api.example.com',
+      WEB_API_TOKEN: 'gateway-token',
+    });
+
+    const { checkSecurity } = await import('../src/doctor/checks/security.ts');
+    const [result] = await checkSecurity();
+
+    expect(result.severity).toBe('warn');
+    expect(result.message).toContain('EXTERNAL_ACCESS_TOKEN');
+    expect(result.message).toContain('EXTERNAL_ACCESS_TOKEN_BOUND_DOMAIN');
+    expect(result.message).not.toContain('GOG_ACCESS_TOKEN');
+    expect(result.message).not.toContain('HUBSPOT_ACCESS_TOKEN');
+    expect(result.message).not.toContain('SF_ACCESS_TOKEN,');
+    expect(result.message).not.toContain('WEB_API_TOKEN');
+  } finally {
+    vi.doUnmock('../src/config/config.js');
+    vi.doUnmock('../src/config/runtime-config.js');
+    vi.doUnmock('../src/security/instruction-integrity.js');
+  }
+});
+
 test('checkConfig fixes world-readable config permissions to owner-only', async () => {
   const dir = createTempDir('hybridclaw-doctor-config-');
   const configPath = path.join(dir, 'config.json');
@@ -744,7 +793,8 @@ test('checkDocker errors when configured sandbox requires Docker and Docker is m
   expect(result.severity).toBe('error');
   expect(result.message).toContain('Docker unavailable');
   expect(result.message).toContain('sandbox mode `container` requires Docker');
-  expect(result.message).toContain('set `container.sandboxMode` to `host`');
+  expect(result.message).toContain('/config set container.sandboxMode host');
+  expect(result.message).toContain('/admin/config');
 });
 
 test('checkDocker only warns when sandbox is host and Docker is missing', async () => {

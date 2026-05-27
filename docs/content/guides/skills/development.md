@@ -315,6 +315,192 @@ Per-skill operator setup references:
 
 ---
 
+## t-cloud-public
+
+Inspect T Cloud Public, formerly Open Telekom Cloud, infrastructure and prepare
+guarded DevOps operations through gateway-managed OTC API signing.
+
+**Prerequisites** — an OTC IAM user with least-privilege access keys and the
+target regional project id.
+
+```bash
+hybridclaw secret set OTC_ACCESS_KEY_ID "<access-key-id>"
+hybridclaw secret set OTC_SECRET_ACCESS_KEY "<secret-access-key>"
+hybridclaw secret set OTC_PROJECT_ID "<regional-project-id>"
+```
+
+Optional Enterprise Dashboard consumption and spend reads need:
+
+```bash
+hybridclaw secret set OTC_ENTERPRISE_DASHBOARD_TOKEN "<dashboard-api-key>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with `regions`, `projects`, `service-endpoints`, `quotas`, and
+> read-only inventory commands before planning changes.
+>
+> The helper signs OTC requests and emits gateway-ready requests; do not build
+> signed headers or canonical request strings by hand.
+>
+> Mutating compute, network, storage, IAM, KMS, database, and WAF operations
+> are amber or red and require exact operator approval.
+
+> 🎯 **Try it yourself**
+>
+> `List T Cloud Public servers, networks, volumes, and current quotas for my project`
+>
+> `Check Cloud Eye alarms and recent Cloud Trace events for the production project`
+>
+> `Show daily T Cloud Public consumption for this month`
+
+**Troubleshooting**
+
+- **Signature or auth errors** — verify the access key id, secret key, project
+  id, region, and system clock.
+- **403 on inventory reads** — grant the IAM user read scopes for the target
+  services and project.
+- **Dashboard billing errors** — store `OTC_ENTERPRISE_DASHBOARD_TOKEN` and
+  confirm the key has Admin security level in the Enterprise Dashboard.
+
+---
+
+## mittwald
+
+Read mittwald mStudio and Kundencenter resources: projects, apps, runtimes,
+databases, domains, mail, backups, files, containers, and access users.
+
+**Prerequisites** — a mittwald API token stored in HybridClaw secrets.
+
+```bash
+hybridclaw secret set MITTWALD_API_TOKEN "<api-token>"
+```
+
+Create the token in mittwald mStudio under user profile API token settings.
+Use the narrowest token role that can read the projects you want HybridClaw to
+inspect.
+
+> 💡 **Tips & Tricks**
+>
+> Use read-only commands such as `whoami`, `projects`, `apps`, `domains`,
+> `databases`, `backups`, and `service-logs` for triage.
+>
+> The helper injects `MITTWALD_API_TOKEN` server-side with
+> `bearerSecretName`; never paste the token into chat or raw headers.
+>
+> App installation, database creation, cronjob creation, domain moves, and
+> delivery-box creation require explicit operator approval. Restore, service
+> action, domain deletion, and extension-order operations are red-tier.
+
+> 🎯 **Try it yourself**
+>
+> `List mittwald projects and summarize apps, domains, databases, and backups`
+>
+> `Check the latest service logs for this mittwald app`
+>
+> `Plan a Redis database creation for this project without executing it`
+
+**Troubleshooting**
+
+- **401 or 403** — verify the token is active and has access to the selected
+  mStudio project.
+- **429** — respect the returned rate-limit headers; do not retry in a loop.
+- **Missing resource ids** — list the parent project/app/domain first and pass
+  the exact id from the helper output.
+
+---
+
+## zabbix
+
+Read Zabbix monitoring state for incident triage: API health, host inventory,
+current or recent problems, trigger severity summaries, and incident context.
+
+**Prerequisites** — a Zabbix API token and the frontend base URL.
+
+```bash
+hybridclaw secret set ZABBIX_API_TOKEN "<zabbix-api-token>"
+```
+
+Pass the base URL per request or configure it in the runtime environment as
+`ZABBIX_BASE_URL`. The helper accepts both the frontend URL and the
+`api_jsonrpc.php` endpoint URL.
+
+> 💡 **Tips & Tricks**
+>
+> Start with `api-version`, then inspect `hosts`, `problems`, and
+> `triggers` before creating an incident summary.
+>
+> This v1 skill is read-only; acknowledge, suppress, close, update, or delete
+> operations are intentionally not executed.
+>
+> Use Zabbix for detection and context, then hand off remediation to a
+> maintenance skill or operator.
+
+> 🎯 **Try it yourself**
+>
+> `Show current high-severity Zabbix problems and affected hosts`
+>
+> `Summarize recent Zabbix problems for the database host group`
+>
+> `Build an incident summary from Zabbix triggers for the last 24 hours`
+
+**Troubleshooting**
+
+- **Base URL rejected** — use HTTPS unless the endpoint is explicitly local or
+  private and the operator accepts `--allow-http`.
+- **Auth errors** — verify the token and that the API endpoint path resolves.
+- **Too much data** — narrow by host group, severity, time window, or monitored
+  hosts only.
+
+---
+
+## shelly
+
+Inspect and control Shelly relays, plugs, lights, covers, shutters, sensors,
+and energy devices through local Gen1/Gen2 HTTP/RPC APIs or Shelly Cloud.
+
+**Prerequisites** — local device URLs for LAN mode. Optional Shelly Cloud
+credentials enable cloud state and event workflows:
+
+```bash
+hybridclaw secret set SHELLY_CLOUD_AUTH_KEY "<cloud-auth-key>"
+hybridclaw secret set SHELLY_CLOUD_ACCESS_TOKEN "<cloud-access-token>"
+```
+
+Generate the cloud auth key in Shelly Smart Control user settings. Use the
+documented Shelly OAuth flow for the Real Time Events API access token.
+
+> 💡 **Tips & Tricks**
+>
+> Read `device info`, `device status`, or `cover status` before any control
+> command.
+>
+> Relay, switch, light, and cover operations are amber-tier. Build an
+> approval plan first and run the exact approved helper command only after the
+> operator confirms.
+>
+> Factory reset, reboot, firmware update, Wi-Fi reset, auth changes, and
+> certificate upload are not supported through this skill.
+
+> 🎯 **Try it yourself**
+>
+> `Read status from the Shelly device at http://192.0.2.10`
+>
+> `Show cover position and config for this Shelly shutter`
+>
+> `Prepare an approval plan to move the office shutter to 50 percent`
+
+**Troubleshooting**
+
+- **LAN device unreachable** — verify the gateway process can reach the local
+  IP and that workspace policy allows the host.
+- **Cloud auth fails** — refresh `SHELLY_CLOUD_AUTH_KEY` or
+  `SHELLY_CLOUD_ACCESS_TOKEN`.
+- **Control refused** — rerun the generated approval plan and include the
+  exact operator grant from a later confirmation.
+
+---
+
 ## warehouse-sql
 
 Review and run read-only natural-language SQL against a customer data

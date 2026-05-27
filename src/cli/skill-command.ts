@@ -23,6 +23,17 @@ function printFormattedBlock(block: string): void {
   }
 }
 
+async function ensureSkillCommandRuntime(): Promise<void> {
+  const { initDatabase, isDatabaseInitialized } = await import(
+    '../memory/db.js'
+  );
+  if (!isDatabaseInitialized()) {
+    initDatabase({ quiet: true });
+  }
+  const { initAgentRegistry } = await import('../agents/agent-registry.js');
+  initAgentRegistry(getRuntimeConfig().agents);
+}
+
 export async function handleSkillCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
@@ -192,6 +203,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'inspect') {
+    await ensureSkillCommandRuntime();
     const { inspectObservedSkill, inspectObservedSkills } = await import(
       '../skills/skills-management.js'
     );
@@ -225,6 +237,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'learn') {
+    await ensureSkillCommandRuntime();
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();
@@ -283,6 +296,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'runs') {
+    await ensureSkillCommandRuntime();
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();
@@ -304,6 +318,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'history') {
+    await ensureSkillCommandRuntime();
     const skillName = normalized[1];
     if (!skillName) {
       printSkillUsage();

@@ -789,7 +789,12 @@ describe('ChatPage', () => {
       ),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    // Use getByText rather than getByRole — at default jsdom viewport (1024) the
+    // chat sidebar renders inside a closed mobile drawer, which is now inert
+    // (excluded from the accessibility tree). The button is still clickable.
+    fireEvent.click(
+      screen.getByText('All').closest('button') as HTMLButtonElement,
+    );
 
     await waitFor(() =>
       expect(fetchChatRecentMock).toHaveBeenLastCalledWith(
@@ -838,7 +843,10 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session B session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session B session',
+        hidden: true,
+      }),
     );
     expect(await screen.findByText('Delete session?')).not.toBeNull();
 
@@ -876,7 +884,10 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session B session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session B session',
+        hidden: true,
+      }),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
 
@@ -910,7 +921,10 @@ describe('ChatPage', () => {
 
     vi.useFakeTimers();
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session B session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session B session',
+        hidden: true,
+      }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await act(async () => {
@@ -962,7 +976,10 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session B session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session B session',
+        hidden: true,
+      }),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
 
@@ -971,6 +988,7 @@ describe('ChatPage', () => {
         (
           screen.getByRole('button', {
             name: 'Delete Session A session',
+            hidden: true,
           }) as HTMLButtonElement
         ).disabled,
       ).toBe(true),
@@ -979,6 +997,7 @@ describe('ChatPage', () => {
       (
         screen.getByRole('button', {
           name: 'Delete Session B session',
+          hidden: true,
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
@@ -1011,7 +1030,10 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session A session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session A session',
+        hidden: true,
+      }),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
 

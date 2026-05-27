@@ -39,6 +39,8 @@ doc at once, start from [For Agents](./agents.md).
   Browser Use Cloud sessions with SecretRef-gated credential fills.
 - Trace-judge eval gates and behavioral anomaly reranking give tool-call and
   skill-trace review a deterministic test path.
+- Harness evolution runs eval-driven coworker workspace improvement loops with
+  F12 manifests, seed-delta reporting, and admin inspection.
 - `npm run desktop` launches a native macOS wrapper around the local chat UI,
   with gateway reuse/startup and admin access from the app menu.
 - Canonical user and agent identity helpers now include DNS-style discovery for
@@ -78,7 +80,7 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Browse By Section
 
-- [HybridClaw: The AI Coworker Who's Already On It](./manifesto.md) — the product principles HybridClaw is built around: what we will and will not ship
+- [Manifesto](./manifesto.md) — the product principles HybridClaw is built around: what we will and will not ship
 - [Getting Started](./getting-started/README.md) for installation,
   onboarding, provider authentication, and connecting the first transport
 - [Channels](./channels/README.md) for the full supported channel catalog and
