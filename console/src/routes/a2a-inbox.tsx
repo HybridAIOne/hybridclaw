@@ -162,7 +162,10 @@ export function A2AInboxPage() {
                   </div>
                   <p className="supporting-text">
                     {participantLabel(selectedThread)} ·{' '}
-                    {messageCountLabel(selectedThread.messageCount)}
+                    {messageCountLabel(selectedThread.messageCount)} ·{' '}
+                    {selectedThread.ownerCoworkerId
+                      ? `Owned by ${selectedThread.ownerCoworkerId}`
+                      : 'No owner'}
                   </p>
                   {selectedThread.latestMessage ? (
                     <p className="supporting-text">
