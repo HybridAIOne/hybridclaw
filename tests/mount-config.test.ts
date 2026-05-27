@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   parseBindSpecs,
-  resolveConfiguredAdditionalMounts,
+  parseLegacyAdditionalMountBinds,
 } from '../src/security/mount-config.ts';
 
 describe('mount config parsing', () => {
@@ -65,25 +65,32 @@ describe('mount config parsing', () => {
     });
   });
 
-  test('merges binds with legacy additionalMounts JSON', () => {
-    const resolved = resolveConfiguredAdditionalMounts({
-      binds: ['/host/data:/docs:ro'],
-      additionalMounts:
-        '[{"hostPath":"/legacy/path","containerPath":"legacy","readonly":false}]',
+  test('converts legacy additionalMounts JSON into bind specs', () => {
+    expect(
+      parseLegacyAdditionalMountBinds(
+        JSON.stringify([
+          {
+            hostPath: '/host/legacy',
+            containerPath: 'legacy',
+            readonly: false,
+          },
+          {
+            hostPath: '/host/readonly',
+          },
+        ]),
+      ),
+    ).toEqual({
+      binds: ['/host/legacy:legacy:rw', '/host/readonly:readonly:ro'],
+      warnings: [],
     });
+  });
 
-    expect(resolved.warnings).toEqual([]);
-    expect(resolved.mounts).toEqual([
+  test('surfaces warnings for invalid legacy additionalMounts JSON', () => {
+    expect(parseLegacyAdditionalMountBinds('{"hostPath":"/host/data"}')).toEqual(
       {
-        hostPath: '/host/data',
-        containerPath: 'docs',
-        readonly: true,
+        binds: [],
+        warnings: ['container.additionalMounts must be a JSON array'],
       },
-      {
-        hostPath: '/legacy/path',
-        containerPath: 'legacy',
-        readonly: false,
-      },
-    ]);
+    );
   });
 });

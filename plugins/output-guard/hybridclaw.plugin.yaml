@@ -21,6 +21,57 @@ configSchema:
       type: string
       default: ''
       description: One-paragraph description of the output guard (formal, playful, …).
+    profiles:
+      type: object
+      default: {}
+      additionalProperties:
+        type: object
+        additionalProperties: false
+        properties:
+          policy:
+            type: string
+            default: ''
+            description: One-paragraph description of this profile's voice.
+          doList:
+            type: array
+            items:
+              type: string
+            default: []
+            description: Positive policy guidelines this profile should follow.
+          dontList:
+            type: array
+            items:
+              type: string
+            default: []
+            description: Policy guidelines this profile should avoid.
+          policyFile:
+            type: string
+            description: Path to a markdown file with this profile's guidelines.
+          bannedPhrases:
+            type: array
+            items:
+              type: string
+            default: []
+            description: Case-insensitive substrings this profile must never use.
+          bannedPatterns:
+            type: array
+            items:
+              type: string
+            default: []
+            description: Regular-expression patterns this profile must never use.
+          requirePhrases:
+            type: array
+            items:
+              type: string
+            default: []
+            description: Phrases that must appear for this profile.
+      description: Named brand-voice profiles available for channel-specific routing.
+    channelProfiles:
+      type: object
+      default: {}
+      additionalProperties:
+        type: string
+      description: Map channel ids to entries in `profiles`. Unknown or missing profile ids fall back to the default top-level profile.
     doList:
       type: array
       items:
@@ -96,6 +147,12 @@ configUiHints:
   policy:
     label: Output guard description
     placeholder: Friendly, plainspoken, no jargon. Confident but never cocky.
+  profiles:
+    label: Named profiles
+    help: Map profile ids to profile-specific voice rules.
+  channelProfiles:
+    label: Channel profiles
+    help: Map channel ids to named profile ids.
   doList:
     label: Do
     help: Positive policy rules, one per array entry.

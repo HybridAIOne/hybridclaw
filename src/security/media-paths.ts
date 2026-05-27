@@ -143,12 +143,10 @@ function resolveDisplayPathToHost(params: {
 
 export function buildValidatedMountAliases(params: {
   binds: string[];
-  additionalMounts: string;
 }): ValidatedMountAlias[] {
   try {
     const configured = resolveConfiguredAdditionalMounts({
       binds: params.binds,
-      additionalMounts: params.additionalMounts,
     });
     if (configured.mounts.length === 0) return [];
 

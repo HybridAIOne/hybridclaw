@@ -79,21 +79,102 @@ test('output-guard rules detect banned phrases, banned patterns, and missing req
 
   const nonCompliant = detectRuleViolations(
     'We deliver synergy. We guarantee zero downtime.',
-    config,
+    config.defaultProfile,
   );
   expect(nonCompliant.map((entry) => entry.kind).sort()).toEqual([
     'banned_pattern',
     'banned_phrase',
     'missing_required',
   ]);
-  expect(buildPolicyBrief(config)).toContain('Do:\n- Use concrete examples');
-  expect(buildPolicyBrief(config)).toContain("Don't:\n- Use hype");
+  expect(buildPolicyBrief(config.defaultProfile)).toContain(
+    'Do:\n- Use concrete examples',
+  );
+  expect(buildPolicyBrief(config.defaultProfile)).toContain(
+    "Don't:\n- Use hype",
+  );
 
   const compliant = detectRuleViolations(
     'Thanks for reaching out — we will follow up Tuesday.\n\nBest regards',
-    config,
+    config.defaultProfile,
   );
   expect(compliant).toEqual([]);
+});
+
+test('output-guard profile config ignores malformed arrays and labels warnings', async () => {
+  const { resolveOutputGuardConfig } = await import(
+    '../plugins/output-guard/src/config.js'
+  );
+  const logger = {
+    warn: vi.fn(),
+    info: () => {},
+    debug: () => {},
+    error: () => {},
+  };
+
+  const config = resolveOutputGuardConfig(
+    {
+      bannedPatterns: ['/['],
+      profiles: {
+        support: {
+          policyFile: 'missing-policy.md',
+          bannedPatterns: ['/[also-bad'],
+        },
+      },
+      channelProfiles: {
+        ' ': 'support',
+        'email:support@example.com': 'support',
+        'slack:C123': null,
+        'slack:C404': 'missing-profile',
+      },
+    },
+    { cwd: process.cwd(), homeDir: process.cwd() },
+    logger as never,
+  );
+
+  expect(config.channelProfiles).toEqual({
+    'email:support@example.com': 'support',
+    'slack:C404': 'missing-profile',
+  });
+  expect(config.profiles.support.policyBrief).toBe('');
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ profileId: 'support' }),
+    'output-guard: policyFile not readable; ignoring',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ profileId: 'default' }),
+    'output-guard config issue',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ profileId: 'support' }),
+    'output-guard config issue',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ channelId: ' ' }),
+    'output-guard: channelProfiles entry is invalid; ignoring',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({ channelId: 'slack:C123', profileId: null }),
+    'output-guard: channelProfiles entry is invalid; ignoring',
+  );
+  expect(logger.warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      channelId: 'slack:C404',
+      profileId: 'missing-profile',
+    }),
+    'output-guard: channelProfiles references unknown profile; will fall back to default',
+  );
+
+  const arrayConfig = resolveOutputGuardConfig(
+    {
+      profiles: [{ bannedPhrases: ['array-profile'] }],
+      channelProfiles: ['array-channel'],
+    },
+    { cwd: process.cwd(), homeDir: process.cwd() },
+    logger as never,
+  );
+
+  expect(arrayConfig.profiles).toEqual({});
+  expect(arrayConfig.channelProfiles).toEqual({});
 });
 
 test('output-guard plugin registers post-receive middleware via PluginManager', async () => {
@@ -268,6 +349,132 @@ test('output guard allows clean output unchanged', async () => {
   expect(outcome.events).toEqual([
     expect.objectContaining({ action: 'allow', guardId: 'output-guard' }),
   ]);
+});
+
+test('output guard applies a named profile selected by channel id', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
+  installBundledPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'output-guard',
+      enabled: true,
+      config: {
+        mode: 'block',
+        bannedPhrases: ['default-only'],
+        profiles: {
+          support: {
+            policy: 'Use the support voice.',
+            bannedPhrases: ['dear customer'],
+          },
+        },
+        channelProfiles: {
+          'email:support@example.com': 'support',
+        },
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const channelSpecificOutcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    channelId: 'email:support@example.com',
+    resultText: 'Dear customer, the launch remains on track.',
+  });
+
+  expect(channelSpecificOutcome.blocked).toBe(true);
+  expect(channelSpecificOutcome.resultText).toBe(
+    'Output guard violations: banned phrases: "dear customer"',
+  );
+
+  const defaultOutcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    channelId: 'web',
+    resultText: 'Dear customer, the launch remains on track.',
+  });
+
+  expect(defaultOutcome.blocked).toBe(false);
+  expect(defaultOutcome.resultText).toBe(
+    'Dear customer, the launch remains on track.',
+  );
+});
+
+test('output guard falls back to the default profile without a channel match', async () => {
+  const homeDir = makeTempDir('hybridclaw-output-guard-home-');
+  const cwd = makeTempDir('hybridclaw-output-guard-project-');
+  installBundledPlugin(cwd);
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    {
+      id: 'output-guard',
+      enabled: true,
+      config: {
+        mode: 'block',
+        bannedPhrases: ['default-only'],
+        profiles: {
+          sales: {
+            bannedPhrases: ['sales-only'],
+          },
+        },
+        channelProfiles: {
+          'slack:C123': 'sales',
+          'slack:C404': 'missing-profile',
+        },
+      },
+    },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const unmappedOutcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    channelId: 'email:support@example.com',
+    resultText: 'This default-only phrase should be blocked.',
+  });
+
+  expect(unmappedOutcome.blocked).toBe(true);
+  expect(unmappedOutcome.resultText).toBe(
+    'Output guard violations: banned phrases: "default-only"',
+  );
+
+  const missingProfileOutcome = await manager.applyOutputGuards({
+    ...baseGuardContext,
+    channelId: 'slack:C404',
+    resultText: 'This default-only phrase should also be blocked.',
+  });
+
+  expect(missingProfileOutcome.blocked).toBe(true);
+  expect(missingProfileOutcome.resultText).toBe(
+    'Output guard violations: banned phrases: "default-only"',
+  );
+
+  const statusCommand = manager.findCommand('output-guard');
+  const status = await statusCommand?.handler([], {
+    sessionId: 'session-output-guard-status',
+    channelId: 'slack:C404',
+    userId: 'user-1',
+    username: 'alice',
+    guildId: null,
+  });
+  expect(String(status)).toContain(
+    'channel profile: missing-profile (missing -> default)',
+  );
 });
 
 test('output guard rewrites non-compliant text via the configured rewriter', async () => {
