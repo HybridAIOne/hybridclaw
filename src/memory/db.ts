@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -73,6 +73,7 @@ import { resolveSessionRoutingScope } from '../session/session-routing.js';
 import type {
   AgentSkillScore,
   SkillAmendment,
+  SkillAmendmentProposalMetadata,
   SkillAmendmentStatus,
   SkillErrorCategory,
   SkillExecutionOutcome,
@@ -80,6 +81,8 @@ import type {
   SkillHealthMetrics,
   SkillObservation,
   SkillObservationSummary,
+  SkillOptLiteEdit,
+  SkillOptLiteRejectedEditMemory,
 } from '../skills/adaptive-skills-types.js';
 import type { SkillGuardVerdict } from '../skills/skills-guard.js';
 import type {
@@ -148,7 +151,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 37;
+export const DATABASE_SCHEMA_VERSION = 40;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -258,12 +261,18 @@ type SkillObservationErrorClusterRow = {
 
 type SkillAmendmentRow = Omit<
   SkillAmendment,
-  'guard_verdict' | 'metrics_at_proposal' | 'metrics_post_apply'
+  | 'guard_verdict'
+  | 'metrics_at_proposal'
+  | 'metrics_post_apply'
+  | 'proposal_metadata'
 > & {
   guard_verdict: string;
   metrics_at_proposal: string | null;
   metrics_post_apply: string | null;
+  proposal_metadata: string | null;
 };
+
+type SkillOptLiteRejectedEditRow = SkillOptLiteRejectedEditMemory;
 
 function getSchemaVersion(database: Database.Database): number {
   const raw = database.pragma('user_version', { simple: true });
@@ -1466,6 +1475,7 @@ function migrateV9(
       guard_findings_count INTEGER NOT NULL DEFAULT 0,
       metrics_at_proposal TEXT,
       metrics_post_apply TEXT,
+      proposal_metadata TEXT,
       runs_since_apply INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -2662,6 +2672,74 @@ function migrateV37(database: Database.Database): void {
   recordMigration(database, 37, 'Persist typed board card dependency edges');
 }
 
+function migrateV38(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'skill_amendments',
+    column: 'proposal_metadata',
+    ddl: 'proposal_metadata TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(
+    database,
+    38,
+    'Persist adaptive skill amendment proposal metadata',
+  );
+}
+
+function migrateV39(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS skillopt_rejected_edits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill_name TEXT NOT NULL,
+      edit_hash TEXT NOT NULL,
+      op TEXT NOT NULL,
+      target TEXT NOT NULL,
+      content_preview TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      support_count INTEGER NOT NULL DEFAULT 1,
+      reason TEXT NOT NULL,
+      evidence_source TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      UNIQUE(skill_name, edit_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_skillopt_rejected_edits_skill_created
+      ON skillopt_rejected_edits(skill_name, created_at DESC, id DESC);
+  `);
+  recordMigration(database, 39, 'Persist rejected SkillOpt-lite edit memory');
+}
+
+function auditTimestampIndexNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'audit_events') &&
+    !indexExists(database, 'idx_audit_events_timestamp')
+  );
+}
+
+function migrateV40(database: Database.Database): void {
+  // Lets the admin audit list seek by timestamp (range pills) and id
+  // (cursor paging) when there's no event_type/session predicate to lean
+  // on; without it the query table-scans audit_events. Added as its own
+  // migration (not folded into migrateV1) so existing databases — which
+  // never re-run migrateV1 — actually pick the index up.
+  if (tableExists(database, 'audit_events')) {
+    database.exec(
+      'CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events(timestamp)',
+    );
+  }
+  recordMigration(
+    database,
+    40,
+    'Index audit_events(timestamp) for admin audit range + cursor paging',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2748,6 +2826,15 @@ function runMigrations(
   }
   if (currentVersion < 37 || boardCardEdgesNeedMigration(database)) {
     migrateV37(database);
+  }
+  if (currentVersion < 38) {
+    migrateV38(database, opts);
+  }
+  if (currentVersion < 39) {
+    migrateV39(database);
+  }
+  if (currentVersion < 40 || auditTimestampIndexNeedMigration(database)) {
+    migrateV40(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -8430,6 +8517,33 @@ function serializeSkillMetricsJson(
   }
 }
 
+function parseSkillAmendmentProposalMetadataJson(
+  raw: string | null,
+): SkillAmendmentProposalMetadata | null {
+  const normalized = raw?.trim() || '';
+  if (!normalized) return null;
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as SkillAmendmentProposalMetadata;
+  } catch {
+    return null;
+  }
+}
+
+function serializeSkillAmendmentProposalMetadataJson(
+  metadata: SkillAmendmentProposalMetadata | null | undefined,
+): string | null {
+  if (!metadata) return null;
+  try {
+    return JSON.stringify(metadata);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeSkillOutcome(
   value: string | null | undefined,
 ): SkillExecutionOutcome {
@@ -8537,6 +8651,9 @@ function mapSkillAmendmentRow(row: SkillAmendmentRow): SkillAmendment {
     ),
     metrics_at_proposal: parseSkillMetricsJson(row.metrics_at_proposal),
     metrics_post_apply: parseSkillMetricsJson(row.metrics_post_apply),
+    proposal_metadata: parseSkillAmendmentProposalMetadataJson(
+      row.proposal_metadata,
+    ),
     runs_since_apply: Math.max(0, Math.floor(row.runs_since_apply || 0)),
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -9185,6 +9302,7 @@ export function createSkillAmendment(input: {
   guardFindingsCount?: number;
   metricsAtProposal?: SkillHealthMetrics | null;
   metricsPostApply?: SkillHealthMetrics | null;
+  proposalMetadata?: SkillAmendmentProposalMetadata | null;
   runsSinceApply?: number;
 }): SkillAmendment {
   const skillName = input.skillName.trim();
@@ -9218,8 +9336,9 @@ export function createSkillAmendment(input: {
          guard_findings_count,
          metrics_at_proposal,
          metrics_post_apply,
+         proposal_metadata,
          runs_since_apply
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       skillName,
@@ -9241,6 +9360,7 @@ export function createSkillAmendment(input: {
       Math.max(0, Math.floor(input.guardFindingsCount || 0)),
       serializeSkillMetricsJson(input.metricsAtProposal),
       serializeSkillMetricsJson(input.metricsPostApply),
+      serializeSkillAmendmentProposalMetadataJson(input.proposalMetadata),
       Math.max(0, Math.floor(input.runsSinceApply || 0)),
     );
 
@@ -9253,6 +9373,106 @@ export function createSkillAmendment(input: {
     throw new Error('Failed to read persisted skill amendment.');
   }
   return mapSkillAmendmentRow(row);
+}
+
+function skillOptLiteEditHash(edit: SkillOptLiteEdit): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        op: edit.op,
+        target: edit.target.trim(),
+        content: edit.content.trim(),
+      }),
+    )
+    .digest('hex');
+}
+
+function mapSkillOptLiteRejectedEditRow(
+  row: SkillOptLiteRejectedEditRow,
+): SkillOptLiteRejectedEditMemory {
+  return {
+    id: Math.floor(row.id),
+    skill_name: row.skill_name,
+    edit_hash: row.edit_hash,
+    op: row.op,
+    target: row.target,
+    content_preview: row.content_preview,
+    rationale: row.rationale,
+    source_type: row.source_type,
+    support_count: Math.max(1, Math.floor(row.support_count || 1)),
+    reason: row.reason,
+    evidence_source: row.evidence_source,
+    created_at: row.created_at,
+  };
+}
+
+export function recordSkillOptLiteRejectedEdits(input: {
+  skillName: string;
+  edits: SkillOptLiteEdit[];
+  reason: string;
+  evidenceSource?: 'trajectories' | 'observations' | null;
+}): number {
+  const skillName = input.skillName.trim();
+  if (!skillName || input.edits.length === 0) return 0;
+  const reason = input.reason.trim() || 'Rejected by SkillOpt-lite gate.';
+  const insert = db.prepare(
+    `INSERT INTO skillopt_rejected_edits (
+       skill_name,
+       edit_hash,
+       op,
+       target,
+       content_preview,
+       rationale,
+       source_type,
+       support_count,
+       reason,
+       evidence_source
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(skill_name, edit_hash) DO UPDATE SET
+       reason = excluded.reason,
+       evidence_source = excluded.evidence_source,
+       created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+  );
+  const transaction = db.transaction((edits: SkillOptLiteEdit[]) => {
+    let written = 0;
+    for (const edit of edits) {
+      const result = insert.run(
+        skillName,
+        skillOptLiteEditHash(edit),
+        edit.op,
+        edit.target,
+        edit.content.trim().slice(0, 200),
+        edit.rationale.trim(),
+        edit.source_type,
+        Math.max(1, Math.floor(edit.support_count || 1)),
+        reason,
+        input.evidenceSource || null,
+      );
+      written += result.changes > 0 ? 1 : 0;
+    }
+    return written;
+  });
+  return transaction(input.edits);
+}
+
+export function getSkillOptLiteRejectedEdits(input: {
+  skillName: string;
+  limit?: number;
+}): SkillOptLiteRejectedEditMemory[] {
+  const skillName = input.skillName.trim();
+  if (!skillName) return [];
+  const limit = Math.max(0, Math.min(input.limit ?? 20, 100));
+  if (limit === 0) return [];
+  return queryAll<SkillOptLiteRejectedEditRow, [string, number]>(
+    db,
+    `SELECT *
+     FROM skillopt_rejected_edits
+     WHERE skill_name = ?
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`,
+    skillName,
+    limit,
+  ).map(mapSkillOptLiteRejectedEditRow);
 }
 
 export function getSkillAmendmentById(
@@ -9571,32 +9791,31 @@ function escapeSqlLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
 
-function queryStructuredAuditEntries(params?: {
+// Shared WHERE-clause builder for the structured-audit filters (session,
+// event type, free-text query, time range). Deliberately excludes the
+// pagination cursor (`beforeId`) so the same predicates drive both the page
+// query and the total-count query.
+function buildStructuredAuditFilterClauses(params: {
   sessionId?: string;
   eventType?: string;
   eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
-  limit?: number;
-  maxLimit?: number;
-  orderBy?: 'id' | 'seq';
-  sortDirection?: 'ASC' | 'DESC';
-}): StructuredAuditEntry[] {
-  const sessionId = String(params?.sessionId || '').trim();
-  const eventType = String(params?.eventType || '').trim();
-  const query = String(params?.query || '').trim();
-  const orderBy = params?.orderBy === 'seq' ? 'seq' : 'id';
-  const sortDirection = params?.sortDirection === 'ASC' ? 'ASC' : 'DESC';
-  ensureDatabaseReady();
-
+  since?: string;
+  until?: string;
+}): { clauses: string[]; values: Array<string | number> } {
+  const sessionId = String(params.sessionId || '').trim();
+  const eventType = String(params.eventType || '').trim();
+  const query = String(params.query || '').trim();
+  const since = String(params.since || '').trim();
+  const until = String(params.until || '').trim();
   const clauses: string[] = [];
   const values: Array<string | number> = [];
-
   if (sessionId) {
     clauses.push('session_id = ?');
     values.push(sessionId);
   }
   if (eventType) {
-    if (params?.eventTypeMatch === 'prefix') {
+    if (params.eventTypeMatch === 'prefix') {
       clauses.push("event_type LIKE ? ESCAPE '\\'");
       values.push(`${escapeSqlLikePattern(eventType)}%`);
     } else {
@@ -9610,6 +9829,79 @@ function queryStructuredAuditEntries(params?: {
       '(event_type LIKE ? OR payload LIKE ? OR session_id LIKE ? OR run_id LIKE ?)',
     );
     values.push(like, like, like, like);
+  }
+  if (since) {
+    clauses.push('timestamp >= ?');
+    values.push(since);
+  }
+  if (until) {
+    clauses.push('timestamp <= ?');
+    values.push(until);
+  }
+  return { clauses, values };
+}
+
+/**
+ * Count audit events matching the given filters, ignoring pagination. Lets the
+ * admin audit list report the true number of matching rows in the database
+ * rather than how many the client has paged in so far.
+ */
+export function countStructuredAuditEntries(params?: {
+  sessionId?: string;
+  eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
+  query?: string;
+  since?: string;
+  until?: string;
+}): number {
+  ensureDatabaseReady();
+  const { clauses, values } = buildStructuredAuditFilterClauses(params ?? {});
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const row = queryOne<{ count: number }, Array<string | number>>(
+    db,
+    `SELECT COUNT(*) AS count FROM audit_events ${where}`,
+    ...values,
+  );
+  return row?.count ?? 0;
+}
+
+function queryStructuredAuditEntries(params?: {
+  sessionId?: string;
+  eventType?: string;
+  eventTypeMatch?: 'exact' | 'prefix';
+  query?: string;
+  since?: string;
+  until?: string;
+  beforeId?: number;
+  limit?: number;
+  maxLimit?: number;
+  orderBy?: 'id' | 'seq';
+  sortDirection?: 'ASC' | 'DESC';
+}): StructuredAuditEntry[] {
+  const sessionId = String(params?.sessionId || '').trim();
+  const eventType = String(params?.eventType || '').trim();
+  const query = String(params?.query || '').trim();
+  const since = String(params?.since || '').trim();
+  const until = String(params?.until || '').trim();
+  const beforeId =
+    typeof params?.beforeId === 'number' && Number.isFinite(params.beforeId)
+      ? Math.max(0, Math.floor(params.beforeId))
+      : 0;
+  const orderBy = params?.orderBy === 'seq' ? 'seq' : 'id';
+  const sortDirection = params?.sortDirection === 'ASC' ? 'ASC' : 'DESC';
+  ensureDatabaseReady();
+
+  const { clauses, values } = buildStructuredAuditFilterClauses({
+    sessionId,
+    eventType,
+    eventTypeMatch: params?.eventTypeMatch,
+    query,
+    since,
+    until,
+  });
+  if (beforeId > 0) {
+    clauses.push('id < ?');
+    values.push(beforeId);
   }
 
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -9737,14 +10029,22 @@ export function listStructuredAuditEntries(params?: {
   eventType?: string;
   eventTypeMatch?: 'exact' | 'prefix';
   query?: string;
+  since?: string;
+  until?: string;
+  beforeId?: number;
   limit?: number;
+  maxLimit?: number;
 }): StructuredAuditEntry[] {
   return queryStructuredAuditEntries({
     sessionId: params?.sessionId,
     eventType: params?.eventType,
     eventTypeMatch: params?.eventTypeMatch,
     query: params?.query,
+    since: params?.since,
+    until: params?.until,
+    beforeId: params?.beforeId,
     limit: params?.limit ?? 50,
+    maxLimit: params?.maxLimit,
     orderBy: 'id',
     sortDirection: 'DESC',
   });

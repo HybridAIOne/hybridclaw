@@ -103,3 +103,20 @@ test('Google Workspace runtime env exposes minted OAuth tokens for gog and gws',
   });
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
+
+test('Google Workspace runtime env recovery hint explains invalid_grant reauthorization', async () => {
+  const homeDir = makeTempHome();
+  const { getGoogleWorkspaceRuntimeEnvRecoveryHint } =
+    await importFreshGoogleAuth(homeDir);
+
+  const hint = getGoogleWorkspaceRuntimeEnvRecoveryHint(
+    new Error(
+      'Google OAuth token request failed: invalid_grant: Token has been expired or revoked.',
+    ),
+  );
+
+  expect(hint).toContain('refresh token is expired or revoked');
+  expect(hint).toContain('hybridclaw auth login google --account <email>');
+  expect(hint).toContain('complete the browser consent flow');
+  expect(hint).toContain('unset `GOOGLE_OAUTH_REFRESH_TOKEN`');
+});

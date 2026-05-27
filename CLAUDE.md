@@ -6,6 +6,10 @@ repository.
 Claude-specific notes:
 
 - There are currently no Claude-only workflow deltas.
+- For gateway/runtime diagnostics, follow `AGENTS.md`: inspect
+  `hybridclaw gateway status`, logs, runtime state, and the actual running
+  process before diagnosing stale state; do not restart the gateway without
+  explicit user approval.
 - If this file grows beyond a short shim, move the shared guidance back into
   `AGENTS.md`.
 - `templates/*.md` are runtime workspace bootstrap files for HybridClaw itself,

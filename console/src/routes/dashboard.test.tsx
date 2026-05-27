@@ -1,8 +1,7 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminOverview, AdminTunnelStatus } from '../api/types';
-import { ToastProvider } from '../components/toast';
+import { renderWithProviders } from '../test-utils';
 import { DashboardPage } from './dashboard';
 
 const fetchOverviewMock = vi.fn();
@@ -97,20 +96,7 @@ function makeOverview(
 }
 
 function renderDashboardPage(): void {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <DashboardPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<DashboardPage />);
 }
 
 describe('DashboardPage', () => {
@@ -207,7 +193,7 @@ describe('DashboardPage', () => {
 
   it('does not repeat the same tunnel and reconnect error', async () => {
     const message =
-      'ngrok auth token is not configured in encrypted runtime secrets. Store it with `hybridclaw secret set NGROK_AUTHTOKEN <token>`.';
+      'ngrok auth token is not configured in encrypted runtime secrets. Store it with `hybridclaw secret set NGROK_AUTHTOKEN <token>` or in TUI with `/secret set NGROK_AUTHTOKEN <token>`.';
     fetchOverviewMock.mockResolvedValue(
       makeOverview(
         makeTunnelStatus({

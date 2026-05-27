@@ -1023,6 +1023,9 @@ code {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   padding: 12px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
@@ -1046,6 +1049,7 @@ code {
 .list-row small {
   display: block;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .list-row > span:last-child {
@@ -1449,10 +1453,6 @@ th {
   align-items: center;
 }
 
-.boolean-field {
-  align-items: start;
-}
-
 .boolean-pill {
   display: inline-flex;
   align-items: center;
@@ -1528,12 +1528,6 @@ th {
 
 .binary-toggle-button.active {
   font-weight: 600;
-}
-
-.binary-toggle.boolean-toggle:has(.binary-toggle-button.active.is-on) {
-  border-color: var(--status-success-border);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--success) 18%, transparent);
 }
 
 .binary-toggle-button.active.is-on {
@@ -1666,13 +1660,14 @@ th {
 }
 
 .output-guard-model-source-control {
-  display: grid;
+  display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .output-guard-model-source-control.has-model-readout {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
+  grid-template-columns: none;
 }
 
 .output-guard-model-readout {
@@ -1680,11 +1675,9 @@ th {
   display: inline-flex;
   align-items: center;
   min-width: 0;
-  padding: 0 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
+  max-width: 100%;
+  padding: 0 2px;
   color: var(--muted-foreground);
-  background: var(--panel-muted);
   font-size: 0.9rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1763,7 +1756,15 @@ th {
 }
 
 .policy-rules-table td {
+  font-size: 0.875rem;
+  line-height: 1.35;
   vertical-align: middle;
+}
+
+.table-shell .policy-rules-table td strong {
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .policy-action-row {

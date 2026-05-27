@@ -102,10 +102,7 @@ export function AgentsPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Agents"
-        description="Review agent skill track records, top strengths, and generated CV paths."
-      />
+      <PageHeader description="Review agent skill track records, top strengths, and generated CV paths." />
 
       <div className="metric-grid">
         <MetricCard

@@ -26,6 +26,7 @@ export interface WorkerSignatureInput {
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
   browserProvider?: string;
+  browserAllowPrivateNetwork?: boolean;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
   providerCredentials?: ProviderCredentials;
   workspacePathOverride?: string;
@@ -128,6 +129,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     apiKey: String(input.apiKey || ''),
     requestHeaders: normalizedHeaders,
     browserProvider: String(input.browserProvider || '').trim(),
+    browserAllowPrivateNetwork: input.browserAllowPrivateNetwork === true,
     taskModels,
     providerCredentials: normalizeProviderCredentials(
       input.providerCredentials,

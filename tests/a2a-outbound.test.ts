@@ -701,6 +701,83 @@ describe('A2A outbound adapter', () => {
     });
   });
 
+  test('fails unresolved recipients without retrying missing identity records', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const { IdentityNotFoundError } = await import(
+      '../src/identity/resolver.ts'
+    );
+
+    initDatabase({ quiet: true });
+    a2a.enqueueUnresolvedA2AEnvelope(
+      sampleA2AEnvelope('msg-missing-identity'),
+      'remote@team@peer-instance',
+    );
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      identityResolution: {
+        status: 'unresolved',
+        canonicalId: 'remote@team@peer-instance',
+      },
+    });
+
+    await expect(
+      a2a.processA2AOutbox({
+        identityResolver: {
+          async resolve(canonicalId: string) {
+            throw new IdentityNotFoundError(canonicalId);
+          },
+        },
+        now: () => new Date('2030-01-01T00:00:00.000Z'),
+        jitterRatio: 0,
+      }),
+    ).resolves.toMatchObject({ processed: 1, failed: 1 });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+      lastError:
+        'No identity discovery record found for remote@team@peer-instance.',
+    });
+  });
+
+  test('fails closed when identity discovery returns an unsupported public key', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    a2a.enqueueUnresolvedA2AEnvelope(
+      sampleA2AEnvelope('msg-invalid-discovery-key'),
+      'remote@team@peer-instance',
+    );
+
+    await expect(
+      a2a.processA2AOutbox({
+        identityResolver: {
+          async resolve() {
+            return {
+              url: 'http://127.0.0.1:8787',
+              publicKey: 'not-a-valid-key',
+            };
+          },
+        },
+        fetchImpl: vi.fn().mockResolvedValue(
+          Response.json({
+            url: 'http://127.0.0.1:8787/a2a',
+            capabilities: [],
+          }),
+        ),
+      }),
+    ).resolves.toMatchObject({ processed: 1, failed: 1 });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      identityResolution: {
+        status: 'resolved',
+        canonicalId: 'remote@team@peer-instance',
+        publicKey: 'not-a-valid-key',
+      },
+      lastError: expect.stringContaining('unsupported public key format'),
+    });
+  });
+
   test('keys Agent Card cache by auth context', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');

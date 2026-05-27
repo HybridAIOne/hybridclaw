@@ -309,9 +309,37 @@ jobs:
       - name: Build and verify pack contents
         run: npm run prepack
 
-      - name: Publish to npm
+      - name: Check npm package version
+        id: npm-version
+        shell: bash
         run: |
+          set -euo pipefail
+
           VERSION="$(node -p "require('./package.json').version")"
+          set +e
+          VIEW_OUTPUT="$(npm view "@hybridaione/hybridclaw@${VERSION}" version --json 2>&1)"
+          VIEW_STATUS=$?
+          set -e
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          if [[ "${VIEW_STATUS}" -eq 0 ]]; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "@hybridaione/hybridclaw@${VERSION} is already published; skipping npm publish."
+            exit 0
+          fi
+
+          if [[ "${VIEW_OUTPUT}" == *"E404"* ]]; then
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          echo "${VIEW_OUTPUT}" >&2
+          exit "${VIEW_STATUS}"
+
+      - name: Publish to npm
+        if: steps.npm-version.outputs.exists != 'true'
+        run: |
+          VERSION="${{ steps.npm-version.outputs.version }}"
           if [[ "$VERSION" == *-* ]]; then
             NPM_TAG="next"
           else

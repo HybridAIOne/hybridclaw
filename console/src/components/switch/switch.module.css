@@ -1,0 +1,78 @@
+.root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  outline: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.root[data-state="unchecked"] {
+  background: var(--line-strong);
+}
+
+.root[data-state="checked"] {
+  background: var(--primary);
+}
+
+.root:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 35%, transparent);
+}
+
+.root:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.root[aria-invalid="true"] {
+  outline: 1px solid var(--destructive);
+  outline-offset: 1px;
+}
+
+.thumb {
+  display: block;
+  background: var(--background);
+  border-radius: 999px;
+  transition: transform 0.15s ease;
+  will-change: transform;
+}
+
+/* ---- Sizes ---- */
+
+.sizeDefault {
+  width: 36px;
+  height: 22px;
+}
+
+.sizeDefault .thumb {
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+}
+
+.sizeDefault[data-state="checked"] .thumb {
+  transform: translateX(14px);
+}
+
+.sizeSm {
+  width: 28px;
+  height: 16px;
+}
+
+.sizeSm .thumb {
+  width: 12px;
+  height: 12px;
+  margin-left: 1px;
+}
+
+.sizeSm[data-state="checked"] .thumb {
+  transform: translateX(11px);
+}

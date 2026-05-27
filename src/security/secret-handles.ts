@@ -78,6 +78,14 @@ export function createSecretHandle(
   return new RuntimeSecretHandle(ref, value, sinkKind);
 }
 
+export function isSecretHandle(value: unknown): value is SecretHandle {
+  return (
+    Boolean(value) &&
+    typeof value === 'object' &&
+    (value as SecretHandle)[SECRET_HANDLE_BRAND] === true
+  );
+}
+
 export function unsafeEscapeSecretHandle(
   handle: SecretHandle,
   opts: {

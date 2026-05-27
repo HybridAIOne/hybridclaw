@@ -356,6 +356,21 @@ export function getGoogleAuthStatus(): {
   };
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error || '');
+}
+
+export function getGoogleWorkspaceRuntimeEnvRecoveryHint(
+  error: unknown,
+): string {
+  const message = getErrorMessage(error);
+  if (message.includes('invalid_grant')) {
+    return 'Stored Google OAuth refresh token is expired or revoked. Run `hybridclaw auth login google --account <email>` to re-authorize Google, include `--client-id` and `--client-secret` if they are not already stored, complete the browser consent flow, then retry the request. Do not pass `--refresh-token`; unset `GOOGLE_OAUTH_REFRESH_TOKEN` first if it is exported.';
+  }
+  return 'Run `hybridclaw auth status google` to inspect stored Google OAuth credentials. If credentials are missing or stale, run `hybridclaw auth login google --account <email>` and complete the browser consent flow.';
+}
+
 export async function mintGoogleAccessToken(): Promise<{
   accessToken: string;
   expiresIn: number | null;

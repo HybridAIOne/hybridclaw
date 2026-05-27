@@ -11,6 +11,7 @@ import {
   readPolicyState,
   resetPolicyNetwork,
   resolveWorkspacePolicyPath,
+  setLanHttpAccessMode,
   setPolicyDefault,
   setPolicyPresets,
   updatePolicyRule,
@@ -151,6 +152,72 @@ test('network writes stay confined to the network section', () => {
   expect(document.network).toMatchObject({
     default: 'deny',
     presets: [],
+  });
+});
+
+test('managed LAN HTTP access writes RFC1918-only policy rules', () => {
+  const workspacePath = makeWorkspace();
+
+  let state = setLanHttpAccessMode(workspacePath, 'read-only');
+  expect(state.lanHttpAccess).toEqual({
+    mode: 'read-only',
+    managedRuleIndexes: [2, 3, 4],
+  });
+  expect(state.rules.slice(1)).toEqual([
+    expect.objectContaining({
+      host: '10.0.0.0/8',
+      methods: ['GET'],
+      paths: ['/**'],
+      managedByPreset: 'lan-http-access',
+    }),
+    expect.objectContaining({
+      host: '172.16.0.0/12',
+      methods: ['GET'],
+      managedByPreset: 'lan-http-access',
+    }),
+    expect.objectContaining({
+      host: '192.168.0.0/16',
+      methods: ['GET'],
+      managedByPreset: 'lan-http-access',
+    }),
+  ]);
+
+  state = setLanHttpAccessMode(workspacePath, 'read-write');
+  expect(state.lanHttpAccess.mode).toBe('read-write');
+  expect(state.rules.slice(1).map((rule) => rule.methods)).toEqual([
+    ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  ]);
+
+  const network = readPolicyDocument(workspacePath).network as {
+    rules?: Array<Record<string, unknown>>;
+  };
+  expect(network.rules?.slice(1).map((rule) => rule.host)).toEqual([
+    '10.0.0.0/8',
+    '172.16.0.0/12',
+    '192.168.0.0/16',
+  ]);
+  expect(network.rules?.slice(1).map((rule) => rule.managed_by_preset)).toEqual(
+    ['lan-http-access', 'lan-http-access', 'lan-http-access'],
+  );
+});
+
+test('LAN HTTP access reports custom when manual private host rules exist', () => {
+  const workspacePath = makeWorkspace();
+
+  addPolicyRule(workspacePath, {
+    action: 'allow',
+    host: '192.168.178.198',
+    port: 80,
+    methods: ['POST'],
+    paths: ['/rpc/**'],
+    agent: '*',
+  });
+
+  expect(readPolicyState(workspacePath).lanHttpAccess).toEqual({
+    mode: 'custom',
+    managedRuleIndexes: [],
   });
 });
 

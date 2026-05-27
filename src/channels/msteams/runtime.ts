@@ -513,11 +513,13 @@ function ensureTeamsRuntimeReady(): CloudAdapter {
     throw new Error('Microsoft Teams integration is disabled in config.');
   }
   if (!normalizeValue(MSTEAMS_APP_ID)) {
-    throw new Error('MSTEAMS_APP_ID is required to start Teams integration.');
+    throw new Error(
+      'Microsoft Teams app ID is required. Set msteams.appId in /admin/config or run /config set msteams.appId <app-id>.',
+    );
   }
   if (!normalizeValue(MSTEAMS_APP_PASSWORD)) {
     throw new Error(
-      'MSTEAMS_APP_PASSWORD is required to start Teams integration.',
+      'Microsoft Teams app password is required. Store MSTEAMS_APP_PASSWORD with `hybridclaw secret set MSTEAMS_APP_PASSWORD <password>` or in TUI with `/secret set MSTEAMS_APP_PASSWORD <password>`.',
     );
   }
   return buildAdapter();

@@ -39,6 +39,7 @@ export interface LocalBrowserProviderOptions {
   dataDir?: string;
   profileRoot?: string;
   headed?: boolean;
+  allowPrivateNetwork?: boolean;
   playwright?: LocalBrowserPlaywrightModule;
   secretAudit?: (handle: SecretHandle, reason: string) => void;
 }
@@ -85,6 +86,7 @@ export class LocalBrowserProvider implements BrowserProvider {
       page,
       this.options.secretAudit,
       opts.metering,
+      this.options.allowPrivateNetwork,
     );
     this.contexts.set(session, context);
     return session;

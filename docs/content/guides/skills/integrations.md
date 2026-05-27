@@ -135,6 +135,68 @@ providers need a reusable billing-portal login profile.
 
 ---
 
+## hubspot
+
+Read HubSpot CRM contacts, companies, deals, and properties; plan guarded deal
+stage, lifecycle stage, note, and task writes through gateway-managed bearer
+tokens.
+
+**Prerequisites** — a HubSpot Service Key, legacy private app token, or OAuth
+credential stored in HybridClaw runtime secrets. For normal single-account
+REST API use, prefer a Service Key from HubSpot **Development > Keys > Service
+keys**.
+
+```bash
+hybridclaw secret set HUBSPOT_ACCESS_TOKEN
+```
+
+or store it explicitly:
+
+```bash
+hybridclaw auth login hubspot \
+  --access-token "<hubspot-service-key>" \
+  --account sales@example.com
+```
+
+OAuth client credentials are also supported when the HubSpot account is
+installed through a public app:
+
+```bash
+hybridclaw auth login hubspot \
+  --client-id "<hubspot-oauth-client-id>" \
+  --client-secret "<hubspot-oauth-client-secret>" \
+  --refresh-token "<refresh-token>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with read-only object searches and property inspection before planning
+> writes.
+>
+> The helper uses `bearerSecretName: "HUBSPOT_ACCESS_TOKEN"` so the gateway
+> injects the bearer token server-side.
+>
+> Deal-stage updates, lifecycle-stage updates, notes, and tasks require
+> explicit operator approval.
+
+> 🎯 **Try it yourself**
+>
+> `Find HubSpot deals closing this month and group them by stage`
+>
+> `Look up the HubSpot contact for alex@example.com and show associated company and deals`
+>
+> `Plan a HubSpot note on this deal without executing it`
+
+**Troubleshooting**
+
+- **401 or 403** — verify the Service Key or token scopes include the target
+  CRM object operations.
+- **Invalid stage value** — inspect deal or lifecycle properties first and use
+  HubSpot's internal option value, not the display label.
+- **Rate limits** — narrow the search and avoid broad polling loops.
+
+---
+
 ## lexware-office
 
 Work with Lexware Office contacts, invoice articles, invoices, bookkeeping
@@ -694,6 +756,58 @@ Return the current system time and timezone.
 > `1. What time is it right now?`
 > `2. What time is that in Tokyo?`
 > `3. How many hours until midnight UTC?`
+
+---
+
+## distil-pii-redactor
+
+Redact or anonymize PII locally with Distil-PII and `llama.cpp`, keeping
+personal data out of external model calls, logs, and chat.
+
+**Prerequisites** — `python3`, `bash`, `curl`, and `llama-server`.
+
+```bash
+hybridclaw skill install distil-pii-redactor llama-server
+bash skills/distil-pii-redactor/scripts/setup.sh
+```
+
+The setup script stores the model under `~/.hybridclaw/distil-pii` by default,
+downloads the public Distil-PII 1B GGUF model if missing, and starts
+`llama-server` on `127.0.0.1:8712`.
+
+Stop the local server when you are done:
+
+```bash
+bash skills/distil-pii-redactor/scripts/stop.sh
+```
+
+> 💡 **Tips & Tricks**
+>
+> Prefer file input and output for sensitive text so raw PII does not get
+> repeated in chat.
+>
+> The skill has no credentials because local inference does not need API
+> keys. Any downstream authenticated tool should use that tool's SecretRefs.
+>
+> Do not use `--show-entities` in normal workflows; it includes original
+> sensitive values for debugging.
+
+> 🎯 **Try it yourself**
+>
+> `Redact PII from sensitive.txt and write the result to redacted.txt`
+>
+> `Anonymize this customer-support transcript before I send it to another model`
+>
+> `Sanitize this CSV export and replace emails, phones, IBANs, and addresses with placeholders`
+
+**Troubleshooting**
+
+- **`llama-server` missing** — run
+  `hybridclaw skill install distil-pii-redactor llama-server`.
+- **Server not reachable** — rerun the setup script and confirm the local
+  server is listening on `127.0.0.1:8712`.
+- **Remote endpoint blocked** — the redactor refuses non-loopback server URLs
+  unless the operator explicitly accepts `--unsafe-allow-remote`.
 
 ---
 

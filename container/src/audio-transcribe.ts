@@ -659,7 +659,7 @@ export function listAudioTranscriptionProviders(
           DEFAULT_OPENAI_AUDIO_MODEL,
         missing: ready.has('openai')
           ? null
-          : 'Store OPENAI_API_KEY with `/secret set OPENAI_API_KEY <key>`, or use an openai-codex model with credentials.',
+          : 'Store OPENAI_API_KEY with `hybridclaw secret set OPENAI_API_KEY <key>` or in TUI with `/secret set OPENAI_API_KEY <key>`, or use an openai-codex model with credentials.',
         capabilities: {
           language_detection: true,
           segment_timestamps: true,
@@ -676,7 +676,7 @@ export function listAudioTranscriptionProviders(
           candidateById.get('deepgram')?.model || DEFAULT_DEEPGRAM_AUDIO_MODEL,
         missing: ready.has('deepgram')
           ? null
-          : 'Store DEEPGRAM_API_KEY with `/secret set DEEPGRAM_API_KEY <key>`.',
+          : 'Store DEEPGRAM_API_KEY with `hybridclaw secret set DEEPGRAM_API_KEY <key>` or in TUI with `/secret set DEEPGRAM_API_KEY <key>`.',
         capabilities: {
           language_detection: true,
           segment_timestamps: true,
@@ -694,7 +694,7 @@ export function listAudioTranscriptionProviders(
           DEFAULT_ASSEMBLYAI_AUDIO_MODEL,
         missing: ready.has('assemblyai')
           ? null
-          : 'Store ASSEMBLYAI_API_KEY with `/secret set ASSEMBLYAI_API_KEY <key>`.',
+          : 'Store ASSEMBLYAI_API_KEY with `hybridclaw secret set ASSEMBLYAI_API_KEY <key>` or in TUI with `/secret set ASSEMBLYAI_API_KEY <key>`.',
         capabilities: {
           language_detection: true,
           segment_timestamps: true,
@@ -1444,8 +1444,8 @@ export async function runAudioTranscribe(
   if (candidates.length === 0) {
     throw new Error(
       request.provider
-        ? `audio_transcribe provider "${request.provider}" is not configured. Store the provider API key with \`hybridclaw secret set\` or use provider "auto".`
-        : 'audio_transcribe is not configured: store OPENAI_API_KEY, DEEPGRAM_API_KEY, or ASSEMBLYAI_API_KEY with `hybridclaw secret set`, or use a configured openai-codex model.',
+        ? `audio_transcribe provider "${request.provider}" is not configured. Store the provider API key with \`hybridclaw secret set <name> <key>\` or in TUI with \`/secret set <name> <key>\`, or use provider "auto".`
+        : 'audio_transcribe is not configured: store the provider API key with `hybridclaw secret set <name> <key>` or in TUI with `/secret set <name> <key>`, or use a configured openai-codex model.',
     );
   }
 
