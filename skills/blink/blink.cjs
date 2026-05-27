@@ -412,7 +412,8 @@ function buildReadOperation(operation, args) {
   if (operation === 'verify-pin') return buildVerifyPin(args);
 
   const accountId = resolveAccountId(args);
-  const network = popFlag(args, '--network');
+  const requireNetwork = () =>
+    parseIdentifier(popFlag(args, '--network'), '--network');
   let url;
   let artifact;
 
@@ -421,44 +422,33 @@ function buildReadOperation(operation, args) {
   } else if (operation === 'networks') {
     url = tierRequestUrl(args, '/networks');
   } else if (operation === 'network-status') {
-    url = tierRequestUrl(
-      args,
-      `/network/${parseIdentifier(network, '--network')}`,
-    );
+    const network = requireNetwork();
+    url = tierRequestUrl(args, `/network/${network}`);
   } else if (operation === 'sync-modules') {
-    url = tierRequestUrl(
-      args,
-      `/network/${parseIdentifier(network, '--network')}/syncmodules`,
-    );
+    const network = requireNetwork();
+    url = tierRequestUrl(args, `/network/${network}/syncmodules`);
   } else if (operation === 'cameras') {
-    url = tierRequestUrl(
-      args,
-      `/network/${parseIdentifier(network, '--network')}/cameras`,
-    );
+    const network = requireNetwork();
+    url = tierRequestUrl(args, `/network/${network}/cameras`);
   } else if (operation === 'camera-config') {
+    const network = requireNetwork();
     const camera = parseIdentifier(popFlag(args, '--camera'), '--camera');
-    url = tierRequestUrl(
-      args,
-      `/network/${parseIdentifier(network, '--network')}/camera/${camera}/config`,
-    );
+    url = tierRequestUrl(args, `/network/${network}/camera/${camera}/config`);
   } else if (operation === 'camera-signals') {
+    const network = requireNetwork();
     const camera = parseIdentifier(popFlag(args, '--camera'), '--camera');
-    url = tierRequestUrl(
-      args,
-      `/network/${parseIdentifier(network, '--network')}/camera/${camera}/signals`,
-    );
+    url = tierRequestUrl(args, `/network/${network}/camera/${camera}/signals`);
   } else if (operation === 'doorbells') {
+    const network = requireNetwork();
     url = tierRequestUrl(
       args,
-      `/api/v1/accounts/${accountId}/networks/${parseIdentifier(network, '--network')}/doorbells`,
+      `/api/v1/accounts/${accountId}/networks/${network}/doorbells`,
     );
   } else if (operation === 'motion-events') {
+    const network = requireNetwork();
     const since = popFlag(args, '--since');
     url = appendQueryString(
-      tierRequestUrl(
-        args,
-        `/events/network/${parseIdentifier(network, '--network')}`,
-      ),
+      tierRequestUrl(args, `/events/network/${network}`),
       since === undefined ? {} : { since: parseIsoTime(since, '--since') },
     );
   } else if (operation === 'clips') {

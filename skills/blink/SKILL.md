@@ -98,27 +98,13 @@ best-effort and stop on the first authentication or verification failure.
 
 ## Core Contract
 
-- Build all Blink API calls with `skills/blink/blink.cjs`. Do not handcraft
-  Blink URLs, auth headers, or JSON bodies when the helper supports the
-  operation.
-- Use the emitted `httpRequest` object with the gateway `http_request` tool.
-  Do not use shell `curl` for live Blink calls.
-- Credentials and tokens must stay in the SecretRef-backed runtime secret
-  store. Never ask the operator to paste `BLINK_PASSWORD` or
-  `BLINK_AUTH_TOKEN` into chat, and never include either value in prose.
-- The helper only emits allowlisted hosts:
-  `rest-prod.immedia-semi.com`, `rest-<BLINK_TIER>.immedia-semi.com`, and
-  `prod.immedia-semi.com` for selected media artifact paths. Arbitrary
-  host/path passthrough is not supported.
-- Clip downloads must go through the gateway artifact path. Return artifact
-  handles or metadata only; the helper marks clip downloads with
-  `suppressResponseBody: true` so raw video bytes do not enter model context.
-- Live-view requests are red and operator-UI-only. The helper marks them with
-  `suppressResponseBody: true`; do not copy RTSP/HLS/session handles into chat
-  even after approval.
-- Stop after the first 401, invalid-credentials, or verification-required
-  response. Do not retry, poll, or fan out more Blink calls until credentials
-  or the PIN handover are resolved.
+- Build all Blink API calls with `skills/blink/blink.cjs`; do not handcraft Blink URLs, auth headers, or JSON bodies when the helper supports the operation.
+- Use the emitted `httpRequest` object with the gateway `http_request` tool; do not use shell `curl` for live Blink calls.
+- Credentials and tokens must stay in the SecretRef-backed runtime secret store; never ask the operator to paste `BLINK_PASSWORD` or `BLINK_AUTH_TOKEN` into chat, and never include either value in prose.
+- The helper only emits allowlisted hosts: `rest-prod.immedia-semi.com`, `rest-<BLINK_TIER>.immedia-semi.com`, and `prod.immedia-semi.com` for selected media artifact paths; arbitrary host/path passthrough is not supported.
+- Clip downloads must go through the gateway artifact path; return artifact handles or metadata only, and rely on the helper-emitted `suppressResponseBody: true` so raw video bytes do not enter model context.
+- Live-view requests are red and operator-UI-only; the helper emits `suppressResponseBody: true`, and RTSP/HLS/session handles must not be copied into chat even after approval.
+- Stop after the first 401, invalid-credentials, or verification-required response; do not retry, poll, or fan out more Blink calls until credentials or the PIN handover are resolved.
 
 ## Setup
 
@@ -185,21 +171,11 @@ the approved helper command exactly.
 
 ## Read Workflow
 
-1. Run `http-request login` if `BLINK_AUTH_TOKEN`, `BLINK_TIER`,
-   `BLINK_ACCOUNT_ID`, or `BLINK_CLIENT_ID` is missing or stale.
-2. If the login response or gateway result reports status 401/412,
-   `verification_required`, `client_verification_required`, or similar
-   invalid-credential text, stop immediately. For verification challenges, ask
-   for F14 PIN handover and run `http-request verify-pin --pin <code>`.
-3. Use `homescreen` first for a compact account overview. It includes networks,
-   sync modules, cameras, and doorbell-like devices on current Blink accounts.
-4. Use the narrower list commands when the operator asks for a specific network
-   or device class. Use `camera-config` for motion/video/illuminator settings
-   and `camera-signals` for camera battery, Wi-Fi/sync signal, and temperature
-   telemetry when the homescreen response is not enough.
-5. For incident-card summaries, report concrete device ids/names, network ids,
-   offline duration, low battery, poor signal, temperature, and motion bursts
-   only from successful live Blink responses.
+1. Run `http-request login` if `BLINK_AUTH_TOKEN`, `BLINK_TIER`, `BLINK_ACCOUNT_ID`, or `BLINK_CLIENT_ID` is missing or stale.
+2. If the login response or gateway result reports status 401/412, `verification_required`, `client_verification_required`, or similar invalid-credential text, stop immediately; for verification challenges, ask for F14 PIN handover and run `http-request verify-pin --pin <code>`.
+3. Use `homescreen` first for a compact account overview; it includes networks, sync modules, cameras, and doorbell-like devices on current Blink accounts.
+4. Use the narrower list commands when the operator asks for a specific network or device class; use `camera-config` for motion/video/illuminator settings and `camera-signals` for camera battery, Wi-Fi/sync signal, and temperature telemetry when the homescreen response is not enough.
+5. For incident-card summaries, report concrete device ids/names, network ids, offline duration, low battery, poor signal, temperature, and motion bursts only from successful live Blink responses.
 
 ## Guarded Writes
 
