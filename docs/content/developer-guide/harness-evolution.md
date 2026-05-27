@@ -180,6 +180,77 @@ edits, and the evolve-agent source. The run directory also contains
 `evolve-agent-output.md`, distilled debugger reports, per-round manifests, and
 the summary JSON.
 
+## Example: Improve PDF Creation
+
+Harness evolution is useful when a coworker repeatedly chooses the wrong tool
+path inside a larger workflow. For example, an agent may receive:
+
+> Create a PDF with an image of a dog.
+
+A good eval does not just check whether the agent wrote a file named `.pdf`.
+It should verify the behavioral contract:
+
+- a PDF file exists in the expected output directory
+- the file starts with `%PDF-`
+- the PDF contains an embedded image object such as `/Subtype /Image`
+- optional: a vision or classifier step confirms that the image is dog-like
+
+Start with structural checks before adding vision checks. They are cheaper,
+deterministic, and catch common failures such as writing Markdown, renaming a
+text file, or creating a PDF with no image.
+
+An example suite can wrap both the agent invocation and the verifier:
+
+```json
+{
+  "id": "pdf-dog",
+  "name": "PDF dog creation",
+  "costBudgetUsd": 0.25,
+  "tasks": [
+    {
+      "id": "pdf-dog",
+      "command": "node /tmp/hc-pdf-dog-eval/run-and-check.mjs",
+      "timeoutMs": 120000
+    }
+  ]
+}
+```
+
+The verifier should make failures actionable. For example:
+
+```text
+FAIL: create a real PDF file under output/.
+FAIL: output file must be a real PDF beginning with %PDF-.
+FAIL: PDF must contain an embedded dog image; use a PDF-generation path that embeds an image object.
+```
+
+Those messages give the evolve-agent evidence it can translate into workspace
+edits. Useful edits for this workflow usually look like:
+
+- `long_term_memory/pdf-generation.md` with the reliable PDF-generation
+  procedure and verification checklist
+- `tools/create_image_pdf.mjs` or another helper that embeds an image into a
+  real PDF
+- `tools.yaml` registration for that helper
+- narrow prompt guidance that says not to rename text files as PDFs
+
+Run the loop against a copy of the target workspace:
+
+```bash
+hybridclaw harness-evolve init --target /tmp/hc-pdf-dog-agent
+hybridclaw harness-evolve validate-seed --target /tmp/hc-pdf-dog-agent
+hybridclaw harness-evolve run \
+  --target /tmp/hc-pdf-dog-agent \
+  --suite /tmp/hc-pdf-dog-eval/scenarios.json \
+  --rounds 5 \
+  --k 1 \
+  --fresh-seed
+```
+
+Inspect the F12 manifest before promoting any edit. The harness can improve
+workspace instructions and helper tools, but product code changes still need
+normal review and tests.
+
 ## Admin Console
 
 The admin console can inspect completed harness evolution runs through
