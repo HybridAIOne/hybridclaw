@@ -12,8 +12,10 @@ import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
-import tls from 'node:tls';
-import { Agent as UndiciAgent } from 'undici';
+import {
+  Agent as UndiciAgent,
+  buildConnector as buildUndiciConnector,
+} from 'undici';
 
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
@@ -138,6 +140,10 @@ type OtcAkSkAuthRule = {
   secretAccessKeySecretName: string;
   securityTokenSecretName?: string;
 };
+
+type UndiciConnector = ReturnType<typeof buildUndiciConnector>;
+type UndiciConnectorOptions = Parameters<UndiciConnector>[0];
+type UndiciConnectorCallback = Parameters<UndiciConnector>[1];
 
 type SecretResolveContext = {
   sessionId?: string;
@@ -1072,6 +1078,119 @@ function normalizeCaptureResponseHeaders(
   return rules;
 }
 
+function normalizeHttpRequestForm(value: unknown): [string, string][] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      '`form` must be an object of string values.',
+    );
+  }
+  const fields: [string, string][] = [];
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    const name = rawName.trim();
+    if (!name) {
+      throw new GatewayRequestError(
+        400,
+        '`form` field names must be non-empty.',
+      );
+    }
+    if (typeof rawValue !== 'string') {
+      throw new GatewayRequestError(
+        400,
+        '`form` values must be strings. Use `json` for structured payloads.',
+      );
+    }
+    fields.push([name, rawValue]);
+  }
+  return fields;
+}
+
+async function buildHttpRequestFormBody(
+  value: unknown,
+  context: SecretResolveContext,
+  replacePlaceholders: boolean,
+): Promise<string> {
+  const params = new URLSearchParams();
+  for (const [name, rawValue] of normalizeHttpRequestForm(value)) {
+    const resolvedValue = replacePlaceholders
+      ? await replaceSecretPlaceholdersInString(rawValue, {
+          ...context,
+          selector: `form.${name}`,
+        })
+      : rawValue;
+    params.append(name, resolvedValue);
+  }
+  return params.toString();
+}
+
+function verifyPinnedTlsCertificateFromSocket(
+  socket: unknown,
+  expectedSha256: string,
+): void {
+  const getPeerCertificate =
+    typeof (socket as { getPeerCertificate?: unknown }).getPeerCertificate ===
+    'function'
+      ? (
+          socket as {
+            getPeerCertificate: (detailed: true) => { raw?: unknown };
+          }
+        ).getPeerCertificate
+      : null;
+  if (!getPeerCertificate) {
+    throw new GatewayRequestError(
+      502,
+      'Pinned TLS certificate check failed: peer certificate was not available.',
+    );
+  }
+  const cert = getPeerCertificate.call(socket, true);
+  const raw = Buffer.isBuffer(cert.raw) ? cert.raw : null;
+  if (!raw) {
+    throw new GatewayRequestError(
+      502,
+      'Pinned TLS certificate check failed: peer certificate was not available.',
+    );
+  }
+  const actual = sha256Hex(raw);
+  if (actual !== expectedSha256) {
+    throw new GatewayRequestError(
+      502,
+      'Pinned TLS certificate check failed: SHA-256 fingerprint mismatch.',
+    );
+  }
+}
+
+function createPinnedTlsDispatcher(
+  expectedSha256: string,
+  timeoutMs: number,
+): UndiciAgent {
+  const connector = buildUndiciConnector({
+    rejectUnauthorized: false,
+    timeout: Math.min(timeoutMs, 10_000),
+  });
+  const pinnedConnector: UndiciConnector = (
+    options: UndiciConnectorOptions,
+    callback: UndiciConnectorCallback,
+  ): void => {
+    connector(options, (error, socket) => {
+      if (error) {
+        callback(error, null);
+        return;
+      }
+      try {
+        verifyPinnedTlsCertificateFromSocket(socket, expectedSha256);
+        callback(null, socket);
+      } catch (pinError) {
+        socket.destroy();
+        callback(
+          pinError instanceof Error ? pinError : new Error(String(pinError)),
+          null,
+        );
+      }
+    });
+  };
+  return new UndiciAgent({ connect: pinnedConnector });
+}
+
 function normalizeSha256Fingerprint(value: unknown, path: string): string {
   const raw = typeof value === 'string' ? value.trim() : '';
   const normalized = raw
@@ -1115,117 +1234,12 @@ async function resolveTlsCertificateSha256Pin(
   );
 }
 
-async function verifyTlsCertificateSha256Pin(
-  url: URL,
-  expectedSha256: string,
-  timeoutMs: number,
-): Promise<void> {
-  if (url.protocol !== 'https:') {
-    throw new GatewayRequestError(
-      400,
-      '`tlsCertificateSha256` can only be used with https URLs.',
-    );
-  }
-
-  const port = Number.parseInt(url.port || '443', 10);
-  const servername = net.isIP(url.hostname) ? undefined : url.hostname;
-
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const settle = (callback: () => void): void => {
-      if (settled) return;
-      settled = true;
-      callback();
-    };
-    const socket = tls.connect({
-      host: url.hostname,
-      port,
-      servername,
-      rejectUnauthorized: false,
-      timeout: Math.min(timeoutMs, 10_000),
-    });
-    socket.once('secureConnect', () => {
-      try {
-        const cert = socket.getPeerCertificate(true);
-        const raw = Buffer.isBuffer(cert.raw) ? cert.raw : null;
-        if (!raw) {
-          throw new GatewayRequestError(
-            502,
-            'Pinned TLS certificate check failed: peer certificate was not available.',
-          );
-        }
-        const actual = sha256Hex(raw);
-        if (actual !== expectedSha256) {
-          throw new GatewayRequestError(
-            502,
-            'Pinned TLS certificate check failed: SHA-256 fingerprint mismatch.',
-          );
-        }
-        settle(resolve);
-      } catch (error) {
-        settle(() => reject(error));
-      } finally {
-        socket.end();
-      }
-    });
-    socket.once('timeout', () => {
-      socket.destroy();
-      settle(() =>
-        reject(
-          new GatewayRequestError(
-            502,
-            'Pinned TLS certificate check failed: TLS handshake timed out.',
-          ),
-        ),
-      );
-    });
-    socket.once('error', (error) => {
-      settle(() =>
-        reject(
-          new GatewayRequestError(
-            502,
-            `Pinned TLS certificate check failed: ${formatOutboundHttpError(error)}`,
-          ),
-        ),
-      );
-    });
-  });
-}
-
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim())
     .filter(Boolean);
-}
-
-function normalizeHttpForm(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new GatewayRequestError(
-      400,
-      '`form` must be an object when provided.',
-    );
-  }
-  const form: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    const name = key.trim();
-    if (!name) {
-      throw new GatewayRequestError(400, '`form` field names cannot be empty.');
-    }
-    if (
-      typeof entry !== 'string' &&
-      typeof entry !== 'number' &&
-      typeof entry !== 'boolean'
-    ) {
-      throw new GatewayRequestError(
-        400,
-        '`form` values must be strings, numbers, or booleans.',
-      );
-    }
-    form[name] = String(entry);
-  }
-  return form;
 }
 
 function normalizeGoogleServiceAccountAuth(
@@ -1995,28 +2009,6 @@ export async function handleApiHttpRequest(
     ) {
       setHeaderValue(headers, 'Content-Type', 'application/json');
     }
-  } else if (body.form !== undefined) {
-    const rawForm = normalizeHttpForm(body.form);
-    const formValue = replacePlaceholders
-      ? ((await replaceSecretPlaceholders(rawForm, {
-          ...secretContext,
-          selector: 'form',
-        })) as Record<string, string>)
-      : rawForm;
-    const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(formValue)) {
-      params.append(key, String(value));
-    }
-    payloadBody = params.toString();
-    if (
-      !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
-    ) {
-      setHeaderValue(
-        headers,
-        'Content-Type',
-        'application/x-www-form-urlencoded',
-      );
-    }
   } else if (typeof body.body === 'string') {
     payloadBody = replacePlaceholders
       ? await replaceSecretPlaceholdersInString(body.body, {
@@ -2029,6 +2021,21 @@ export async function handleApiHttpRequest(
       400,
       '`body` must be a string when provided. Use `json` for structured payloads.',
     );
+  } else if (body.form !== undefined) {
+    payloadBody = await buildHttpRequestFormBody(
+      body.form,
+      secretContext,
+      replacePlaceholders,
+    );
+    if (
+      !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
+    ) {
+      setHeaderValue(
+        headers,
+        'Content-Type',
+        'application/x-www-form-urlencoded',
+      );
+    }
   } else if (typeof body.bodyBase64 === 'string') {
     let payloadBuffer: Buffer;
     try {
@@ -2058,18 +2065,17 @@ export async function handleApiHttpRequest(
     });
   }
 
-  if (tlsCertificateSha256) {
-    await verifyTlsCertificateSha256Pin(url, tlsCertificateSha256, timeoutMs);
+  if (tlsCertificateSha256 && url.protocol !== 'https:') {
+    throw new GatewayRequestError(
+      400,
+      '`tlsCertificateSha256` can only be used with https URLs.',
+    );
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const dispatcher = tlsCertificateSha256
-    ? new UndiciAgent({
-        connect: {
-          rejectUnauthorized: false,
-        },
-      })
+    ? createPinnedTlsDispatcher(tlsCertificateSha256, timeoutMs)
     : undefined;
   let response: Response;
   try {
@@ -2085,6 +2091,7 @@ export async function handleApiHttpRequest(
     }
     response = await fetch(url, fetchOptions);
   } catch (error) {
+    await dispatcher?.close();
     throw new GatewayRequestError(
       502,
       `Outbound HTTP request failed: ${formatOutboundHttpError(error)}`,
@@ -2092,143 +2099,147 @@ export async function handleApiHttpRequest(
     );
   } finally {
     clearTimeout(timeout);
-    await dispatcher?.close();
   }
 
-  if (
-    !allowManualRedirect &&
-    response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
-    response.status <= REDIRECT_RESPONSE_STATUS_MAX
-  ) {
-    throw new GatewayRequestError(
-      400,
-      'Outbound HTTP redirects are blocked by the SSRF guard.',
-    );
-  }
-
-  const declaredBodyBytes = readDeclaredBodyBytes(response);
-
-  if (
-    suppressResponseBody &&
-    !responseArtifact &&
-    captureFields.length === 0 &&
-    captureHeaders.length === 0
-  ) {
-    await response.body?.cancel();
-    sendSuppressedBodyResponse(
-      res,
-      response,
-      declaredBodyBytes ?? 0,
-      false,
-      maxResponseBytes,
-      includeResponseCookies,
-    );
-    return;
-  }
-
-  const responseBody =
-    declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes
-      ? {
-          buffer: Buffer.alloc(0),
-          bytesRead: declaredBodyBytes,
-          truncated: true,
-        }
-      : await readHttpResponseBuffer(response, maxResponseBytes);
-  const bodyBytes =
-    responseBody.truncated && declaredBodyBytes !== undefined
-      ? declaredBodyBytes
-      : responseBody.bytesRead;
-  const bodyTruncated = responseBody.truncated;
-
-  const responseText = responseBody.buffer.toString('utf-8');
-  let responseJson: unknown;
-  if (!bodyTruncated) {
-    try {
-      responseJson = JSON.parse(responseText) as unknown;
-    } catch {
-      responseJson = undefined;
-    }
-  }
-
-  // Capture selected response fields/headers into the secret store and return only a
-  // confirmation. The original response body is never forwarded on capture.
-  const capturedFields = captureSecretResponseFields(
-    responseJson,
-    captureFields,
-    url,
-  );
-  const capturedHeaders = captureSecretResponseHeaders(
-    response.headers,
-    captureHeaders,
-    url,
-  );
-  const captured =
-    capturedFields || capturedHeaders
-      ? { ...(capturedFields || {}), ...(capturedHeaders || {}) }
-      : null;
-  if (captured) {
-    sendJson(res, 200, {
-      ok: response.ok,
-      status: response.status,
-      captured,
-    });
-    return;
-  }
-
-  if (responseArtifact) {
-    if (bodyTruncated) {
+  try {
+    if (
+      !allowManualRedirect &&
+      response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
+      response.status <= REDIRECT_RESPONSE_STATUS_MAX
+    ) {
+      await response.body?.cancel();
       throw new GatewayRequestError(
-        502,
-        `Response artifact exceeds maxResponseBytes (${maxResponseBytes}).`,
+        400,
+        'Outbound HTTP redirects are blocked by the SSRF guard.',
       );
     }
-    const artifact = await saveHttpResponseArtifact({
-      body: responseBody.buffer,
-      response,
-      options: responseArtifact,
-      agentId: baseSecretContext.agentId,
-    });
+
+    const declaredBodyBytes = readDeclaredBodyBytes(response);
+
+    if (
+      suppressResponseBody &&
+      !responseArtifact &&
+      captureFields.length === 0 &&
+      captureHeaders.length === 0
+    ) {
+      await response.body?.cancel();
+      sendSuppressedBodyResponse(
+        res,
+        response,
+        declaredBodyBytes ?? 0,
+        false,
+        maxResponseBytes,
+        includeResponseCookies,
+      );
+      return;
+    }
+
+    const responseBody =
+      declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes
+        ? {
+            buffer: Buffer.alloc(0),
+            bytesRead: declaredBodyBytes,
+            truncated: true,
+          }
+        : await readHttpResponseBuffer(response, maxResponseBytes);
+    const bodyBytes =
+      responseBody.truncated && declaredBodyBytes !== undefined
+        ? declaredBodyBytes
+        : responseBody.bytesRead;
+    const bodyTruncated = responseBody.truncated;
+
+    const responseText = responseBody.buffer.toString('utf-8');
+    let responseJson: unknown;
+    if (!bodyTruncated) {
+      try {
+        responseJson = JSON.parse(responseText) as unknown;
+      } catch {
+        responseJson = undefined;
+      }
+    }
+
+    // Capture selected response fields/headers into the secret store and return only a
+    // confirmation. The original response body is never forwarded on capture.
+    const capturedFields = captureSecretResponseFields(
+      responseJson,
+      captureFields,
+      url,
+    );
+    const capturedHeaders = captureSecretResponseHeaders(
+      response.headers,
+      captureHeaders,
+      url,
+    );
+    const captured =
+      capturedFields || capturedHeaders
+        ? { ...(capturedFields || {}), ...(capturedHeaders || {}) }
+        : null;
+    if (captured) {
+      sendJson(res, 200, {
+        ok: response.ok,
+        status: response.status,
+        captured,
+      });
+      return;
+    }
+
+    if (responseArtifact) {
+      if (bodyTruncated) {
+        throw new GatewayRequestError(
+          502,
+          `Response artifact exceeds maxResponseBytes (${maxResponseBytes}).`,
+        );
+      }
+      const artifact = await saveHttpResponseArtifact({
+        body: responseBody.buffer,
+        response,
+        options: responseArtifact,
+        agentId: baseSecretContext.agentId,
+      });
+      sendJson(res, 200, {
+        success: true,
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url,
+        headers: responseHeadersObject(response, includeResponseCookies),
+        artifact,
+        artifacts: [artifact],
+        bodySuppressed: true,
+        bodyBytes,
+      });
+      return;
+    }
+
+    if (suppressResponseBody) {
+      sendSuppressedBodyResponse(
+        res,
+        response,
+        bodyBytes,
+        bodyTruncated,
+        maxResponseBytes,
+        includeResponseCookies,
+      );
+      return;
+    }
+
     sendJson(res, 200, {
-      success: true,
       ok: response.ok,
       status: response.status,
       statusText: response.statusText,
       url: response.url,
       headers: responseHeadersObject(response, includeResponseCookies),
-      artifact,
-      artifacts: [artifact],
-      bodySuppressed: true,
-      bodyBytes,
+      body: responseText,
+      ...(bodyTruncated
+        ? {
+            bodyTruncated: true,
+            bodyBytes,
+            maxResponseBytes,
+          }
+        : {}),
+      ...(responseJson === undefined ? {} : { json: responseJson }),
     });
-    return;
+  } finally {
+    await dispatcher?.close();
   }
-
-  if (suppressResponseBody) {
-    sendSuppressedBodyResponse(
-      res,
-      response,
-      bodyBytes,
-      bodyTruncated,
-      maxResponseBytes,
-      includeResponseCookies,
-    );
-    return;
-  }
-
-  sendJson(res, 200, {
-    ok: response.ok,
-    status: response.status,
-    statusText: response.statusText,
-    url: response.url,
-    headers: responseHeadersObject(response, includeResponseCookies),
-    body: responseText,
-    ...(bodyTruncated
-      ? {
-          bodyTruncated: true,
-          bodyBytes,
-          maxResponseBytes,
-        }
-      : {}),
-    ...(responseJson === undefined ? {} : { json: responseJson }),
-  });
 }

@@ -150,10 +150,12 @@ test('Hue helper builds local CLIP v2 resource-list requests without exposing se
         },
       ],
       replaceSecretPlaceholders: true,
-      tlsCertificateSha256SecretName: 'HUE_BRIDGE_TLS_SHA256',
       skillName: 'hue',
     },
   });
+  expect(bridge.httpRequest).not.toHaveProperty(
+    'tlsCertificateSha256SecretName',
+  );
   expect(lights.httpRequest.url).toBe(
     'https://192.0.2.30/clip/v2/resource/light',
   );
@@ -162,6 +164,16 @@ test('Hue helper builds local CLIP v2 resource-list requests without exposing se
   );
   expect(lights.tls.sha256).toBe(
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  );
+  const pinnedBySecret = request([
+    '--request',
+    'http-request',
+    'lights',
+    '--tls-sha256-secret',
+    'HUE_BRIDGE_TLS_SHA256',
+  ]);
+  expect(pinnedBySecret.httpRequest.tlsCertificateSha256SecretName).toBe(
+    'HUE_BRIDGE_TLS_SHA256',
   );
   expect(JSON.stringify(bridge)).not.toContain('test-application-key');
 });
@@ -503,12 +515,16 @@ test('Hue helper builds link and remote requests without secret output', () => {
         { jsonPath: 'access_token', secretName: 'HUE_REMOTE_ACCESS_TOKEN' },
         { jsonPath: 'refresh_token', secretName: 'HUE_REMOTE_REFRESH_TOKEN' },
       ],
+      form: {
+        grant_type: 'refresh_token',
+        refresh_token: '<secret:HUE_REMOTE_REFRESH_TOKEN>',
+        client_id: '<secret:HUE_REMOTE_CLIENT_ID>',
+        client_secret: '<secret:HUE_REMOTE_CLIENT_SECRET>',
+      },
       replaceSecretPlaceholders: true,
     },
   });
-  expect(remoteOauth.httpRequest.body).toContain(
-    '<secret:HUE_REMOTE_REFRESH_TOKEN>',
-  );
+  expect(remoteOauth.httpRequest).not.toHaveProperty('body');
   expect(JSON.stringify(link)).not.toContain('fresh-key');
   expect(JSON.stringify(remoteLights)).not.toContain('refresh-token');
   expect(JSON.stringify(remoteOauth)).not.toContain('client-secret');
