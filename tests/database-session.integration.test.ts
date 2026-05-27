@@ -18,9 +18,6 @@ let initDatabase: typeof import('../src/memory/db.js').initDatabase;
 let getOrCreateSession: typeof import('../src/memory/db.js').getOrCreateSession;
 let storeMessage: typeof import('../src/memory/db.js').storeMessage;
 let getConversationHistory: typeof import('../src/memory/db.js').getConversationHistory;
-let getConversationHistoryPage: typeof import('../src/memory/db.js').getConversationHistoryPage;
-let getRecentMessages: typeof import('../src/memory/db.js').getRecentMessages;
-let COMMAND_MESSAGE_ROLE: typeof import('../src/memory/db.js').COMMAND_MESSAGE_ROLE;
 let getCanonicalContext: typeof import('../src/memory/db.js').getCanonicalContext;
 let getCompactionCandidateMessages: typeof import('../src/memory/db.js').getCompactionCandidateMessages;
 let deleteMessagesBeforeId: typeof import('../src/memory/db.js').deleteMessagesBeforeId;
@@ -48,9 +45,6 @@ beforeAll(async () => {
   getOrCreateSession = dbMod.getOrCreateSession;
   storeMessage = dbMod.storeMessage;
   getConversationHistory = dbMod.getConversationHistory;
-  getConversationHistoryPage = dbMod.getConversationHistoryPage;
-  getRecentMessages = dbMod.getRecentMessages;
-  COMMAND_MESSAGE_ROLE = dbMod.COMMAND_MESSAGE_ROLE;
   getCanonicalContext = dbMod.getCanonicalContext;
   getCompactionCandidateMessages = dbMod.getCompactionCandidateMessages;
   deleteMessagesBeforeId = dbMod.deleteMessagesBeforeId;
@@ -123,98 +117,6 @@ describe('database session integration', () => {
     // getConversationHistory returns DESC order, so newest first.
     expect(history.length).toBeGreaterThanOrEqual(3);
     expect(history[0].content).toBe('I am fine!');
-  });
-
-  it('command-role output shows in display history but is hidden from model context', () => {
-    const session = getOrCreateSession(
-      'test-session-command',
-      'guild-1',
-      'channel-1',
-    );
-    storeMessage(session.id, 'user-1', 'Alice', 'user', 'real question');
-    storeMessage(session.id, 'bot-1', 'Bot', 'assistant', 'real answer');
-    storeMessage(
-      session.id,
-      'user-1',
-      'Alice',
-      COMMAND_MESSAGE_ROLE,
-      'Session model set to `opus`.',
-    );
-
-    // Context reads must exclude command output so it never re-enters the
-    // prompt, tools, compaction, or memory.
-    const context = getConversationHistory(session.id, 50);
-    expect(context.some((m) => m.role === COMMAND_MESSAGE_ROLE)).toBe(false);
-    expect(context.map((m) => m.content)).toEqual(
-      expect.arrayContaining(['real question', 'real answer']),
-    );
-
-    const recent = getRecentMessages(session.id);
-    expect(recent.some((m) => m.role === COMMAND_MESSAGE_ROLE)).toBe(false);
-
-    // Display history keeps it so the command result survives a reload.
-    const page = getConversationHistoryPage(session.id, 50);
-    expect(
-      page.history.some(
-        (m) =>
-          m.role === COMMAND_MESSAGE_ROLE &&
-          m.content === 'Session model set to `opus`.',
-      ),
-    ).toBe(true);
-  });
-
-  it('excludes command output from compaction candidates and the keep-recent window', () => {
-    const session = getOrCreateSession(
-      'test-session-command-compaction',
-      'guild-1',
-      'channel-1',
-    );
-    storeMessage(session.id, 'user-1', 'Alice', 'user', 'q1');
-    storeMessage(session.id, 'bot-1', 'Bot', 'assistant', 'a1');
-    storeMessage(
-      session.id,
-      'user-1',
-      'Alice',
-      COMMAND_MESSAGE_ROLE,
-      'cmd out',
-    );
-    storeMessage(session.id, 'user-1', 'Alice', 'user', 'q2');
-    storeMessage(session.id, 'bot-1', 'Bot', 'assistant', 'a2');
-
-    // keepRecent=2 should retain the 2 most recent *non-command* messages
-    // (q2, a2); command output must not be summarized into the compaction
-    // summary (which feeds context) nor consume the keep-recent window.
-    const candidate = getCompactionCandidateMessages(session.id, 2);
-    expect(candidate).not.toBeNull();
-    const olderRoles = candidate?.olderMessages.map((m) => m.role) ?? [];
-    expect(olderRoles).not.toContain(COMMAND_MESSAGE_ROLE);
-    expect(candidate?.olderMessages.map((m) => m.content)).toEqual([
-      'q1',
-      'a1',
-    ]);
-  });
-
-  it('does not count command output toward message_count', () => {
-    const session = getOrCreateSession(
-      'test-session-command-count',
-      'guild-1',
-      'channel-1',
-    );
-    storeMessage(session.id, 'user-1', 'Alice', 'user', 'hello');
-    const afterUser = getSessionById(session.id)?.message_count ?? -1;
-
-    storeMessage(
-      session.id,
-      'user-1',
-      'Alice',
-      COMMAND_MESSAGE_ROLE,
-      'cmd out',
-    );
-    expect(getSessionById(session.id)?.message_count).toBe(afterUser);
-
-    // A real turn still increments, confirming the guard is role-specific.
-    storeMessage(session.id, 'bot-1', 'Bot', 'assistant', 'reply');
-    expect(getSessionById(session.id)?.message_count).toBe(afterUser + 1);
   });
 
   it('multiple messages maintain correct ordering', () => {

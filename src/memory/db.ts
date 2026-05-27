@@ -7118,15 +7118,6 @@ function parseMessageArtifacts(raw: string | null): ArtifactMetadata[] {
   }
 }
 
-/**
- * Role used for slash-command output persisted to a session. These rows are
- * display-only: they surface in the chat history view (see
- * {@link getConversationHistoryPage}) but are excluded from every read that
- * feeds the model, tools, compaction, or memory — command output is UI
- * ephemera, not conversation, and must never re-enter the prompt context.
- */
-export const COMMAND_MESSAGE_ROLE = 'command';
-
 export function storeMessage(
   sessionId: string,
   userId: string,
@@ -7153,18 +7144,9 @@ export function storeMessage(
       artifactsJson,
     );
 
-  // Command output is display-only ephemera, so it doesn't count toward
-  // message_count (which drives the message-count compaction trigger and the UI
-  // count) — but it still marks the session as recently active.
-  if (role === COMMAND_MESSAGE_ROLE) {
-    db.prepare(
-      "UPDATE sessions SET last_active = datetime('now') WHERE id = ?",
-    ).run(resolvedSessionId);
-  } else {
-    db.prepare(
-      "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
-    ).run(resolvedSessionId);
-  }
+  db.prepare(
+    "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
+  ).run(resolvedSessionId);
 
   return result.lastInsertRowid as number;
 }
@@ -7174,11 +7156,10 @@ export function getConversationHistory(
   limit = 50,
 ): StoredMessage[] {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  return queryAll<StoredMessage, [string, string, number]>(
+  return queryAll<StoredMessage, [string, number]>(
     db,
-    'SELECT * FROM messages WHERE session_id = ? AND role != ? ORDER BY id DESC LIMIT ?',
+    'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
     resolvedSessionId,
-    COMMAND_MESSAGE_ROLE,
     limit,
   );
 }
@@ -7384,19 +7365,17 @@ export function getRecentMessages(
       : null;
 
   if (boundedLimit == null) {
-    return queryAll<StoredMessage, [string, string]>(
+    return queryAll<StoredMessage, [string]>(
       db,
-      'SELECT * FROM messages WHERE session_id = ? AND role != ? ORDER BY id ASC',
+      'SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC',
       resolvedSessionId,
-      COMMAND_MESSAGE_ROLE,
     );
   }
 
-  const rows = queryAll<StoredMessage, [string, string, number]>(
+  const rows = queryAll<StoredMessage, [string, number]>(
     db,
-    'SELECT * FROM messages WHERE session_id = ? AND role != ? ORDER BY id DESC LIMIT ?',
+    'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
     resolvedSessionId,
-    COMMAND_MESSAGE_ROLE,
     boundedLimit,
   );
   return rows.reverse();
@@ -8424,24 +8403,19 @@ export function getCompactionCandidateMessages(
   keepRecent: number,
 ): CompactionCandidate | null {
   const keep = Math.max(1, Math.floor(keepRecent));
-  // Exclude display-only command output: it must neither consume the
-  // keep-recent window nor be summarized into the compaction summary, which
-  // feeds back into the model context.
-  const cutoffRow = queryOne<{ id: number }, [string, string, number]>(
+  const cutoffRow = queryOne<{ id: number }, [string, number]>(
     db,
-    'SELECT id FROM messages WHERE session_id = ? AND role != ? ORDER BY id DESC LIMIT 1 OFFSET ?',
+    'SELECT id FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?',
     sessionId,
-    COMMAND_MESSAGE_ROLE,
     keep - 1,
   );
   if (!cutoffRow) return null;
 
-  const older = queryAll<StoredMessage, [string, number, string]>(
+  const older = queryAll<StoredMessage, [string, number]>(
     db,
-    'SELECT * FROM messages WHERE session_id = ? AND id < ? AND role != ? ORDER BY id ASC',
+    'SELECT * FROM messages WHERE session_id = ? AND id < ? ORDER BY id ASC',
     sessionId,
     cutoffRow.id,
-    COMMAND_MESSAGE_ROLE,
   );
   if (older.length === 0) return null;
 
