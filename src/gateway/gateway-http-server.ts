@@ -1777,9 +1777,11 @@ async function resolveApiChatSlashCommandResult(
 
   return {
     status: 'success',
+    // A command with no visible output returns an empty result; the web console
+    // renders nothing for it (like a shell command that succeeds silently)
+    // rather than a "Done." block. Approvals keep an explicit confirmation.
     result:
-      renderedText ||
-      (handledApprovalCommand ? 'Approval submitted.' : 'Done.'),
+      renderedText || (handledApprovalCommand ? 'Approval submitted.' : ''),
     toolsUsed: [],
     commandResult: true,
     sessionId,

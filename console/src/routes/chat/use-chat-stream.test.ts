@@ -347,6 +347,51 @@ describe('useChatStream', () => {
     });
   });
 
+  it('renders no bubble for a slash command that produces no visible output', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: null,
+      result: '',
+      commandResult: true,
+      toolsUsed: [],
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('/quietcommand', []);
+    });
+
+    // Only the echoed user message remains: the silent command leaves no
+    // command bubble and no lingering thinking placeholder.
+    expect(harness.messages).toHaveLength(1);
+    expect(harness.messages[0]).toMatchObject({
+      role: 'user',
+      content: '/quietcommand',
+      messageId: 'server-user-1',
+    });
+    expect(
+      harness.messages.some(
+        (msg) => msg.role === 'command' || msg.role === 'thinking',
+      ),
+    ).toBe(false);
+  });
+
   it('tags a failed stream as a `system` message, distinct from command output', async () => {
     const harness = makeHarness();
 

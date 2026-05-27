@@ -256,6 +256,13 @@ export function useChatStream(
           : result.commandResult
             ? 'command'
             : 'assistant';
+        // A slash command that produced no visible output (and no artifacts)
+        // leaves no bubble — like a shell command that succeeds silently.
+        const isSilentCommand =
+          Boolean(result.commandResult) &&
+          !finalApproval &&
+          finalText.trim().length === 0 &&
+          finalArtifacts.length === 0;
         const buildFinalizedMessage = (
           id: string,
           sessionId: string,
@@ -293,6 +300,14 @@ export function useChatStream(
             }
             return m;
           };
+
+          // Drop the placeholder bubble for a silent command, but still
+          // finalize the user echo (e.g. its server messageId).
+          if (isSilentCommand) {
+            return withoutThinking
+              .filter((m) => m.id !== streamId)
+              .map(finalizeMessage);
+          }
 
           const finalized = withoutThinking.map(finalizeMessage);
           if (hasAssistant) return finalized;
