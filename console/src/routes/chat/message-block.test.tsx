@@ -492,9 +492,44 @@ describe('MessageBlock artifacts', () => {
     });
     expect(up.getAttribute('aria-pressed')).toBe('true');
     expect(down.getAttribute('aria-pressed')).toBe('false');
+    expect(up.hasAttribute('disabled')).toBe(false);
+    expect(down.hasAttribute('disabled')).toBe(true);
 
     fireEvent.click(up);
     expect(onRate).toHaveBeenCalledWith(expect.any(Object), null);
+  });
+
+  it('disables thumbs up after a thumbs down rating is selected', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          messageId: 42,
+          responseRating: 'down',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={vi.fn()}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs up' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole('button', { name: 'Clear thumbs down rating' })
+        .hasAttribute('disabled'),
+    ).toBe(false);
   });
 
   it('keeps response rating controls visible but disabled before message persistence', () => {
