@@ -121,7 +121,7 @@ test('records skill executions and attaches negative feedback', async () => {
     skill_name: context.skillName,
     session_id: 'session-1',
     run_id: 'run-1',
-    outcome: 'success',
+    outcome: 'partial',
     error_category: 'tool_error',
     tool_calls_attempted: 2,
     tool_calls_failed: 1,
@@ -176,7 +176,11 @@ test('records skill executions and attaches negative feedback', async () => {
     tool_calls_attempted: 3,
     tool_calls_failed: 1,
   });
-  expect(summary?.error_clusters).toEqual([]);
+  expect(summary?.success_count).toBe(1);
+  expect(summary?.partial_count).toBe(1);
+  expect(summary?.error_clusters).toEqual([
+    expect.objectContaining({ category: 'tool_error', count: 1 }),
+  ]);
 });
 
 test('records agent skill scores and refreshes generated CV.md', async () => {

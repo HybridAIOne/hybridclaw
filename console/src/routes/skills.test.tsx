@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminAdaptiveSkillAmendmentsResponse,
   AdminAdaptiveSkillHealthResponse,
+  AdminAdaptiveSkillHealthMetric,
   AdminSkill,
   AdminSkillsResponse,
 } from '../api/types';
@@ -57,6 +58,26 @@ function makeSkill(overrides: Partial<AdminSkill> = {}): AdminSkill {
 
 function makeResponse(skills: AdminSkill[]): AdminSkillsResponse {
   return { extraDirs: [], disabled: [], skills };
+}
+
+function makeHealthMetric(
+  overrides: Partial<AdminAdaptiveSkillHealthMetric> = {},
+): AdminAdaptiveSkillHealthMetric {
+  return {
+    skill_name: 'pdf',
+    total_executions: 3,
+    success_rate: 1,
+    avg_duration_ms: 100,
+    error_clusters: [],
+    tool_breakage_rate: 0.18,
+    positive_feedback_count: 0,
+    negative_feedback_count: 0,
+    degraded: false,
+    degradation_reasons: [],
+    window_started_at: '2026-05-27T12:00:00.000Z',
+    window_ended_at: '2026-05-27T14:00:00.000Z',
+    ...overrides,
+  };
 }
 
 describe('SkillsPage', () => {
@@ -132,5 +153,17 @@ describe('SkillsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Upload ZIP/i }));
     expect(screen.getByLabelText('Skill archive (.zip)')).toBeTruthy();
     expect(screen.getByText('Overwrite existing skill (--force)')).toBeTruthy();
+  });
+
+  it('labels observed success as run success without repeating visible counts', async () => {
+    fetchSkillsMock.mockResolvedValue(makeResponse([makeSkill()]));
+    fetchHealthMock.mockResolvedValue({
+      metrics: [makeHealthMetric()],
+    });
+
+    renderWithProviders(<SkillsPage />);
+
+    expect(await screen.findByText('Run success')).toBeTruthy();
+    expect(screen.queryByText('1 observed skill visible')).toBeNull();
   });
 });

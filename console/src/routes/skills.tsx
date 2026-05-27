@@ -940,7 +940,7 @@ export function SkillsPage() {
                                   ? ''
                                   : ' · '}
                                 {metrics.degraded
-                                  ? `${formatPercent(metrics.success_rate)} success`
+                                  ? `${formatPercent(metrics.success_rate)} run success`
                                   : feedbackSummary}
                               </small>
                             </>
@@ -1025,9 +1025,6 @@ export function SkillsPage() {
         <Card id="observed-skill-health">
           <CardHeader>
             <CardTitle>Observed skill health</CardTitle>
-            <CardDescription>
-              {`${sortedHealthMetrics.length} observed skill${sortedHealthMetrics.length === 1 ? '' : 's'} visible`}
-            </CardDescription>
           </CardHeader>
           <CardContent>
             {healthQuery.isLoading ? (
@@ -1062,7 +1059,7 @@ export function SkillsPage() {
                         onToggle={toggleObservedSkillSort}
                       />
                       <SortableHeader
-                        label="Success"
+                        label="Run success"
                         sortKey="success"
                         sortState={observedSkillSortState}
                         onToggle={toggleObservedSkillSort}
