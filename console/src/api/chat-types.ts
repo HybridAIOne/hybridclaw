@@ -145,6 +145,7 @@ export interface BranchResponse {
 export interface RateResponseRequest {
   sessionId: string;
   messageId: number | string;
+  userId?: string;
   rating: ResponseRatingValue | null;
 }
 

@@ -2894,6 +2894,7 @@ async function handleApiChatRating(
   const body = (await readJsonBody(req)) as {
     sessionId?: unknown;
     messageId?: unknown;
+    userId?: unknown;
     rating?: unknown;
   };
   const sessionId = normalizeOptionalString(body.sessionId);
@@ -2929,7 +2930,7 @@ async function handleApiChatRating(
     resolveGatewayRequestUserId({
       req,
       channelId: 'web',
-      requestedUserId: null,
+      requestedUserId: normalizeOptionalString(body.userId),
       fallbackUserId: 'web',
     }) || 'web';
 

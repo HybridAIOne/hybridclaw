@@ -403,6 +403,7 @@ export function ChatPage() {
       return rateChatResponse(auth.token, {
         sessionId: payload.message.sessionId,
         messageId: payload.message.messageId,
+        userId,
         rating: payload.rating,
       });
     },

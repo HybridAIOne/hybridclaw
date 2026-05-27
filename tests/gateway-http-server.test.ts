@@ -4509,6 +4509,7 @@ describe('gateway HTTP server', () => {
       body: {
         sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
         messageId: 12,
+        userId: 'web-user-abcd',
         rating: 'up',
       },
     });
@@ -4520,7 +4521,7 @@ describe('gateway HTTP server', () => {
     expect(state.submitResponseRating).toHaveBeenCalledWith({
       sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
       messageId: 12,
-      operatorUserId: 'web',
+      operatorUserId: 'web-user-abcd',
       rating: 'up',
     });
     expect(res.statusCode).toBe(200);
