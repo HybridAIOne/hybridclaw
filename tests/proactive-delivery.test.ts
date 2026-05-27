@@ -7,6 +7,7 @@ import {
   isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
+  shouldSuppressProactiveMessage,
 } from '../src/gateway/proactive-delivery.js';
 
 describe('proactive delivery helpers', () => {
@@ -119,6 +120,14 @@ describe('proactive delivery helpers', () => {
 
     expect(
       shouldDropQueuedProactiveMessage({
+        channel_id: 'tui',
+        source: 'heartbeat',
+        text: 'HEARTBEAT_OK',
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldDropQueuedProactiveMessage({
         channel_id: 'heartbeat',
         source: 'delegate',
       }),
@@ -130,5 +139,35 @@ describe('proactive delivery helpers', () => {
         source: 'fullauto',
       }),
     ).toBe(true);
+  });
+
+  test('suppresses heartbeat ok acknowledgements from proactive delivery', () => {
+    expect(
+      shouldSuppressProactiveMessage({
+        source: 'heartbeat',
+        text: 'HEARTBEAT_OK',
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldSuppressProactiveMessage({
+        source: 'heartbeat',
+        text: 'heartbeat ok.',
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldSuppressProactiveMessage({
+        source: 'heartbeat',
+        text: 'Review the queued tasks today.',
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldSuppressProactiveMessage({
+        source: 'delegate',
+        text: 'HEARTBEAT_OK',
+      }),
+    ).toBe(false);
   });
 });

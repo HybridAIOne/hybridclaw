@@ -1,6 +1,6 @@
 /**
  * Workspace bootstrap files — loads SOUL.md, IDENTITY.md, USER.md,
- * TOOLS.md, MEMORY.md, HEARTBEAT.md from the agent workspace
+ * TOOLS.md, MEMORY.md, customized HEARTBEAT.md from the agent workspace
  * and injects them into the system prompt (like OpenClaw).
  */
 import fs from 'node:fs';
@@ -80,6 +80,10 @@ audit:
 
 const MAX_FILE_CHARS = 20_000;
 const TEMPLATES_DIR = resolveInstallPath('templates');
+const templateFileCache = new Map<
+  (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
+  string
+>();
 
 /**
  * Directory (inside the agent container image) where runtime node_modules
@@ -180,8 +184,13 @@ function writeWorkspaceOnboardingState(
 function readTemplateFile(
   filename: (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
 ): string {
+  const cached = templateFileCache.get(filename);
+  if (cached != null) return cached;
+
   const templatePath = path.join(TEMPLATES_DIR, filename);
-  return fs.readFileSync(templatePath, 'utf-8');
+  const content = fs.readFileSync(templatePath, 'utf-8');
+  templateFileCache.set(filename, content);
+  return content;
 }
 
 function stripMarkdownSection(content: string, heading: string): string {
@@ -220,6 +229,32 @@ function normalizeContextFileContent(params: {
   return content;
 }
 
+function normalizeBootstrapComparisonText(content: string): string {
+  return content.replace(/\r\n/g, '\n').trim();
+}
+
+function shouldLoadBootstrapContextFile(params: {
+  name: (typeof WORKSPACE_BOOTSTRAP_FILES)[number];
+  content: string;
+}): boolean {
+  const content = normalizeBootstrapComparisonText(params.content);
+  if (!content) return false;
+  if (params.name !== 'HEARTBEAT.md') return true;
+
+  try {
+    return (
+      content !==
+      normalizeBootstrapComparisonText(readTemplateFile(params.name))
+    );
+  } catch (error) {
+    logger.warn(
+      { file: params.name, error },
+      'Failed to compare heartbeat context against template',
+    );
+    return true;
+  }
+}
+
 function isWorkspaceFileCustomized(
   wsDir: string,
   filename: (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
@@ -227,7 +262,10 @@ function isWorkspaceFileCustomized(
   const filePath = path.join(wsDir, filename);
   if (!fs.existsSync(filePath)) return false;
   try {
-    return fs.readFileSync(filePath, 'utf-8') !== readTemplateFile(filename);
+    return (
+      normalizeBootstrapComparisonText(fs.readFileSync(filePath, 'utf-8')) !==
+      normalizeBootstrapComparisonText(readTemplateFile(filename))
+    );
   } catch (error) {
     logger.warn(
       { wsDir, file: filename, error },
@@ -556,7 +594,9 @@ export function loadStaticBootstrapFiles(agentId: string): ContextFile[] {
 
     try {
       let content = fs.readFileSync(filePath, 'utf-8').trim();
-      if (!content) continue;
+      if (!shouldLoadBootstrapContextFile({ name: filename, content })) {
+        continue;
+      }
 
       content = normalizeContextFileContent({
         agentId,
@@ -579,6 +619,25 @@ export function loadStaticBootstrapFiles(agentId: string): ContextFile[] {
   }
 
   return files;
+}
+
+export function hasActionableHeartbeatFile(agentId: string): boolean {
+  const filePath = path.join(agentWorkspaceDir(agentId), 'HEARTBEAT.md');
+  if (!fs.existsSync(filePath)) return false;
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return shouldLoadBootstrapContextFile({
+      name: 'HEARTBEAT.md',
+      content,
+    });
+  } catch (err) {
+    logger.warn(
+      { agentId, file: 'HEARTBEAT.md', err },
+      'Failed to read heartbeat file',
+    );
+    return false;
+  }
 }
 
 export function loadDailyMemoryFile(
@@ -776,7 +835,10 @@ export function resolveStartupBootstrapFile(
   try {
     const content = fs.readFileSync(openingPath, 'utf-8');
     if (!content.trim()) return null;
-    return content === readTemplateFile('OPENING.md') ? null : 'OPENING.md';
+    return normalizeBootstrapComparisonText(content) ===
+      normalizeBootstrapComparisonText(readTemplateFile('OPENING.md'))
+      ? null
+      : 'OPENING.md';
   } catch (error) {
     logger.warn(
       { agentId, path: openingPath, error },

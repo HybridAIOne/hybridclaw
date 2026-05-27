@@ -49,9 +49,29 @@ export function resolveHeartbeatDeliveryChannelId(params: {
   return params.lastUsedChannelId;
 }
 
+export function isHeartbeatOkText(text: string): boolean {
+  const normalized = text
+    .trim()
+    .replace(/[^a-z]/gi, '')
+    .toUpperCase();
+  return normalized === 'HEARTBEATOK' || normalized.startsWith('HEARTBEATOK');
+}
+
+export function shouldSuppressProactiveMessage(
+  item: Pick<QueuedProactiveMessage, 'source' | 'text'>,
+): boolean {
+  return item.source === 'heartbeat' && isHeartbeatOkText(item.text);
+}
+
 export function shouldDropQueuedProactiveMessage(
-  item: Pick<QueuedProactiveMessage, 'channel_id' | 'source'>,
+  item: Pick<QueuedProactiveMessage, 'channel_id' | 'source'> &
+    Partial<Pick<QueuedProactiveMessage, 'text'>>,
 ): boolean {
   if (!hasQueuedProactiveDeliveryPath(item)) return true;
+  if (
+    item.text != null &&
+    shouldSuppressProactiveMessage({ source: item.source, text: item.text })
+  )
+    return true;
   return item.source === 'heartbeat' && item.channel_id === 'heartbeat';
 }
