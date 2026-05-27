@@ -375,9 +375,9 @@ test('second-opinion question mode uses a same-question comparison prompt', asyn
     provider: 'openai-codex' as const,
     model: 'openai-codex/gpt-5.5',
     content: JSON.stringify({
-      verdict: 'The answers differ on rollout order.',
+      verdict: 'Independent answer generated.',
       revised_answer: 'Ship the canary before broad rollout.',
-      material_disagreements: ['The local draft skipped canarying.'],
+      material_disagreements: [],
       missing_caveats: [],
       confidence: 'high',
     }),
@@ -405,10 +405,19 @@ test('second-opinion question mode uses a same-question comparison prompt', asyn
 
   const call = callAuxiliaryModelMock.mock.calls[0]?.[0];
   expect(call?.messages?.[0]?.content).toContain('same-question comparison');
+  expect(call?.messages?.[0]?.content).not.toContain('active assistant draft');
   const payload = JSON.parse(String(call?.messages?.[1]?.content));
   expect(payload.mode).toBe('compare');
   expect(payload.original_question).toBe('What rollout plan is safest?');
-  expect(payload.active_assistant_draft).toContain('everyone immediately');
+  expect(payload).not.toHaveProperty('active_assistant_draft');
+  expect(payload.recent_context).toEqual(
+    expect.not.arrayContaining([
+      expect.objectContaining({
+        role: 'assistant',
+        content: expect.stringContaining('everyone immediately'),
+      }),
+    ]),
+  );
 });
 
 test('second-opinion caps explicit questions before the stronger model call', async () => {

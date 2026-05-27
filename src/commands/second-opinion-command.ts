@@ -95,7 +95,7 @@ let secondOpinionCatalogRefreshCache: {
 const SECOND_OPINION_BASE_PROMPT = [
   'You are a stronger-model second opinion for HybridClaw.',
   '/no_think',
-  'You receive an original user question, the active assistant draft, and optional recent context.',
+  'You receive a JSON payload with an original user question and optional recent context.',
   'Do not use tools, claim you used tools, or ask follow-up questions.',
   'Do not invent citations or external checks. If live verification would be needed, say so in the revised answer.',
   'Return exactly one JSON object and no prose, markdown, code fences, or hidden reasoning.',
@@ -105,8 +105,8 @@ const SECOND_OPINION_BASE_PROMPT = [
 const SECOND_OPINION_COMPARE_SYSTEM_PROMPT = [
   ...SECOND_OPINION_BASE_PROMPT,
   'Mode: same-question comparison.',
-  'Answer the original question independently first, then compare that independent answer against the active assistant draft.',
-  'Synthesize a corrected final answer rather than pasting two answers side by side.',
+  'Answer the original question independently from the question and context only.',
+  'Put your independent answer in revised_answer. Set material_disagreements to [] because you are not reviewing the draft in this mode.',
 ].join('\n');
 
 const SECOND_OPINION_VALIDATE_SYSTEM_PROMPT = [
@@ -507,27 +507,28 @@ function buildSecondOpinionMessages(params: {
     params.mode === 'compare'
       ? SECOND_OPINION_COMPARE_SYSTEM_PROMPT
       : SECOND_OPINION_VALIDATE_SYSTEM_PROMPT;
+  const payload: Record<string, unknown> = {
+    mode: params.mode,
+    original_question: params.question,
+    recent_context: params.contextMessages,
+  };
+  if (params.mode === 'validate') {
+    payload.active_assistant_draft = params.draftAnswer;
+  }
+  if (params.webSearchEvidence) {
+    payload.web_search_evidence = {
+      provider: params.webSearchEvidence.provider,
+      queries: params.webSearchEvidence.queries,
+      results: params.webSearchEvidence.results,
+    };
+    payload.instruction =
+      'Web-assisted validation: web_search/web_fetch evidence has been provided. Check it before revising factual claims. Prefer at least 10 independent Internet sources when results are available; if fewer are available, state that limitation. Cite only URLs present in web_search_evidence.';
+  }
   return [
     { role: 'system', content: systemPrompt },
     {
       role: 'user',
-      content: JSON.stringify({
-        mode: params.mode,
-        original_question: params.question,
-        active_assistant_draft: params.draftAnswer,
-        recent_context: params.contextMessages,
-        ...(params.webSearchEvidence
-          ? {
-              web_search_evidence: {
-                provider: params.webSearchEvidence.provider,
-                queries: params.webSearchEvidence.queries,
-                results: params.webSearchEvidence.results,
-              },
-              instruction:
-                'Web-assisted validation: web_search/web_fetch evidence has been provided. Check it before revising factual claims. Prefer at least 10 independent Internet sources when results are available; if fewer are available, state that limitation. Cite only URLs present in web_search_evidence.',
-            }
-          : {}),
-      }),
+      content: JSON.stringify(payload),
     },
   ];
 }
@@ -716,7 +717,9 @@ export async function runSecondOpinionCommand(
     .map(toContextChatMessage)
     .filter((message): message is ChatMessage => message !== null);
   const includedContextMessages = parsed.includeTranscript
-    ? contextMessages
+    ? parsed.mode === 'compare'
+      ? contextMessages.filter((message) => message.role === 'user')
+      : contextMessages
     : [];
   const confidential = createConfidentialRuntimeContext();
   let webSearchEvidence: SecondOpinionWebSearchEvidence | undefined;
