@@ -380,3 +380,36 @@ export function parseJsonObject(raw: string): Record<string, unknown> {
     return {};
   }
 }
+
+export function readAuditString(
+  payload: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = payload[key];
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+export function readAuditNumber(
+  payload: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = payload[key];
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.trunc(parsed);
+  }
+  return null;
+}
+
+export function readAuditBoolean(
+  payload: Record<string, unknown>,
+  key: string,
+): boolean | null {
+  const value = payload[key];
+  return typeof value === 'boolean' ? value : null;
+}
