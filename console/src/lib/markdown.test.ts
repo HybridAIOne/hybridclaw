@@ -76,10 +76,32 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown('line1\nline2')).toContain('line1<br />line2');
   });
 
-  it('renders fenced code blocks with language class intact', () => {
+  it('renders fenced code blocks with syntax-highlight token spans', () => {
     const html = renderMarkdown('```ts\nconst x = 1;\n```');
-    expect(html).toContain('<pre><code class="language-ts">');
-    expect(html).toContain('const x = 1;');
+    expect(html).toContain('<pre><code class="hljs language-ts">');
+    // highlight.js wraps keywords/numbers in token spans
+    expect(html).toContain('<span class="hljs-keyword">const</span>');
+    expect(html).toContain('<span class="hljs-number">1</span>');
+  });
+
+  it('falls back to plain escaped text for unknown languages', () => {
+    const html = renderMarkdown('```fakelang\n<script>alert(1)</script>\n```');
+    expect(html).toContain('<pre><code class="hljs language-fakelang">');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('hljs-');
+  });
+
+  it('escapes code content even when highlighted', () => {
+    const html = renderMarkdown('```ts\nconst a = "<img onerror=x>";\n```');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+  });
+
+  it('renders a code block without a language as plain escaped text', () => {
+    const html = renderMarkdown('```\nplain text\n```');
+    expect(html).toContain('<pre><code class="hljs">plain text');
+    expect(html).not.toContain('hljs-');
   });
 
   it('renders blockquotes with grouped content', () => {
@@ -199,7 +221,7 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<ol>');
     expect(html).toContain('<li>Run <code>npm run build</code></li>');
     expect(html).toContain('<blockquote>');
-    expect(html).toContain('<pre><code class="language-bash">');
+    expect(html).toContain('<pre><code class="hljs language-bash">');
     expect(html).toContain(
       '<a href="https://example.com/runbook" rel="noopener noreferrer" target="_blank">runbook</a>',
     );

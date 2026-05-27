@@ -706,6 +706,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .markdownContent pre {
+  position: relative;
   margin: 0.5em 0;
   padding: 12px 14px;
   background: var(--terminal);
@@ -722,6 +723,127 @@ aside[data-state="collapsed"] .chatSidebarContent {
   padding: 0;
   border-radius: 0;
   font-size: inherit;
+}
+
+/* Copy-on-hover button injected into each code block (see message-block.tsx). */
+.codeCopyButton {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--terminal-foreground);
+  background: color-mix(in srgb, var(--terminal) 70%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--terminal-foreground) 22%, transparent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.markdownContent pre:hover .codeCopyButton,
+.codeCopyButton:focus-visible {
+  opacity: 1;
+}
+
+.codeCopyButton:hover {
+  border-color: color-mix(in srgb, var(--terminal-foreground) 45%, transparent);
+}
+
+.codeCopyButtonDone {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+  opacity: 1;
+}
+
+/*
+ * Syntax highlighting tokens emitted by highlight.js. The hljs-* classes are
+ * global (injected into sanitized HTML), so they're referenced via :global().
+ * Code blocks always render on the dark --terminal background in both themes,
+ * so a single palette tuned for that surface works everywhere.
+ */
+.markdownContent :global(.hljs-comment),
+.markdownContent :global(.hljs-quote) {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+
+.markdownContent :global(.hljs-keyword),
+.markdownContent :global(.hljs-selector-tag),
+.markdownContent :global(.hljs-meta .hljs-keyword) {
+  color: var(--syntax-keyword);
+}
+
+.markdownContent :global(.hljs-built_in),
+.markdownContent :global(.hljs-type) {
+  color: var(--syntax-builtin);
+}
+
+.markdownContent :global(.hljs-string),
+.markdownContent :global(.hljs-regexp),
+.markdownContent :global(.hljs-doctag) {
+  color: var(--syntax-string);
+}
+
+.markdownContent :global(.hljs-number),
+.markdownContent :global(.hljs-literal) {
+  color: var(--syntax-number);
+}
+
+.markdownContent :global(.hljs-title),
+.markdownContent :global(.hljs-section) {
+  color: var(--syntax-function);
+}
+
+.markdownContent :global(.hljs-name),
+.markdownContent :global(.hljs-tag),
+.markdownContent :global(.hljs-selector-id),
+.markdownContent :global(.hljs-selector-class) {
+  color: var(--syntax-tag);
+}
+
+.markdownContent :global(.hljs-attr),
+.markdownContent :global(.hljs-attribute),
+.markdownContent :global(.hljs-property),
+.markdownContent :global(.hljs-variable),
+.markdownContent :global(.hljs-template-variable) {
+  color: var(--syntax-attr);
+}
+
+.markdownContent :global(.hljs-symbol),
+.markdownContent :global(.hljs-bullet),
+.markdownContent :global(.hljs-link) {
+  color: var(--syntax-builtin);
+}
+
+.markdownContent :global(.hljs-meta) {
+  color: var(--syntax-comment);
+}
+
+.markdownContent :global(.hljs-addition) {
+  color: var(--syntax-string);
+  background: color-mix(in srgb, var(--syntax-string) 14%, transparent);
+}
+
+.markdownContent :global(.hljs-deletion) {
+  color: var(--syntax-tag);
+  background: color-mix(in srgb, var(--syntax-tag) 14%, transparent);
+}
+
+.markdownContent :global(.hljs-emphasis) {
+  font-style: italic;
+}
+
+.markdownContent :global(.hljs-strong) {
+  font-weight: 600;
 }
 
 .markdownContent hr {

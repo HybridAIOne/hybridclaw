@@ -632,3 +632,59 @@ describe('MessageBlock command vs system output', () => {
     expect(container.querySelector('[class*="bubbleCommand"]')).toBeNull();
   });
 });
+
+describe('MessageBlock code-block copy button', () => {
+  beforeEach(() => {
+    renderMarkdownMock.mockReset();
+    renderMarkdownMock.mockImplementation(
+      () =>
+        '<pre><code class="hljs language-ts"><span class="hljs-keyword">const</span> x = 1;</code></pre>',
+    );
+  });
+
+  function renderAssistant() {
+    return render(
+      <MessageBlock
+        message={makeMessage([], { role: 'assistant', content: 'code' })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+  }
+
+  it('injects a copy button into each rendered code block', () => {
+    const { container } = renderAssistant();
+    expect(container.querySelector('pre button[data-copy-btn]')).not.toBeNull();
+  });
+
+  it('re-injects the copy button after React re-commits the markdown subtree', async () => {
+    // Regression: the markdown is set via dangerouslySetInnerHTML, so React
+    // owns the subtree and re-applies it on later commits, silently wiping any
+    // button we appended. A MutationObserver must re-decorate. Simulate that
+    // re-commit by replacing the container's innerHTML and assert the button
+    // comes back. (A render-effect keyed on the HTML string would NOT recover
+    // here, which is the bug this guards against.)
+    const { container } = renderAssistant();
+    const block = container.querySelector('pre');
+    const mdRoot = block?.parentElement;
+    expect(mdRoot).not.toBeNull();
+    expect(mdRoot?.querySelector('button[data-copy-btn]')).not.toBeNull();
+
+    await act(async () => {
+      // React replacing the subtree — pre is recreated without our button.
+      (mdRoot as HTMLElement).innerHTML =
+        '<pre><code class="hljs language-ts">const y = 2;</code></pre>';
+    });
+
+    await waitFor(() =>
+      expect(mdRoot?.querySelector('button[data-copy-btn]')).not.toBeNull(),
+    );
+  });
+});
