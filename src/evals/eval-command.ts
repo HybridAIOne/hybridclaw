@@ -14,6 +14,10 @@ import {
 import { normalizeMemoryEmbeddingProviderKind } from '../memory/embeddings.js';
 import { normalizeMemoryRecallBackend } from '../memory/semantic-recall.js';
 import {
+  parseNonNegativeInteger,
+  parsePositiveInteger,
+} from '../utils/number-normalization.js';
+import {
   buildDefaultEvalProfile,
   describeEvalProfile,
   EVAL_MODEL_PROFILE_MARKER,
@@ -2622,16 +2626,6 @@ function readCommandOptionValue(
     }
   }
   return null;
-}
-
-function parsePositiveInteger(value: string | null): number | null {
-  const parsed = Number.parseInt(String(value || '').trim(), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseNonNegativeInteger(value: string | null): number | null {
-  const parsed = Number.parseInt(String(value || '').trim(), 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function buildCommandString(commandArgs: string[]): string {
