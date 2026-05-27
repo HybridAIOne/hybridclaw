@@ -1676,6 +1676,25 @@ export async function handleApiHttpRequest(
       : responseBody.bytesRead;
   const bodyTruncated = responseBody.truncated;
 
+  if (suppressResponseBody && captureFields.length === 0) {
+    sendJson(res, 200, {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      url: response.url,
+      headers: Object.fromEntries(response.headers.entries()),
+      bodySuppressed: true,
+      bodyBytes,
+      ...(bodyTruncated
+        ? {
+            bodyTruncated: true,
+            maxResponseBytes,
+          }
+        : {}),
+    });
+    return;
+  }
+
   const responseText = responseBody.buffer.toString('utf-8');
   let responseJson: unknown;
   if (!bodyTruncated) {

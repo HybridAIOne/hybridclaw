@@ -69,7 +69,7 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
   expect(skill).toContain('video-doorbell');
   expect(skill).toContain('rest-<BLINK_TIER>.immedia-semi.com');
   expect(skill).toContain(
-    'Use the emitted `httpRequest` object with the gateway `http_request` tool.',
+    'Use the emitted `httpRequest` object with the gateway `http_request` tool',
   );
   expect(skill).toContain('F14 PIN');
   expect(skill).toContain('approvedHelperCommandText');
@@ -227,6 +227,14 @@ test('Blink helper rejects arbitrary endpoint passthrough and unsafe clip paths'
     '--path',
     '/api/v2/accounts/1234/media/clip/../../secret.mp4',
   ]);
+  const ignoredNetwork = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'clips',
+    '--network',
+    '111',
+  ]);
 
   expect(arbitrary.status).not.toBe(0);
   expect(arbitrary.stderr).toContain(
@@ -234,6 +242,8 @@ test('Blink helper rejects arbitrary endpoint passthrough and unsafe clip paths'
   );
   expect(traversal.status).not.toBe(0);
   expect(traversal.stderr).toContain('--path must be a Blink media path');
+  expect(ignoredNetwork.status).not.toBe(0);
+  expect(ignoredNetwork.stderr).toContain('Unexpected argument: --network');
 });
 
 test('Blink helper builds exact approval plans for privacy-sensitive operations', () => {
