@@ -7363,15 +7363,28 @@ export function getGatewayHistory(
     Math.max(1, Math.min(limit, 200)),
   );
   const ratingOperatorUserId = options?.operatorUserId?.trim() || '';
+  const assistantMessageIds = page.history
+    .filter((message) => message.role === 'assistant')
+    .map((message) => message.id);
   const responseRatings = ratingOperatorUserId
     ? getResponseRatingsForMessages({
         sessionId: page.sessionId,
-        messageIds: page.history
-          .filter((message) => message.role === 'assistant')
-          .map((message) => message.id),
+        messageIds: assistantMessageIds,
         operatorUserId: ratingOperatorUserId,
       })
     : new Map();
+  if (ratingOperatorUserId && ratingOperatorUserId !== 'web') {
+    const legacyWebRatings = getResponseRatingsForMessages({
+      sessionId: page.sessionId,
+      messageIds: assistantMessageIds,
+      operatorUserId: 'web',
+    });
+    for (const [messageId, rating] of legacyWebRatings.entries()) {
+      if (!responseRatings.has(messageId)) {
+        responseRatings.set(messageId, rating);
+      }
+    }
+  }
   const history = page.history
     .filter((message) => {
       if (message.role !== 'assistant') return true;
