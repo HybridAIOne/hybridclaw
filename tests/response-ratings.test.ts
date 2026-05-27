@@ -169,6 +169,7 @@ describe('response ratings', () => {
       rating: 'up',
       sourceSurface: 'web',
     });
+    service.recordSkillFeedbackForObservation.mockClear();
     const cleared = service.submitResponseRating({
       sessionId: service.sessionId,
       messageId: service.assistantMessageId,
@@ -186,5 +187,6 @@ describe('response ratings', () => {
         sourceSurface: 'web',
       }),
     ).toEqual(new Map());
+    expect(service.recordSkillFeedbackForObservation).not.toHaveBeenCalled();
   });
 });

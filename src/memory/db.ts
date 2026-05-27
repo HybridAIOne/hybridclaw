@@ -7433,8 +7433,19 @@ export function getResponseRatingTarget(params: {
         SELECT id
         FROM skill_observations
         WHERE session_id = m.session_id
+          AND (m.agent_id IS NULL OR agent_id IS NULL OR agent_id = m.agent_id)
           AND julianday(created_at) <= julianday(m.created_at)
-        ORDER BY created_at DESC, id DESC
+          AND julianday(created_at) >= COALESCE(
+            (
+              SELECT julianday(MAX(previous_user_message.created_at))
+              FROM messages previous_user_message
+              WHERE previous_user_message.session_id = m.session_id
+                AND previous_user_message.id < m.id
+                AND previous_user_message.role = 'user'
+            ),
+            0
+          )
+        ORDER BY julianday(created_at) DESC, id DESC
         LIMIT 1
        )
      WHERE m.session_id = ? AND m.id = ?

@@ -26,24 +26,18 @@ export interface SubmitResponseRatingResult {
 }
 
 function toSkillFeedbackSentiment(
-  rating: ResponseRatingValue | null,
-): 'positive' | 'negative' | 'neutral' {
-  if (rating === null) return 'neutral';
+  rating: ResponseRatingValue,
+): 'positive' | 'negative' {
   return rating === 'up' ? 'positive' : 'negative';
 }
 
 function formatSkillFeedback(input: {
-  rating: ResponseRatingValue | null;
+  rating: ResponseRatingValue;
   operatorUserId: string;
   messageId: number;
   sourceSurface: string;
 }): string {
-  const label =
-    input.rating === null
-      ? 'rating_cleared'
-      : input.rating === 'up'
-        ? 'thumbs_up'
-        : 'thumbs_down';
+  const label = input.rating === 'up' ? 'thumbs_up' : 'thumbs_down';
   return `${label} from ${input.operatorUserId} on ${input.sourceSurface} response ${input.messageId}`;
 }
 
@@ -86,7 +80,7 @@ export function submitResponseRating(
     });
   }
 
-  if (target.skill_observation_id) {
+  if (input.rating && target.skill_observation_id) {
     recordSkillFeedbackForObservation({
       observationId: target.skill_observation_id,
       sessionId,

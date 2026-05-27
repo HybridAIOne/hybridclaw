@@ -973,7 +973,10 @@ export function ChatPage() {
                       onEdit={handleEditOpen}
                       onRegenerate={handleRegenerate}
                       onRate={handleRateResponse}
-                      ratingBusy={ratingMutation.isPending}
+                      ratingBusy={
+                        ratingMutation.isPending &&
+                        ratingMutation.variables?.message.id === msg.id
+                      }
                       onApprovalAction={handleApprovalAction}
                       approvalBusy={approvalBusy}
                       branchInfo={branchInfoMap.get(msg.id) ?? null}
