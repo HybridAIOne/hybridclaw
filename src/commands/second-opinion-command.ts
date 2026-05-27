@@ -1,6 +1,7 @@
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import {
@@ -10,6 +11,7 @@ import {
 } from '../providers/model-catalog.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import {
+  isLocalBackendType,
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
@@ -28,9 +30,9 @@ import type { Session, StoredMessage } from '../types/session.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 
 const SECOND_OPINION_CONTEXT_MESSAGE_LIMIT = 8;
+const SECOND_OPINION_QUESTION_CHAR_LIMIT = 4000;
 const SECOND_OPINION_TIMEOUT_MS = 300_000;
 const SECOND_OPINION_DEFAULT_MAX_TOKENS = 1200;
-const PREFERRED_CODEX_MODEL_RE = /gpt-5\.(?:5|4)|gpt-5/i;
 
 export type SecondOpinionMode = 'compare' | 'validate';
 
@@ -56,8 +58,6 @@ interface SecondOpinionTarget {
   model: string;
   selection: 'requested' | 'configured' | 'default';
 }
-
-type SecondOpinionSynthesisDisposition = 'accepted' | 'revised' | 'unclear';
 
 const SECOND_OPINION_BASE_PROMPT = [
   'You are a stronger-model second opinion for HybridClaw.',
@@ -108,24 +108,12 @@ export function parseSecondOpinionArgs(
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] || '';
     const normalized = arg.trim().toLowerCase();
-    if (normalized === '--validate-last' || normalized === 'validate-last') {
+    if (normalized === '--validate-last') {
       mode = 'validate';
       continue;
     }
-    if (normalized === '--no-transcript' || normalized === 'no-transcript') {
+    if (normalized === '--no-transcript') {
       includeTranscript = false;
-      continue;
-    }
-    if (normalized === '--mode') {
-      const value = (args[index + 1] || '').trim().toLowerCase();
-      if (value !== 'compare' && value !== 'validate') {
-        return {
-          error:
-            'Usage: `second-opinion [--mode compare|validate] [--validate-last] [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript] [question]`',
-        };
-      }
-      mode = value;
-      index += 1;
       continue;
     }
     if (normalized === '--model') {
@@ -204,14 +192,6 @@ function findLastAssistantDraft(messages: StoredMessage[]): {
   return { draft: null, question: '' };
 }
 
-function preferModel(models: string[]): string {
-  return (
-    models.find((model) => PREFERRED_CODEX_MODEL_RE.test(model)) ||
-    models[0] ||
-    ''
-  );
-}
-
 function providerForModel(model: string): RuntimeProviderId | undefined {
   return detectRuntimeProviderPrefix(model) || undefined;
 }
@@ -219,12 +199,7 @@ function providerForModel(model: string): RuntimeProviderId | undefined {
 function isLocalSecondOpinionProvider(
   provider: RuntimeProviderId | undefined,
 ): boolean {
-  return (
-    provider === 'ollama' ||
-    provider === 'lmstudio' ||
-    provider === 'llamacpp' ||
-    provider === 'vllm'
-  );
+  return Boolean(provider && isLocalBackendType(provider));
 }
 
 function validateAvailableTarget(target: SecondOpinionTarget): void {
@@ -250,7 +225,13 @@ function validateAvailableTarget(target: SecondOpinionTarget): void {
 async function resolveSecondOpinionTarget(
   parsed: ParsedSecondOpinionArgs,
 ): Promise<SecondOpinionTarget> {
-  await refreshAvailableModelCatalogs({ includeHybridAI: true });
+  try {
+    await refreshAvailableModelCatalogs({ includeHybridAI: true });
+  } catch (error) {
+    throw new Error(
+      `Could not refresh model catalog for second opinion: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   const configured = getRuntimeConfig().auxiliaryModels.second_opinion;
   if (configured.provider === 'disabled' && !parsed.model && !parsed.provider) {
     throw new Error('second_opinion auxiliary model is disabled.');
@@ -279,7 +260,7 @@ async function resolveSecondOpinionTarget(
 
   const providerForCatalog = provider ?? 'openai-codex';
   const candidates = getAvailableModelList(providerForCatalog);
-  const model = preferModel(candidates);
+  const model = candidates[0] || '';
   if (!model) {
     throw new Error(
       `No available ${providerForCatalog} model is configured for second opinion. Use \`--model <provider/model>\` or configure \`auxiliaryModels.second_opinion\`.`,
@@ -321,6 +302,10 @@ function extractJsonObject(text: string): Record<string, unknown> {
     const end = trimmed.lastIndexOf('}');
     if (start === -1 || end <= start)
       throw new Error('second_opinion response was not JSON.');
+    logger.warn(
+      { task: 'second_opinion' },
+      'Second-opinion response included non-JSON wrapper text; attempting to parse embedded JSON object',
+    );
     return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
   }
 }
@@ -372,13 +357,6 @@ function rehydrateVerdict(
   };
 }
 
-export function parseAndRehydrateSecondOpinionVerdict(
-  content: string,
-  rehydrate: (text: string | null | undefined) => string,
-): SecondOpinionVerdict {
-  return rehydrateVerdict(parseSecondOpinionVerdict(content), rehydrate);
-}
-
 function renderVerdict(params: {
   verdict: SecondOpinionVerdict;
   model: string;
@@ -413,31 +391,17 @@ function renderVerdict(params: {
   return lines.join('\n');
 }
 
-function classifySynthesisDisposition(
-  verdict: SecondOpinionVerdict,
-): SecondOpinionSynthesisDisposition {
-  if (
-    verdict.materialDisagreements.length > 0 ||
-    verdict.missingCaveats.length > 0
-  ) {
-    return 'revised';
+function truncateQuestionForSecondOpinion(question: string): {
+  question: string;
+  truncated: boolean;
+} {
+  if (question.length <= SECOND_OPINION_QUESTION_CHAR_LIMIT) {
+    return { question, truncated: false };
   }
-  const normalizedVerdict = verdict.verdict.toLowerCase();
-  if (
-    /\b(incorrect|wrong|missed|missing|gap|risk|risky|unsupported|disagree|caveat|revise|corrected)\b/.test(
-      normalizedVerdict,
-    )
-  ) {
-    return 'revised';
-  }
-  if (
-    /\b(acceptable|accepted|correct|sound|valid|no material|no significant)\b/.test(
-      normalizedVerdict,
-    )
-  ) {
-    return 'accepted';
-  }
-  return 'unclear';
+  return {
+    question: `${question.slice(0, SECOND_OPINION_QUESTION_CHAR_LIMIT)}\n\n[Question truncated to ${SECOND_OPINION_QUESTION_CHAR_LIMIT} characters before the second-opinion model call.]`,
+    truncated: true,
+  };
 }
 
 export async function runSecondOpinionCommand(
@@ -458,14 +422,18 @@ export async function runSecondOpinionCommand(
       'No previous assistant answer found. Ask the question first, then run `second-opinion --validate-last` or `second-opinion <question>`.',
     );
   }
-  const question = parsed.question || inferredQuestion;
-  if (!question) {
+  const rawQuestion = parsed.question || inferredQuestion;
+  if (!rawQuestion) {
     throw new Error(
       'No original question found. Pass the question explicitly after `second-opinion`.',
     );
   }
+  const { question, truncated: questionTruncated } =
+    truncateQuestionForSecondOpinion(rawQuestion);
 
   const target = await resolveSecondOpinionTarget(parsed);
+  const auditProvider =
+    target.provider ?? detectRuntimeProviderPrefix(target.model) ?? 'unknown';
   const resolved = resolveAgentForRequest({ session });
   const contextMessages = recentStoredMessages
     .map(toContextChatMessage)
@@ -480,9 +448,10 @@ export async function runSecondOpinionCommand(
     draftAnswer: draft.content,
     contextMessages: includedContextMessages,
   });
+  const serializedMessages = JSON.stringify(messages);
   const outboundConfidentialScan =
     confidential.enabled && !isLocalSecondOpinionProvider(target.provider)
-      ? scanForLeaks(JSON.stringify(messages), confidential.ruleSet)
+      ? scanForLeaks(serializedMessages, confidential.ruleSet)
       : null;
   const hasCriticalConfidentialRule =
     outboundConfidentialScan?.findings.some(
@@ -497,13 +466,11 @@ export async function runSecondOpinionCommand(
         type: 'second_opinion.blocked',
         mode: parsed.mode,
         model: target.model,
-        provider:
-          target.provider ||
-          detectRuntimeProviderPrefix(target.model) ||
-          'auto',
+        provider: auditProvider,
         reason: 'critical_confidential_match',
         redactionApplied: false,
         transcriptIncluded: parsed.includeTranscript,
+        questionTruncated,
         confidentialSeverity: outboundConfidentialScan.severity,
         confidentialMatches: outboundConfidentialScan.totalMatches,
       },
@@ -525,10 +492,10 @@ export async function runSecondOpinionCommand(
       type: 'second_opinion.requested',
       mode: parsed.mode,
       model: target.model,
-      provider:
-        target.provider || detectRuntimeProviderPrefix(target.model) || 'auto',
+      provider: auditProvider,
       redactionApplied,
       transcriptIncluded: parsed.includeTranscript,
+      questionTruncated,
       contextMessages: includedContextMessages.length,
       confidentialSeverity: outboundConfidentialScan?.severity ?? null,
       confidentialMatches: outboundConfidentialScan?.totalMatches ?? 0,
@@ -551,25 +518,26 @@ export async function runSecondOpinionCommand(
     timeoutMs: SECOND_OPINION_TIMEOUT_MS,
     allowFallback: false,
   });
-  const verdict = parseAndRehydrateSecondOpinionVerdict(
-    response.content,
+  // Parse while confidential placeholders are still JSON-safe tokens, then
+  // rehydrate only parsed string fields so quoted/newline values cannot break
+  // the JSON envelope.
+  const verdict = rehydrateVerdict(
+    parseSecondOpinionVerdict(response.content),
     confidential.rehydrate,
   );
-  const synthesisDisposition = classifySynthesisDisposition(verdict);
+  const estimatedInputTokens =
+    response.usage?.inputTokens ??
+    estimateTokenCountFromMessages(dehydratedMessages);
 
   enqueueTokenUsage({
     sessionId: session.id,
     agentId: resolved.agentId,
     model: response.model,
-    inputTokens:
-      response.usage?.inputTokens ??
-      estimateTokenCountFromMessages(dehydratedMessages),
+    inputTokens: estimatedInputTokens,
     outputTokens: response.usage?.outputTokens ?? 0,
     totalTokens:
       response.usage?.totalTokens ??
-      (response.usage?.inputTokens ??
-        estimateTokenCountFromMessages(dehydratedMessages)) +
-        (response.usage?.outputTokens ?? 0),
+      estimatedInputTokens + (response.usage?.outputTokens ?? 0),
     costUsd: response.usage?.costUsd ?? 0,
   });
 
@@ -583,10 +551,10 @@ export async function runSecondOpinionCommand(
       provider: response.provider,
       redactionApplied,
       transcriptIncluded: parsed.includeTranscript,
+      questionTruncated,
       confidence: verdict.confidence,
       materialDisagreements: verdict.materialDisagreements.length,
       missingCaveats: verdict.missingCaveats.length,
-      synthesisDisposition,
       usage: response.usage || null,
     },
   });

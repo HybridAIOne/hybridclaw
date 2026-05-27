@@ -639,14 +639,15 @@ async function discoverLocalModelsForAuxFallback(): Promise<void> {
   await discoverAllLocalModels();
 }
 
-async function resolveLocalFallbackContext(params: {
+async function collectLocalFallbackCandidates(params: {
   params: AuxiliaryModelCallParams;
-  primaryError: unknown;
   modelHint?: string;
-  primaryProvider?: RuntimeProvider;
-  logMessage?: string;
-  maxTokens?: number;
-}): Promise<AuxiliaryTextCallContext | null> {
+}): Promise<
+  Array<{
+    model: string;
+    expectedProvider?: RuntimeProvider;
+  }>
+> {
   await discoverLocalModelsForAuxFallback();
 
   const candidates: Array<{
@@ -677,6 +678,19 @@ async function resolveLocalFallbackContext(params: {
   }
   pushCandidate(params.params.fallbackModel);
   pushCandidate(params.modelHint);
+
+  return candidates;
+}
+
+async function resolveLocalFallbackContext(params: {
+  params: AuxiliaryModelCallParams;
+  primaryError: unknown;
+  modelHint?: string;
+  primaryProvider?: RuntimeProvider;
+  logMessage?: string;
+  maxTokens?: number;
+}): Promise<AuxiliaryTextCallContext | null> {
+  const candidates = await collectLocalFallbackCandidates(params);
 
   for (const candidate of candidates) {
     try {
@@ -729,36 +743,7 @@ async function resolveLocalFallbackContexts(params: {
   modelHint?: string;
   maxTokens?: number;
 }): Promise<AuxiliaryTextCallContext[]> {
-  await discoverLocalModelsForAuxFallback();
-
-  const candidates: Array<{
-    model: string;
-    expectedProvider?: RuntimeProvider;
-  }> = [];
-  const seen = new Set<string>();
-  const pushCandidate = (
-    model: string | undefined,
-    expectedProvider?: RuntimeProvider,
-  ): void => {
-    const trimmed = model?.trim() ?? '';
-    if (!trimmed) return;
-    const provider = resolveLocalCandidateProvider(trimmed, expectedProvider);
-    if (!provider) return;
-    const explicitProvider = detectRuntimeProviderPrefix(trimmed);
-    const normalized = !explicitProvider
-      ? normalizeAuxiliaryProviderModel({ provider, model: trimmed })
-      : trimmed;
-    const key = `${provider}:${normalized}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    candidates.push({ model: normalized, expectedProvider: provider });
-  };
-
-  for (const provider of resolveLocalFallbackProviderOrder(params)) {
-    pushCandidate(resolveDefaultAuxiliaryModelForProvider(provider), provider);
-  }
-  pushCandidate(params.params.fallbackModel);
-  pushCandidate(params.modelHint);
+  const candidates = await collectLocalFallbackCandidates(params);
 
   const contexts: AuxiliaryTextCallContext[] = [];
   for (const candidate of candidates) {

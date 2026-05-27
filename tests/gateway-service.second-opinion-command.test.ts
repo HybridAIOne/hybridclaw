@@ -94,7 +94,11 @@ test('second-opinion parser rejects invalid flags and supports no-transcript', a
     maxContextMessages: 32,
   });
   expect(parseSecondOpinionArgs(['--mode', 'bogus'])).toMatchObject({
-    error: expect.stringContaining('Usage:'),
+    error: 'Unknown second-opinion option: --mode.',
+  });
+  expect(parseSecondOpinionArgs(['validate-last'])).toMatchObject({
+    mode: 'compare',
+    question: 'validate-last',
   });
   expect(parseSecondOpinionArgs(['--unknown'])).toMatchObject({
     error: 'Unknown second-opinion option: --unknown.',
@@ -190,8 +194,8 @@ test('second-opinion validate-last sends the previous answer to a stronger tool-
     (entry) => entry.event_type === 'second_opinion.completed',
   );
   expect(JSON.parse(completed?.payload || '{}')).toMatchObject({
-    synthesisDisposition: 'revised',
     materialDisagreements: 1,
+    questionTruncated: false,
     usage: { totalTokens: 30 },
   });
 });
@@ -238,6 +242,60 @@ test('second-opinion question mode uses a same-question comparison prompt', asyn
   expect(payload.mode).toBe('compare');
   expect(payload.original_question).toBe('What rollout plan is safest?');
   expect(payload.active_assistant_draft).toContain('everyone immediately');
+});
+
+test('second-opinion caps explicit questions before the stronger model call', async () => {
+  setupHome();
+  mockModelCatalog(['openai-codex/gpt-5.5']);
+
+  const callAuxiliaryModelMock = vi.fn(async () => ({
+    provider: 'openai-codex' as const,
+    model: 'openai-codex/gpt-5.5',
+    content: JSON.stringify({
+      verdict: 'The capped question is enough to review.',
+      revised_answer: 'Use the staged rollout.',
+      material_disagreements: [],
+      missing_caveats: [],
+      confidence: 'medium',
+    }),
+  }));
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel: callAuxiliaryModelMock,
+  }));
+
+  const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
+  const session = seedSession(
+    memoryService,
+    'session-second-opinion-long-question',
+    [
+      { role: 'user', content: 'How should we roll this out?' },
+      { role: 'assistant', content: 'Release it to everyone immediately.' },
+    ],
+  );
+  const longQuestion = 'x'.repeat(5000);
+
+  const result = await handleGatewayCommand({
+    sessionId: session.id,
+    guildId: null,
+    channelId: 'web',
+    args: ['second-opinion', longQuestion],
+  });
+
+  expect(result.kind).toBe('info');
+  const call = callAuxiliaryModelMock.mock.calls[0]?.[0];
+  const payload = JSON.parse(String(call?.messages?.[1]?.content));
+  expect(payload.original_question).toContain('Question truncated to 4000');
+  expect(payload.original_question.length).toBeLessThan(longQuestion.length);
+
+  const { getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const completed = getRecentStructuredAuditForSession(session.id, 10).find(
+    (entry) => entry.event_type === 'second_opinion.completed',
+  );
+  expect(JSON.parse(completed?.payload || '{}')).toMatchObject({
+    questionTruncated: true,
+  });
 });
 
 test('second-opinion fails loud when no stronger default model is configured', async () => {
@@ -395,13 +453,13 @@ test('second-opinion redacts confidential terms before the stronger model call',
   expect(JSON.stringify(call?.messages)).toContain('«CONF:CLIENT_001»');
 });
 
-test('second-opinion parses JSON before rehydrating confidential placeholders', async () => {
+test('second-opinion parser keeps confidential placeholders JSON-safe before rehydration', async () => {
   setupHome();
-  const { parseAndRehydrateSecondOpinionVerdict } = await import(
+  const { parseSecondOpinionVerdict } = await import(
     '../src/commands/second-opinion-command.ts'
   );
 
-  const verdict = parseAndRehydrateSecondOpinionVerdict(
+  const verdict = parseSecondOpinionVerdict(
     JSON.stringify({
       verdict: 'The draft is acceptable for «CONF:PATTERN_001».',
       revised_answer: 'Proceed with the plan for «CONF:PATTERN_001».',
@@ -409,14 +467,18 @@ test('second-opinion parses JSON before rehydrating confidential placeholders', 
       missing_caveats: [],
       confidence: 'medium',
     }),
-    (text) => (text || '').replaceAll('«CONF:PATTERN_001»', 'Client "Quoted"'),
   );
+  const rehydrate = (text: string) =>
+    text.replaceAll('«CONF:PATTERN_001»', 'Client "Quoted"');
 
   expect(verdict).toMatchObject({
-    revisedAnswer: 'Proceed with the plan for Client "Quoted".',
-    verdict: 'The draft is acceptable for Client "Quoted".',
-    materialDisagreements: ['No issue for Client "Quoted".'],
+    revisedAnswer: 'Proceed with the plan for «CONF:PATTERN_001».',
+    verdict: 'The draft is acceptable for «CONF:PATTERN_001».',
+    materialDisagreements: ['No issue for «CONF:PATTERN_001».'],
   });
+  expect(rehydrate(verdict.revisedAnswer)).toBe(
+    'Proceed with the plan for Client "Quoted".',
+  );
   expect(() =>
     JSON.parse(
       JSON.stringify({
