@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
       `Agent liveness ${probe.state}: ${probe.agentId}`,
   ),
   getCoworkerLivenessSummary: vi.fn(() => ({ probes: [] })),
+  hasActionableHeartbeatFile: vi.fn(() => true),
   heartbeatEnabled: true,
   resolveAgentForRequest: vi.fn(() => ({
     agentId: 'vllm',
@@ -122,8 +123,13 @@ vi.mock('../src/session/token-efficiency.js', () => ({
   estimateTokenCountFromText: mocks.estimateTokenCountFromText,
 }));
 
+vi.mock('../src/workspace.js', () => ({
+  hasActionableHeartbeatFile: mocks.hasActionableHeartbeatFile,
+}));
+
 beforeEach(() => {
   mocks.heartbeatEnabled = true;
+  mocks.hasActionableHeartbeatFile.mockReturnValue(true);
 });
 
 afterEach(async () => {
@@ -173,6 +179,31 @@ test.each([
       );
     }),
   ).toBe(true);
+});
+
+test('skips the heartbeat agent when HEARTBEAT.md has no actionable tasks', async () => {
+  vi.useFakeTimers();
+  mocks.hasActionableHeartbeatFile.mockReturnValue(false);
+  mocks.runAgent.mockResolvedValue({
+    status: 'success',
+    result: 'Review the queued tasks today.',
+    toolExecutions: [],
+  });
+
+  const { startHeartbeat, stopHeartbeat } = await import(
+    '../src/scheduler/heartbeat.ts'
+  );
+  const onMessage = vi.fn();
+
+  startHeartbeat('vllm', 1_000, onMessage);
+  await vi.advanceTimersByTimeAsync(1_000);
+  stopHeartbeat();
+
+  expect(mocks.hasActionableHeartbeatFile).toHaveBeenCalledWith('vllm');
+  expect(mocks.memoryService.getOrCreateSession).not.toHaveBeenCalled();
+  expect(mocks.buildConversationContext).not.toHaveBeenCalled();
+  expect(mocks.runAgent).not.toHaveBeenCalled();
+  expect(onMessage).not.toHaveBeenCalled();
 });
 
 test('delivers substantive heartbeat messages', async () => {
