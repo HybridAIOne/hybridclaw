@@ -165,6 +165,72 @@ describe('workspace bootstrap lifecycle', () => {
     });
   });
 
+  test('omits the default HEARTBEAT.md from bootstrap context', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    expect(fs.existsSync(path.join(workspaceDir, 'HEARTBEAT.md'))).toBe(true);
+
+    const files = workspace.loadStaticBootstrapFiles('agent-test');
+    expect(files.some((file) => file.name === 'HEARTBEAT.md')).toBe(false);
+    expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(false);
+  });
+
+  test('does not treat missing or empty HEARTBEAT.md as actionable', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const heartbeatPath = path.join(workspaceDir, 'HEARTBEAT.md');
+    fs.unlinkSync(heartbeatPath);
+    expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(false);
+
+    fs.writeFileSync(heartbeatPath, ' \n\t\n', 'utf-8');
+    expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(false);
+  });
+
+  test('loads customized HEARTBEAT.md into bootstrap context', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    fs.writeFileSync(
+      path.join(workspaceDir, 'HEARTBEAT.md'),
+      '# HEARTBEAT.md\n\n- Check whether the nightly import completed.\n',
+      'utf-8',
+    );
+
+    const files = workspace.loadStaticBootstrapFiles('agent-test');
+    expect(files).toContainEqual({
+      name: 'HEARTBEAT.md',
+      content:
+        '# HEARTBEAT.md\n\n- Check whether the nightly import completed.',
+    });
+    expect(workspace.hasActionableHeartbeatFile('agent-test')).toBe(true);
+  });
+
   test('removes stale BOOTSTRAP.md when the workspace already looks completed', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

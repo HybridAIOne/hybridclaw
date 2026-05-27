@@ -285,7 +285,10 @@ import {
   previewGatewayAdminOutputGuardProfile,
   updateGatewayAdminOutputGuardProfile,
 } from './output-guard-admin.js';
-import { isSupportedProactiveChannelId } from './proactive-delivery.js';
+import {
+  isSupportedProactiveChannelId,
+  shouldSuppressProactiveMessage,
+} from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
   handleTextChannelApprovalCommand,
@@ -3683,7 +3686,9 @@ function handleApiProactivePull(res: ServerResponse, url: URL): void {
   }
   const parsedLimit = parseInt(url.searchParams.get('limit') || '20', 10);
   const limit = Number.isNaN(parsedLimit) ? 20 : parsedLimit;
-  const messages = claimQueuedProactiveMessages(channelId, limit);
+  const messages = claimQueuedProactiveMessages(channelId, limit).filter(
+    (message) => !shouldSuppressProactiveMessage(message),
+  );
   sendJson(res, 200, { channelId, messages });
 }
 

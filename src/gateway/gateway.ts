@@ -223,6 +223,7 @@ import {
   isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
+  shouldSuppressProactiveMessage,
 } from './proactive-delivery.js';
 import {
   normalizeSessionShowMode,
@@ -859,6 +860,11 @@ async function deliverProactiveMessage(
   source: string,
   artifacts?: ArtifactMetadata[],
 ): Promise<void> {
+  if (shouldSuppressProactiveMessage({ source, text })) {
+    logger.debug({ source, channelId }, 'Proactive message suppressed');
+    return;
+  }
+
   if (!isWithinActiveHours()) {
     if (PROACTIVE_QUEUE_OUTSIDE_HOURS) {
       const { queued, dropped } = enqueueProactiveMessage(
@@ -1309,11 +1315,12 @@ async function flushQueuedProactiveMessages(): Promise<void> {
   let droppedUndeliverable = 0;
   for (const item of pending) {
     if (!isWithinActiveHours()) break;
+    if (shouldDropQueuedProactiveMessage(item)) {
+      deleteQueuedProactiveMessage(item.id);
+      droppedUndeliverable += 1;
+      continue;
+    }
     if (!isSupportedProactiveChannelId(item.channel_id)) {
-      if (shouldDropQueuedProactiveMessage(item)) {
-        deleteQueuedProactiveMessage(item.id);
-        droppedUndeliverable += 1;
-      }
       continue;
     }
     await sendProactiveMessageNow(
