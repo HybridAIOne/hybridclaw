@@ -78,9 +78,7 @@ export function isInAppUrl(candidate: string, baseUrl: string): boolean {
   return routeForUrl(candidate, baseUrl) !== null;
 }
 
-export function buildGatewayPath(
-  currentPath = process.env.PATH || '',
-): string {
+export function buildGatewayPath(currentPath = process.env.PATH || ''): string {
   const entries = currentPath
     .split(path.delimiter)
     .map((entry) => entry.trim())
