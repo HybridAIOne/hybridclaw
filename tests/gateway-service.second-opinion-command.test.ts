@@ -30,7 +30,7 @@ async function loadGatewayFixture() {
 }
 
 function mockModelCatalog(
-  models: string[],
+  models: string[] | Record<string, string[]>,
   metadataOverrides: Record<
     string,
     {
@@ -39,11 +39,18 @@ function mockModelCatalog(
     }
   > = {},
 ) {
+  const modelsByProvider = Array.isArray(models)
+    ? {
+        codex: models,
+        'openai-codex': models,
+      }
+    : models;
+  const allModels = [...new Set(Object.values(modelsByProvider).flat())];
   const refreshAvailableModelCatalogs = vi.fn(async () => ({
     attempted: 1,
     fulfilled: 1,
     rejected: 0,
-    discoveredModelCount: models.length,
+    discoveredModelCount: allModels.length,
     failures: [],
   }));
   vi.doMock('../src/providers/model-catalog.js', async () => {
@@ -54,9 +61,7 @@ function mockModelCatalog(
       ...actual,
       refreshAvailableModelCatalogs,
       getAvailableModelList: vi.fn((provider?: string) =>
-        !provider || provider === 'codex' || provider === 'openai-codex'
-          ? models
-          : [],
+        provider ? (modelsByProvider[provider] ?? []) : allModels,
       ),
       getModelCatalogMetadata: vi.fn((model: string) => {
         const metadata = actual.getModelCatalogMetadata(model);
@@ -132,13 +137,15 @@ test('second-opinion parser rejects invalid flags and supports no-transcript', a
     model: 'openai-codex/gpt-5.5',
     question: '',
   });
-  expect(parseSecondOpinionArgs(['validate', 'model-a', 'extra'])).toMatchObject(
-    {
-      error:
-        'Unexpected second-opinion validate argument: extra. Use `--model <model>` or pass a single model name after `validate`.',
-    },
-  );
-  expect(parseSecondOpinionArgs(['fact-check', 'openai-codex/gpt-5.5'])).toMatchObject({
+  expect(
+    parseSecondOpinionArgs(['validate', 'model-a', 'extra']),
+  ).toMatchObject({
+    error:
+      'Unexpected second-opinion validate argument: extra. Use `--model <model>` or pass a single model name after `validate`.',
+  });
+  expect(
+    parseSecondOpinionArgs(['fact-check', 'openai-codex/gpt-5.5']),
+  ).toMatchObject({
     mode: 'validate',
     model: 'openai-codex/gpt-5.5',
     useWebSearch: true,
@@ -147,6 +154,11 @@ test('second-opinion parser rejects invalid flags and supports no-transcript', a
   expect(parseSecondOpinionArgs(['--web-search'])).toMatchObject({
     mode: 'validate',
     useWebSearch: true,
+    question: '',
+  });
+  expect(parseSecondOpinionArgs(['validate', '--strongest'])).toMatchObject({
+    mode: 'validate',
+    useStrongestModel: true,
     question: '',
   });
   expect(parseSecondOpinionArgs(['--mode', 'bogus'])).toMatchObject({
@@ -263,6 +275,105 @@ test('second-opinion validate-last sends the previous answer to a stronger tool-
   });
 });
 
+test('second-opinion defaults to the provider-specific strongest available model', async () => {
+  setupHome();
+  mockModelCatalog([
+    'openai-codex/codex-auto-review',
+    'openai-codex/gpt-5.4',
+    'openai-codex/gpt-5.5',
+  ]);
+
+  const callAuxiliaryModelMock = vi.fn(async () => ({
+    provider: 'openai-codex' as const,
+    model: 'openai-codex/gpt-5.5',
+    content: JSON.stringify({
+      verdict: 'The draft is acceptable.',
+      revised_answer: 'Use the staged rollout.',
+      material_disagreements: [],
+      missing_caveats: [],
+      confidence: 'high',
+    }),
+  }));
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel: callAuxiliaryModelMock,
+  }));
+
+  const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
+  const session = seedSession(
+    memoryService,
+    'session-second-opinion-strongest-default',
+    [
+      { role: 'user', content: 'How should we roll this out?' },
+      { role: 'assistant', content: 'Use a staged rollout.' },
+    ],
+  );
+
+  const result = await handleGatewayCommand({
+    sessionId: session.id,
+    guildId: null,
+    channelId: 'web',
+    args: ['second-opinion', 'validate'],
+  });
+
+  expect(result.kind).toBe('info');
+  expect(callAuxiliaryModelMock.mock.calls[0]?.[0]).toMatchObject({
+    provider: 'openai-codex',
+    model: 'openai-codex/gpt-5.5',
+  });
+});
+
+test('second-opinion strongest flag selects provider-specific strongest override', async () => {
+  setupHome();
+  mockModelCatalog({
+    anthropic: ['anthropic/claude-sonnet-4-6', 'anthropic/claude-opus-4-8'],
+    'openai-codex': ['openai-codex/codex-auto-review'],
+  });
+
+  const callAuxiliaryModelMock = vi.fn(async () => ({
+    provider: 'anthropic' as const,
+    model: 'anthropic/claude-opus-4-8',
+    content: JSON.stringify({
+      verdict: 'The draft is acceptable.',
+      revised_answer: 'Use the staged rollout.',
+      material_disagreements: [],
+      missing_caveats: [],
+      confidence: 'high',
+    }),
+  }));
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel: callAuxiliaryModelMock,
+  }));
+
+  const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
+  const session = seedSession(
+    memoryService,
+    'session-second-opinion-strongest-anthropic',
+    [
+      { role: 'user', content: 'How should we roll this out?' },
+      { role: 'assistant', content: 'Use a staged rollout.' },
+    ],
+  );
+
+  const result = await handleGatewayCommand({
+    sessionId: session.id,
+    guildId: null,
+    channelId: 'web',
+    args: [
+      'second-opinion',
+      'validate',
+      '--provider',
+      'anthropic',
+      '--strongest',
+    ],
+  });
+
+  expect(result.kind).toBe('info');
+  expect(callAuxiliaryModelMock.mock.calls[0]?.[0]).toMatchObject({
+    provider: 'anthropic',
+    model: 'anthropic/claude-opus-4-8',
+  });
+});
+
 test('second-opinion fact-check adds web search and fetch evidence to validation', async () => {
   setupHome();
   mockModelCatalog(['openai-codex/gpt-5.5']);
@@ -285,33 +396,42 @@ test('second-opinion fact-check adds web search and fetch evidence to validation
     runSecondOpinionWebSearch: runSecondOpinionWebSearchMock,
   }));
 
-  const callAuxiliaryModelMock = vi.fn(async (params: { messages: Array<{ content: string }> }) => {
-    if (params.messages[0]?.content.includes('web search queries')) {
+  const callAuxiliaryModelMock = vi.fn(
+    async (params: { messages: Array<{ content: string }> }) => {
+      if (params.messages[0]?.content.includes('web search queries')) {
+        return {
+          provider: 'openai-codex' as const,
+          model: 'openai-codex/gpt-5.5',
+          content: JSON.stringify({
+            queries: [
+              'age of universe latest cosmology measurements',
+              'Planck cosmic microwave background age universe',
+            ],
+          }),
+        };
+      }
       return {
         provider: 'openai-codex' as const,
         model: 'openai-codex/gpt-5.5',
         content: JSON.stringify({
-          queries: [
-            'age of universe latest cosmology measurements',
-            'Planck cosmic microwave background age universe',
+          verdict: 'The age is accurate.',
+          revised_answer:
+            'The universe is about 13.8 billion years old, based on modern cosmological measurements.',
+          material_disagreements: [],
+          missing_caveats: [
+            'The value depends slightly on the cosmological model.',
           ],
+          confidence: 'high',
         }),
+        usage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 30,
+          costUsd: 0,
+        },
       };
-    }
-    return {
-      provider: 'openai-codex' as const,
-      model: 'openai-codex/gpt-5.5',
-      content: JSON.stringify({
-        verdict: 'The age is accurate.',
-        revised_answer:
-          'The universe is about 13.8 billion years old, based on modern cosmological measurements.',
-        material_disagreements: [],
-        missing_caveats: ['The value depends slightly on the cosmological model.'],
-        confidence: 'high',
-      }),
-      usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30, costUsd: 0 },
-    };
-  });
+    },
+  );
   vi.doMock('../src/providers/auxiliary.js', () => ({
     callAuxiliaryModel: callAuxiliaryModelMock,
   }));
@@ -319,7 +439,10 @@ test('second-opinion fact-check adds web search and fetch evidence to validation
   const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
   const session = seedSession(memoryService, 'session-second-opinion-web', [
     { role: 'user', content: 'How old is our universe?' },
-    { role: 'assistant', content: 'The universe is about 13.8 billion years old.' },
+    {
+      role: 'assistant',
+      content: 'The universe is about 13.8 billion years old.',
+    },
   ]);
 
   const result = await handleGatewayCommand({
@@ -331,11 +454,15 @@ test('second-opinion fact-check adds web search and fetch evidence to validation
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') throw new Error('Expected info result.');
-  expect(result.text).toContain('Web search/fetch: tavily · 10 results · 10 fetched');
+  expect(result.text).toContain(
+    'Web search/fetch: tavily · 10 results · 10 fetched',
+  );
   expect(result.text).toContain('Reviewer model: openai-codex/gpt-5.5');
   expect(result.text).toContain('Sources used:');
   expect(result.text).toContain('1. Source 1 — https://example.com/source-1');
-  expect(result.text).toContain('10. Source 10 — https://example.com/source-10');
+  expect(result.text).toContain(
+    '10. Source 10 — https://example.com/source-10',
+  );
   expect(runSecondOpinionWebSearchMock).toHaveBeenCalledWith({
     queries: [
       'age of universe latest cosmology measurements',
@@ -352,7 +479,9 @@ test('second-opinion fact-check adds web search and fetch evidence to validation
     url: 'https://example.com/source-1',
     fetchedExcerpt: 'Fetched source excerpt 1',
   });
-  expect(payload.instruction).toContain('at least 10 independent Internet sources');
+  expect(payload.instruction).toContain(
+    'at least 10 independent Internet sources',
+  );
 
   const { getRecentStructuredAuditForSession } = await import(
     '../src/memory/db.ts'
@@ -654,9 +783,9 @@ test('second-opinion enforces configured agent budget before dispatch', async ()
     { role: 'assistant', content: 'Use a staged rollout.' },
   ]);
 
-  await expect(
-    runSecondOpinionCommand(session, ['validate']),
-  ).rejects.toThrow('would exceed the monthly USD budget');
+  await expect(runSecondOpinionCommand(session, ['validate'])).rejects.toThrow(
+    'would exceed the monthly USD budget',
+  );
   expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
 });
 
@@ -700,12 +829,7 @@ test('second-opinion rejects an explicit unavailable stronger model before dispa
     sessionId: session.id,
     guildId: null,
     channelId: 'web',
-    args: [
-      'second-opinion',
-      'validate',
-      '--model',
-      'openai-codex/not-real',
-    ],
+    args: ['second-opinion', 'validate', '--model', 'openai-codex/not-real'],
   });
 
   expect(result.kind).toBe('error');

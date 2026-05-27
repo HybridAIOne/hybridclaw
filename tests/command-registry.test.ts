@@ -141,6 +141,7 @@ test('registers second-opinion slash options and maps them to command flags', as
       expect.objectContaining({ name: 'model' }),
       expect.objectContaining({ name: 'provider' }),
       expect.objectContaining({ name: 'max-context' }),
+      expect.objectContaining({ name: 'strongest' }),
       expect.objectContaining({ name: 'no-transcript' }),
     ]),
   });
@@ -150,6 +151,7 @@ test('registers second-opinion slash options and maps them to command flags', as
       expect.objectContaining({ name: 'model' }),
       expect.objectContaining({ name: 'provider' }),
       expect.objectContaining({ name: 'max-context' }),
+      expect.objectContaining({ name: 'strongest' }),
       expect.objectContaining({ name: 'no-transcript' }),
     ]),
   });
@@ -159,6 +161,7 @@ test('registers second-opinion slash options and maps them to command flags', as
       expect.objectContaining({ name: 'model' }),
       expect.objectContaining({ name: 'provider' }),
       expect.objectContaining({ name: 'max-context' }),
+      expect.objectContaining({ name: 'strongest' }),
       expect.objectContaining({ name: 'web-search' }),
       expect.objectContaining({ name: 'no-transcript' }),
     ]),
@@ -170,6 +173,7 @@ test('registers second-opinion slash options and maps them to command flags', as
   expect(secondOpinionHelp).toContain('validate [model]');
   expect(secondOpinionHelp).toContain('fact-check [model]');
   expect(secondOpinionHelp).toContain('--provider <provider>');
+  expect(secondOpinionHelp).toContain('--strongest');
   expect(secondOpinionHelp).not.toContain('--validate-last');
 
   expect(
@@ -184,9 +188,11 @@ test('registers second-opinion slash options and maps them to command flags', as
               ? 'openai-codex'
               : name === 'max-context'
                 ? '4'
-                : name === 'no-transcript'
-                  ? '--no-transcript'
-                  : null,
+                : name === 'strongest'
+                  ? '--strongest'
+                  : name === 'no-transcript'
+                    ? '--no-transcript'
+                    : null,
       getSubcommand: () => 'compare',
     }),
   ).toEqual([
@@ -197,14 +203,14 @@ test('registers second-opinion slash options and maps them to command flags', as
     'openai-codex',
     '--max-context',
     '4',
+    '--strongest',
     '--no-transcript',
     'What is the safest rollout?',
   ]);
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'second-opinion',
-      getString: (name) =>
-        name === 'model' ? 'openai-codex/gpt-5.5' : null,
+      getString: (name) => (name === 'model' ? 'openai-codex/gpt-5.5' : null),
       getSubcommand: () => 'compare',
     }),
   ).toEqual(['second-opinion', '--model', 'openai-codex/gpt-5.5']);
@@ -251,8 +257,7 @@ test('registers second-opinion slash options and maps them to command flags', as
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'second-opinion',
-      getString: (name) =>
-        name === 'model' ? 'openai-codex/gpt-5.5' : null,
+      getString: (name) => (name === 'model' ? 'openai-codex/gpt-5.5' : null),
       getSubcommand: () => 'fact-check',
     }),
   ).toEqual([

@@ -42,6 +42,23 @@ const SECOND_OPINION_QUESTION_CHAR_LIMIT = 4000;
 const SECOND_OPINION_MODEL_CATALOG_REFRESH_TTL_MS = 60_000;
 const SECOND_OPINION_TIMEOUT_MS = 300_000;
 const SECOND_OPINION_DEFAULT_MAX_TOKENS = 1200;
+const SECOND_OPINION_STRONGEST_MODEL_CANDIDATES: Partial<
+  Record<RuntimeProviderId, string[]>
+> = {
+  hybridai: ['hybridai/gpt-5.5', 'gpt-5.5'],
+  'openai-codex': ['openai-codex/gpt-5.5', 'gpt-5.5'],
+  gemini: ['gemini/gemini-3.1-pro', 'gemini-3.1-pro'],
+  anthropic: [
+    'anthropic/claude-opus-4.8',
+    'anthropic/claude-opus-4-8',
+    'anthropic/opus-4.8',
+    'anthropic/opus-4-8',
+    'claude-opus-4.8',
+    'claude-opus-4-8',
+    'opus-4.8',
+    'opus-4-8',
+  ],
+};
 
 export type SecondOpinionMode = 'compare' | 'validate';
 type SecondOpinionSynthesisOutcome = 'accepted' | 'rejected' | 'partial';
@@ -54,6 +71,7 @@ export interface ParsedSecondOpinionArgs {
   maxContextMessages: number;
   includeTranscript: boolean;
   useWebSearch: boolean;
+  useStrongestModel: boolean;
 }
 
 interface SecondOpinionVerdict {
@@ -142,6 +160,7 @@ export function parseSecondOpinionArgs(
   let maxContextMessages = SECOND_OPINION_CONTEXT_MESSAGE_LIMIT;
   let includeTranscript = true;
   let useWebSearch = false;
+  let useStrongestModel = false;
   const questionParts: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -170,6 +189,10 @@ export function parseSecondOpinionArgs(
     if (normalized === '--web-search' || normalized === '--web') {
       mode = 'validate';
       useWebSearch = true;
+      continue;
+    }
+    if (normalized === '--strongest') {
+      useStrongestModel = true;
       continue;
     }
     if (normalized === '--no-transcript') {
@@ -230,6 +253,7 @@ export function parseSecondOpinionArgs(
     maxContextMessages,
     includeTranscript,
     useWebSearch,
+    useStrongestModel,
   };
 }
 
@@ -279,7 +303,14 @@ function validateAvailableTarget(target: SecondOpinionTarget): void {
     );
   }
   const available = getAvailableModelList(target.provider);
-  if (!available.includes(target.model)) {
+  const isAvailable =
+    available.includes(target.model) ||
+    available.some(
+      (model) =>
+        normalizeSecondOpinionModelPreferenceKey(model) ===
+        normalizeSecondOpinionModelPreferenceKey(target.model),
+    );
+  if (!isAvailable) {
     const source =
       target.selection === 'requested'
         ? 'Requested'
@@ -290,6 +321,38 @@ function validateAvailableTarget(target: SecondOpinionTarget): void {
       `${source} second-opinion model "${target.model}" is not available for provider "${target.provider}". Use \`/model\` to pick an available model or configure \`auxiliaryModels.second_opinion\`.`,
     );
   }
+}
+
+function normalizeSecondOpinionModelPreferenceKey(model: string): string {
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase();
+  const tail = normalized.includes('/')
+    ? normalized.slice(normalized.lastIndexOf('/') + 1)
+    : normalized;
+  return tail.replace(/\./g, '-');
+}
+
+function selectStrongestSecondOpinionModel(
+  provider: RuntimeProviderId,
+  candidates: string[],
+): string | undefined {
+  const preferences = SECOND_OPINION_STRONGEST_MODEL_CANDIDATES[provider] ?? [];
+  for (const preferred of preferences) {
+    const exact = candidates.find(
+      (candidate) =>
+        candidate.trim().toLowerCase() === preferred.trim().toLowerCase(),
+    );
+    if (exact) return exact;
+
+    const preferredKey = normalizeSecondOpinionModelPreferenceKey(preferred);
+    const keyed = candidates.find(
+      (candidate) =>
+        normalizeSecondOpinionModelPreferenceKey(candidate) === preferredKey,
+    );
+    if (keyed) return keyed;
+  }
+  return undefined;
 }
 
 function configuredSecondOpinionMaxTokens(): number {
@@ -464,7 +527,9 @@ async function resolveSecondOpinionTarget(
     (configured.provider !== 'auto' && configured.provider !== 'disabled'
       ? configured.provider
       : undefined);
-  const rawModel = parsed.model || configured.model.trim();
+  const configuredModel = configured.model.trim();
+  const rawModel =
+    parsed.model || (parsed.useStrongestModel ? '' : configuredModel);
   if (rawModel) {
     const model = provider
       ? normalizeAuxiliaryProviderModel({ provider, model: rawModel })
@@ -482,7 +547,10 @@ async function resolveSecondOpinionTarget(
 
   const providerForCatalog = provider ?? 'openai-codex';
   const candidates = getAvailableModelList(providerForCatalog);
-  const model = candidates[0] || '';
+  const model =
+    selectStrongestSecondOpinionModel(providerForCatalog, candidates) ||
+    candidates[0] ||
+    '';
   if (!model) {
     throw new Error(
       `No available ${providerForCatalog} model is configured for second opinion. Use \`--model <provider/model>\` or configure \`auxiliaryModels.second_opinion\`.`,

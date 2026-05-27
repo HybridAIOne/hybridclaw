@@ -222,7 +222,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   'second-opinion': {
     command:
-      '/second-opinion [compare [question]|validate [model]|fact-check [model]] [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript]',
+      '/second-opinion [compare [question]|validate [model]|fact-check [model]] [--model <model>] [--provider <provider>] [--strongest] [--max-context <n>] [--no-transcript]',
     description:
       'Ask a stronger configured model to compare a question or validate the last answer',
   },
@@ -349,10 +349,12 @@ function buildSecondOpinionSlashFlags(
   const maxContext = normalizeStringOption(interaction, 'max-context');
   const noTranscript = normalizeStringOption(interaction, 'no-transcript');
   const webSearch = normalizeStringOption(interaction, 'web-search');
+  const strongest = normalizeStringOption(interaction, 'strongest');
   return [
     ...(model ? ['--model', model] : []),
     ...(provider ? ['--provider', provider] : []),
     ...(maxContext ? ['--max-context', maxContext] : []),
+    ...(strongest ? ['--strongest'] : []),
     ...(webSearch ? ['--web-search'] : []),
     ...(noTranscript ? ['--no-transcript'] : []),
   ];
@@ -742,6 +744,14 @@ function buildSlashCommandCatalogDefinitions(
             },
             {
               kind: 'string',
+              name: 'strongest',
+              description:
+                'Use the provider-specific strongest default instead of the configured model',
+              choices: [{ name: '--strongest', value: '--strongest' }],
+              required: false,
+            },
+            {
+              kind: 'string',
               name: 'no-transcript',
               description: 'Do not send recent transcript context',
               choices: [{ name: '--no-transcript', value: '--no-transcript' }],
@@ -770,6 +780,14 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'max-context',
               description: 'Maximum recent context messages to include',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'strongest',
+              description:
+                'Use the provider-specific strongest default instead of the configured model',
+              choices: [{ name: '--strongest', value: '--strongest' }],
               required: false,
             },
             {
@@ -810,6 +828,14 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'max-context',
               description: 'Maximum recent context messages to include',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'strongest',
+              description:
+                'Use the provider-specific strongest default instead of the configured model',
+              choices: [{ name: '--strongest', value: '--strongest' }],
               required: false,
             },
             {
