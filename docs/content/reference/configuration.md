@@ -216,6 +216,8 @@ saved revision history directly.
   in the encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
 - `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs behind a cloud URL or a local tunnel; cloud mode requires `deployment.public_url`, while local mode requires a tunnel provider such as `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`
+- `HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE` enables DNS-style canonical identity discovery for A2A cross-instance delivery; outbound A2A resolves canonical recipients in this order: local canonical agents from `deployment.public_url` or the active tunnel URL, trusted peer instances from the A2A public-key trust ledger, then DNS-style discovery.
+- DNS-style A2A identity discovery trusts the returned URL and public key as operator-provided discovery data; use DNSSEC or out-of-band verification for production peers before relying on first-seen DNS records.
 - The built-in ngrok tunnel provider reads `NGROK_AUTHTOKEN` from the encrypted runtime secret store and health-checks active tunnels every 30 seconds by default
 - The built-in Tailscale Funnel tunnel provider reads `TS_AUTHKEY` from the encrypted runtime secret store when the host is not already logged in to `tailscaled`
 - The built-in Cloudflare Tunnel provider reads `CLOUDFLARE_TUNNEL_TOKEN`, or `CLOUDFLARE_CERT_PEM` plus `CLOUDFLARE_TUNNEL_JSON`, from the encrypted runtime secret store and reports `deployment.public_url` as the stable public hostname

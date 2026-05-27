@@ -410,7 +410,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 |----|------|------|--------|
 | R9.1 | Auth | Inter-instance authentication with signed tokens | ✅ #480 via PR #890 |
 | R9.2 | Delegation | Delegation envelope schema | ✅ #481 via PR #889 |
-| R9.3 | Transport | Cross-instance HTTP transport | ⬜ #482 |
+| R9.3 | Transport | Cross-instance HTTP transport | ✅ #482 |
 | R9.4 | Audit | Cross-instance audit-log linking | ⬜ #483 |
 | R9.5 | Admin | Fleet topology admin UI | ⬜ #484 |
 | R9.6 | Reliability | Failure handling for offline child instances | ⬜ #486 |

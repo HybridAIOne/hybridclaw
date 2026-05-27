@@ -80,6 +80,10 @@
   Existing setups continue to work during the deprecation window while docs and
   `hybridclaw doctor security` point operators to header auth, bound bearer
   secrets, and `container.binds`.
+- **A2A cross-instance transport**: Outbound A2A delivery can resolve
+  canonical peer IDs through identity discovery, pin the resolved public key
+  against the peer Agent Card, and round-trip messages between two HTTP
+  instances.
 - **Diagram validation and accounting**: Mermaid diagrams are validated with
   the bundled Mermaid parser before render, diagram render artifacts retain
   skill-scoped source/rendered metadata, and local diagram renders emit
