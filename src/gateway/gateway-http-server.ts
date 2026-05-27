@@ -290,7 +290,10 @@ import {
   shouldSuppressProactiveMessage,
 } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
-import { submitResponseRating } from './response-ratings.js';
+import {
+  ResponseRatingNotFoundError,
+  submitResponseRating,
+} from './response-ratings.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -2892,8 +2895,6 @@ async function handleApiChatRating(
     sessionId?: unknown;
     messageId?: unknown;
     rating?: unknown;
-    userId?: unknown;
-    sourceSurface?: unknown;
   };
   const sessionId = normalizeOptionalString(body.sessionId);
   if (!sessionId) {
@@ -2928,14 +2929,9 @@ async function handleApiChatRating(
     resolveGatewayRequestUserId({
       req,
       channelId: 'web',
-      requestedUserId: normalizeOptionalString(body.userId),
+      requestedUserId: null,
       fallbackUserId: 'web',
     }) || 'web';
-  const sourceSurface = normalizeOptionalString(body.sourceSurface) || 'web';
-  if (sourceSurface !== 'web') {
-    sendJson(res, 400, { error: '`sourceSurface` must be "web".' });
-    return;
-  }
 
   try {
     const result = submitResponseRating({
@@ -2943,7 +2939,6 @@ async function handleApiChatRating(
       messageId,
       operatorUserId,
       rating,
-      sourceSurface,
     });
     sendJson(res, 200, {
       sessionId: result.sessionId,
@@ -2952,7 +2947,7 @@ async function handleApiChatRating(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    sendJson(res, /not found/i.test(message) ? 404 : 400, {
+    sendJson(res, error instanceof ResponseRatingNotFoundError ? 404 : 400, {
       error: message,
     });
   }
@@ -3370,7 +3365,6 @@ async function handleApiHistory(
   });
   const historyPage = getGatewayHistory(sessionId, limit, {
     operatorUserId,
-    sourceSurface: 'web',
   });
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,

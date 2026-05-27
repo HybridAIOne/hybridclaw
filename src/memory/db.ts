@@ -238,7 +238,6 @@ interface ResponseRatingRow {
   session_id: string;
   message_id: number;
   operator_user_id: string;
-  source_surface: string;
   rating: string;
   agent_id: string | null;
   model: string | null;
@@ -768,25 +767,6 @@ function migrateV1(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 
-    CREATE TABLE IF NOT EXISTS response_ratings (
-      session_id TEXT NOT NULL,
-      message_id INTEGER NOT NULL,
-      operator_user_id TEXT NOT NULL,
-      source_surface TEXT NOT NULL,
-      rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
-      agent_id TEXT,
-      model TEXT,
-      provider TEXT,
-      skill_name TEXT,
-      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-      PRIMARY KEY (session_id, message_id, operator_user_id, source_surface)
-    );
-    CREATE INDEX IF NOT EXISTS idx_response_ratings_message
-      ON response_ratings(session_id, message_id);
-    CREATE INDEX IF NOT EXISTS idx_response_ratings_updated
-      ON response_ratings(updated_at);
-
     CREATE TABLE IF NOT EXISTS session_branches (
       session_id TEXT PRIMARY KEY,
       parent_session_id TEXT NOT NULL,
@@ -909,6 +889,7 @@ function migrateV1(database: Database.Database): void {
       description TEXT
     );
   `);
+  createResponseRatingsSchema(database);
   recordMigration(database, 1, 'Initial schema');
 }
 
@@ -2865,21 +2846,12 @@ function migrateV41(database: Database.Database): void {
   );
 }
 
-function responseRatingsNeedMigration(database: Database.Database): boolean {
-  return (
-    !tableExists(database, 'response_ratings') ||
-    !indexExists(database, 'idx_response_ratings_message') ||
-    !indexExists(database, 'idx_response_ratings_updated')
-  );
-}
-
-function migrateV42(database: Database.Database): void {
+function createResponseRatingsSchema(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS response_ratings (
       session_id TEXT NOT NULL,
       message_id INTEGER NOT NULL,
       operator_user_id TEXT NOT NULL,
-      source_surface TEXT NOT NULL,
       rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
       agent_id TEXT,
       model TEXT,
@@ -2887,13 +2859,15 @@ function migrateV42(database: Database.Database): void {
       skill_name TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-      PRIMARY KEY (session_id, message_id, operator_user_id, source_surface)
+      PRIMARY KEY (session_id, message_id, operator_user_id)
     );
     CREATE INDEX IF NOT EXISTS idx_response_ratings_message
       ON response_ratings(session_id, message_id);
-    CREATE INDEX IF NOT EXISTS idx_response_ratings_updated
-      ON response_ratings(updated_at);
   `);
+}
+
+function migrateV42(database: Database.Database): void {
+  createResponseRatingsSchema(database);
   recordMigration(database, 42, 'Persist per-response operator ratings');
 }
 
@@ -3000,7 +2974,7 @@ function runMigrations(
   ) {
     migrateV41(database);
   }
-  if (currentVersion < 42 || responseRatingsNeedMigration(database)) {
+  if (currentVersion < 42) {
     migrateV42(database);
   }
 
@@ -7325,7 +7299,6 @@ function mapResponseRatingRow(
     session_id: row.session_id,
     message_id: row.message_id,
     operator_user_id: row.operator_user_id,
-    source_surface: row.source_surface,
     rating,
     agent_id: row.agent_id,
     model: row.model,
@@ -7417,39 +7390,54 @@ export function getResponseRatingTarget(params: {
     [string, number]
   >(
     db,
-    `SELECT
-       m.session_id,
-       m.id AS message_id,
-       m.agent_id,
-       m.role,
-       s.model,
-      skill_observation.id AS skill_observation_id,
-      skill_observation.run_id AS skill_run_id,
-      skill_observation.skill_name
-     FROM messages m
-     LEFT JOIN sessions s ON s.id = m.session_id
-     LEFT JOIN skill_observations skill_observation
-       ON skill_observation.id = (
-        SELECT id
-        FROM skill_observations
-        WHERE session_id = m.session_id
-          AND (m.agent_id IS NULL OR agent_id IS NULL OR agent_id = m.agent_id)
-          AND julianday(created_at) <= julianday(m.created_at)
-          AND julianday(created_at) >= COALESCE(
-            (
-              SELECT julianday(MAX(previous_user_message.created_at))
-              FROM messages previous_user_message
-              WHERE previous_user_message.session_id = m.session_id
-                AND previous_user_message.id < m.id
-                AND previous_user_message.role = 'user'
-            ),
-            0
-          )
-        ORDER BY julianday(created_at) DESC, id DESC
-        LIMIT 1
-       )
-     WHERE m.session_id = ? AND m.id = ?
-     LIMIT 1`,
+    `WITH target_message AS (
+       SELECT
+         m.session_id,
+         m.id AS message_id,
+         m.agent_id,
+         m.role,
+         m.created_at,
+         s.model,
+         (
+           SELECT julianday(MAX(previous_user_message.created_at))
+           FROM messages previous_user_message
+           WHERE previous_user_message.session_id = m.session_id
+             AND previous_user_message.id < m.id
+             AND previous_user_message.role = 'user'
+         ) AS turn_started_at
+       FROM messages m
+       LEFT JOIN sessions s ON s.id = m.session_id
+       WHERE m.session_id = ? AND m.id = ?
+       LIMIT 1
+     ),
+     attributed_skill AS (
+       SELECT
+         skill_observation.id,
+         skill_observation.run_id,
+         skill_observation.skill_name
+       FROM skill_observations skill_observation
+       JOIN target_message ON target_message.session_id = skill_observation.session_id
+       WHERE (
+           target_message.agent_id IS NULL
+           OR skill_observation.agent_id IS NULL
+           OR skill_observation.agent_id = target_message.agent_id
+         )
+         AND julianday(skill_observation.created_at) <= julianday(target_message.created_at)
+         AND julianday(skill_observation.created_at) >= COALESCE(target_message.turn_started_at, 0)
+       ORDER BY julianday(skill_observation.created_at) DESC, skill_observation.id DESC
+       LIMIT 1
+     )
+     SELECT
+       target_message.session_id,
+       target_message.message_id,
+       target_message.agent_id,
+       target_message.role,
+       target_message.model,
+       attributed_skill.id AS skill_observation_id,
+       attributed_skill.run_id AS skill_run_id,
+       attributed_skill.skill_name
+     FROM target_message
+     LEFT JOIN attributed_skill`,
     sessionId,
     params.messageId,
   );
@@ -7464,7 +7452,6 @@ export function upsertResponseRating(input: {
   sessionId: string;
   messageId: number;
   operatorUserId: string;
-  sourceSurface: string;
   rating: ResponseRatingValue;
   agentId?: string | null;
   model?: string | null;
@@ -7473,52 +7460,38 @@ export function upsertResponseRating(input: {
 }): ResponseRatingRecord {
   const sessionId = resolveSessionIdCompat(input.sessionId);
   const operatorUserId = input.operatorUserId.trim();
-  const sourceSurface = input.sourceSurface.trim() || 'web';
-  db.prepare(
-    `INSERT INTO response_ratings (
+  const row = db
+    .prepare(
+      `INSERT INTO response_ratings (
        session_id,
        message_id,
        operator_user_id,
-       source_surface,
        rating,
        agent_id,
        model,
        provider,
        skill_name
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(session_id, message_id, operator_user_id, source_surface)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id, message_id, operator_user_id)
      DO UPDATE SET
        rating = excluded.rating,
        agent_id = excluded.agent_id,
        model = excluded.model,
        provider = excluded.provider,
        skill_name = excluded.skill_name,
-       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
-  ).run(
-    sessionId,
-    input.messageId,
-    operatorUserId,
-    sourceSurface,
-    input.rating,
-    input.agentId?.trim() || null,
-    input.model?.trim() || null,
-    input.provider?.trim() || null,
-    input.skillName?.trim() || null,
-  );
-
-  const row = queryOne<ResponseRatingRow, [string, number, string, string]>(
-    db,
-    `SELECT *
-     FROM response_ratings
-     WHERE session_id = ?
-       AND message_id = ?
-       AND operator_user_id = ?
-       AND source_surface = ?`,
-    sessionId,
-    input.messageId,
-    operatorUserId,
-    sourceSurface,
-  );
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     RETURNING *`,
+    )
+    .get(
+      sessionId,
+      input.messageId,
+      operatorUserId,
+      input.rating,
+      input.agentId?.trim() || null,
+      input.model?.trim() || null,
+      input.provider?.trim() || null,
+      input.skillName?.trim() || null,
+    ) as ResponseRatingRow | undefined;
   const rating = row ? mapResponseRatingRow(row) : null;
   if (!rating) {
     throw new Error('Failed to read persisted response rating.');
@@ -7530,19 +7503,16 @@ export function clearResponseRating(input: {
   sessionId: string;
   messageId: number;
   operatorUserId: string;
-  sourceSurface: string;
 }): void {
   db.prepare(
     `DELETE FROM response_ratings
      WHERE session_id = ?
        AND message_id = ?
-       AND operator_user_id = ?
-       AND source_surface = ?`,
+       AND operator_user_id = ?`,
   ).run(
     resolveSessionIdCompat(input.sessionId),
     input.messageId,
     input.operatorUserId.trim(),
-    input.sourceSurface.trim() || 'web',
   );
 }
 
@@ -7550,7 +7520,6 @@ export function getResponseRatingsForMessages(input: {
   sessionId: string;
   messageIds: number[];
   operatorUserId: string;
-  sourceSurface: string;
 }): Map<number, ResponseRatingValue> {
   const sessionId = resolveSessionIdCompat(input.sessionId);
   const messageIds = [
@@ -7561,7 +7530,6 @@ export function getResponseRatingsForMessages(input: {
     ),
   ];
   const operatorUserId = input.operatorUserId.trim();
-  const sourceSurface = input.sourceSurface.trim() || 'web';
   if (messageIds.length === 0 || !operatorUserId) return new Map();
   const placeholders = messageIds.map(() => '?').join(', ');
   const rows = queryAll<
@@ -7573,11 +7541,9 @@ export function getResponseRatingsForMessages(input: {
      FROM response_ratings
      WHERE session_id = ?
        AND operator_user_id = ?
-       AND source_surface = ?
        AND message_id IN (${placeholders})`,
     sessionId,
     operatorUserId,
-    sourceSurface,
     ...messageIds,
   );
   const ratings = new Map<number, ResponseRatingValue>();

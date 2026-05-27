@@ -108,10 +108,7 @@ export function rateChatResponse(
   return requestJson<RateResponseResponse>('/api/chat/rating', {
     token,
     method: 'POST',
-    body: {
-      ...payload,
-      sourceSurface: payload.sourceSurface ?? 'web',
-    },
+    body: payload,
   });
 }
 

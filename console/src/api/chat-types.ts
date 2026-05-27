@@ -146,8 +146,6 @@ export interface RateResponseRequest {
   sessionId: string;
   messageId: number | string;
   rating: ResponseRatingValue | null;
-  userId?: string;
-  sourceSurface?: 'web';
 }
 
 export interface RateResponseResponse {

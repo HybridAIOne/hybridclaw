@@ -52,7 +52,6 @@ export interface ResponseRatingRecord {
   session_id: string;
   message_id: number;
   operator_user_id: string;
-  source_surface: string;
   rating: ResponseRatingValue;
   agent_id: string | null;
   model: string | null;

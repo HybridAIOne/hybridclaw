@@ -404,8 +404,6 @@ export function ChatPage() {
         sessionId: payload.message.sessionId,
         messageId: payload.message.messageId,
         rating: payload.rating,
-        userId,
-        sourceSurface: 'web',
       });
     },
     onSuccess: (data, payload) => {

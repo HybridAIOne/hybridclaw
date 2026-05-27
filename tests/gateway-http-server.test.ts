@@ -1731,6 +1731,12 @@ async function importFreshHealth(options?: {
   }));
   const refreshRuntimeSecretsFromEnv = vi.fn();
   const reloadRuntimeConfig = vi.fn();
+  class ResponseRatingNotFoundError extends Error {
+    constructor() {
+      super('Response message was not found.');
+      this.name = 'ResponseRatingNotFoundError';
+    }
+  }
   const submitResponseRating = vi.fn(
     (input: {
       sessionId: string;
@@ -1740,7 +1746,6 @@ async function importFreshHealth(options?: {
       sessionId: input.sessionId,
       messageId: input.messageId,
       rating: input.rating,
-      record: null,
     }),
   );
 
@@ -1960,6 +1965,7 @@ async function importFreshHealth(options?: {
     requestGatewayRestart,
   }));
   vi.doMock('../src/gateway/response-ratings.js', () => ({
+    ResponseRatingNotFoundError,
     submitResponseRating,
   }));
 
@@ -2034,6 +2040,7 @@ async function importFreshHealth(options?: {
     upgradeHandler,
     moveGatewayAdminSchedulerJob,
     requestGatewayRestart,
+    ResponseRatingNotFoundError,
     submitResponseRating,
     refreshRuntimeSecretsFromEnv,
     reloadRuntimeConfig,
@@ -4167,7 +4174,6 @@ describe('gateway HTTP server', () => {
     });
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2, {
       operatorUserId: 'web',
-      sourceSurface: 'web',
     });
     expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1', {
       sinceMs: null,
@@ -4504,7 +4510,6 @@ describe('gateway HTTP server', () => {
         sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
         messageId: 12,
         rating: 'up',
-        userId: 'operator-a',
       },
     });
     const res = makeResponse();
@@ -4515,15 +4520,39 @@ describe('gateway HTTP server', () => {
     expect(state.submitResponseRating).toHaveBeenCalledWith({
       sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
       messageId: 12,
-      operatorUserId: 'operator-a',
+      operatorUserId: 'web',
       rating: 'up',
-      sourceSurface: 'web',
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
       messageId: 12,
       rating: 'up',
+    });
+  });
+
+  test('returns 404 for missing web chat response rating targets', async () => {
+    const state = await importFreshHealth();
+    state.submitResponseRating.mockImplementationOnce(() => {
+      throw new state.ResponseRatingNotFoundError();
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: {
+        sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
+        messageId: 999,
+        rating: 'up',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Response message was not found.',
     });
   });
 

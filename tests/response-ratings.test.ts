@@ -78,14 +78,12 @@ describe('response ratings', () => {
       messageId: service.assistantMessageId,
       operatorUserId: 'operator-a',
       rating: 'up',
-      sourceSurface: 'web',
     });
     const updated = service.submitResponseRating({
       sessionId: service.sessionId,
       messageId: service.assistantMessageId,
       operatorUserId: 'operator-a',
       rating: 'down',
-      sourceSurface: 'web',
     });
 
     expect(updated.rating).toBe('down');
@@ -94,7 +92,6 @@ describe('response ratings', () => {
         sessionId: service.sessionId,
         messageIds: [service.assistantMessageId],
         operatorUserId: 'operator-a',
-        sourceSurface: 'web',
       }),
     ).toEqual(new Map([[service.assistantMessageId, 'down']]));
   });
@@ -107,7 +104,6 @@ describe('response ratings', () => {
       messageId: service.assistantMessageId,
       operatorUserId: 'operator-a',
       rating: 'up',
-      sourceSurface: 'web',
     });
 
     expect(service.recordAuditEvent).toHaveBeenCalledWith({
@@ -144,7 +140,6 @@ describe('response ratings', () => {
         messageId: 999_999,
         operatorUserId: 'operator-a',
         rating: 'up',
-        sourceSurface: 'web',
       }),
     ).toThrow('Response message was not found.');
 
@@ -154,7 +149,6 @@ describe('response ratings', () => {
         messageId: service.userMessageId,
         operatorUserId: 'operator-a',
         rating: 'up',
-        sourceSurface: 'web',
       }),
     ).toThrow('Only assistant responses can be rated.');
   });
@@ -167,7 +161,6 @@ describe('response ratings', () => {
       messageId: service.assistantMessageId,
       operatorUserId: 'operator-a',
       rating: 'up',
-      sourceSurface: 'web',
     });
     service.recordSkillFeedbackForObservation.mockClear();
     const cleared = service.submitResponseRating({
@@ -175,7 +168,6 @@ describe('response ratings', () => {
       messageId: service.assistantMessageId,
       operatorUserId: 'operator-a',
       rating: null,
-      sourceSurface: 'web',
     });
 
     expect(cleared.rating).toBeNull();
@@ -184,7 +176,6 @@ describe('response ratings', () => {
         sessionId: service.sessionId,
         messageIds: [service.assistantMessageId],
         operatorUserId: 'operator-a',
-        sourceSurface: 'web',
       }),
     ).toEqual(new Map());
     expect(service.recordSkillFeedbackForObservation).not.toHaveBeenCalled();
