@@ -88,6 +88,7 @@ type ApiHttpRequestBody = {
   otcAkSk?: unknown;
   replaceSecretPlaceholders?: unknown;
   captureResponseFields?: unknown;
+  suppressResponseBody?: unknown;
   timeoutMs?: unknown;
   maxResponseBytes?: unknown;
   sessionId?: unknown;
@@ -1211,9 +1212,9 @@ function captureSecretResponseFields(
   const captured: Record<string, string> = {};
 
   for (const rule of rules) {
-    const value = obj[rule.jsonPath];
-    if (typeof value === 'string' && value.trim()) {
-      secrets[rule.secretName] = value.trim();
+    const value = normalizeCapturedValue(readJsonPath(obj, rule.jsonPath));
+    if (value) {
+      secrets[rule.secretName] = value;
       captured[rule.jsonPath] = rule.secretName;
 
       // Bind captured secrets by default so future token field names such
@@ -1235,6 +1236,25 @@ function captureSecretResponseFields(
     throw new GatewayRequestError(400, message);
   }
   return captured;
+}
+
+function normalizeCapturedValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value === 'boolean') return String(value);
+  return '';
+}
+
+function readJsonPath(value: unknown, jsonPath: string): unknown {
+  let current = value;
+  for (const segment of jsonPath.split('.')) {
+    if (!segment) return undefined;
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
 }
 
 function resolveCaptureResponseFields(value: unknown): CaptureFieldRule[] {
@@ -1424,6 +1444,7 @@ export async function handleApiHttpRequest(
   const maxResponseBytes =
     parsePositiveInteger(body.maxResponseBytes) ??
     HTTP_REQUEST_MAX_RESPONSE_BYTES;
+  const suppressResponseBody = body.suppressResponseBody === true;
   const config = getRuntimeConfig();
 
   const headers = normalizeHttpRequestHeaders(body.headers);
@@ -1677,6 +1698,25 @@ export async function handleApiHttpRequest(
       ok: response.ok,
       status: response.status,
       captured,
+    });
+    return;
+  }
+
+  if (suppressResponseBody) {
+    sendJson(res, 200, {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      url: response.url,
+      headers: Object.fromEntries(response.headers.entries()),
+      bodySuppressed: true,
+      bodyBytes,
+      ...(bodyTruncated
+        ? {
+            bodyTruncated: true,
+            maxResponseBytes,
+          }
+        : {}),
     });
     return;
   }
