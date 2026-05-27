@@ -921,7 +921,10 @@ describe('ChatPage', () => {
 
     vi.useFakeTimers();
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete Session B session' }),
+      screen.getByRole('button', {
+        name: 'Delete Session B session',
+        hidden: true,
+      }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await act(async () => {

@@ -12,14 +12,14 @@ import {
 import { fetchAudit } from '../api/client';
 import type { AdminAuditEntry } from '../api/types';
 import { useAuth } from '../auth';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../components/dialog';
 import { Search as SearchIcon } from '../components/icons';
 import { Input } from '../components/input';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '../components/sheet';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
 import styles from './audit.module.css';
@@ -507,15 +507,15 @@ export function AuditPage() {
         ) : null}
       </div>
 
-      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-        <SheetContent side="right" className={styles.sheet}>
-          <SheetHeader>
-            <SheetTitle>
+      <Dialog open={drawerOpen} onOpenChange={setDrawerOpen} isDrawer>
+        <DialogContent side="right" className={styles.sheet}>
+          <DialogHeader>
+            <DialogTitle>
               {selectedEntry
                 ? `Audit event #${selectedEntry.id} (${selectedEntry.eventType})`
                 : 'Audit event'}
-            </SheetTitle>
-          </SheetHeader>
+            </DialogTitle>
+          </DialogHeader>
           {/*
             `selectedEntry` is deliberately retained while the sheet animates
             closed, and across filter changes that refetch a different result
@@ -528,8 +528,8 @@ export function AuditPage() {
               onClose={() => setDrawerOpen(false)}
             />
           ) : null}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
