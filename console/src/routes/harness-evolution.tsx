@@ -168,14 +168,15 @@ export function HarnessEvolutionPage() {
       <button type="submit">Load</button>
     </form>
   );
+  const pageHeaderProps = {
+    title: 'Harness Evolution',
+    description: 'R10a run telemetry, attribution, and F12 manifests.',
+    actions,
+  };
 
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Harness Evolution"
-        description="R10a run telemetry, attribution, and F12 manifests."
-        actions={actions}
-      />
+      <PageHeader {...pageHeaderProps} />
 
       {!submittedTargetRoot ? (
         <div className="empty-state">Enter a target coworker workspace.</div>
