@@ -326,8 +326,10 @@ test('skill inspect command reports observed skill health', async () => {
   expect(result.title).toBe('Skill Health');
   expect(result.text).toContain(`Skill: ${context.skillName}`);
   expect(result.text).toContain('Executions: 1');
-  expect(result.text).toContain('Success rate: 0.00%');
-  expect(result.text).toContain('Tool breakage: 50.00%');
+  expect(result.text).toContain('Full success: 0.00% (0)');
+  expect(result.text).toContain('Partial success: 0.00% (0)');
+  expect(result.text).toContain('Failure: 100.00% (1)');
+  expect(result.text).toContain('Tool breakage: 50.00% (1/2)');
 });
 
 test('skill runs command reports recent execution observations', async () => {

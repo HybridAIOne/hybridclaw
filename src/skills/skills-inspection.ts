@@ -226,12 +226,17 @@ export function inspectSkill(
   const base: SkillHealthMetrics = {
     skill_name: skillName,
     total_executions: summary?.total_executions || 0,
+    success_count: summary?.success_count || 0,
+    partial_count: summary?.partial_count || 0,
+    failure_count: summary?.failure_count || 0,
     success_rate:
       summary && summary.total_executions > 0
         ? summary.success_count / summary.total_executions
         : 0,
     avg_duration_ms: summary?.avg_duration_ms || 0,
     error_clusters: summary?.error_clusters || [],
+    tool_calls_attempted: summary?.tool_calls_attempted || 0,
+    tool_calls_failed: summary?.tool_calls_failed || 0,
     tool_breakage_rate:
       summary && summary.tool_calls_attempted > 0
         ? summary.tool_calls_failed / summary.tool_calls_attempted

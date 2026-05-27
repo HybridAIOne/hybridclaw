@@ -102,6 +102,13 @@ export function deriveSkillExecutionOutcome(params: {
   toolExecutions: ToolExecution[];
 }): SkillExecutionOutcome {
   if (params.outputStatus === 'error') return 'failure';
+  if (
+    params.toolExecutions.some(
+      (execution) => execution.isError || execution.blocked,
+    )
+  ) {
+    return 'partial';
+  }
   return 'success';
 }
 

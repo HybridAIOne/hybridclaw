@@ -658,9 +658,9 @@ function backfillAgentSkillScoreQuality(database: Database.Database): void {
     `SELECT
        agent_id,
        skill_name AS skill_id,
-       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+       SUM(CASE WHEN outcome = 'success' AND COALESCE(tool_calls_failed, 0) = 0 THEN 1 ELSE 0 END) AS success_count,
        SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
-       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+       SUM(CASE WHEN outcome = 'partial' OR (outcome = 'success' AND COALESCE(tool_calls_failed, 0) > 0) THEN 1 ELSE 0 END) AS partial_count,
        COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
        MAX(created_at) AS last_run_at,
        SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
@@ -9347,9 +9347,9 @@ export function getSkillObservationSummary(params?: {
     `SELECT
        skill_name,
        COUNT(*) AS total_executions,
-       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+       SUM(CASE WHEN outcome = 'success' AND COALESCE(tool_calls_failed, 0) = 0 THEN 1 ELSE 0 END) AS success_count,
        SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
-       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+       SUM(CASE WHEN outcome = 'partial' OR (outcome = 'success' AND COALESCE(tool_calls_failed, 0) > 0) THEN 1 ELSE 0 END) AS partial_count,
        AVG(duration_ms) AS avg_duration_ms,
        COALESCE(SUM(tool_calls_attempted), 0) AS tool_calls_attempted,
        COALESCE(SUM(tool_calls_failed), 0) AS tool_calls_failed,
@@ -9365,7 +9365,10 @@ export function getSkillObservationSummary(params?: {
 
   if (summaryRows.length === 0) return [];
 
-  const clusterClauses = [...clauses, "outcome != 'success'"];
+  const clusterClauses = [
+    ...clauses,
+    "(outcome != 'success' OR COALESCE(tool_calls_failed, 0) > 0)",
+  ];
   const clusterWhereClause =
     clusterClauses.length > 0 ? `WHERE ${clusterClauses.join(' AND ')}` : '';
   const clusterRows = queryAll<
@@ -9571,9 +9574,9 @@ export function recomputeAgentSkillScore(input: {
       `SELECT
          agent_id,
          skill_name AS skill_id,
-         SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+         SUM(CASE WHEN outcome = 'success' AND COALESCE(tool_calls_failed, 0) = 0 THEN 1 ELSE 0 END) AS success_count,
          SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
-         SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+         SUM(CASE WHEN outcome = 'partial' OR (outcome = 'success' AND COALESCE(tool_calls_failed, 0) > 0) THEN 1 ELSE 0 END) AS partial_count,
          COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
          MAX(created_at) AS last_run_at,
          SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
