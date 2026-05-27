@@ -63,6 +63,28 @@ export interface AuditTurnTraceRecord {
   tools: AuditTurnTraceToolRecord[];
 }
 
+const TRACE_VALUE_PRESERVED_KEYS = new Set([
+  'action',
+  'allowed',
+  'approvalBaseTier',
+  'approvalDecision',
+  'approvalTier',
+  'autonomyLevel',
+  'escalationRoute',
+  'eventType',
+  'model',
+  'resource',
+  'stakes',
+  'status',
+  'threshold',
+  'toolCallId',
+  'toolName',
+  'traceJudge',
+  'trajectoryCount',
+  'tuple',
+  'type',
+]);
+
 function redactTraceText(text: string, maxChars = 320): string {
   const redacted = redactHighEntropyStrings(
     String(redactSecretsDeep(text)).replace(
@@ -73,9 +95,40 @@ function redactTraceText(text: string, maxChars = 320): string {
   return truncateAuditText(redacted, maxChars);
 }
 
+function redactPreservedTraceText(text: string): string {
+  return String(redactSecretsDeep(text)).replace(
+    URL_SECRET_QUERY_PARAM_RE,
+    '$1***REDACTED***',
+  );
+}
+
+function redactTraceStructuredValue(value: unknown): unknown {
+  const redacted = redactSecretsDeep(value);
+  if (typeof redacted === 'string') return redactTraceText(redacted);
+  if (Array.isArray(redacted)) {
+    return redacted.map((entry) => redactTraceStructuredValue(entry));
+  }
+  if (!redacted || typeof redacted !== 'object') return redacted;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(
+    redacted as Record<string, unknown>,
+  )) {
+    if (TRACE_VALUE_PRESERVED_KEYS.has(key)) {
+      out[key] = typeof raw === 'string' ? redactPreservedTraceText(raw) : raw;
+      continue;
+    }
+    out[key] = redactTraceStructuredValue(raw);
+  }
+  return out;
+}
+
 function redactTraceValue(value: unknown, maxChars = 480): string {
   try {
-    return redactTraceText(JSON.stringify(redactSecretsDeep(value)), maxChars);
+    return truncateAuditText(
+      JSON.stringify(redactTraceStructuredValue(value)),
+      maxChars,
+    );
   } catch {
     return redactTraceText(String(value), maxChars);
   }

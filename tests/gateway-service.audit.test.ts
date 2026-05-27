@@ -170,6 +170,8 @@ test('audit command shows latest turn-level tool trace with redacted details', a
   expect(result.text).toContain('update_plan (helper/planning) ok');
   expect(result.text).toContain('web_fetch (network execution) ok');
   expect(result.text).toContain('authorization:');
+  expect(result.text).toContain('"toolCallId":"turn_audit_2:tool:2"');
+  expect(result.text).toContain('"model":"order2_markov_frequency_v1"');
   expect(result.text).toContain('Model usage:');
   expect(result.text).toContain('status-check: success');
   expect(result.text).toContain('Duration: total 60ms, tools 44ms');
