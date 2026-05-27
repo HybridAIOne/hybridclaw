@@ -254,7 +254,7 @@ export function useChatStream(
         const finalRole: ChatMessage['role'] = finalApproval
           ? 'approval'
           : result.commandResult
-            ? 'system'
+            ? 'command'
             : 'assistant';
         const buildFinalizedMessage = (
           id: string,

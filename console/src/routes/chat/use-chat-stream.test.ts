@@ -293,7 +293,7 @@ describe('useChatStream', () => {
     });
   });
 
-  it('replaces thinking with a system message for result-only slash command streams', async () => {
+  it('replaces thinking with a command message for result-only slash command streams', async () => {
     const harness = makeHarness();
 
     requestChatStreamMock.mockResolvedValue({
@@ -332,11 +332,12 @@ describe('useChatStream', () => {
       content: '/agent switch research',
       messageId: 'server-user-1',
     });
-    // Command output is tagged `system` so the UI renders it distinctly from a
-    // model reply, not as an assistant message.
+    // Command output is tagged `command` so the UI renders it as a distinct
+    // console block, not as an assistant message (and not as a plain `system`
+    // notice, which is reserved for errors).
     expect(harness.messages[1]).toMatchObject({
       id: 'msg-3',
-      role: 'system',
+      role: 'command',
       content: 'Session agent set to `research` (model: `gpt-5`).',
       messageId: null,
       replayRequest: {
@@ -344,6 +345,36 @@ describe('useChatStream', () => {
         media: [],
       },
     });
+  });
+
+  it('tags a failed stream as a `system` message, distinct from command output', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockRejectedValue(new Error('network exploded'));
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('hello', []);
+    });
+
+    // Errors stay on the `system` role (rendered as a plain notice). Only
+    // genuine slash-command output uses the `command` role / console block.
+    const errorMessage = harness.messages.at(-1);
+    expect(errorMessage?.role).toBe('system');
+    expect(errorMessage?.content).toContain('network exploded');
+    expect(harness.messages.some((msg) => msg.role === 'command')).toBe(false);
   });
 
   it('keeps a plain model reply as an assistant message when commandResult is absent', async () => {

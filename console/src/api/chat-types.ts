@@ -144,7 +144,9 @@ export interface BranchResponse {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system' | 'approval';
+  // `command` is slash-command/console output (rendered as a distinct terminal
+  // block); `system` is reserved for plain notices such as error messages.
+  role: 'user' | 'assistant' | 'system' | 'approval' | 'command';
   content: string;
   rawContent?: string;
   sessionId: string;
