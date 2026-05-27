@@ -2866,8 +2866,81 @@ function createResponseRatingsSchema(database: Database.Database): void {
   `);
 }
 
+function responseRatingsNeedMigration(database: Database.Database): boolean {
+  if (!tableExists(database, 'response_ratings')) return false;
+  const columns = queryAll<ColumnInfoRow>(
+    database,
+    'PRAGMA table_info(response_ratings)',
+  );
+  if (columns.some((column) => column.name === 'source_surface')) return true;
+  const primaryKeyColumns = columns
+    .filter((column) => column.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((column) => column.name);
+  return (
+    primaryKeyColumns.join(',') !== 'session_id,message_id,operator_user_id'
+  );
+}
+
+function migrateResponseRatingsSchema(database: Database.Database): void {
+  if (!responseRatingsNeedMigration(database)) {
+    createResponseRatingsSchema(database);
+    return;
+  }
+
+  database.transaction(() => {
+    database.exec(`
+        ALTER TABLE response_ratings RENAME TO response_ratings_v42_legacy;
+        DROP INDEX IF EXISTS idx_response_ratings_message;
+        DROP INDEX IF EXISTS idx_response_ratings_updated;
+      `);
+    createResponseRatingsSchema(database);
+    database.exec(`
+        INSERT INTO response_ratings (
+          session_id,
+          message_id,
+          operator_user_id,
+          rating,
+          agent_id,
+          model,
+          provider,
+          skill_name,
+          created_at,
+          updated_at
+        )
+        SELECT
+          legacy.session_id,
+          legacy.message_id,
+          legacy.operator_user_id,
+          legacy.rating,
+          legacy.agent_id,
+          legacy.model,
+          legacy.provider,
+          legacy.skill_name,
+          legacy.created_at,
+          legacy.updated_at
+        FROM response_ratings_v42_legacy AS legacy
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM response_ratings_v42_legacy AS newer
+          WHERE newer.session_id = legacy.session_id
+            AND newer.message_id = legacy.message_id
+            AND newer.operator_user_id = legacy.operator_user_id
+            AND (
+              newer.updated_at > legacy.updated_at
+              OR (
+                newer.updated_at = legacy.updated_at
+                AND newer.rowid > legacy.rowid
+              )
+            )
+        );
+        DROP TABLE response_ratings_v42_legacy;
+      `);
+  })();
+}
+
 function migrateV42(database: Database.Database): void {
-  createResponseRatingsSchema(database);
+  migrateResponseRatingsSchema(database);
   recordMigration(database, 42, 'Persist per-response operator ratings');
 }
 
@@ -2974,7 +3047,7 @@ function runMigrations(
   ) {
     migrateV41(database);
   }
-  if (currentVersion < 42) {
+  if (currentVersion < 42 || responseRatingsNeedMigration(database)) {
     migrateV42(database);
   }
 

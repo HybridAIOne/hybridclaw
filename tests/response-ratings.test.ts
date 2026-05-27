@@ -70,6 +70,74 @@ async function setup() {
 }
 
 describe('response ratings', () => {
+  test('migrates legacy source-surface rating schema before writing', async () => {
+    const dbModule = await import('../src/memory/db.js');
+    const dbPath = path.join(makeTempDir(), 'legacy-response-ratings.db');
+    dbModule.initDatabase({ quiet: true, dbPath });
+    dbModule.withMemoryDatabase((database) => {
+      database.exec(`
+        DROP TABLE response_ratings;
+        CREATE TABLE response_ratings (
+          session_id TEXT NOT NULL,
+          message_id INTEGER NOT NULL,
+          operator_user_id TEXT NOT NULL,
+          source_surface TEXT NOT NULL,
+          rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+          agent_id TEXT,
+          model TEXT,
+          provider TEXT,
+          skill_name TEXT,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          PRIMARY KEY (session_id, message_id, operator_user_id, source_surface)
+        );
+        CREATE INDEX idx_response_ratings_message
+          ON response_ratings(session_id, message_id);
+        CREATE INDEX idx_response_ratings_updated
+          ON response_ratings(updated_at);
+        INSERT INTO response_ratings (
+          session_id,
+          message_id,
+          operator_user_id,
+          source_surface,
+          rating,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          'session-a',
+          1,
+          'operator-a',
+          'web',
+          'up',
+          '2026-05-27T12:00:00.000Z',
+          '2026-05-27T12:00:00.000Z'
+        );
+      `);
+    });
+
+    dbModule.initDatabase({ quiet: true, dbPath });
+    const updated = dbModule.upsertResponseRating({
+      sessionId: 'session-a',
+      messageId: 1,
+      operatorUserId: 'operator-a',
+      rating: 'down',
+    });
+
+    expect(updated.rating).toBe('down');
+    dbModule.withMemoryDatabase((database) => {
+      const table = database
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'response_ratings'",
+        )
+        .get() as { sql: string };
+      expect(table.sql).not.toContain('source_surface');
+      expect(table.sql).toContain(
+        'PRIMARY KEY (session_id, message_id, operator_user_id)',
+      );
+    });
+  });
+
   test('persists and updates one web rating per operator and response', async () => {
     const service = await setup();
 
