@@ -13,6 +13,7 @@ import type {
   ResponseRatingValue,
 } from '../../api/chat-types';
 import { Button } from '../../components/button';
+import { ThumbsDown, ThumbsUp } from '../../components/icons';
 import type { ApprovalAction } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { renderMarkdown } from '../../lib/markdown';
@@ -465,7 +466,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                   props.onRate?.(msg, msg.responseRating === 'up' ? null : 'up')
                 }
               >
-                👍
+                <ThumbsUp width="15" height="15" />
               </Button>
               <Button
                 variant="ghost"
@@ -493,7 +494,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
                   )
                 }
               >
-                👎
+                <ThumbsDown width="15" height="15" />
               </Button>
             </>
           ) : null}
