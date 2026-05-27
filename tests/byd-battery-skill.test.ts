@@ -327,6 +327,17 @@ test('BYD diagnostic pages decode per-module voltage and temperature summaries',
   ]);
 });
 
+test('BYD inverter decode normalizes undefined community-map entries to unknown', () => {
+  const system = byd.decodeSystemRegisters(fixtureSystemRegisters());
+  const bytes = [15, 0, 1, 0, 0, 0];
+  const bms = byd.decodeBmsParametersRegisters(bytesToRegisters(bytes), system);
+
+  expect(bms).toMatchObject({
+    inverterType: 15,
+    inverterName: 'unknown',
+  });
+});
+
 test('BYD helper decodes mock allowlisted registers without leaking configured secrets', async () => {
   const payload = await byd.buildRequest(
     [
@@ -524,6 +535,25 @@ test('BYD helper rejects arbitrary register passthrough commands', () => {
   expect(payload.error.message).toContain('Unknown flag --address');
 });
 
+test('BYD helper reports valid via values and preserves pretty error format', () => {
+  const via = runHelper([
+    '--format',
+    'json',
+    'read',
+    'state-of-charge',
+    '--via',
+    'bogus',
+  ]);
+  const pretty = runHelper(['--format', 'pretty', 'read-register']);
+
+  expect(via.status).toBe(1);
+  expect(JSON.parse(via.stdout).error.message).toContain(
+    '--via must be auto, local, or fronius',
+  );
+  expect(pretty.status).toBe(1);
+  expect(pretty.stdout).toContain('\n  "command": "error"');
+});
+
 test('BYD helper delegates Fronius path and degrades cleanly when unconfigured', async () => {
   const fronius = await byd.buildRequest(
     ['read', 'state-of-charge', '--via', 'fronius'],
@@ -541,6 +571,7 @@ test('BYD helper delegates Fronius path and degrades cleanly when unconfigured',
       endpoint: 'local-power-flow',
     },
   });
+  expect(fronius.delegatedTo).not.toHaveProperty('helperCommand');
   expect(unconfigured).toMatchObject({
     status: 'unconfigured',
     error: {

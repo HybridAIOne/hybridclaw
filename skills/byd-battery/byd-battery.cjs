@@ -103,10 +103,10 @@ const INVERTERS_HV = [
   'Ingeteam HV',
   'Ingeteam HV',
   'SMA SBS 2.5 HV',
-  'undefined',
+  null,
   'SMA SBS 2.5 HV',
   'Fronius HV',
-  'undefined',
+  null,
   'SMA STP',
 ];
 
@@ -187,7 +187,7 @@ function parseArgs(argv) {
     } else if (arg === '--via') {
       opts.via = requireValue(argv, ++i, '--via');
       if (!['auto', 'local', 'fronius'].includes(opts.via)) {
-        throw new Error('--via must be local or fronius');
+        throw new Error('--via must be auto, local, or fronius');
       }
     } else if (arg === '--timeout-ms') {
       opts.timeoutMs = parseBoundedInteger(
@@ -417,12 +417,14 @@ function decodeBmsParametersRegisters(registers, system = {}) {
   }
 
   const inverterNames = modelFamily === 'LVS' ? INVERTERS_LVS : INVERTERS_HV;
+  const inverterName = inverterNames[inverterType];
   const modulesPerTower = system.modulesPerTower || 0;
   const towers = system.towers || 0;
 
   return {
     inverterType,
-    inverterName: inverterNames[inverterType] || 'unknown',
+    inverterName:
+      inverterName && inverterName !== 'undefined' ? inverterName : 'unknown',
     batteryTypeCode,
     modelFamily,
     capacityPerModuleKwh,
@@ -913,10 +915,11 @@ function buildFroniusDelegation(operation) {
       roadmapItem: 'R21.111',
       skillName: 'fronius',
       endpoint,
-      helperCommand: `node skills/fronius/fronius.cjs --format json read ${endpoint}`,
+      capability:
+        'Use the bundled Fronius skill/helper once R21.111 is present in this checkout.',
     },
     status: 'delegated',
-    note: 'Use the R21.111 Fronius skill when BYD local Modbus is not configured and the battery is paired with a Fronius inverter.',
+    note: 'Use the R21.111 Fronius skill when BYD local Modbus is not configured and the battery is paired with a Fronius inverter. This checkout does not currently include a Fronius helper path to execute directly.',
   };
 }
 
@@ -1245,13 +1248,16 @@ async function buildRequest(argv, env = process.env) {
 }
 
 async function main() {
+  const argv = process.argv.slice(2);
+  let requestedFormat = detectRequestedFormat(argv);
   try {
-    const { opts } = parseArgs(process.argv.slice(2));
+    const { opts } = parseArgs(argv);
+    requestedFormat = opts.format;
     if (opts.help) {
       process.stdout.write(`${usage()}\n`);
       return;
     }
-    const payload = await buildRequest(process.argv.slice(2));
+    const payload = await buildRequest(argv);
     const exitCode = payload.exitCode || 0;
     if (payload.exitCode) delete payload.exitCode;
     printPayload(payload, opts.format);
@@ -1273,12 +1279,15 @@ async function main() {
     if (payload.error.code === 'BYD_BMU_COMMS_LOST') {
       payload.incidentCards = [buildCommsLostIncident(error)];
     }
-    printPayload(
-      payload,
-      process.argv.includes('--format') ? 'json' : 'pretty',
-    );
+    printPayload(payload, requestedFormat);
     process.exitCode = payload.error.code === 'BYD_BMU_COMMS_LOST' ? 3 : 1;
   }
+}
+
+function detectRequestedFormat(argv) {
+  const formatIndex = argv.indexOf('--format');
+  if (formatIndex === -1) return 'pretty';
+  return argv[formatIndex + 1] === 'json' ? 'json' : 'pretty';
 }
 
 if (require.main === module) {

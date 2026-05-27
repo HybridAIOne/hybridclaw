@@ -150,7 +150,9 @@ Modbus does not require internet endpoints by default.
 - If local Modbus is not configured but the battery is paired to Fronius, use
   `--via fronius`. The helper delegates to R21.111 Fronius
   `local-power-flow` / `local-storage-realtime` surfaces instead of inventing a
-  BYD cloud path.
+  BYD cloud path. This checkout does not currently bundle a Fronius helper
+  path; treat the emitted delegation payload as a handoff to the R21.111 skill
+  once that skill is present.
 - Stop after the first Modbus connect, timeout, exception, or comms-lost
   failure. The helper emits an R29 `bmu-comms-lost` incident-card payload; do
   not retry-loop against the BMU.
