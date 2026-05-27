@@ -86,6 +86,12 @@ test('Fronius skill manifest declares Solar.web SecretRef metadata only', () => 
   expect(skill).toContain(
     'Treat the inverter LAN base URL as plain local configuration',
   );
+  expect(skill).toContain('Body.Data.Site.P_PV');
+  expect(skill).toContain('Body.Data.PAC.Values');
+  expect(skill).toContain('Body.Data.PAC.Value');
+  expect(skill).toContain(
+    'Interpret `PVPower` from\n  `GetInverterInfo.cgi` as connected/rated PV capacity',
+  );
   expect(skill).toContain('rejected or lacks access');
   expect(skill).toContain('hybridclaw env set FRONIUS_LOCAL_HOST');
   expect(skill).not.toContain('secret set FRONIUS_LOCAL_HOST');
@@ -179,8 +185,52 @@ test('Fronius local realtime request bounds scope and device id', () => {
   ]);
 
   expect(payload.httpRequest.url).toBe(
-    'http://192.168.1.40/solar_api/v1/GetInverterRealtimeData.cgi?Scope=Device&DeviceId=1',
+    'http://192.168.1.40/solar_api/v1/GetInverterRealtimeData.cgi?Scope=Device&DeviceId=1&DataCollection=CommonInverterData',
   );
+  expect(payload.responseShape).toMatchObject({
+    kind: 'inverter-realtime',
+    notes: expect.stringContaining('current AC inverter power'),
+  });
+});
+
+test('Fronius local realtime request validates data collection', () => {
+  const payload = request([
+    'local-inverter-realtime',
+    '--local-host',
+    'http://192.168.1.40',
+    '--data-collection',
+    'CumulationInverterData',
+  ]);
+  const badDataCollection = runHelper([
+    '--local-host',
+    'http://192.168.178.40',
+    'http-request',
+    'local-inverter-realtime',
+    '--data-collection',
+    'WrongData',
+  ]);
+
+  expect(payload.httpRequest.url).toBe(
+    'http://192.168.1.40/solar_api/v1/GetInverterRealtimeData.cgi?Scope=System&DataCollection=CumulationInverterData',
+  );
+  expect(badDataCollection.status).not.toBe(0);
+  expect(badDataCollection.stderr).toContain(
+    '--data-collection must be CumulationInverterData',
+  );
+});
+
+test('Fronius inverter info shape marks PVPower as rated capacity', () => {
+  const payload = request([
+    'local-inverter-info',
+    '--local-host',
+    'http://192.168.178.40',
+  ]);
+
+  expect(payload.responseShape).toMatchObject({
+    kind: 'inverter-info',
+    fields: expect.arrayContaining(['ratedPvPowerW']),
+    notes: expect.stringContaining('not live production'),
+  });
 });
 
 test('Fronius local request requires plain local host configuration', () => {

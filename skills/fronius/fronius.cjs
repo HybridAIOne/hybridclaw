@@ -22,10 +22,13 @@ const LOCAL_OPERATIONS = {
   'local-inverter-info': {
     path: '/solar_api/v1/GetInverterInfo.cgi',
     maxResponseBytes: 500_000,
+    responseShape: 'inverter-info',
   },
   'local-inverter-realtime': {
     path: '/solar_api/v1/GetInverterRealtimeData.cgi',
     scoped: true,
+    inverterRealtime: true,
+    responseShape: 'inverter-realtime',
   },
   'local-power-flow': {
     path: '/solar_api/v1/GetPowerFlowRealtimeData.fcgi',
@@ -105,6 +108,32 @@ const CLOUD_OPERATIONS = {
 };
 
 const RESPONSE_SHAPES = {
+  'inverter-info': {
+    kind: 'inverter-info',
+    fields: [
+      'customName',
+      'uniqueId',
+      'statusCode',
+      'inverterState',
+      'errorCode',
+      'ratedPvPowerW',
+    ],
+    notes:
+      'GetInverterInfo PVPower is connected/rated PV capacity in watts, not live production.',
+  },
+  'inverter-realtime': {
+    kind: 'inverter-realtime',
+    fields: [
+      'pacW',
+      'pacValuesByDeviceW',
+      'dayEnergyWh',
+      'yearEnergyWh',
+      'totalEnergyWh',
+      'deviceStatus',
+    ],
+    notes:
+      'Use PAC.Values by device for Scope=System or PAC.Value for Scope=Device as current AC inverter power in watts.',
+  },
   'power-flow': {
     kind: 'power-flow',
     fields: [
@@ -115,7 +144,7 @@ const RESPONSE_SHAPES = {
       'selfConsumptionRatio',
     ],
     notes:
-      'Map provider-specific live flow fields into watt values before R5 rollup use.',
+      'For the local Solar API, use Body.Data.Site.P_PV as current PV production in watts.',
   },
   'meter-realtime': {
     kind: 'meter-realtime',
@@ -162,6 +191,7 @@ const SECRET_FLAGS = new Set([
 
 const KNOWN_OPERATION_FLAGS = new Set([
   '--channel',
+  '--data-collection',
   '--device-class',
   '--device-id',
   '--end',
@@ -345,6 +375,23 @@ function parseDeviceId(raw, { required = false } = {}) {
   return String(Number.parseInt(raw, 10));
 }
 
+function parseDataCollection(raw = 'CommonInverterData') {
+  const dataCollection = requireText(raw, '--data-collection');
+  if (
+    ![
+      'CumulationInverterData',
+      'CommonInverterData',
+      '3PInverterData',
+      'MinMaxInverterData',
+    ].includes(dataCollection)
+  ) {
+    fail(
+      '--data-collection must be CumulationInverterData, CommonInverterData, 3PInverterData, or MinMaxInverterData.',
+    );
+  }
+  return dataCollection;
+}
+
 function requireSafeId(value, label) {
   const normalized = requireText(value, label);
   if (!/^[A-Za-z0-9_.:-]{1,128}$/u.test(normalized)) {
@@ -412,14 +459,26 @@ function buildUrl(base, path, query = {}) {
 function buildLocalRequest(operation, spec, args, opts) {
   const base = normalizeLocalBaseUrl(opts.localHost);
   const query = {};
+  let scope;
 
   if (spec.scoped || spec.archive) {
-    const scope = parseScope(consumeFlag(args, '--scope', 'System'));
+    scope = parseScope(consumeFlag(args, '--scope', 'System'));
     const deviceId = parseDeviceId(consumeFlag(args, '--device-id'), {
       required: scope === 'Device' && !spec.noDeviceId,
     });
     query.Scope = scope;
     if (deviceId !== undefined && !spec.noDeviceId) query.DeviceId = deviceId;
+  }
+
+  if (spec.inverterRealtime) {
+    const dataCollection = consumeFlag(
+      args,
+      '--data-collection',
+      scope === 'Device' ? 'CommonInverterData' : undefined,
+    );
+    if (dataCollection !== undefined) {
+      query.DataCollection = parseDataCollection(dataCollection);
+    }
   }
 
   if (spec.archive) {

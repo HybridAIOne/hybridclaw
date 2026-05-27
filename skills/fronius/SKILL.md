@@ -226,6 +226,18 @@ node skills/fronius/fronius.cjs --live --format json http-request cloud-flowdata
 
 - Use `local-power-flow` or `cloud-flowdata` to summarize live production,
   consumption, grid exchange, battery power, and self-consumption ratio.
+- For local live production, prefer `local-power-flow`; read current PV
+  production from `Body.Data.Site.P_PV` in watts, current load from
+  `Body.Data.Site.P_Load`, grid exchange from `Body.Data.Site.P_Grid`, and
+  battery power from `Body.Data.Site.P_Akku` when present.
+- For inverter-only live output, use `local-inverter-realtime --scope System`;
+  read current AC inverter power from `Body.Data.PAC.Values` in watts and sum
+  the device values when a plant total is needed. For a single device, use
+  `local-inverter-realtime --scope Device --device-id <id> --data-collection
+  CommonInverterData` and read `Body.Data.PAC.Value` in watts.
+- Use `local-inverter-info` for inverter identity, status, serial/unique ID,
+  and connected or rated PV capacity. Interpret `PVPower` from
+  `GetInverterInfo.cgi` as connected/rated PV capacity in watts.
 - Use `local-archive`, `cloud-aggrdata`, or `cloud-histdata` for R5 energy
   rollups. Helper output includes a `responseShape` describing stable rollup
   fields such as produced energy, consumed energy, period, and channel values.
