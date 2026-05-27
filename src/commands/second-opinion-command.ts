@@ -31,6 +31,7 @@ import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
+import { parsePositiveInteger } from '../utils/number-normalization.js';
 import {
   runSecondOpinionWebSearch,
   type SecondOpinionWebSearchEvidence,
@@ -130,12 +131,6 @@ function normalizeProvider(value: string): RuntimeProviderId | null {
   const normalized = normalizeModelCatalogProviderFilter(value);
   if (!normalized || normalized === 'local') return null;
   return isRuntimeProviderId(normalized) ? normalized : null;
-}
-
-function parsePositiveInteger(value: string): number | null {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return parsed;
 }
 
 export function parseSecondOpinionArgs(
