@@ -158,6 +158,16 @@ describe('A2A transport adapter registry', () => {
     expect(
       normalizePeerDescriptor({
         transport: 'a2a',
+        canonical_id: 'Remote@Team@Peer-Instance',
+      }),
+    ).toEqual({
+      transport: 'a2a',
+      canonicalId: 'remote@team@peer-instance',
+      expectPublicKey: true,
+    });
+    expect(
+      normalizePeerDescriptor({
+        transport: 'a2a',
         url: 'https://peer.example.com/a2a',
         bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
       }),

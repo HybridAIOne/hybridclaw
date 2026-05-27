@@ -166,8 +166,7 @@ describe('generated media artifact recovery', () => {
     const outputDir = path.join(workspacePath, '.generated-videos');
     fs.mkdirSync(outputDir, { recursive: true });
     const videoBytes = Buffer.from('same-rendered-video');
-    const rawFilename =
-      '36bff5a782824f379299ce71326e781b-1778920169468.mp4';
+    const rawFilename = '36bff5a782824f379299ce71326e781b-1778920169468.mp4';
     const friendlyFilename = 'hybridclaw-erklarung-de-benedikt.mp4';
     const rawPath = path.join(outputDir, rawFilename);
     const friendlyPath = path.join(outputDir, friendlyFilename);

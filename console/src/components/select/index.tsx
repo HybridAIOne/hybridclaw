@@ -13,6 +13,7 @@ import {
   useState,
 } from 'react';
 import { cx } from '../../lib/cx';
+import { Check, ChevronDown } from '../icons';
 import {
   Popover,
   PopoverContent,
@@ -211,27 +212,8 @@ export function SelectIcon({
 }: HTMLAttributes<HTMLSpanElement>) {
   return (
     <span aria-hidden="true" className={cx(css.icon, className)} {...rest}>
-      {children ?? <ChevronIcon />}
+      {children ?? <ChevronDown width={14} height={14} />}
     </span>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox="0 0 24 24"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
   );
 }
 
@@ -545,7 +527,7 @@ export function SelectItemIndicator({
       className={cx(css.itemIndicator, className)}
       {...rest}
     >
-      {children ?? <CheckIcon />}
+      {children ?? <Check width={14} height={14} />}
     </span>
   );
 }
@@ -595,25 +577,6 @@ export function SelectItemMeta({
     <span className={cx(css.itemMeta, className)} {...rest}>
       {children}
     </span>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox="0 0 24 24"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M5 12.5 10 17.5 19 7.5" />
-    </svg>
   );
 }
 

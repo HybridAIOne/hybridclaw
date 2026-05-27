@@ -95,7 +95,7 @@ export async function assertBrowserNavigationUrl(raw, options = {}) {
   if (!allowPrivate && (await isPrivateBrowserHost(parsed.hostname))) {
     throw new Error(
       `Navigation blocked by SSRF guard: private or loopback host (${parsed.hostname}). ` +
-        'Set BROWSER_ALLOW_PRIVATE_NETWORK=true to override.',
+        'Enable browser.allowPrivateNetwork in /admin/config or run /config set browser.allowPrivateNetwork true, then retry.',
     );
   }
   return parsed;

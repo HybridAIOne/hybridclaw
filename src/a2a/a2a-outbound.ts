@@ -26,6 +26,7 @@ export {
   type A2AOutboundStatus,
   type A2AOutboxItem,
   enqueueA2AEnvelope,
+  enqueueUnresolvedA2AEnvelope,
   listA2AOutboxItems,
 } from './a2a-outbox-persistence.js';
 export {

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import { type RefObject, useRef, useState } from 'react';
+import { type RefObject, useCallback, useRef, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { FocusGuard } from './FocusGuard';
 import { useFocusTrap } from './useFocusTrap';
 
 function TrapHarness(props: { active: boolean }) {
@@ -11,6 +12,23 @@ function TrapHarness(props: { active: boolean }) {
       <button type="button">First</button>
       <button type="button">Second</button>
       <button type="button">Third</button>
+    </div>
+  );
+}
+
+function SentinelHarness() {
+  const trapRef = useRef<HTMLDivElement>(null);
+  const focusFirst = useCallback(() => {
+    trapRef.current?.querySelector<HTMLElement>('button')?.focus();
+  }, []);
+  return (
+    <div>
+      <div ref={trapRef} data-testid="trap">
+        <button type="button">First</button>
+        <button type="button">Second</button>
+        <button type="button">Third</button>
+      </div>
+      <FocusGuard onFocus={focusFirst} />
     </div>
   );
 }
@@ -98,21 +116,22 @@ describe('useFocusTrap', () => {
     expect(document.activeElement).toBe(outside);
   });
 
-  it('does not throw when container is disconnected during focusout', async () => {
-    const { unmount } = render(<TrapHarness active={true} />);
+  it('FocusGuard sentinel redirects focus when its onFocus callback moves focus', async () => {
+    // Render a trap container with a FocusGuard sentinel rendered after the
+    // content (simulating the post-content sentinel that catches Tab past the
+    // last element and redirects focus back to the first). Wire onFocus to a
+    // real focus action so we can assert focus actually moves.
+    const { container } = render(<SentinelHarness />);
     await new Promise((r) => requestAnimationFrame(r));
 
-    const trap = document.querySelector<HTMLElement>('[data-testid="trap"]');
-    expect(trap).not.toBeNull();
-    const button = trap?.querySelector('button');
-    expect(button).not.toBeNull();
-    button?.focus();
+    const sentinel = container.querySelector<HTMLElement>('span[aria-hidden]');
+    expect(sentinel).not.toBeNull();
+    const firstButton = container.querySelector<HTMLElement>(
+      '[data-testid="trap"] button',
+    );
+    expect(firstButton).not.toBeNull();
 
-    // Unmount removes the container from the DOM; fire focusout to exercise
-    // the isConnected guard — should not throw.
-    unmount();
-    expect(() => {
-      fireEvent.focusOut(button as HTMLButtonElement);
-    }).not.toThrow();
+    fireEvent.focus(sentinel as HTMLElement);
+    expect(document.activeElement).toBe(firstButton);
   });
 });

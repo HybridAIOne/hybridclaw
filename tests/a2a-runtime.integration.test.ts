@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const ORIGINAL_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_INSTANCE_ID = process.env.HYBRIDCLAW_INSTANCE_ID;
+const ORIGINAL_DISCOVERY_ZONE = process.env.HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE;
 
 let tmpDir: string;
 
@@ -24,6 +25,7 @@ beforeEach(() => {
   process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
   process.env.HOME = tmpDir;
   process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
+  delete process.env.HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE;
   vi.resetModules();
 });
 
@@ -31,6 +33,8 @@ afterEach(() => {
   restoreEnvVar('HYBRIDCLAW_DATA_DIR', ORIGINAL_DATA_DIR);
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDCLAW_INSTANCE_ID', ORIGINAL_INSTANCE_ID);
+  restoreEnvVar('HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE', ORIGINAL_DISCOVERY_ZONE);
+  vi.doUnmock('../src/logger.js');
   vi.resetModules();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -302,7 +306,7 @@ describe('A2A runtime API', () => {
 
     initDatabase({ quiet: true });
 
-    runtime.sendMessage(
+    const confirmation = runtime.sendMessage(
       {
         id: 'msg-queued-audit',
         sender_agent_id: 'main',
@@ -321,6 +325,12 @@ describe('A2A runtime API', () => {
         },
       },
     );
+
+    expect(confirmation).toMatchObject({
+      delivered: 'pending',
+      message_id: 'msg-queued-audit',
+    });
+    expect(runtime.inbox('remote@team@peer-instance')).toEqual([]);
 
     const wirePath = audit.getAuditWirePath('session-a2a-queued-audit');
     const records = fs
@@ -342,40 +352,87 @@ describe('A2A runtime API', () => {
     });
   });
 
+  test('warns once when remote canonical sends are queued without identity discovery', async () => {
+    const loggerMock = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    vi.doMock('../src/logger.js', () => ({
+      logger: loggerMock,
+    }));
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+
+    initDatabase({ quiet: true });
+
+    for (const id of ['msg-no-discovery-a', 'msg-no-discovery-b']) {
+      expect(
+        runtime.sendMessage({
+          id,
+          sender_agent_id: 'main',
+          recipient_agent_id: 'remote@team@peer-instance',
+          thread_id: 'thread-no-discovery',
+          intent: 'chat',
+          content: 'Queue this for identity discovery.',
+          created_at: '2026-05-01T10:00:00.000Z',
+        }),
+      ).toMatchObject({
+        delivered: 'pending',
+        recipient_agent_id: 'remote@team@peer-instance',
+      });
+    }
+
+    expect(loggerMock.warn).toHaveBeenCalledTimes(1);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      {
+        recipientAgentId: 'remote@team@peer-instance',
+        env: 'HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE',
+      },
+      'A2A remote send queued without identity discovery configured',
+    );
+  });
+
   test('audits and escalates when a peer transport has no adapter', async () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
     const escalation = await import('../src/gateway/interactive-escalation.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
 
     initDatabase({ quiet: true });
 
-    expect(() =>
-      runtime.sendMessage(
-        {
-          id: 'msg-remote',
-          sender_agent_id: 'main',
-          recipient_agent_id: 'remote@team@peer-instance',
-          thread_id: 'thread-remote',
-          intent: 'chat',
-          content: 'Can your peer agent receive this?',
-          created_at: '2026-05-01T10:00:00.000Z',
+    const confirmation = runtime.sendMessage(
+      {
+        id: 'msg-remote',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'remote@team@peer-instance',
+        thread_id: 'thread-remote',
+        intent: 'chat',
+        content: 'Can your peer agent receive this?',
+        created_at: '2026-05-01T10:00:00.000Z',
+      },
+      {
+        sessionId: 'session-a2a-transport',
+        auditRunId: 'run-a2a-transport',
+        peerDescriptor: {
+          transport: 'smtp',
         },
-        {
-          sessionId: 'session-a2a-transport',
-          auditRunId: 'run-a2a-transport',
-          peerDescriptor: {
-            transport: 'smtp',
-          },
-          escalationTarget: {
-            channel: 'slack:COPS',
-            recipient: 'ops-lead',
-          },
+        escalationTarget: {
+          channel: 'slack:COPS',
+          recipient: 'ops-lead',
         },
-      ),
-    ).toThrow(transport.TransportRegistryError);
+      },
+    );
+
+    expect(confirmation).toMatchObject({
+      delivered: false,
+      message_id: 'msg-remote',
+      thread_id: 'thread-remote',
+      recipient_agent_id: 'remote@team@peer-instance',
+      failure_reason: 'No A2A transport adapter registered for "smtp".',
+    });
 
     const events = getRecentStructuredAuditForSession(
       'session-a2a-transport',
@@ -383,6 +440,7 @@ describe('A2A runtime API', () => {
     );
     expect(events.map((event) => event.event_type)).toEqual([
       'escalation.interaction_needed',
+      'browser.escalation_2fa',
       'approval.request',
       'escalation.decision',
       'authorization.check',
@@ -421,29 +479,28 @@ describe('A2A runtime API', () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const escalation = await import('../src/gateway/interactive-escalation.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
 
     initDatabase({ quiet: true });
 
-    expect(() =>
-      runtime.sendMessage(
-        {
-          id: 'msg:remote',
-          sender_agent_id: 'main',
-          recipient_agent_id: 'remote@team@peer-instance',
-          thread_id: 'thread:remote',
-          intent: 'chat',
-          content: 'Can your peer agent receive this?',
-          created_at: '2026-05-01T10:00:00.000Z',
+    const confirmation = runtime.sendMessage(
+      {
+        id: 'msg:remote',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'remote@team@peer-instance',
+        thread_id: 'thread:remote',
+        intent: 'chat',
+        content: 'Can your peer agent receive this?',
+        created_at: '2026-05-01T10:00:00.000Z',
+      },
+      {
+        auditRunId: 'run-a2a-transport',
+        peerDescriptor: {
+          transport: 'smtp',
         },
-        {
-          auditRunId: 'run-a2a-transport',
-          peerDescriptor: {
-            transport: 'smtp',
-          },
-        },
-      ),
-    ).toThrow(transport.TransportRegistryError);
+      },
+    );
+
+    expect(confirmation.delivered).toBe(false);
 
     const threadKey = Buffer.from('thread:remote').toString('base64url');
     const messageKey = Buffer.from('msg:remote').toString('base64url');

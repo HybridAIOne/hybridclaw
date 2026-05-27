@@ -13,6 +13,7 @@ import {
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
+import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import {
   modelRequiresChatbotId,
   resolveModelRuntimeCredentials,
@@ -80,6 +81,11 @@ function normalizeGatewayResult(result: GatewayChatResult): GatewayChatResult {
 }
 
 const OPENAI_EXECUTION_SESSION_TTL_MS = 30_000;
+const AUXILIARY_EVAL_JUDGE_MODEL = 'auxiliary/eval_judge';
+
+function isAuxiliaryEvalJudgeModel(model: string): boolean {
+  return model.trim().toLowerCase() === AUXILIARY_EVAL_JUDGE_MODEL;
+}
 
 interface OpenAIExecutionSessionEntry {
   sessionId: string;
@@ -484,6 +490,40 @@ async function handleOpenAICompatibleNonStreamingChat(
   res.end(JSON.stringify(payload, null, 2));
 }
 
+async function handleOpenAICompatibleAuxiliaryEvalJudgeChat(
+  res: ServerResponse,
+  input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>,
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>,
+  completionId: string,
+  created: number,
+  traceHeaders: Record<string, string>,
+): Promise<void> {
+  const messages =
+    input.messages.length > 0
+      ? input.messages
+      : ([{ role: 'user', content: input.prompt }] satisfies ChatMessage[]);
+  const result = await callAuxiliaryModel({
+    task: 'eval_judge',
+    messages,
+    fallbackModel: HYBRIDAI_MODEL,
+    agentId: prepared.requestAgentId,
+    temperature: 0,
+  });
+  const payload = buildOpenAICompatibleCompletionResponse({
+    completionId,
+    created,
+    model: result.model,
+    content: result.content,
+  });
+  res.writeHead(200, {
+    ...traceHeaders,
+    'X-HybridClaw-Auxiliary-Task': 'eval_judge',
+    'X-HybridClaw-Auxiliary-Provider': result.provider,
+    'Content-Type': 'application/json; charset=utf-8',
+  });
+  res.end(JSON.stringify(payload, null, 2));
+}
+
 async function handleOpenAICompatibleToolChat(
   res: ServerResponse,
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>,
@@ -782,13 +822,34 @@ export async function handleOpenAICompatibleChatCompletions(
     const input = await readOpenAICompatibleChatRequest(req);
     const prepared = prepareOpenAICompatibleRequest(input);
     const traceHeaders = buildOpenAICompatibleTraceHeaders(prepared);
-    const executionSession = input.usesClientTools
-      ? null
-      : acquireOpenAIExecutionSession({ input, prepared });
+    const usesAuxiliaryEvalJudge = isAuxiliaryEvalJudgeModel(prepared.model);
+    const executionSession =
+      input.usesClientTools || usesAuxiliaryEvalJudge
+        ? null
+        : acquireOpenAIExecutionSession({ input, prepared });
     const completionId = `chatcmpl_${randomUUID().replace(/-/g, '')}`;
     const created = Math.floor(Date.now() / 1000);
 
     try {
+      if (usesAuxiliaryEvalJudge) {
+        if (input.wantsStream) {
+          throw new OpenAICompatibleRequestError(
+            400,
+            '`auxiliary/eval_judge` does not support streaming responses.',
+            { param: 'stream', code: 'unsupported_value' },
+          );
+        }
+        await handleOpenAICompatibleAuxiliaryEvalJudgeChat(
+          res,
+          input,
+          prepared,
+          completionId,
+          created,
+          traceHeaders,
+        );
+        return;
+      }
+
       if (input.usesClientTools) {
         if (input.wantsStream) {
           await handleOpenAICompatibleStreamingToolChat(

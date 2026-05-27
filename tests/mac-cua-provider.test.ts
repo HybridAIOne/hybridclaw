@@ -63,6 +63,8 @@ function createMockDriver(options?: {
   getAddressBarValue: ReturnType<typeof vi.fn>;
   getCurrentUrl: ReturnType<typeof vi.fn>;
   detectTwoFactorWaypoint: ReturnType<typeof vi.fn>;
+  fillTwoFactorInput: ReturnType<typeof vi.fn>;
+  focusTwoFactorInput: ReturnType<typeof vi.fn>;
   getEnvironmentState: ReturnType<typeof vi.fn>;
 } {
   const stableState: MacCuaEnvironmentState = {
@@ -93,6 +95,8 @@ function createMockDriver(options?: {
     getAddressBarValue: vi.fn(async () => 'https://example.com/login'),
     getCurrentUrl: vi.fn(async () => 'https://example.com/'),
     detectTwoFactorWaypoint: vi.fn(async () => ({ detected: false })),
+    fillTwoFactorInput: vi.fn(async () => true),
+    focusTwoFactorInput: vi.fn(async () => true),
     getEnvironmentState: vi.fn(async () => states.shift() || states[0]),
   };
 }
@@ -209,6 +213,52 @@ test('mac-cua provider starts the selected operator browser in background-safe m
       }),
     }),
   );
+});
+
+test('mac-cua provider supports safe key presses for form submission', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await session.press?.('Enter');
+
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
+});
+
+test('mac-cua provider resolves AX button rows from cua window-state markdown', async () => {
+  const { resolveMacCuaWindowStateElementIndex } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+
+  expect(
+    resolveMacCuaWindowStateElementIndex({
+      tree_markdown: '- [17] AXButton "Confirm"\n- [18] AXTextField "Code"',
+    }),
+  ).toBe(17);
+  expect(
+    resolveMacCuaWindowStateElementIndex({
+      markdown: '[element_index 23] AXButton "Confirm"',
+    }),
+  ).toBe(23);
+  expect(resolveMacCuaWindowStateElementIndex({ element_index: 31 })).toBe(31);
+});
+
+test('mac-cua provider blocks unsupported key presses', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await expect(session.press?.('Meta+Q')).rejects.toThrow(
+    /unsupported key press/u,
+  );
+
+  expect(driver.pressKey).not.toHaveBeenCalled();
 });
 
 test.each([
@@ -354,6 +404,237 @@ test('mac-cua provider authorizes SecretRef fills and forwards refs without clea
   );
 });
 
+test('mac-cua provider audits and disposes SecretHandle fills', async () => {
+  const root = makeTempRoot();
+  const { initDatabase, getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { createSecretHandle, unsafeEscapeSecretHandle } = await import(
+    '../src/security/secret-handles.js'
+  );
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({
+    metering: {
+      sessionId: 'session-cua-handle',
+      agentId: 'agent-cua',
+      auditRunId: 'run-cua-handle',
+      skillName: 'login-skill',
+    },
+  });
+  const handle = createSecretHandle(
+    { source: 'store', id: 'OPERATOR_RETURN_test' },
+    '654321',
+    'dom',
+  );
+
+  await session.fill('@e7', handle);
+
+  expect(driver.typeTextChars).toHaveBeenCalledWith('cua-session-1', {
+    text: '654321',
+  });
+  expect(() =>
+    unsafeEscapeSecretHandle(handle, {
+      reason: 'verify disposal',
+      audit: () => undefined,
+    }),
+  ).toThrow(/already disposed/i);
+  const auditRows = getRecentStructuredAuditForSession(
+    'session-cua-handle',
+    20,
+  );
+  expect(auditRows.map((row) => row.event_type)).toContain(
+    'secret.unsafe_escape',
+  );
+  expect(
+    auditRows.some((row) => {
+      const payload = JSON.parse(row.payload || '{}') as {
+        selector?: string;
+        secretRef?: { id?: string };
+      };
+      return (
+        row.event_type === 'secret.unsafe_escape' &&
+        payload.selector === '@e7' &&
+        payload.secretRef?.id === 'OPERATOR_RETURN_test'
+      );
+    }),
+  ).toBe(true);
+});
+
+test('mac-cua provider resumes 2FA through native OTP set_value when AX selectors are unavailable', async () => {
+  const root = makeTempRoot();
+  const { initDatabase } = await import('../src/memory/db.js');
+  initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { createSecretHandle } = await import(
+    '../src/security/secret-handles.js'
+  );
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
+    detected: true,
+    signals: ['one-time-code'],
+  });
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+  const handle = createSecretHandle(
+    { source: 'store', id: 'OPERATOR_RETURN_test' },
+    '123456',
+    'dom',
+  );
+
+  await expect(session.fillTwoFactorCode?.(handle)).resolves.toEqual({
+    strategy: 'native-set-value',
+    submitted: true,
+  });
+
+  expect(driver.fillTwoFactorInput).toHaveBeenCalledWith('cua-session-1', {
+    text: '123456',
+  });
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
+  expect(driver.focusTwoFactorInput).not.toHaveBeenCalled();
+  expect(driver.typeTextChars).not.toHaveBeenCalled();
+  expect(driver.click).not.toHaveBeenCalled();
+});
+
+test('mac-cua provider tolerates the controlled browser becoming frontmost', async () => {
+  const root = makeTempRoot();
+  const { initDatabase } = await import('../src/memory/db.js');
+  initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { createSecretHandle } = await import(
+    '../src/security/secret-handles.js'
+  );
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver({
+    before: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    },
+    after: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Safari',
+      activeSpaceId: 1,
+    },
+  });
+  driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
+    detected: true,
+    signals: ['one-time-code'],
+  });
+  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const session = await provider.launchSession({});
+  const handle = createSecretHandle(
+    { source: 'store', id: 'OPERATOR_RETURN_test' },
+    '123456',
+    'dom',
+  );
+
+  await expect(session.fillTwoFactorCode?.(handle)).resolves.toEqual({
+    strategy: 'native-set-value',
+    submitted: true,
+  });
+
+  expect(driver.fillTwoFactorInput).toHaveBeenCalledWith('cua-session-1', {
+    text: '123456',
+  });
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
+});
+
+test('mac-cua provider tolerates the controlled browser becoming frontmost on a different Space', async () => {
+  const root = makeTempRoot();
+  const { initDatabase } = await import('../src/memory/db.js');
+  initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { createSecretHandle } = await import(
+    '../src/security/secret-handles.js'
+  );
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver({
+    before: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    },
+    after: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Safari',
+      activeSpaceId: 2,
+    },
+  });
+  driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
+    detected: true,
+    signals: ['one-time-code'],
+  });
+  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const session = await provider.launchSession({});
+  const handle = createSecretHandle(
+    { source: 'store', id: 'OPERATOR_RETURN_test' },
+    '123456',
+    'dom',
+  );
+
+  await expect(session.fillTwoFactorCode?.(handle)).resolves.toEqual({
+    strategy: 'native-set-value',
+    submitted: true,
+  });
+
+  expect(driver.fillTwoFactorInput).toHaveBeenCalledWith('cua-session-1', {
+    text: '123456',
+  });
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
+});
+
+test('mac-cua provider falls back to focus and type when native OTP set_value cannot resolve a field', async () => {
+  const root = makeTempRoot();
+  const { initDatabase } = await import('../src/memory/db.js');
+  initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { createSecretHandle } = await import(
+    '../src/security/secret-handles.js'
+  );
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
+    detected: true,
+    signals: ['one-time-code'],
+  });
+  driver.fillTwoFactorInput.mockResolvedValueOnce(false);
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+  const handle = createSecretHandle(
+    { source: 'store', id: 'OPERATOR_RETURN_test' },
+    '123456',
+    'dom',
+  );
+
+  await expect(session.fillTwoFactorCode?.(handle)).resolves.toEqual({
+    strategy: 'native-focus',
+    submitted: true,
+  });
+
+  expect(driver.fillTwoFactorInput).toHaveBeenCalledWith('cua-session-1', {
+    text: '123456',
+  });
+  expect(driver.focusTwoFactorInput).toHaveBeenCalledWith('cua-session-1');
+  expect(driver.typeTextChars).toHaveBeenCalledWith('cua-session-1', {
+    text: '123456',
+  });
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
+});
+
 test('mac-cua provider blocks shell-injection typed payloads before driver input', async () => {
   const { MacCuaBrowserProvider } = await import(
     '../src/browser/mac-cua-provider.js'
@@ -439,10 +720,58 @@ test('mac-cua provider rejects background-safe violations', async () => {
       activeSpaceId: 1,
     },
   });
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
   const session = await provider.launchSession({});
 
   await expect(session.click('@e1')).rejects.toThrow(/background-safe/u);
+});
+
+test('mac-cua provider rejects unrelated app activation on a different Space', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver({
+    before: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    },
+    after: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.google.Chrome',
+      activeSpaceId: 2,
+    },
+  });
+  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const session = await provider.launchSession({});
+
+  await expect(session.click('@e1')).rejects.toThrow(/background-safe/u);
+});
+
+test('mac-cua provider tolerates cursor-only changes in background-safe mode', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver({
+    before: {
+      cursorX: 1,
+      cursorY: 2,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    },
+    after: {
+      cursorX: 100,
+      cursorY: 200,
+      frontmostBundleId: 'com.apple.Terminal',
+      activeSpaceId: 1,
+    },
+  });
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await expect(session.screenshot()).resolves.toBeInstanceOf(Buffer);
 });
 
 test('mac-cua provider preserves the background-safe state across a simulated 60-second drive sequence', async () => {
@@ -543,6 +872,31 @@ test('mac-cua provider emits F14 waypoint events from AX two-factor detection an
       }),
     }),
   );
+});
+
+test('mac-cua provider exposes AX two-factor detection to gateway parking', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
+    detected: true,
+    signals: ['one-time-code'],
+    selectors: ['@e24@window:7'],
+  });
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await session.navigate('https://example.com/login');
+
+  await expect(session.inspectTwoFactorChallenge?.()).resolves.toMatchObject({
+    detected: true,
+    modality: 'totp',
+    signals: ['one-time-code'],
+    url: 'https://example.com/',
+    preview: 'verification code',
+    selectors: ['@e24@window:7'],
+  });
 });
 
 test('mac-cua provider advertises F13 and F14 parity only after readiness passes', async () => {

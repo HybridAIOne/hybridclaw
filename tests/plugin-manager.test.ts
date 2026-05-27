@@ -1524,7 +1524,8 @@ test('plugin manager disables plugins with missing required env vars before impo
         id: 'env-plugin',
         enabled: false,
         status: 'failed',
-        error: 'Missing required env vars: HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST.',
+        error:
+          'Missing required runtime secrets: HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST. Store them with `hybridclaw secret set <name> <value>` or in TUI with `/secret set <name> <value>`, then reload plugins.',
         toolsRegistered: [],
         hooksRegistered: [],
       }),
@@ -1537,7 +1538,8 @@ test('plugin manager disables plugins with missing required env vars before impo
         description: undefined,
         source: 'project',
         enabled: false,
-        error: 'Missing required env vars: HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST.',
+        error:
+          'Missing required runtime secrets: HYBRIDCLAW_PLUGIN_MISSING_ENV_TEST. Store them with `hybridclaw secret set <name> <value>` or in TUI with `/secret set <name> <value>`, then reload plugins.',
         commands: [],
         tools: [],
         hooks: [],

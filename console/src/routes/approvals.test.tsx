@@ -1,14 +1,7 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminApprovalsResponse, AdminPolicyState } from '../api/types';
-import { ToastProvider } from '../components/toast';
+import { renderWithProviders } from '../test-utils';
 import { ApprovalsPage } from './approvals';
 
 const fetchAdminApprovalsMock =
@@ -42,6 +35,16 @@ const saveAdminPolicyDefaultMock =
     (
       token: string,
       params: { agentId: string; defaultAction: 'allow' | 'deny' },
+    ) => Promise<AdminPolicyState>
+  >();
+const saveAdminPolicyLanHttpAccessMock =
+  vi.fn<
+    (
+      token: string,
+      params: {
+        agentId: string;
+        mode: 'off' | 'read-only' | 'read-write' | 'custom';
+      },
     ) => Promise<AdminPolicyState>
   >();
 const saveAdminPolicyPresetMock =
@@ -87,6 +90,13 @@ vi.mock('../api/client', () => ({
     token: string,
     params: { agentId: string; defaultAction: 'allow' | 'deny' },
   ) => saveAdminPolicyDefaultMock(token, params),
+  saveAdminPolicyLanHttpAccess: (
+    token: string,
+    params: {
+      agentId: string;
+      mode: 'off' | 'read-only' | 'read-write' | 'custom';
+    },
+  ) => saveAdminPolicyLanHttpAccessMock(token, params),
   saveAdminPolicyPreset: (
     token: string,
     params: { agentId: string; presetName: string },
@@ -135,6 +145,10 @@ function makeApprovalsResponse(
       policyPath: '/tmp/main/workspace/.hybridclaw/policy.yaml',
       workspacePath: '/tmp/main/workspace',
       defaultAction: 'deny',
+      lanHttpAccess: {
+        mode: 'off',
+        managedRuleIndexes: [],
+      },
       presets: ['github'],
       rules: [
         {
@@ -164,20 +178,7 @@ function makeApprovalsResponse(
 }
 
 function renderApprovalsPage(): void {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <ApprovalsPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<ApprovalsPage />);
 }
 
 describe('ApprovalsPage', () => {
@@ -185,6 +186,7 @@ describe('ApprovalsPage', () => {
     fetchAdminApprovalsMock.mockReset();
     saveAdminPolicyRuleMock.mockReset();
     saveAdminPolicyDefaultMock.mockReset();
+    saveAdminPolicyLanHttpAccessMock.mockReset();
     saveAdminPolicyPresetMock.mockReset();
     deleteAdminPolicyRuleMock.mockReset();
     useAuthMock.mockReset();
@@ -194,6 +196,13 @@ describe('ApprovalsPage', () => {
     saveAdminPolicyDefaultMock.mockResolvedValue(
       makeApprovalsResponse().policy,
     );
+    saveAdminPolicyLanHttpAccessMock.mockResolvedValue({
+      ...makeApprovalsResponse().policy,
+      lanHttpAccess: {
+        mode: 'read-only',
+        managedRuleIndexes: [2, 3, 4],
+      },
+    });
     saveAdminPolicyPresetMock.mockResolvedValue({
       ...makeApprovalsResponse().policy,
       presets: ['github', 'npm'],
@@ -239,6 +248,10 @@ describe('ApprovalsPage', () => {
             policyPath: '/tmp/research/workspace/.hybridclaw/policy.yaml',
             workspacePath: '/tmp/research/workspace',
             defaultAction: 'deny',
+            lanHttpAccess: {
+              mode: 'off',
+              managedRuleIndexes: [],
+            },
             presets: [],
             rules: [
               {
@@ -319,6 +332,39 @@ describe('ApprovalsPage', () => {
         defaultAction: 'allow',
       });
     });
+  });
+
+  it('updates LAN HTTP access from the dropdown', async () => {
+    renderApprovalsPage();
+
+    await screen.findByText('manual allow');
+    fireEvent.change(screen.getByLabelText('LAN HTTP access'), {
+      target: { value: 'read-only' },
+    });
+
+    await waitFor(() => {
+      expect(saveAdminPolicyLanHttpAccessMock).toHaveBeenCalledWith(
+        'test-token',
+        {
+          agentId: 'main',
+          mode: 'read-only',
+        },
+      );
+    });
+  });
+
+  it('opens the policy editor for custom LAN HTTP access', async () => {
+    renderApprovalsPage();
+
+    await screen.findByText('manual allow');
+    expect(screen.queryByLabelText('Host')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('LAN HTTP access'), {
+      target: { value: 'custom' },
+    });
+
+    expect(await screen.findByLabelText('Host')).toBeTruthy();
+    expect(saveAdminPolicyLanHttpAccessMock).not.toHaveBeenCalled();
   });
 
   it('applies a template from the dropdown', async () => {

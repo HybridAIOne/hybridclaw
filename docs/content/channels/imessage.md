@@ -205,6 +205,11 @@ For headless or container deployments, provide the master key through
 `HYBRIDCLAW_MASTER_KEY` or `/run/secrets/hybridclaw_master_key`. Do not rely on
 plaintext `imessage.password` in config unless you have a very good reason.
 
+Inbound BlueBubbles webhooks should send the password in the
+`x-hybridclaw-imessage-password` header. Older relays that still send
+`password`, `guid`, or `token` as query parameters continue to work for now,
+but HybridClaw logs a deprecation warning for each query-auth webhook.
+
 ### Step 4: Add the iMessage Config
 
 Open `~/.hybridclaw/config.json` and add or update:
@@ -257,20 +262,16 @@ X-HybridClaw-iMessage-Password: YOUR_IMESSAGE_PASSWORD
 This is the primary and recommended setup. Use it unless your relay or proxy
 cannot send custom headers.
 
-Fallback only:
+Deprecated compatibility fallback:
 
 ```text
-https://your-hybridclaw.example.com/api/imessage/webhook?password=YOUR_IMESSAGE_PASSWORD
+POST https://your-hybridclaw.example.com/api/imessage/webhook?password=YOUR_IMESSAGE_PASSWORD
 ```
 
-Warning: query-string secrets are more likely to end up in reverse-proxy access
-logs, browser history, and similar request traces. Only use the query-param
-form when header auth is genuinely unavailable.
-
-HybridClaw accepts:
-
-- header: `X-HybridClaw-iMessage-Password` (preferred)
-- query params: `password`, `guid`, or `token` (fallback only)
+HybridClaw still accepts `password`, `guid`, and `token` query parameters for
+older BlueBubbles webhook relays, but this path is scheduled for removal. Move
+to the `X-HybridClaw-iMessage-Password` header before upgrading to a version
+that removes query-param auth.
 
 The webhook must send `new-message` events to HybridClaw for inbound delivery.
 

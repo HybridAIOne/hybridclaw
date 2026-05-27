@@ -1,6 +1,6 @@
 ---
 title: Admin Console
-description: Manage channel setup, agent prompt files, A2A threads, and browser-based operator workflows from /admin.
+description: Manage channels, agents, approvals, config, secrets, output guard, audit, jobs, and browser-based operator workflows from /admin.
 sidebar_position: 10
 ---
 
@@ -34,6 +34,8 @@ The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message t
 - `/admin/agents` lets operators pick any registered agent and edit the
   allowlisted workspace bootstrap markdown files seeded into that agent's
   runtime workspace
+- `/admin/agents/overview` shows the registered agent fleet with model,
+  budget, prompt-file, workspace, and channel metadata for quick comparison
 - `/admin/agents` shows saved revisions for those markdown files and can
   restore an earlier version without opening the workspace directory manually
 - `/admin/agents` also shows org-chart/team-structure revisions, per-revision diffs, and a restore action for rolling back role, reporting, delegation, and peer relationships
@@ -51,10 +53,35 @@ The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message t
   browser without tearing down the enclosing workspace container
 - `/admin/gateway` shows the configured public URL and current tunnel provider
   status for managed ngrok, Tailscale Funnel, or Cloudflare Tunnel exposure
+- `/admin/config` edits runtime settings through structured controls for
+  booleans, numbers, one-of selections, arrays, and nested config paths, with
+  unsaved-change protection and validation before save
+- `/admin/secrets` lists stored and declared-but-empty secrets by metadata
+  only, supports overwrite and unset actions, and never returns cleartext
+  secret values to the browser
+- `/admin/output-guard` configures plugin-backed response classification,
+  guard rules, blocked terms, rewrite behavior, and model/provider settings
+  without editing runtime config by hand
+- `/admin/audit` includes filter and search controls for audit event types,
+  actors, resources, date ranges, and text queries
+- `/admin/jobs` shows richer job rows with status, queue, owner, budget, and
+  schedule context while keeping navigation inside the SPA
+- `/admin/scheduler` edits scheduled jobs through the shared form controls and
+  surfaces validation errors before saving
+- `/admin/skills` shows catalog metadata, blocked-skill review controls,
+  dependency/setup information, and adaptive-skill amendment review
 - `/admin/statistics` shows activity trends, token totals, cost estimates, and
   channel breakdowns across selectable date ranges
 - `/admin/agent-scoreboard` shows observed agent skill scores, best skills,
   reliability, timing, and links to generated `CV.md` files
+- admin forms share common checkbox, combobox, date, field, input,
+  native-select, number, radio, switch, textarea, validation, draft, and
+  unsaved-change components so behavior is consistent across pages
+- pages that show owned work can render per-agent budget chips, including
+  neutral, warning, and over-budget states when agent budgets are configured
+- the web chat route shares the admin shell, supports improved session
+  management, preserves scroll position while reading older messages, and
+  renders assistant message blocks with better structured content handling
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 
@@ -77,10 +104,18 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want to update an agent's workspace instructions from the browser
 - you want revision history before restoring an earlier agent prompt file
 - you want to inspect or roll back agent org-chart changes from the browser
+- you want to compare all agents, models, budgets, and prompt metadata from a
+  single overview page
 - you want to inspect pending approvals and compare them with the declarative
   network policy without switching to `/chat` or opening the workspace files
 - you want to add, edit, or remove network policy rules from the browser
 - you want to inspect A2A coordination threads without impersonating a recipient agent
+- you want to search and filter audit events without writing SQL or reading
+  JSONL logs directly
+- you want to adjust output guard behavior or inspect blocked-skill state
+  without hand-editing config files
+- you want to overwrite or unset a runtime secret without exposing its current
+  value to the browser
 - you want explicit browser confirmation before destructive operator actions
 - you want to reload runtime config and secrets from `/admin/gateway` without
   switching back to the CLI

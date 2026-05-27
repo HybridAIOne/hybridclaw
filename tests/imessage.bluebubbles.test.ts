@@ -99,21 +99,34 @@ afterEach(() => {
 });
 
 describe('bluebubbles iMessage backend', () => {
-  test('rejects unauthorized webhook requests', async () => {
+  test('accepts deprecated query-param webhook passwords with a warning', async () => {
     const { createBlueBubblesIMessageBackend } =
       await importFreshBlueBubblesBackend();
+    const { logger } = await import('../src/logger.js');
     const onInbound = vi.fn(async () => {});
     const backend = createBlueBubblesIMessageBackend({ onInbound });
     const req = makeRequest({
-      url: '/api/imessage/webhook?password=wrong',
-      body: { type: 'new-message' },
+      url: '/api/imessage/webhook?password=test-password',
+      body: {
+        type: 'new-message',
+        data: {
+          guid: 'msg-1',
+          text: 'hello',
+          handle: { address: '+14155551212' },
+          chats: [{ guid: 'any;-;+14155551212', participants: [] }],
+        },
+      },
     });
     const res = makeResponse();
 
     await backend.handleWebhook?.(req as never, res as never);
 
-    expect(res.statusCode).toBe(401);
-    expect(onInbound).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(onInbound).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      { parameterName: 'password' },
+      expect.stringContaining('deprecated query-param auth'),
+    );
   });
 
   test('accepts authenticated new-message webhooks and normalizes inbound data', async () => {
@@ -122,7 +135,7 @@ describe('bluebubbles iMessage backend', () => {
     const onInbound = vi.fn(async () => {});
     const backend = createBlueBubblesIMessageBackend({ onInbound });
     const req = makeRequest({
-      url: '/api/imessage/webhook?password=test-password',
+      url: '/api/imessage/webhook',
       body: {
         type: 'new-message',
         data: {
@@ -142,6 +155,7 @@ describe('bluebubbles iMessage backend', () => {
         },
       },
     });
+    req.headers['x-hybridclaw-imessage-password'] = 'test-password';
     const res = makeResponse();
 
     await backend.handleWebhook?.(req as never, res as never);
@@ -162,9 +176,10 @@ describe('bluebubbles iMessage backend', () => {
     const onInbound = vi.fn(async () => {});
     const backend = createBlueBubblesIMessageBackend({ onInbound });
     const req = makeRequest({
-      url: '/api/imessage/webhook?password=test-password',
+      url: '/api/imessage/webhook',
       body: '{not-valid-json',
     });
+    req.headers['x-hybridclaw-imessage-password'] = 'test-password';
     const res = makeResponse();
 
     await backend.handleWebhook?.(req as never, res as never);
@@ -180,9 +195,10 @@ describe('bluebubbles iMessage backend', () => {
     const onInbound = vi.fn(async () => {});
     const backend = createBlueBubblesIMessageBackend({ onInbound });
     const req = makeRequest({
-      url: '/api/imessage/webhook?password=test-password',
+      url: '/api/imessage/webhook',
       body: [{ type: 'new-message' }],
     });
+    req.headers['x-hybridclaw-imessage-password'] = 'test-password';
     const res = makeResponse();
 
     await backend.handleWebhook?.(req as never, res as never);

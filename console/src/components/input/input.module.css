@@ -1,0 +1,78 @@
+.input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: var(--control-padding-y) 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--panel-bg);
+  color: var(--text);
+  font: inherit;
+  line-height: var(--control-line-height);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.input::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.input:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 35%, transparent);
+}
+
+.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--destructive);
+}
+
+.input[aria-invalid="true"]:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 30%, transparent);
+}
+
+/* file input rendering */
+.input[type="file"] {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.input[type="file"]::file-selector-button {
+  height: 28px;
+  margin-right: 10px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+/* ---- Sizes ---- */
+
+.sizeDefault {
+  min-height: var(--control-height);
+  height: var(--control-height);
+}
+
+.sizeSm {
+  min-height: 32px;
+  height: 32px;
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+}

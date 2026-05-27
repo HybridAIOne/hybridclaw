@@ -54,7 +54,6 @@ export function GatewayPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Gateway"
         actions={
           <button
             type="button"

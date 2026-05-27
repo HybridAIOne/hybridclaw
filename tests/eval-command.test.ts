@@ -3816,7 +3816,7 @@ test('fails fast when eval gateway auth tokens are missing', async () => {
       }),
     ),
   ).rejects.toThrow(
-    'Eval requires WEB_API_TOKEN or GATEWAY_API_TOKEN for the local OpenAI-compatible gateway.',
+    'Eval requires a local gateway API token. Store WEB_API_TOKEN or GATEWAY_API_TOKEN with `hybridclaw secret set <name> <token>` or in TUI with `/secret set <name> <token>` before running evals against the local OpenAI-compatible gateway.',
   );
 });
 

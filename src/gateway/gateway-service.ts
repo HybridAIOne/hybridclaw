@@ -191,6 +191,7 @@ import { handleGoalCommand } from '../goals/goal-command.js';
 import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
+import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
@@ -198,6 +199,7 @@ import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
+  countStructuredAuditEntries,
   createFreshSessionInstance,
   deleteMemoryValue,
   deleteSessionData,
@@ -258,6 +260,7 @@ import {
   addPolicyRule,
   deletePolicyRule,
   readPolicyState,
+  setLanHttpAccessMode,
   setPolicyDefault,
   updatePolicyRule,
 } from '../policy/policy-store.js';
@@ -491,6 +494,7 @@ import {
   type GatewayAdminJobCard,
   type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
+  type GatewayAdminLanHttpAccessMode,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
@@ -555,6 +559,7 @@ initializeGoalContinuationRunner();
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
 const TRACE_EXPORT_ALL_CONCURRENCY = 4;
+const GATEWAY_PROCESS_STARTED_AT = new Date().toISOString();
 const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
@@ -3708,6 +3713,123 @@ export function buildTokenUsageAuditPayload(
   };
 }
 
+type GatewayBuildDiagnostics = NonNullable<GatewayStatus['build']>;
+type GatewayBuildFileDiagnostics = GatewayBuildDiagnostics['files'][number];
+
+const GATEWAY_BUILD_FILE_PAIRS: Array<{
+  name: string;
+  sourcePath: string;
+  buildPath: string;
+}> = [
+  {
+    name: 'cli',
+    sourcePath: 'src/cli.ts',
+    buildPath: 'dist/cli.js',
+  },
+  {
+    name: 'gateway-service',
+    sourcePath: 'src/gateway/gateway-service.ts',
+    buildPath: 'dist/gateway/gateway-service.js',
+  },
+  {
+    name: 'gateway-http-proxy',
+    sourcePath: 'src/gateway/gateway-http-proxy.ts',
+    buildPath: 'dist/gateway/gateway-http-proxy.js',
+  },
+  {
+    name: 'container-tools',
+    sourcePath: 'container/src/tools.ts',
+    buildPath: 'container/dist/tools.js',
+  },
+];
+
+function readFileModifiedAt(
+  filePath: string,
+): { timeMs: number; iso: string } | null {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      timeMs: stat.mtimeMs,
+      iso: stat.mtime.toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getBuildFileStatus(
+  packageRoot: string,
+  filePair: (typeof GATEWAY_BUILD_FILE_PAIRS)[number],
+): GatewayBuildFileDiagnostics {
+  const sourcePath = path.join(packageRoot, filePair.sourcePath);
+  const buildPath = path.join(packageRoot, filePair.buildPath);
+  const sourceModified = readFileModifiedAt(sourcePath);
+  const buildModified = readFileModifiedAt(buildPath);
+  let status: GatewayBuildFileDiagnostics['status'] = 'ok';
+  if (!sourceModified) {
+    status = 'missing_source';
+  } else if (!buildModified) {
+    status = 'missing_build';
+  } else if (sourceModified.timeMs > buildModified.timeMs + 1000) {
+    status = 'source_newer';
+  }
+
+  return {
+    name: filePair.name,
+    sourcePath,
+    sourceModifiedAt: sourceModified?.iso ?? null,
+    buildPath,
+    buildModifiedAt: buildModified?.iso ?? null,
+    status,
+  };
+}
+
+function readGitValue(packageRoot: string, args: string[]): string | null {
+  const result = spawnSync('git', args, {
+    cwd: packageRoot,
+    encoding: 'utf-8',
+    maxBuffer: 64 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 1000,
+  });
+  if (result.status !== 0) return null;
+  const value = result.stdout.trim();
+  return value || null;
+}
+
+function isStaleBuildStatus(status: GatewayBuildFileDiagnostics['status']) {
+  return status === 'source_newer' || status === 'missing_build';
+}
+
+function getGatewayBuildDiagnostics(): GatewayBuildDiagnostics {
+  const packageRoot = resolveInstallRoot();
+  const files = GATEWAY_BUILD_FILE_PAIRS.map((filePair) =>
+    getBuildFileStatus(packageRoot, filePair),
+  );
+  const gitBranch = readGitValue(packageRoot, [
+    'rev-parse',
+    '--abbrev-ref',
+    'HEAD',
+  ]);
+
+  return {
+    version: APP_VERSION,
+    gitCommit: readGitValue(packageRoot, ['rev-parse', '--verify', 'HEAD']),
+    gitBranch: gitBranch === 'HEAD' ? null : gitBranch,
+    packageRoot,
+    entrypoint: process.argv[1] || null,
+    cwd: process.cwd(),
+    execPath: process.execPath,
+    nodeVersion: process.version,
+    pid: process.pid,
+    ppid: process.ppid,
+    startedAt: GATEWAY_PROCESS_STARTED_AT,
+    staleBuild: files.some((file) => isStaleBuildStatus(file.status)),
+    files,
+  };
+}
+
 export async function getGatewayStatus(
   options: GatewayHealthOptions = {},
 ): Promise<GatewayStatus> {
@@ -3864,6 +3986,7 @@ export async function getGatewayStatus(
     pid: process.pid,
     lifecycle: getGatewayLifecycleStatus(),
     version: APP_VERSION,
+    build: getGatewayBuildDiagnostics(),
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
@@ -5749,25 +5872,61 @@ export function getGatewayAdminAudit(params?: {
   query?: string;
   sessionId?: string;
   eventType?: string;
+  since?: string;
+  until?: string;
+  cursor?: number;
   limit?: number;
 }): GatewayAdminAuditResponse {
   const query = String(params?.query || '').trim();
   const sessionId = String(params?.sessionId || '').trim();
   const eventType = String(params?.eventType || '').trim();
+  const since = String(params?.since || '').trim();
+  const until = String(params?.until || '').trim();
+  const cursor =
+    typeof params?.cursor === 'number' && Number.isFinite(params.cursor)
+      ? Math.max(0, Math.floor(params.cursor))
+      : 0;
   const limit = Math.max(1, Math.min(params?.limit ?? 60, 200));
+
+  // Fetch one extra row so we can detect a next page without a separate count.
+  // `maxLimit` must also be lifted past the default 200 cap, or the +1 row gets
+  // silently clamped away and `hasMore` is wrong at the page boundary.
+  const rows = listStructuredAuditEntries({
+    query,
+    sessionId,
+    eventType,
+    eventTypeMatch: 'prefix',
+    since: since || undefined,
+    until: until || undefined,
+    beforeId: cursor > 0 ? cursor : undefined,
+    limit: limit + 1,
+    maxLimit: limit + 1,
+  });
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const nextCursor = hasMore ? (page[page.length - 1]?.id ?? null) : null;
+
+  // Total rows matching the filters (ignoring the page cursor/limit) so the UI
+  // can report the real match count, not just how many have been paged in.
+  const total = countStructuredAuditEntries({
+    query,
+    sessionId,
+    eventType,
+    eventTypeMatch: 'prefix',
+    since: since || undefined,
+    until: until || undefined,
+  });
 
   return {
     query,
     sessionId,
     eventType,
+    since: since || null,
+    until: until || null,
     limit,
-    entries: listStructuredAuditEntries({
-      query,
-      sessionId,
-      eventType,
-      eventTypeMatch: 'prefix',
-      limit,
-    }).map(mapAdminAuditEntry),
+    entries: page.map(mapAdminAuditEntry),
+    nextCursor,
+    total,
   };
 }
 
@@ -5819,6 +5978,10 @@ function mapGatewayAdminPolicyStateValue(
     defaultAction: state.defaultAction,
     presets: [...state.presets],
     rules: state.rules.map(mapGatewayAdminPolicyRule),
+    lanHttpAccess: {
+      mode: state.lanHttpAccess.mode,
+      managedRuleIndexes: [...state.lanHttpAccess.managedRuleIndexes],
+    },
   };
 }
 
@@ -5976,6 +6139,23 @@ export function saveGatewayAdminPolicyDefault(input: {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
   try {
     const state = setPolicyDefault(workspacePath, input.defaultAction);
+    syncManagedBrowserTenantPolicyProjection();
+    return mapGatewayAdminPolicyStateValue(state);
+  } catch (error) {
+    throw new GatewayRequestError(
+      400,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export function saveGatewayAdminPolicyLanHttpAccess(input: {
+  agentId?: string;
+  mode: GatewayAdminLanHttpAccessMode;
+}): GatewayAdminPolicyState {
+  const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
+  try {
+    const state = setLanHttpAccessMode(workspacePath, input.mode);
     syncManagedBrowserTenantPolicyProjection();
     return mapGatewayAdminPolicyStateValue(state);
   } catch (error) {

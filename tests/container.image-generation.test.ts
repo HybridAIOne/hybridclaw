@@ -72,7 +72,7 @@ describe('image_generate tool', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('image_generate is not configured');
-    expect(result.output).toContain('hybridclaw secret set');
+    expect(result.output).toContain('/secret set');
     expect(result.output).not.toContain('env');
   });
 

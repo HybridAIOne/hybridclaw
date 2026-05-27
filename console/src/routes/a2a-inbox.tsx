@@ -75,7 +75,7 @@ export function A2AInboxPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader title="A2A Inbox" />
+      <PageHeader />
       <div className="mailbox-shell a2a-inbox-shell">
         <section className="mailbox-main">
           <div className="mailbox-column-header">

@@ -112,6 +112,83 @@ function createFixtureDb(): string {
   return dbPath;
 }
 
+async function withModelReviewServer<T>(
+  callback: (context: {
+    authorizations: (string | undefined)[];
+    requests: string[];
+    url: string;
+  }) => Promise<T>,
+  response: {
+    content?: unknown;
+    findings?: string[];
+    status?: 'pass' | 'block';
+    summary?: string;
+  } = {},
+): Promise<T> {
+  const requests: string[] = [];
+  const authorizations: (string | undefined)[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    authorizations.push(req.headers.authorization);
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      requests.push(body);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify(
+                  response.content ?? {
+                    status: response.status ?? 'pass',
+                    summary:
+                      response.summary ?? 'SQL answers the requested question.',
+                    findings: response.findings ?? [],
+                  },
+                ),
+              },
+            },
+          ],
+        }),
+      );
+    });
+  });
+
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', async () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => {
+          reject(new Error('Expected TCP test server address.'));
+        });
+        return;
+      }
+      try {
+        const result = await callback({
+          authorizations,
+          requests,
+          url: `http://127.0.0.1:${address.port}/v1/chat/completions`,
+        });
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve(result);
+        });
+      } catch (error) {
+        server.close(() => {
+          reject(error);
+        });
+      }
+    });
+  });
+}
+
 test('warehouse SQL helper --help exits cleanly', () => {
   const result = runHelper(['--help']);
 
@@ -205,7 +282,7 @@ test('warehouse SQL helper caches SQLite schema introspection', () => {
   expect(corruptCachePayload.cache.status).toBe('miss');
 });
 
-test('warehouse SQL helper refreshes and executes non-SQLite backends through connector commands', () => {
+test('warehouse SQL helper refreshes and executes non-SQLite backends through connector commands', async () => {
   const cacheDir = makeTempDir('warehouse-sql-cache-');
   const backendCommand = `python3 ${backendStubPath}`;
 
@@ -249,29 +326,8 @@ test('warehouse SQL helper refreshes and executes non-SQLite backends through co
     ]),
   );
 
-  const query = runHelper([
-    '--format',
-    'json',
-    'query',
-    '--backend',
-    'postgres',
-    '--profile',
-    'analytics',
-    '--backend-command',
-    backendCommand,
-    '--execute',
-    'SELECT c_name FROM customer LIMIT 1',
-  ]);
-  expect(query.status).toBe(0);
-  const queryPayload = JSON.parse(query.stdout);
-  expect(queryPayload.execution.status).toBe('ran');
-  expect(queryPayload.execution.backend).toBe('postgres');
-  expect(queryPayload.execution.rows).toEqual([
-    { c_name: 'Customer#000000101', revenue: 1650 },
-  ]);
-
-  const envCheck = runHelper(
-    [
+  await withModelReviewServer(async ({ requests, url }) => {
+    const query = await runHelperAsync([
       '--format',
       'json',
       'query',
@@ -282,39 +338,82 @@ test('warehouse SQL helper refreshes and executes non-SQLite backends through co
       '--backend-command',
       backendCommand,
       '--execute',
-      'SELECT env_check LIMIT 1',
-    ],
-    {
-      HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT: 'secret-grant',
-      HYBRIDCLAW_WAREHOUSE_SQL_POSTGRES_PASSWORD: 'backend-secret',
-    },
-  );
-  expect(envCheck.status).toBe(0);
-  const envPayload = JSON.parse(envCheck.stdout);
-  expect(envPayload.execution.rows).toEqual([
-    {
-      backend: 'postgres',
-      has_write_grant: false,
-      profile: 'analytics',
-    },
-  ]);
+      '--model-review-url',
+      url,
+      '--model-review-model',
+      'test-model',
+      '--question',
+      'Show one customer',
+      'SELECT c_name FROM customer LIMIT 1',
+    ]);
+    expect(query.status).toBe(0);
+    const queryPayload = JSON.parse(query.stdout);
+    expect(queryPayload.review.modelReview).toMatchObject({
+      enabled: true,
+      model: 'test-model',
+      status: 'pass',
+    });
+    expect(queryPayload.execution.status).toBe('ran');
+    expect(queryPayload.execution.backend).toBe('postgres');
+    expect(queryPayload.execution.rows).toEqual([
+      { c_name: 'Customer#000000101', revenue: 1650 },
+    ]);
 
-  const badRows = runHelper([
-    '--format',
-    'json',
-    'query',
-    '--backend',
-    'postgres',
-    '--profile',
-    'analytics',
-    '--backend-command',
-    backendCommand,
-    '--execute',
-    'SELECT bad_rows LIMIT 1',
-  ]);
-  expect(badRows.status).toBe(2);
-  const badRowsPayload = JSON.parse(badRows.stdout);
-  expect(badRowsPayload.error).toContain('row 0');
+    const envCheck = await runHelperAsync(
+      [
+        '--format',
+        'json',
+        'query',
+        '--backend',
+        'postgres',
+        '--profile',
+        'analytics',
+        '--backend-command',
+        backendCommand,
+        '--execute',
+        '--model-review-url',
+        url,
+        '--question',
+        'Check connector environment isolation',
+        'SELECT env_check LIMIT 1',
+      ],
+      {
+        HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT: 'secret-grant',
+        HYBRIDCLAW_WAREHOUSE_SQL_POSTGRES_PASSWORD: 'backend-secret',
+      },
+    );
+    expect(envCheck.status).toBe(0);
+    const envPayload = JSON.parse(envCheck.stdout);
+    expect(envPayload.execution.rows).toEqual([
+      {
+        backend: 'postgres',
+        has_write_grant: false,
+        profile: 'analytics',
+      },
+    ]);
+
+    const badRows = await runHelperAsync([
+      '--format',
+      'json',
+      'query',
+      '--backend',
+      'postgres',
+      '--profile',
+      'analytics',
+      '--backend-command',
+      backendCommand,
+      '--execute',
+      '--model-review-url',
+      url,
+      '--question',
+      'Exercise invalid backend rows',
+      'SELECT bad_rows LIMIT 1',
+    ]);
+    expect(badRows.status).toBe(2);
+    const badRowsPayload = JSON.parse(badRows.stdout);
+    expect(badRowsPayload.error).toContain('row 0');
+    expect(requests).toHaveLength(3);
+  });
 });
 
 test('warehouse SQL helper renders BigQuery introspection from explicit dataset config', () => {
@@ -343,6 +442,28 @@ test('warehouse SQL helper renders BigQuery introspection from explicit dataset 
   expect(payload.introspection.tables).toContain(
     '`example-project.analytics.INFORMATION_SCHEMA.TABLES`',
   );
+
+  const secondDataset = runHelper([
+    '--format',
+    'json',
+    'schema',
+    '--backend',
+    'bigquery',
+    '--profile',
+    'analytics',
+    '--backend-command',
+    `python3 ${backendStubPath}`,
+    '--bigquery-project',
+    'example-project',
+    '--bigquery-dataset',
+    'finance',
+    '--cache-dir',
+    cacheDir,
+    '--refresh',
+  ]);
+  expect(secondDataset.status).toBe(0);
+  const secondPayload = JSON.parse(secondDataset.stdout);
+  expect(secondPayload.cache.path).not.toBe(payload.cache.path);
 });
 
 test('warehouse SQL helper blocks writes unless the per-skill grant matches', () => {
@@ -403,6 +524,68 @@ test('warehouse SQL helper blocks writes unless the per-skill grant matches', ()
   const limitNewlinePayload = JSON.parse(limitNewline.stdout);
   expect(limitNewlinePayload.review.findings).not.toEqual(
     expect.arrayContaining([expect.stringContaining('does not include LIMIT')]),
+  );
+});
+
+test('warehouse SQL helper ignores comments and literals during safety review', () => {
+  const literalKeyword = runHelper([
+    '--format',
+    'json',
+    'review',
+    "SELECT 'update customer set c_name = x' AS note LIMIT 1",
+  ]);
+  expect(literalKeyword.status).toBe(0);
+  const literalPayload = JSON.parse(literalKeyword.stdout);
+  expect(literalPayload.review.status).toBe('pass');
+  expect(literalPayload.review.findings).not.toEqual(
+    expect.arrayContaining([expect.stringContaining('Mutating or privileged')]),
+  );
+
+  const commentedKeyword = runHelper([
+    '--format',
+    'json',
+    'review',
+    '-- drop table customer\nSELECT c_name FROM customer LIMIT 1',
+  ]);
+  expect(commentedKeyword.status).toBe(0);
+  const commentedPayload = JSON.parse(commentedKeyword.stdout);
+  expect(commentedPayload.review.status).toBe('pass');
+
+  const replaceFunction = runHelper([
+    '--format',
+    'json',
+    'review',
+    "SELECT REPLACE(c_name, 'Customer', 'Client') AS c_name FROM customer LIMIT 1",
+  ]);
+  expect(replaceFunction.status).toBe(0);
+  const replacePayload = JSON.parse(replaceFunction.stdout);
+  expect(replacePayload.review.status).toBe('pass');
+
+  const quotedSyntax = runHelper([
+    '--format',
+    'json',
+    'review',
+    'SELECT $$DROP TABLE customer$$ AS note, [DROP TABLE] AS label FROM customer LIMIT 1',
+  ]);
+  expect(quotedSyntax.status).toBe(0);
+  const quotedPayload = JSON.parse(quotedSyntax.stdout);
+  expect(quotedPayload.review.status).toBe('pass');
+
+  const commentMarkerInLiteral = runHelper([
+    '--format',
+    'json',
+    'review',
+    "SELECT '-- not a comment'; UPDATE customer SET c_name = 'x'",
+  ]);
+  expect(commentMarkerInLiteral.status).toBe(0);
+  const markerPayload = JSON.parse(commentMarkerInLiteral.stdout);
+  expect(markerPayload.review.status).toBe('block');
+  expect(markerPayload.review.statementCount).toBe(2);
+  expect(markerPayload.review.findings).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining('Mutating or privileged keyword'),
+      expect.stringContaining('exactly one statement'),
+    ]),
   );
 });
 
@@ -506,28 +689,115 @@ test('warehouse SQL helper invokes model review through an OpenAI-compatible end
   });
 });
 
-test('warehouse SQL helper honors write grants during SQLite execution', () => {
+test('warehouse SQL helper defaults model review to the auxiliary eval judge alias', async () => {
+  const received = await new Promise<{
+    body: string;
+    result: { status: number | null; stdout: string; stderr: string };
+  }>((resolve, reject) => {
+    let requestBody = '';
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        requestBody = body;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    status: 'pass',
+                    summary: 'SQL answers the order question.',
+                    findings: [],
+                  }),
+                },
+              },
+            ],
+          }),
+        );
+      });
+    });
+    server.listen(0, '127.0.0.1', async () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Expected TCP test server address.'));
+        return;
+      }
+      try {
+        const result = await runHelperAsync([
+          '--format',
+          'json',
+          'review',
+          '--model-review',
+          '--model-review-url',
+          `http://127.0.0.1:${address.port}/v1/chat/completions`,
+          '--question',
+          'largest orders',
+          'SELECT o_orderkey, o_totalprice FROM orders ORDER BY o_totalprice DESC LIMIT 10',
+        ]);
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve({ body: requestBody, result });
+        });
+      } catch (error) {
+        server.close(() => {
+          reject(error);
+        });
+      }
+    });
+  });
+
+  expect(received.result.status).toBe(0);
+  const requestPayload = JSON.parse(received.body);
+  expect(requestPayload.model).toBe('auxiliary/eval_judge');
+  const payload = JSON.parse(received.result.stdout);
+  expect(payload.review.modelReview).toMatchObject({
+    enabled: true,
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    status: 'pass',
+    summary: 'SQL answers the order question.',
+  });
+});
+
+test('warehouse SQL helper honors write grants during SQLite execution', async () => {
   const dbPath = createFixtureDb();
-  const result = runHelper(
-    [
-      '--format',
-      'json',
-      'query',
-      '--backend',
-      'sqlite',
-      '--database',
-      dbPath,
-      '--execute',
-      '--allow-write',
-      '--write-grant',
-      'test-grant',
-      "UPDATE customer SET c_name = 'Updated Customer' WHERE c_custkey = 101",
-    ],
-    { HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT: 'test-grant' },
-  );
+  const result = await withModelReviewServer(async ({ requests, url }) => {
+    const helperResult = await runHelperAsync(
+      [
+        '--format',
+        'json',
+        'query',
+        '--backend',
+        'sqlite',
+        '--database',
+        dbPath,
+        '--execute',
+        '--allow-write',
+        '--write-grant',
+        'test-grant',
+        '--model-review-url',
+        url,
+        '--question',
+        'Rename one customer',
+        "UPDATE customer SET c_name = 'Updated Customer' WHERE c_custkey = 101",
+      ],
+      { HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT: 'test-grant' },
+    );
+    expect(requests).toHaveLength(1);
+    return helperResult;
+  });
 
   expect(result.status).toBe(0);
   const payload = JSON.parse(result.stdout);
+  expect(payload.review.modelReview.status).toBe('pass');
   expect(payload.execution.status).toBe('ran');
   expect(payload.execution.affectedRows).toBe(1);
 
@@ -544,7 +814,7 @@ test('warehouse SQL helper honors write grants during SQLite execution', () => {
   }
 });
 
-test('warehouse SQL helper executes reviewed SQLite queries only when requested', () => {
+test('warehouse SQL helper executes reviewed SQLite queries only when requested', async () => {
   const dbPath = createFixtureDb();
 
   const reviewOnly = runHelper([
@@ -560,8 +830,33 @@ test('warehouse SQL helper executes reviewed SQLite queries only when requested'
   expect(reviewOnly.status).toBe(0);
   const reviewPayload = JSON.parse(reviewOnly.stdout);
   expect(reviewPayload.execution.status).toBe('not-run');
+  expect(reviewPayload.review.modelReview.status).toBe('not-run');
 
-  const executed = runHelper([
+  const missingEndpoint = runHelper(
+    [
+      '--format',
+      'json',
+      'query',
+      '--backend',
+      'sqlite',
+      '--database',
+      dbPath,
+      '--execute',
+      'SELECT c_name FROM customer LIMIT 1',
+    ],
+    {
+      GATEWAY_BASE_URL: '',
+      HYBRIDCLAW_GATEWAY_URL: '',
+      HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_URL: '',
+    },
+  );
+  expect(missingEndpoint.status).toBe(2);
+  const missingEndpointPayload = JSON.parse(missingEndpoint.stdout);
+  expect(missingEndpointPayload.error).toContain(
+    'query --execute requires a model-review endpoint',
+  );
+
+  const missingQuestion = runHelper([
     '--format',
     'json',
     'query',
@@ -570,16 +865,95 @@ test('warehouse SQL helper executes reviewed SQLite queries only when requested'
     '--database',
     dbPath,
     '--execute',
-    '--params',
-    '["Customer#000000101"]',
-    'SELECT c_name FROM customer WHERE c_name = ? LIMIT 1',
+    '--model-review-url',
+    'http://127.0.0.1:1/v1/chat/completions',
+    'SELECT c_name FROM customer LIMIT 1',
   ]);
+  expect(missingQuestion.status).toBe(2);
+  const missingQuestionPayload = JSON.parse(missingQuestion.stdout);
+  expect(missingQuestionPayload.error).toContain(
+    'query --execute requires --question',
+  );
+
+  const deterministicBlock = runHelper([
+    '--format',
+    'json',
+    'query',
+    '--backend',
+    'sqlite',
+    '--database',
+    dbPath,
+    '--execute',
+    '--model-review-url',
+    'http://127.0.0.1:1/v1/chat/completions',
+    '--question',
+    'Rename customers',
+    "UPDATE customer SET c_name = 'Blocked'",
+  ]);
+  expect(deterministicBlock.status).toBe(0);
+  const deterministicBlockPayload = JSON.parse(deterministicBlock.stdout);
+  expect(deterministicBlockPayload.review.modelReview).toMatchObject({
+    status: 'skipped',
+    reason: 'deterministic review blocked execution before model review',
+  });
+  expect(deterministicBlockPayload.execution.status).toBe('blocked');
+
+  const executed = await withModelReviewServer(async ({ requests, url }) => {
+    const result = await runHelperAsync([
+      '--format',
+      'json',
+      'query',
+      '--backend',
+      'sqlite',
+      '--database',
+      dbPath,
+      '--execute',
+      '--params',
+      '["Customer#000000101"]',
+      '--model-review-url',
+      url,
+      '--question',
+      'Find Customer#000000101',
+      'SELECT c_name FROM customer WHERE c_name = ? LIMIT 1',
+    ]);
+    expect(requests).toHaveLength(1);
+    return result;
+  });
   expect(executed.status).toBe(0);
   const executedPayload = JSON.parse(executed.stdout);
+  expect(executedPayload.review.modelReview.status).toBe('pass');
   expect(executedPayload.execution.status).toBe('ran');
   expect(executedPayload.execution.rows).toEqual([
     { c_name: 'Customer#000000101' },
   ]);
+
+  const blocked = await withModelReviewServer(
+    async ({ url }) =>
+      runHelperAsync([
+        '--format',
+        'json',
+        'query',
+        '--backend',
+        'sqlite',
+        '--database',
+        dbPath,
+        '--execute',
+        '--model-review-url',
+        url,
+        '--question',
+        'Show one customer',
+        'SELECT c_name FROM customer LIMIT 1',
+      ]),
+    {
+      status: 'block',
+      summary: 'SQL should be returned to the user before execution.',
+      findings: ['User review required.'],
+    },
+  );
+  expect(blocked.status).toBe(0);
+  const blockedPayload = JSON.parse(blocked.stdout);
+  expect(blockedPayload.review.status).toBe('block');
+  expect(blockedPayload.execution.status).toBe('blocked');
 });
 
 test('warehouse SQL helper eval suite covers TPC-H-style scenarios', () => {
@@ -598,6 +972,52 @@ test('warehouse SQL helper eval suite covers TPC-H-style scenarios', () => {
     pricing: 1,
     revenue: 3,
     supplier: 1,
+  });
+});
+
+test('warehouse SQL helper eval suite can use a model-backed planner', async () => {
+  const result = await withModelReviewServer(
+    async ({ requests, url }) => {
+      const helperResult = await runHelperAsync([
+        '--format',
+        'json',
+        'eval-scenarios',
+        '--scenario-id',
+        'largest-orders',
+        '--model-planner',
+        '--model-review-url',
+        url,
+        '--model-review-model',
+        'test-model',
+      ]);
+      expect(requests).toHaveLength(1);
+      expect(JSON.parse(requests[0]).messages[1].content).toContain(
+        'largest orders',
+      );
+      return helperResult;
+    },
+    {
+      content: {
+        sql: `
+SELECT o_orderkey, o_orderdate, o_totalprice
+FROM orders
+ORDER BY o_totalprice DESC
+LIMIT 10
+      `.trim(),
+        parameters: [],
+      },
+    },
+  );
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.planner).toBe('model');
+  expect(payload.scenarioCount).toBe(1);
+  expect(payload.failed).toBe(0);
+  expect(payload.results[0]).toMatchObject({
+    id: 'largest-orders',
+    planner: 'model',
+    status: 'pass',
   });
 });
 

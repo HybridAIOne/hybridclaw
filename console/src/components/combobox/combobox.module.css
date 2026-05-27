@@ -1,0 +1,74 @@
+.anchor {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.input {
+  padding-right: 32px;
+}
+
+.chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.popover {
+  min-width: var(--popover-anchor-width, 220px);
+  max-width: min(var(--popover-anchor-width, 480px), 480px);
+  padding: 4px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.option[data-active] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.option[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.optionLabel {
+  font-weight: 500;
+}
+
+.optionDescription {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.empty {
+  padding: 12px 10px;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  text-align: center;
+}

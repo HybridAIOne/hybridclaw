@@ -1987,6 +1987,7 @@ async function main(): Promise<void> {
     firstInput.browserProvider,
     firstInput.sessionId,
     firstInput.agentId,
+    firstInput.browserAllowPrivateNetwork,
   );
   setWebSearchConfig(firstInput.webSearch);
   setModelContext(
@@ -2170,6 +2171,7 @@ async function main(): Promise<void> {
       input.browserProvider,
       input.sessionId,
       input.agentId,
+      input.browserAllowPrivateNetwork,
     );
     setWebSearchConfig(input.webSearch);
     setModelContext(

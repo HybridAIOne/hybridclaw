@@ -1657,7 +1657,7 @@ export async function ensureRuntimeCredentials(
           });
         } catch (err) {
           throw new Error(
-            `Failed to persist trust acceptance (HYBRIDCLAW_ACCEPT_TRUST=true). ` +
+            `Failed to persist trust acceptance. ` +
               `Check that ${DEFAULT_RUNTIME_HOME_DIR} is writable. ` +
               `Cause: ${err instanceof Error ? err.message : String(err)}`,
           );
@@ -1665,7 +1665,7 @@ export async function ensureRuntimeCredentials(
         securityAccepted = true;
       } else {
         throw new Error(
-          'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md, or set HYBRIDCLAW_ACCEPT_TRUST=true to accept automatically.',
+          'Security trust model is not accepted. Run `hybridclaw onboarding` in an interactive terminal to accept TRUST_MODEL.md.',
         );
       }
     }

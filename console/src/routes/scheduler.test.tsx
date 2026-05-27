@@ -1,5 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -10,8 +9,8 @@ import type {
   AdminSchedulerResponse,
   GatewayStatus,
 } from '../api/types';
-import { ToastProvider } from '../components/toast';
-import { normalizeSchedulerAtInput, SchedulerPage } from './scheduler';
+import { renderWithProviders } from '../test-utils';
+import { SchedulerPage } from './scheduler';
 
 const fetchChannelsMock = vi.fn<() => Promise<AdminChannelsResponse>>();
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
@@ -401,19 +400,7 @@ function makeConfigJob(
 }
 
 function renderSchedulerPage(): void {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <SchedulerPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<SchedulerPage />);
 }
 
 describe('SchedulerPage', () => {
@@ -499,7 +486,7 @@ describe('SchedulerPage', () => {
         id: 'release-notes',
         schedule: expect.objectContaining({
           kind: 'at',
-          at: normalizeSchedulerAtInput('2026-04-07T22:00'),
+          at: new Date('2026-04-07T22:00').toISOString(),
         }),
       }),
     );
@@ -594,14 +581,16 @@ describe('SchedulerPage', () => {
     fireEvent.change(screen.getByLabelText('Retries after failure'), {
       target: { value: '101' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save job' }));
 
-    await waitFor(() => {
-      expect(saveSchedulerJobMock).not.toHaveBeenCalled();
-      expect(
-        screen.getByText('Pick a valid retry count from 0 to 100.'),
-      ).toBeTruthy();
-    });
+    // NumberField rejects the value inline — no commit, no need to click Save.
+    expect(screen.getByText('Must be ≤ 100.')).toBeTruthy();
+
+    const save = screen.getByRole('button', {
+      name: 'Save job',
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(saveSchedulerJobMock).not.toHaveBeenCalled();
   });
 
   it('shows a dropdown with enabled channel types', async () => {

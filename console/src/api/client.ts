@@ -28,6 +28,7 @@ import type {
   AdminInteractionResponse,
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
+  AdminLanHttpAccessMode,
   AdminMcpConfig,
   AdminMcpResponse,
   AdminModelsResponse,
@@ -914,6 +915,9 @@ export function fetchAudit(
     query?: string;
     sessionId?: string;
     eventType?: string;
+    since?: string;
+    until?: string;
+    cursor?: number;
     limit?: number;
   },
 ): Promise<AdminAuditResponse> {
@@ -921,6 +925,11 @@ export function fetchAudit(
   if (params.query) queryParams.set('query', params.query);
   if (params.sessionId) queryParams.set('sessionId', params.sessionId);
   if (params.eventType) queryParams.set('eventType', params.eventType);
+  if (params.since) queryParams.set('since', params.since);
+  if (params.until) queryParams.set('until', params.until);
+  if (typeof params.cursor === 'number' && params.cursor > 0) {
+    queryParams.set('cursor', String(params.cursor));
+  }
   if (typeof params.limit === 'number') {
     queryParams.set('limit', String(params.limit));
   }
@@ -992,6 +1001,23 @@ export function saveAdminPolicyDefault(
     token,
     method: 'PUT',
     body: params,
+  });
+}
+
+export function saveAdminPolicyLanHttpAccess(
+  token: string,
+  params: {
+    agentId: string;
+    mode: AdminLanHttpAccessMode;
+  },
+): Promise<AdminPolicyState> {
+  return requestJson<AdminPolicyState>('/api/admin/policy', {
+    token,
+    method: 'PUT',
+    body: {
+      agentId: params.agentId,
+      lanHttpAccessMode: params.mode,
+    },
   });
 }
 

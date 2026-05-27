@@ -153,6 +153,53 @@ function mockHealthProbes(options?: {
   }));
 }
 
+test('getGatewayStatus includes build/runtime diagnostics', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  writeRuntimeConfig(homeDir);
+  vi.resetModules();
+  mockHealthProbes();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const status = await getGatewayStatus({ refreshProviderHealth: false });
+
+  expect(status.build).toMatchObject({
+    version: status.version,
+    packageRoot: process.cwd(),
+    cwd: process.cwd(),
+    execPath: process.execPath,
+    nodeVersion: process.version,
+    pid: process.pid,
+    ppid: process.ppid,
+    startedAt: expect.any(String),
+    staleBuild: expect.any(Boolean),
+  });
+  expect(status.build?.entrypoint).toBeTruthy();
+  expect(status.build?.files).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: 'gateway-http-proxy',
+        sourcePath: path.join(
+          process.cwd(),
+          'src/gateway/gateway-http-proxy.ts',
+        ),
+        buildPath: path.join(
+          process.cwd(),
+          'dist/gateway/gateway-http-proxy.js',
+        ),
+        status: expect.stringMatching(
+          /^(ok|source_newer|missing_source|missing_build)$/,
+        ),
+      }),
+    ]),
+  );
+});
+
 test('getGatewayStatus uses cached HybridAI health when probe exceeds deadline', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
