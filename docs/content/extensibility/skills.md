@@ -51,17 +51,181 @@ endpoint selection, HTTP methods, payload shape, URL encoding, write-tier
 classification, and secret references such as `bearerSecretName` or
 `secretHeaders`.
 
-Prefer small CLI subcommands that match model workflows, for example `plan`,
-`run`, `http-request`, `eval-scenarios`, and read-only discovery commands. For
-live calls, provide a `run <operation>` path that sends the helper-built request
-through the HybridClaw gateway so the script remains the single owner of
-endpoint selection, payload construction, approval metadata, and secret refs.
+Prefer small CLI subcommands that match model workflows. For live calls, the
+normal helper command should send the helper-built request through the
+HybridClaw gateway so the script remains the single owner of endpoint
+selection, payload construction, approval metadata, and secret refs.
 
-Keep `http-request <operation>` as the dry-run and compatibility path: it should
-emit gateway-ready JSON so the model can inspect the request or pass the
-returned request object unchanged to `http_request` when direct gateway
-execution is unavailable. Avoid requiring the model to reconstruct URLs,
-headers, request bodies, or secret names from prose.
+Provide a dry-run request mode, usually `--request`, that emits gateway-ready
+JSON so the model can inspect the request or pass the returned request object
+unchanged to `http_request` when direct gateway execution is unavailable. Avoid
+requiring the model to reconstruct URLs, headers, request bodies, or secret
+names from prose.
+
+## Skill Authoring Best Practices
+
+Treat a skill as a small contract between the operator, the model, and any
+helper code shipped with the skill.
+
+### Terms
+
+| Term | Meaning |
+|---|---|
+| `SKILL.md` | The prompt contract: when to use the skill, what inputs are needed, how to route decisions, and what safety rules apply. |
+| Helper script | A deterministic script, usually `*.cjs`, that owns API calls, request construction, execution, and output normalization. |
+| Tool | A model-callable HybridClaw capability such as `bash`, `http_request`, file reads, browser automation, or MCP/plugin tools. |
+| Gateway HTTP proxy | The `/api/http/request` path behind `http_request`; it enforces network policy, secret injection, response limits, and audit behavior. |
+| Dry-run request | Helper output that describes the request without executing it, usually enabled with `--request`. |
+| Live execution | Helper path that sends the helper-built request through the gateway and returns the live result. |
+| Approval plan | Helper output for a guarded action that names the exact command to run after explicit operator confirmation. |
+| Stakes tier | Skill-local risk classification: green for reads, amber for reversible or bounded writes requiring confirmation, red for forbidden operations. |
+| SecretRef | A reference to a stored runtime secret; helpers should emit secret references, never raw secrets. |
+
+### What Goes In `SKILL.md`
+
+Use `SKILL.md` for stable, abstract operating rules:
+
+- the domain and when the skill should activate
+- the helper command surface the model should use directly
+- required inputs and where an operator can find them
+- route selection rules such as local vs cloud, read vs write, or account vs
+  resource-level APIs
+- approval boundaries and forbidden operations
+- result handling rules, including how to classify common failure layers
+- credential names and how they are stored
+- official API references and operational limits
+
+Keep `SKILL.md` generic. Do not add prompt-specific steering, transcripts,
+one-off troubleshooting patches, or prose that tells the model to match a
+particular user wording. If behavior depends on request shape, encode that
+shape in the helper command surface and tests.
+
+### What Goes In The Helper
+
+Put executable API knowledge in the helper:
+
+- endpoint paths, HTTP methods, query parameters, JSON bodies, and pagination
+- API version differences and local/cloud routing
+- URL encoding and method-scoped paths
+- validation of required flags and mutually exclusive options
+- response normalization and useful error messages
+- gateway execution, dry-run output, and approval-plan output
+- rate-limit metadata, stakes tier, and cost measurement metadata
+- secret references such as `bearerSecretName`, `secretHeaders`, strict
+  `<secret:NAME>` placeholders, and captured response fields
+
+The helper should use explicit flags and subcommands. Do not parse arbitrary
+user prose with regexes. The model should choose from the documented helper
+surface, not invent request bodies or infer API fields from a paragraph.
+
+### Recommended Helper Shape
+
+For API-backed skills, prefer a single helper entrypoint with noun/verb
+commands and stable machine-readable output:
+
+```text
+node skills/<skill>/<helper>.cjs [--format json|pretty] [--request] <resource> <action> [flags]
+node skills/<skill>/<helper>.cjs [--format json|pretty] approval-plan <resource> <action> [flags]
+```
+
+Normal commands should execute through the HybridClaw gateway by default and
+return a live result. `--request` should emit the gateway-ready request without
+executing it. `approval-plan` should validate a guarded action and return the
+exact approved helper command to run later; it should not perform the action.
+
+Prefer domain-level commands that match model workflows, such as
+`device status`, `cover goto`, `invoice download`, or `ticket update`, over
+raw `request` commands. Keep a generic escape hatch only when the underlying
+API has many safe read methods that cannot all be wrapped individually.
+
+### Tools And Surfaces To Use
+
+Skill instructions should tell the model which existing HybridClaw surfaces to
+use:
+
+- `bash` runs local helper scripts and is the normal execution surface for
+  bundled `*.cjs` helpers.
+- `http_request` is for direct HTTP calls when no helper exists or for
+  helper-emitted request objects in debugging paths. Prefer the helper for
+  normal API work.
+- `web_fetch`, `web_search`, or browser tools can be used to inspect official
+  API documentation while authoring or repairing a skill, not as the runtime
+  API client when the helper already covers the operation.
+- `/policy`, `hybridclaw policy ...`, and `/admin/approvals` manage workspace
+  network policy for HTTP access.
+- `hybridclaw gateway status` distinguishes stale builds, gateway PID state,
+  sandbox mode, and runtime version before diagnosing gateway behavior.
+- `hybridclaw skill list`, `skill inspect`, and `skill setup` are the operator
+  surfaces for availability and declared dependencies.
+
+### Approvals And Safety
+
+Make read/write boundaries explicit:
+
+- green operations are read-only or local formatting/planning.
+- amber operations change external state and require explicit operator
+  approval before the helper command includes its grant flag.
+- red operations are unsupported through the skill, even if the upstream API
+  exposes them.
+
+For amber commands, the helper should reject execution unless an explicit grant
+flag is present. The skill should instruct the model to first produce an
+approval plan, then wait for a later operator confirmation, then run the exact
+approved helper command unchanged.
+
+### Secrets And Credentials
+
+Never ask the model to paste raw credentials into prose or helper arguments.
+Use runtime secret references:
+
+- `bearerSecretName` for bearer tokens
+- `secretHeaders` for named headers
+- `<secret:NAME>` placeholders for URLs or bodies when the gateway must
+  replace values
+- `captureResponseFields` when an OAuth/token exchange should save a returned
+  field into runtime secrets
+
+Document credential names and where the operator gets them, but keep the helper
+responsible for injecting them. When a token is domain-bound, preserve that
+binding and do not broaden it in skill prose.
+
+### Network And Gateway Failures
+
+Skills should classify failures by layer instead of guessing:
+
+- model/provider unavailable: the agent may fail before any helper command
+  runs
+- gateway unreachable: helper cannot reach the local gateway URL
+- policy denied: the gateway returns a network policy or allowlist error before
+  opening the outbound request
+- outbound connection failure: the gateway accepted policy but the process
+  could not connect to the target
+- upstream API error: the remote service returned an HTTP or API-level error
+
+Do not infer container isolation, stale code, DNS problems, or bad credentials
+without checking the relevant state. For gateway behavior, inspect
+`hybridclaw gateway status`, current logs, and the helper/gateway error body.
+For local LAN devices on macOS, Local Network privacy or NECP can block the app
+that launched the gateway; confirm direct LAN access from the same launcher
+before blaming the API helper.
+
+### Testing Expectations
+
+Bundled skills with helpers should have focused tests that lock down:
+
+- frontmatter parsing and catalog metadata
+- helper `--help` output and public command surface
+- request construction for read and write operations
+- approval-plan output and grant enforcement
+- secret-reference emission without raw secret leakage
+- live-execution wrapper behavior with mocked gateway responses
+- error classification for gateway, policy, network, and upstream failures
+- important `SKILL.md` invariants such as forbidden operations and route
+  selection rules
+
+When adding a helper command, update both the helper tests and the helper
+surface listed in `SKILL.md`. When fixing a model misuse pattern, prefer a
+helper/API change plus a regression test over a prompt-specific sentence.
 
 ## Invocation Paths
 

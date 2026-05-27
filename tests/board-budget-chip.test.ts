@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -63,11 +64,29 @@ describe.sequential('board budget chips', () => {
     );
 
     expect(
-      normalizeAgentBudgetConfig(42, { cap: 10, currency: 'USD' }),
-    ).toEqual({ cap: 10, currency: 'USD' });
+      normalizeAgentBudgetConfig(42, { cap: 10, currency: 'USD', unit: 'USD' }),
+    ).toEqual({ cap: 10, currency: 'USD', unit: 'USD' });
     expect(
-      normalizeAgentBudgetConfig(undefined, { cap: 10, currency: 'USD' }),
-    ).toEqual({ cap: 10, currency: 'USD' });
+      normalizeAgentBudgetConfig(undefined, {
+        cap: 10,
+        currency: 'USD',
+        unit: 'USD',
+      }),
+    ).toEqual({ cap: 10, currency: 'USD', unit: 'USD' });
+    expect(
+      normalizeAgentBudgetConfig({ cap: '100000', unit: 'tokens' }),
+    ).toEqual({ cap: 100000, currency: 'USD', unit: 'tokens' });
+    expect(
+      normalizeAgentBudgetConfig({ cap: '1000.9', unit: 'tokens' }),
+    ).toEqual({ cap: 1000, currency: 'USD', unit: 'tokens' });
+    expect(normalizeAgentBudgetConfig({ cap: '0.5', unit: 'tokens' })).toBe(
+      undefined,
+    );
+    expect(normalizeAgentBudgetConfig({ cap: 25, currency: 'EUR' })).toEqual({
+      cap: 25,
+      currency: 'EUR',
+      unit: 'EUR',
+    });
   });
 
   test('summarizes configured card-owner budgets and emits soft warn once per window', async () => {
@@ -81,10 +100,14 @@ describe.sequential('board budget chips', () => {
     } = await loadBudgetContext();
     runtimeConfig.updateRuntimeConfig((draft) => {
       draft.agents.list = [
-        { id: 'under', budget: { cap: 60, currency: 'USD' } },
-        { id: 'warn', budget: { cap: 100, currency: 'USD' } },
-        { id: 'hard', budget: { cap: 10, currency: 'EUR' } },
-        { id: 'done-owner', budget: { cap: 1, currency: 'USD' } },
+        { id: 'under', budget: { cap: 60, currency: 'USD', unit: 'USD' } },
+        { id: 'warn', budget: { cap: 100, currency: 'USD', unit: 'USD' } },
+        { id: 'hard', budget: { cap: 10, currency: 'EUR', unit: 'EUR' } },
+        {
+          id: 'token-warn',
+          budget: { cap: 100_000, currency: 'USD', unit: 'tokens' },
+        },
+        { id: 'done-owner', budget: { cap: 1, currency: 'USD', unit: 'USD' } },
         { id: 'none' },
       ];
     });
@@ -102,6 +125,11 @@ describe.sequential('board budget chips', () => {
       id: 'card-hard',
       title: 'Hard budget',
       owner: { agentId: 'hard' },
+    });
+    boardModule.createCard({
+      id: 'card-token-warn',
+      title: 'Token warn budget',
+      owner: { agentId: 'token-warn' },
     });
     boardModule.createCard({
       id: 'card-none',
@@ -148,6 +176,15 @@ describe.sequential('board budget chips', () => {
       costUsd: 12 * metadata.MODEL_METADATA_USD_TO_EUR.usdPerEur,
     });
     dbModule.recordUsageEvent({
+      sessionId: 'session-token-warn',
+      agentId: 'token-warn',
+      model: 'gpt-5',
+      inputTokens: 60_000,
+      outputTokens: 20_000,
+      totalTokens: 80_000,
+      costUsd: 0,
+    });
+    dbModule.recordUsageEvent({
       sessionId: 'session-done',
       agentId: 'done-owner',
       model: 'gpt-5',
@@ -179,19 +216,30 @@ describe.sequential('board budget chips', () => {
       expect.objectContaining({
         agentId: 'hard',
         cap: 10,
+        unit: 'EUR',
         currency: 'EUR',
         percent: 120,
+      }),
+      expect.objectContaining({
+        agentId: 'token-warn',
+        used: 80_000,
+        cap: 100_000,
+        unit: 'tokens',
+        currency: 'USD',
+        percent: 80,
       }),
       expect.objectContaining({
         agentId: 'under',
         used: 3.4,
         cap: 60,
+        unit: 'USD',
         currency: 'USD',
       }),
       expect.objectContaining({
         agentId: 'warn',
         used: 81,
         cap: 100,
+        unit: 'USD',
         currency: 'USD',
         percent: 81,
       }),
@@ -202,9 +250,9 @@ describe.sequential('board budget chips', () => {
     expect(
       first.budgets.some((budget) => budget.agentId === 'done-owner'),
     ).toBe(false);
-    expect(second.budgets).toHaveLength(3);
-    expect(emittedAfterUsageWrites).toBe(3);
-    expect(events).toHaveLength(3);
+    expect(second.budgets).toHaveLength(4);
+    expect(emittedAfterUsageWrites).toBe(4);
+    expect(events).toHaveLength(4);
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -212,6 +260,13 @@ describe.sequential('board budget chips', () => {
           agent_id: 'hard',
           billing_window: billingWindow,
           percent: 120,
+        }),
+        expect.objectContaining({
+          type: 'budget.soft_warn',
+          agent_id: 'token-warn',
+          billing_window: billingWindow,
+          unit: 'tokens',
+          percent: 80,
         }),
         expect.objectContaining({
           type: 'budget.soft_warn',
@@ -227,5 +282,118 @@ describe.sequential('board budget chips', () => {
         }),
       ]),
     );
+
+    const database = new Database(path.join(tmpDir, 'data', 'hybridclaw.db'), {
+      readonly: true,
+    });
+    try {
+      const marker = database
+        .prepare(
+          `SELECT unit, currency
+           FROM budget_soft_warn_events
+           WHERE agent_id = ? AND billing_window = ?`,
+        )
+        .get('token-warn', billingWindow);
+      expect(marker).toEqual({ unit: 'tokens', currency: 'USD' });
+    } finally {
+      database.close();
+    }
+  });
+
+  test('migrates budget soft-warn units into the marker key', async () => {
+    process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
+    process.env.HOME = tmpDir;
+    const dbPath = path.join(tmpDir, 'data', 'hybridclaw.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const oldDatabase = new Database(dbPath);
+    try {
+      oldDatabase.exec(`
+        CREATE TABLE budget_soft_warn_events (
+          agent_id TEXT NOT NULL,
+          billing_window TEXT NOT NULL,
+          emitted_at TEXT NOT NULL,
+          used REAL NOT NULL,
+          cap REAL NOT NULL,
+          currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR')),
+          percent REAL NOT NULL,
+          PRIMARY KEY (agent_id, billing_window)
+        );
+        INSERT INTO budget_soft_warn_events
+          (agent_id, billing_window, emitted_at, used, cap, currency, percent)
+        VALUES
+          ('eur-agent', '2026-05', '2026-05-14T12:00:00.000Z', 8, 10, 'EUR', 80);
+        CREATE TABLE jobs (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK (kind IN ('scheduler_job', 'scheduled_task')),
+          legacy_task_id INTEGER UNIQUE,
+          session_id TEXT,
+          channel_id TEXT,
+          name TEXT,
+          description TEXT,
+          agent_id TEXT,
+          board_status TEXT CHECK (board_status IS NULL OR board_status IN ('backlog', 'in_progress', 'review', 'done', 'cancelled')),
+          max_retries INTEGER,
+          schedule TEXT NOT NULL,
+          action TEXT NOT NULL,
+          delivery TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          last_run TEXT,
+          last_status TEXT CHECK (last_status IS NULL OR last_status IN ('success', 'error')),
+          consecutive_errors INTEGER NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        PRAGMA user_version = 37;
+      `);
+    } finally {
+      oldDatabase.close();
+    }
+
+    vi.resetModules();
+    const dbModule = await import('../src/memory/db.js');
+    dbModule.initDatabase({ quiet: true, dbPath });
+
+    const migratedDatabase = new Database(dbPath);
+    try {
+      const table = migratedDatabase
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'budget_soft_warn_events'",
+        )
+        .get() as { sql: string };
+      expect(table.sql).toContain("CHECK (unit IN ('USD', 'EUR', 'tokens'))");
+      expect(table.sql).toContain(
+        'PRIMARY KEY (agent_id, billing_window, unit)',
+      );
+      expect(
+        migratedDatabase
+          .prepare(
+            'SELECT unit, currency FROM budget_soft_warn_events WHERE agent_id = ?',
+          )
+          .get('eur-agent'),
+      ).toEqual({ unit: 'EUR', currency: 'EUR' });
+      expect(() => {
+        migratedDatabase
+          .prepare(
+            `INSERT INTO budget_soft_warn_events
+              (agent_id, billing_window, emitted_at, used, cap, unit, currency, percent)
+             VALUES
+              ('bad-agent', '2026-05', '2026-05-14T12:00:00.000Z', 1, 10, 'credits', 'USD', 10)`,
+          )
+          .run();
+      }).toThrow();
+      expect(() => {
+        migratedDatabase
+          .prepare(
+            `INSERT INTO budget_soft_warn_events
+              (agent_id, billing_window, emitted_at, used, cap, unit, currency, percent)
+             VALUES
+              ('eur-agent', '2026-05', '2026-05-14T12:00:00.000Z', 1000, 1000, 'tokens', 'USD', 100)`,
+          )
+          .run();
+      }).not.toThrow();
+    } finally {
+      migratedDatabase.close();
+    }
   });
 });

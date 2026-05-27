@@ -1,5 +1,9 @@
 const DEFAULT_TUI_INDENT = '  ';
 const STREAM_TOKEN_PATTERN = /(\n|[^\S\n]+|\S+)/g;
+const ANSI_ESCAPE_PATTERN = new RegExp(
+  `${String.fromCharCode(27)}(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])`,
+  'g',
+);
 
 export interface TuiStreamFormatState {
   lineNeedsIndent: boolean;
@@ -192,7 +196,15 @@ function tokenizeCompleteStreamTokens(source: string): {
 }
 
 export function countTerminalRows(text: string, columns: number): number {
-  return Math.max(1, wrapTuiLines(text, columns).length);
+  const width = Math.max(1, Math.floor(columns || 1));
+  const lines = stripAnsi(String(text || '').replace(/\r\n?/g, '\n')).split(
+    '\n',
+  );
+  let rows = 0;
+  for (const line of lines) {
+    rows += Math.max(1, Math.ceil(terminalCellWidth(line) / width));
+  }
+  return Math.max(1, rows);
 }
 
 export function appendTerminalRowCount(
@@ -522,7 +534,10 @@ function stripThinkingToolMarkup(text: string): string {
 
 function wrapTuiLines(text: string, columns: number, indent = ''): string[] {
   const normalized = String(text || '').replace(/\r\n?/g, '\n');
-  const contentWidth = Math.max(1, Math.floor(columns || 1) - indent.length);
+  const contentWidth = Math.max(
+    1,
+    Math.floor(columns || 1) - terminalCellWidth(stripAnsi(indent)),
+  );
   const lines = normalized.split('\n');
   const wrapped: string[] = [];
 
@@ -536,17 +551,17 @@ function wrapTuiLines(text: string, columns: number, indent = ''): string[] {
 }
 
 function wrapPlainLine(line: string, width: number): string[] {
-  if (line.length <= width) return [line];
+  if (terminalCellWidth(stripAnsi(line)) <= width) return [line];
 
   const wrapped: string[] = [];
   let remaining = line;
 
-  while (remaining.length > width) {
+  while (terminalCellWidth(stripAnsi(remaining)) > width) {
     let breakAt = findWrapBoundary(remaining, width);
     let segment = remaining.slice(0, breakAt);
 
     if (segment.trim().length === 0) {
-      breakAt = width;
+      breakAt = sliceTerminalCells(remaining, width).length;
       segment = remaining.slice(0, breakAt);
     } else {
       segment = segment.replace(/\s+$/u, '');
@@ -564,10 +579,76 @@ function wrapPlainLine(line: string, width: number): string[] {
 }
 
 function findWrapBoundary(text: string, width: number): number {
-  for (let index = width; index > 0; index -= 1) {
+  const hardBreak = sliceTerminalCells(text, width).length;
+  for (let index = hardBreak; index > 0; index -= 1) {
     if (/\s/u.test(text[index - 1] || '')) {
       return index;
     }
   }
+  return hardBreak;
+}
+
+function sliceTerminalCells(text: string, maxCells: number): string {
+  let cells = 0;
+  let result = '';
+  for (const char of text) {
+    const width = terminalCellWidth(char);
+    if (cells > 0 && cells + width > maxCells) break;
+    if (cells === 0 && width > maxCells) {
+      result += char;
+      break;
+    }
+    result += char;
+    cells += width;
+    if (cells >= maxCells) break;
+  }
+  return result;
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_ESCAPE_PATTERN, '');
+}
+
+function terminalCellWidth(text: string): number {
+  let width = 0;
+  for (const char of text) {
+    width += terminalCharCellWidth(char);
+  }
   return width;
+}
+
+function terminalCharCellWidth(char: string): number {
+  const codePoint = char.codePointAt(0) ?? 0;
+  if (codePoint === 0) return 0;
+  if (codePoint < 32 || (codePoint >= 0x7f && codePoint < 0xa0)) return 0;
+  if (isCombiningCodePoint(codePoint)) return 0;
+  return isWideCodePoint(codePoint) ? 2 : 1;
+}
+
+function isCombiningCodePoint(codePoint: number): boolean {
+  return (
+    (codePoint >= 0x0300 && codePoint <= 0x036f) ||
+    (codePoint >= 0x1ab0 && codePoint <= 0x1aff) ||
+    (codePoint >= 0x1dc0 && codePoint <= 0x1dff) ||
+    (codePoint >= 0x20d0 && codePoint <= 0x20ff) ||
+    (codePoint >= 0xfe20 && codePoint <= 0xfe2f)
+  );
+}
+
+function isWideCodePoint(codePoint: number): boolean {
+  return (
+    codePoint >= 0x1100 &&
+    (codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
+      (codePoint >= 0x20000 && codePoint <= 0x3fffd))
+  );
 }

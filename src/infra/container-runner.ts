@@ -10,11 +10,14 @@ import type {
   ExecutorSessionHealthSnapshot,
 } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
+import {
+  getGoogleWorkspaceRuntimeEnvRecoveryHint,
+  resolveGoogleWorkspaceRuntimeEnv,
+} from '../auth/google-auth.js';
 import { getBrowserProfileDir } from '../browser/browser-login.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
-  ADDITIONAL_MOUNTS,
+  BROWSER_ALLOW_PRIVATE_NETWORK,
   BROWSER_PROVIDER,
   CODEX_RUNTIME,
   CONTAINER_BINDS,
@@ -100,6 +103,7 @@ import {
   isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
+import { parseToolProgressLine } from './tool-progress-parser.js';
 import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
@@ -169,9 +173,6 @@ const warmPool = new WarmProcessPool<PoolEntry>(
 );
 let containerMemorySample: MemorySample | null = null;
 let containerMemoryRefreshInFlight = false;
-const TOOL_RESULT_RE =
-  /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
-const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
@@ -248,41 +249,20 @@ function emitThinkingDelta(entry: PoolEntry, line: string): void {
 function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
+  const parsed = parseToolProgressLine(line);
+  if (!parsed) return;
 
-  const resultMatch = line.match(TOOL_RESULT_RE);
-  if (resultMatch) {
-    try {
-      callback({
-        sessionId: entry.sessionId,
-        toolName: resultMatch[1],
-        phase: 'finish',
-        durationMs: parseInt(resultMatch[2], 10),
-        preview: redactCredentialSecrets(resultMatch[3]),
-      });
-    } catch (err) {
-      logger.debug(
-        { sessionId: entry.sessionId, err },
-        'Tool progress callback failed',
-      );
-    }
-    return;
-  }
-
-  const startMatch = line.match(TOOL_START_RE);
-  if (startMatch) {
-    try {
-      callback({
-        sessionId: entry.sessionId,
-        toolName: startMatch[1],
-        phase: 'start',
-        preview: redactCredentialSecrets(startMatch[2]),
-      });
-    } catch (err) {
-      logger.debug(
-        { sessionId: entry.sessionId, err },
-        'Tool progress callback failed',
-      );
-    }
+  try {
+    callback({
+      sessionId: entry.sessionId,
+      ...parsed,
+      preview: redactCredentialSecrets(parsed.preview || ''),
+    });
+  } catch (err) {
+    logger.debug(
+      { sessionId: entry.sessionId, err },
+      'Tool progress callback failed',
+    );
   }
 }
 
@@ -801,6 +781,8 @@ function getOrSpawnContainer(
     '-e',
     `HYBRIDCLAW_BROWSER_PROVIDER=${BROWSER_PROVIDER}`,
     '-e',
+    `BROWSER_ALLOW_PRIVATE_NETWORK=${BROWSER_ALLOW_PRIVATE_NETWORK ? 'true' : 'false'}`,
+    '-e',
     `HYBRIDCLAW_WEB_SEARCH_PROVIDER=${WEB_SEARCH_PROVIDER}`,
     '-e',
     `HYBRIDCLAW_WEB_SEARCH_FALLBACK_PROVIDERS=${WEB_SEARCH_FALLBACK_PROVIDERS.join(',')}`,
@@ -829,7 +811,6 @@ function getOrSpawnContainer(
   // Validate and append additional mounts
   const configuredMounts = resolveConfiguredAdditionalMounts({
     binds: CONTAINER_BINDS,
-    additionalMounts: ADDITIONAL_MOUNTS,
   });
   for (const warning of configuredMounts.warnings) {
     logger.warn({ warning }, 'Configured container bind ignored');
@@ -1060,9 +1041,10 @@ async function runContainerInner(
     sessionModel: modelRuntime.model || model,
   });
   const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
+    const recoveryHint = getGoogleWorkspaceRuntimeEnvRecoveryHint(error);
     logger.warn(
-      { error },
-      'Failed to resolve Google access token for Workspace CLI runtime environment',
+      { error, recoveryHint },
+      `Failed to resolve Google access token for Workspace CLI runtime environment. ${recoveryHint}`,
     );
     return {};
   });
@@ -1114,6 +1096,7 @@ async function runContainerInner(
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_BASE_URL),
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
+    browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model,
     codexRuntime,
     ralphMaxIterations,
@@ -1172,6 +1155,7 @@ async function runContainerInner(
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
     browserProvider: BROWSER_PROVIDER,
+    browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     taskModels: input.taskModels,
     providerCredentials: input.providerCredentials,
     workspacePathOverride: params.workspacePathOverride,

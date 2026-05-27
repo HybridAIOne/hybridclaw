@@ -32,7 +32,7 @@ DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60
 DEFAULT_MAX_ROWS = 200
 WRITE_GRANT_ENV = "HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT"
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:9090"
-DEFAULT_MODEL_REVIEW_MODEL = "gpt-5"
+DEFAULT_MODEL_REVIEW_MODEL = "auxiliary/eval_judge"
 CONNECTOR_ENV_PASSTHROUGH = {
     "HOME",
     "LANG",
@@ -182,6 +182,13 @@ class ReviewResult:
     requires_write_grant: bool
 
 
+@dataclass
+class SqlReviewScan:
+    masked: str
+    statements: list[str]
+    first_masked_statement: str
+
+
 def utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -190,16 +197,50 @@ def default_cache_dir() -> Path:
     return Path.home() / ".hybridclaw" / "warehouse-sql" / "schema-cache"
 
 
-def stable_cache_key(backend: str, profile: str, database: str | None) -> str:
+def stable_cache_key(
+    backend: str,
+    profile: str,
+    database: str | None,
+    bigquery_project: str = "",
+    bigquery_dataset: str = "",
+) -> str:
     raw = json.dumps(
-        {"backend": backend, "profile": profile, "database": database or ""},
+        {
+            "backend": backend,
+            "profile": profile,
+            "database": database or "",
+            "bigqueryDataset": bigquery_dataset,
+            "bigqueryProject": bigquery_project,
+        },
         sort_keys=True,
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
-def cache_path(cache_dir: Path, backend: str, profile: str, database: str | None) -> Path:
-    return cache_dir / f"{backend}-{profile}-{stable_cache_key(backend, profile, database)}.json"
+def bigquery_cache_scope(args: argparse.Namespace) -> tuple[str, str]:
+    if args.backend != "bigquery":
+        return "", ""
+    project = (
+        str(getattr(args, "bigquery_project", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_PROJECT", "").strip()
+    )
+    dataset = (
+        str(getattr(args, "bigquery_dataset", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_DATASET", "").strip()
+    )
+    return project, dataset
+
+
+def cache_path(cache_dir: Path, args: argparse.Namespace) -> Path:
+    bigquery_project, bigquery_dataset = bigquery_cache_scope(args)
+    key = stable_cache_key(
+        args.backend,
+        args.profile,
+        args.database,
+        bigquery_project,
+        bigquery_dataset,
+    )
+    return cache_dir / f"{args.backend}-{args.profile}-{key}.json"
 
 
 def emit(payload: Any, fmt: str) -> None:
@@ -650,7 +691,7 @@ def load_or_refresh_schema(args: argparse.Namespace) -> dict[str, Any]:
     ensure_backend(args.backend)
     cache_dir = Path(args.cache_dir).expanduser() if args.cache_dir else default_cache_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
-    path = cache_path(cache_dir, args.backend, args.profile, args.database)
+    path = cache_path(cache_dir, args)
     ttl_seconds = max(0, int(args.cache_ttl_seconds))
     now = time.time()
 
@@ -691,43 +732,136 @@ def load_or_refresh_schema(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
-def strip_sql_comments(sql: str) -> str:
-    without_block = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)
-    return "\n".join(line.split("--", 1)[0] for line in without_block.splitlines())
-
-
-def split_sql_statements(sql: str) -> list[str]:
+def scan_sql_for_review(sql: str) -> SqlReviewScan:
+    # Supported backends use standard SQL doubled-quote escaping; this does not
+    # model MySQL-style backslash string escaping.
+    masked: list[str] = []
+    statement: list[str] = []
+    masked_statement: list[str] = []
     statements: list[str] = []
-    current: list[str] = []
+    first_masked_statement = ""
     quote: str | None = None
     index = 0
+
+    def append_pair(commentless_text: str, masked_text: str) -> None:
+        masked.append(masked_text)
+        statement.append(commentless_text)
+        masked_statement.append(masked_text)
+
+    def append_masked_space(char: str) -> None:
+        append_pair(char, "\n" if char == "\n" else " ")
+
+    def append_comment_space(char: str) -> None:
+        replacement = "\n" if char == "\n" else " "
+        append_pair(replacement, replacement)
+
+    def flush_statement() -> None:
+        nonlocal first_masked_statement
+        raw_statement = "".join(statement).strip()
+        raw_masked_statement = "".join(masked_statement).strip()
+        if raw_statement:
+            statements.append(raw_statement)
+        if raw_masked_statement and not first_masked_statement:
+            first_masked_statement = raw_masked_statement
+        statement.clear()
+        masked_statement.clear()
+
+    def dollar_quote_tag(offset: int) -> str | None:
+        match = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$", sql[offset:])
+        return match.group(0) if match else None
+
     while index < len(sql):
         char = sql[index]
-        current.append(char)
+        next_char = sql[index + 1] if index + 1 < len(sql) else ""
         if quote:
+            append_masked_space(char)
             if char == quote:
-                if index + 1 < len(sql) and sql[index + 1] == quote:
-                    current.append(sql[index + 1])
+                if next_char == quote:
+                    append_masked_space(next_char)
                     index += 1
                 else:
                     quote = None
-        elif char in {"'", '"'}:
+        elif char in {"'", '"', "`"}:
             quote = char
+            append_masked_space(char)
+        elif char == "-" and next_char == "-":
+            append_comment_space(char)
+            append_comment_space(next_char)
+            index += 2
+            while index < len(sql) and sql[index] != "\n":
+                append_comment_space(sql[index])
+                index += 1
+            if index < len(sql):
+                append_comment_space(sql[index])
+        elif char == "/" and next_char == "*":
+            append_comment_space(char)
+            append_comment_space(next_char)
+            index += 2
+            while index < len(sql):
+                if sql[index] == "*" and index + 1 < len(sql) and sql[index + 1] == "/":
+                    append_comment_space(sql[index])
+                    append_comment_space(sql[index + 1])
+                    index += 1
+                    break
+                append_comment_space(sql[index])
+                index += 1
+        elif char == "$":
+            tag = dollar_quote_tag(index)
+            if tag:
+                for tag_char in tag:
+                    append_masked_space(tag_char)
+                index += len(tag)
+                while index < len(sql):
+                    if sql.startswith(tag, index):
+                        for tag_char in tag:
+                            append_masked_space(tag_char)
+                        index += len(tag) - 1
+                        break
+                    append_masked_space(sql[index])
+                    index += 1
+            else:
+                append_pair(char, char)
+        elif char == "[":
+            append_masked_space(char)
+            index += 1
+            while index < len(sql):
+                append_masked_space(sql[index])
+                if sql[index] == "]":
+                    if index + 1 < len(sql) and sql[index + 1] == "]":
+                        append_masked_space(sql[index + 1])
+                        index += 1
+                    else:
+                        break
+                index += 1
         elif char == ";":
-            statement = "".join(current).strip().rstrip(";").strip()
-            if statement:
-                statements.append(statement)
-            current = []
+            masked.append(char)
+            flush_statement()
+        else:
+            append_pair(char, char)
         index += 1
-    tail = "".join(current).strip()
-    if tail:
-        statements.append(tail)
-    return statements
+    flush_statement()
+    return SqlReviewScan(
+        masked="".join(masked),
+        statements=statements,
+        first_masked_statement=first_masked_statement,
+    )
 
 
 def first_keyword(statement: str) -> str:
     match = re.search(r"[A-Za-z_][A-Za-z0-9_]*", statement)
     return match.group(0).lower() if match else ""
+
+
+def mutating_keyword_hits(masked_sql: str) -> list[str]:
+    lowered = f" {masked_sql.lower()} "
+    hits = []
+    for keyword in sorted(MUTATING_KEYWORDS):
+        pattern = rf"\b{re.escape(keyword)}\b"
+        if keyword == "replace":
+            pattern = r"\breplace\b(?!\s*\()"
+        if re.search(pattern, lowered):
+            hits.append(keyword)
+    return hits
 
 
 def write_grant_matches(write_grant: str | None, expected_grant: str) -> bool:
@@ -760,8 +894,8 @@ def review_sql(
     allow_write: bool = False,
     write_grant: str | None = None,
 ) -> ReviewResult:
-    cleaned = strip_sql_comments(sql)
-    statements = split_sql_statements(cleaned)
+    scan = scan_sql_for_review(sql)
+    statements = scan.statements
     findings: list[str] = []
 
     if not statements:
@@ -770,16 +904,11 @@ def review_sql(
     if len(statements) > 1:
         findings.append("SQL must contain exactly one statement.")
 
-    lowered = f" {cleaned.lower()} "
-    keyword_hits = sorted(
-        keyword
-        for keyword in MUTATING_KEYWORDS
-        if re.search(rf"\b{re.escape(keyword)}\b", lowered)
-    )
+    keyword_hits = mutating_keyword_hits(scan.masked)
     write_through_select = bool(
-        re.search(r"\bselect\b[\s\S]*\binto\b", cleaned, re.IGNORECASE)
+        re.search(r"\bselect\b[\s\S]*\binto\b", scan.masked, re.IGNORECASE)
     )
-    starter = first_keyword(statements[0]) if statements else ""
+    starter = first_keyword(scan.first_masked_statement)
     read_only = (
         bool(statements)
         and starter in READ_ONLY_STARTERS
@@ -794,7 +923,7 @@ def review_sql(
         findings.append("SELECT INTO requires the write-grant path.")
     if statements and starter not in READ_ONLY_STARTERS:
         findings.append(f"Statement starts with '{starter or 'unknown'}', not a read-only SQL verb.")
-    if read_only and not re.search(r"\blimit\b", cleaned, re.IGNORECASE) and starter != "explain":
+    if read_only and not re.search(r"\blimit\b", scan.masked, re.IGNORECASE) and starter != "explain":
         findings.append("Exploratory read does not include LIMIT; add one unless an aggregate query requires all rows.")
 
     if requires_write_grant:
@@ -836,6 +965,14 @@ def default_model_review_payload() -> dict[str, Any]:
     }
 
 
+def skipped_model_review_payload(reason: str) -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "status": "skipped",
+        "reason": reason,
+    }
+
+
 def review_payload_from_result(
     sql: str,
     result: ReviewResult,
@@ -843,7 +980,7 @@ def review_payload_from_result(
 ) -> dict[str, Any]:
     findings = list(result.findings)
     status = result.status
-    if model_review and model_review.get("status") != "pass":
+    if model_review and model_review.get("status") == "block":
         status = "block"
         findings.append("Model review blocked execution.")
     return {
@@ -867,6 +1004,19 @@ def resolve_model_review_url(args: argparse.Namespace) -> str:
     if env_url:
         return env_url
     return f"{resolve_gateway_url(args).rstrip('/')}/v1/chat/completions"
+
+
+def model_review_endpoint_configured(args: argparse.Namespace) -> bool:
+    return bool(
+        str(getattr(args, "model_review_url", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_URL", "").strip()
+        or os.environ.get("HYBRIDCLAW_GATEWAY_URL", "").strip()
+        or os.environ.get("GATEWAY_BASE_URL", "").strip()
+    )
+
+
+def model_review_question_configured(args: argparse.Namespace) -> bool:
+    return bool(str(getattr(args, "question", "") or "").strip())
 
 
 def resolve_model_review_token(args: argparse.Namespace) -> str:
@@ -896,7 +1046,7 @@ def model_review_schema_context(args: argparse.Namespace) -> str:
     return text[:20000]
 
 
-def parse_model_review_content(content: str) -> dict[str, Any]:
+def parse_json_object_content(content: str, label: str) -> dict[str, Any]:
     stripped = content.strip()
     try:
         parsed = json.loads(stripped)
@@ -904,13 +1054,18 @@ def parse_model_review_content(content: str) -> dict[str, Any]:
         start = stripped.find("{")
         end = stripped.rfind("}")
         if start < 0 or end <= start:
-            raise WarehouseSqlError("Model review response was not JSON.")
+            raise WarehouseSqlError(f"{label} response was not JSON.")
         try:
             parsed = json.loads(stripped[start : end + 1])
         except json.JSONDecodeError as exc:
-            raise WarehouseSqlError("Model review response was not valid JSON.") from exc
+            raise WarehouseSqlError(f"{label} response was not valid JSON.") from exc
     if not isinstance(parsed, dict):
-        raise WarehouseSqlError("Model review response must be a JSON object.")
+        raise WarehouseSqlError(f"{label} response must be a JSON object.")
+    return parsed
+
+
+def parse_model_review_content(content: str) -> dict[str, Any]:
+    parsed = parse_json_object_content(content, "Model review")
     status = str(parsed.get("status", "")).strip().lower()
     if status not in {"pass", "block"}:
         raise WarehouseSqlError("Model review response status must be 'pass' or 'block'.")
@@ -924,13 +1079,78 @@ def parse_model_review_content(content: str) -> dict[str, Any]:
     }
 
 
+def parse_model_eval_plan_content(content: str) -> dict[str, Any]:
+    parsed = parse_json_object_content(content, "Model eval planner")
+    sql = str(parsed.get("sql", "") or "").strip()
+    if not sql:
+        raise WarehouseSqlError("Model eval planner response must include non-empty sql.")
+    parameters = parsed.get("parameters", [])
+    if not isinstance(parameters, list):
+        raise WarehouseSqlError("Model eval planner response parameters must be a JSON array.")
+    return {"sql": sql, "parameters": parameters}
+
+
+def openai_chat_completion_content(
+    args: argparse.Namespace,
+    *,
+    label: str,
+    prompt: dict[str, Any],
+    system_content: str,
+) -> tuple[str, str]:
+    model = resolve_model_review_model(args)
+    body = json.dumps(
+        {
+            "model": model,
+            "stream": False,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_content,
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt, sort_keys=True),
+                },
+            ],
+        }
+    ).encode("utf-8")
+    req = request.Request(
+        resolve_model_review_url(args),
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    token = resolve_model_review_token(args)
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        timeout_seconds = max(1, int(getattr(args, "model_review_timeout_seconds", 60)))
+        with request.urlopen(req, timeout=timeout_seconds) as response:
+            raw = response.read().decode("utf-8")
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise WarehouseSqlError(f"{label} failed ({exc.code}): {detail}") from exc
+    except error.URLError as exc:
+        raise WarehouseSqlError(f"{label} failed: {exc.reason}") from exc
+
+    try:
+        payload = json.loads(raw)
+        content = payload["choices"][0]["message"]["content"]
+        response_model = payload.get("model")
+    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        raise WarehouseSqlError(f"{label} response did not match OpenAI-compatible chat completion shape.") from exc
+    if not isinstance(content, str):
+        raise WarehouseSqlError(f"{label} response content must be a string.")
+    if isinstance(response_model, str) and response_model.strip():
+        return response_model.strip(), content
+    return model, content
+
+
 def run_model_review(
     sql: str,
     args: argparse.Namespace,
     result: ReviewResult,
 ) -> dict[str, Any]:
-    url = resolve_model_review_url(args)
-    model = resolve_model_review_model(args)
     question = str(getattr(args, "question", "") or "").strip()
     schema_context = model_review_schema_context(args)
     prompt = {
@@ -945,53 +1165,17 @@ def run_model_review(
         },
         "schemaCache": schema_context,
     }
-    body = json.dumps(
-        {
-            "model": model,
-            "stream": False,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You review warehouse SQL for business meaning and schema fit. "
-                        "Return only JSON with status 'pass' or 'block', summary, and findings array. "
-                        "Block SQL that does not answer the question, references absent schema, "
-                        "uses unsafe scope, or should be shown to the user before execution."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(prompt, sort_keys=True),
-                },
-            ],
-        }
-    ).encode("utf-8")
-    req = request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={"Content-Type": "application/json"},
+    model, content = openai_chat_completion_content(
+        args,
+        label="Model review",
+        prompt=prompt,
+        system_content=(
+            "You review warehouse SQL for business meaning and schema fit. "
+            "Return only JSON with status 'pass' or 'block', summary, and findings array. "
+            "Block SQL that does not answer the question, references absent schema, "
+            "uses unsafe scope, or should be shown to the user before execution."
+        ),
     )
-    token = resolve_model_review_token(args)
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
-    try:
-        timeout_seconds = max(1, int(getattr(args, "model_review_timeout_seconds", 60)))
-        with request.urlopen(req, timeout=timeout_seconds) as response:
-            raw = response.read().decode("utf-8")
-    except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise WarehouseSqlError(f"Model review failed ({exc.code}): {detail}") from exc
-    except error.URLError as exc:
-        raise WarehouseSqlError(f"Model review failed: {exc.reason}") from exc
-
-    try:
-        payload = json.loads(raw)
-        content = payload["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-        raise WarehouseSqlError("Model review response did not match OpenAI-compatible chat completion shape.") from exc
-    if not isinstance(content, str):
-        raise WarehouseSqlError("Model review response content must be a string.")
     parsed = parse_model_review_content(content)
     return {
         "enabled": True,
@@ -1001,6 +1185,33 @@ def run_model_review(
         "summary": parsed["summary"],
         "findings": parsed["findings"],
     }
+
+
+def run_model_eval_planner(
+    question: str,
+    args: argparse.Namespace,
+    schema: dict[str, Any],
+) -> dict[str, Any]:
+    prompt = {
+        "question": question,
+        "dialect": "sqlite",
+        "schema": schema,
+        "instructions": [
+            "Generate one read-only SQLite SELECT/WITH/EXPLAIN statement.",
+            "Use positional parameters only when needed and return them in order.",
+            "Return only JSON with sql and parameters fields.",
+        ],
+    }
+    _model, content = openai_chat_completion_content(
+        args,
+        label="Model eval planner",
+        prompt=prompt,
+        system_content=(
+            "You generate SQL for a TPC-H-style eval fixture. "
+            "Return only JSON with sql and parameters."
+        ),
+    )
+    return parse_model_eval_plan_content(content)
 
 
 def review_payload(sql: str, args: argparse.Namespace) -> dict[str, Any]:
@@ -1017,21 +1228,25 @@ def review_payload(sql: str, args: argparse.Namespace) -> dict[str, Any]:
     return review_payload_from_result(sql, result, model_review)
 
 
+def add_model_endpoint_arguments(parser: argparse.ArgumentParser, *, purpose: str) -> None:
+    parser.add_argument(
+        "--model-review-url",
+        help=f"OpenAI-compatible chat completions URL for {purpose}.",
+    )
+    parser.add_argument(
+        "--model-review-model",
+        help=f"Model id for {purpose} (default: {DEFAULT_MODEL_REVIEW_MODEL}).",
+    )
+    parser.add_argument("--model-review-timeout-seconds", type=int, default=60)
+
+
 def add_model_review_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--model-review",
         action="store_true",
         help="Invoke the OpenAI-compatible gateway for model review.",
     )
-    parser.add_argument(
-        "--model-review-url",
-        help="OpenAI-compatible chat completions URL for model review.",
-    )
-    parser.add_argument(
-        "--model-review-model",
-        help=f"Model id for model review (default: {DEFAULT_MODEL_REVIEW_MODEL}).",
-    )
-    parser.add_argument("--model-review-timeout-seconds", type=int, default=60)
+    add_model_endpoint_arguments(parser, purpose="model review")
     parser.add_argument(
         "--question",
         help="Natural-language business question the SQL should answer.",
@@ -1134,12 +1349,25 @@ def first_cell(rows: list[dict[str, Any]]) -> Any:
     return next(iter(first_row.values()))
 
 
-def run_eval_scenarios() -> dict[str, Any]:
+def run_eval_scenarios(args: argparse.Namespace) -> dict[str, Any]:
     database = create_eval_database()
     scenarios = load_scenarios()
+    scenario_id = str(getattr(args, "scenario_id", "") or "").strip()
+    if scenario_id:
+        scenarios = [scenario for scenario in scenarios if scenario.get("id") == scenario_id]
+        if not scenarios:
+            raise WarehouseSqlError(f"Unknown eval scenario id: {scenario_id}")
     results = []
     category_counts: dict[str, int] = {}
     failed = 0
+    model_planner = bool(getattr(args, "model_planner", False))
+    if model_planner and not model_review_endpoint_configured(args):
+        raise WarehouseSqlError(
+            "eval-scenarios --model-planner requires a model-review endpoint. Set "
+            "HYBRIDCLAW_GATEWAY_URL, GATEWAY_BASE_URL, HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_URL, "
+            "or pass --model-review-url."
+        )
+    schema = sqlite_schema(database) if model_planner else {}
     try:
         for scenario in scenarios:
             category = str(scenario.get("category", "uncategorized"))
@@ -1147,11 +1375,16 @@ def run_eval_scenarios() -> dict[str, Any]:
             case_result: dict[str, Any] = {
                 "id": scenario["id"],
                 "category": category,
+                "planner": "model" if model_planner else "deterministic",
                 "status": "pass",
                 "findings": [],
             }
             try:
-                plan = plan_eval_sql(str(scenario["question"]))
+                plan = (
+                    run_model_eval_planner(str(scenario["question"]), args, schema)
+                    if model_planner
+                    else plan_eval_sql(str(scenario["question"]))
+                )
                 sql = plan["sql"]
                 for expected in scenario.get("expectedSqlContains", []):
                     if str(expected).lower() not in sql.lower():
@@ -1188,6 +1421,7 @@ def run_eval_scenarios() -> dict[str, Any]:
     return {
         "command": "eval-scenarios",
         "dataset": "TPC-H-style tiny fixture",
+        "planner": "model" if model_planner else "deterministic",
         "scenarioCount": len(scenarios),
         "failed": failed,
         "categories": category_counts,
@@ -1330,14 +1564,27 @@ def handle_schedule_refresh(args: argparse.Namespace) -> Any:
 
 def handle_query(args: argparse.Namespace) -> Any:
     ensure_backend(args.backend)
+    if args.execute and not model_review_endpoint_configured(args):
+        raise WarehouseSqlError(
+            "query --execute requires a model-review endpoint. Set HYBRIDCLAW_GATEWAY_URL, "
+            "GATEWAY_BASE_URL, HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_URL, or pass --model-review-url."
+        )
+    if args.execute and not model_review_question_configured(args):
+        raise WarehouseSqlError(
+            "query --execute requires --question so model review can compare SQL against the user's request."
+        )
     review_result = review_sql(
         args.sql,
         allow_write=args.allow_write,
         write_grant=args.write_grant,
     )
-    model_review = (
-        run_model_review(args.sql, args, review_result) if args.model_review else None
-    )
+    model_review = None
+    if args.model_review or (args.execute and review_result.status == "pass"):
+        model_review = run_model_review(args.sql, args, review_result)
+    elif args.execute:
+        model_review = skipped_model_review_payload(
+            "deterministic review blocked execution before model review"
+        )
     payload = review_payload_from_result(args.sql, review_result, model_review)
     if not args.execute:
         payload["execution"] = {
@@ -1448,7 +1695,14 @@ def build_parser() -> argparse.ArgumentParser:
     query.set_defaults(func=handle_query)
 
     evals = subparsers.add_parser("eval-scenarios", help="Run bundled TPC-H-style eval scenarios.")
-    evals.set_defaults(func=lambda _args: run_eval_scenarios())
+    evals.add_argument("--scenario-id", help="Run one eval scenario id.")
+    evals.add_argument(
+        "--model-planner",
+        action="store_true",
+        help="Ask the configured OpenAI-compatible model to generate SQL for each scenario.",
+    )
+    add_model_endpoint_arguments(evals, purpose="model eval planning")
+    evals.set_defaults(func=run_eval_scenarios)
 
     return parser
 

@@ -485,7 +485,6 @@ export function EmailPage() {
     return (
       <div className="page-stack">
         <PageHeader
-          title="Email"
           description="Enable the email channel to surface a mailbox view here."
           actions={
             <button
@@ -527,7 +526,6 @@ export function EmailPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title="Email"
         actions={
           <input
             className="compact-search"

@@ -1,3 +1,15 @@
+export const LOG_LEVELS = [
+  'fatal',
+  'error',
+  'warn',
+  'info',
+  'debug',
+  'trace',
+  'silent',
+] as const;
+
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
 export interface GatewayStatus {
   status: 'ok';
   webAuthConfigured: boolean;
@@ -735,7 +747,13 @@ export interface AdminConfig {
     persistBashState: boolean;
   };
   browser?: {
-    provider: 'local' | 'camofox' | 'managed-cloud' | 'browser-use-cloud';
+    provider:
+      | 'local'
+      | 'camofox'
+      | 'managed-cloud'
+      | 'browser-use-cloud'
+      | 'mac-cua';
+    allowPrivateNetwork: boolean;
     local: {
       profileDir: string;
       headed: boolean;
@@ -773,6 +791,12 @@ export interface AdminConfig {
         actionUsd: number;
       };
     };
+    macCua: {
+      browser: 'safari' | 'chrome' | 'firefox' | 'brave' | 'arc';
+      driverCommand: string;
+      driverArgs: string[];
+      screenshotMode: 'som' | 'vision' | 'ax';
+    };
   };
   ops: {
     healthHost: string;
@@ -781,7 +805,7 @@ export interface AdminConfig {
     gatewayBaseUrl: string;
     gatewayApiToken: string;
     dbPath: string;
-    logLevel: string;
+    logLevel: LogLevel;
   };
   [key: string]: unknown;
 }
@@ -1198,11 +1222,14 @@ export interface AdminJobCard {
 }
 
 export type AdminBoardBudgetCurrency = 'USD' | 'EUR';
+// Keep in sync with AgentBudgetUnit in src/agents/agent-types.ts.
+export type AdminBoardBudgetUnit = AdminBoardBudgetCurrency | 'tokens';
 
 export interface AdminBoardBudgetSummary {
   agentId: string;
   used: number;
   cap: number;
+  unit: AdminBoardBudgetUnit;
   currency: AdminBoardBudgetCurrency;
   percent: number;
 }
@@ -1249,8 +1276,14 @@ export interface AdminAuditResponse {
   query: string;
   sessionId: string;
   eventType: string;
+  since: string | null;
+  until: string | null;
   limit: number;
   entries: AdminAuditEntry[];
+  /** Opaque cursor for the next page; pass back as `cursor=`. null on the last page. */
+  nextCursor: number | null;
+  /** Total rows matching the filters in the database, independent of pagination. */
+  total: number;
 }
 
 export interface AdminA2AIdentity {
@@ -1393,6 +1426,17 @@ export interface AdminPolicyRuleInput {
   comment?: string;
 }
 
+export type AdminLanHttpAccessMode =
+  | 'off'
+  | 'read-only'
+  | 'read-write'
+  | 'custom';
+
+export interface AdminLanHttpAccessState {
+  mode: AdminLanHttpAccessMode;
+  managedRuleIndexes: number[];
+}
+
 export interface AdminPolicyState {
   exists: boolean;
   policyPath: string;
@@ -1400,6 +1444,7 @@ export interface AdminPolicyState {
   defaultAction: 'allow' | 'deny';
   presets: string[];
   rules: AdminPolicyRule[];
+  lanHttpAccess: AdminLanHttpAccessState;
 }
 
 export interface AdminPolicyPresetSummary {

@@ -154,3 +154,11 @@ TXT record values are JSON objects:
 concurrent cold-cache lookups, caches successful records for five minutes by
 default, and supports explicit invalidation. Discovery URLs must use HTTPS
 unless they target loopback.
+
+The A2A outbound outbox uses this resolver automatically when
+`HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE` is set. Remote `sendMessage` recipients are
+queued first, then the outbox resolves the recipient's canonical ID under that
+zone before dispatching through the A2A HTTP transport. The synchronous
+`sendMessage` confirmation reports `pending` for durable queued delivery and
+`false` only when dispatch is refused before an outbox item exists; later
+outbox failures are audited and routed through interactive escalation.

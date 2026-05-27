@@ -782,6 +782,7 @@ Examples:
   hybridclaw config reload
   hybridclaw config get hybridai.maxTokens
   hybridclaw config set hybridai.maxTokens 8192
+  hybridclaw config set browser.allowPrivateNetwork true
   hybridclaw config revisions
   hybridclaw config revisions rollback 12
   hybridclaw config set discord.enabled true

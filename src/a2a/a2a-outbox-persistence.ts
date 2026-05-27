@@ -25,12 +25,26 @@ const A2A_OUTBOX_ASSET_PREFIX = path.join(
 
 export type A2AOutboundStatus = 'pending' | 'delivered' | 'failed';
 
+export type A2AOutboxIdentityResolution =
+  | {
+      status: 'unresolved';
+      canonicalId: string;
+    }
+  | {
+      status: 'resolved';
+      canonicalId: string;
+      url: string;
+      publicKey: string;
+      resolvedAt: string;
+    };
+
 export interface A2AOutboxItem {
   schemaVersion: typeof A2A_OUTBOX_SCHEMA_VERSION;
   id: string;
   status: A2AOutboundStatus;
   envelope: A2AEnvelope;
-  agentCardUrl: string;
+  agentCardUrl?: string;
+  identityResolution?: A2AOutboxIdentityResolution;
   bearerTokenRef?: SecretRef;
   attempts: number;
   maxAttempts: number;
@@ -48,6 +62,10 @@ export interface A2AOutboxItem {
   lastJsonRpcCode?: number;
 }
 
+export interface A2AOutboxListOptions {
+  status?: A2AOutboundStatus | readonly A2AOutboundStatus[];
+}
+
 export interface A2AOutboundAdapterOptions {
   maxAttempts?: number;
 }
@@ -58,6 +76,53 @@ export function nowIso(now: Date): string {
 
 function outboxAssetPath(id: string): string {
   return path.join(A2A_OUTBOX_ASSET_PREFIX, `${id}.json`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeIdentityResolution(
+  value: unknown,
+): A2AOutboxIdentityResolution | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || typeof value.canonicalId !== 'string') {
+    throw new Error('identityResolution must include canonicalId');
+  }
+  const canonicalId = value.canonicalId.trim();
+  if (!canonicalId) {
+    throw new Error('identityResolution canonicalId is required');
+  }
+  if (value.status === 'resolved') {
+    if (
+      typeof value.url !== 'string' ||
+      typeof value.publicKey !== 'string' ||
+      typeof value.resolvedAt !== 'string'
+    ) {
+      throw new Error(
+        'resolved identityResolution must include url, publicKey, and resolvedAt',
+      );
+    }
+    return {
+      status: 'resolved',
+      canonicalId,
+      url: value.url,
+      publicKey: value.publicKey,
+      resolvedAt: value.resolvedAt,
+    };
+  }
+  if (value.status === 'unresolved') {
+    return { status: 'unresolved', canonicalId };
+  }
+  if (
+    value.status === undefined &&
+    typeof value.url !== 'string' &&
+    typeof value.publicKey !== 'string' &&
+    typeof value.resolvedAt !== 'string'
+  ) {
+    return { status: 'unresolved', canonicalId };
+  }
+  throw new Error('identityResolution status must be unresolved or resolved');
 }
 
 function parseOutboxItem(raw: string, assetPath: string): A2AOutboxItem | null {
@@ -72,7 +137,13 @@ function parseOutboxItem(raw: string, assetPath: string): A2AOutboxItem | null {
     ) {
       return null;
     }
-    return parsed;
+    const identityResolution = normalizeIdentityResolution(
+      parsed.identityResolution,
+    );
+    return {
+      ...parsed,
+      ...(identityResolution ? { identityResolution } : {}),
+    };
   } catch (error) {
     logger.warn(
       { assetPath, err: error },
@@ -80,6 +151,15 @@ function parseOutboxItem(raw: string, assetPath: string): A2AOutboxItem | null {
     );
     return null;
   }
+}
+
+function matchesOutboxListStatus(
+  item: A2AOutboxItem,
+  status: A2AOutboxListOptions['status'],
+): boolean {
+  if (!status) return true;
+  if (Array.isArray(status)) return status.includes(item.status);
+  return item.status === status;
 }
 
 export function persistA2AOutboxItem(item: A2AOutboxItem): void {
@@ -97,12 +177,17 @@ export function persistA2AOutboxItem(item: A2AOutboxItem): void {
   );
 }
 
-export function listA2AOutboxItems(): A2AOutboxItem[] {
+export function listA2AOutboxItems(
+  options: A2AOutboxListOptions = {},
+): A2AOutboxItem[] {
   return listRuntimeAssetRevisionStates('a2a', {
     assetPathPrefix: A2A_OUTBOX_ASSET_PREFIX,
   })
     .map((state) => parseOutboxItem(state.content, state.assetPath))
-    .filter((item): item is A2AOutboxItem => item !== null)
+    .filter(
+      (item): item is A2AOutboxItem =>
+        item !== null && matchesOutboxListStatus(item, options.status),
+    )
     .sort((left, right) => {
       const nextAttemptOrder = left.nextAttemptAt.localeCompare(
         right.nextAttemptAt,
@@ -114,9 +199,12 @@ export function listA2AOutboxItems(): A2AOutboxItem[] {
 
 function makeOutboxItem(
   envelope: A2AEnvelope,
-  descriptor: A2APeerDescriptor,
+  descriptor: Partial<
+    Pick<A2APeerDescriptor, 'agentCardUrl' | 'bearerTokenRef' | 'canonicalId'>
+  >,
   context?: TransportAdapterContext,
   opts?: A2AOutboundAdapterOptions,
+  identityResolution?: A2AOutboxItem['identityResolution'],
 ): A2AOutboxItem {
   const createdAt = new Date();
   const createdAtIso = nowIso(createdAt);
@@ -125,7 +213,19 @@ function makeOutboxItem(
     id: randomUUID(),
     status: 'pending',
     envelope: validateA2AEnvelope(envelope),
-    agentCardUrl: descriptor.agentCardUrl,
+    ...(descriptor.agentCardUrl
+      ? { agentCardUrl: descriptor.agentCardUrl }
+      : {}),
+    ...(identityResolution
+      ? { identityResolution }
+      : descriptor.canonicalId
+        ? {
+            identityResolution: {
+              status: 'unresolved',
+              canonicalId: descriptor.canonicalId,
+            } satisfies A2AOutboxIdentityResolution,
+          }
+        : {}),
     bearerTokenRef: descriptor.bearerTokenRef,
     attempts: 0,
     maxAttempts: normalizePositiveInteger(
@@ -148,6 +248,20 @@ export function enqueueA2AEnvelope(
   opts?: A2AOutboundAdapterOptions,
 ): A2AOutboxItem {
   const item = makeOutboxItem(envelope, descriptor, context, opts);
+  persistA2AOutboxItem(item);
+  return item;
+}
+
+export function enqueueUnresolvedA2AEnvelope(
+  envelope: A2AEnvelope,
+  recipientAgentId: string,
+  context?: TransportAdapterContext,
+  opts?: A2AOutboundAdapterOptions,
+): A2AOutboxItem {
+  const item = makeOutboxItem(envelope, {}, context, opts, {
+    status: 'unresolved',
+    canonicalId: recipientAgentId,
+  });
   persistA2AOutboxItem(item);
   return item;
 }

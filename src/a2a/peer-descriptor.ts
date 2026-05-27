@@ -1,3 +1,4 @@
+import { parseAgentIdentity } from '../identity/agent-id.js';
 import type { SecretRef } from '../security/secret-refs.js';
 import { parseSecretInput } from '../security/secret-refs.js';
 import {
@@ -22,6 +23,8 @@ const A2A_ALLOWED_FIELDS = new Set([
   'base_url',
   'agentCardUrl',
   'agent_card_url',
+  'canonicalId',
+  'canonical_id',
   'bearerTokenRef',
   'bearer_token_ref',
   'expectPublicKey',
@@ -44,7 +47,8 @@ export interface InternalPeerDescriptor {
 
 export interface A2APeerDescriptor {
   transport: 'a2a';
-  agentCardUrl: string;
+  agentCardUrl?: string;
+  canonicalId?: string;
   bearerTokenRef?: SecretRef;
   expectPublicKey?: boolean;
 }
@@ -229,7 +233,7 @@ function deriveAgentCardUrl(peerUrl: string): string {
 function readA2AAgentCardUrl(
   record: Record<string, unknown>,
   issues: string[],
-): string {
+): string | undefined {
   const explicitAgentCardUrl = readAlias(
     record,
     'agentCardUrl',
@@ -243,23 +247,36 @@ function readA2AAgentCardUrl(
     );
   }
 
-  const hasPeerUrl =
-    Object.hasOwn(record, 'peerUrl') ||
-    Object.hasOwn(record, 'peer_url') ||
-    Object.hasOwn(record, 'baseUrl') ||
-    Object.hasOwn(record, 'base_url') ||
-    Object.hasOwn(record, 'url');
   const peerUrl =
     readOptionalUrlAlias(record, 'peerUrl', 'peer_url', 'peerUrl', issues) ||
     readOptionalUrlAlias(record, 'baseUrl', 'base_url', 'baseUrl', issues) ||
     readOptionalUrlAlias(record, 'url', 'url', 'url', issues);
   if (!peerUrl) {
-    if (!hasPeerUrl) {
-      issues.push('agentCardUrl or url is required');
-    }
-    return '';
+    return undefined;
   }
   return deriveAgentCardUrl(peerUrl);
+}
+
+function readA2ACanonicalId(
+  record: Record<string, unknown>,
+  issues: string[],
+): string | undefined {
+  const canonicalId = readOptionalStringAlias(
+    record,
+    'canonicalId',
+    'canonical_id',
+    'canonicalId',
+    issues,
+  );
+  if (!canonicalId) return undefined;
+  try {
+    return parseAgentIdentity(canonicalId).id;
+  } catch {
+    issues.push(
+      'canonicalId must be a canonical agent id (agent-slug@user@instance-id)',
+    );
+    return undefined;
+  }
 }
 
 function readHttpHeaderName(
@@ -359,6 +376,10 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
   if (transport === 'a2a') {
     validateAllowedFields(value, A2A_ALLOWED_FIELDS, issues);
     const agentCardUrl = readA2AAgentCardUrl(value, issues);
+    const canonicalId = readA2ACanonicalId(value, issues);
+    if (!agentCardUrl && !canonicalId) {
+      issues.push('agentCardUrl, url, or canonicalId is required');
+    }
     const bearerTokenRef = normalizeSecretRef(
       readAlias(value, 'bearerTokenRef', 'bearer_token_ref'),
       'bearerTokenRef',
@@ -372,10 +393,11 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
       'expectPublicKey',
       issues,
     );
+    const effectiveExpectPublicKey = Boolean(expectPublicKey || canonicalId);
     if (
       agentCardUrl &&
       !bearerTokenRef &&
-      !expectPublicKey &&
+      !effectiveExpectPublicKey &&
       !isA2ALoopbackHttpUrl(agentCardUrl)
     ) {
       issues.push(
@@ -387,9 +409,10 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
     }
     return {
       transport: 'a2a',
-      agentCardUrl,
+      ...(agentCardUrl ? { agentCardUrl } : {}),
+      ...(canonicalId ? { canonicalId } : {}),
       ...(bearerTokenRef ? { bearerTokenRef } : {}),
-      ...(expectPublicKey ? { expectPublicKey } : {}),
+      ...(effectiveExpectPublicKey ? { expectPublicKey: true } : {}),
     };
   }
 

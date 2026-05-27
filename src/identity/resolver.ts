@@ -7,6 +7,7 @@ import { type ParsedUserId, parseUserId } from './user-id.js';
 
 export const IDENTITY_RESOLVER_CACHE_TTL_MS = 5 * 60_000;
 export const IDENTITY_RESOLVER_CACHE_MAX_ENTRIES = 1024;
+export const IDENTITY_DISCOVERY_ZONE_ENV = 'HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE';
 
 export interface IdentityResolution {
   readonly url: string;
@@ -118,7 +119,7 @@ function normalizeIdentityResolution(value: unknown): IdentityResolution {
   };
 }
 
-function normalizeIdentityUrl(value: string): string {
+export function normalizeIdentityUrl(value: string): string {
   const trimmed = value.trim();
   if (!isA2AAllowedHttpUrl(trimmed)) {
     throw new IdentityResolverError(
@@ -330,4 +331,26 @@ export class DnsIdentityResolverBackend implements IdentityResolverBackend {
     }
     return null;
   }
+}
+
+let cachedDefaultIdentityResolver: {
+  zone: string;
+  resolver: IdentityResolver;
+} | null = null;
+
+export function getDefaultIdentityResolver(): IdentityResolver | null {
+  const rawZone = (process.env[IDENTITY_DISCOVERY_ZONE_ENV] || '').trim();
+  if (!rawZone) {
+    cachedDefaultIdentityResolver = null;
+    return null;
+  }
+  const zone = normalizeDnsZone(rawZone);
+  if (cachedDefaultIdentityResolver?.zone === zone) {
+    return cachedDefaultIdentityResolver.resolver;
+  }
+  const resolver = new IdentityResolver({
+    backend: new DnsIdentityResolverBackend({ zone }),
+  });
+  cachedDefaultIdentityResolver = { zone, resolver };
+  return resolver;
 }

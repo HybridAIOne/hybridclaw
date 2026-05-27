@@ -1026,7 +1026,6 @@ export function JobsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        title={`Kanban Board (${visibleItems.length} task${visibleItems.length === 1 ? '' : 's'})`}
         actions={
           <div className="header-actions">
             <input

@@ -24,6 +24,7 @@ import { writeFileAtomicExclusive } from '../utils/atomic-file.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
 import { A2AEnvelopeValidationError, classifyA2AAgentId } from './envelope.js';
 import { resolveA2AAgentId } from './identity.js';
+import { invalidateA2AIdentityResolvers } from './identity-resolver-invalidation.js';
 import { isRecord, normalizePositiveInteger } from './utils.js';
 import {
   WEBHOOK_BODY_VERSION,
@@ -219,7 +220,7 @@ export function fingerprintA2APublicKey(publicKeyJwk: JsonWebKey): string {
     .digest('base64url');
 }
 
-function normalizePublicKeyFingerprint(value: unknown): string {
+export function normalizePublicKeyFingerprint(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) {
     throw new A2AEnvelopeValidationError(['publicKeyFingerprint is required']);
   }
@@ -1015,6 +1016,7 @@ export function revokeA2ATrustedPublicKeyPeer(
       params.reason?.trim() || A2A_TRUST_LEDGER_DEFAULT_REVOKE_REASON,
   };
   persistTrustedPublicKeyPeer(revoked);
+  invalidateA2AIdentityResolvers();
   recordTrustAudit({
     runId: params.runId,
     event: {
@@ -1061,6 +1063,7 @@ export function upsertA2ATrustedPublicKeyPeer(
     lastSeenAt: timestamp,
   };
   persistTrustedPublicKeyPeer(peer);
+  invalidateA2AIdentityResolvers();
   recordTrustAudit({
     event: {
       type: 'a2a.trust.operator_override',
@@ -1089,6 +1092,7 @@ export function deleteA2ATrustedPublicKeyPeer(peerId: string): void {
     },
     { exists: false, content: null },
   );
+  invalidateA2AIdentityResolvers();
   if (existing) {
     recordTrustAudit({
       event: {

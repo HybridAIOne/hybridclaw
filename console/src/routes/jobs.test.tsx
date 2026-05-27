@@ -1,11 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminJobCard,
@@ -13,7 +6,7 @@ import type {
   AdminSchedulerResponse,
   JobSession,
 } from '../api/types';
-import { ToastProvider } from '../components/toast';
+import { renderWithProviders } from '../test-utils';
 import { JobsPage } from './jobs';
 
 const fetchBoardBudgetSummariesMock = vi.fn();
@@ -133,19 +126,7 @@ function makeJobSession(overrides: Partial<JobSession> = {}): JobSession {
 }
 
 function renderJobsPage(): void {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <JobsPage />
-      </ToastProvider>
-    </QueryClientProvider>,
-  );
+  renderWithProviders(<JobsPage />);
 }
 
 describe('JobsPage', () => {
@@ -250,6 +231,7 @@ describe('JobsPage', () => {
           agentId: 'main',
           used: 3.4,
           cap: 60,
+          unit: 'USD',
           currency: 'USD',
           percent: 79.5,
         },
@@ -257,6 +239,7 @@ describe('JobsPage', () => {
           agentId: 'agent-warn',
           used: 81,
           cap: 100,
+          unit: 'USD',
           currency: 'USD',
           percent: 99.5,
         },
@@ -264,6 +247,7 @@ describe('JobsPage', () => {
           agentId: 'agent-hard',
           used: 12,
           cap: 10,
+          unit: 'EUR',
           currency: 'EUR',
           percent: 120,
         },
@@ -294,6 +278,76 @@ describe('JobsPage', () => {
     expect(hardAgentRow).not.toBeNull();
     expect(within(hardAgentRow as HTMLElement).getByText('Hard')).toBeTruthy();
     expect(screen.queryByText('$0 / $0')).toBeNull();
+  });
+
+  it('renders token budget chips with unit-aware threshold tones', async () => {
+    fetchSchedulerMock.mockResolvedValue({
+      jobs: [
+        makeConfigJob({
+          id: 'token-job',
+          name: 'Token Budget',
+          agentId: 'agent-token',
+        }),
+        makeConfigJob({
+          id: 'token-warn-job',
+          name: 'Token Warn Budget',
+          agentId: 'agent-token-warn',
+        }),
+        makeConfigJob({
+          id: 'token-hard-job',
+          name: 'Token Hard Budget',
+          agentId: 'agent-token-hard',
+        }),
+      ],
+    });
+    fetchJobsContextMock.mockResolvedValue({
+      agents: [
+        { id: 'agent-token', name: 'Token Agent' },
+        { id: 'agent-token-warn', name: 'Token Warn Agent' },
+        { id: 'agent-token-hard', name: 'Token Hard Agent' },
+      ],
+      cards: [],
+      sessions: [],
+      suspendedSessions: [],
+    });
+    fetchBoardBudgetSummariesMock.mockResolvedValue({
+      budgets: [
+        {
+          agentId: 'agent-token',
+          used: 12_400,
+          cap: 100_000,
+          unit: 'tokens',
+          currency: 'USD',
+          percent: 12.4,
+        },
+        {
+          agentId: 'agent-token-warn',
+          used: 80_000,
+          cap: 100_000,
+          unit: 'tokens',
+          currency: 'USD',
+          percent: 80,
+        },
+        {
+          agentId: 'agent-token-hard',
+          used: 101_000,
+          cap: 100_000,
+          unit: 'tokens',
+          currency: 'USD',
+          percent: 101,
+        },
+      ],
+    });
+
+    renderJobsPage();
+
+    const token = await screen.findByText('12.4k / 100k tokens');
+    const tokenWarn = await screen.findByText('80k / 100k tokens');
+    const tokenHard = await screen.findByText('101k / 100k tokens');
+    expect(token.getAttribute('data-tone')).toBe('neutral');
+    expect(token.getAttribute('title')).toBe('12% used');
+    expect(tokenWarn.getAttribute('data-tone')).toBe('warn');
+    expect(tokenHard.getAttribute('data-tone')).toBe('hard');
   });
 
   it('uses the linked session start time as the created timestamp', async () => {

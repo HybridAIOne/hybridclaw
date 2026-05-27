@@ -1028,7 +1028,7 @@ async function renderPlantUml(
       };
     }
     throw new Error(
-      'PlantUML rendering requires HYBRIDCLAW_PLANTUML_SERVER_URL or PLANTUML_SERVER_URL.',
+      'PlantUML PNG rendering requires a configured PlantUML server in the runtime settings.',
     );
   }
   const serverUrl = parsePlantUmlServerUrl(baseUrl);
@@ -1190,7 +1190,12 @@ export async function runDiagramTool(
   let fixupAttempts = 0;
 
   if (action !== 'validate') {
-    const fixed = await validateWithFixups(request, validation, action, options);
+    const fixed = await validateWithFixups(
+      request,
+      validation,
+      action,
+      options,
+    );
     request = fixed.request;
     validation = fixed.validation;
     fixupAttempts = fixed.fixupAttempts;

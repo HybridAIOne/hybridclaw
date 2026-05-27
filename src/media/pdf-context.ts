@@ -3,7 +3,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
   CONTAINER_SANDBOX_MODE,
   DATA_DIR,
@@ -204,7 +203,6 @@ function detectPdfReferences(prompt: string): string[] {
 function buildValidatedMountAliases(): ValidatedMountAlias[] {
   const configured = resolveConfiguredAdditionalMounts({
     binds: CONTAINER_BINDS,
-    additionalMounts: ADDITIONAL_MOUNTS,
   });
   if (configured.mounts.length === 0) return [];
 

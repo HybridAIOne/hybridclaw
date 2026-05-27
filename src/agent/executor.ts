@@ -1,5 +1,4 @@
 import {
-  ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
@@ -12,10 +11,7 @@ import {
 } from '../config/config.js';
 import { ContainerExecutor } from '../infra/container-runner.js';
 import { HostExecutor } from '../infra/host-runner.js';
-import {
-  parseBindSpecs,
-  parseLegacyAdditionalMounts,
-} from '../security/mount-config.js';
+import { parseBindSpecs } from '../security/mount-config.js';
 import type {
   Executor,
   ExecutorSessionHealthSnapshot,
@@ -70,10 +66,7 @@ function initializedExecutors(): Executor[] {
 }
 
 function parseAdditionalMountsCount(): number {
-  const bindCount = parseBindSpecs(CONTAINER_BINDS).mounts.length;
-  const legacyCount =
-    parseLegacyAdditionalMounts(ADDITIONAL_MOUNTS).mounts.length;
-  return bindCount + legacyCount;
+  return parseBindSpecs(CONTAINER_BINDS).mounts.length;
 }
 
 export function getActiveExecutorCount(): number {

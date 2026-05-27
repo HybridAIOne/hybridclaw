@@ -70,7 +70,10 @@ test('detectTwoFactorChallenge recognizes selector and page text signals', async
       'selector:input[autocomplete="one-time-code"]',
       'selector:input[name*="otp" i]',
       'totp text',
+      'generic 2fa text',
     ],
+    selectors: ['input[autocomplete="one-time-code"]', 'input[name*="otp" i]'],
+    textPreview: 'Enter the code from your authenticator app.',
   });
 });
 
@@ -96,6 +99,7 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-04-30T12:00:00Z'));
   const escalation = await importInteractiveEscalation();
+  const revisions = await import('../src/config/runtime-config-revisions.js');
 
   const created = escalation.createSuspendedSession({
     sessionId: 'session-2fa',
@@ -109,6 +113,9 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
       title: 'Verify sign in',
       screenshotRef: 'artifact://shot-1',
     },
+    artifacts: {
+      screenshotBase64: Buffer.from('png-bytes').toString('base64'),
+    },
     context: {
       host: 'sap.example',
       pageTitle: 'Verify sign in',
@@ -117,6 +124,19 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
   });
 
   expect(created.expectedReturnKinds).toEqual(['code', 'declined', 'timeout']);
+  expect(created.frameSnapshot).toMatchObject({
+    screenshotRef:
+      'f4://interactive-escalation/session/session-2fa/screenshot.png.base64',
+  });
+  expect(created.context.screenshotRef).toBe(
+    'f4://interactive-escalation/session/session-2fa/screenshot.png.base64',
+  );
+  expect(
+    revisions.getRuntimeAssetRevisionState(
+      'suspended_session',
+      'interactive-escalation/session/session-2fa/screenshot.png.base64',
+    )?.content,
+  ).toBe(Buffer.from('png-bytes').toString('base64'));
   expect(escalation.listSuspendedSessions()).toHaveLength(1);
 
   vi.resetModules();
@@ -136,11 +156,65 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
     response: { kind: 'code', valueRedacted: true },
   });
   expect(JSON.stringify(resumed)).not.toContain('123456');
+  expect(reloaded.peekOperatorReturn('session-2fa')).toEqual({
+    kind: 'code',
+    value: '123456',
+  });
   expect(reloaded.consumeOperatorReturn('session-2fa')).toEqual({
     kind: 'code',
     value: '123456',
   });
   expect(reloaded.consumeOperatorReturn('session-2fa')).toBeNull();
+});
+
+test('suspended session artifacts are validated before persistence', async () => {
+  const escalation = await importInteractiveEscalation();
+  const baseInput = {
+    sessionId: 'session-invalid-artifact',
+    approvalId: 'approval-invalid-artifact',
+    prompt: 'Enter the SMS verification code.',
+    userId: 'operator-1',
+    modality: 'sms' as const,
+    ttlMs: 600_000,
+    frameSnapshot: {
+      url: 'https://sap.example/login',
+    },
+  };
+
+  expect(() =>
+    escalation.createSuspendedSession({
+      ...baseInput,
+      artifacts: {
+        screenshotBase64: 'not base64',
+      },
+    }),
+  ).toThrow(/valid base64/i);
+});
+
+test('resumeWith reports malformed suspended session records distinctly', async () => {
+  const escalation = await importInteractiveEscalation();
+  const revisions = await import('../src/config/runtime-config-revisions.js');
+
+  revisions.syncRuntimeAssetRevisionState(
+    'suspended_session',
+    'interactive-escalation/session/session-malformed.json',
+    {
+      route: 'interactive-escalation.session',
+      source: 'test',
+    },
+    {
+      exists: true,
+      content: '{"sessionId":"session-malformed"}',
+    },
+  );
+
+  expect(escalation.getSuspendedSession('session-malformed')).toBeNull();
+  expect(() =>
+    escalation.resumeWith('session-malformed', {
+      kind: 'code',
+      value: '123456',
+    }),
+  ).toThrow(/malformed/i);
 });
 
 test('operator return cache expires unconsumed responses', async () => {
@@ -166,6 +240,7 @@ test('operator return cache expires unconsumed responses', async () => {
   });
   vi.setSystemTime(new Date('2026-04-30T12:31:00Z'));
 
+  expect(escalation.peekOperatorReturn('session-unconsumed')).toBeNull();
   expect(escalation.consumeOperatorReturn('session-unconsumed')).toBeNull();
 });
 
@@ -189,6 +264,19 @@ test('emitInteractionNeededEvent records typed F14 payload with routing hints', 
     recordAudit,
   });
 
+  expect(recordAudit).toHaveBeenCalledWith({
+    sessionId: 'session-push',
+    runId: 'run-1',
+    event: expect.objectContaining({
+      type: 'browser.escalation_2fa',
+      approvalId: 'approval-push',
+      modality: 'push',
+      routing: expect.objectContaining({
+        preferredChannels: ['push', 'mobile_admin'],
+        fallbackChannels: ['push', 'mobile_admin', 'sms', 'email'],
+      }),
+    }),
+  });
   expect(recordAudit).toHaveBeenCalledWith({
     sessionId: 'session-push',
     runId: 'run-1',

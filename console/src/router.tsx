@@ -201,6 +201,10 @@ const mcpRoute = createRoute({
 const auditRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/audit',
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: optionalStringSearchValue(search.q),
+    range: optionalStringSearchValue(search.range),
+  }),
   component: AuditPage,
 });
 

@@ -73,6 +73,7 @@ export interface ContainerInput {
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   browserProvider?: string;
+  browserAllowPrivateNetwork?: boolean;
   model: string;
   codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
