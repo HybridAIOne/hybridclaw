@@ -1,6 +1,7 @@
 import {
   memo,
   startTransition,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -130,9 +131,14 @@ function decorateCodeBlock(pre: HTMLElement): void {
 }
 
 function useCodeCopyButtons() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const root = containerRef.current;
+  const observerRef = useRef<MutationObserver | null>(null);
+  // A callback ref rather than useEffect: it (re)attaches the observer whenever
+  // the markdown container mounts — including when the bubble renders only after
+  // content streams in — and disconnects on unmount. A mount-time useEffect
+  // would miss a container that appears on a later commit.
+  return useCallback((root: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
     if (!root) return;
     const decorateAll = () => {
       for (const pre of root.querySelectorAll('pre'))
@@ -144,9 +150,8 @@ function useCodeCopyButtons() {
     // after one no-op pass and never loops.
     const observer = new MutationObserver(decorateAll);
     observer.observe(root, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    observerRef.current = observer;
   }, []);
-  return containerRef;
 }
 
 function buildPreviewBlob(blob: Blob, mimeType: string): Blob {
