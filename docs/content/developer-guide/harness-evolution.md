@@ -17,6 +17,29 @@ sub-agents, config, or prompts actually improve task success. Do not use it as
 a blind production optimizer. The loop is useful only when the eval suite
 captures behavior you are willing to optimize for.
 
+## Practical Use In HybridClaw
+
+The highest-value use case is a recurring workflow failure:
+
+> This agent keeps failing this task. Encode the task as an eval, run
+> harness-evolve against a copy of the agent workspace, inspect the F12
+> manifest, then promote only the useful edits.
+
+Use the harness differently depending on the target:
+
+- personal coworkers: improve long-term memory, workflow notes, small tool
+  wrappers, and narrow prompt instructions
+- business skills: evolve examples, helper scripts, eval-specific memory,
+  verifier-backed behavior notes, or skill-local tool wiring
+- core product behavior: use harness output as candidate evidence only; product
+  code changes still need normal code review, tests, and security review
+- SOUL or personality files: avoid casual mutation; personality affects broad
+  behavior and is easy to overfit, so prefer memory or skill instructions first
+
+The loop is intentionally biased toward lower-blast-radius surfaces first:
+long-term memory, tools, and middleware usually make better first edits than
+rewriting the main system prompt.
+
 ## Editable Surfaces
 
 The evolve-agent can write only these seven target-workspace surfaces:
