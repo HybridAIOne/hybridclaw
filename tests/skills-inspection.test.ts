@@ -38,6 +38,17 @@ test('computes health metrics and degradation reasons from observations', async 
       durationMs: 100 + index,
     });
   }
+  context.dbModule.recordSkillObservation({
+    skillName: context.skillName,
+    sessionId: 'session-legacy-recovered-tool-error',
+    runId: 'run-legacy-recovered-tool-error',
+    outcome: 'success',
+    errorCategory: 'tool_error',
+    errorDetail: 'recovered tool failure',
+    toolCallsAttempted: 1,
+    toolCallsFailed: 1,
+    durationMs: 150,
+  });
   context.dbModule.attachFeedbackToObservation({
     sessionId: 'session-4',
     feedback: 'Bad result',
@@ -55,14 +66,14 @@ test('computes health metrics and degradation reasons from observations', async 
   });
 
   const metrics = inspectSkill(context.skillName);
-  expect(metrics.total_executions).toBe(5);
+  expect(metrics.total_executions).toBe(6);
   expect(metrics.success_count).toBe(2);
-  expect(metrics.partial_count).toBe(0);
+  expect(metrics.partial_count).toBe(1);
   expect(metrics.failure_count).toBe(3);
-  expect(metrics.success_rate).toBeCloseTo(0.4);
-  expect(metrics.tool_calls_attempted).toBe(5);
-  expect(metrics.tool_calls_failed).toBe(3);
-  expect(metrics.tool_breakage_rate).toBeCloseTo(0.6);
+  expect(metrics.success_rate).toBeCloseTo(1 / 3);
+  expect(metrics.tool_calls_attempted).toBe(6);
+  expect(metrics.tool_calls_failed).toBe(4);
+  expect(metrics.tool_breakage_rate).toBeCloseTo(2 / 3);
   expect(metrics.positive_feedback_count).toBe(1);
   expect(metrics.negative_feedback_count).toBe(2);
   expect(metrics.degraded).toBe(true);
@@ -72,7 +83,7 @@ test('computes health metrics and degradation reasons from observations', async 
     expect.stringContaining('negative feedback spike'),
   ]);
   expect(metrics.error_clusters).toEqual([
-    expect.objectContaining({ category: 'tool_error', count: 3 }),
+    expect.objectContaining({ category: 'tool_error', count: 4 }),
   ]);
 });
 
