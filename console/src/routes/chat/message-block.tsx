@@ -470,7 +470,11 @@ export const MessageBlock = memo(function MessageBlock(props: {
                   props.onRate?.(msg, msg.responseRating === 'up' ? null : 'up')
                 }
               >
-                <ThumbsUp width="13" height="13" />
+                <ThumbsUp
+                  width="13"
+                  height="13"
+                  filled={msg.responseRating === 'up'}
+                />
               </Button>
               <Button
                 variant="ghost"
@@ -502,7 +506,11 @@ export const MessageBlock = memo(function MessageBlock(props: {
                   )
                 }
               >
-                <ThumbsDown width="13" height="13" />
+                <ThumbsDown
+                  width="13"
+                  height="13"
+                  filled={msg.responseRating === 'down'}
+                />
               </Button>
             </>
           ) : null}

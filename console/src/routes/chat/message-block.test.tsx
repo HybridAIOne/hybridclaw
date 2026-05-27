@@ -494,6 +494,8 @@ describe('MessageBlock artifacts', () => {
     expect(down.getAttribute('aria-pressed')).toBe('false');
     expect(up.hasAttribute('disabled')).toBe(false);
     expect(down.hasAttribute('disabled')).toBe(true);
+    expect(up.querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
+    expect(down.querySelector('svg')?.getAttribute('fill')).toBe('none');
 
     fireEvent.click(up);
     expect(onRate).toHaveBeenCalledWith(expect.any(Object), null);
@@ -530,6 +532,12 @@ describe('MessageBlock artifacts', () => {
         .getByRole('button', { name: 'Clear thumbs down rating' })
         .hasAttribute('disabled'),
     ).toBe(false);
+    expect(
+      screen
+        .getByRole('button', { name: 'Clear thumbs down rating' })
+        .querySelector('svg')
+        ?.getAttribute('fill'),
+    ).toBe('currentColor');
   });
 
   it('keeps response rating controls visible but disabled before message persistence', () => {
