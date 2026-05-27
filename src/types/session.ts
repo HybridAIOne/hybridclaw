@@ -41,8 +41,24 @@ export interface StoredMessage {
   role: string;
   content: string;
   agent_id?: string | null;
+  response_rating?: ResponseRatingValue | null;
   artifacts?: ArtifactMetadata[];
   created_at: string;
+}
+
+export type ResponseRatingValue = 'up' | 'down';
+
+export interface ResponseRatingRecord {
+  session_id: string;
+  message_id: number;
+  operator_user_id: string;
+  rating: ResponseRatingValue;
+  agent_id: string | null;
+  model: string | null;
+  provider: string | null;
+  skill_name: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ForkSessionBranchParams {

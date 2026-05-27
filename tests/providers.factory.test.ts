@@ -181,6 +181,57 @@ test('provider factory resolves adapters by model family', async () => {
   ).toBe(false);
 });
 
+test('provider factory rejects unknown provider prefixes', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const factory = await importFreshFactory(homeDir);
+
+  expect(() => factory.resolveModelProvider('openrotuer/gpt-5-nano')).toThrow(
+    'Unknown provider prefix `openrotuer`',
+  );
+  expect(() => factory.modelRequiresChatbotId('openrotuer/gpt-5-nano')).toThrow(
+    'Unknown provider prefix `openrotuer`',
+  );
+  await expect(
+    factory.resolveModelRuntimeCredentials({
+      model: 'openrotuer/gpt-5-nano',
+    }),
+  ).rejects.toThrow('Unknown provider prefix `openrotuer`');
+});
+
+test('provider factory preserves HybridAI fallback for disabled known prefixes', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+  });
+  const factory = await importFreshFactory(homeDir);
+
+  expect(factory.resolveModelProvider('openrouter/openai/gpt-5')).toBe(
+    'hybridai',
+  );
+  expect(factory.modelRequiresChatbotId('openrouter/openai/gpt-5')).toBe(true);
+});
+
+test('provider factory routes discovered bare local models to their backend', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  vi.doMock('../src/providers/local-discovery.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/local-discovery.ts')
+    >('../src/providers/local-discovery.ts');
+    return {
+      ...actual,
+      getLocalModelInfo: vi.fn((model: string) =>
+        model === 'llama3.1:8b' ? { backend: 'ollama' } : null,
+      ),
+    };
+  });
+  const factory = await importFreshFactory(homeDir);
+
+  expect(factory.resolveModelProvider('llama3.1:8b')).toBe('ollama');
+  expect(factory.modelRequiresChatbotId('llama3.1:8b')).toBe(false);
+});
+
 test('provider factory resolves HybridAI runtime credentials', async () => {
   const homeDir = makeTempHome();
   process.env.HYBRIDAI_API_KEY = 'hai-provider-test';

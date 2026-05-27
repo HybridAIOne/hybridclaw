@@ -2760,7 +2760,7 @@ test('agent create warns when model validation is skipped because no models are 
     sessionId: 'session-create-agent',
     guildId: null,
     channelId: 'channel-create-agent',
-    args: ['agent', 'create', 'research', '--model', 'garbage/model'],
+    args: ['agent', 'create', 'research', '--model', 'garbage-model'],
   });
 
   expect(result.kind).toBe('info');
@@ -2769,12 +2769,12 @@ test('agent create warns when model validation is skipped because no models are 
   }
   expect(result.title).toBe('Agent Created');
   expect(result.text).toContain('Agent: research');
-  expect(result.text).toContain('Model: hybridai/garbage/model');
+  expect(result.text).toContain('Model: hybridai/garbage-model');
   expect(warnMock).toHaveBeenCalledWith(
     expect.objectContaining({
       sessionId: 'session-create-agent',
       agentId: 'research',
-      model: 'garbage/model',
+      model: 'garbage-model',
     }),
     'Skipping agent model validation because no available models are configured',
   );

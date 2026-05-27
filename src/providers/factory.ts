@@ -1,26 +1,9 @@
-import {
-  DASHSCOPE_ENABLED,
-  DEEPSEEK_ENABLED,
-  GEMINI_ENABLED,
-  HUGGINGFACE_ENABLED,
-  HYBRIDAI_ENABLE_RAG,
-  HYBRIDAI_MODEL,
-  KILO_ENABLED,
-  KIMI_ENABLED,
-  LOCAL_LLAMACPP_ENABLED,
-  LOCAL_LMSTUDIO_ENABLED,
-  LOCAL_OLLAMA_ENABLED,
-  LOCAL_VLLM_ENABLED,
-  MINIMAX_ENABLED,
-  MISTRAL_ENABLED,
-  OPENROUTER_ENABLED,
-  XAI_ENABLED,
-  XIAOMI_ENABLED,
-  ZAI_ENABLED,
-} from '../config/config.js';
+import { HYBRIDAI_ENABLE_RAG, HYBRIDAI_MODEL } from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { anthropicProvider } from './anthropic.js';
 import { huggingfaceProvider } from './huggingface.js';
 import { hybridAIProvider } from './hybridai.js';
+import { getLocalModelInfo } from './local-discovery.js';
 import { ollamaProvider } from './local-ollama.js';
 import {
   llamacppProvider,
@@ -48,37 +31,97 @@ import type {
   ResolveProviderRuntimeParams,
 } from './types.js';
 
-function getActiveProviders(): AIProvider[] {
-  return [
-    openAIProvider,
-    anthropicProvider,
-    ...(OPENROUTER_ENABLED ? [openrouterProvider] : []),
-    ...(MISTRAL_ENABLED ? [mistralProvider] : []),
-    ...(HUGGINGFACE_ENABLED ? [huggingfaceProvider] : []),
-    ...(GEMINI_ENABLED ? [geminiProvider] : []),
-    ...(DEEPSEEK_ENABLED ? [deepseekProvider] : []),
-    ...(XAI_ENABLED ? [xaiProvider] : []),
-    ...(ZAI_ENABLED ? [zaiProvider] : []),
-    ...(KIMI_ENABLED ? [kimiProvider] : []),
-    ...(MINIMAX_ENABLED ? [minimaxProvider] : []),
-    ...(DASHSCOPE_ENABLED ? [dashscopeProvider] : []),
-    ...(XIAOMI_ENABLED ? [xiaomiProvider] : []),
-    ...(KILO_ENABLED ? [kiloProvider] : []),
-    ...(LOCAL_OLLAMA_ENABLED ? [ollamaProvider] : []),
-    ...(LOCAL_LMSTUDIO_ENABLED ? [lmstudioProvider] : []),
-    ...(LOCAL_LLAMACPP_ENABLED ? [llamacppProvider] : []),
-    ...(LOCAL_VLLM_ENABLED ? [vllmProvider] : []),
-    hybridAIProvider,
-  ];
+const KNOWN_PROVIDERS: AIProvider[] = [
+  openAIProvider,
+  anthropicProvider,
+  openrouterProvider,
+  mistralProvider,
+  huggingfaceProvider,
+  geminiProvider,
+  deepseekProvider,
+  xaiProvider,
+  zaiProvider,
+  kimiProvider,
+  minimaxProvider,
+  dashscopeProvider,
+  xiaomiProvider,
+  kiloProvider,
+  ollamaProvider,
+  lmstudioProvider,
+  llamacppProvider,
+  vllmProvider,
+  hybridAIProvider,
+];
+
+const KNOWN_PROVIDER_BY_ID = new Map<AIProviderId, AIProvider>(
+  KNOWN_PROVIDERS.map((provider) => [provider.id, provider]),
+);
+
+const runtimeConfig = getRuntimeConfig();
+const ACTIVE_PROVIDERS: AIProvider[] = [
+  openAIProvider,
+  anthropicProvider,
+  ...(runtimeConfig.openrouter.enabled ? [openrouterProvider] : []),
+  ...(runtimeConfig.mistral.enabled ? [mistralProvider] : []),
+  ...(runtimeConfig.huggingface.enabled ? [huggingfaceProvider] : []),
+  ...(runtimeConfig.gemini.enabled ? [geminiProvider] : []),
+  ...(runtimeConfig.deepseek.enabled ? [deepseekProvider] : []),
+  ...(runtimeConfig.xai.enabled ? [xaiProvider] : []),
+  ...(runtimeConfig.zai.enabled ? [zaiProvider] : []),
+  ...(runtimeConfig.kimi.enabled ? [kimiProvider] : []),
+  ...(runtimeConfig.minimax.enabled ? [minimaxProvider] : []),
+  ...(runtimeConfig.dashscope.enabled ? [dashscopeProvider] : []),
+  ...(runtimeConfig.xiaomi.enabled ? [xiaomiProvider] : []),
+  ...(runtimeConfig.kilo.enabled ? [kiloProvider] : []),
+  ...(runtimeConfig.local.backends.ollama.enabled ? [ollamaProvider] : []),
+  ...(runtimeConfig.local.backends.lmstudio.enabled ? [lmstudioProvider] : []),
+  ...(runtimeConfig.local.backends.llamacpp.enabled ? [llamacppProvider] : []),
+  ...(runtimeConfig.local.backends.vllm.enabled ? [vllmProvider] : []),
+  hybridAIProvider,
+];
+
+const PROVIDER_BY_MODEL_PREFIX = new Map<string, AIProvider>(
+  ACTIVE_PROVIDERS.map((provider) => [provider.id, provider]),
+);
+
+function normalizeModel(model: string): string {
+  return String(model || '').trim();
+}
+
+function getModelPrefix(model: string): string | null {
+  const slashIndex = model.indexOf('/');
+  if (slashIndex < 0) return null;
+  return model.slice(0, slashIndex).toLowerCase();
+}
+
+function resolvePrefixedProvider(model: string, prefix: string): AIProvider {
+  const provider = PROVIDER_BY_MODEL_PREFIX.get(prefix);
+  if (provider) return provider;
+
+  if (KNOWN_PROVIDER_BY_ID.has(prefix as AIProviderId)) return hybridAIProvider;
+
+  throw new Error(
+    `Unknown provider prefix \`${prefix}\` in model \`${model}\`.`,
+  );
+}
+
+function resolveBareModelProvider(model: string): AIProvider {
+  const localBackend = getLocalModelInfo(model)?.backend;
+  if (localBackend) {
+    const provider = KNOWN_PROVIDER_BY_ID.get(localBackend);
+    if (provider) return provider;
+    throw new Error(
+      `Unknown local model backend \`${localBackend}\` for model \`${model}\`.`,
+    );
+  }
+  return hybridAIProvider;
 }
 
 export function resolveProviderForModel(model: string): AIProvider {
-  const normalizedModel = String(model || '').trim();
-  return (
-    getActiveProviders().find((provider) =>
-      provider.matchesModel(normalizedModel),
-    ) || hybridAIProvider
-  );
+  const normalizedModel = normalizeModel(model);
+  const prefix = getModelPrefix(normalizedModel);
+  if (prefix) return resolvePrefixedProvider(normalizedModel, prefix);
+  return resolveBareModelProvider(normalizedModel);
 }
 
 export function resolveModelProvider(model: string): AIProviderId {

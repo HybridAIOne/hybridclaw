@@ -461,4 +461,174 @@ describe('MessageBlock artifacts', () => {
     expect(renderMarkdownMock).toHaveBeenCalledTimes(3);
     expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABCD');
   });
+
+  it('renders accessible response rating controls and clears the selected rating', () => {
+    const onRate = vi.fn();
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          messageId: 42,
+          responseRating: 'up',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={onRate}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const up = screen.getByRole('button', {
+      name: 'Clear thumbs up rating',
+    });
+    const down = screen.getByRole('button', {
+      name: 'Rate response thumbs down',
+    });
+    expect(up.getAttribute('aria-pressed')).toBe('true');
+    expect(down.getAttribute('aria-pressed')).toBe('false');
+    expect(up.getAttribute('data-rating-locked')).toBe('true');
+    expect(down.getAttribute('data-rating-locked')).toBe('true');
+    expect(up.hasAttribute('disabled')).toBe(false);
+    expect(down.hasAttribute('disabled')).toBe(true);
+    expect(up.querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
+    expect(down.querySelector('svg')?.getAttribute('fill')).toBe('none');
+
+    fireEvent.click(up);
+    expect(onRate).toHaveBeenCalledWith(expect.any(Object), null);
+  });
+
+  it('disables thumbs up after a thumbs down rating is selected', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          messageId: 42,
+          responseRating: 'down',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={vi.fn()}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs up' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole('button', { name: 'Clear thumbs down rating' })
+        .hasAttribute('disabled'),
+    ).toBe(false);
+    expect(
+      screen
+        .getByRole('button', { name: 'Clear thumbs down rating' })
+        .querySelector('svg')
+        ?.getAttribute('fill'),
+    ).toBe('currentColor');
+  });
+
+  it('keeps response rating controls visible but disabled before message persistence', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], { messageId: null })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={vi.fn()}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs up' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs down' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+  });
+});
+
+describe('MessageBlock command vs system output', () => {
+  beforeEach(() => {
+    renderMarkdownMock.mockReset();
+    renderMarkdownMock.mockImplementation((content) => `<p>${content}</p>`);
+    fetchAgentAvatarBlobMock.mockReset();
+  });
+
+  function renderRole(role: ChatMessage['role'], content: string) {
+    return render(
+      <MessageBlock
+        message={makeMessage([], { role, content })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+  }
+
+  it('renders command output as a markdown console block with no assistant label', () => {
+    // An assistant reply carries the agent label so it reads as a model turn.
+    const assistant = renderRole('assistant', 'A model reply');
+    expect(screen.getByText('Assistant')).not.toBeNull();
+    assistant.unmount();
+
+    // Command output renders as markdown but has no agent label, so it can't be
+    // mistaken for a model reply...
+    renderMarkdownMock.mockClear();
+    const { container } = renderRole('command', 'Switched model to opus-4-7.');
+    expect(screen.queryByText('Assistant')).toBeNull();
+    expect(renderMarkdownMock).toHaveBeenCalledWith(
+      'Switched model to opus-4-7.',
+    );
+    expect(screen.getByText('Switched model to opus-4-7.')).not.toBeNull();
+    // ...and it carries the distinct terminal-block styling, not the centered
+    // system-notice styling.
+    expect(container.querySelector('[class*="bubbleCommand"]')).not.toBeNull();
+    expect(container.querySelector('[class*="bubbleSystem"]')).toBeNull();
+  });
+
+  it('renders a system notice as plain text with the notice styling, not the console block', () => {
+    // System messages (e.g. errors) must stay a plain, centered notice — they
+    // are not command output, so they are neither markdown-rendered nor given
+    // the terminal-block styling.
+    renderMarkdownMock.mockClear();
+    const { container } = renderRole('system', 'Error: network exploded');
+
+    expect(screen.queryByText('Assistant')).toBeNull();
+    expect(renderMarkdownMock).not.toHaveBeenCalled();
+    expect(screen.getByText('Error: network exploded')).not.toBeNull();
+    expect(container.querySelector('[class*="bubbleSystem"]')).not.toBeNull();
+    expect(container.querySelector('[class*="bubbleCommand"]')).toBeNull();
+  });
 });

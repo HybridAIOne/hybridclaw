@@ -21,9 +21,12 @@ export interface ChatHistoryMessage {
   content: string;
   id?: number | string | null;
   agent_id?: string | null;
+  response_rating?: ResponseRatingValue | null;
   artifacts?: ChatArtifact[];
   assistantPresentation?: AssistantPresentation | null;
 }
+
+export type ResponseRatingValue = 'up' | 'down';
 
 export interface AssistantPresentation {
   agentId?: string | null;
@@ -114,6 +117,9 @@ export type ChatStreamEvent = ChatStreamTextDelta | ChatStreamApproval;
 export interface ChatStreamResult {
   status?: string;
   error?: string;
+  /** True when the gateway handled the message as a slash command, so the
+   * result is system/command output rather than a model reply. */
+  commandResult?: boolean;
   sessionId?: string;
   userMessageId?: number | string | null;
   assistantMessageId?: number | string | null;
@@ -139,9 +145,24 @@ export interface BranchResponse {
   sessionId: string;
 }
 
+export interface RateResponseRequest {
+  sessionId: string;
+  messageId: number | string;
+  userId?: string;
+  rating: ResponseRatingValue | null;
+}
+
+export interface RateResponseResponse {
+  sessionId: string;
+  messageId: number;
+  rating: ResponseRatingValue | null;
+}
+
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system' | 'approval';
+  // `command` is slash-command/console output (rendered as a distinct terminal
+  // block); `system` is reserved for plain notices such as error messages.
+  role: 'user' | 'assistant' | 'system' | 'approval' | 'command';
   content: string;
   rawContent?: string;
   sessionId: string;
@@ -151,5 +172,6 @@ export interface ChatMessage {
   replayRequest?: { content: string; media: MediaItem[] } | null;
   pendingApproval?: ChatStreamApproval | null;
   assistantPresentation?: AssistantPresentation | null;
+  responseRating?: ResponseRatingValue | null;
   branchKey?: string | null;
 }
