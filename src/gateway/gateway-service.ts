@@ -2149,7 +2149,7 @@ function parseExportTraceTarget(
 } {
   const first = parseIdArg(args, 2);
   const firstLower = first.toLowerCase();
-  if (firstLower === 'all' || first === '--all') {
+  if (firstLower === 'all' || firstLower === '--all') {
     const parsed = parseTurnTraceSelectorFlag(args.slice(3));
     if (parsed.selector) {
       return {

@@ -219,6 +219,34 @@ test('audit command selects a turn by session id and stable turn index', async (
   expect(result.text).toContain('Run: turn_select_1');
   expect(result.text).not.toContain('turn_select_2');
 
+  const latestResult = await handleGatewayCommand({
+    sessionId: 'current-session',
+    guildId: null,
+    channelId: 'channel-turn-select',
+    args: ['audit', 'session-turn-select', '--last'],
+  });
+
+  expect(latestResult.kind).toBe('info');
+  if (latestResult.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${latestResult.kind}`);
+  }
+  expect(latestResult.text).toContain('Run: turn_select_2');
+  expect(latestResult.text).not.toContain('turn_select_1');
+
+  const runFlagResult = await handleGatewayCommand({
+    sessionId: 'current-session',
+    guildId: null,
+    channelId: 'channel-turn-select',
+    args: ['audit', 'session-turn-select', '--run', 'turn_select_2'],
+  });
+
+  expect(runFlagResult.kind).toBe('info');
+  if (runFlagResult.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${runFlagResult.kind}`);
+  }
+  expect(runFlagResult.text).toContain('Run: turn_select_2');
+  expect(runFlagResult.text).not.toContain('turn_select_1');
+
   const runResult = await handleGatewayCommand({
     sessionId: 'session-turn-select',
     guildId: null,
