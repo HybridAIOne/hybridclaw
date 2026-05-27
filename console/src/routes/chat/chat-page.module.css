@@ -754,6 +754,14 @@ aside[data-state="collapsed"] .chatSidebarContent {
   opacity: 1;
 }
 
+/* Touch devices have no hover, so reveal the button permanently there —
+   otherwise copy is unreachable on mobile/tablet. */
+@media (hover: none) {
+  .codeCopyButton {
+    opacity: 1;
+  }
+}
+
 .codeCopyButton:hover {
   border-color: color-mix(in srgb, var(--terminal-foreground) 45%, transparent);
 }

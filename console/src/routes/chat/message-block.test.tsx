@@ -687,4 +687,74 @@ describe('MessageBlock code-block copy button', () => {
       expect(mdRoot?.querySelector('button[data-copy-btn]')).not.toBeNull(),
     );
   });
+
+  it('copies the code text and shows the copied state only on success', async () => {
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    try {
+      const { container } = renderAssistant();
+      const button = container.querySelector(
+        'pre button[data-copy-btn]',
+      ) as HTMLButtonElement;
+      expect(button.getAttribute('aria-label')).toBe('Copy code');
+
+      await act(async () => {
+        button.click();
+      });
+
+      expect(writeText).toHaveBeenCalledWith('const x = 1;');
+      await waitFor(() =>
+        expect(button.getAttribute('aria-label')).toBe('Copied'),
+      );
+    } finally {
+      if (original) Object.defineProperty(navigator, 'clipboard', original);
+      else Reflect.deleteProperty(navigator as unknown as object, 'clipboard');
+    }
+  });
+
+  it('does not show the copied state when the copy fails', async () => {
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockRejectedValue(new Error('blocked'));
+    const originalClip = Object.getOwnPropertyDescriptor(
+      navigator,
+      'clipboard',
+    );
+    const originalExec = document.execCommand;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    // Force the execCommand fallback to fail too, so the copy resolves false.
+    document.execCommand = vi.fn(() => false) as typeof document.execCommand;
+    try {
+      const { container } = renderAssistant();
+      const button = container.querySelector(
+        'pre button[data-copy-btn]',
+      ) as HTMLButtonElement;
+
+      await act(async () => {
+        button.click();
+        // Flush the copyToClipboard chain: writeText reject → catch →
+        // execCommand → resolve(false) → .then.
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(writeText).toHaveBeenCalled();
+      expect(button.getAttribute('aria-label')).toBe('Copy code');
+    } finally {
+      document.execCommand = originalExec;
+      if (originalClip)
+        Object.defineProperty(navigator, 'clipboard', originalClip);
+      else Reflect.deleteProperty(navigator as unknown as object, 'clipboard');
+    }
+  });
 });

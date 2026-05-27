@@ -116,16 +116,19 @@ function decorateCodeBlock(pre: HTMLElement): void {
   let resetTimer: number | null = null;
   button.addEventListener('click', () => {
     const code = pre.querySelector('code');
-    copyToClipboard((code ?? pre).textContent ?? '');
-    button.innerHTML = CHECK_ICON;
-    button.classList.add(css.codeCopyButtonDone);
-    button.setAttribute('aria-label', 'Copied');
-    if (resetTimer !== null) window.clearTimeout(resetTimer);
-    resetTimer = window.setTimeout(() => {
-      button.innerHTML = COPY_ICON;
-      button.classList.remove(css.codeCopyButtonDone);
-      button.setAttribute('aria-label', 'Copy code');
-    }, 1500);
+    void copyToClipboard((code ?? pre).textContent ?? '').then((copied) => {
+      // Only show the "copied" confirmation when the write actually succeeded.
+      if (!copied) return;
+      button.innerHTML = CHECK_ICON;
+      button.classList.add(css.codeCopyButtonDone);
+      button.setAttribute('aria-label', 'Copied');
+      if (resetTimer !== null) window.clearTimeout(resetTimer);
+      resetTimer = window.setTimeout(() => {
+        button.innerHTML = COPY_ICON;
+        button.classList.remove(css.codeCopyButtonDone);
+        button.setAttribute('aria-label', 'Copy code');
+      }, 1500);
+    });
   });
   pre.appendChild(button);
 }
