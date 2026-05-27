@@ -709,7 +709,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   position: relative;
   margin: 0.5em 0;
   padding: 12px 14px;
-  background: var(--terminal);
+  background: var(--code-bg);
   color: var(--terminal-foreground);
   border-radius: var(--radius-sm);
   overflow-x: auto;
@@ -737,7 +737,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   height: 26px;
   padding: 0;
   color: var(--terminal-foreground);
-  background: color-mix(in srgb, var(--terminal) 70%, transparent);
+  background: color-mix(in srgb, var(--code-bg) 70%, transparent);
   border: 1px solid
     color-mix(in srgb, var(--terminal-foreground) 22%, transparent);
   border-radius: var(--radius-sm);
@@ -781,17 +781,24 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .codeLangLabel {
   position: absolute;
-  top: 8px;
-  left: 12px;
+  top: 7px;
+  left: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.66rem;
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--terminal-foreground) 55%, transparent);
+  color: color-mix(in srgb, var(--terminal-foreground) 65%, transparent);
   pointer-events: none;
   user-select: none;
+}
+
+.codeLangLabel svg {
+  opacity: 0.8;
 }
 
 /*

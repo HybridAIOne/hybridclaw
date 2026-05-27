@@ -102,6 +102,9 @@ const COPY_ICON =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
 const CHECK_ICON =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// `</>` code glyph shown before the language name.
+const CODE_ICON =
+  '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/><path d="m13.5 5-3 14"/></svg>';
 
 // Attach a hover-revealed copy button to each <pre> in a code block. The
 // markdown is injected via dangerouslySetInnerHTML, so React owns that subtree
@@ -125,14 +128,17 @@ function codeBlockLanguage(pre: HTMLElement): string {
 function decorateCodeBlock(pre: HTMLElement): void {
   if (pre.querySelector('button[data-copy-btn]')) return;
 
-  // Small always-visible language tag in the block's header strip.
+  // Small always-visible language tag (code glyph + name) in the header strip.
   const language = codeBlockLanguage(pre);
   if (language) {
     pre.classList.add(css.codeBlockLabeled);
     const label = document.createElement('span');
     label.className = css.codeLangLabel;
-    label.textContent = language;
     label.setAttribute('aria-hidden', 'true');
+    label.innerHTML = CODE_ICON;
+    const name = document.createElement('span');
+    name.textContent = language;
+    label.appendChild(name);
     pre.appendChild(label);
   }
 

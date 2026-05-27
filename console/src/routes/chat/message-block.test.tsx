@@ -702,10 +702,11 @@ describe('MessageBlock code-block copy button', () => {
     );
   });
 
-  it('shows the language label for a fenced code block', () => {
+  it('shows the language label with a code glyph for a fenced code block', () => {
     const { container } = renderAssistant();
     const label = container.querySelector('pre span[class*="codeLangLabel"]');
     expect(label?.textContent).toBe('ts');
+    expect(label?.querySelector('svg')).not.toBeNull();
   });
 
   it('omits the language label when the block has no language', () => {

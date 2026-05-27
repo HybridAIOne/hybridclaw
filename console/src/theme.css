@@ -32,8 +32,11 @@
   --terminal-foreground: #cbd5e1;
   --terminal-overlay-start: rgba(15, 23, 42, 0.76);
   --terminal-overlay-end: rgba(15, 23, 42, 0.92);
-  /* Syntax highlighting palette, tuned for the dark --terminal (#0f172a)
-     surface that code blocks always render on, in both light and dark mode. */
+  /* Chat code-block surface — a touch darker than --terminal so blocks stay
+     distinct from the message bubble, which is near-black in dark mode. */
+  --code-bg: #0a0e1a;
+  /* Syntax highlighting palette, tuned for the dark code surface that code
+     blocks always render on, in both light and dark mode. */
   --syntax-comment: #6b7c93;
   --syntax-keyword: #c4a7f5;
   --syntax-builtin: #5fd0d6;
