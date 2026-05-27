@@ -230,6 +230,11 @@ node skills/fronius/fronius.cjs --live --format json http-request cloud-flowdata
   production from `Body.Data.Site.P_PV` in watts, current load from
   `Body.Data.Site.P_Load`, grid exchange from `Body.Data.Site.P_Grid`, and
   battery power from `Body.Data.Site.P_Akku` when present.
+- Use `local-meter-realtime --scope System` for Smart Meter details; read
+  current meter power from `Body.Data.<meterId>.PowerReal_P_Sum`.
+- Use `local-storage-realtime --scope System` for battery details; read state
+  of charge from `Body.Data.<storageId>.Controller.StateOfCharge_Relative` and
+  prefer `local-power-flow` `P_Akku` for live battery power.
 - For inverter-only live output, use `local-inverter-realtime --scope System`;
   read current AC inverter power from `Body.Data.PAC.Values` in watts and sum
   the device values when a plant total is needed. For a single device, use

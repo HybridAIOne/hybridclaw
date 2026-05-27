@@ -144,7 +144,7 @@ const RESPONSE_SHAPES = {
       'selfConsumptionRatio',
     ],
     notes:
-      'For the local Solar API, use Body.Data.Site.P_PV as current PV production in watts.',
+      'For the local Solar API, use Body.Data.Site.P_PV as current PV production, P_Load as current load, P_Grid as grid exchange, and P_Akku as battery power in watts.',
   },
   'meter-realtime': {
     kind: 'meter-realtime',
@@ -153,6 +153,8 @@ const RESPONSE_SHAPES = {
       'energyRealWACSumConsumed',
       'energyRealWACSumProduced',
     ],
+    notes:
+      'For the local Solar API, Smart Meter data is under Body.Data.<meterId>; PowerReal_P_Sum is current meter/grid power in watts.',
   },
   'storage-realtime': {
     kind: 'storage-realtime',
@@ -162,6 +164,8 @@ const RESPONSE_SHAPES = {
       'energyChargedWh',
       'energyDischargedWh',
     ],
+    notes:
+      'For the local Solar API, storage data is under Body.Data.<storageId>.Controller; use StateOfCharge_Relative for battery SOC and local-power-flow P_Akku for live battery power.',
   },
   'energy-archive': {
     kind: 'energy-archive',

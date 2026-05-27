@@ -87,6 +87,11 @@ test('Fronius skill manifest declares Solar.web SecretRef metadata only', () => 
     'Treat the inverter LAN base URL as plain local configuration',
   );
   expect(skill).toContain('Body.Data.Site.P_PV');
+  expect(skill).toContain('Body.Data.Site.P_Akku');
+  expect(skill).toContain('Body.Data.<meterId>.PowerReal_P_Sum');
+  expect(skill).toContain(
+    'Body.Data.<storageId>.Controller.StateOfCharge_Relative',
+  );
   expect(skill).toContain('Body.Data.PAC.Values');
   expect(skill).toContain('Body.Data.PAC.Value');
   expect(skill).toContain(
@@ -231,6 +236,29 @@ test('Fronius inverter info shape marks PVPower as rated capacity', () => {
     fields: expect.arrayContaining(['ratedPvPowerW']),
     notes: expect.stringContaining('not live production'),
   });
+});
+
+test('Fronius realtime response shapes identify local meter and battery fields', () => {
+  const powerFlow = request([
+    'local-power-flow',
+    '--local-host',
+    'http://192.168.178.40',
+  ]);
+  const meter = request([
+    'local-meter-realtime',
+    '--local-host',
+    'http://192.168.178.40',
+  ]);
+  const storage = request([
+    'local-storage-realtime',
+    '--local-host',
+    'http://192.168.178.40',
+  ]);
+
+  expect(powerFlow.responseShape.notes).toContain('P_Load');
+  expect(powerFlow.responseShape.notes).toContain('P_Akku');
+  expect(meter.responseShape.notes).toContain('PowerReal_P_Sum');
+  expect(storage.responseShape.notes).toContain('StateOfCharge_Relative');
 });
 
 test('Fronius local request requires plain local host configuration', () => {
