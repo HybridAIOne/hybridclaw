@@ -56,7 +56,12 @@ test('computes health metrics and degradation reasons from observations', async 
 
   const metrics = inspectSkill(context.skillName);
   expect(metrics.total_executions).toBe(5);
+  expect(metrics.success_count).toBe(2);
+  expect(metrics.partial_count).toBe(0);
+  expect(metrics.failure_count).toBe(3);
   expect(metrics.success_rate).toBeCloseTo(0.4);
+  expect(metrics.tool_calls_attempted).toBe(5);
+  expect(metrics.tool_calls_failed).toBe(3);
   expect(metrics.tool_breakage_rate).toBeCloseTo(0.6);
   expect(metrics.positive_feedback_count).toBe(1);
   expect(metrics.negative_feedback_count).toBe(2);

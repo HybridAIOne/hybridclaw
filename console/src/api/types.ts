@@ -1608,9 +1608,14 @@ export interface AdminAdaptiveSkillErrorCluster {
 export interface AdminAdaptiveSkillHealthMetric {
   skill_name: string;
   total_executions: number;
+  success_count: number;
+  partial_count: number;
+  failure_count: number;
   success_rate: number;
   avg_duration_ms: number;
   error_clusters: AdminAdaptiveSkillErrorCluster[];
+  tool_calls_attempted: number;
+  tool_calls_failed: number;
   tool_breakage_rate: number;
   positive_feedback_count: number;
   negative_feedback_count: number;

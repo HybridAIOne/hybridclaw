@@ -2,8 +2,8 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminAdaptiveSkillAmendmentsResponse,
-  AdminAdaptiveSkillHealthResponse,
   AdminAdaptiveSkillHealthMetric,
+  AdminAdaptiveSkillHealthResponse,
   AdminSkill,
   AdminSkillsResponse,
 } from '../api/types';
@@ -66,9 +66,14 @@ function makeHealthMetric(
   return {
     skill_name: 'pdf',
     total_executions: 3,
-    success_rate: 1,
+    success_count: 2,
+    partial_count: 1,
+    failure_count: 0,
+    success_rate: 2 / 3,
     avg_duration_ms: 100,
     error_clusters: [],
+    tool_calls_attempted: 4,
+    tool_calls_failed: 1,
     tool_breakage_rate: 0.18,
     positive_feedback_count: 0,
     negative_feedback_count: 0,
@@ -155,7 +160,7 @@ describe('SkillsPage', () => {
     expect(screen.getByText('Overwrite existing skill (--force)')).toBeTruthy();
   });
 
-  it('labels observed success as run success without repeating visible counts', async () => {
+  it('labels observed outcome metrics without repeating visible counts', async () => {
     fetchSkillsMock.mockResolvedValue(makeResponse([makeSkill()]));
     fetchHealthMock.mockResolvedValue({
       metrics: [makeHealthMetric()],
@@ -163,7 +168,14 @@ describe('SkillsPage', () => {
 
     renderWithProviders(<SkillsPage />);
 
-    expect(await screen.findByText('Run success')).toBeTruthy();
+    expect(await screen.findByText('Full success')).toBeTruthy();
+    expect(screen.getByText('Partial success')).toBeTruthy();
+    expect(screen.getByText('Failure')).toBeTruthy();
+    expect(screen.getByText('Tool breakage')).toBeTruthy();
+    expect(screen.getByText('67% (2)')).toBeTruthy();
+    expect(screen.getByText('33% (1)')).toBeTruthy();
+    expect(screen.getByText('0% (0)')).toBeTruthy();
+    expect(screen.getByText('18% (1/4)')).toBeTruthy();
     expect(screen.queryByText('1 observed skill visible')).toBeNull();
   });
 });

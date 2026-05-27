@@ -162,6 +162,8 @@ type ObservedSkillSortKey =
   | 'status'
   | 'executions'
   | 'success'
+  | 'partial'
+  | 'failure'
   | 'toolBreakage'
   | 'feedback'
   | 'reasons';
@@ -170,6 +172,26 @@ function getObservedSkillFeedbackCount(
   metrics: AdminAdaptiveSkillHealthMetric,
 ): number {
   return metrics.positive_feedback_count + metrics.negative_feedback_count;
+}
+
+function getObservedOutcomeRate(
+  metrics: AdminAdaptiveSkillHealthMetric,
+  count: number,
+): number {
+  return metrics.total_executions > 0 ? count / metrics.total_executions : 0;
+}
+
+function formatObservedOutcomeMetric(
+  metrics: AdminAdaptiveSkillHealthMetric,
+  count: number,
+): string {
+  return `${formatPercent(getObservedOutcomeRate(metrics, count))} (${count})`;
+}
+
+function formatObservedToolBreakageMetric(
+  metrics: AdminAdaptiveSkillHealthMetric,
+): string {
+  return `${formatPercent(metrics.tool_breakage_rate)} (${metrics.tool_calls_failed}/${metrics.tool_calls_attempted})`;
 }
 
 const OBSERVED_SKILL_SORTERS: Record<
@@ -189,6 +211,16 @@ const OBSERVED_SKILL_SORTERS: Record<
   success: (left, right) =>
     compareNumber(left.success_rate, right.success_rate) ||
     compareText(left.skill_name, right.skill_name),
+  partial: (left, right) =>
+    compareNumber(
+      getObservedOutcomeRate(left, left.partial_count),
+      getObservedOutcomeRate(right, right.partial_count),
+    ) || compareText(left.skill_name, right.skill_name),
+  failure: (left, right) =>
+    compareNumber(
+      getObservedOutcomeRate(left, left.failure_count),
+      getObservedOutcomeRate(right, right.failure_count),
+    ) || compareText(left.skill_name, right.skill_name),
   toolBreakage: (left, right) =>
     compareNumber(left.tool_breakage_rate, right.tool_breakage_rate) ||
     compareText(left.skill_name, right.skill_name),
@@ -208,6 +240,8 @@ const OBSERVED_SKILL_DEFAULT_DIRECTIONS = {
   status: 'desc',
   executions: 'desc',
   success: 'desc',
+  partial: 'desc',
+  failure: 'desc',
   toolBreakage: 'desc',
   feedback: 'desc',
 } as const;
@@ -940,7 +974,7 @@ export function SkillsPage() {
                                   ? ''
                                   : ' · '}
                                 {metrics.degraded
-                                  ? `${formatPercent(metrics.success_rate)} run success`
+                                  ? `${formatPercent(metrics.success_rate)} full success`
                                   : feedbackSummary}
                               </small>
                             </>
@@ -1056,8 +1090,20 @@ export function SkillsPage() {
                       onToggle={toggleObservedSkillSort}
                     />
                     <SortableHeader
-                      label="Run success"
+                      label="Full success"
                       sortKey="success"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Partial success"
+                      sortKey="partial"
+                      sortState={observedSkillSortState}
+                      onToggle={toggleObservedSkillSort}
+                    />
+                    <SortableHeader
+                      label="Failure"
+                      sortKey="failure"
                       sortState={observedSkillSortState}
                       onToggle={toggleObservedSkillSort}
                     />
@@ -1108,8 +1154,25 @@ export function SkillsPage() {
                         />
                       </td>
                       <td>{metrics.total_executions}</td>
-                      <td>{formatPercent(metrics.success_rate)}</td>
-                      <td>{formatPercent(metrics.tool_breakage_rate)}</td>
+                      <td>
+                        {formatObservedOutcomeMetric(
+                          metrics,
+                          metrics.success_count,
+                        )}
+                      </td>
+                      <td>
+                        {formatObservedOutcomeMetric(
+                          metrics,
+                          metrics.partial_count,
+                        )}
+                      </td>
+                      <td>
+                        {formatObservedOutcomeMetric(
+                          metrics,
+                          metrics.failure_count,
+                        )}
+                      </td>
+                      <td>{formatObservedToolBreakageMetric(metrics)}</td>
                       <td>{formatFeedbackCounts(metrics) || null}</td>
                       <td>
                         <small>

@@ -8,6 +8,10 @@ export function formatRatioAsPercent(value: number): string {
   return `${(value * 100).toFixed(2)}%`;
 }
 
+function outcomeRate(count: number, total: number): number {
+  return total > 0 ? count / total : 0;
+}
+
 export function formatSkillHealthMetrics(
   metrics: SkillHealthMetrics,
   options: { errorClusterLayout?: 'inline' | 'expanded' } = {},
@@ -15,9 +19,15 @@ export function formatSkillHealthMetrics(
   const lines = [
     `Skill: ${metrics.skill_name}`,
     `Executions: ${metrics.total_executions}`,
-    `Success rate: ${formatRatioAsPercent(metrics.success_rate)}`,
+    `Full success: ${formatRatioAsPercent(metrics.success_rate)} (${metrics.success_count})`,
+    `Partial success: ${formatRatioAsPercent(
+      outcomeRate(metrics.partial_count, metrics.total_executions),
+    )} (${metrics.partial_count})`,
+    `Failure: ${formatRatioAsPercent(
+      outcomeRate(metrics.failure_count, metrics.total_executions),
+    )} (${metrics.failure_count})`,
     `Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`,
-    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)}`,
+    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)} (${metrics.tool_calls_failed}/${metrics.tool_calls_attempted})`,
     `Positive feedback: ${metrics.positive_feedback_count}`,
     `Negative feedback: ${metrics.negative_feedback_count}`,
     `Degraded: ${metrics.degraded ? 'yes' : 'no'}`,
