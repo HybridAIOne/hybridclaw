@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import type {
+  AgentBudgetUnit,
   AgentConfig,
   AgentCv,
   AgentModelConfig,
@@ -151,7 +152,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 40;
+export const DATABASE_SCHEMA_VERSION = 41;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -524,6 +525,25 @@ function budgetSoftWarnEventsNeedMigration(
   database: Database.Database,
 ): boolean {
   return !tableExists(database, 'budget_soft_warn_events');
+}
+
+function budgetSoftWarnEventUnitsNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'budget_soft_warn_events') &&
+    !columnExists(database, 'budget_soft_warn_events', 'unit')
+  );
+}
+
+function budgetSoftWarnEventUnitKeyNeedMigration(
+  database: Database.Database,
+): boolean {
+  if (!tableExists(database, 'budget_soft_warn_events')) return false;
+  const definition = getTableSql(database, 'budget_soft_warn_events')
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  return !definition.includes('primary key (agent_id, billing_window, unit)');
 }
 
 function messageAgentIdentityNeedMigration(
@@ -2460,9 +2480,10 @@ function migrateV33(database: Database.Database): void {
       emitted_at TEXT NOT NULL,
       used REAL NOT NULL,
       cap REAL NOT NULL,
+      unit TEXT NOT NULL DEFAULT 'USD' CHECK (unit IN ('USD', 'EUR', 'tokens')),
       currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR')),
       percent REAL NOT NULL,
-      PRIMARY KEY (agent_id, billing_window)
+      PRIMARY KEY (agent_id, billing_window, unit)
     );
     CREATE INDEX IF NOT EXISTS idx_budget_soft_warn_events_window
       ON budget_soft_warn_events(billing_window);
@@ -2740,6 +2761,63 @@ function migrateV40(database: Database.Database): void {
   );
 }
 
+function migrateV41(database: Database.Database): void {
+  if (!tableExists(database, 'budget_soft_warn_events')) {
+    recordMigration(
+      database,
+      41,
+      'Persist budget soft-warning unit and include it in marker dedupe key',
+    );
+    return;
+  }
+
+  addColumnIfMissing({
+    database,
+    table: 'budget_soft_warn_events',
+    column: 'unit',
+    ddl: "unit TEXT NOT NULL DEFAULT 'USD' CHECK (unit IN ('USD', 'EUR', 'tokens'))",
+    quiet: true,
+  });
+  database.exec(`
+    UPDATE budget_soft_warn_events
+    SET unit = currency
+    WHERE unit != currency;
+
+    CREATE TABLE budget_soft_warn_events_v41 (
+      agent_id TEXT NOT NULL,
+      billing_window TEXT NOT NULL,
+      emitted_at TEXT NOT NULL,
+      used REAL NOT NULL,
+      cap REAL NOT NULL,
+      unit TEXT NOT NULL DEFAULT 'USD' CHECK (unit IN ('USD', 'EUR', 'tokens')),
+      currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR')),
+      percent REAL NOT NULL,
+      PRIMARY KEY (agent_id, billing_window, unit)
+    );
+    INSERT OR IGNORE INTO budget_soft_warn_events_v41
+      (agent_id, billing_window, emitted_at, used, cap, unit, currency, percent)
+    SELECT
+      agent_id,
+      billing_window,
+      emitted_at,
+      used,
+      cap,
+      unit,
+      currency,
+      percent
+    FROM budget_soft_warn_events;
+    DROP TABLE budget_soft_warn_events;
+    ALTER TABLE budget_soft_warn_events_v41 RENAME TO budget_soft_warn_events;
+    CREATE INDEX IF NOT EXISTS idx_budget_soft_warn_events_window
+      ON budget_soft_warn_events(billing_window);
+  `);
+  recordMigration(
+    database,
+    41,
+    'Persist budget soft-warning unit and include it in marker dedupe key',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2835,6 +2913,13 @@ function runMigrations(
   }
   if (currentVersion < 40 || auditTimestampIndexNeedMigration(database)) {
     migrateV40(database);
+  }
+  if (
+    currentVersion < 41 ||
+    budgetSoftWarnEventUnitsNeedMigration(database) ||
+    budgetSoftWarnEventUnitKeyNeedMigration(database)
+  ) {
+    migrateV41(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -4088,11 +4173,16 @@ export interface BudgetSoftWarnMarkerEntry {
   emittedAt: string;
   used: number;
   cap: number;
+  unit: AgentBudgetUnit;
   currency: 'USD' | 'EUR';
   percent: number;
 }
 
-export type MonthlySpendUsdByAgent = Map<string, number>;
+export interface MonthlyUsageByAgentEntry {
+  totalCostUsd: number;
+  totalTokens: number;
+}
+export type MonthlyUsageByAgent = Map<string, MonthlyUsageByAgentEntry>;
 
 function schedulerJobToDbValues(job: RuntimeSchedulerJob): {
   name: string | null;
@@ -4344,19 +4434,22 @@ function notifyUsageRecordSubscribers(agentIds: string[]): void {
 export function hasBudgetSoftWarnMarker(
   agentId: string,
   billingWindow: string,
+  unit: AgentBudgetUnit,
 ): boolean {
   const normalizedAgentId = agentId.trim();
   const normalizedBillingWindow = billingWindow.trim();
   if (!normalizedAgentId || !normalizedBillingWindow) return false;
-  const row = queryOne<{ agent_id: string }, [string, string]>(
+  const row = queryOne<{ agent_id: string }, [string, string, AgentBudgetUnit]>(
     db,
     `SELECT agent_id
      FROM budget_soft_warn_events
      WHERE agent_id = ?
        AND billing_window = ?
+       AND unit = ?
      LIMIT 1`,
     normalizedAgentId,
     normalizedBillingWindow,
+    unit,
   );
   return Boolean(row);
 }
@@ -4367,18 +4460,27 @@ export function recordBudgetSoftWarnMarker(
   const agentId = entry.agentId.trim();
   const billingWindow = entry.billingWindow.trim();
   if (!agentId || !billingWindow) return false;
+  const used =
+    entry.unit === 'tokens'
+      ? normalizeUsageNumber(entry.used)
+      : normalizeUsageCost(entry.used);
+  const cap =
+    entry.unit === 'tokens'
+      ? normalizeUsageNumber(entry.cap)
+      : normalizeUsageCost(entry.cap);
   const result = db
     .prepare(
       `INSERT OR IGNORE INTO budget_soft_warn_events
-        (agent_id, billing_window, emitted_at, used, cap, currency, percent)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (agent_id, billing_window, emitted_at, used, cap, unit, currency, percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       agentId,
       billingWindow,
       entry.emittedAt,
-      normalizeUsageCost(entry.used),
-      normalizeUsageCost(entry.cap),
+      used,
+      cap,
+      entry.unit,
       entry.currency,
       normalizeUsageCost(entry.percent),
     );
@@ -4676,27 +4778,32 @@ export function monthlySpendEur(agentId: string): number {
   return monthlySpendUsd(agentId) / MODEL_METADATA_USD_TO_EUR.usdPerEur;
 }
 
-export function monthlySpendUsdByAgent(
+export function monthlyUsageByAgent(
   agentIds: string[],
   now = new Date(),
-): MonthlySpendUsdByAgent {
+): MonthlyUsageByAgent {
   const normalizedAgentIds = Array.from(
     new Set(agentIds.map((agentId) => agentId.trim()).filter(Boolean)),
   );
-  const spendByAgent = new Map<string, number>();
-  if (normalizedAgentIds.length === 0) return spendByAgent;
+  const usageByAgent = new Map<string, MonthlyUsageByAgentEntry>();
+  if (normalizedAgentIds.length === 0) return usageByAgent;
 
   const placeholders = normalizedAgentIds.map(() => '?').join(', ');
   const monthStart = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
   ).toISOString();
   const rows = queryAll<
-    { agent_id: string; total_cost_usd: number | null },
+    {
+      agent_id: string;
+      total_cost_usd: number | null;
+      total_tokens: number | null;
+    },
     unknown[]
   >(
     db,
     `SELECT agent_id,
-            COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd
+            COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+            COALESCE(SUM(total_tokens), 0) AS total_tokens
      FROM usage_events
      WHERE timestamp >= ?
        AND agent_id IN (${placeholders})
@@ -4705,9 +4812,12 @@ export function monthlySpendUsdByAgent(
     ...normalizedAgentIds,
   );
   for (const row of rows) {
-    spendByAgent.set(row.agent_id, normalizeUsageCost(row.total_cost_usd));
+    usageByAgent.set(row.agent_id, {
+      totalCostUsd: normalizeUsageCost(row.total_cost_usd),
+      totalTokens: normalizeUsageNumber(row.total_tokens),
+    });
   }
-  return spendByAgent;
+  return usageByAgent;
 }
 
 export function getSessionUsageTotals(sessionId: string): UsageTotals {

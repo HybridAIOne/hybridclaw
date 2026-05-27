@@ -3,7 +3,10 @@ import type { BaseMessageOptions } from 'discord.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
-import type { AgentBudgetCurrency } from '../agents/agent-types.js';
+import type {
+  AgentBudgetCurrency,
+  AgentBudgetUnit,
+} from '../agents/agent-types.js';
 import type {
   AgentTeamStructureDiff,
   AgentTeamStructureSnapshot,
@@ -876,6 +879,7 @@ export interface GatewayAdminBoardBudgetSummary {
   agentId: string;
   used: number;
   cap: number;
+  unit: AgentBudgetUnit;
   currency: AgentBudgetCurrency;
   percent: number;
 }

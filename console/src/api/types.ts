@@ -1222,11 +1222,14 @@ export interface AdminJobCard {
 }
 
 export type AdminBoardBudgetCurrency = 'USD' | 'EUR';
+// Keep in sync with AgentBudgetUnit in src/agents/agent-types.ts.
+export type AdminBoardBudgetUnit = AdminBoardBudgetCurrency | 'tokens';
 
 export interface AdminBoardBudgetSummary {
   agentId: string;
   used: number;
   cap: number;
+  unit: AdminBoardBudgetUnit;
   currency: AdminBoardBudgetCurrency;
   percent: number;
 }
