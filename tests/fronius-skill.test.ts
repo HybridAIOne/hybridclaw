@@ -22,19 +22,26 @@ function request(args: string[]) {
   return fronius.buildRequest(['--format', 'json', 'http-request', ...args]);
 }
 
-test('Fronius skill manifest declares local and cloud SecretRef metadata', () => {
+function withLocalHost<T>(host: string, run: () => T): T {
+  const previous = process.env.FRONIUS_LOCAL_HOST;
+  process.env.FRONIUS_LOCAL_HOST = host;
+  try {
+    return run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.FRONIUS_LOCAL_HOST;
+    } else {
+      process.env.FRONIUS_LOCAL_HOST = previous;
+    }
+  }
+}
+
+test('Fronius skill manifest declares Solar.web SecretRef metadata only', () => {
   const skill = fs.readFileSync(skillPath, 'utf-8');
   const manifest = parseSkillManifestFromMarkdown(skill, { name: 'fronius' });
 
   expect(manifest.credentials).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({
-        id: 'fronius-local-host',
-        secretRef: {
-          source: 'store',
-          id: 'FRONIUS_LOCAL_HOST',
-        },
-      }),
       expect.objectContaining({
         id: 'fronius-solarweb-access-key-id',
         secretRef: {
@@ -51,6 +58,11 @@ test('Fronius skill manifest declares local and cloud SecretRef metadata', () =>
       }),
     ]),
   );
+  expect(manifest.credentials).not.toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: 'fronius-local-host' }),
+    ]),
+  );
   expect(skill).not.toContain('FRONIUS_SOLARWEB_USER_ID');
   expect(skill).not.toContain('FRONIUS_SOLARWEB_TIMEZONE');
   expect(skill).toContain('category: home-automation');
@@ -65,9 +77,11 @@ test('Fronius skill manifest declares local and cloud SecretRef metadata', () =>
     'Use `local-health` through the helper and `http_request`',
   );
   expect(skill).toContain(
-    'Use the configured `FRONIUS_LOCAL_HOST` SecretRef',
+    'Treat the inverter LAN base URL as plain local configuration',
   );
   expect(skill).toContain('rejected or lacks access');
+  expect(skill).toContain('export FRONIUS_LOCAL_HOST=');
+  expect(skill).not.toContain('secret set FRONIUS_LOCAL_HOST');
   expect(skill).not.toMatch(/\b[Dd]o not\b/);
   expect(skill).not.toMatch(/\b[Dd]on't\b/);
   expect(skill).not.toContain('192.168.1.40');
@@ -119,14 +133,17 @@ test('Fronius helper covers all local endpoint shapes', () => {
   ] as const;
 
   for (const [operation, suffix] of cases) {
-    expect(request([operation]).httpRequest.url).toBe(
-      `<secret:FRONIUS_LOCAL_HOST>${suffix}`,
-    );
+    expect(
+      request([operation, '--local-host', 'http://192.168.178.40']).httpRequest
+        .url,
+    ).toBe(`http://192.168.178.40${suffix}`);
   }
 });
 
-test('Fronius local API version request uses stored local host placeholder', () => {
-  const payload = request(['local-api-version']);
+test('Fronius local API version request uses configured local host', () => {
+  const payload = withLocalHost('http://192.168.178.40', () =>
+    request(['local-api-version']),
+  );
 
   expect(payload).toMatchObject({
     command: 'http-request',
@@ -134,7 +151,7 @@ test('Fronius local API version request uses stored local host placeholder', () 
     transport: 'local-inverter',
     stakesTier: 'green',
     httpRequest: {
-      url: '<secret:FRONIUS_LOCAL_HOST>/solar_api/GetAPIVersion.cgi',
+      url: 'http://192.168.178.40/solar_api/GetAPIVersion.cgi',
       method: 'GET',
       skillName: 'fronius',
       timeoutMs: 15000,
@@ -159,20 +176,41 @@ test('Fronius local realtime request bounds scope and device id', () => {
   );
 });
 
+test('Fronius local request requires plain local host configuration', () => {
+  const previous = process.env.FRONIUS_LOCAL_HOST;
+  delete process.env.FRONIUS_LOCAL_HOST;
+  try {
+    const result = runHelper(['http-request', 'local-api-version']);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      'Provide --local-host or set FRONIUS_LOCAL_HOST',
+    );
+  } finally {
+    if (previous !== undefined) process.env.FRONIUS_LOCAL_HOST = previous;
+  }
+});
+
 test('Fronius helper rejects invalid local scope and device id bounds', () => {
   const badScope = runHelper([
+    '--local-host',
+    'http://192.168.178.40',
     'http-request',
     'local-inverter-realtime',
     '--scope',
     'Plant',
   ]);
   const missingDeviceId = runHelper([
+    '--local-host',
+    'http://192.168.178.40',
     'http-request',
     'local-inverter-realtime',
     '--scope',
     'Device',
   ]);
   const badDeviceId = runHelper([
+    '--local-host',
+    'http://192.168.178.40',
     'http-request',
     'local-inverter-realtime',
     '--scope',
@@ -196,6 +234,8 @@ test('Fronius helper rejects invalid local scope and device id bounds', () => {
 test('Fronius local archive request supports repeated channels and emits rollup shape', () => {
   const payload = request([
     'local-archive',
+    '--local-host',
+    'http://192.168.178.40',
     '--start',
     '2026-05-26',
     '--end',

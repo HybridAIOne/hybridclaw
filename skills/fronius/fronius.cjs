@@ -6,7 +6,7 @@ const DEFAULT_MAX_RESPONSE_BYTES = 1_000_000;
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
 const SKILL_NAME = 'fronius';
-const LOCAL_HOST_SECRET = 'FRONIUS_LOCAL_HOST';
+const LOCAL_HOST_ENV = 'FRONIUS_LOCAL_HOST';
 const SOLARWEB_ACCESS_KEY_ID_SECRET = 'FRONIUS_SOLARWEB_ACCESS_KEY_ID';
 const SOLARWEB_ACCESS_KEY_VALUE_SECRET = 'FRONIUS_SOLARWEB_ACCESS_KEY_VALUE';
 const SOLARWEB_BASE_URL = 'https://api.solarweb.com';
@@ -213,7 +213,7 @@ Usage:
 
 Global options:
   --format json|pretty       json emits compact output; pretty emits indented output. Defaults to pretty.
-  --local-host URL           Local inverter base URL. Defaults to <secret:${LOCAL_HOST_SECRET}>.
+  --local-host URL           Local inverter base URL. Defaults to FRONIUS_LOCAL_HOST from the environment.
   --live                     Send one live request through the HybridClaw gateway.
   --help                     Show this help.
 
@@ -377,9 +377,11 @@ function appendQueryParams(searchParams, query) {
 }
 
 function normalizeLocalBaseUrl(raw) {
-  const value = String(raw || `<secret:${LOCAL_HOST_SECRET}>`).trim();
-  if (value.startsWith('<secret:') && value.endsWith('>')) {
-    return value.replace(/\/+$/u, '');
+  const value = String(raw || process.env[LOCAL_HOST_ENV] || '').trim();
+  if (!value) {
+    fail(
+      `Provide --local-host or set ${LOCAL_HOST_ENV} to the inverter base URL.`,
+    );
   }
 
   let url;
@@ -402,16 +404,6 @@ function normalizeLocalBaseUrl(raw) {
 }
 
 function buildUrl(base, path, query = {}) {
-  if (base.startsWith('<secret:')) {
-    const url = `${base}${path}`;
-    const params = new URLSearchParams();
-    // The gateway resolves this placeholder after helper output, so URL cannot
-    // parse it yet. Keep query serialization shared with the real-URL path.
-    appendQueryParams(params, query);
-    const queryText = params.toString();
-    return queryText ? `${url}?${queryText}` : url;
-  }
-
   const url = new URL(path, `${base}/`);
   appendQueryParams(url.searchParams, query);
   return url.toString();

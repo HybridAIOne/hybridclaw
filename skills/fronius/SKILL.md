@@ -6,14 +6,6 @@ requires:
   bins:
     - node
 credentials:
-  - id: fronius-local-host
-    kind: header
-    required: false
-    secret_ref:
-      source: store
-      id: FRONIUS_LOCAL_HOST
-    scope: "Local Fronius inverter base URL used in gateway http_request URLs"
-    how_to_obtain: "Find the inverter LAN address in the router, Fronius app, or installer documentation and store it with `hybridclaw secret set FRONIUS_LOCAL_HOST \"http://<fronius-ip>\"`."
   - id: fronius-solarweb-access-key-id
     kind: api_key
     required: false
@@ -96,8 +88,9 @@ storage, OhmPilot, and Solar.web account data.
   reachability checks.
 - The helper emits only allowlisted endpoint shapes. It rejects arbitrary path
   passthrough and command-line secret values.
-- Use the configured `FRONIUS_LOCAL_HOST` SecretRef, a user-provided host, or
-  ask for the actual inverter host when local access is needed.
+- Treat the inverter LAN base URL as plain local configuration. Use
+  `--local-host http://<fronius-ip>` when the operator provides it, or use the
+  configured `FRONIUS_LOCAL_HOST` environment value.
 - Solar.web Query API authentication uses `AccessKeyId` and `AccessKeyValue`
   HTTP headers per Fronius' interface documentation. The helper emits those as
   `secretHeaders` so the gateway injects them server-side.
@@ -111,8 +104,11 @@ storage, OhmPilot, and Solar.web account data.
 Local inverter path:
 
 ```bash
-hybridclaw secret set FRONIUS_LOCAL_HOST "http://<fronius-ip>"
+export FRONIUS_LOCAL_HOST="http://<fronius-ip>"
 ```
+
+The inverter LAN URL is configuration, not credential material. It can also be
+passed per request with `--local-host http://<fronius-ip>`.
 
 Solar.web cloud path:
 
@@ -209,8 +205,9 @@ node skills/fronius/fronius.cjs --live --format json http-request cloud-flowdata
 - For local DNS, connection refused, timeout, no route to host, or gateway
   network-policy denial, report the exact gateway/local failure and ask for the
   actual inverter host when no operator-supplied host is available.
-- For gateway errors naming `FRONIUS_LOCAL_HOST`,
-  `FRONIUS_SOLARWEB_ACCESS_KEY_ID`, or
+- For helper errors naming `FRONIUS_LOCAL_HOST`, ask the operator for the
+  inverter LAN base URL or a configured environment value.
+- For gateway errors naming `FRONIUS_SOLARWEB_ACCESS_KEY_ID` or
   `FRONIUS_SOLARWEB_ACCESS_KEY_VALUE`, ask the operator to set or unblock that
   specific secret.
 - For Solar.web 401 or 403, report that the configured Solar.web key pair was
