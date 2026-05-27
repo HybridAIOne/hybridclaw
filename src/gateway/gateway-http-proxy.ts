@@ -498,6 +498,13 @@ function isHubSpotApiHost(host?: string): boolean {
   );
 }
 
+function requiresBearerDomainBinding(secretName: string): boolean {
+  return (
+    !isGoogleWorkspaceRuntimeTokenName(secretName) &&
+    secretName !== HUBSPOT_ACCESS_TOKEN_SECRET
+  );
+}
+
 function isGoogleOAuthHttpAuthRuleSecret(
   value: unknown,
 ): value is RuntimeHttpRequestGoogleOAuthSecretRef {
@@ -800,15 +807,22 @@ function extractBaseDomain(hostname: string): string {
  *
  * When a captured value is stored as a bearer secret, the gateway stores a
  * domain binding as `{SECRET_NAME}_BOUND_DOMAIN`. If a binding exists, the
- * target URL's hostname must match (exact or subdomain). If no binding exists,
- * any URL is allowed for backward compatibility.
+ * target URL's hostname must match (exact or subdomain).
  */
 function assertBearerDomainBinding(secretName: string, targetUrl: URL): void {
+  if (!requiresBearerDomainBinding(secretName)) return;
+
   const bindingKey = `${secretName}${BOUND_DOMAIN_SUFFIX}`;
   const boundDomain = readStoredRuntimeSecret(bindingKey);
-  if (!boundDomain) return; // no binding → unrestricted
-
   const targetHost = targetUrl.hostname.toLowerCase();
+  if (!boundDomain) {
+    logger.warn(
+      { secretName, targetHost, bindingKey },
+      'Secret used without a domain binding; set the matching *_BOUND_DOMAIN runtime secret before unbound secret injection is removed',
+    );
+    return;
+  }
+
   const allowed = boundDomain.toLowerCase();
   if (targetHost === allowed || targetHost.endsWith(`.${allowed}`)) {
     return;
@@ -816,7 +830,7 @@ function assertBearerDomainBinding(secretName: string, targetUrl: URL): void {
 
   throw new GatewayRequestError(
     403,
-    `Bearer secret ${secretName} is bound to *.${allowed} — ` +
+    `Secret ${secretName} is bound to *.${allowed} — ` +
       `request to ${targetHost} is blocked.`,
   );
 }
@@ -1442,7 +1456,9 @@ export async function handleApiHttpRequest(
     );
   }
   if (bearerSecretName) {
-    assertBearerDomainBinding(bearerSecretName, url);
+    if (requiresBearerDomainBinding(bearerSecretName)) {
+      assertBearerDomainBinding(bearerSecretName, url);
+    }
     setHeaderValue(
       headers,
       'Authorization',
