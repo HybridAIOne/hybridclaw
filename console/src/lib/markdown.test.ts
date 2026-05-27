@@ -104,6 +104,16 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('hljs-');
   });
 
+  it('highlights via grammar aliases (js, sh, yml)', () => {
+    // We register canonical grammar names; highlight.js also registers their
+    // aliases. Guard that assumption so a fence like ```js still highlights.
+    expect(renderMarkdown('```js\nconst x = 1;\n```')).toContain(
+      '<span class="hljs-keyword">const</span>',
+    );
+    expect(renderMarkdown('```sh\necho hi\n```')).toContain('hljs-');
+    expect(renderMarkdown('```yml\nkey: value\n```')).toContain('hljs-');
+  });
+
   it('skips token highlighting when highlight is disabled (streaming)', () => {
     const code = '```ts\nconst x = 1;\n```';
     // Default highlights…

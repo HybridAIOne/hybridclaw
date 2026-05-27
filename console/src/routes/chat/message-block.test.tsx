@@ -15,7 +15,8 @@ const fetchArtifactBlobMock =
   vi.fn<(token: string, artifactPath: string) => Promise<Blob>>();
 const fetchAgentAvatarBlobMock =
   vi.fn<(token: string, imageUrl: string) => Promise<Blob>>();
-const renderMarkdownMock = vi.fn<(content: string) => string>();
+const renderMarkdownMock =
+  vi.fn<(content: string, options?: { highlight?: boolean }) => string>();
 
 vi.mock('../../api/chat', () => ({
   fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
@@ -25,7 +26,8 @@ vi.mock('../../api/chat', () => ({
 }));
 
 vi.mock('../../lib/markdown', () => ({
-  renderMarkdown: (content: string) => renderMarkdownMock(content),
+  renderMarkdown: (content: string, options?: { highlight?: boolean }) =>
+    renderMarkdownMock(content, options),
 }));
 
 function makeMessage(
@@ -403,7 +405,10 @@ describe('MessageBlock artifacts', () => {
     );
 
     expect(renderMarkdownMock).toHaveBeenCalledTimes(1);
-    expect(renderMarkdownMock).toHaveBeenLastCalledWith('A');
+    // While streaming, highlighting is skipped (runs once on completion).
+    expect(renderMarkdownMock).toHaveBeenLastCalledWith('A', {
+      highlight: false,
+    });
 
     rerender(
       <MessageBlock
@@ -441,7 +446,9 @@ describe('MessageBlock artifacts', () => {
     });
 
     expect(renderMarkdownMock).toHaveBeenCalledTimes(2);
-    expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABC');
+    expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABC', {
+      highlight: false,
+    });
 
     rerender(
       <MessageBlock
@@ -459,7 +466,10 @@ describe('MessageBlock artifacts', () => {
     );
 
     expect(renderMarkdownMock).toHaveBeenCalledTimes(3);
-    expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABCD');
+    // Streaming finished (isStreaming=false) → full highlight on the final pass.
+    expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABCD', {
+      highlight: true,
+    });
   });
 
   it('renders accessible response rating controls and clears the selected rating', () => {
@@ -610,6 +620,7 @@ describe('MessageBlock command vs system output', () => {
     expect(screen.queryByText('Assistant')).toBeNull();
     expect(renderMarkdownMock).toHaveBeenCalledWith(
       'Switched model to opus-4-7.',
+      { highlight: true },
     );
     expect(screen.getByText('Switched model to opus-4-7.')).not.toBeNull();
     // ...and it carries the distinct terminal-block styling, not the centered
@@ -642,10 +653,10 @@ describe('MessageBlock code-block copy button', () => {
     );
   });
 
-  function renderAssistant() {
-    return render(
+  function messageBlock(message: ChatMessage) {
+    return (
       <MessageBlock
-        message={makeMessage([], { role: 'assistant', content: 'code' })}
+        message={message}
         token="test-token"
         isStreaming={false}
         onCopy={vi.fn()}
@@ -655,13 +666,40 @@ describe('MessageBlock code-block copy button', () => {
         approvalBusy={false}
         branchInfo={null}
         onBranchNav={vi.fn()}
-      />,
+      />
+    );
+  }
+
+  function renderAssistant() {
+    return render(
+      messageBlock(makeMessage([], { role: 'assistant', content: 'code' })),
     );
   }
 
   it('injects a copy button into each rendered code block', () => {
     const { container } = renderAssistant();
     expect(container.querySelector('pre button[data-copy-btn]')).not.toBeNull();
+  });
+
+  it('attaches the copy button when the markdown container mounts on a later commit', async () => {
+    // Regression for the callback-ref fix: the markdown container is absent on
+    // the first commit (a user message has no markdown div) and appears only on
+    // a later commit (message becomes assistant markdown). A mount-only
+    // useEffect would never attach the observer; the callback ref must.
+    const { container, rerender } = render(
+      messageBlock(makeMessage([], { role: 'user', content: 'hi there' })),
+    );
+    expect(container.querySelector('button[data-copy-btn]')).toBeNull();
+
+    rerender(
+      messageBlock(makeMessage([], { role: 'assistant', content: 'code' })),
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('pre button[data-copy-btn]'),
+      ).not.toBeNull(),
+    );
   });
 
   it('re-injects the copy button after React re-commits the markdown subtree', async () => {
