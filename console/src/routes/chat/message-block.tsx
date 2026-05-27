@@ -146,8 +146,15 @@ function decorateCodeBlock(pre: HTMLElement): void {
   button.type = 'button';
   button.dataset.copyBtn = '';
   button.className = css.codeCopyButton;
-  button.setAttribute('aria-label', 'Copy code');
   button.innerHTML = COPY_ICON;
+  // aria-label (screen readers) and title (hover tooltip) are kept in sync. A
+  // native title is used instead of a CSS tooltip because the <pre> clips
+  // overflow, which would crop a styled tooltip at the block's corner.
+  const setHint = (text: string) => {
+    button.setAttribute('aria-label', text);
+    button.title = text;
+  };
+  setHint('Copy code');
   let resetTimer: number | null = null;
   button.addEventListener('click', () => {
     const code = pre.querySelector('code');
@@ -156,12 +163,12 @@ function decorateCodeBlock(pre: HTMLElement): void {
       if (!copied) return;
       button.innerHTML = CHECK_ICON;
       button.classList.add(css.codeCopyButtonDone);
-      button.setAttribute('aria-label', 'Copied');
+      setHint('Copied');
       if (resetTimer !== null) window.clearTimeout(resetTimer);
       resetTimer = window.setTimeout(() => {
         button.innerHTML = COPY_ICON;
         button.classList.remove(css.codeCopyButtonDone);
-        button.setAttribute('aria-label', 'Copy code');
+        setHint('Copy code');
       }, 1500);
     });
   });

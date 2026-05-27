@@ -676,9 +676,11 @@ describe('MessageBlock code-block copy button', () => {
     );
   }
 
-  it('injects a copy button into each rendered code block', () => {
+  it('injects a copy button with a tooltip into each rendered code block', () => {
     const { container } = renderAssistant();
-    expect(container.querySelector('pre button[data-copy-btn]')).not.toBeNull();
+    const button = container.querySelector('pre button[data-copy-btn]');
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute('title')).toBe('Copy code');
   });
 
   it('attaches the copy button when the markdown container mounts on a later commit', async () => {
@@ -779,6 +781,8 @@ describe('MessageBlock code-block copy button', () => {
       await waitFor(() =>
         expect(button.getAttribute('aria-label')).toBe('Copied'),
       );
+      // Tooltip stays in sync with the aria-label.
+      expect(button.getAttribute('title')).toBe('Copied');
     } finally {
       if (original) Object.defineProperty(navigator, 'clipboard', original);
       else Reflect.deleteProperty(navigator as unknown as object, 'clipboard');
