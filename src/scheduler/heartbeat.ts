@@ -27,6 +27,7 @@ import {
   formatCoworkerLivenessPage,
   getCoworkerLivenessSummary,
 } from '../gateway/coworker-liveness.js';
+import { isHeartbeatOkText } from '../gateway/proactive-delivery.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { getAllJobs } from '../memory/jobs.js';
@@ -40,6 +41,7 @@ import { buildSessionKey } from '../session/session-key.js';
 import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import { runPeriodicSkillInspection } from '../skills/skills-inspection.js';
+import { hasActionableHeartbeatFile } from '../workspace.js';
 import {
   buildModelUsageAuditStats,
   recordModelUsageAuditEvent,
@@ -90,14 +92,6 @@ let livenessPagingTimer: ReturnType<typeof setInterval> | null = null;
 let heartbeatRunning = false;
 let livenessPagingRunning = false;
 const lastPagedLivenessStateByAgent = new Map<string, string>();
-
-function isHeartbeatOk(text: string): boolean {
-  const normalized = text
-    .trim()
-    .replace(/[^a-z]/gi, '')
-    .toUpperCase();
-  return normalized === 'HEARTBEATOK' || normalized.startsWith('HEARTBEATOK');
-}
 
 async function pageRedCoworkerLivenessTransitions(
   onMessage: (text: string) => void,
@@ -184,6 +178,14 @@ export function startHeartbeat(
         logger.debug(
           { activeHours: proactiveWindowLabel() },
           'Heartbeat skipped — outside active hours window',
+        );
+        return;
+      }
+
+      if (!hasActionableHeartbeatFile(agentId)) {
+        logger.debug(
+          { agentId },
+          'Heartbeat skipped — no actionable HEARTBEAT.md',
         );
         return;
       }
@@ -359,7 +361,7 @@ export function startHeartbeat(
 
       const result = (output.result || '').trim();
 
-      if (isHeartbeatOk(result)) {
+      if (isHeartbeatOkText(result)) {
         logger.debug('Heartbeat: HEARTBEAT_OK — nothing to do');
         recordAuditEvent({
           sessionId,

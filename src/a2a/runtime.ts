@@ -15,7 +15,12 @@ import {
 import { attachA2AHandoffContext } from './handoff-context.js';
 import { resolveA2AEnvelopeAgentIds } from './identity.js';
 import { normalizePeerDescriptor } from './peer-descriptor.js';
-import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
+import {
+  type A2AThreadSummary,
+  listA2AInboxEnvelopes,
+  listA2AInboxThreads,
+  saveA2AEnvelope,
+} from './store.js';
 import {
   encodeForRegisteredTransport,
   type TransportRegistry,
@@ -131,6 +136,12 @@ function recordSendAudits(params: {
   }
 }
 
+function assertInboxAgentId(agentId: string): void {
+  if (!agentId.trim()) {
+    throw new A2AEnvelopeValidationError(['agentId is required']);
+  }
+}
+
 /**
  * Trusted in-process primitive for persisting an A2A envelope.
  * `actor` is audit metadata; sender authorization belongs at transport/tool boundaries.
@@ -208,8 +219,11 @@ export function sendMessage(
  * and then id. Read/unread state and pagination are intentionally out of scope.
  */
 export function inbox(agentId: string): A2AEnvelope[] {
-  if (!agentId.trim()) {
-    throw new A2AEnvelopeValidationError(['agentId is required']);
-  }
+  assertInboxAgentId(agentId);
   return listA2AInboxEnvelopes(agentId);
+}
+
+export function inboxThreads(agentId: string): A2AThreadSummary[] {
+  assertInboxAgentId(agentId);
+  return listA2AInboxThreads(agentId);
 }

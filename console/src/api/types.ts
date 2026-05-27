@@ -1336,6 +1336,7 @@ export interface AdminA2AThreadMessage {
 
 export interface AdminA2AThreadSummary {
   id: string;
+  ownerCoworkerId: string | null;
   messageCount: number;
   participants: string[];
   latestMessage: AdminA2AThreadMessage | null;
@@ -1663,6 +1664,118 @@ export interface AdminAgentScoreboardEntry {
 export interface AdminAgentScoreboardResponse {
   observed_skill_count: number;
   agents: AdminAgentScoreboardEntry[];
+}
+
+export interface AdminHarnessEvolutionMetrics {
+  taskCount: number;
+  rolloutCount: number;
+  successCount: number;
+  passAt1: number;
+  succPerMtok: number;
+  totalTokens: number;
+  totalCostUsd: number;
+}
+
+export interface AdminHarnessEvolutionRound {
+  round: number;
+  metrics: AdminHarnessEvolutionMetrics;
+  attributionScore: number;
+  editsPerSurface: Record<string, number>;
+  manifestPath: string;
+  reportPath: string;
+  evolveAgent: {
+    source:
+      | 'evolve_agent'
+      | 'report_json'
+      | 'provided_edits'
+      | 'dry_run_skipped';
+    editCount: number;
+    outputPath: string | null;
+    provider: string | null;
+    model: string | null;
+  };
+  improvedBest: boolean;
+  gitCommit: string | null;
+}
+
+export interface AdminHarnessEvolutionSeedDelta {
+  mode: 'fresh_seed' | 'in_place';
+  changedSurfaceCount: number;
+  changedSurfaces: string[];
+  fileCount: number;
+  notes: string[];
+}
+
+export interface AdminHarnessEvolutionRun {
+  runId: string;
+  targetRoot: string;
+  suite: {
+    id: string;
+    name: string;
+    sourcePath: string;
+    tasks: Array<{ id: string; skill?: string; command?: string }>;
+    costBudgetUsd?: number;
+    maxTokens?: number;
+  };
+  rounds: AdminHarnessEvolutionRound[];
+  bestPassAt1: number;
+  bestRound: number | null;
+  costGate: {
+    ok: boolean;
+    totalCostUsd: number;
+    budgetUsd: number | null;
+    reason: string | null;
+  };
+  seedDelta: AdminHarnessEvolutionSeedDelta;
+  summaryPath: string;
+}
+
+export interface AdminHarnessEvolutionRunListEntry {
+  runId: string;
+  targetRoot: string;
+  suiteId: string;
+  suiteName: string;
+  roundCount: number;
+  bestPassAt1: number;
+  bestRound: number | null;
+  totalCostUsd: number;
+  seedDeltaMode: 'fresh_seed' | 'in_place';
+  seedDeltaChangedSurfaceCount: number;
+  summaryPath: string;
+  createdAt: string;
+}
+
+export interface AdminHarnessEvolutionResponse {
+  targetRoot: string;
+  runs: AdminHarnessEvolutionRunListEntry[];
+}
+
+export interface AdminHarnessEvolutionRunResponse {
+  run: AdminHarnessEvolutionRun;
+}
+
+export interface AdminHarnessEvolutionManifestEntry {
+  id: string;
+  round: number;
+  surface: string;
+  path: string;
+  prediction: string;
+  verifier: string;
+  rollbackScope: string;
+  rationale: string | null;
+  beforeHash: string | null;
+  afterHash: string;
+  createdAt: string;
+  confirmed?: boolean;
+  rolledBackAt?: string;
+}
+
+export interface AdminHarnessEvolutionManifestResponse {
+  manifest: {
+    schemaVersion: number;
+    targetRoot: string;
+    entries: AdminHarnessEvolutionManifestEntry[];
+  };
 }
 
 export interface AdminAdaptiveSkillAmendment {

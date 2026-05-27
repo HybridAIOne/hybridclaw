@@ -3,15 +3,32 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseJsonObject, truncateAuditText } from '../audit/audit-trail.js';
+import {
+  parseJsonObject,
+  readAuditBoolean as readBoolean,
+  readAuditNumber as readNumber,
+  readAuditString as readString,
+  truncateAuditText,
+} from '../audit/audit-trail.js';
 import { APP_VERSION } from '../config/config.js';
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
-import { redactHighEntropyStrings, redactSecrets } from '../security/redact.js';
+import {
+  redactHighEntropyStrings,
+  redactSecrets,
+  URL_SECRET_QUERY_PARAM_RE,
+} from '../security/redact.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import type { UsageTotals } from '../types/usage.js';
+import {
+  type AuditTurnTraceSelector,
+  buildAuditTurnTraceRecords,
+  countCompletedTurnsBefore,
+  selectAuditTurnGroups,
+  type AuditTurnGroup as TurnGroup,
+} from './session-turn-trace.js';
 
 const TRACE_EXPORTS_DIR_NAME = '.trace-exports';
 const OPENTRACES_SCHEMA_VERSION = '0.1.0';
@@ -59,6 +76,10 @@ const TRACE_EXPORT_EXTRA_REDACTION_PATTERNS: ReadonlyArray<{
     match: /\bhttps:\/\/discord(?:app)?\.com\/api\/webhooks\/[^\s"'`]+/gi,
     replace: '***DISCORD_WEBHOOK_REDACTED***',
   },
+  {
+    match: URL_SECRET_QUERY_PARAM_RE,
+    replace: '$1***REDACTED***',
+  },
 ]);
 const TRACE_EXPORT_BASE_LIMITATIONS = Object.freeze([
   'Tool observations use structured audit summaries because full tool stdout/stderr is not retained in the audit trail.',
@@ -74,15 +95,8 @@ const TRACE_DEPENDENCY_MANIFEST_FILES = [
   'go.mod',
 ] as const;
 
-interface TurnGroup {
-  runId: string;
-  rows: StructuredAuditEntry[];
-  turnStart: StructuredAuditEntry;
-}
-
 interface ToolResultSummary {
   durationMs: number | null;
-  content: string | null;
   isError: boolean | null;
 }
 
@@ -111,6 +125,10 @@ enum TraceRedactionFieldType {
   ToolInput = 'tool_input',
   ToolResult = 'tool_result',
   Identifier = 'identifier',
+}
+
+interface TraceExportRedactionStats {
+  redactionsApplied: number;
 }
 
 function safeFilePart(raw: string): string {
@@ -692,6 +710,7 @@ function anonymizeTracePaths(text: string): string {
 function redactTraceText(
   text: string,
   fieldType: TraceRedactionFieldType,
+  stats?: TraceExportRedactionStats,
 ): string {
   if (fieldType === TraceRedactionFieldType.Identifier) return text;
   let next = anonymizeTracePaths(text);
@@ -704,6 +723,14 @@ function redactTraceText(
     fieldType === TraceRedactionFieldType.ToolInput
   ) {
     next = redactHighEntropyStrings(next);
+  }
+  if (stats) {
+    stats.redactionsApplied += [
+      ...next.matchAll(/\*\*\*[A-Z0-9_]+REDACTED\*\*\*/g),
+    ].length;
+    stats.redactionsApplied += [
+      ...next.matchAll(/\buser_[a-f0-9]{8}\b/g),
+    ].length;
   }
   return next;
 }
@@ -730,10 +757,14 @@ function fieldTypeForChildKey(
 function sanitizeTraceExportValue(
   value: unknown,
   fieldType: TraceRedactionFieldType = TraceRedactionFieldType.General,
+  stats?: TraceExportRedactionStats,
 ): unknown {
-  if (typeof value === 'string') return redactTraceText(value, fieldType);
+  if (typeof value === 'string')
+    return redactTraceText(value, fieldType, stats);
   if (Array.isArray(value)) {
-    return value.map((entry) => sanitizeTraceExportValue(entry, fieldType));
+    return value.map((entry) =>
+      sanitizeTraceExportValue(entry, fieldType, stats),
+    );
   }
   if (!value || typeof value !== 'object') return value;
 
@@ -742,48 +773,24 @@ function sanitizeTraceExportValue(
     sanitized[key] = sanitizeTraceExportValue(
       raw,
       fieldTypeForChildKey(key, fieldType),
+      stats,
     );
   }
   return sanitized;
 }
 
-function finalizeTraceRecord(
-  record: Record<string, unknown>,
-): Record<string, unknown> {
-  return sanitizeTraceExportValue(record) as Record<string, unknown>;
-}
-
-function readString(
-  payload: Record<string, unknown>,
-  key: string,
-): string | null {
-  const value = payload[key];
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  return normalized || null;
-}
-
-function readNumber(
-  payload: Record<string, unknown>,
-  key: string,
-): number | null {
-  const value = payload[key];
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.trunc(value);
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return Math.trunc(parsed);
-  }
-  return null;
-}
-
-function readBoolean(
-  payload: Record<string, unknown>,
-  key: string,
-): boolean | null {
-  const value = payload[key];
-  return typeof value === 'boolean' ? value : null;
+function finalizeTraceRecord(record: Record<string, unknown>): {
+  record: Record<string, unknown>;
+  redactionsApplied: number;
+} {
+  const stats: TraceExportRedactionStats = { redactionsApplied: 0 };
+  return {
+    record: sanitizeTraceExportValue(record, undefined, stats) as Record<
+      string,
+      unknown
+    >,
+    redactionsApplied: stats.redactionsApplied,
+  };
 }
 
 function truncateText(text: string, maxChars = 12_000): string {
@@ -791,25 +798,32 @@ function truncateText(text: string, maxChars = 12_000): string {
   return `${text.slice(0, maxChars)}...`;
 }
 
-function groupTurnRows(rows: StructuredAuditEntry[]): TurnGroup[] {
-  const grouped = new Map<string, StructuredAuditEntry[]>();
-  for (const row of rows) {
-    const bucket = grouped.get(row.run_id);
-    if (bucket) {
-      bucket.push(row);
-      continue;
-    }
-    grouped.set(row.run_id, [row]);
-  }
+function truncateFocusedTraceValue(value: unknown): unknown {
+  if (typeof value === 'string') return truncateText(value, 4_000);
+  if (Array.isArray(value))
+    return value.map((entry) => truncateFocusedTraceValue(entry));
+  if (!value || typeof value !== 'object') return value;
 
-  const turns: TurnGroup[] = [];
-  for (const [runId, runRows] of grouped) {
-    const turnStart = runRows.find((row) => row.event_type === 'turn.start');
-    if (!turnStart) continue;
-    turns.push({ runId, rows: runRows, turnStart });
+  const truncated: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const stringLimit =
+      key === 'content' || key === 'output_summary' || key === 'error'
+        ? 2_000
+        : 4_000;
+    truncated[key] =
+      typeof raw === 'string'
+        ? truncateText(raw, stringLimit)
+        : truncateFocusedTraceValue(raw);
   }
+  return truncated;
+}
 
-  return turns.sort((left, right) => left.turnStart.seq - right.turnStart.seq);
+function truncateFocusedTraceSteps(
+  steps: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return steps.map(
+    (step) => truncateFocusedTraceValue(step) as Record<string, unknown>,
+  );
 }
 
 function buildFallbackSteps(
@@ -938,7 +952,6 @@ function buildToolResultByCallId(
     if (!toolCallId) continue;
     resultByToolCallId.set(toolCallId, {
       durationMs: readNumber(payload, 'durationMs'),
-      content: readString(payload, 'resultSummary'),
       isError: readBoolean(payload, 'isError'),
     });
   }
@@ -967,10 +980,12 @@ function buildToolCallTraceEntries(
 function buildObservationTraceEntries(
   turn: TurnGroup,
   toolResultRows: StructuredAuditEntry[],
+  preferResultPreview: boolean,
 ): Array<Record<string, unknown>> {
   return toolResultRows.map((row) => {
     const payload = parseJsonObject(row.payload);
     const resultSummary =
+      (preferResultPreview ? readString(payload, 'resultPreview') : null) ||
       readString(payload, 'resultSummary') ||
       truncateAuditText(JSON.stringify(payload), 280);
     return {
@@ -1084,6 +1099,8 @@ function buildTraceSteps(params: {
   messages: StoredMessage[];
   fallbackModel: string;
   systemPromptHashByRunId: Map<string, string>;
+  assistantStartIndex?: number;
+  preferResultPreview?: boolean;
 }): {
   steps: Array<Record<string, unknown>>;
   agentStepIndexByRunId: Map<string, number>;
@@ -1096,7 +1113,7 @@ function buildTraceSteps(params: {
     (message) => message.role === 'assistant',
   );
   const steps: Array<Record<string, unknown>> = [];
-  let assistantIndex = 0;
+  let assistantIndex = params.assistantStartIndex || 0;
   let stepIndex = 0;
   let completedTurns = 0;
   let errorTurns = 0;
@@ -1121,6 +1138,7 @@ function buildTraceSteps(params: {
     const observations = buildObservationTraceEntries(
       turn,
       summary.toolResultRows,
+      params.preferResultPreview === true,
     );
     const systemPromptHash = params.systemPromptHashByRunId.get(turn.runId);
     const dynamicContext = readTurnDynamicContext(summary);
@@ -1376,20 +1394,13 @@ function detectCommittedOutcomeFromSteps(
   return {};
 }
 
-function countOccurrences(text: string, pattern: RegExp): number {
-  return [...text.matchAll(pattern)].length;
-}
-
 function buildTraceSecurityMetadata(
-  record: Record<string, unknown>,
+  redactionsApplied: number,
 ): Record<string, unknown> {
-  const serialized = stableStringify(record);
   return {
     scanned: true,
     flags_reviewed: 0,
-    redactions_applied:
-      countOccurrences(serialized, /\*\*\*[A-Z0-9_]+REDACTED\*\*\*/g) +
-      countOccurrences(serialized, /\buser_[a-f0-9]{8}\b/g),
+    redactions_applied: redactionsApplied,
     classifier_version: null,
   };
 }
@@ -1417,11 +1428,14 @@ export async function exportSessionTraceAtifJsonl(params: {
   messages: StoredMessage[];
   auditEntries: StructuredAuditEntry[];
   usageTotals: UsageTotals;
+  selector?: AuditTurnTraceSelector | null;
 }): Promise<{
   path: string;
   lineCount: number;
   traceId: string;
   stepCount: number;
+  runIds: string[];
+  turnCount: number;
 } | null> {
   const agentId = params.agentId.trim();
   const sessionId = params.session.id.trim();
@@ -1432,7 +1446,27 @@ export async function exportSessionTraceAtifJsonl(params: {
     await fs.promises.mkdir(baseDir, { recursive: true });
     const filePath = exportFilePath(baseDir);
 
-    const turns = groupTurnRows(params.auditEntries);
+    const selection = selectAuditTurnGroups(
+      params.auditEntries,
+      params.selector,
+    );
+    if (selection.error) {
+      logger.warn(
+        {
+          agentId,
+          sessionId,
+          selector: params.selector,
+          error: selection.error,
+        },
+        'Failed to select session trace turn',
+      );
+      return null;
+    }
+    const allTurns = selection.allTurns;
+    const turns = params.selector ? selection.selectedTurns : allTurns;
+    const assistantStartIndex = params.selector
+      ? countCompletedTurnsBefore(allTurns, turns)
+      : 0;
     const fallbackModel = params.session.model || '';
     const { systemPrompts, systemPromptHashByRunId } =
       buildTraceSystemPrompts(turns);
@@ -1443,6 +1477,8 @@ export async function exportSessionTraceAtifJsonl(params: {
             messages: params.messages,
             fallbackModel,
             systemPromptHashByRunId,
+            assistantStartIndex,
+            preferResultPreview: Boolean(params.selector),
           })
         : {
             steps: buildFallbackSteps(params.messages),
@@ -1452,7 +1488,17 @@ export async function exportSessionTraceAtifJsonl(params: {
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
           };
-    const steps = traceData.steps;
+    const steps = params.selector
+      ? truncateFocusedTraceSteps(traceData.steps)
+      : traceData.steps;
+    const exportedSystemPrompts = params.selector
+      ? Object.fromEntries(
+          Object.entries(systemPrompts).map(([key, value]) => [
+            key,
+            truncateText(value, 4_000),
+          ]),
+        )
+      : systemPrompts;
 
     const firstTimestampValue = steps[0]?.timestamp;
     const firstTimestamp =
@@ -1497,6 +1543,13 @@ export async function exportSessionTraceAtifJsonl(params: {
         ? [...TRACE_EXPORT_BASE_LIMITATIONS, TRACE_EXPORT_FALLBACK_LIMITATION]
         : [...TRACE_EXPORT_BASE_LIMITATIONS];
     const committedOutcome = detectCommittedOutcomeFromSteps(steps);
+    const focusedTurnTrace = params.selector
+      ? buildAuditTurnTraceRecords({
+          sessionId,
+          auditEntries: params.auditEntries,
+          selector: params.selector,
+        })
+      : null;
 
     const recordWithoutHash: Record<string, unknown> = {
       schema_version: OPENTRACES_SCHEMA_VERSION,
@@ -1537,7 +1590,7 @@ export async function exportSessionTraceAtifJsonl(params: {
             },
         language_ecosystem: projectContext.languageEcosystem,
       },
-      system_prompts: systemPrompts,
+      system_prompts: exportedSystemPrompts,
       tool_definitions: buildTraceToolDefinitions(turns),
       steps,
       outcome: {
@@ -1585,6 +1638,21 @@ export async function exportSessionTraceAtifJsonl(params: {
           channel_id: params.session.channel_id,
           show_mode: params.session.show_mode,
           audit_event_count: params.auditEntries.length,
+          ...(params.selector
+            ? {
+                trace_scope: {
+                  mode: 'turn',
+                  run_ids: turns.map((turn) => turn.runId),
+                  turn_indices: turns.map(
+                    (turn) => turn.turnIndex ?? turn.position,
+                  ),
+                },
+                turn_traces:
+                  focusedTurnTrace && 'records' in focusedTurnTrace
+                    ? focusedTurnTrace.records
+                    : [],
+              }
+            : {}),
           stored_message_count: params.messages.length,
           usage_call_count: params.usageTotals.call_count,
           tool_call_count: params.usageTotals.total_tool_calls,
@@ -1598,8 +1666,9 @@ export async function exportSessionTraceAtifJsonl(params: {
       },
     };
 
-    const sanitizedRecord = finalizeTraceRecord(recordWithoutHash);
-    const security = buildTraceSecurityMetadata(sanitizedRecord);
+    const { record: sanitizedRecord, redactionsApplied } =
+      finalizeTraceRecord(recordWithoutHash);
+    const security = buildTraceSecurityMetadata(redactionsApplied);
     const finalizedRecord = {
       ...sanitizedRecord,
       security,
@@ -1621,6 +1690,8 @@ export async function exportSessionTraceAtifJsonl(params: {
       lineCount: 1,
       traceId,
       stepCount: steps.length,
+      runIds: turns.map((turn) => turn.runId),
+      turnCount: turns.length,
     };
   } catch (err) {
     logger.warn({ agentId, sessionId, err }, 'Failed to export session trace');

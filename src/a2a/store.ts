@@ -11,6 +11,7 @@ import {
   type A2AEnvelope,
   A2AEnvelopeDuplicateError,
   A2AEnvelopeValidationError,
+  classifyA2AAgentId,
   isA2AOpaqueId,
   validateA2AEnvelope,
 } from './envelope.js';
@@ -22,11 +23,13 @@ const A2A_THREAD_STATE_VERSION = 1;
 interface A2AThreadState {
   version: typeof A2A_THREAD_STATE_VERSION;
   thread_id: string;
+  owner_coworker_id: string | null;
   envelopes: A2AEnvelope[];
 }
 
 export interface A2AThreadSummary {
   thread_id: string;
+  owner_coworker_id: string | null;
   message_count: number;
   participants: string[];
   latest_message_id: string | null;
@@ -70,6 +73,64 @@ function a2aEnvelopeIdempotencyKey(envelope: A2AEnvelope): string {
   return `${envelope.id}\u0000${envelope.sender_instance_id ?? ''}`;
 }
 
+function compareA2AEnvelopes(left: A2AEnvelope, right: A2AEnvelope): number {
+  const createdAtOrder = left.created_at.localeCompare(right.created_at);
+  if (createdAtOrder !== 0) return createdAtOrder;
+  return left.id.localeCompare(right.id);
+}
+
+function normalizeThreadOwnerCoworkerId(value: string, field: string): string {
+  const normalized = value.trim();
+  const kind = classifyA2AAgentId(normalized);
+  if (kind === 'canonical') return normalized.toLowerCase();
+  if (kind === 'local') return resolveA2AAgentId(normalized);
+  throw new A2AEnvelopeValidationError([
+    `${field} must be a local agent id or canonical agent id (agent-slug@user@instance-id)`,
+  ]);
+}
+
+function tryNormalizeThreadOwnerCoworkerId(
+  value: string,
+  field: string,
+  issues: string[],
+): string | null {
+  try {
+    return normalizeThreadOwnerCoworkerId(value, field);
+  } catch (error) {
+    if (error instanceof A2AEnvelopeValidationError) {
+      issues.push(...error.issues);
+      return null;
+    }
+    throw error;
+  }
+}
+
+function latestHandoffEnvelope(
+  envelopes: readonly A2AEnvelope[],
+): A2AEnvelope | null {
+  let latestHandoff: A2AEnvelope | null = null;
+  for (const envelope of envelopes) {
+    if (
+      envelope.intent === 'handoff' &&
+      (!latestHandoff || compareA2AEnvelopes(envelope, latestHandoff) > 0)
+    ) {
+      latestHandoff = envelope;
+    }
+  }
+  return latestHandoff;
+}
+
+function compareThreadSummariesByRecency(
+  left: A2AThreadSummary,
+  right: A2AThreadSummary,
+): number {
+  const recencyOrder = (right.latest_created_at ?? '').localeCompare(
+    left.latest_created_at ?? '',
+  );
+  if (recencyOrder !== 0) return recencyOrder;
+  return left.thread_id.localeCompare(right.thread_id);
+}
+
 export function a2aThreadAssetPath(threadId: string): string {
   const normalizedThreadId = normalizeThreadId(threadId);
   return path.join(
@@ -84,6 +145,7 @@ function emptyThreadState(threadId: string): A2AThreadState {
   return {
     version: A2A_THREAD_STATE_VERSION,
     thread_id: threadId,
+    owner_coworker_id: null,
     envelopes: [],
   };
 }
@@ -118,6 +180,22 @@ function parsePersistedThreadState(
     typeof parsed.thread_id === 'string' ? parsed.thread_id.trim() : '';
   if (threadId !== expectedThreadId) {
     issues.push(`thread state is for ${threadId || '<missing>'}`);
+  }
+
+  let ownerCoworkerId: string | null = null;
+  if (
+    Object.hasOwn(parsed, 'owner_coworker_id') &&
+    parsed.owner_coworker_id !== null
+  ) {
+    if (typeof parsed.owner_coworker_id !== 'string') {
+      issues.push('owner_coworker_id must be a string or null');
+    } else {
+      ownerCoworkerId = tryNormalizeThreadOwnerCoworkerId(
+        parsed.owner_coworker_id,
+        'owner_coworker_id',
+        issues,
+      );
+    }
   }
 
   const rawEnvelopes = parsed.envelopes;
@@ -158,6 +236,17 @@ function parsePersistedThreadState(
     });
   }
 
+  if (ownerCoworkerId === null && envelopes.length > 0) {
+    const latestHandoff = latestHandoffEnvelope(envelopes);
+    if (latestHandoff) {
+      ownerCoworkerId = tryNormalizeThreadOwnerCoworkerId(
+        latestHandoff.recipient_agent_id,
+        'handoff recipient_agent_id',
+        issues,
+      );
+    }
+  }
+
   if (issues.length > 0) {
     throw new A2AEnvelopeValidationError(issues);
   }
@@ -165,6 +254,7 @@ function parsePersistedThreadState(
   return {
     version: A2A_THREAD_STATE_VERSION,
     thread_id: expectedThreadId,
+    owner_coworker_id: ownerCoworkerId,
     envelopes,
   };
 }
@@ -187,12 +277,6 @@ export function listA2AThreadEnvelopes(threadId: string): A2AEnvelope[] {
   return readThreadState(threadId).envelopes;
 }
 
-function compareA2AEnvelopes(left: A2AEnvelope, right: A2AEnvelope): number {
-  const createdAtOrder = left.created_at.localeCompare(right.created_at);
-  if (createdAtOrder !== 0) return createdAtOrder;
-  return left.id.localeCompare(right.id);
-}
-
 function summarizeThreadState(state: A2AThreadState): A2AThreadSummary {
   const orderedEnvelopes = [...state.envelopes].sort(compareA2AEnvelopes);
   const latest = orderedEnvelopes.at(-1) ?? null;
@@ -204,6 +288,7 @@ function summarizeThreadState(state: A2AThreadState): A2AThreadSummary {
 
   return {
     thread_id: state.thread_id,
+    owner_coworker_id: state.owner_coworker_id,
     message_count: state.envelopes.length,
     participants: [...participants].sort(),
     latest_message_id: latest?.id ?? null,
@@ -252,13 +337,31 @@ export function listA2AThreads(): A2AThreadSummary[] {
     );
   }
 
-  return threads.sort((left, right) => {
-    const recencyOrder = (right.latest_created_at ?? '').localeCompare(
-      left.latest_created_at ?? '',
+  return threads.sort(compareThreadSummariesByRecency);
+}
+
+export function listA2AInboxThreads(agentId: string): A2AThreadSummary[] {
+  const recipientAgentId = resolveA2AAgentId(agentId);
+  const threads: A2AThreadSummary[] = [];
+  for (const revisionState of listRuntimeAssetRevisionStates('a2a')) {
+    const threadId = threadIdFromAssetPath(revisionState.assetPath);
+    if (!threadId) continue;
+    const threadState = parsePersistedThreadState(
+      revisionState.content,
+      threadId,
     );
-    if (recencyOrder !== 0) return recencyOrder;
-    return left.thread_id.localeCompare(right.thread_id);
-  });
+    if (
+      threadState.owner_coworker_id !== recipientAgentId &&
+      !threadState.envelopes.some(
+        (envelope) => envelope.recipient_agent_id === recipientAgentId,
+      )
+    ) {
+      continue;
+    }
+    threads.push(summarizeThreadState(threadState));
+  }
+
+  return threads.sort(compareThreadSummariesByRecency);
 }
 
 export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
@@ -334,6 +437,10 @@ export function saveA2AEnvelope(
 
   const nextState: A2AThreadState = {
     ...state,
+    owner_coworker_id:
+      normalizedEnvelope.intent === 'handoff'
+        ? normalizedEnvelope.recipient_agent_id
+        : state.owner_coworker_id,
     envelopes: [...state.envelopes, normalizedEnvelope],
   };
   syncRuntimeAssetRevisionState(

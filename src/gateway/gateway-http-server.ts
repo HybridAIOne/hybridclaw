@@ -285,7 +285,10 @@ import {
   previewGatewayAdminOutputGuardProfile,
   updateGatewayAdminOutputGuardProfile,
 } from './output-guard-admin.js';
-import { isSupportedProactiveChannelId } from './proactive-delivery.js';
+import {
+  isSupportedProactiveChannelId,
+  shouldSuppressProactiveMessage,
+} from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
   handleTextChannelApprovalCommand,
@@ -296,6 +299,13 @@ import {
 const SITE_DIR = resolveInstallPath('docs');
 const CONSOLE_DIST_DIR = resolveInstallPath('console', 'dist');
 const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
+const HARNESS_EVOLUTION_ALLOWED_ROOTS = [
+  path.join(DATA_DIR, 'harness-evolution'),
+  ...(process.env.HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean),
+].map((entry) => resolveHarnessEvolutionAccessPath(entry));
 const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
@@ -3676,7 +3686,9 @@ function handleApiProactivePull(res: ServerResponse, url: URL): void {
   }
   const parsedLimit = parseInt(url.searchParams.get('limit') || '20', 10);
   const limit = Number.isNaN(parsedLimit) ? 20 : parsedLimit;
-  const messages = claimQueuedProactiveMessages(channelId, limit);
+  const messages = claimQueuedProactiveMessages(channelId, limit).filter(
+    (message) => !shouldSuppressProactiveMessage(message),
+  );
   sendJson(res, 200, { channelId, messages });
 }
 
@@ -5784,6 +5796,87 @@ async function handleApiAdaptiveSkills(
   sendJson(res, 404, { error: 'Not Found' });
 }
 
+async function handleApiAdminHarnessEvolution(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const targetRoot = (url.searchParams.get('targetRoot') || '').trim();
+  const summaryPath = (url.searchParams.get('summaryPath') || '').trim();
+  const manifestPath = (url.searchParams.get('manifestPath') || '').trim();
+  if (!targetRoot) {
+    sendJson(res, 400, { error: 'Missing targetRoot query parameter.' });
+    return;
+  }
+
+  const root = path.resolve(targetRoot);
+  if (!isAllowedHarnessEvolutionRoot(root)) {
+    sendJson(res, 403, {
+      error:
+        'targetRoot is not under an allowed harness evolution root. Set HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS or use the runtime data harness-evolution directory.',
+    });
+    return;
+  }
+  try {
+    const evolution = await import('../evolution/harness-evolution.js');
+    if (manifestPath) {
+      assertPathInsideRoot(root, manifestPath);
+      sendJson(res, 200, {
+        manifest: evolution.readHarnessEvolutionManifest(manifestPath),
+      });
+      return;
+    }
+    if (summaryPath) {
+      assertPathInsideRoot(root, summaryPath);
+      sendJson(res, 200, {
+        run: evolution.readHarnessEvolutionSummary(summaryPath),
+      });
+      return;
+    }
+    sendJson(res, 200, evolution.listHarnessEvolutionRuns(root));
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
+function assertPathInsideRoot(root: string, candidate: string): void {
+  const rootReal = fs.realpathSync(root);
+  const candidatePath = path.resolve(candidate);
+  if (!fs.existsSync(candidatePath)) {
+    throw new GatewayRequestError(400, 'Requested path does not exist.');
+  }
+  const candidateReal = fs.realpathSync(candidatePath);
+  if (!isPathInsideRoot(rootReal, candidateReal)) {
+    throw new GatewayRequestError(400, 'Requested path is outside targetRoot.');
+  }
+}
+
+function isAllowedHarnessEvolutionRoot(targetRoot: string): boolean {
+  const resolvedTargetRoot = resolveHarnessEvolutionAccessPath(targetRoot);
+  return HARNESS_EVOLUTION_ALLOWED_ROOTS.some((root) =>
+    isPathInsideRoot(root, resolvedTargetRoot),
+  );
+}
+
+function resolveHarnessEvolutionAccessPath(candidate: string): string {
+  const resolved = path.resolve(candidate);
+  return fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+}
+
+function isPathInsideRoot(root: string, candidate: string): boolean {
+  const resolvedRoot = path.resolve(root);
+  const resolvedCandidate = path.resolve(candidate);
+  return (
+    resolvedCandidate === resolvedRoot ||
+    resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`)
+  );
+}
+
 function handleApiEvents(
   req: IncomingMessage,
   res: ServerResponse,
@@ -6320,6 +6413,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {
             handleApiAdminAgentScoreboard(res);
+            return;
+          }
+          if (pathname === '/api/admin/harness-evolution' && method === 'GET') {
+            await handleApiAdminHarnessEvolution(res, url);
             return;
           }
           if (

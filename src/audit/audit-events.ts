@@ -1,5 +1,10 @@
 import { logger } from '../logger.js';
 import { logStructuredAuditEvent } from '../memory/db.js';
+import {
+  redactHighEntropyStrings,
+  redactSecretsDeep,
+  URL_SECRET_QUERY_PARAM_RE,
+} from '../security/redact.js';
 import type { ToolExecution } from '../types/execution.js';
 import {
   type AuditEventPayload,
@@ -43,6 +48,16 @@ export function recordAuditEventStrict(input: RecordAuditEventInput): void {
 
 function summarizeToolResult(text: string): string {
   return truncateAuditText(text, 280);
+}
+
+function previewToolResult(text: string): string {
+  const redacted = redactHighEntropyStrings(
+    String(redactSecretsDeep(text)).replace(
+      URL_SECRET_QUERY_PARAM_RE,
+      '$1***REDACTED***',
+    ),
+  );
+  return truncateAuditText(redacted, 4_000);
 }
 
 type ApprovalTier = NonNullable<ToolExecution['approvalTier']>;
@@ -314,6 +329,7 @@ export function emitToolExecutionAuditEvents(input: {
         isError: Boolean(execution.isError),
         blocked: Boolean(execution.blocked),
         resultSummary: summarizeToolResult(execution.result || ''),
+        resultPreview: previewToolResult(execution.result || ''),
         durationMs: execution.durationMs,
         anomaly,
       },
