@@ -14,6 +14,8 @@ export function printMainUsage(): void {
   policy     Manage workspace HTTP/network access rules
   gateway    Manage core runtime (start/stop/status) or run gateway commands
   eval       Run local eval recipes or launch detached benchmark commands
+  harness-evolve
+             Run R10a harness-evolution workspace and loop helpers
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
   channels   Channel setup helpers (Discord, Slack, Telegram, Signal, Threema, WhatsApp, Email)
@@ -32,6 +34,24 @@ export function printMainUsage(): void {
   Options:
   --resume <id>  Resume a saved TUI session
   --version, -v  Show HybridClaw CLI version`);
+}
+
+export function printHarnessEvolutionUsage(): void {
+  console.log(`Usage: hybridclaw harness-evolve <subcommand>
+
+Commands:
+  hybridclaw harness-evolve init --target <dir>
+  hybridclaw harness-evolve validate-seed --target <dir>
+  hybridclaw harness-evolve run --target <dir> --suite <suite.json> [--rounds N] [--k N] [--fresh-seed] [--dry-run] [--commit]
+  hybridclaw harness-evolve status --summary <runs/.../summary.json>
+  hybridclaw harness-evolve contract
+
+Notes:
+  - Target coworker workspaces expose seven editable surfaces:
+    system_prompt.md, tools.yaml, tools/, middleware/, sub_agents/, config/, long_term_memory/.
+  - Fresh evolution refuses non-minimal seeds; production coworkers can use run without --fresh-seed.
+  - contract prints the evolve-agent system prompt and tool schema for host orchestration.
+  - Round artifacts and F12 manifests are written under target runs/.`);
 }
 
 export function printGatewayUsage(): void {
@@ -952,6 +972,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'eval':
       printEvalUsage();
+      return true;
+    case 'harness-evolve':
+      printHarnessEvolutionUsage();
       return true;
     case 'tui':
       printTuiUsage();
