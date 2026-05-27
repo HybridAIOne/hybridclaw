@@ -692,7 +692,7 @@ export async function runSecondOpinionCommand(
     findLastAssistantDraft(recentStoredMessages);
   if (!draft) {
     throw new Error(
-      'No previous assistant answer found. Ask the question first, then run `second-opinion --validate-last` or `second-opinion <question>`.',
+      'No previous assistant answer found. Ask the question first, then run `second-opinion validate` or `second-opinion compare <question>`.',
     );
   }
   const rawQuestion = parsed.question || inferredQuestion;
@@ -750,7 +750,7 @@ export async function runSecondOpinionCommand(
         },
       });
       throw new Error(
-        'Second opinion web search blocked: search payload matched critical confidential policy. Use validation without `--web-search`, remove the critical term, or choose a local-only flow.',
+        'Second opinion web search blocked: search payload matched critical confidential policy. Use `second-opinion validate` without web search, remove the critical term, or choose a local-only flow.',
       );
     }
     const [searchMessage] = confidential.dehydrate([

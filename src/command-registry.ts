@@ -222,7 +222,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   'second-opinion': {
     command:
-      '/second-opinion [compare] [question] | /second-opinion validate [model] [--web-search] [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript]',
+      '/second-opinion [compare [question]|validate [model]|fact-check [model]] [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript]',
     description:
       'Ask a stronger configured model to compare a question or validate the last answer',
   },
@@ -707,7 +707,7 @@ function buildSlashCommandCatalogDefinitions(
         'Ask a stronger model to validate or compare the active answer',
       localSurfaces: ['tui', 'web'],
       tuiMenu: {
-        label: '/second-opinion [--validate-last] [question]',
+        label: '/second-opinion <compare|validate|fact-check>',
         insertText: '/second-opinion ',
       },
       options: [

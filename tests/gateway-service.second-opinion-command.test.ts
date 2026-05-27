@@ -221,7 +221,7 @@ test('second-opinion validate-last sends the previous answer to a stronger tool-
     sessionId: session.id,
     guildId: null,
     channelId: 'web',
-    args: ['second-opinion', '--validate-last'],
+    args: ['second-opinion', 'validate'],
   });
 
   expect(result.kind).toBe('info');
@@ -510,7 +510,7 @@ test('second-opinion reuses a fresh model catalog refresh', async () => {
       sessionId: session.id,
       guildId: null,
       channelId: 'web',
-      args: ['second-opinion', '--validate-last'],
+      args: ['second-opinion', 'validate'],
     });
     expect(result.kind).toBe('info');
   }
@@ -553,7 +553,7 @@ test('second-opinion audits model metadata cost and context estimates', async ()
     sessionId: session.id,
     guildId: null,
     channelId: 'web',
-    args: ['second-opinion', '--validate-last'],
+    args: ['second-opinion', 'validate'],
   });
 
   expect(result.kind).toBe('info');
@@ -600,7 +600,7 @@ test('second-opinion rejects models with too-small context windows before dispat
     sessionId: session.id,
     guildId: null,
     channelId: 'web',
-    args: ['second-opinion', '--validate-last'],
+    args: ['second-opinion', 'validate'],
   });
 
   expect(result.kind).toBe('error');
@@ -649,7 +649,7 @@ test('second-opinion enforces configured agent budget before dispatch', async ()
   ]);
 
   await expect(
-    runSecondOpinionCommand(session, ['--validate-last']),
+    runSecondOpinionCommand(session, ['validate']),
   ).rejects.toThrow('would exceed the monthly USD budget');
   expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
 });
@@ -668,7 +668,7 @@ test('second-opinion fails loud when no stronger default model is configured', a
     sessionId: session.id,
     guildId: null,
     channelId: 'web',
-    args: ['second-opinion', '--validate-last'],
+    args: ['second-opinion', 'validate'],
   });
 
   expect(result.kind).toBe('error');
@@ -696,7 +696,7 @@ test('second-opinion rejects an explicit unavailable stronger model before dispa
     channelId: 'web',
     args: [
       'second-opinion',
-      '--validate-last',
+      'validate',
       '--model',
       'openai-codex/not-real',
     ],
@@ -742,7 +742,7 @@ test('second-opinion no-transcript withholds recent context from the stronger mo
     sessionId: session.id,
     guildId: null,
     channelId: 'web',
-    args: ['second-opinion', '--validate-last', '--no-transcript'],
+    args: ['second-opinion', 'validate', '--no-transcript'],
   });
 
   expect(result.kind).toBe('info');
@@ -797,7 +797,7 @@ test('second-opinion redacts confidential terms before the stronger model call',
     sessionId: session.id,
     guildId: null,
     channelId: 'web',
-    args: ['second-opinion', '--validate-last'],
+    args: ['second-opinion', 'validate'],
   });
 
   expect(result.kind).toBe('info');
@@ -881,7 +881,7 @@ test('second-opinion blocks critical confidential payloads for remote stronger m
     sessionId: session.id,
     guildId: null,
     channelId: 'web',
-    args: ['second-opinion', '--validate-last'],
+    args: ['second-opinion', 'validate'],
   });
 
   expect(result.kind).toBe('error');

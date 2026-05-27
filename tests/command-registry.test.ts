@@ -164,11 +164,13 @@ test('registers second-opinion slash options and maps them to command flags', as
     ]),
   });
 
-  expect(
-    buildLocalSessionSlashHelpEntries('tui').find((entry) =>
-      entry.command.startsWith('/second-opinion'),
-    )?.command,
-  ).toContain('--provider <provider>');
+  const secondOpinionHelp = buildLocalSessionSlashHelpEntries('tui').find(
+    (entry) => entry.command.startsWith('/second-opinion'),
+  )?.command;
+  expect(secondOpinionHelp).toContain('validate [model]');
+  expect(secondOpinionHelp).toContain('fact-check [model]');
+  expect(secondOpinionHelp).toContain('--provider <provider>');
+  expect(secondOpinionHelp).not.toContain('--validate-last');
 
   expect(
     parseCanonicalSlashCommandArgs({
