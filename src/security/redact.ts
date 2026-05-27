@@ -15,6 +15,9 @@ export interface HighEntropyRedactionOptions {
   threshold?: number;
 }
 
+export const URL_SECRET_QUERY_PARAM_RE =
+  /([?&](?:x-amz-signature|access_token|api[_-]?key|auth|authorization|key|password|refresh_token|secret|signature|token)=)[^&\s"'`]+/gi;
+
 function isRedactionEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = String(env[REDACTION_DISABLED_ENV] || '')
     .trim()
