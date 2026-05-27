@@ -114,6 +114,161 @@ test('registers plugin as a slash/text command', async () => {
   );
 });
 
+test('registers second-opinion slash options and maps them to command flags', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildLocalSessionSlashHelpEntries,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  const secondOpinion = buildCanonicalSlashCommandDefinitions([]).find(
+    (definition) => definition.name === 'second-opinion',
+  );
+  const compare = secondOpinion?.options?.find(
+    (option) => option.kind === 'subcommand' && option.name === 'compare',
+  );
+  const validate = secondOpinion?.options?.find(
+    (option) => option.kind === 'subcommand' && option.name === 'validate',
+  );
+  const factCheck = secondOpinion?.options?.find(
+    (option) => option.kind === 'subcommand' && option.name === 'fact-check',
+  );
+
+  expect(compare).toMatchObject({
+    kind: 'subcommand',
+    options: expect.arrayContaining([
+      expect.objectContaining({ name: 'question', required: false }),
+      expect.objectContaining({ name: 'model' }),
+      expect.objectContaining({ name: 'provider' }),
+      expect.objectContaining({ name: 'max-context' }),
+      expect.objectContaining({ name: 'strongest' }),
+      expect.objectContaining({ name: 'no-transcript' }),
+    ]),
+  });
+  expect(factCheck).toMatchObject({
+    kind: 'subcommand',
+    options: expect.arrayContaining([
+      expect.objectContaining({ name: 'model' }),
+      expect.objectContaining({ name: 'provider' }),
+      expect.objectContaining({ name: 'max-context' }),
+      expect.objectContaining({ name: 'strongest' }),
+      expect.objectContaining({ name: 'no-transcript' }),
+    ]),
+  });
+  expect(validate).toMatchObject({
+    kind: 'subcommand',
+    options: expect.arrayContaining([
+      expect.objectContaining({ name: 'model' }),
+      expect.objectContaining({ name: 'provider' }),
+      expect.objectContaining({ name: 'max-context' }),
+      expect.objectContaining({ name: 'strongest' }),
+      expect.objectContaining({ name: 'web-search' }),
+      expect.objectContaining({ name: 'no-transcript' }),
+    ]),
+  });
+
+  const secondOpinionHelp = buildLocalSessionSlashHelpEntries('tui').find(
+    (entry) => entry.command.startsWith('/second-opinion'),
+  )?.command;
+  expect(secondOpinionHelp).toContain('validate [model]');
+  expect(secondOpinionHelp).toContain('fact-check [model]');
+  expect(secondOpinionHelp).toContain('--provider <provider>');
+  expect(secondOpinionHelp).toContain('--strongest');
+  expect(secondOpinionHelp).not.toContain('--validate-last');
+
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'second-opinion',
+      getString: (name) =>
+        name === 'question'
+          ? 'What is the safest rollout?'
+          : name === 'model'
+            ? 'openai-codex/gpt-5.5'
+            : name === 'provider'
+              ? 'openai-codex'
+              : name === 'max-context'
+                ? '4'
+                : name === 'strongest'
+                  ? '--strongest'
+                  : name === 'no-transcript'
+                    ? '--no-transcript'
+                    : null,
+      getSubcommand: () => 'compare',
+    }),
+  ).toEqual([
+    'second-opinion',
+    '--model',
+    'openai-codex/gpt-5.5',
+    '--provider',
+    'openai-codex',
+    '--max-context',
+    '4',
+    '--strongest',
+    '--no-transcript',
+    'What is the safest rollout?',
+  ]);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'second-opinion',
+      getString: (name) => (name === 'model' ? 'openai-codex/gpt-5.5' : null),
+      getSubcommand: () => 'compare',
+    }),
+  ).toEqual(['second-opinion', '--model', 'openai-codex/gpt-5.5']);
+
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'second-opinion',
+      getString: (name) =>
+        name === 'provider'
+          ? 'openai-codex'
+          : name === 'max-context'
+            ? '2'
+            : null,
+      getSubcommand: () => 'validate',
+    }),
+  ).toEqual([
+    'second-opinion',
+    '--validate-last',
+    '--provider',
+    'openai-codex',
+    '--max-context',
+    '2',
+  ]);
+
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'second-opinion',
+      getString: (name) =>
+        name === 'model'
+          ? 'openai-codex/gpt-5.5'
+          : name === 'web-search'
+            ? '--web-search'
+            : null,
+      getSubcommand: () => 'validate',
+    }),
+  ).toEqual([
+    'second-opinion',
+    '--validate-last',
+    '--model',
+    'openai-codex/gpt-5.5',
+    '--web-search',
+  ]);
+
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'second-opinion',
+      getString: (name) => (name === 'model' ? 'openai-codex/gpt-5.5' : null),
+      getSubcommand: () => 'fact-check',
+    }),
+  ).toEqual([
+    'second-opinion',
+    '--validate-last',
+    '--web-search',
+    '--model',
+    'openai-codex/gpt-5.5',
+  ]);
+});
+
 test('registers goal slash/text command', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,
