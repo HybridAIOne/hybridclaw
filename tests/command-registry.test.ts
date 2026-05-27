@@ -130,11 +130,23 @@ test('registers second-opinion slash options and maps them to command flags', as
   const validate = secondOpinion?.options?.find(
     (option) => option.kind === 'subcommand' && option.name === 'validate',
   );
+  const factCheck = secondOpinion?.options?.find(
+    (option) => option.kind === 'subcommand' && option.name === 'fact-check',
+  );
 
   expect(compare).toMatchObject({
     kind: 'subcommand',
     options: expect.arrayContaining([
-      expect.objectContaining({ name: 'question' }),
+      expect.objectContaining({ name: 'question', required: false }),
+      expect.objectContaining({ name: 'model' }),
+      expect.objectContaining({ name: 'provider' }),
+      expect.objectContaining({ name: 'max-context' }),
+      expect.objectContaining({ name: 'no-transcript' }),
+    ]),
+  });
+  expect(factCheck).toMatchObject({
+    kind: 'subcommand',
+    options: expect.arrayContaining([
       expect.objectContaining({ name: 'model' }),
       expect.objectContaining({ name: 'provider' }),
       expect.objectContaining({ name: 'max-context' }),
@@ -147,6 +159,7 @@ test('registers second-opinion slash options and maps them to command flags', as
       expect.objectContaining({ name: 'model' }),
       expect.objectContaining({ name: 'provider' }),
       expect.objectContaining({ name: 'max-context' }),
+      expect.objectContaining({ name: 'web-search' }),
       expect.objectContaining({ name: 'no-transcript' }),
     ]),
   });
@@ -185,6 +198,14 @@ test('registers second-opinion slash options and maps them to command flags', as
     '--no-transcript',
     'What is the safest rollout?',
   ]);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'second-opinion',
+      getString: (name) =>
+        name === 'model' ? 'openai-codex/gpt-5.5' : null,
+      getSubcommand: () => 'compare',
+    }),
+  ).toEqual(['second-opinion', '--model', 'openai-codex/gpt-5.5']);
 
   expect(
     parseCanonicalSlashCommandArgs({
@@ -204,6 +225,40 @@ test('registers second-opinion slash options and maps them to command flags', as
     'openai-codex',
     '--max-context',
     '2',
+  ]);
+
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'second-opinion',
+      getString: (name) =>
+        name === 'model'
+          ? 'openai-codex/gpt-5.5'
+          : name === 'web-search'
+            ? '--web-search'
+            : null,
+      getSubcommand: () => 'validate',
+    }),
+  ).toEqual([
+    'second-opinion',
+    '--validate-last',
+    '--model',
+    'openai-codex/gpt-5.5',
+    '--web-search',
+  ]);
+
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'second-opinion',
+      getString: (name) =>
+        name === 'model' ? 'openai-codex/gpt-5.5' : null,
+      getSubcommand: () => 'fact-check',
+    }),
+  ).toEqual([
+    'second-opinion',
+    '--validate-last',
+    '--web-search',
+    '--model',
+    'openai-codex/gpt-5.5',
   ]);
 });
 

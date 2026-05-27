@@ -15,6 +15,7 @@ afterEach(() => {
   vi.resetModules();
   vi.doUnmock('../src/providers/auxiliary.js');
   vi.doUnmock('../src/providers/model-catalog.js');
+  vi.doUnmock('../src/commands/second-opinion-web-search.js');
 });
 
 async function loadGatewayFixture() {
@@ -112,6 +113,41 @@ test('second-opinion parser rejects invalid flags and supports no-transcript', a
     question: 'Is this safe?',
     includeTranscript: false,
     maxContextMessages: 32,
+  });
+  expect(parseSecondOpinionArgs(['compare'])).toMatchObject({
+    mode: 'compare',
+    question: '',
+  });
+  expect(
+    parseSecondOpinionArgs(['validate', 'openai-codex/gpt-5.5']),
+  ).toMatchObject({
+    mode: 'validate',
+    model: 'openai-codex/gpt-5.5',
+    question: '',
+  });
+  expect(
+    parseSecondOpinionArgs(['validate', '--model', 'openai-codex/gpt-5.5']),
+  ).toMatchObject({
+    mode: 'validate',
+    model: 'openai-codex/gpt-5.5',
+    question: '',
+  });
+  expect(parseSecondOpinionArgs(['validate', 'model-a', 'extra'])).toMatchObject(
+    {
+      error:
+        'Unexpected second-opinion validate argument: extra. Use `--model <model>` or pass a single model name after `validate`.',
+    },
+  );
+  expect(parseSecondOpinionArgs(['fact-check', 'openai-codex/gpt-5.5'])).toMatchObject({
+    mode: 'validate',
+    model: 'openai-codex/gpt-5.5',
+    useWebSearch: true,
+    question: '',
+  });
+  expect(parseSecondOpinionArgs(['--web-search'])).toMatchObject({
+    mode: 'validate',
+    useWebSearch: true,
+    question: '',
   });
   expect(parseSecondOpinionArgs(['--mode', 'bogus'])).toMatchObject({
     error: 'Unknown second-opinion option: --mode.',
@@ -223,6 +259,111 @@ test('second-opinion validate-last sends the previous answer to a stronger tool-
       estimatedTotalTokens: expect.any(Number),
     },
     usage: { totalTokens: 30 },
+  });
+});
+
+test('second-opinion fact-check adds web search and fetch evidence to validation', async () => {
+  setupHome();
+  mockModelCatalog(['openai-codex/gpt-5.5']);
+
+  const runSecondOpinionWebSearchMock = vi.fn(async () => ({
+    provider: 'tavily' as const,
+    queries: [
+      'age of universe latest cosmology measurements',
+      'Planck cosmic microwave background age universe',
+    ],
+    results: Array.from({ length: 10 }, (_, index) => ({
+      title: `Source ${index + 1}`,
+      url: `https://example.com/source-${index + 1}`,
+      snippet: `Snippet ${index + 1}`,
+      fetchedExcerpt: `Fetched source excerpt ${index + 1}`,
+    })),
+    rendered: 'web evidence',
+  }));
+  vi.doMock('../src/commands/second-opinion-web-search.js', () => ({
+    runSecondOpinionWebSearch: runSecondOpinionWebSearchMock,
+  }));
+
+  const callAuxiliaryModelMock = vi.fn(async (params: { messages: Array<{ content: string }> }) => {
+    if (params.messages[0]?.content.includes('web search queries')) {
+      return {
+        provider: 'openai-codex' as const,
+        model: 'openai-codex/gpt-5.5',
+        content: JSON.stringify({
+          queries: [
+            'age of universe latest cosmology measurements',
+            'Planck cosmic microwave background age universe',
+          ],
+        }),
+      };
+    }
+    return {
+      provider: 'openai-codex' as const,
+      model: 'openai-codex/gpt-5.5',
+      content: JSON.stringify({
+        verdict: 'The age is accurate.',
+        revised_answer:
+          'The universe is about 13.8 billion years old, based on modern cosmological measurements.',
+        material_disagreements: [],
+        missing_caveats: ['The value depends slightly on the cosmological model.'],
+        confidence: 'high',
+      }),
+      usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30, costUsd: 0 },
+    };
+  });
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel: callAuxiliaryModelMock,
+  }));
+
+  const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
+  const session = seedSession(memoryService, 'session-second-opinion-web', [
+    { role: 'user', content: 'How old is our universe?' },
+    { role: 'assistant', content: 'The universe is about 13.8 billion years old.' },
+  ]);
+
+  const result = await handleGatewayCommand({
+    sessionId: session.id,
+    guildId: null,
+    channelId: 'web',
+    args: ['second-opinion', 'fact-check', 'openai-codex/gpt-5.5'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') throw new Error('Expected info result.');
+  expect(result.text).toContain('Web search/fetch: tavily · 10 results · 10 fetched');
+  expect(runSecondOpinionWebSearchMock).toHaveBeenCalledWith({
+    queries: [
+      'age of universe latest cosmology measurements',
+      'Planck cosmic microwave background age universe',
+    ],
+  });
+
+  expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(2);
+  const call = callAuxiliaryModelMock.mock.calls[1]?.[0];
+  const payload = JSON.parse(String(call?.messages?.[1]?.content));
+  expect(payload.mode).toBe('validate');
+  expect(payload.web_search_evidence.results).toHaveLength(10);
+  expect(payload.web_search_evidence.results[0]).toMatchObject({
+    url: 'https://example.com/source-1',
+    fetchedExcerpt: 'Fetched source excerpt 1',
+  });
+  expect(payload.instruction).toContain('at least 10 independent Internet sources');
+
+  const { getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const requested = getRecentStructuredAuditForSession(session.id, 10).find(
+    (entry) => entry.event_type === 'second_opinion.requested',
+  );
+  expect(JSON.parse(requested?.payload || '{}')).toMatchObject({
+    webSearchUsed: true,
+    webSearchProvider: 'tavily',
+    webSearchQueries: [
+      'age of universe latest cosmology measurements',
+      'Planck cosmic microwave background age universe',
+    ],
+    webSearchResults: 10,
+    webSearchFetchedResults: 10,
   });
 });
 

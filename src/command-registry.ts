@@ -222,7 +222,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   'second-opinion': {
     command:
-      '/second-opinion [question] (compare) | /second-opinion --validate-last (validate) [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript]',
+      '/second-opinion [compare] [question] | /second-opinion validate [model] [--web-search] [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript]',
     description:
       'Ask a stronger configured model to compare a question or validate the last answer',
   },
@@ -348,10 +348,12 @@ function buildSecondOpinionSlashFlags(
   const provider = normalizeStringOption(interaction, 'provider');
   const maxContext = normalizeStringOption(interaction, 'max-context');
   const noTranscript = normalizeStringOption(interaction, 'no-transcript');
+  const webSearch = normalizeStringOption(interaction, 'web-search');
   return [
     ...(model ? ['--model', model] : []),
     ...(provider ? ['--provider', provider] : []),
     ...(maxContext ? ['--max-context', maxContext] : []),
+    ...(webSearch ? ['--web-search'] : []),
     ...(noTranscript ? ['--no-transcript'] : []),
   ];
 }
@@ -718,7 +720,7 @@ function buildSlashCommandCatalogDefinitions(
               kind: 'string',
               name: 'question',
               description: 'Question to rerun against the stronger model',
-              required: true,
+              required: false,
             },
             {
               kind: 'string',
@@ -751,6 +753,46 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'subcommand',
           name: 'validate',
           description: 'Validate the previous answer',
+          options: [
+            {
+              kind: 'string',
+              name: 'model',
+              description: 'Optional provider/model override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Optional provider override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'max-context',
+              description: 'Maximum recent context messages to include',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'web-search',
+              description: 'Use web_search/web_fetch evidence for validation',
+              choices: [{ name: '--web-search', value: '--web-search' }],
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'no-transcript',
+              description: 'Do not send recent transcript context',
+              choices: [{ name: '--no-transcript', value: '--no-transcript' }],
+              required: false,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'fact-check',
+          description:
+            'Validate the previous answer with web_search/web_fetch evidence',
           options: [
             {
               kind: 'string',
@@ -2895,11 +2937,16 @@ export function parseCanonicalSlashCommandArgs(
       const subcommand = normalizeSubcommand(interaction);
       const flags = buildSecondOpinionSlashFlags(interaction);
       if (subcommand === 'compare') {
-        const question = normalizeStringOption(interaction, 'question', true);
-        return question ? ['second-opinion', ...flags, question] : null;
+        const question = normalizeStringOption(interaction, 'question');
+        return question
+          ? ['second-opinion', ...flags, question]
+          : ['second-opinion', ...flags];
       }
       if (subcommand === 'validate') {
         return ['second-opinion', '--validate-last', ...flags];
+      }
+      if (subcommand === 'fact-check') {
+        return ['second-opinion', '--validate-last', '--web-search', ...flags];
       }
       return null;
     }

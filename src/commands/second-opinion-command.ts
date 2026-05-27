@@ -31,6 +31,10 @@ import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
+import {
+  runSecondOpinionWebSearch,
+  type SecondOpinionWebSearchEvidence,
+} from './second-opinion-web-search.js';
 
 const SECOND_OPINION_CONTEXT_MESSAGE_LIMIT = 8;
 const SECOND_OPINION_QUESTION_CHAR_LIMIT = 4000;
@@ -48,6 +52,7 @@ export interface ParsedSecondOpinionArgs {
   provider?: RuntimeProviderId;
   maxContextMessages: number;
   includeTranscript: boolean;
+  useWebSearch: boolean;
 }
 
 interface SecondOpinionVerdict {
@@ -111,6 +116,16 @@ const SECOND_OPINION_VALIDATE_SYSTEM_PROMPT = [
   'Synthesize a corrected final answer rather than returning only critique.',
 ].join('\n');
 
+const SECOND_OPINION_SEARCH_PLAN_SYSTEM_PROMPT = [
+  'You generate web search queries for a fact-checking pass.',
+  '/no_think',
+  'Read the original question and active assistant draft.',
+  'Return exactly one JSON object and no prose, markdown, code fences, or hidden reasoning.',
+  'JSON shape: {"queries":["..."]}.',
+  'Generate 3 to 5 concise search-engine queries that would verify the factual claims in the draft.',
+  'Prefer query terms likely to find primary or authoritative sources.',
+].join('\n');
+
 function normalizeProvider(value: string): RuntimeProviderId | null {
   const normalized = normalizeModelCatalogProviderFilter(value);
   if (!normalized || normalized === 'local') return null;
@@ -131,13 +146,35 @@ export function parseSecondOpinionArgs(
   let provider: RuntimeProviderId | undefined;
   let maxContextMessages = SECOND_OPINION_CONTEXT_MESSAGE_LIMIT;
   let includeTranscript = true;
+  let useWebSearch = false;
   const questionParts: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] || '';
     const normalized = arg.trim().toLowerCase();
+    if (index === 0 && normalized === 'compare') {
+      mode = 'compare';
+      continue;
+    }
+    if (index === 0 && normalized === 'validate') {
+      mode = 'validate';
+      continue;
+    }
+    if (
+      index === 0 &&
+      (normalized === 'fact-check' || normalized === 'factcheck')
+    ) {
+      mode = 'validate';
+      useWebSearch = true;
+      continue;
+    }
     if (normalized === '--validate-last') {
       mode = 'validate';
+      continue;
+    }
+    if (normalized === '--web-search' || normalized === '--web') {
+      mode = 'validate';
+      useWebSearch = true;
       continue;
     }
     if (normalized === '--no-transcript') {
@@ -178,6 +215,15 @@ export function parseSecondOpinionArgs(
     if (arg.startsWith('--')) {
       return { error: `Unknown second-opinion option: ${arg}.` };
     }
+    if (mode === 'validate') {
+      if (!model && questionParts.length === 0) {
+        model = arg;
+        continue;
+      }
+      return {
+        error: `Unexpected second-opinion validate argument: ${arg}. Use \`--model <model>\` or pass a single model name after \`validate\`.`,
+      };
+    }
     questionParts.push(arg);
   }
 
@@ -188,6 +234,7 @@ export function parseSecondOpinionArgs(
     ...(provider ? { provider } : {}),
     maxContextMessages,
     includeTranscript,
+    useWebSearch,
   };
 }
 
@@ -454,6 +501,7 @@ function buildSecondOpinionMessages(params: {
   question: string;
   draftAnswer: string;
   contextMessages: ChatMessage[];
+  webSearchEvidence?: SecondOpinionWebSearchEvidence;
 }): ChatMessage[] {
   const systemPrompt =
     params.mode === 'compare'
@@ -468,6 +516,17 @@ function buildSecondOpinionMessages(params: {
         original_question: params.question,
         active_assistant_draft: params.draftAnswer,
         recent_context: params.contextMessages,
+        ...(params.webSearchEvidence
+          ? {
+              web_search_evidence: {
+                provider: params.webSearchEvidence.provider,
+                queries: params.webSearchEvidence.queries,
+                results: params.webSearchEvidence.results,
+              },
+              instruction:
+                'Web-assisted validation: web_search/web_fetch evidence has been provided. Check it before revising factual claims. Prefer at least 10 independent Internet sources when results are available; if fewer are available, state that limitation. Cite only URLs present in web_search_evidence.',
+            }
+          : {}),
       }),
     },
   ];
@@ -522,6 +581,15 @@ export function parseSecondOpinionVerdict(
   };
 }
 
+function parseSecondOpinionSearchQueries(content: string): string[] {
+  const parsed = extractJsonObject(content);
+  if (!Array.isArray(parsed.queries)) return [];
+  return parsed.queries
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
 function rehydrateVerdict(
   verdict: SecondOpinionVerdict,
   rehydrate: (text: string | null | undefined) => string,
@@ -541,6 +609,7 @@ function renderVerdict(params: {
   verdict: SecondOpinionVerdict;
   model: string;
   redactionApplied: boolean;
+  webSearchEvidence?: SecondOpinionWebSearchEvidence;
 }): string {
   const lines = [
     params.verdict.revisedAnswer.trim(),
@@ -549,6 +618,14 @@ function renderVerdict(params: {
   ];
   if (params.verdict.verdict) {
     lines.push(`Verdict: ${params.verdict.verdict}`);
+  }
+  if (params.webSearchEvidence) {
+    const fetchedCount = params.webSearchEvidence.results.filter((result) =>
+      Boolean(result.fetchedExcerpt),
+    ).length;
+    lines.push(
+      `Web search/fetch: ${params.webSearchEvidence.provider} · ${params.webSearchEvidence.results.length} result${params.webSearchEvidence.results.length === 1 ? '' : 's'} · ${fetchedCount} fetched`,
+    );
   }
   if (params.verdict.materialDisagreements.length > 0) {
     lines.push('');
@@ -642,11 +719,92 @@ export async function runSecondOpinionCommand(
     ? contextMessages
     : [];
   const confidential = createConfidentialRuntimeContext();
+  let webSearchEvidence: SecondOpinionWebSearchEvidence | undefined;
+  if (parsed.useWebSearch) {
+    const webSearchPayload = JSON.stringify({
+      question,
+      draftAnswer: draft.content,
+    });
+    const webSearchConfidentialScan = confidential.enabled
+      ? scanForLeaks(webSearchPayload, confidential.ruleSet)
+      : null;
+    if (
+      webSearchConfidentialScan?.findings.some(
+        (finding) => finding.sensitivity === 'critical',
+      ) === true
+    ) {
+      const runId = makeAuditRunId('second-opinion');
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'second_opinion.blocked',
+          mode: parsed.mode,
+          model: target.model,
+          provider: auditProvider,
+          reason: 'critical_confidential_match',
+          redactionApplied: false,
+          transcriptIncluded: parsed.includeTranscript,
+          webSearchUsed: true,
+          questionTruncated,
+          confidentialSeverity: webSearchConfidentialScan.severity,
+          confidentialMatches: webSearchConfidentialScan.totalMatches,
+        },
+      });
+      throw new Error(
+        'Second opinion web search blocked: search payload matched critical confidential policy. Use validation without `--web-search`, remove the critical term, or choose a local-only flow.',
+      );
+    }
+    const [searchMessage] = confidential.dehydrate([
+      { role: 'user', content: question },
+    ] as DehydrateMessageContent[]) as ChatMessage[];
+    const [draftMessage] = confidential.dehydrate([
+      { role: 'assistant', content: draft.content },
+    ] as DehydrateMessageContent[]) as ChatMessage[];
+    const plannedQueriesResponse = await callAuxiliaryModel({
+      task: 'second_opinion',
+      messages: [
+        { role: 'system', content: SECOND_OPINION_SEARCH_PLAN_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            original_question:
+              typeof searchMessage?.content === 'string'
+                ? searchMessage.content
+                : question,
+            active_assistant_draft:
+              typeof draftMessage?.content === 'string'
+                ? draftMessage.content
+                : draft.content,
+          }),
+        },
+      ],
+      provider: target.provider,
+      model: target.model,
+      fallbackModel: resolved.model,
+      fallbackChatbotId: resolved.chatbotId,
+      agentId: resolved.agentId,
+      tools: [],
+      maxTokens: 400,
+      temperature: 0,
+      timeoutMs: SECOND_OPINION_TIMEOUT_MS,
+      allowFallback: false,
+    });
+    const queries = parseSecondOpinionSearchQueries(
+      plannedQueriesResponse.content,
+    );
+    webSearchEvidence = await runSecondOpinionWebSearch({ queries });
+  }
+  const webSearchFetchedResults =
+    webSearchEvidence?.results.filter((result) =>
+      Boolean(result.fetchedExcerpt),
+    ).length ?? 0;
   const messages = buildSecondOpinionMessages({
     mode: parsed.mode,
     question,
     draftAnswer: draft.content,
     contextMessages: includedContextMessages,
+    webSearchEvidence,
   });
   const serializedMessages = JSON.stringify(messages);
   const outboundConfidentialScan =
@@ -702,6 +860,11 @@ export async function runSecondOpinionCommand(
       provider: auditProvider,
       redactionApplied,
       transcriptIncluded: parsed.includeTranscript,
+      webSearchUsed: parsed.useWebSearch,
+      webSearchProvider: webSearchEvidence?.provider ?? null,
+      webSearchQueries: webSearchEvidence?.queries ?? [],
+      webSearchResults: webSearchEvidence?.results.length ?? 0,
+      webSearchFetchedResults,
       questionTruncated,
       contextMessages: includedContextMessages.length,
       modelMetadataCheck,
@@ -765,6 +928,11 @@ export async function runSecondOpinionCommand(
       materialDisagreements: verdict.materialDisagreements.length,
       missingCaveats: verdict.missingCaveats.length,
       synthesisOutcome,
+      webSearchUsed: parsed.useWebSearch,
+      webSearchProvider: webSearchEvidence?.provider ?? null,
+      webSearchQueries: webSearchEvidence?.queries ?? [],
+      webSearchResults: webSearchEvidence?.results.length ?? 0,
+      webSearchFetchedResults,
       modelMetadataCheck,
       usage: response.usage || null,
     },
@@ -774,5 +942,6 @@ export async function runSecondOpinionCommand(
     verdict,
     model: response.model,
     redactionApplied,
+    webSearchEvidence,
   });
 }
