@@ -128,6 +128,41 @@ test('getGatewayHistory omits silent message-send placeholders', async () => {
   ]);
 });
 
+test('getGatewayHistory surfaces persisted command output as a system message', async () => {
+  setupHome();
+
+  const { initDatabase, COMMAND_MESSAGE_ROLE } = await import(
+    '../src/memory/db.ts'
+  );
+  const { getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'web:command-history';
+  memoryService.getOrCreateSession(sessionId, null, 'web');
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'user-1',
+    username: 'web',
+    role: COMMAND_MESSAGE_ROLE,
+    content: 'Session model set to `opus`.',
+  });
+
+  const history = getGatewayHistory(sessionId, 10).history;
+
+  // Stored under the display-only `command` role, surfaced to clients as
+  // `system` so the console renders it as command output.
+  expect(history).toEqual([
+    expect.objectContaining({
+      role: 'system',
+      content: 'Session model set to `opus`.',
+    }),
+  ]);
+});
+
 test('getGatewayHistory returns assistant presentation per stored message agent', async () => {
   setupHome();
 
