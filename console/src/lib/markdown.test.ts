@@ -104,6 +104,18 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('hljs-');
   });
 
+  it('skips token highlighting when highlight is disabled (streaming)', () => {
+    const code = '```ts\nconst x = 1;\n```';
+    // Default highlights…
+    expect(renderMarkdown(code)).toContain('<span class="hljs-keyword">');
+    // …but the streaming path emits plain escaped text with no token spans,
+    // keeping the same <pre><code class="hljs language-ts"> wrapper.
+    const plain = renderMarkdown(code, { highlight: false });
+    expect(plain).toContain('<pre><code class="hljs language-ts">');
+    expect(plain).toContain('const x = 1;');
+    expect(plain).not.toContain('hljs-');
+  });
+
   it('renders blockquotes with grouped content', () => {
     const html = renderMarkdown('> line one\n> line two');
     expect(html).toContain('<blockquote>');

@@ -88,8 +88,13 @@ function useRenderedMarkdown(
       : content
     : '';
   return useMemo(
-    () => (enabled ? renderMarkdown(markdownSource) : ''),
-    [enabled, markdownSource],
+    () =>
+      enabled
+        ? // Skip syntax highlighting mid-stream; the full highlight runs once
+          // when streaming finishes, instead of on every ~120ms tick.
+          renderMarkdown(markdownSource, { highlight: !isStreaming })
+        : '',
+    [enabled, markdownSource, isStreaming],
   );
 }
 

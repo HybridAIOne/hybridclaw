@@ -63,16 +63,21 @@ function normalizeLanguage(infostring: string | undefined): string {
  * escapes the code for us); otherwise we fall back to plain escaped text, which
  * matches the pre-highlighting behaviour. The result is still run through
  * sanitize-html by the caller, which only allows `span[class]`.
+ *
+ * Pass `highlight: false` to skip tokenization and emit plain escaped text —
+ * used while a message is still streaming, so the (relatively expensive) full
+ * highlight runs once on completion instead of on every streaming tick.
  */
 export function highlightCodeBlock(
   rawCode: string,
   infostring?: string,
+  highlight = true,
 ): string {
   const code = String(rawCode ?? '');
   const language = normalizeLanguage(infostring);
   const languageClass = language ? ` language-${language}` : '';
 
-  if (language && hljs.getLanguage(language)) {
+  if (highlight && language && hljs.getLanguage(language)) {
     try {
       const { value } = hljs.highlight(code, {
         language,
