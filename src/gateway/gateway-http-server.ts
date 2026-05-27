@@ -98,8 +98,10 @@ import {
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
 import {
+  COMMAND_MESSAGE_ROLE,
   claimQueuedProactiveMessages,
   enqueueProactiveMessage,
+  getSessionById,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
@@ -1699,6 +1701,38 @@ function generateDefaultWebSessionId(agentId?: string | null): string {
   );
 }
 
+/**
+ * Persist slash-command output so it survives a page reload. Stored under
+ * {@link COMMAND_MESSAGE_ROLE} (display-only): the chat history view shows it,
+ * but it never feeds the model, tools, or compaction. No-op when there is no
+ * text or the session row does not exist yet (e.g. a command in a brand-new
+ * chat, which has nothing to reload into).
+ */
+function persistWebCommandOutput(params: {
+  sessionId: string;
+  userId: string;
+  username: string | null;
+  text: string;
+}): void {
+  const text = params.text.trim();
+  const sessionId = params.sessionId.trim();
+  if (!text || !sessionId || !getSessionById(sessionId)) return;
+  try {
+    memoryService.storeMessage({
+      sessionId,
+      userId: params.userId,
+      username: params.username,
+      role: COMMAND_MESSAGE_ROLE,
+      content: text,
+    });
+  } catch (err) {
+    logger.warn(
+      { sessionId, err },
+      'Failed to persist slash-command output to session history',
+    );
+  }
+}
+
 async function resolveApiChatSlashCommandResult(
   chatRequest: GatewayChatRequest,
 ): Promise<GatewayChatResult | null> {
@@ -1775,12 +1809,22 @@ async function resolveApiChatSlashCommandResult(
   const contextUsage = getGatewaySessionContextUsage(sessionId);
   const resolvedModel = contextUsage.snapshot?.model?.trim() || undefined;
 
+  // Persist only the real rendered output (not the "Done." placeholder) so the
+  // command result reappears on reload.
+  persistWebCommandOutput({
+    sessionId,
+    userId: chatRequest.userId,
+    username: chatRequest.username ?? null,
+    text: renderedText,
+  });
+
   return {
     status: 'success',
     result:
       renderedText ||
       (handledApprovalCommand ? 'Approval submitted.' : 'Done.'),
     toolsUsed: [],
+    commandResult: true,
     sessionId,
     ...(resolvedModel ? { model: resolvedModel } : {}),
     ...(sessionKey ? { sessionKey } : {}),
@@ -3136,6 +3180,14 @@ async function handleApiCommand(
     username: body.username ?? null,
   };
   const result = await handleGatewayCommand(commandRequest);
+  if (result.kind !== 'error') {
+    persistWebCommandOutput({
+      sessionId: result.sessionId || sessionId,
+      userId: commandRequest.userId ?? sessionId,
+      username: commandRequest.username ?? null,
+      text: renderTextChannelCommandResult(result),
+    });
+  }
   sendJson(res, result.kind === 'error' ? 400 : 200, result);
 }
 

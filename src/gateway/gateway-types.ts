@@ -67,6 +67,12 @@ export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  /**
+   * True when this result was produced by handling a slash command rather than
+   * by the model. Lets clients (e.g. the web console) render command/system
+   * output distinctly from assistant replies.
+   */
+  commandResult?: boolean;
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;

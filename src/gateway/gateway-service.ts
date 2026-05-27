@@ -199,6 +199,7 @@ import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
+  COMMAND_MESSAGE_ROLE,
   countStructuredAuditEntries,
   createFreshSessionInstance,
   deleteMemoryValue,
@@ -7199,6 +7200,12 @@ export function getGatewayHistory(
       );
     })
     .map((message) => {
+      // Persisted slash-command output is stored under a display-only role;
+      // surface it to clients as `system` so the console renders it as
+      // command output rather than a model reply.
+      if (message.role === COMMAND_MESSAGE_ROLE) {
+        return { ...message, role: 'system' };
+      }
       if (message.role !== 'assistant') return message;
       const content = stripSilentToken(message.content);
       const assistantPresentation =

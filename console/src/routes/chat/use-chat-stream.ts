@@ -251,6 +251,11 @@ export function useChatStream(
         const finalText = result.result ?? req.assistantText ?? '';
         const finalApproval = req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
+        const finalRole: ChatMessage['role'] = finalApproval
+          ? 'approval'
+          : result.commandResult
+            ? 'system'
+            : 'assistant';
         const buildFinalizedMessage = (
           id: string,
           sessionId: string,
@@ -258,7 +263,7 @@ export function useChatStream(
         ): ChatUiMessage => ({
           ...base,
           id,
-          role: finalApproval ? 'approval' : 'assistant',
+          role: finalRole,
           content: finalText,
           sessionId,
           messageId: result.assistantMessageId ?? null,

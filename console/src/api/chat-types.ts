@@ -114,6 +114,9 @@ export type ChatStreamEvent = ChatStreamTextDelta | ChatStreamApproval;
 export interface ChatStreamResult {
   status?: string;
   error?: string;
+  /** True when the gateway handled the message as a slash command, so the
+   * result is system/command output rather than a model reply. */
+  commandResult?: boolean;
   sessionId?: string;
   userMessageId?: number | string | null;
   assistantMessageId?: number | string | null;

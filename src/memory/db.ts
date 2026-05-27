@@ -7151,15 +7151,25 @@ export function storeMessage(
   return result.lastInsertRowid as number;
 }
 
+/**
+ * Role used for slash-command output persisted to a session. These rows are
+ * display-only: they surface in the chat history view (see
+ * {@link getConversationHistoryPage}) but are excluded from every read that
+ * feeds the model, tools, compaction, or memory — command output is UI
+ * ephemera, not conversation, and must never re-enter the prompt context.
+ */
+export const COMMAND_MESSAGE_ROLE = 'command';
+
 export function getConversationHistory(
   sessionId: string,
   limit = 50,
 ): StoredMessage[] {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  return queryAll<StoredMessage, [string, number]>(
+  return queryAll<StoredMessage, [string, string, number]>(
     db,
-    'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
+    'SELECT * FROM messages WHERE session_id = ? AND role != ? ORDER BY id DESC LIMIT ?',
     resolvedSessionId,
+    COMMAND_MESSAGE_ROLE,
     limit,
   );
 }
@@ -7365,17 +7375,19 @@ export function getRecentMessages(
       : null;
 
   if (boundedLimit == null) {
-    return queryAll<StoredMessage, [string]>(
+    return queryAll<StoredMessage, [string, string]>(
       db,
-      'SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC',
+      'SELECT * FROM messages WHERE session_id = ? AND role != ? ORDER BY id ASC',
       resolvedSessionId,
+      COMMAND_MESSAGE_ROLE,
     );
   }
 
-  const rows = queryAll<StoredMessage, [string, number]>(
+  const rows = queryAll<StoredMessage, [string, string, number]>(
     db,
-    'SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
+    'SELECT * FROM messages WHERE session_id = ? AND role != ? ORDER BY id DESC LIMIT ?',
     resolvedSessionId,
+    COMMAND_MESSAGE_ROLE,
     boundedLimit,
   );
   return rows.reverse();

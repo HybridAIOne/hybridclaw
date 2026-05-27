@@ -437,3 +437,45 @@ describe('MessageBlock artifacts', () => {
     expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABCD');
   });
 });
+
+describe('MessageBlock system output', () => {
+  beforeEach(() => {
+    renderMarkdownMock.mockReset();
+    renderMarkdownMock.mockImplementation((content) => `<p>${content}</p>`);
+    fetchAgentAvatarBlobMock.mockReset();
+  });
+
+  function renderRole(role: ChatMessage['role'], content: string) {
+    return render(
+      <MessageBlock
+        message={makeMessage([], { role, content })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+  }
+
+  it('renders command output without the assistant identity label', () => {
+    // An assistant reply carries the agent label so it reads as a model turn.
+    const assistant = renderRole('assistant', 'A model reply');
+    expect(screen.getByText('Assistant')).not.toBeNull();
+    assistant.unmount();
+
+    // System/command output renders as markdown but has no agent label, so it
+    // can't be mistaken for a model reply.
+    renderMarkdownMock.mockClear();
+    renderRole('system', 'Switched model to opus-4-7.');
+    expect(screen.queryByText('Assistant')).toBeNull();
+    expect(renderMarkdownMock).toHaveBeenCalledWith(
+      'Switched model to opus-4-7.',
+    );
+    expect(screen.getByText('Switched model to opus-4-7.')).not.toBeNull();
+  });
+});

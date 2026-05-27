@@ -293,7 +293,7 @@ describe('useChatStream', () => {
     });
   });
 
-  it('replaces thinking with an assistant message for result-only slash command streams', async () => {
+  it('replaces thinking with a system message for result-only slash command streams', async () => {
     const harness = makeHarness();
 
     requestChatStreamMock.mockResolvedValue({
@@ -302,6 +302,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: null,
       result: 'Session agent set to `research` (model: `gpt-5`).',
+      commandResult: true,
       toolsUsed: [],
     });
 
@@ -331,15 +332,62 @@ describe('useChatStream', () => {
       content: '/agent switch research',
       messageId: 'server-user-1',
     });
+    // Command output is tagged `system` so the UI renders it distinctly from a
+    // model reply, not as an assistant message.
     expect(harness.messages[1]).toMatchObject({
       id: 'msg-3',
-      role: 'assistant',
+      role: 'system',
       content: 'Session agent set to `research` (model: `gpt-5`).',
       messageId: null,
       replayRequest: {
         content: '/agent switch research',
         media: [],
       },
+    });
+  });
+
+  it('keeps a plain model reply as an assistant message when commandResult is absent', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockImplementation(
+      async (
+        _url: string,
+        params: { callbacks: { onTextDelta: (delta: string) => void } },
+      ): Promise<ChatStreamResult> => {
+        params.callbacks.onTextDelta('A normal answer');
+        return {
+          status: 'ok',
+          sessionId: SESSION_ID,
+          userMessageId: 'server-user-1',
+          assistantMessageId: 'assistant-1',
+          result: 'A normal answer',
+        };
+      },
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage(
+        '/unknowncommand still goes to model',
+        [],
+      );
+    });
+
+    expect(harness.messages[1]).toMatchObject({
+      role: 'assistant',
+      content: 'A normal answer',
     });
   });
 
