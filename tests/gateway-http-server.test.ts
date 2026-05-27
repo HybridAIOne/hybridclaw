@@ -10153,6 +10153,132 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('validates pinned TLS certificate SHA-256 before outbound http_request fetch', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-tls-pin-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const certRaw = Buffer.from('test bridge certificate');
+    const fingerprint = createHash('sha256').update(certRaw).digest('hex');
+    const connectMock = vi.fn(() => {
+      const socket = new EventEmitter() as EventEmitter & {
+        getPeerCertificate: () => { raw: Buffer };
+        end: ReturnType<typeof vi.fn>;
+        destroy: ReturnType<typeof vi.fn>;
+      };
+      socket.getPeerCertificate = () => ({ raw: certRaw });
+      socket.end = vi.fn();
+      socket.destroy = vi.fn();
+      setImmediate(() => socket.emit('secureConnect'));
+      return socket;
+    });
+    vi.doMock('node:tls', () => ({
+      default: {
+        connect: connectMock,
+      },
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://bridge.example.com/clip/v2/resource/light',
+        tlsCertificateSha256: fingerprint,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(connectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: 'bridge.example.com',
+        port: 443,
+        servername: 'bridge.example.com',
+        rejectUnauthorized: false,
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        dispatcher: expect.anything(),
+      }),
+    );
+  });
+
+  test('blocks pinned TLS fingerprint mismatches before outbound http_request fetch', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-tls-pin-mismatch-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const connectMock = vi.fn(() => {
+      const socket = new EventEmitter() as EventEmitter & {
+        getPeerCertificate: () => { raw: Buffer };
+        end: ReturnType<typeof vi.fn>;
+        destroy: ReturnType<typeof vi.fn>;
+      };
+      socket.getPeerCertificate = () => ({ raw: Buffer.from('other cert') });
+      socket.end = vi.fn();
+      socket.destroy = vi.fn();
+      setImmediate(() => socket.emit('secureConnect'));
+      return socket;
+    });
+    vi.doMock('node:tls', () => ({
+      default: {
+        connect: connectMock,
+      },
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://bridge.example.com/clip/v2/resource/light',
+        tlsCertificateSha256:
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body).error).toContain(
+      'Pinned TLS certificate check failed',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('captures explicit token bindDomain for cross-host OAuth tokens', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-bind-domain-capture-');
     process.env.HOME = homeDir;
