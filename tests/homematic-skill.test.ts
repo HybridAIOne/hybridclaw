@@ -450,6 +450,8 @@ test('Homematic helper emits concrete policy rules for HCU network and secret ac
       ],
     },
   });
+  expect(payload.network.rules[1].paths).toEqual(['/*']);
+  expect(payload.applyWith[1]).toContain('--paths /*');
 });
 
 test('Homematic live WebSocket executor sends one bounded message and summarizes response', async () => {
@@ -508,6 +510,8 @@ test('Homematic live WebSocket executor sends one bounded message and summarizes
     'plugin-id': 'com.hybridaione.hybridclaw.homematic',
     authtoken: 'test-auth-token',
   });
+  expect(FakeWebSocket.instances[0].options.rejectUnauthorized).toBe(true);
+  expect(FakeWebSocket.instances[0].options.maxPayload).toBe(200_000);
   expect(JSON.parse(FakeWebSocket.instances[0].sent[0])).toMatchObject({
     id: '38967997-e1b3-463f-8dc4-f889bb5d10a2',
     type: 'HMIP_SYSTEM_REQUEST',
@@ -537,6 +541,163 @@ test('Homematic live WebSocket executor sends one bounded message and summarizes
     ],
   });
   expect(JSON.stringify(result)).not.toContain('test-auth-token');
+});
+
+test('Homematic live WebSocket executor only disables TLS verification by explicit local opt-in', async () => {
+  class FakeWebSocket extends EventEmitter {
+    static instances: FakeWebSocket[] = [];
+    options: { rejectUnauthorized?: boolean };
+
+    constructor(
+      public url: string,
+      options: { rejectUnauthorized?: boolean },
+    ) {
+      super();
+      this.options = options;
+      FakeWebSocket.instances.push(this);
+      setImmediate(() => this.emit('open'));
+    }
+
+    send(message: string) {
+      const request = JSON.parse(message);
+      setImmediate(() =>
+        this.emit(
+          'message',
+          JSON.stringify({
+            id: request.id,
+            type: 'HMIP_SYSTEM_RESPONSE',
+            body: { ok: true },
+          }),
+        ),
+      );
+    }
+
+    close() {}
+  }
+
+  const localRequest = homematic.buildRequest([
+    '--request-id',
+    '38967997-e1b3-463f-8dc4-f889bb5d10a2',
+    'websocket-message',
+    'get-state',
+    '--hcu-url',
+    'https://hcu1-1234.local',
+  ]);
+  const publicRequest = homematic.buildRequest([
+    'websocket-message',
+    'get-state',
+    '--hcu-url',
+    'https://example.com',
+  ]);
+
+  await homematic.executeHcuWebSocketMessage(localRequest, {
+    WebSocketClass: FakeWebSocket,
+    authToken: 'test-auth-token',
+    insecureLocalTls: true,
+    timeoutMs: 1000,
+  });
+
+  expect(FakeWebSocket.instances[0].options.rejectUnauthorized).toBe(false);
+  expect(() =>
+    homematic.executeHcuWebSocketMessage(publicRequest, {
+      WebSocketClass: FakeWebSocket,
+      authToken: 'test-auth-token',
+      insecureLocalTls: true,
+      timeoutMs: 1000,
+    }),
+  ).toThrow(
+    '--insecure-local-tls is only allowed for local/private HCU hosts.',
+  );
+});
+
+test('Homematic live WebSocket executor ignores unrelated response ids', async () => {
+  class FakeWebSocket extends EventEmitter {
+    constructor() {
+      super();
+      setImmediate(() => this.emit('open'));
+    }
+
+    send(message: string) {
+      const request = JSON.parse(message);
+      setImmediate(() => {
+        this.emit(
+          'message',
+          JSON.stringify({
+            id: 'unrelated-response',
+            type: 'HMIP_SYSTEM_RESPONSE',
+            body: { ignored: true },
+          }),
+        );
+        this.emit(
+          'message',
+          JSON.stringify({
+            id: request.id,
+            type: 'HMIP_SYSTEM_RESPONSE',
+            body: { accepted: true },
+          }),
+        );
+      });
+    }
+
+    close() {}
+  }
+
+  const request = homematic.buildRequest([
+    '--request-id',
+    '38967997-e1b3-463f-8dc4-f889bb5d10a2',
+    'websocket-message',
+    'get-state',
+    '--hcu-url',
+    'https://hcu1-1234.local',
+  ]);
+  const result = await homematic.executeHcuWebSocketMessage(request, {
+    WebSocketClass: FakeWebSocket,
+    authToken: 'test-auth-token',
+    timeoutMs: 1000,
+  });
+
+  expect(result.response.body).toEqual({ accepted: true });
+});
+
+test('Homematic live WebSocket executor rejects oversized response frames', async () => {
+  class FakeWebSocket extends EventEmitter {
+    constructor() {
+      super();
+      setImmediate(() => this.emit('open'));
+    }
+
+    send(message: string) {
+      const request = JSON.parse(message);
+      setImmediate(() =>
+        this.emit(
+          'message',
+          JSON.stringify({
+            id: request.id,
+            type: 'HMIP_SYSTEM_RESPONSE',
+            body: { text: 'x'.repeat(80) },
+          }),
+        ),
+      );
+    }
+
+    close() {}
+  }
+
+  const request = homematic.buildRequest([
+    'websocket-message',
+    'get-state',
+    '--hcu-url',
+    'https://hcu1-1234.local',
+  ]);
+
+  await expect(
+    homematic.executeHcuWebSocketMessage(request, {
+      WebSocketClass: FakeWebSocket,
+      authToken: 'test-auth-token',
+      maxPayloadBytes: 40,
+      timeoutMs: 1000,
+    }),
+  ).rejects.toThrow('Homematic HCU WebSocket response exceeded 40 bytes.');
 });
 
 test('Homematic live WebSocket executor requires token from environment or injection', () => {

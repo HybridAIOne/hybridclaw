@@ -3,6 +3,7 @@
 
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
+const net = require('node:net');
 
 const SKILL_NAME = 'homematic';
 const DEFAULT_PLUGIN_ID = 'com.hybridaione.hybridclaw.homematic';
@@ -11,6 +12,7 @@ const ACTIVATION_KEY_SECRET = 'HOMEMATIC_HCU_ACTIVATION_KEY';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 200_000;
 const DEFAULT_WEBSOCKET_TIMEOUT_MS = 10_000;
+const DEFAULT_WEBSOCKET_MAX_PAYLOAD_BYTES = 200_000;
 const WRITE_GRANT = 'approve-homematic-write';
 const SECURITY_WRITE_GRANT = 'approve-homematic-security-write';
 
@@ -73,6 +75,7 @@ Global options:
   --request-id UUID                Optional deterministic message id for tests or trace correlation.
   --friendly-name-en TEXT          English plugin name for HCU auth/plugin-ready messages.
   --friendly-name-de TEXT          German plugin name for HCU auth/plugin-ready messages.
+  --insecure-local-tls             Allow self-signed HCU WebSocket TLS only for local/private hosts.
   --help                           Show this help.
 
 Commands:
@@ -103,6 +106,10 @@ function parseGlobalArgs(argv) {
     const arg = argv[index];
     if (arg === '--help' || arg === '-h') {
       opts.help = true;
+      continue;
+    }
+    if (arg === '--insecure-local-tls') {
+      opts.insecureLocalTls = true;
       continue;
     }
     if (SECRET_FLAGS.has(arg)) {
@@ -757,7 +764,7 @@ function policyRules(args, opts) {
     },
     applyWith: [
       `hybridclaw policy allow ${httpBase.hostname} --port ${httpBase.port || 6969} --methods POST --paths /hmip/auth/requestConnectApiAuthToken,/hmip/auth/confirmConnectApiAuthToken --agent ${agent} --comment "Homematic HCU auth"`,
-      `hybridclaw policy allow ${wsUrl.hostname} --port ${wsUrl.port || 9001} --methods GET --agent ${agent} --comment "Homematic HCU WebSocket"`,
+      `hybridclaw policy allow ${wsUrl.hostname} --port ${wsUrl.port || 9001} --methods GET --paths /* --agent ${agent} --comment "Homematic HCU WebSocket"`,
     ],
   };
 }
@@ -775,10 +782,64 @@ function loadWebSocketClass() {
   return wsModule.WebSocket || wsModule.default || wsModule;
 }
 
+function isLocalOrPrivateHost(hostname) {
+  const host = normalizeText(hostname).toLowerCase();
+  if (host === 'localhost' || host.endsWith('.local')) return true;
+
+  const ipVersion = net.isIP(host);
+  if (ipVersion === 4) {
+    const [a, b] = host.split('.').map((part) => Number.parseInt(part, 10));
+    return (
+      a === 10 ||
+      a === 127 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254)
+    );
+  }
+  if (ipVersion === 6) {
+    return (
+      host === '::1' ||
+      host.startsWith('fe80:') ||
+      host.startsWith('fc') ||
+      host.startsWith('fd')
+    );
+  }
+  return false;
+}
+
+function rawWebSocketByteLength(raw) {
+  if (Buffer.isBuffer(raw)) return raw.length;
+  if (Array.isArray(raw)) {
+    return raw.reduce((total, chunk) => total + rawWebSocketByteLength(chunk), 0);
+  }
+  if (raw instanceof ArrayBuffer) return raw.byteLength;
+  if (ArrayBuffer.isView(raw)) return raw.byteLength;
+  return Buffer.byteLength(String(raw), 'utf-8');
+}
+
+function rawWebSocketToString(raw) {
+  if (Buffer.isBuffer(raw)) return raw.toString('utf-8');
+  if (Array.isArray(raw)) {
+    return Buffer.concat(raw.map((chunk) => Buffer.from(chunk))).toString('utf-8');
+  }
+  if (raw instanceof ArrayBuffer) return Buffer.from(raw).toString('utf-8');
+  if (ArrayBuffer.isView(raw)) {
+    return Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString('utf-8');
+  }
+  return String(raw);
+}
+
 function executeHcuWebSocketMessage(payload, options = {}) {
   const WebSocketClass = options.WebSocketClass || loadWebSocketClass();
   const authToken = options.authToken || readAuthTokenFromEnv(options.env);
   const timeoutMs = options.timeoutMs || DEFAULT_WEBSOCKET_TIMEOUT_MS;
+  const maxPayloadBytes = options.maxPayloadBytes || DEFAULT_WEBSOCKET_MAX_PAYLOAD_BYTES;
+  const connectionUrl = new URL(payload.connection.url);
+  const rejectUnauthorized = !options.insecureLocalTls;
+  if (options.insecureLocalTls && !isLocalOrPrivateHost(connectionUrl.hostname)) {
+    throw new Error('--insecure-local-tls is only allowed for local/private HCU hosts.');
+  }
   const headers = {
     ...payload.connection.headers,
     authtoken: authToken,
@@ -813,7 +874,8 @@ function executeHcuWebSocketMessage(payload, options = {}) {
     try {
       socket = new WebSocketClass(payload.connection.url, {
         headers,
-        rejectUnauthorized: false,
+        rejectUnauthorized,
+        maxPayload: maxPayloadBytes,
       });
     } catch (error) {
       clearTimeout(timeout);
@@ -825,11 +887,19 @@ function executeHcuWebSocketMessage(payload, options = {}) {
       socket.send(JSON.stringify(payload.message));
     });
     socket.on('message', (raw) => {
+      const byteLength = rawWebSocketByteLength(raw);
+      if (byteLength > maxPayloadBytes) {
+        finish(reject, new Error(`Homematic HCU WebSocket response exceeded ${maxPayloadBytes} bytes.`));
+        return;
+      }
       let response;
       try {
-        response = JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf-8') : String(raw));
+        response = JSON.parse(rawWebSocketToString(raw));
       } catch (error) {
         finish(reject, new Error(`Homematic HCU returned non-JSON WebSocket data: ${error.message}`));
+        return;
+      }
+      if (!response || response.id !== payload.message.id) {
         return;
       }
       const summary = summarizeWebSocketResponse(response);
@@ -906,7 +976,9 @@ async function main() {
     const operation = positional[1];
     if (!operation) fail('run-websocket requires an operation.');
     const payload = buildWebSocketMessage(operation, positional.slice(2), opts);
-    const result = await executeHcuWebSocketMessage(payload);
+    const result = await executeHcuWebSocketMessage(payload, {
+      insecureLocalTls: opts.insecureLocalTls,
+    });
     printJson(result, opts.format);
     return;
   }

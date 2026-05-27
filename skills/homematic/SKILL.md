@@ -82,7 +82,7 @@ tested.
 
 1. Start with `plan`, `summarize-fixture`, `plugin-ready`, `get-state`, or
    `get-system-state`.
-2. For HCU setup, generate gateway `http_request` payloads with the helper.
+2. For HCU setup, generate gateway `http-request` payloads with the helper.
    Never ask the operator to paste activation keys or auth tokens into chat.
 3. For HCU WebSocket operations, use helper `websocket-message` output as the
    source of truth for connection headers, message type, path, stakes tier, and
@@ -146,6 +146,8 @@ node skills/homematic/homematic.cjs --format json websocket-message get-system-s
 Run a local HCU WebSocket read. This is for operator-owned smoke tests where
 the helper environment can see the stored token value; normal agent flows
 should prefer generated payloads and gateway-managed secrets.
+Use `--insecure-local-tls` only for operator-owned local/private HCU hosts with
+self-signed certificates.
 
 ```bash
 HOMEMATIC_HCU_AUTH_TOKEN="<token>" \
