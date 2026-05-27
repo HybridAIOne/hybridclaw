@@ -772,6 +772,28 @@ aside[data-state="collapsed"] .chatSidebarContent {
   opacity: 1;
 }
 
+/* Language tag in a header strip; extra top padding is only added to blocks
+   that have a label, so unlabeled blocks keep their original spacing. The
+   `pre` qualifier is needed to outrank the `.markdownContent pre` padding. */
+.markdownContent pre.codeBlockLabeled {
+  padding-top: 28px;
+}
+
+.codeLangLabel {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--terminal-foreground) 55%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+
 /*
  * Syntax highlighting tokens emitted by highlight.js. The hljs-* classes are
  * global (injected into sanitized HTML), so they're referenced via :global().

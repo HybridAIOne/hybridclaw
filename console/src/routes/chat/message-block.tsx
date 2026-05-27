@@ -110,8 +110,32 @@ const CHECK_ICON =
 // buttons silently wiped on the next React commit. Instead we watch the
 // container with a MutationObserver and (idempotently) re-decorate any <pre>
 // that's missing a button — so buttons survive every re-commit.
+// Generic plaintext fence markers carry no language info; labelling them just
+// adds noise, so they're treated as "no label".
+const GENERIC_FENCE_LANGS = new Set(['text', 'plaintext', 'plain', 'txt']);
+
+// The fenced language is carried on the <code> element as `language-<lang>`
+// (set by the markdown renderer). Pull it back out for the corner label.
+function codeBlockLanguage(pre: HTMLElement): string {
+  const code = pre.querySelector('code');
+  const lang = code?.className.match(/language-([\w#.+-]+)/)?.[1] ?? '';
+  return GENERIC_FENCE_LANGS.has(lang) ? '' : lang;
+}
+
 function decorateCodeBlock(pre: HTMLElement): void {
   if (pre.querySelector('button[data-copy-btn]')) return;
+
+  // Small always-visible language tag in the block's header strip.
+  const language = codeBlockLanguage(pre);
+  if (language) {
+    pre.classList.add(css.codeBlockLabeled);
+    const label = document.createElement('span');
+    label.className = css.codeLangLabel;
+    label.textContent = language;
+    label.setAttribute('aria-hidden', 'true');
+    pre.appendChild(label);
+  }
+
   const button = document.createElement('button');
   button.type = 'button';
   button.dataset.copyBtn = '';

@@ -702,6 +702,34 @@ describe('MessageBlock code-block copy button', () => {
     );
   });
 
+  it('shows the language label for a fenced code block', () => {
+    const { container } = renderAssistant();
+    const label = container.querySelector('pre span[class*="codeLangLabel"]');
+    expect(label?.textContent).toBe('ts');
+  });
+
+  it('omits the language label when the block has no language', () => {
+    renderMarkdownMock.mockImplementation(
+      () => '<pre><code class="hljs">plain text</code></pre>',
+    );
+    const { container } = renderAssistant();
+    expect(
+      container.querySelector('pre span[class*="codeLangLabel"]'),
+    ).toBeNull();
+    // …but the copy button is still attached.
+    expect(container.querySelector('pre button[data-copy-btn]')).not.toBeNull();
+  });
+
+  it('omits the language label for generic plaintext fences', () => {
+    renderMarkdownMock.mockImplementation(
+      () => '<pre><code class="hljs language-text">just text</code></pre>',
+    );
+    const { container } = renderAssistant();
+    expect(
+      container.querySelector('pre span[class*="codeLangLabel"]'),
+    ).toBeNull();
+  });
+
   it('re-injects the copy button after React re-commits the markdown subtree', async () => {
     // Regression: the markdown is set via dangerouslySetInnerHTML, so React
     // owns the subtree and re-applies it on later commits, silently wiping any
