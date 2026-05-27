@@ -112,9 +112,7 @@ function parseGlobalArgs(argv) {
       opts.insecureLocalTls = true;
       continue;
     }
-    if (SECRET_FLAGS.has(arg)) {
-      fail(`${arg} is not supported. Store Homematic credentials in HybridClaw secrets.`);
-    }
+    rejectSecretFlag(arg);
     if (
       [
         '--format',
@@ -203,9 +201,7 @@ function parseCommandOptions(args, spec = {}) {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (SECRET_FLAGS.has(arg)) {
-      fail(`${arg} is not supported. Store Homematic credentials in HybridClaw secrets.`);
-    }
+    rejectSecretFlag(arg);
     if (values.has(arg)) {
       const value = args[index + 1];
       if (value === undefined || value.startsWith('--') || !String(value).trim()) {
@@ -221,11 +217,17 @@ function parseCommandOptions(args, spec = {}) {
   return result;
 }
 
+function rejectSecretFlag(arg) {
+  if (SECRET_FLAGS.has(arg)) {
+    fail(`${arg} is not supported. Store Homematic credentials in HybridClaw secrets.`);
+  }
+}
+
 function hcuUrlFromOptions(opts) {
   return opts.hcuUrl || process.env.HOMEMATIC_HCU_URL || '';
 }
 
-function normalizeHcuHttpBase(rawUrl) {
+function parseHcuUrl(rawUrl, config) {
   const text = requireText(rawUrl, '--hcu-url');
   let url;
   try {
@@ -233,31 +235,33 @@ function normalizeHcuHttpBase(rawUrl) {
   } catch {
     fail('--hcu-url must be a valid URL.');
   }
-  if (url.protocol !== 'https:') {
-    fail('--hcu-url must use https for HCU auth endpoints.');
-  }
+  if (!config.allowedProtocols.includes(url.protocol)) fail(config.protocolError);
   validateHcuUrl(url);
-  url.protocol = 'https:';
-  url.port ||= '6969';
-  url.pathname = '';
+  url.protocol = config.targetProtocol;
+  url.port ||= config.defaultPort;
+  url.pathname = config.pathname;
+  return url;
+}
+
+function normalizeHcuHttpBase(rawUrl) {
+  const url = parseHcuUrl(rawUrl, {
+    allowedProtocols: ['https:'],
+    protocolError: '--hcu-url must use https for HCU auth endpoints.',
+    targetProtocol: 'https:',
+    defaultPort: '6969',
+    pathname: '',
+  });
   return url.toString().replace(/\/$/, '');
 }
 
 function normalizeHcuWebSocketUrl(rawUrl) {
-  const text = requireText(rawUrl, '--hcu-url');
-  let url;
-  try {
-    url = new URL(text);
-  } catch {
-    fail('--hcu-url must be a valid URL.');
-  }
-  if (!['https:', 'wss:'].includes(url.protocol)) {
-    fail('--hcu-url must use https or wss for HCU WebSocket messages.');
-  }
-  validateHcuUrl(url);
-  url.protocol = 'wss:';
-  url.port ||= '9001';
-  url.pathname = '/';
+  const url = parseHcuUrl(rawUrl, {
+    allowedProtocols: ['https:', 'wss:'],
+    protocolError: '--hcu-url must use https or wss for HCU WebSocket messages.',
+    targetProtocol: 'wss:',
+    defaultPort: '9001',
+    pathname: '/',
+  });
   return url.toString();
 }
 
@@ -270,27 +274,38 @@ function validateHcuUrl(url) {
   }
 }
 
-function basePayload(command, operation, stakesTier) {
-  return {
+function basePayload(command, operation, stakesTier, options = {}) {
+  const payload = {
     command,
     operation,
     skillName: SKILL_NAME,
     stakesTier,
-    costMeasurement: {
+  };
+  if (options.measuresUsage) {
+    payload.costMeasurement = {
       system: 'UsageTotals',
       subLimitKey: SKILL_NAME,
-    },
-  };
+    };
+  }
+  return payload;
+}
+
+function plannedAuditEventType(stakesTier) {
+  return stakesTier === 'green'
+    ? 'homematic.state_read_planned'
+    : 'homematic.control_planned';
+}
+
+function completedAuditEventType(stakesTier) {
+  return stakesTier === 'green'
+    ? 'homematic.state_read_completed'
+    : 'homematic.control_completed';
 }
 
 function auditEventsForPlan(operation, stakesTier, messagePath) {
-  const eventType =
-    stakesTier === 'green'
-      ? 'homematic.state_read_planned'
-      : 'homematic.control_planned';
   return [
     {
-      type: eventType,
+      type: plannedAuditEventType(stakesTier),
       skill: SKILL_NAME,
       operation,
       stakesTier,
@@ -301,13 +316,9 @@ function auditEventsForPlan(operation, stakesTier, messagePath) {
 }
 
 function auditEventsForResult(operation, stakesTier, response) {
-  const eventType =
-    stakesTier === 'green'
-      ? 'homematic.state_read_completed'
-      : 'homematic.control_completed';
   return [
     {
-      type: eventType,
+      type: completedAuditEventType(stakesTier),
       skill: SKILL_NAME,
       operation,
       stakesTier,
@@ -322,8 +333,7 @@ function buildHttpRequest(operation, args, opts) {
   if (!HTTP_COMMANDS.has(operation)) {
     fail(`Unknown http-request operation: ${operation}`);
   }
-  const parsed = parseCommandOptions(args, { values: [] });
-  void parsed;
+  parseCommandOptions(args, { values: [] });
   const baseUrl = normalizeHcuHttpBase(hcuUrlFromOptions(opts));
   const common = {
     method: 'POST',
@@ -340,7 +350,7 @@ function buildHttpRequest(operation, args, opts) {
 
   if (operation === 'auth-token') {
     return {
-      ...basePayload('http-request', operation, 'amber'),
+      ...basePayload('http-request', operation, 'amber', { measuresUsage: true }),
       httpRequest: {
         ...common,
         url: `${baseUrl}/hmip/auth/requestConnectApiAuthToken`,
@@ -358,7 +368,7 @@ function buildHttpRequest(operation, args, opts) {
   }
 
   return {
-    ...basePayload('http-request', operation, 'amber'),
+    ...basePayload('http-request', operation, 'amber', { measuresUsage: true }),
     httpRequest: {
       ...common,
       url: `${baseUrl}/hmip/auth/confirmConnectApiAuthToken`,
@@ -408,11 +418,9 @@ function buildWebSocketMessage(operation, args, opts) {
   const pluginId = requireIdentifier(opts.pluginId, '--plugin-id');
   const id = opts.requestId || randomUUID();
   const pathAndBody = pathAndBodyForOperation(operation, parsed);
-  const stakesTier = operation === 'acknowledge-safety-alarm'
-    ? 'red'
-    : operation.startsWith('set-') || operation === 'start-light-scene'
-      ? 'amber'
-      : 'green';
+  const stakesTier = operationTier(operation);
+  const connectionUrl = normalizeHcuWebSocketUrl(hcuUrlFromOptions(opts));
+  const connectionHostname = new URL(connectionUrl).hostname;
 
   validateOperatorGrant(operation, stakesTier, parsed.operatorGrant);
 
@@ -441,12 +449,12 @@ function buildWebSocketMessage(operation, args, opts) {
         };
 
   return {
-    ...basePayload('websocket-message', operation, stakesTier),
+    ...basePayload('websocket-message', operation, stakesTier, { measuresUsage: true }),
     requiredGrant: grantForTier(stakesTier),
     connection: {
       transport: 'websocket',
       protocol: 'homematic-ip-connect-api',
-      url: normalizeHcuWebSocketUrl(hcuUrlFromOptions(opts)),
+      url: connectionUrl,
       headers: {
         'plugin-id': pluginId,
       },
@@ -458,12 +466,12 @@ function buildWebSocketMessage(operation, args, opts) {
         },
       ],
       tls: {
-        selfSignedCertificateExpected: true,
+        selfSignedCertificateExpected: isLocalOrPrivateHost(connectionHostname),
       },
     },
     message,
     audit: {
-      event: stakesTier === 'green' ? 'homematic.state_read_planned' : 'homematic.control_planned',
+      event: plannedAuditEventType(stakesTier),
       includeFields: ['operation', 'stakesTier', 'message.type', 'message.body.path'],
       neverInclude: ['authtoken', AUTH_TOKEN_SECRET, ACTIVATION_KEY_SECRET],
     },
@@ -582,18 +590,18 @@ function approvalPlan(operation, args, opts) {
   if (!requiredGrant) {
     fail(`${operation} is read-only and does not need approval-plan.`);
   }
+  const payload = buildWebSocketMessage(operation, [...args, '--operator-grant', requiredGrant], opts);
   const commandArgs = [
     '--format',
     'json',
     'websocket-message',
     operation,
     '--hcu-url',
-    hcuUrlFromOptions(opts),
+    payload.connection.url,
     ...args,
     '--operator-grant',
     requiredGrant,
   ];
-  const payload = buildWebSocketMessage(operation, [...args, '--operator-grant', requiredGrant], opts);
 
   return {
     ...basePayload('approval-plan', operation, stakesTier),
@@ -605,7 +613,7 @@ function approvalPlan(operation, args, opts) {
     ].join(' '),
     approvalText: [
       `Approve Homematic ${operation}.`,
-      `HCU: ${hcuUrlFromOptions(opts)}`,
+      `HCU: ${payload.connection.url}`,
       `Path: ${payload.message.body.path}`,
       `Body: ${JSON.stringify(payload.message.body.body)}`,
       `Required grant: ${requiredGrant}`,
@@ -689,6 +697,7 @@ function summarizeWebSocketResponse(response) {
   if (Array.isArray(body.devices) || Array.isArray(body.groups) || body.home) {
     return summarizeHcuState(body);
   }
+  // Connect API responses and fixtures can wrap state once more under body.body.
   if (body.body && typeof body.body === 'object') {
     return summarizeHcuState(body.body);
   }
@@ -778,7 +787,12 @@ function readAuthTokenFromEnv(env = process.env) {
 }
 
 function loadWebSocketClass() {
-  const wsModule = require('ws');
+  let wsModule;
+  try {
+    wsModule = require('ws');
+  } catch {
+    fail("run-websocket requires the 'ws' npm package. Install it or use the gateway transport instead.");
+  }
   return wsModule.WebSocket || wsModule.default || wsModule;
 }
 
@@ -810,23 +824,11 @@ function isLocalOrPrivateHost(hostname) {
 
 function rawWebSocketByteLength(raw) {
   if (Buffer.isBuffer(raw)) return raw.length;
-  if (Array.isArray(raw)) {
-    return raw.reduce((total, chunk) => total + rawWebSocketByteLength(chunk), 0);
-  }
-  if (raw instanceof ArrayBuffer) return raw.byteLength;
-  if (ArrayBuffer.isView(raw)) return raw.byteLength;
   return Buffer.byteLength(String(raw), 'utf-8');
 }
 
 function rawWebSocketToString(raw) {
   if (Buffer.isBuffer(raw)) return raw.toString('utf-8');
-  if (Array.isArray(raw)) {
-    return Buffer.concat(raw.map((chunk) => Buffer.from(chunk))).toString('utf-8');
-  }
-  if (raw instanceof ArrayBuffer) return Buffer.from(raw).toString('utf-8');
-  if (ArrayBuffer.isView(raw)) {
-    return Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString('utf-8');
-  }
   return String(raw);
 }
 
@@ -904,7 +906,9 @@ function executeHcuWebSocketMessage(payload, options = {}) {
       }
       const summary = summarizeWebSocketResponse(response);
       finish(resolve, {
-        ...basePayload('run-websocket', payload.operation, payload.stakesTier),
+        ...basePayload('run-websocket', payload.operation, payload.stakesTier, {
+          measuresUsage: true,
+        }),
         request: {
           operation: payload.operation,
           message: payload.message,
@@ -933,6 +937,10 @@ function executeHcuWebSocketMessage(payload, options = {}) {
 
 function buildRequest(argv) {
   const { opts, positional } = parseGlobalArgs(argv);
+  return buildRequestFromParsed(opts, positional);
+}
+
+function buildRequestFromParsed(opts, positional) {
   if (opts.help || positional.length === 0) {
     return { help: usage() };
   }
@@ -982,7 +990,7 @@ async function main() {
     printJson(result, opts.format);
     return;
   }
-  const payload = buildRequest(process.argv.slice(2));
+  const payload = buildRequestFromParsed(opts, positional);
   printJson(payload, opts.format);
 }
 

@@ -95,11 +95,13 @@ test('Homematic helper plans explicit reads, ordinary writes, and security write
   ]);
 
   expect(read.status).toBe(0);
-  expect(JSON.parse(read.stdout)).toMatchObject({
+  const readPlan = JSON.parse(read.stdout);
+  expect(readPlan).toMatchObject({
     operation: 'get-state',
     stakesTier: 'green',
     requiresEscalation: false,
   });
+  expect(readPlan.costMeasurement).toBeUndefined();
   expect(thermostat.status).toBe(0);
   expect(JSON.parse(thermostat.stdout)).toMatchObject({
     operation: 'set-set-point-temperature',
@@ -153,7 +155,7 @@ test('Homematic helper emits approval plans with exact approved commands', () =>
   );
 });
 
-test('Homematic helper builds HCU auth http_request payloads with SecretRef placeholders', () => {
+test('Homematic helper builds HCU auth http-request payloads with SecretRef placeholders', () => {
   const auth = runHelper([
     '--format',
     'json',
@@ -235,6 +237,9 @@ test('Homematic helper builds read-only HCU websocket messages', () => {
           prefix: 'none',
         },
       ],
+      tls: {
+        selfSignedCertificateExpected: true,
+      },
     },
     message: {
       pluginId: 'com.hybridaione.hybridclaw.homematic',
@@ -257,6 +262,28 @@ test('Homematic helper builds read-only HCU websocket messages', () => {
     ],
   });
   expect(JSON.stringify(payload)).not.toContain('authtoken":"');
+});
+
+test('Homematic helper only expects self-signed gateway TLS for local/private HCU hosts', () => {
+  const publicPayload = homematic.buildRequest([
+    'websocket-message',
+    'get-state',
+    '--hcu-url',
+    'https://example.com',
+  ]);
+  const privatePayload = homematic.buildRequest([
+    'websocket-message',
+    'get-state',
+    '--hcu-url',
+    'https://192.168.1.20',
+  ]);
+
+  expect(publicPayload.connection.tls.selfSignedCertificateExpected).toBe(
+    false,
+  );
+  expect(privatePayload.connection.tls.selfSignedCertificateExpected).toBe(
+    true,
+  );
 });
 
 test('Homematic helper gates and shapes ordinary write websocket messages', () => {

@@ -59,8 +59,6 @@ metadata:
         - scene-trigger
       red:
         - safety-alarm-acknowledge
-        - door-lock-control
-        - security-zone-control
     escalation:
       writes: confirm-each
       route: f14
