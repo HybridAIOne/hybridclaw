@@ -106,6 +106,8 @@ test('checkSecurity warns on stored bearer secrets without domain bindings', asy
     );
     saveNamedRuntimeSecrets({
       EXTERNAL_ACCESS_TOKEN: 'external-token',
+      GOG_ACCESS_TOKEN: 'google-token',
+      HUBSPOT_ACCESS_TOKEN: 'hubspot-token',
       SF_ACCESS_TOKEN: 'salesforce-token',
       SF_ACCESS_TOKEN_BOUND_DOMAIN: 'api.example.com',
       WEB_API_TOKEN: 'gateway-token',
@@ -117,6 +119,8 @@ test('checkSecurity warns on stored bearer secrets without domain bindings', asy
     expect(result.severity).toBe('warn');
     expect(result.message).toContain('EXTERNAL_ACCESS_TOKEN');
     expect(result.message).toContain('EXTERNAL_ACCESS_TOKEN_BOUND_DOMAIN');
+    expect(result.message).not.toContain('GOG_ACCESS_TOKEN');
+    expect(result.message).not.toContain('HUBSPOT_ACCESS_TOKEN');
     expect(result.message).not.toContain('SF_ACCESS_TOKEN,');
     expect(result.message).not.toContain('WEB_API_TOKEN');
   } finally {

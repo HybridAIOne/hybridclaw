@@ -15,6 +15,11 @@ import type { DiagResult } from '../types.js';
 import { findExistingPath, makeResult, severityFrom } from '../utils.js';
 
 const BOUND_DOMAIN_SUFFIX = '_BOUND_DOMAIN';
+const DOMAIN_BINDING_EXEMPT_SECRET_NAMES = new Set([
+  'GOG_ACCESS_TOKEN',
+  'GOOGLE_WORKSPACE_CLI_TOKEN',
+  'HUBSPOT_ACCESS_TOKEN',
+]);
 const NON_BEARER_SECRET_NAMES = new Set([
   'DISCORD_TOKEN',
   'GATEWAY_API_TOKEN',
@@ -37,6 +42,7 @@ function checkWritablePath(targetPath: string): boolean {
 
 function isLikelyBearerSecretName(name: string): boolean {
   if (
+    DOMAIN_BINDING_EXEMPT_SECRET_NAMES.has(name) ||
     NON_BEARER_SECRET_NAMES.has(name) ||
     name.endsWith(BOUND_DOMAIN_SUFFIX)
   ) {
