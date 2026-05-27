@@ -2,13 +2,16 @@ import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { getUsageTotals } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import {
   getAvailableModelList,
+  getModelCatalogMetadata,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
 } from '../providers/model-catalog.js';
+import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import {
   isLocalBackendType,
@@ -36,6 +39,7 @@ const SECOND_OPINION_TIMEOUT_MS = 300_000;
 const SECOND_OPINION_DEFAULT_MAX_TOKENS = 1200;
 
 export type SecondOpinionMode = 'compare' | 'validate';
+type SecondOpinionSynthesisOutcome = 'accepted' | 'rejected' | 'partial';
 
 export interface ParsedSecondOpinionArgs {
   mode: SecondOpinionMode;
@@ -58,6 +62,24 @@ interface SecondOpinionTarget {
   provider?: RuntimeProviderId;
   model: string;
   selection: 'requested' | 'configured' | 'default';
+}
+
+interface SecondOpinionModelMetadataCheck {
+  estimatedInputTokens: number;
+  requestedMaxOutputTokens: number;
+  estimatedTotalTokens: number;
+  contextWindow: number | null;
+  pricingKnown: boolean;
+  estimatedMaxCostUsd: number | null;
+  budgetCheck: SecondOpinionBudgetCheck | null;
+}
+
+interface SecondOpinionBudgetCheck {
+  unit: 'tokens' | 'USD' | 'EUR';
+  cap: number;
+  used: number;
+  estimatedUsage: number;
+  wouldExceed: false;
 }
 
 let secondOpinionCatalogRefreshCache: {
@@ -226,6 +248,135 @@ function validateAvailableTarget(target: SecondOpinionTarget): void {
       `${source} second-opinion model "${target.model}" is not available for provider "${target.provider}". Use \`/model\` to pick an available model or configure \`auxiliaryModels.second_opinion\`.`,
     );
   }
+}
+
+function configuredSecondOpinionMaxTokens(): number {
+  return (
+    getRuntimeConfig().auxiliaryModels.second_opinion.maxTokens ||
+    SECOND_OPINION_DEFAULT_MAX_TOKENS
+  );
+}
+
+function estimateSecondOpinionMaxCostUsd(params: {
+  model: string;
+  estimatedInputTokens: number;
+  requestedMaxOutputTokens: number;
+}): Pick<
+  SecondOpinionModelMetadataCheck,
+  'pricingKnown' | 'estimatedMaxCostUsd'
+> {
+  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
+  const pricingKnown = pricing.input != null || pricing.output != null;
+  if (!pricingKnown) {
+    return { pricingKnown: false, estimatedMaxCostUsd: null };
+  }
+  return {
+    pricingKnown: true,
+    estimatedMaxCostUsd:
+      params.estimatedInputTokens * (pricing.input ?? 0) +
+      params.requestedMaxOutputTokens * (pricing.output ?? 0),
+  };
+}
+
+function convertUsdToBudgetCurrency(
+  costUsd: number,
+  currency: 'USD' | 'EUR',
+): number {
+  return currency === 'EUR'
+    ? costUsd / MODEL_METADATA_USD_TO_EUR.usdPerEur
+    : costUsd;
+}
+
+function validateSecondOpinionBudget(params: {
+  agentId: string;
+  model: string;
+  metadataCheck: Omit<SecondOpinionModelMetadataCheck, 'budgetCheck'>;
+}): SecondOpinionBudgetCheck | null {
+  const budget = (getRuntimeConfig().agents.list || []).find(
+    (agent) => agent.id === params.agentId,
+  )?.budget;
+  if (!budget || budget.cap <= 0) return null;
+  const usage = getUsageTotals({ agentId: params.agentId, window: 'monthly' });
+
+  const unit = budget.unit;
+  if (unit === 'tokens') {
+    const estimatedUsage = params.metadataCheck.estimatedTotalTokens;
+    if (usage.total_tokens + estimatedUsage > budget.cap) {
+      throw new Error(
+        `Second-opinion call is estimated at ${estimatedUsage} tokens, which would exceed the monthly token budget for agent "${params.agentId}" (${usage.total_tokens}/${budget.cap} already used).`,
+      );
+    }
+    return {
+      unit,
+      cap: budget.cap,
+      used: usage.total_tokens,
+      estimatedUsage,
+      wouldExceed: false,
+    };
+  }
+
+  if (params.metadataCheck.estimatedMaxCostUsd == null) {
+    throw new Error(
+      `Second-opinion pricing is unavailable for ${formatModelForDisplay(params.model)}, so the configured ${unit} budget for agent "${params.agentId}" cannot be verified.`,
+    );
+  }
+
+  const used = convertUsdToBudgetCurrency(
+    usage.total_cost_usd,
+    budget.currency,
+  );
+  const estimatedUsage = convertUsdToBudgetCurrency(
+    params.metadataCheck.estimatedMaxCostUsd,
+    budget.currency,
+  );
+  if (used + estimatedUsage > budget.cap) {
+    throw new Error(
+      `Second-opinion call is estimated at ${estimatedUsage.toFixed(4)} ${unit}, which would exceed the monthly ${unit} budget for agent "${params.agentId}" (${used.toFixed(4)}/${budget.cap} already used).`,
+    );
+  }
+  return {
+    unit,
+    cap: budget.cap,
+    used,
+    estimatedUsage,
+    wouldExceed: false,
+  };
+}
+
+function validateSecondOpinionModelMetadata(params: {
+  model: string;
+  agentId: string;
+  messages: ChatMessage[];
+  maxOutputTokens: number;
+}): SecondOpinionModelMetadataCheck {
+  const estimatedInputTokens = estimateTokenCountFromMessages(params.messages);
+  const requestedMaxOutputTokens = params.maxOutputTokens;
+  const estimatedTotalTokens = estimatedInputTokens + requestedMaxOutputTokens;
+  const contextWindow = getModelCatalogMetadata(params.model).contextWindow;
+  if (contextWindow != null && estimatedTotalTokens > contextWindow) {
+    throw new Error(
+      `Second-opinion payload is estimated at ${estimatedTotalTokens} tokens, which exceeds the ${contextWindow}-token context window for ${formatModelForDisplay(params.model)}. Reduce --max-context, use --no-transcript, or choose a larger-context model.`,
+    );
+  }
+  const metadataCheck = {
+    estimatedInputTokens,
+    requestedMaxOutputTokens,
+    estimatedTotalTokens,
+    contextWindow,
+    ...estimateSecondOpinionMaxCostUsd({
+      model: params.model,
+      estimatedInputTokens,
+      requestedMaxOutputTokens,
+    }),
+  };
+  return {
+    ...metadataCheck,
+    budgetCheck: validateSecondOpinionBudget({
+      agentId: params.agentId,
+      model: params.model,
+      metadataCheck,
+    }),
+  };
 }
 
 async function refreshSecondOpinionModelCatalogs(): Promise<void> {
@@ -433,6 +584,26 @@ function truncateQuestionForSecondOpinion(question: string): {
   };
 }
 
+function normalizeForSynthesisOutcome(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function classifySynthesisOutcome(params: {
+  verdict: SecondOpinionVerdict;
+  draftAnswer: string;
+}): SecondOpinionSynthesisOutcome {
+  const hasStrongerFeedback =
+    params.verdict.materialDisagreements.length > 0 ||
+    params.verdict.missingCaveats.length > 0;
+  const revisedChanged =
+    normalizeForSynthesisOutcome(params.verdict.revisedAnswer) !==
+    normalizeForSynthesisOutcome(params.draftAnswer);
+
+  if (hasStrongerFeedback && revisedChanged) return 'accepted';
+  if (!hasStrongerFeedback && !revisedChanged) return 'rejected';
+  return 'partial';
+}
+
 export async function runSecondOpinionCommand(
   session: Session,
   args: string[],
@@ -512,6 +683,13 @@ export async function runSecondOpinionCommand(
     messages as DehydrateMessageContent[],
   ) as ChatMessage[];
   const redactionApplied = confidential.mappings.byPlaceholder.size > 0;
+  const maxOutputTokens = configuredSecondOpinionMaxTokens();
+  const modelMetadataCheck = validateSecondOpinionModelMetadata({
+    model: target.model,
+    agentId: resolved.agentId,
+    messages: dehydratedMessages,
+    maxOutputTokens,
+  });
   const runId = makeAuditRunId('second-opinion');
 
   recordAuditEvent({
@@ -526,6 +704,7 @@ export async function runSecondOpinionCommand(
       transcriptIncluded: parsed.includeTranscript,
       questionTruncated,
       contextMessages: includedContextMessages.length,
+      modelMetadataCheck,
       confidentialSeverity: outboundConfidentialScan?.severity ?? null,
       confidentialMatches: outboundConfidentialScan?.totalMatches ?? 0,
     },
@@ -540,9 +719,7 @@ export async function runSecondOpinionCommand(
     fallbackChatbotId: resolved.chatbotId,
     agentId: resolved.agentId,
     tools: [],
-    maxTokens:
-      getRuntimeConfig().auxiliaryModels.second_opinion.maxTokens ||
-      SECOND_OPINION_DEFAULT_MAX_TOKENS,
+    maxTokens: maxOutputTokens,
     temperature: 0,
     timeoutMs: SECOND_OPINION_TIMEOUT_MS,
     allowFallback: false,
@@ -554,9 +731,12 @@ export async function runSecondOpinionCommand(
     parseSecondOpinionVerdict(response.content),
     confidential.rehydrate,
   );
+  const synthesisOutcome = classifySynthesisOutcome({
+    verdict,
+    draftAnswer: draft.content,
+  });
   const estimatedInputTokens =
-    response.usage?.inputTokens ??
-    estimateTokenCountFromMessages(dehydratedMessages);
+    response.usage?.inputTokens ?? modelMetadataCheck.estimatedInputTokens;
 
   enqueueTokenUsage({
     sessionId: session.id,
@@ -584,6 +764,8 @@ export async function runSecondOpinionCommand(
       confidence: verdict.confidence,
       materialDisagreements: verdict.materialDisagreements.length,
       missingCaveats: verdict.missingCaveats.length,
+      synthesisOutcome,
+      modelMetadataCheck,
       usage: response.usage || null,
     },
   });

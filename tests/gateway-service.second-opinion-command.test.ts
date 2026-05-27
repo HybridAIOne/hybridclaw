@@ -28,7 +28,16 @@ async function loadGatewayFixture() {
   return { memoryService, handleGatewayCommand };
 }
 
-function mockModelCatalog(models: string[]) {
+function mockModelCatalog(
+  models: string[],
+  metadataOverrides: Record<
+    string,
+    {
+      contextWindow?: number | null;
+      pricingUsdPerToken?: { input: number | null; output: number | null };
+    }
+  > = {},
+) {
   const refreshAvailableModelCatalogs = vi.fn(async () => ({
     attempted: 1,
     fulfilled: 1,
@@ -48,6 +57,17 @@ function mockModelCatalog(models: string[]) {
           ? models
           : [],
       ),
+      getModelCatalogMetadata: vi.fn((model: string) => {
+        const metadata = actual.getModelCatalogMetadata(model);
+        const override = metadataOverrides[model];
+        if (!override) return metadata;
+        return {
+          ...metadata,
+          ...override,
+          pricingUsdPerToken:
+            override.pricingUsdPerToken ?? metadata.pricingUsdPerToken,
+        };
+      }),
     };
   });
   return { refreshAvailableModelCatalogs };
@@ -196,6 +216,12 @@ test('second-opinion validate-last sends the previous answer to a stronger tool-
   expect(JSON.parse(completed?.payload || '{}')).toMatchObject({
     materialDisagreements: 1,
     questionTruncated: false,
+    synthesisOutcome: 'accepted',
+    modelMetadataCheck: {
+      requestedMaxOutputTokens: 1200,
+      estimatedInputTokens: expect.any(Number),
+      estimatedTotalTokens: expect.any(Number),
+    },
     usage: { totalTokens: 30 },
   });
 });
@@ -341,6 +367,141 @@ test('second-opinion reuses a fresh model catalog refresh', async () => {
 
   expect(refreshAvailableModelCatalogs).toHaveBeenCalledTimes(1);
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(2);
+});
+
+test('second-opinion audits model metadata cost and context estimates', async () => {
+  setupHome();
+  mockModelCatalog(['openai-codex/priced'], {
+    'openai-codex/priced': {
+      contextWindow: 100_000,
+      pricingUsdPerToken: { input: 0.001, output: 0.002 },
+    },
+  });
+
+  const callAuxiliaryModelMock = vi.fn(async () => ({
+    provider: 'openai-codex' as const,
+    model: 'openai-codex/priced',
+    content: JSON.stringify({
+      verdict: 'The draft is acceptable.',
+      revised_answer: 'Use the staged rollout.',
+      material_disagreements: [],
+      missing_caveats: [],
+      confidence: 'medium',
+    }),
+  }));
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel: callAuxiliaryModelMock,
+  }));
+
+  const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
+  const session = seedSession(memoryService, 'session-second-opinion-cost', [
+    { role: 'user', content: 'How should we roll this out?' },
+    { role: 'assistant', content: 'Use a staged rollout.' },
+  ]);
+
+  const result = await handleGatewayCommand({
+    sessionId: session.id,
+    guildId: null,
+    channelId: 'web',
+    args: ['second-opinion', '--validate-last'],
+  });
+
+  expect(result.kind).toBe('info');
+
+  const { getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const requested = getRecentStructuredAuditForSession(session.id, 10).find(
+    (entry) => entry.event_type === 'second_opinion.requested',
+  );
+  const payload = JSON.parse(requested?.payload || '{}');
+  expect(payload.modelMetadataCheck).toMatchObject({
+    contextWindow: 100_000,
+    pricingKnown: true,
+    requestedMaxOutputTokens: 1200,
+  });
+  expect(payload.modelMetadataCheck.estimatedMaxCostUsd).toBeCloseTo(
+    payload.modelMetadataCheck.estimatedInputTokens * 0.001 + 1200 * 0.002,
+    6,
+  );
+});
+
+test('second-opinion rejects models with too-small context windows before dispatch', async () => {
+  setupHome();
+  mockModelCatalog(['openai-codex/tiny-context'], {
+    'openai-codex/tiny-context': {
+      contextWindow: 10,
+      pricingUsdPerToken: { input: null, output: null },
+    },
+  });
+
+  const callAuxiliaryModelMock = vi.fn();
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel: callAuxiliaryModelMock,
+  }));
+
+  const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
+  const session = seedSession(memoryService, 'session-second-opinion-context', [
+    { role: 'user', content: 'How should we roll this out?' },
+    { role: 'assistant', content: 'Use a staged rollout.' },
+  ]);
+
+  const result = await handleGatewayCommand({
+    sessionId: session.id,
+    guildId: null,
+    channelId: 'web',
+    args: ['second-opinion', '--validate-last'],
+  });
+
+  expect(result.kind).toBe('error');
+  expect(result.text).toContain('exceeds the 10-token context window');
+  expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
+});
+
+test('second-opinion enforces configured agent budget before dispatch', async () => {
+  setupHome();
+  mockModelCatalog(['openai-codex/expensive'], {
+    'openai-codex/expensive': {
+      contextWindow: 100_000,
+      pricingUsdPerToken: { input: 1, output: 1 },
+    },
+  });
+
+  const callAuxiliaryModelMock = vi.fn();
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel: callAuxiliaryModelMock,
+  }));
+
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  updateRuntimeConfig((draft) => {
+    draft.agents.defaultAgentId = 'main';
+    const mainAgent = draft.agents.list.find((agent) => agent.id === 'main');
+    if (mainAgent) {
+      mainAgent.budget = { cap: 1, currency: 'USD', unit: 'USD' };
+    } else {
+      draft.agents.list.push({
+        id: 'main',
+        name: 'Main Agent',
+        budget: { cap: 1, currency: 'USD', unit: 'USD' },
+      });
+    }
+  });
+
+  const { memoryService } = await loadGatewayFixture();
+  const { runSecondOpinionCommand } = await import(
+    '../src/commands/second-opinion-command.ts'
+  );
+  const session = seedSession(memoryService, 'session-second-opinion-budget', [
+    { role: 'user', content: 'How should we roll this out?' },
+    { role: 'assistant', content: 'Use a staged rollout.' },
+  ]);
+
+  await expect(
+    runSecondOpinionCommand(session, ['--validate-last']),
+  ).rejects.toThrow('would exceed the monthly USD budget');
+  expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
 });
 
 test('second-opinion fails loud when no stronger default model is configured', async () => {

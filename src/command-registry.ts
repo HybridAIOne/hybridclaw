@@ -222,9 +222,9 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   'second-opinion': {
     command:
-      '/second-opinion [--validate-last] [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript] [question]',
+      '/second-opinion [question] (compare) | /second-opinion --validate-last (validate) [--model <model>] [--provider <provider>] [--max-context <n>] [--no-transcript]',
     description:
-      'Ask a stronger configured model to validate the last answer or compare against a question',
+      'Ask a stronger configured model to compare a question or validate the last answer',
   },
   concierge: {
     command:
