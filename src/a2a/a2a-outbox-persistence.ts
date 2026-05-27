@@ -200,7 +200,7 @@ export function listA2AOutboxItems(
 function makeOutboxItem(
   envelope: A2AEnvelope,
   descriptor: Partial<
-    Pick<A2APeerDescriptor, 'agentCardUrl' | 'bearerTokenRef'>
+    Pick<A2APeerDescriptor, 'agentCardUrl' | 'bearerTokenRef' | 'canonicalId'>
   >,
   context?: TransportAdapterContext,
   opts?: A2AOutboundAdapterOptions,
@@ -216,7 +216,16 @@ function makeOutboxItem(
     ...(descriptor.agentCardUrl
       ? { agentCardUrl: descriptor.agentCardUrl }
       : {}),
-    ...(identityResolution ? { identityResolution } : {}),
+    ...(identityResolution
+      ? { identityResolution }
+      : descriptor.canonicalId
+        ? {
+            identityResolution: {
+              status: 'unresolved',
+              canonicalId: descriptor.canonicalId,
+            } satisfies A2AOutboxIdentityResolution,
+          }
+        : {}),
     bearerTokenRef: descriptor.bearerTokenRef,
     attempts: 0,
     maxAttempts: normalizePositiveInteger(

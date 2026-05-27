@@ -7,7 +7,7 @@ import {
 } from '../gateway/interactive-escalation.js';
 import {
   IdentityNotFoundError,
-  type IdentityResolution,
+  type IdentityResolver,
 } from '../identity/resolver.js';
 import { resolveSecretHandleInput } from '../security/secret-refs.js';
 import {
@@ -28,12 +28,14 @@ import {
 import { getA2AAuditSessionId, recordA2AMessageAudit } from './audit.js';
 import { signA2ADelegationToken } from './delegation-token.js';
 import { summarizeA2AEnvelopeForAudit } from './envelope.js';
+import { resolveA2AIdentity } from './identity-resolver.js';
 import { normalizePeerDescriptor } from './peer-descriptor.js';
 import {
   type A2APeerPublicKeyMaterial,
   assertA2APeerPublicKeyTrust,
   extractA2APeerPublicKey,
   fingerprintA2APublicKey,
+  normalizePublicKeyFingerprint,
 } from './trust-ledger.js';
 import {
   isA2AAllowedHttpUrl,
@@ -52,9 +54,7 @@ export interface A2AOutboxProcessOptions {
   /** Test hook for deterministic delivery without making live network calls. */
   fetchImpl?: typeof fetch;
   /** Resolves canonical remote recipients that were queued without a peer descriptor. */
-  identityResolver?: {
-    resolve(canonicalId: string): Promise<IdentityResolution>;
-  };
+  identityResolver?: Pick<IdentityResolver, 'resolve'>;
   /** Test hook for deterministic retry/audit timestamps. */
   now?: () => Date;
   /** Test hook for deterministic retry jitter. */
@@ -178,7 +178,29 @@ function recordA2AAudit(
   });
 }
 
-function createA2AEscalation(item: A2AOutboxItem, reason: string): void {
+function describeA2AItemDestination(
+  item: A2AOutboxItem,
+  agentCardUrl?: string,
+): string {
+  return (
+    agentCardUrl ||
+    item.agentCardUrl ||
+    item.identityResolution?.canonicalId ||
+    'unresolved peer'
+  );
+}
+
+interface A2AAttemptDetails {
+  statusCode?: number;
+  jsonRpcCode?: number;
+  agentCardUrl?: string;
+}
+
+function createA2AEscalation(
+  item: A2AOutboxItem,
+  reason: string,
+  agentCardUrl?: string,
+): void {
   const sessionId = resolveItemSessionId(item);
   const runId = resolveItemRunId(item, 'a2a-outbound');
   const approvalId = `a2a-outbound-${item.envelope.id}`;
@@ -187,7 +209,7 @@ function createA2AEscalation(item: A2AOutboxItem, reason: string): void {
     approvalId,
     prompt: [
       'A2A outbound delivery failed.',
-      `Agent Card: ${item.agentCardUrl || '<unresolved>'}`,
+      `Destination: ${describeA2AItemDestination(item, agentCardUrl)}`,
       `Message: ${item.envelope.id}`,
       `Reason: ${reason}`,
       'Reply `approved` after fixing the peer, or `declined` to cancel this delivery.',
@@ -213,7 +235,7 @@ function failA2AItem(
   item: A2AOutboxItem,
   now: Date,
   reason: string,
-  details: { statusCode?: number; jsonRpcCode?: number } = {},
+  details: A2AAttemptDetails = {},
 ): A2AOutboxItem {
   const failed: A2AOutboxItem = {
     ...item,
@@ -233,7 +255,8 @@ function failA2AItem(
     statusCode: details.statusCode ?? null,
     jsonRpcCode: details.jsonRpcCode ?? null,
     envelope: summarizeA2AEnvelopeForAudit(failed.envelope),
-    agentCardUrl: failed.agentCardUrl ?? null,
+    agentCardUrl: details.agentCardUrl ?? failed.agentCardUrl ?? null,
+    canonicalId: failed.identityResolution?.canonicalId ?? null,
   });
   recordA2AAudit(failed, {
     type: 'escalation.decision',
@@ -246,9 +269,11 @@ function failA2AItem(
     classifierReasoning: [reason],
     approvalDecision: 'required',
     reason,
+    agentCardUrl: details.agentCardUrl ?? failed.agentCardUrl ?? null,
+    canonicalId: failed.identityResolution?.canonicalId ?? null,
     envelope: summarizeA2AEnvelopeForAudit(failed.envelope),
   });
-  createA2AEscalation(failed, reason);
+  createA2AEscalation(failed, reason, details.agentCardUrl);
   return failed;
 }
 
@@ -284,7 +309,7 @@ function retryA2AItem(
       'baseDelayMs' | 'maxDelayMs' | 'jitterRatio' | 'random'
     >
   >,
-  details: { statusCode?: number; jsonRpcCode?: number } = {},
+  details: A2AAttemptDetails = {},
 ): A2AOutboxItem {
   const attempts = item.attempts + 1;
   const exponentialDelay = Math.min(
@@ -312,9 +337,19 @@ function retryA2AItem(
     statusCode: details.statusCode ?? null,
     jsonRpcCode: details.jsonRpcCode ?? null,
     envelope: summarizeA2AEnvelopeForAudit(retry.envelope),
-    agentCardUrl: retry.agentCardUrl ?? null,
+    agentCardUrl: details.agentCardUrl ?? retry.agentCardUrl ?? null,
+    canonicalId: retry.identityResolution?.canonicalId ?? null,
   });
   return retry;
+}
+
+function attemptDetails(
+  item: A2AOutboxItem,
+  details: Omit<A2AAttemptDetails, 'agentCardUrl'> = {},
+): A2AAttemptDetails {
+  return item.agentCardUrl
+    ? { ...details, agentCardUrl: item.agentCardUrl }
+    : details;
 }
 
 function retryOrFailA2AItem(
@@ -329,7 +364,7 @@ function retryOrFailA2AItem(
       'baseDelayMs' | 'maxDelayMs' | 'jitterRatio' | 'random'
     >
   >,
-  details: { statusCode?: number; jsonRpcCode?: number } = {},
+  details: A2AAttemptDetails = {},
 ): 'retried' | 'failed' {
   if (attemptNumber >= maxAttempts) {
     failA2AItem(item, now, reason, details);
@@ -350,13 +385,8 @@ async function resolveA2AItemDeliveryTarget(
   if (!canonicalId) {
     throw new Error('A2A outbox item is missing an Agent Card URL');
   }
-  if (!opts.identityResolver) {
-    throw new Error(
-      `A2A identity resolver is required for remote recipient ${canonicalId}`,
-    );
-  }
-
-  const resolution = await opts.identityResolver.resolve(canonicalId);
+  const resolution = await (opts.identityResolver?.resolve(canonicalId) ??
+    resolveA2AIdentity(canonicalId));
   const descriptor = normalizePeerDescriptor({
     transport: 'a2a',
     url: resolution.url,
@@ -392,7 +422,13 @@ async function resolveA2AItemDeliveryTarget(
 
 function discoveryPublicKeyFingerprint(publicKey: string): string | null {
   const normalized = publicKey.trim();
-  if (/^[A-Za-z0-9_-]{43}$/.test(normalized)) return normalized;
+  if (/^[A-Za-z0-9_-]+$/u.test(normalized)) {
+    try {
+      return normalizePublicKeyFingerprint(normalized);
+    } catch {
+      return null;
+    }
+  }
   try {
     const parsed = JSON.parse(normalized) as JsonWebKey;
     if (
@@ -497,14 +533,19 @@ export async function deliverA2AItem(
       error instanceof A2AFailFastError ||
       error instanceof IdentityNotFoundError
     ) {
-      failA2AItem(deliveryItem, now, reason);
+      failA2AItem(deliveryItem, now, reason, attemptDetails(deliveryItem));
       return 'failed';
     }
     const httpDecision = statusCode
       ? classifyA2AHttpStatus(statusCode)
       : 'retry';
     if (httpDecision === 'fail-fast') {
-      failA2AItem(deliveryItem, now, reason, { statusCode });
+      failA2AItem(
+        deliveryItem,
+        now,
+        reason,
+        attemptDetails(deliveryItem, { statusCode }),
+      );
       return 'failed';
     }
     return retryOrFailA2AItem(
@@ -514,7 +555,7 @@ export async function deliverA2AItem(
       maxAttempts,
       reason,
       retryOptions,
-      { statusCode },
+      attemptDetails(deliveryItem, { statusCode }),
     );
   }
 
@@ -533,7 +574,7 @@ export async function deliverA2AItem(
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    failA2AItem(deliveryItem, now, reason);
+    failA2AItem(deliveryItem, now, reason, attemptDetails(deliveryItem));
     return 'failed';
   }
 
@@ -543,6 +584,7 @@ export async function deliverA2AItem(
       deliveryItem,
       now,
       'Agent Card url must use https unless targeting loopback',
+      attemptDetails(deliveryItem),
     );
     return 'failed';
   }
@@ -571,7 +613,7 @@ export async function deliverA2AItem(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     if (error instanceof A2AFailFastError) {
-      failA2AItem(deliveryItem, now, reason);
+      failA2AItem(deliveryItem, now, reason, attemptDetails(deliveryItem));
       return 'failed';
     }
     return retryOrFailA2AItem(
@@ -581,14 +623,18 @@ export async function deliverA2AItem(
       maxAttempts,
       reason,
       retryOptions,
+      attemptDetails(deliveryItem),
     );
   }
 
   const httpDecision = classifyA2AHttpStatus(response.status);
   if (httpDecision === 'fail-fast') {
-    failA2AItem(deliveryItem, now, `HTTP ${response.status}`, {
-      statusCode: response.status,
-    });
+    failA2AItem(
+      deliveryItem,
+      now,
+      `HTTP ${response.status}`,
+      attemptDetails(deliveryItem, { statusCode: response.status }),
+    );
     return 'failed';
   }
   if (httpDecision === 'retry') {
@@ -599,7 +645,7 @@ export async function deliverA2AItem(
       maxAttempts,
       `HTTP ${response.status}`,
       retryOptions,
-      { statusCode: response.status },
+      attemptDetails(deliveryItem, { statusCode: response.status }),
     );
   }
 
@@ -611,7 +657,12 @@ export async function deliverA2AItem(
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    failA2AItem(deliveryItem, now, reason, { statusCode: response.status });
+    failA2AItem(
+      deliveryItem,
+      now,
+      reason,
+      attemptDetails(deliveryItem, { statusCode: response.status }),
+    );
     return 'failed';
   }
 
@@ -630,16 +681,21 @@ export async function deliverA2AItem(
         maxAttempts,
         reason,
         retryOptions,
-        {
+        attemptDetails(deliveryItem, {
           statusCode: response.status,
           jsonRpcCode: code,
-        },
+        }),
       );
     }
-    failA2AItem(deliveryItem, now, reason, {
-      statusCode: response.status,
-      ...(Number.isFinite(code) ? { jsonRpcCode: code } : {}),
-    });
+    failA2AItem(
+      deliveryItem,
+      now,
+      reason,
+      attemptDetails(deliveryItem, {
+        statusCode: response.status,
+        ...(Number.isFinite(code) ? { jsonRpcCode: code } : {}),
+      }),
+    );
     return 'failed';
   }
 
@@ -672,6 +728,7 @@ export async function deliverA2AItem(
     method: request.method,
     envelope: summarizeA2AEnvelopeForAudit(delivered.envelope),
     agentCardUrl: delivered.agentCardUrl ?? null,
+    canonicalId: delivered.identityResolution?.canonicalId ?? null,
   });
   return 'delivered';
 }

@@ -47,7 +47,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     pages: [
       { title: 'HybridClaw Docs', path: 'README.md' },
       {
-        title: "HybridClaw: The AI Coworker Who's Already On It",
+        title: 'Manifesto',
         path: 'manifesto.md',
       },
     ],

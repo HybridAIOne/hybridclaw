@@ -119,7 +119,7 @@ function normalizeIdentityResolution(value: unknown): IdentityResolution {
   };
 }
 
-function normalizeIdentityUrl(value: string): string {
+export function normalizeIdentityUrl(value: string): string {
   const trimmed = value.trim();
   if (!isA2AAllowedHttpUrl(trimmed)) {
     throw new IdentityResolverError(
