@@ -725,7 +725,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   font-size: inherit;
 }
 
-/* Copy-on-hover button injected into each code block (see message-block.tsx). */
+/* Always-visible bare icon button injected into each code block
+   (see message-block.tsx) — no background, brightens on hover. */
 .codeCopyButton {
   position: absolute;
   top: 6px;
@@ -733,43 +734,30 @@ aside[data-state="collapsed"] .chatSidebarContent {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  color: var(--terminal-foreground);
-  background: color-mix(in srgb, var(--code-bg) 70%, transparent);
-  border: 1px solid
-    color-mix(in srgb, var(--terminal-foreground) 22%, transparent);
+  color: color-mix(in srgb, var(--terminal-foreground) 55%, transparent);
+  background: none;
+  border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity 120ms ease,
-    color 120ms ease,
-    border-color 120ms ease;
-}
-
-.markdownContent pre:hover .codeCopyButton,
-.codeCopyButton:focus-visible {
-  opacity: 1;
-}
-
-/* Touch devices have no hover, so reveal the button permanently there —
-   otherwise copy is unreachable on mobile/tablet. */
-@media (hover: none) {
-  .codeCopyButton {
-    opacity: 1;
-  }
+  transition: color 120ms ease;
 }
 
 .codeCopyButton:hover {
-  border-color: color-mix(in srgb, var(--terminal-foreground) 45%, transparent);
+  color: var(--terminal-foreground);
 }
 
-.codeCopyButtonDone {
+.codeCopyButton:focus-visible {
+  outline: 1px solid
+    color-mix(in srgb, var(--terminal-foreground) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.codeCopyButtonDone,
+.codeCopyButtonDone:hover {
   color: var(--success);
-  border-color: color-mix(in srgb, var(--success) 45%, transparent);
-  opacity: 1;
 }
 
 /* Language tag in a header strip; extra top padding is only added to blocks
