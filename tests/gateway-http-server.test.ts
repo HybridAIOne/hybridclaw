@@ -9789,6 +9789,70 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body).json).toEqual({ rows: [], rowCount: 0 });
   });
 
+  test('URL-encodes resolved secret values in outbound http_request form bodies', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-form-secrets-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      FORM_CLIENT_ID: 'client+id',
+      FORM_REFRESH_TOKEN: 'refresh+token&with=syntax',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.example.com/token',
+        method: 'POST',
+        form: {
+          grant_type: 'refresh_token',
+          client_id: '<secret:FORM_CLIENT_ID>',
+          refresh_token: '<secret:FORM_REFRESH_TOKEN>',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          client_id: 'client+id',
+          refresh_token: 'refresh+token&with=syntax',
+        }).toString(),
+        headers: expect.objectContaining({
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }),
+      }),
+    );
+  });
+
   test('blocks Google service-account auth for non-Google API hosts', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-sa-block-');
     process.env.HOME = homeDir;
@@ -10153,7 +10217,7 @@ describe('gateway HTTP server', () => {
     );
   });
 
-  test('validates pinned TLS certificate SHA-256 before outbound http_request fetch', async () => {
+  test('validates pinned TLS certificate SHA-256 on the outbound http_request connection', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-tls-pin-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir);
@@ -10161,22 +10225,28 @@ describe('gateway HTTP server', () => {
 
     const certRaw = Buffer.from('test bridge certificate');
     const fingerprint = createHash('sha256').update(certRaw).digest('hex');
-    const connectMock = vi.fn(() => {
-      const socket = new EventEmitter() as EventEmitter & {
-        getPeerCertificate: () => { raw: Buffer };
-        end: ReturnType<typeof vi.fn>;
-        destroy: ReturnType<typeof vi.fn>;
-      };
-      socket.getPeerCertificate = () => ({ raw: certRaw });
-      socket.end = vi.fn();
-      socket.destroy = vi.fn();
-      setImmediate(() => socket.emit('secureConnect'));
-      return socket;
+    const order: string[] = [];
+    const socket = {
+      destroy: vi.fn(),
+      getPeerCertificate: vi.fn(() => {
+        order.push('pin');
+        return { raw: certRaw };
+      }),
+    };
+    const connectorMock = vi.fn((_options, callback) => {
+      callback(null, socket);
     });
-    vi.doMock('node:tls', () => ({
-      default: {
-        connect: connectMock,
-      },
+    const closeMock = vi.fn(async () => {
+      order.push('close');
+    });
+    vi.doMock('undici', () => ({
+      Agent: vi.fn().mockImplementation(function (options) {
+        return {
+          close: closeMock,
+          connect: options.connect,
+        };
+      }),
+      buildConnector: vi.fn(() => connectorMock),
     }));
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
@@ -10185,12 +10255,39 @@ describe('gateway HTTP server', () => {
       dataDir: path.join(homeDir, '.hybridclaw', 'data'),
       gatewayApiToken: 'gateway-token',
     });
-    const fetchMock = vi.fn().mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
+    const fetchMock = vi.fn(async (_url, options) => {
+      await new Promise<void>((resolve, reject) => {
+        options.dispatcher.connect(
+          {
+            hostname: 'bridge.example.com',
+            port: '443',
+            protocol: 'https:',
+          },
+          (error: Error | null) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          },
+        );
+      });
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            order.push('body');
+            controller.enqueue(
+              new TextEncoder().encode(JSON.stringify({ ok: true })),
+            );
+            controller.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const req = makeRequest({
@@ -10208,13 +10305,13 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(res.statusCode).toBe(200);
-    expect(connectMock).toHaveBeenCalledWith(
+    expect(connectorMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        host: 'bridge.example.com',
-        port: 443,
-        servername: 'bridge.example.com',
-        rejectUnauthorized: false,
+        hostname: 'bridge.example.com',
+        port: '443',
+        protocol: 'https:',
       }),
+      expect.any(Function),
     );
     expect(fetchMock).toHaveBeenCalledWith(
       expect.any(URL),
@@ -10222,30 +10319,32 @@ describe('gateway HTTP server', () => {
         dispatcher: expect.anything(),
       }),
     );
+    expect(closeMock).toHaveBeenCalledOnce();
+    expect(order).toEqual(['pin', 'body', 'close']);
   });
 
-  test('blocks pinned TLS fingerprint mismatches before outbound http_request fetch', async () => {
+  test('blocks pinned TLS fingerprint mismatches on the outbound http_request connection', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-tls-pin-mismatch-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir);
     writeAllowAllSecretPolicy(homeDir);
 
-    const connectMock = vi.fn(() => {
-      const socket = new EventEmitter() as EventEmitter & {
-        getPeerCertificate: () => { raw: Buffer };
-        end: ReturnType<typeof vi.fn>;
-        destroy: ReturnType<typeof vi.fn>;
-      };
-      socket.getPeerCertificate = () => ({ raw: Buffer.from('other cert') });
-      socket.end = vi.fn();
-      socket.destroy = vi.fn();
-      setImmediate(() => socket.emit('secureConnect'));
-      return socket;
+    const socket = {
+      destroy: vi.fn(),
+      getPeerCertificate: vi.fn(() => ({ raw: Buffer.from('other cert') })),
+    };
+    const connectorMock = vi.fn((_options, callback) => {
+      callback(null, socket);
     });
-    vi.doMock('node:tls', () => ({
-      default: {
-        connect: connectMock,
-      },
+    const closeMock = vi.fn(async () => undefined);
+    vi.doMock('undici', () => ({
+      Agent: vi.fn().mockImplementation(function (options) {
+        return {
+          close: closeMock,
+          connect: options.connect,
+        };
+      }),
+      buildConnector: vi.fn(() => connectorMock),
     }));
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
@@ -10254,7 +10353,25 @@ describe('gateway HTTP server', () => {
       dataDir: path.join(homeDir, '.hybridclaw', 'data'),
       gatewayApiToken: 'gateway-token',
     });
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async (_url, options) => {
+      await new Promise<void>((resolve, reject) => {
+        options.dispatcher.connect(
+          {
+            hostname: 'bridge.example.com',
+            port: '443',
+            protocol: 'https:',
+          },
+          (error: Error | null) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          },
+        );
+      });
+      return new Response(JSON.stringify({ ok: true }));
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const req = makeRequest({
@@ -10276,7 +10393,9 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body).error).toContain(
       'Pinned TLS certificate check failed',
     );
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(socket.destroy).toHaveBeenCalledOnce();
+    expect(closeMock).toHaveBeenCalledOnce();
   });
 
   test('captures explicit token bindDomain for cross-host OAuth tokens', async () => {

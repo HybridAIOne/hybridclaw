@@ -222,7 +222,8 @@ hybridclaw secret set HUE_BRIDGE_HOST "https://192.168.1.30"
 node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab
 ```
 
-Optionally store a TLS pin and v1 fallback username:
+Optionally store a TLS pin for requests that pass
+`--tls-sha256-secret HUE_BRIDGE_TLS_SHA256`, and store a v1 fallback username:
 
 ```bash
 hybridclaw secret set HUE_BRIDGE_TLS_SHA256 "<sha256-fingerprint>"

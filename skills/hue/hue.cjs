@@ -8,7 +8,6 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const LOCAL_HOST_SECRET = 'HUE_BRIDGE_HOST';
 const LOCAL_KEY_SECRET = 'HUE_APPLICATION_KEY';
-const LOCAL_TLS_PIN_SECRET = 'HUE_BRIDGE_TLS_SHA256';
 const V1_USERNAME_SECRET = 'HUE_BRIDGE_USERNAME_V1';
 const REMOTE_CLIENT_ID_SECRET = 'HUE_REMOTE_CLIENT_ID';
 const REMOTE_CLIENT_SECRET_SECRET = 'HUE_REMOTE_CLIENT_SECRET';
@@ -127,6 +126,7 @@ Environment:
   HYBRIDCLAW_GATEWAY_TOKEN gateway bearer token for live execution
   HUE_BRIDGE_HOST          stored bridge URL used through <secret:HUE_BRIDGE_HOST>
   HUE_APPLICATION_KEY      stored CLIP v2 application key, emitted only as a secretHeaders ref
+  HUE_BRIDGE_TLS_SHA256    optional TLS pin usable with --tls-sha256-secret HUE_BRIDGE_TLS_SHA256
 `);
 }
 
@@ -381,6 +381,7 @@ function buildHttpPayload(operation, tier, options) {
   };
   if (options.headers) httpRequest.headers = options.headers;
   if (options.body !== undefined) httpRequest.body = options.body;
+  if (options.form !== undefined) httpRequest.form = options.form;
   if (options.json !== undefined) httpRequest.json = options.json;
   if (options.secretHeaders) httpRequest.secretHeaders = options.secretHeaders;
   if (options.replaceSecretPlaceholders !== undefined) {
@@ -422,12 +423,26 @@ function localSecretHeaders() {
 
 function localTlsPolicy(args) {
   const sha256 = popFlag(args, '--tls-sha256');
+  const secretName = popFlag(args, '--tls-sha256-secret');
+  if (sha256 && secretName) {
+    die('Use only one of --tls-sha256 or --tls-sha256-secret.');
+  }
+  if (secretName) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/u.test(secretName)) {
+      die('--tls-sha256-secret must be an uppercase runtime secret name.');
+    }
+    return {
+      selfSignedBridgeCertificateExpected: true,
+      secretName,
+      pinning:
+        'Operator supplied Hue Bridge certificate SHA-256 fingerprint secret.',
+    };
+  }
   if (!sha256) {
     return {
       selfSignedBridgeCertificateExpected: true,
       pinning:
-        'Set HUE_BRIDGE_TLS_SHA256 or pass --tls-sha256 to document the trusted Hue Bridge certificate fingerprint. Do not disable TLS verification globally.',
-      secretName: LOCAL_TLS_PIN_SECRET,
+        'Optional: pass --tls-sha256 to pin the trusted Hue Bridge certificate fingerprint. Do not disable TLS verification globally.',
     };
   }
   if (!/^[A-Fa-f0-9:]{64,95}$/u.test(sha256)) {
@@ -522,10 +537,12 @@ function buildRemoteRead(args, resourceAlias) {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body:
-        `grant_type=refresh_token&refresh_token=<secret:${REMOTE_REFRESH_TOKEN_SECRET}>` +
-        `&client_id=<secret:${REMOTE_CLIENT_ID_SECRET}>` +
-        `&client_secret=<secret:${REMOTE_CLIENT_SECRET_SECRET}>`,
+      form: {
+        grant_type: 'refresh_token',
+        refresh_token: `<secret:${REMOTE_REFRESH_TOKEN_SECRET}>`,
+        client_id: `<secret:${REMOTE_CLIENT_ID_SECRET}>`,
+        client_secret: `<secret:${REMOTE_CLIENT_SECRET_SECRET}>`,
+      },
       replaceSecretPlaceholders: true,
       captureResponseFields: [
         { jsonPath: 'access_token', secretName: REMOTE_ACCESS_TOKEN_SECRET },
