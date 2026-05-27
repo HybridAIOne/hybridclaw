@@ -608,6 +608,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   box-shadow: var(--shadow-card);
 }
 
+/* System notices (e.g. error messages): a centered, low-emphasis pill. */
 .bubbleSystem {
   background: var(--accent-soft);
   color: var(--accent-foreground);
@@ -615,6 +616,36 @@ aside[data-state="collapsed"] .chatSidebarContent {
   align-self: center;
   max-width: 90%;
   text-align: center;
+}
+
+/* Slash-command / console output: a left-aligned terminal-style block, clearly
+   distinct from an assistant card so command output never reads as a model
+   reply. */
+.bubbleCommand {
+  align-self: flex-start;
+  max-width: 85%;
+  /* Light theme: a light "console" surface. The dark terminal look is applied
+     only under the dark theme below — a near-black block looks out of place on
+     a light page. */
+  background: var(--secondary);
+  color: var(--foreground);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(
+    --font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace
+  );
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+:global(html[data-theme="dark"]) .bubbleCommand {
+  background: var(--terminal);
+  color: var(--terminal-foreground);
 }
 
 .markdownContent {
@@ -729,6 +760,24 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .markdownContent tbody tr:nth-child(even) {
   background: var(--muted);
+}
+
+/* Command output renders markdown. Text inherits the bubble color and links
+   use the base --primary — both already theme-appropriate. Only inline code
+   needs a tint to stay visible on the console surface (keyed to the foreground
+   so it works in light and dark), plus trimming the block's outer margins.
+   These override the base .markdownContent rules above. */
+.bubbleCommand .markdownContent > :first-child {
+  margin-top: 0;
+}
+
+.bubbleCommand .markdownContent > :last-child {
+  margin-bottom: 0;
+}
+
+.bubbleCommand .markdownContent code {
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+  color: inherit;
 }
 
 .messageActions {

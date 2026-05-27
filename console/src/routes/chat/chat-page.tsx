@@ -641,7 +641,7 @@ export function ChatPage() {
             ...(prev?.messages ?? []),
             {
               id: nextMsgId(),
-              role: 'assistant',
+              role: 'command',
               content: text,
               rawContent: text,
               sessionId: targetSessionId,

@@ -7964,9 +7964,13 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await settle();
 
+    // No visible output -> empty result (the web console renders no bubble for
+    // it) rather than a "Done." placeholder. Success is still signalled by
+    // status, and the flag still marks it as command output.
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
-      result: 'Done.',
+      result: '',
+      commandResult: true,
       sessionId: 'session-web-empty',
     });
     expect(state.loggerDebug).toHaveBeenCalledWith(

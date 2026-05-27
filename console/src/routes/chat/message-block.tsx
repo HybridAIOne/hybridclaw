@@ -315,6 +315,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
   const isMarkdownMessage =
     msg.role === 'assistant' ||
     msg.role === 'approval' ||
+    msg.role === 'command' ||
     Boolean(msg.pendingApproval);
   const renderedHtml = useRenderedMarkdown(
     msg.content,
@@ -350,7 +351,10 @@ export const MessageBlock = memo(function MessageBlock(props: {
   const blockClass = cx(
     css.messageBlock,
     isUser && css.messageBlockUser,
-    (isAssistant || msg.role === 'system' || isApproval) &&
+    (isAssistant ||
+      msg.role === 'system' ||
+      msg.role === 'command' ||
+      isApproval) &&
       css.messageBlockAssistant,
   );
 
@@ -359,6 +363,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
     isUser && css.bubbleUser,
     (isAssistant || isApproval) && css.bubbleAssistant,
     msg.role === 'system' && css.bubbleSystem,
+    msg.role === 'command' && css.bubbleCommand,
   );
 
   return (
@@ -378,7 +383,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {shouldRenderBubble ? (
         <div className={bubbleClass}>
-          {isAssistant || isApproval ? (
+          {isMarkdownMessage ? (
             <div
               className={css.markdownContent}
               // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
