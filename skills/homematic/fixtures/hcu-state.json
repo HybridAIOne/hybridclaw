@@ -1,0 +1,86 @@
+{
+  "home": {
+    "id": "home-1",
+    "label": "Example Home",
+    "securityState": "DISARMED"
+  },
+  "groups": [
+    {
+      "id": "room-living",
+      "label": "Living Room",
+      "type": "ROOM"
+    },
+    {
+      "id": "heating-living",
+      "label": "Living Room Heating",
+      "type": "HEATING"
+    }
+  ],
+  "devices": [
+    {
+      "deviceId": "3014F711A000000000001234",
+      "friendlyName": "Living Room Plug",
+      "deviceType": "SWITCH",
+      "roomId": "room-living",
+      "features": [
+        {
+          "type": "switchState",
+          "channelIndex": 1,
+          "on": true
+        },
+        {
+          "type": "currentPower",
+          "power": 23.4
+        }
+      ]
+    },
+    {
+      "deviceId": "3014F711A000000000005678",
+      "friendlyName": "Living Room Thermostat",
+      "deviceType": "THERMOSTAT",
+      "roomId": "room-living",
+      "features": [
+        {
+          "type": "actualTemperature",
+          "temperature": 20.1
+        },
+        {
+          "type": "setPointTemperature",
+          "temperature": 20.5
+        },
+        {
+          "type": "humidity",
+          "humidity": 44
+        }
+      ]
+    },
+    {
+      "deviceId": "3014F711A000000000009999",
+      "friendlyName": "Living Room Shutter",
+      "deviceType": "SHUTTER",
+      "roomId": "room-living",
+      "features": [
+        {
+          "type": "shutterLevel",
+          "channelIndex": 1,
+          "level": 0.35
+        }
+      ]
+    },
+    {
+      "deviceId": "3014F711A000000000007777",
+      "friendlyName": "Smoke Alarm Hallway",
+      "deviceType": "SMOKE_ALARM",
+      "features": [
+        {
+          "type": "smokeAlarm",
+          "state": "IDLE"
+        },
+        {
+          "type": "batteryState",
+          "state": "OK"
+        }
+      ]
+    }
+  ]
+}
