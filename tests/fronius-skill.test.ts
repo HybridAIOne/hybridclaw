@@ -83,6 +83,7 @@ test('Fronius skill manifest declares Solar.web SecretRef metadata only', () => 
   expect(skill).toContain(
     'Use `local-health` through the helper and `http_request`',
   );
+  expect(skill).toContain('`local-summary` command');
   expect(skill).toContain(
     'Treat the inverter LAN base URL as plain local configuration',
   );
@@ -156,6 +157,128 @@ test('Fronius helper covers all local endpoint shapes', () => {
         .url,
     ).toBe(`http://192.168.178.40${suffix}`);
   }
+});
+
+test('Fronius local summary returns normalized live power, meter, and storage data', async () => {
+  const seenUrls: string[] = [];
+  const fetchMock = vi.fn(async (url: string | URL) => {
+    const normalizedUrl = String(url);
+    seenUrls.push(normalizedUrl);
+    if (normalizedUrl.includes('GetPowerFlowRealtimeData.fcgi')) {
+      return new Response(
+        JSON.stringify({
+          Body: {
+            Data: {
+              Inverters: {
+                '1': {
+                  Battery_Mode: 'normal',
+                  E_Total: 22506972.196111113,
+                  P: 1087.2171630859375,
+                  SOC: 37.4,
+                },
+              },
+              Site: {
+                BackupMode: false,
+                BatteryStandby: true,
+                Meter_Location: 'grid',
+                Mode: 'bidirectional',
+                P_Akku: 1143.27685546875,
+                P_Grid: -56.8,
+                P_Load: -1030.5236083984375,
+                P_PV: 1.626052975654602,
+                rel_Autonomy: 100,
+                rel_SelfConsumption: 94.77616419240056,
+                E_Total: 22506972.196111113,
+              },
+            },
+          },
+          Head: { Timestamp: '2026-05-27T21:57:26+00:00' },
+        }),
+        { status: 200, statusText: 'OK' },
+      );
+    }
+    if (normalizedUrl.includes('GetMeterRealtimeData.cgi')) {
+      return new Response(
+        JSON.stringify({
+          Body: {
+            Data: {
+              '0': {
+                Details: {
+                  Manufacturer: 'Fronius',
+                  Model: 'Smart Meter TS 65A-3',
+                  Serial: '556008880',
+                },
+                PowerReal_P_Sum: -56.8,
+                EnergyReal_WAC_Sum_Consumed: 4851825,
+                EnergyReal_WAC_Sum_Produced: 5858351,
+              },
+            },
+          },
+        }),
+        { status: 200, statusText: 'OK' },
+      );
+    }
+    if (normalizedUrl.includes('GetStorageRealtimeData.cgi')) {
+      return new Response(
+        JSON.stringify({
+          Body: {
+            Data: {
+              '0': {
+                Controller: {
+                  Details: {
+                    Manufacturer: 'BYD',
+                    Model: 'BYD Battery-Box Premium HV',
+                    Serial: 'P030T020Z2307110449     ',
+                  },
+                  DesignedCapacity: 12800,
+                  StateOfCharge_Relative: 37.4,
+                },
+              },
+            },
+          },
+        }),
+        { status: 200, statusText: 'OK' },
+      );
+    }
+    return new Response('not found', { status: 404, statusText: 'Not Found' });
+  });
+
+  const summary = await fronius.executeLocalSummary(
+    [],
+    { localHost: 'http://192.168.178.86' },
+    { fetch: fetchMock },
+  );
+
+  expect(summary).toMatchObject({
+    command: 'local-summary',
+    ok: true,
+    metrics: {
+      pvProductionW: 1.626052975654602,
+      loadPowerW: -1030.5236083984375,
+      loadConsumptionW: 1030.5236083984375,
+      gridPowerW: -56.8,
+      gridImportW: 0,
+      gridExportW: 56.8,
+      batteryPowerW: 1143.27685546875,
+      batteryDischargeW: 1143.27685546875,
+      batteryChargeW: 0,
+      batterySocPercent: 37.4,
+    },
+    meter: {
+      powerRealPSumW: -56.8,
+      model: 'Smart Meter TS 65A-3',
+    },
+    storage: {
+      stateOfChargePercent: 37.4,
+      model: 'BYD Battery-Box Premium HV',
+      serial: 'P030T020Z2307110449',
+    },
+  });
+  expect(seenUrls).toEqual([
+    'http://192.168.178.86/solar_api/v1/GetPowerFlowRealtimeData.fcgi',
+    'http://192.168.178.86/solar_api/v1/GetMeterRealtimeData.cgi?Scope=System',
+    'http://192.168.178.86/solar_api/v1/GetStorageRealtimeData.cgi?Scope=System',
+  ]);
 });
 
 test('Fronius local API version request uses configured local host', () => {

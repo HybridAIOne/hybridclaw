@@ -229,6 +229,7 @@ function usage() {
   return `Fronius skill helper
 
 Usage:
+  node skills/fronius/fronius.cjs --format json --local-host http://<fronius-ip> local-summary
   node skills/fronius/fronius.cjs --format json http-request local-api-version
   node skills/fronius/fronius.cjs --format json http-request local-health
   node skills/fronius/fronius.cjs --format json http-request local-power-flow
@@ -643,6 +644,180 @@ function buildRequest(argv) {
   return buildRequestFromParsed(parseArgs(argv));
 }
 
+function readRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
+}
+
+function readNumberValue(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function firstRecordValue(record) {
+  const values = Object.values(readRecord(record));
+  return readRecord(values[0]);
+}
+
+function normalizedPowerFlowMetrics(json) {
+  const data = readRecord(readRecord(readRecord(json).Body).Data);
+  const site = readRecord(data.Site);
+  const inverters = readRecord(data.Inverters);
+  const inverter = firstRecordValue(inverters);
+  const loadPowerW = readNumberValue(site.P_Load);
+  const batteryPowerW = readNumberValue(site.P_Akku);
+  const gridPowerW = readNumberValue(site.P_Grid);
+
+  return {
+    timestamp: readRecord(readRecord(json).Head).Timestamp || null,
+    pvProductionW: readNumberValue(site.P_PV),
+    loadPowerW,
+    loadConsumptionW: loadPowerW === null ? null : Math.abs(loadPowerW),
+    gridPowerW,
+    gridImportW: gridPowerW === null ? null : Math.max(gridPowerW, 0),
+    gridExportW: gridPowerW === null ? null : Math.max(-gridPowerW, 0),
+    batteryPowerW,
+    batteryDischargeW:
+      batteryPowerW === null ? null : Math.max(batteryPowerW, 0),
+    batteryChargeW: batteryPowerW === null ? null : Math.max(-batteryPowerW, 0),
+    batterySocPercent: readNumberValue(inverter.SOC),
+    batteryMode: typeof inverter.Battery_Mode === 'string'
+      ? inverter.Battery_Mode
+      : null,
+    batteryStandby:
+      typeof site.BatteryStandby === 'boolean' ? site.BatteryStandby : null,
+    autonomyPercent: readNumberValue(site.rel_Autonomy),
+    selfConsumptionPercent: readNumberValue(site.rel_SelfConsumption),
+    totalEnergyWh: readNumberValue(site.E_Total),
+    meterLocation: typeof site.Meter_Location === 'string'
+      ? site.Meter_Location
+      : null,
+    mode: typeof site.Mode === 'string' ? site.Mode : null,
+    backupMode: typeof site.BackupMode === 'boolean' ? site.BackupMode : null,
+  };
+}
+
+function normalizedMeterDetails(json) {
+  const data = readRecord(readRecord(readRecord(json).Body).Data);
+  const meter = firstRecordValue(data);
+  const details = readRecord(meter.Details);
+  return {
+    powerRealPSumW: readNumberValue(meter.PowerReal_P_Sum),
+    energyConsumedWh: readNumberValue(meter.EnergyReal_WAC_Sum_Consumed),
+    energyProducedWh: readNumberValue(meter.EnergyReal_WAC_Sum_Produced),
+    manufacturer:
+      typeof details.Manufacturer === 'string' ? details.Manufacturer : null,
+    model: typeof details.Model === 'string' ? details.Model : null,
+    serial: typeof details.Serial === 'string' ? details.Serial : null,
+  };
+}
+
+function normalizedStorageDetails(json) {
+  const data = readRecord(readRecord(readRecord(json).Body).Data);
+  const storage = firstRecordValue(data);
+  const controller = readRecord(storage.Controller);
+  const details = readRecord(controller.Details);
+  return {
+    stateOfChargePercent: readNumberValue(controller.StateOfCharge_Relative),
+    designedCapacityWh: readNumberValue(controller.DesignedCapacity),
+    capacityMaximumWh: readNumberValue(controller.Capacity_Maximum),
+    currentDcA: readNumberValue(controller.Current_DC),
+    voltageDcV: readNumberValue(controller.Voltage_DC),
+    temperatureCellC: readNumberValue(controller.Temperature_Cell),
+    manufacturer:
+      typeof details.Manufacturer === 'string' ? details.Manufacturer : null,
+    model: typeof details.Model === 'string' ? details.Model : null,
+    serial: typeof details.Serial === 'string' ? details.Serial.trim() : null,
+  };
+}
+
+async function fetchLocalJson(name, url, options = {}) {
+  const fetchImpl = options.fetch || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch is unavailable in this Node.js runtime.');
+  }
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    const body = await response.text();
+    let json = null;
+    try {
+      json = body ? JSON.parse(body) : null;
+    } catch {
+      // Keep body text for HTML/error responses.
+    }
+    return {
+      name,
+      url,
+      ok: Boolean(response.ok),
+      status: Number(response.status || 0),
+      statusText: response.statusText || '',
+      body,
+      json,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function executeLocalSummary(args = [], opts = {}, options = {}) {
+  assertNoUnexpectedArgs(args);
+  const base = normalizeLocalBaseUrl(opts.localHost);
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const requests = {
+    powerFlow: buildUrl(base, LOCAL_OPERATIONS['local-power-flow'].path),
+    meterRealtime: buildUrl(base, LOCAL_OPERATIONS['local-meter-realtime'].path, {
+      Scope: 'System',
+    }),
+    storageRealtime: buildUrl(
+      base,
+      LOCAL_OPERATIONS['local-storage-realtime'].path,
+      { Scope: 'System' },
+    ),
+  };
+  const [powerFlow, meterRealtime, storageRealtime] = await Promise.all(
+    Object.entries(requests).map(([name, url]) =>
+      fetchLocalJson(name, url, {
+        fetch: options.fetch,
+        timeoutMs,
+      }),
+    ),
+  );
+  const errors = [powerFlow, meterRealtime, storageRealtime]
+    .filter((entry) => !entry.ok)
+    .map((entry) => ({
+      name: entry.name,
+      status: entry.status,
+      statusText: entry.statusText,
+      url: entry.url,
+    }));
+
+  return {
+    command: 'local-summary',
+    transport: 'local-inverter',
+    ok: Boolean(powerFlow.ok),
+    source: 'local-fronius-solar-api-v1',
+    requests,
+    metrics: powerFlow.ok ? normalizedPowerFlowMetrics(powerFlow.json) : null,
+    meter: meterRealtime.ok ? normalizedMeterDetails(meterRealtime.json) : null,
+    storage: storageRealtime.ok
+      ? normalizedStorageDetails(storageRealtime.json)
+      : null,
+    errors,
+    guidance: [
+      'Use metrics.pvProductionW for current PV production.',
+      'Use metrics.loadConsumptionW for household consumption.',
+      'Use metrics.batteryDischargeW or metrics.batteryChargeW for battery flow.',
+      'Use storage.stateOfChargePercent or metrics.batterySocPercent for battery SOC.',
+    ],
+  };
+}
+
 async function executeGatewayRequest(httpRequest, options = {}) {
   const gatewayUrl = String(
     options.gatewayUrl ||
@@ -721,6 +896,14 @@ async function main() {
     process.stdout.write(`${usage()}\n`);
     return;
   }
+  if (parsed.positional[0] === 'local-summary') {
+    const result = await executeLocalSummary(
+      parsed.positional.slice(1),
+      parsed.opts,
+    );
+    printJson(result, parsed.opts.format);
+    return;
+  }
   const payload = buildRequestFromParsed(parsed);
   if (payload.command === 'live') {
     const result = await executeGatewayRequest(payload.httpRequest);
@@ -739,5 +922,6 @@ if (require.main === module) {
 module.exports = {
   buildCloudSecretHeaders,
   buildRequest,
+  executeLocalSummary,
   executeGatewayRequest,
 };

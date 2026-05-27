@@ -88,6 +88,10 @@ storage, OhmPilot, and Solar.web account data.
 - Run supported operations through `skills/fronius/fronius.cjs`; the helper is
   the source of truth for Fronius URLs, Solar.web headers, endpoint bounds, and
   response-shape metadata.
+- For the common "what is my solar doing now?" local LAN query, use the helper
+  `local-summary` command. It performs the bounded local Solar API reads and
+  returns normalized live production, consumption, grid, battery, meter, and
+  storage fields.
 - For live API calls, run the helper to build the request, then pass the
   emitted `httpRequest` object unchanged to the built-in `http_request` tool.
 - Use `local-health` through the helper and `http_request` for local
@@ -154,6 +158,7 @@ node skills/fronius/fronius.cjs --help
 Local reads:
 
 ```bash
+node skills/fronius/fronius.cjs --format json --local-host http://<fronius-ip> local-summary
 node skills/fronius/fronius.cjs --format json http-request local-api-version
 node skills/fronius/fronius.cjs --format json http-request local-health
 node skills/fronius/fronius.cjs --format json http-request local-power-flow
@@ -224,6 +229,8 @@ node skills/fronius/fronius.cjs --live --format json http-request cloud-flowdata
 
 ## Result Handling
 
+- Use `local-summary` for local live status answers. Report from its
+  normalized `metrics`, `meter`, and `storage` objects.
 - Use `local-power-flow` or `cloud-flowdata` to summarize live production,
   consumption, grid exchange, battery power, and self-consumption ratio.
 - For local live production, prefer `local-power-flow`; read current PV
