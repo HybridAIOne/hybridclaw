@@ -1,4 +1,4 @@
-import { buildPolicyBrief } from './config.js';
+import { resolveOutputGuardProfileSelection } from './config.js';
 import { callOutputGuardModel, tryParseClassifierVerdict } from './llm.js';
 import { detectRuleViolations, summarizeViolations } from './rules.js';
 
@@ -70,8 +70,6 @@ function ensureNonEmpty(text) {
 }
 
 export function createOutputGuardGuard({ api, config }) {
-  const policyBrief = buildPolicyBrief(config);
-
   return {
     id: 'output-guard',
     priority: 100,
@@ -84,7 +82,12 @@ export function createOutputGuardGuard({ api, config }) {
         return { action: 'allow' };
       }
 
-      const violations = detectRuleViolations(text, config);
+      const { profile } = resolveOutputGuardProfileSelection(
+        config,
+        context.channelId,
+      );
+      const policyBrief = profile.policyBrief;
+      const violations = detectRuleViolations(text, profile);
       let classifierVerdict = null;
       try {
         const raw = await callOutputGuardModel({
@@ -106,6 +109,7 @@ export function createOutputGuardGuard({ api, config }) {
               classifierVerdict,
               violations,
               mode: config.mode,
+              channelId: context.channelId,
             },
             'output-guard: classifier evaluated response',
           );
@@ -132,6 +136,7 @@ export function createOutputGuardGuard({ api, config }) {
           violations,
           classifierVerdict,
           mode: config.mode,
+          channelId: context.channelId,
         },
         'output-guard: response flagged non-compliant',
       );
@@ -162,7 +167,7 @@ export function createOutputGuardGuard({ api, config }) {
         if (!ensureNonEmpty(rewritten)) {
           throw new Error('Rewriter returned empty text.');
         }
-        const remainingViolations = detectRuleViolations(rewritten, config);
+        const remainingViolations = detectRuleViolations(rewritten, profile);
         if (remainingViolations.length > 0) {
           api.logger.warn(
             { remainingViolations },

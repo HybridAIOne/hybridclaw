@@ -7,6 +7,9 @@
 - **npm signature audit attestation 404s**: Treat missing npm registry
   attestation endpoint artifacts as best-effort after retries while keeping
   registry signature validation failures fatal.
+- **Release workflow reruns**: Skip `npm publish` when the exact package
+  version already exists on npm so release reruns can complete after partial
+  publishes.
 
 ## [0.20.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.20.0) - 2026-05-26
 
