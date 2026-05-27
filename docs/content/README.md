@@ -39,6 +39,8 @@ doc at once, start from [For Agents](./agents.md).
   Browser Use Cloud sessions with SecretRef-gated credential fills.
 - Trace-judge eval gates and behavioral anomaly reranking give tool-call and
   skill-trace review a deterministic test path.
+- Harness evolution runs eval-driven coworker workspace improvement loops with
+  F12 manifests, seed-delta reporting, and admin inspection.
 - `npm run desktop` launches a native macOS wrapper around the local chat UI,
   with gateway reuse/startup and admin access from the app menu.
 - Canonical user and agent identity helpers now include DNS-style discovery for

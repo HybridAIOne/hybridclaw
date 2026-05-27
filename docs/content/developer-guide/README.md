@@ -24,3 +24,5 @@ These pages focus on how HybridClaw is built and operated under the hood.
 - [Identity](./identity.md) for canonical user/agent IDs, authority boundaries,
   and discovery records
 - [Workflows](./workflows.md) for declarative YAML workflow schema and validation rules
+- [Harness Evolution](./harness-evolution.md) for eval-driven coworker
+  workspace evolution loops, example suites, and admin inspection
