@@ -9733,6 +9733,67 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  test('allows unbound bearerSecretName during deprecation window with a warning', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-unbound-bearer-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      EXTERNAL_ACCESS_TOKEN: 'external-access-token',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.example.com/v1/items',
+        bearerSecretName: 'EXTERNAL_ACCESS_TOKEN',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer external-access-token',
+        }),
+      }),
+    );
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      {
+        secretName: 'EXTERNAL_ACCESS_TOKEN',
+        targetHost: 'api.example.com',
+        bindingKey: 'EXTERNAL_ACCESS_TOKEN_BOUND_DOMAIN',
+      },
+      expect.stringContaining('without a domain binding'),
+    );
+  });
+
   test('captures explicit bearer token fields without exposing the response body', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-');
     process.env.HOME = homeDir;

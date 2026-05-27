@@ -546,7 +546,6 @@ export const MOUNT_ALLOWLIST_PATH = path.join(
   'hybridclaw',
   'mount-allowlist.json',
 );
-export let ADDITIONAL_MOUNTS = '';
 
 export let CONTAINER_MAX_OUTPUT_SIZE = 10_485_760;
 export let MAX_CONCURRENT_CONTAINERS = 5;
@@ -1101,7 +1100,6 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CONTAINER_NETWORK = config.container.network;
   CONTAINER_TIMEOUT = config.container.timeoutMs;
   CONTAINER_BINDS = config.container.binds;
-  ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
   CONTAINER_PERSIST_BASH_STATE = config.container.persistBashState;

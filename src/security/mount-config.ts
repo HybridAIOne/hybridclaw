@@ -9,6 +9,11 @@ export interface ConfiguredMountParseResult {
   warnings: string[];
 }
 
+export interface LegacyMountBindSpecResult {
+  binds: string[];
+  warnings: string[];
+}
+
 function expandUserPath(input: string): string {
   const expanded = expandHomePath(input);
   return expanded ? path.resolve(expanded) : '';
@@ -109,22 +114,29 @@ export function parseBindSpecs(specs: string[]): ConfiguredMountParseResult {
   };
 }
 
-export function parseLegacyAdditionalMounts(
-  raw: string,
-): ConfiguredMountParseResult {
-  const trimmed = String(raw || '').trim();
-  if (!trimmed) return { mounts: [], warnings: [] };
+function toBindSpec(mount: AdditionalMount): string {
+  const containerPath =
+    mount.containerPath?.trim() || path.basename(mount.hostPath.trim());
+  const mode = mount.readonly === false ? 'rw' : 'ro';
+  return `${mount.hostPath.trim()}:${containerPath.replace(/^\/+/, '')}:${mode}`;
+}
+
+export function parseLegacyAdditionalMountBinds(
+  raw: unknown,
+): LegacyMountBindSpecResult {
+  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  if (!trimmed) return { binds: [], warnings: [] };
 
   try {
     const parsed = JSON.parse(trimmed) as unknown;
     if (!Array.isArray(parsed)) {
       return {
-        mounts: [],
+        binds: [],
         warnings: ['container.additionalMounts must be a JSON array'],
       };
     }
 
-    const mounts: AdditionalMount[] = [];
+    const binds: string[] = [];
     const warnings: string[] = [];
     for (const item of parsed) {
       if (!item || typeof item !== 'object') {
@@ -147,20 +159,22 @@ export function parseLegacyAdditionalMounts(
         );
         continue;
       }
-      mounts.push({
-        hostPath: mount.hostPath.trim(),
-        containerPath: mount.containerPath?.trim(),
-        readonly: mount.readonly !== false,
-      });
+      binds.push(
+        toBindSpec({
+          hostPath: mount.hostPath,
+          containerPath: mount.containerPath,
+          readonly: mount.readonly !== false,
+        }),
+      );
     }
 
     return {
-      mounts: dedupeMounts(mounts),
+      binds: [...new Set(binds)],
       warnings,
     };
   } catch (err) {
     return {
-      mounts: [],
+      binds: [],
       warnings: [
         `Failed to parse container.additionalMounts JSON: ${err instanceof Error ? err.message : String(err)}`,
       ],
@@ -169,17 +183,11 @@ export function parseLegacyAdditionalMounts(
 }
 
 export function resolveConfiguredAdditionalMounts(
-  containerConfig: Pick<
-    RuntimeConfig['container'],
-    'binds' | 'additionalMounts'
-  >,
+  containerConfig: Pick<RuntimeConfig['container'], 'binds'>,
 ): ConfiguredMountParseResult {
   const bindResult = parseBindSpecs(containerConfig.binds || []);
-  const legacyResult = parseLegacyAdditionalMounts(
-    containerConfig.additionalMounts || '',
-  );
   return {
-    mounts: dedupeMounts([...bindResult.mounts, ...legacyResult.mounts]),
-    warnings: [...bindResult.warnings, ...legacyResult.warnings],
+    mounts: bindResult.mounts,
+    warnings: bindResult.warnings,
   };
 }
