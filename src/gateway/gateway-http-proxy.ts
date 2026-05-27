@@ -12,6 +12,8 @@ import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
+import tls from 'node:tls';
+import { Agent as UndiciAgent } from 'undici';
 
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
@@ -109,6 +111,8 @@ type ApiHttpRequestBody = {
   responseArtifact?: unknown;
   allowManualRedirect?: unknown;
   includeResponseCookies?: unknown;
+  tlsCertificateSha256?: unknown;
+  tlsCertificateSha256SecretName?: unknown;
   timeoutMs?: unknown;
   maxResponseBytes?: unknown;
   sessionId?: unknown;
@@ -1068,6 +1072,126 @@ function normalizeCaptureResponseHeaders(
   return rules;
 }
 
+function normalizeSha256Fingerprint(value: unknown, path: string): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  const normalized = raw
+    .replace(/^sha256:/iu, '')
+    .replace(/:/g, '')
+    .toLowerCase();
+  if (!/^[a-f0-9]{64}$/u.test(normalized)) {
+    throw new GatewayRequestError(
+      400,
+      `${path} must be a SHA-256 fingerprint as 64 hex characters, optionally colon-separated.`,
+    );
+  }
+  return normalized;
+}
+
+async function resolveTlsCertificateSha256Pin(
+  body: ApiHttpRequestBody,
+  context: SecretResolveContext,
+): Promise<string | null> {
+  const direct = body.tlsCertificateSha256;
+  const secretName =
+    typeof body.tlsCertificateSha256SecretName === 'string'
+      ? body.tlsCertificateSha256SecretName.trim()
+      : '';
+  if (direct !== undefined && secretName) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `tlsCertificateSha256` or `tlsCertificateSha256SecretName`.',
+    );
+  }
+  if (direct !== undefined) {
+    return normalizeSha256Fingerprint(direct, 'tlsCertificateSha256');
+  }
+  if (!secretName) return null;
+  return normalizeSha256Fingerprint(
+    await resolveHttpSecretOrThrow(secretName, {
+      ...context,
+      selector: 'tlsCertificateSha256',
+    }),
+    'tlsCertificateSha256SecretName',
+  );
+}
+
+async function verifyTlsCertificateSha256Pin(
+  url: URL,
+  expectedSha256: string,
+  timeoutMs: number,
+): Promise<void> {
+  if (url.protocol !== 'https:') {
+    throw new GatewayRequestError(
+      400,
+      '`tlsCertificateSha256` can only be used with https URLs.',
+    );
+  }
+
+  const port = Number.parseInt(url.port || '443', 10);
+  const servername = net.isIP(url.hostname) ? undefined : url.hostname;
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const settle = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      callback();
+    };
+    const socket = tls.connect({
+      host: url.hostname,
+      port,
+      servername,
+      rejectUnauthorized: false,
+      timeout: Math.min(timeoutMs, 10_000),
+    });
+    socket.once('secureConnect', () => {
+      try {
+        const cert = socket.getPeerCertificate(true);
+        const raw = Buffer.isBuffer(cert.raw) ? cert.raw : null;
+        if (!raw) {
+          throw new GatewayRequestError(
+            502,
+            'Pinned TLS certificate check failed: peer certificate was not available.',
+          );
+        }
+        const actual = sha256Hex(raw);
+        if (actual !== expectedSha256) {
+          throw new GatewayRequestError(
+            502,
+            'Pinned TLS certificate check failed: SHA-256 fingerprint mismatch.',
+          );
+        }
+        settle(resolve);
+      } catch (error) {
+        settle(() => reject(error));
+      } finally {
+        socket.end();
+      }
+    });
+    socket.once('timeout', () => {
+      socket.destroy();
+      settle(() =>
+        reject(
+          new GatewayRequestError(
+            502,
+            'Pinned TLS certificate check failed: TLS handshake timed out.',
+          ),
+        ),
+      );
+    });
+    socket.once('error', (error) => {
+      settle(() =>
+        reject(
+          new GatewayRequestError(
+            502,
+            `Pinned TLS certificate check failed: ${formatOutboundHttpError(error)}`,
+          ),
+        ),
+      );
+    });
+  });
+}
+
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -1728,6 +1852,10 @@ export async function handleApiHttpRequest(
   );
   const allowManualRedirect = body.allowManualRedirect === true;
   const includeResponseCookies = body.includeResponseCookies === true;
+  const tlsCertificateSha256 = await resolveTlsCertificateSha256Pin(
+    body,
+    secretContext,
+  );
   const config = getRuntimeConfig();
 
   const headers = normalizeHttpRequestHeaders(body.headers);
@@ -1930,17 +2058,32 @@ export async function handleApiHttpRequest(
     });
   }
 
+  if (tlsCertificateSha256) {
+    await verifyTlsCertificateSha256Pin(url, tlsCertificateSha256, timeoutMs);
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const dispatcher = tlsCertificateSha256
+    ? new UndiciAgent({
+        connect: {
+          rejectUnauthorized: false,
+        },
+      })
+    : undefined;
   let response: Response;
   try {
-    response = await fetch(url, {
+    const fetchOptions: RequestInit & { dispatcher?: UndiciAgent } = {
       method,
       headers,
       body: payloadBody,
       signal: controller.signal,
       redirect: 'manual',
-    });
+    };
+    if (dispatcher) {
+      fetchOptions.dispatcher = dispatcher;
+    }
+    response = await fetch(url, fetchOptions);
   } catch (error) {
     throw new GatewayRequestError(
       502,
@@ -1949,6 +2092,7 @@ export async function handleApiHttpRequest(
     );
   } finally {
     clearTimeout(timeout);
+    await dispatcher?.close();
   }
 
   if (
