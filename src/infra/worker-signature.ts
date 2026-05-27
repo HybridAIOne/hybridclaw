@@ -29,6 +29,7 @@ export interface WorkerSignatureInput {
   browserAllowPrivateNetwork?: boolean;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
   providerCredentials?: ProviderCredentials;
+  runtimeEnv?: Record<string, string>;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
   bashProxy?:
@@ -134,6 +135,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     providerCredentials: normalizeProviderCredentials(
       input.providerCredentials,
     ),
+    runtimeEnv: normalizeHeaders(input.runtimeEnv),
     workspacePathOverride: String(input.workspacePathOverride || '').trim(),
     workspaceDisplayRootOverride: String(
       input.workspaceDisplayRootOverride || '',

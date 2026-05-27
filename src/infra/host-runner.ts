@@ -45,6 +45,7 @@ import {
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
+import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
@@ -627,8 +628,10 @@ function getOrSpawnHostProcess(
   }
   const agentBrowserBin = resolveHostAgentBrowserBinary();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
+  const storedRuntimeEnv = readStoredRuntimeEnv();
   const env: NodeJS.ProcessEnv = {
     ...buildSanitizedEnv(process.env),
+    ...storedRuntimeEnv,
     ...buildHostGatewayRuntimeEnv(),
     HYBRIDCLAW_AGENT_SANDBOX_MODE: 'host',
     HYBRIDAI_BASE_URL,

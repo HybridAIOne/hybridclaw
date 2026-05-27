@@ -5,6 +5,12 @@ user-invocable: true
 requires:
   bins:
     - node
+config_variables:
+  - id: fronius-local-host
+    env: FRONIUS_LOCAL_HOST
+    required: false
+    scope: "Local Fronius inverter base URL used in gateway http_request URLs"
+    how_to_obtain: "Find the inverter LAN address in the router, Fronius app, or installer documentation and store it with `hybridclaw env set FRONIUS_LOCAL_HOST \"http://<fronius-ip>\"`."
 credentials:
   - id: fronius-solarweb-access-key-id
     kind: api_key
@@ -104,11 +110,12 @@ storage, OhmPilot, and Solar.web account data.
 Local inverter path:
 
 ```bash
-export FRONIUS_LOCAL_HOST="http://<fronius-ip>"
+hybridclaw env set FRONIUS_LOCAL_HOST "http://<fronius-ip>"
 ```
 
 The inverter LAN URL is configuration, not credential material. It can also be
-passed per request with `--local-host http://<fronius-ip>`.
+passed per request with `--local-host http://<fronius-ip>` or exported as
+`FRONIUS_LOCAL_HOST`.
 
 Solar.web cloud path:
 

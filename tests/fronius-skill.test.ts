@@ -63,6 +63,13 @@ test('Fronius skill manifest declares Solar.web SecretRef metadata only', () => 
       expect.objectContaining({ id: 'fronius-local-host' }),
     ]),
   );
+  expect(manifest.configVariables).toEqual([
+    expect.objectContaining({
+      id: 'fronius-local-host',
+      env: 'FRONIUS_LOCAL_HOST',
+      required: false,
+    }),
+  ]);
   expect(skill).not.toContain('FRONIUS_SOLARWEB_USER_ID');
   expect(skill).not.toContain('FRONIUS_SOLARWEB_TIMEZONE');
   expect(skill).toContain('category: home-automation');
@@ -80,7 +87,7 @@ test('Fronius skill manifest declares Solar.web SecretRef metadata only', () => 
     'Treat the inverter LAN base URL as plain local configuration',
   );
   expect(skill).toContain('rejected or lacks access');
-  expect(skill).toContain('export FRONIUS_LOCAL_HOST=');
+  expect(skill).toContain('hybridclaw env set FRONIUS_LOCAL_HOST');
   expect(skill).not.toContain('secret set FRONIUS_LOCAL_HOST');
   expect(skill).not.toMatch(/\b[Dd]o not\b/);
   expect(skill).not.toMatch(/\b[Dd]on't\b/);

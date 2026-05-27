@@ -265,6 +265,9 @@ function parseSkillPackageSnapshotManifest(
   return {
     ...manifest,
     credentials: Array.isArray(value.credentials) ? manifest.credentials : [],
+    configVariables: Array.isArray(value.configVariables)
+      ? manifest.configVariables
+      : [],
   };
 }
 
@@ -346,6 +349,7 @@ function toRuntimeInstalledSkillManifest(params: {
     middleware: params.manifest.middleware,
     requiredCredentials: params.manifest.requiredCredentials,
     credentials: params.manifest.credentials,
+    configVariables: params.manifest.configVariables,
     supportedChannels: params.manifest.supportedChannels,
     installedAt: params.previous?.installedAt || now,
     updatedAt: now,
@@ -505,6 +509,7 @@ function resolveSkillPackageTarget(nameOrId: string): {
         middleware: installed.middleware,
         requiredCredentials: installed.requiredCredentials,
         credentials: installed.credentials,
+        configVariables: installed.configVariables,
         supportedChannels: installed.supportedChannels,
       },
       source: 'installed',

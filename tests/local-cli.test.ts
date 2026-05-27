@@ -283,6 +283,40 @@ test('secret set, show, and unset manage encrypted secrets', async () => {
   expect(runtimeSecrets.readStoredRuntimeSecret('SF_FULL_USERNAME')).toBeNull();
 });
 
+test('env set, show, and unset manage plaintext runtime env values', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const runtimeEnv = await import('../src/config/runtime-env.ts');
+
+  await cli.main([
+    'env',
+    'set',
+    'FRONIUS_LOCAL_HOST',
+    'http://192.168.178.40',
+  ]);
+
+  expect(runtimeEnv.readStoredRuntimeEnvValue('FRONIUS_LOCAL_HOST')).toBe(
+    'http://192.168.178.40',
+  );
+
+  logSpy.mockClear();
+  await cli.main(['env', 'show', 'FRONIUS_LOCAL_HOST']);
+  expect(logSpy.mock.calls.map(([line]) => String(line))).toEqual([
+    'Name: FRONIUS_LOCAL_HOST',
+    'Stored: yes',
+    'Value: http://192.168.178.40',
+    `Path: ${runtimeEnv.runtimeEnvPath()}`,
+  ]);
+
+  await expect(
+    cli.main(['env', 'set', 'OPENAI_API_KEY', 'sk-test']),
+  ).rejects.toThrow('looks sensitive');
+
+  await cli.main(['env', 'unset', 'FRONIUS_LOCAL_HOST']);
+  expect(runtimeEnv.readStoredRuntimeEnvValue('FRONIUS_LOCAL_HOST')).toBeNull();
+});
+
 test('secret route add and remove update store-backed auth rules', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);

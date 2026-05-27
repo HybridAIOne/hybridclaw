@@ -80,6 +80,7 @@ helper code shipped with the skill.
 | Approval plan | Helper output for a guarded action that names the exact command to run after explicit operator confirmation. |
 | Stakes tier | Skill-local risk classification: green for reads, amber for reversible or bounded writes requiring confirmation, red for forbidden operations. |
 | SecretRef | A reference to a stored runtime secret; helpers should emit secret references, never raw secrets. |
+| Config variable | A plaintext runtime env value stored with `hybridclaw env set`; use for non-secret hostnames, IPs, account ids, or usernames that agents and helpers may read. |
 
 ### What Goes In `SKILL.md`
 
@@ -188,6 +189,14 @@ Use runtime secret references:
 Document credential names and where the operator gets them, but keep the helper
 responsible for injecting them. When a token is domain-bound, preserve that
 binding and do not broaden it in skill prose.
+
+Use `config_variables:` frontmatter for non-secret values that should be
+discoverable and persisted, for example inverter IPs, local host URLs, account
+ids, or usernames. These values are plaintext and model-visible; operators set
+them with `hybridclaw env set NAME value`, and helpers read them from the
+runtime environment. Values that contain passwords, tokens, API keys, or
+signing material belong in `credentials:` with `secret_ref`, not in
+`config_variables:`.
 
 ### Network And Gateway Failures
 

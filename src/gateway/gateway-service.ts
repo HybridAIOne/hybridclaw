@@ -185,6 +185,13 @@ import {
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
 } from '../config/runtime-config-edit.js';
+import {
+  readStoredRuntimeEnv,
+  readStoredRuntimeEnvValue,
+  runtimeEnvPath,
+  saveNamedRuntimeEnv,
+  validateRuntimeEnvName,
+} from '../config/runtime-env.js';
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
@@ -6375,6 +6382,7 @@ function mapGatewayAdminSkillBase(
     tags: skill.metadata.hybridclaw.tags,
     relatedSkills: skill.metadata.hybridclaw.relatedSkills,
     credentials: skill.manifest.credentials,
+    configVariables: skill.manifest.configVariables,
   };
 }
 
@@ -10183,6 +10191,88 @@ export async function handleGatewayCommand(
         return badCommand(
           'Usage',
           'Usage: `secret list`, `secret set <name> <value>`, `secret unset <name>`, `secret show <name>`, or `secret route list|add|remove ...`',
+        );
+      }
+
+      case 'env': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Env Command Restricted',
+            '`env` reads or writes local plaintext runtime env values and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = parseLowerArg(req.args, 1);
+        if (!sub || sub === 'list') {
+          const values = readStoredRuntimeEnv();
+          const names = Object.keys(values).sort((left, right) =>
+            left.localeCompare(right),
+          );
+          const text = [
+            `Runtime env store: ${runtimeEnvPath()}`,
+            ...(names.length > 0
+              ? names.map((name) => `${name}=${values[name]}`)
+              : ['(none)']),
+          ].join('\n');
+          return infoCommand('Runtime Env', text);
+        }
+
+        if (sub === 'set') {
+          try {
+            const name = validateRuntimeEnvName(parseIdArg(req.args, 2));
+            const value = req.args.slice(3).join(' ').trim();
+            if (!value) {
+              return badCommand('Usage', 'Usage: `env set <name> <value>`');
+            }
+            saveNamedRuntimeEnv({ [name]: value });
+            return plainCommand(
+              `Stored runtime env \`${name}\` in \`${runtimeEnvPath()}\`.`,
+            );
+          } catch (error) {
+            return badCommand(
+              'Invalid Env Value',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        if (sub === 'unset' || sub === 'delete' || sub === 'remove') {
+          try {
+            const name = validateRuntimeEnvName(parseIdArg(req.args, 2));
+            saveNamedRuntimeEnv({ [name]: null });
+            return plainCommand(`Removed runtime env \`${name}\`.`);
+          } catch (error) {
+            return badCommand(
+              'Invalid Env Value',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        if (sub === 'show' || sub === 'get') {
+          try {
+            const name = validateRuntimeEnvName(parseIdArg(req.args, 2));
+            const value = readStoredRuntimeEnvValue(name);
+            return infoCommand(
+              'Runtime Env',
+              [
+                `Name: ${name}`,
+                `Stored: ${value ? 'yes' : 'no'}`,
+                `Value: ${value || '(unset)'}`,
+                `Path: ${runtimeEnvPath()}`,
+              ].join('\n'),
+            );
+          } catch (error) {
+            return badCommand(
+              'Invalid Env Value',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `env list`, `env set <name> <value>`, `env unset <name>`, or `env show <name>`',
         );
       }
 

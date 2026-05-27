@@ -34,6 +34,14 @@ export interface SkillManifestDeclaredCredential {
   howToObtain: string;
 }
 
+export interface SkillManifestConfigVariable {
+  id: string;
+  env: string;
+  required: boolean;
+  scope: string;
+  howToObtain: string;
+}
+
 export interface SkillManifest {
   id: string;
   name: string;
@@ -42,6 +50,7 @@ export interface SkillManifest {
   middleware: SkillManifestMiddleware;
   requiredCredentials: SkillManifestCredential[];
   credentials: SkillManifestDeclaredCredential[];
+  configVariables: SkillManifestConfigVariable[];
   supportedChannels: ChannelKind[];
 }
 
@@ -290,6 +299,78 @@ function normalizeDeclaredCredentials(
   return credentials;
 }
 
+function configVariableFieldError(path: string, message: string): never {
+  throw new Error(
+    `Invalid skill config_variables frontmatter: ${path} ${message}.`,
+  );
+}
+
+function normalizeConfigVariableEnv(value: unknown, path: string): string {
+  const env = normalizeString(value);
+  if (!env) configVariableFieldError(path, 'is required');
+  if (!/^[A-Z][A-Z0-9_]{0,127}$/u.test(env)) {
+    configVariableFieldError(
+      path,
+      'must use uppercase letters, digits, and underscores only',
+    );
+  }
+  return env;
+}
+
+function normalizeConfigVariableStringField(
+  value: unknown,
+  path: string,
+): string {
+  const normalized = normalizeString(value);
+  if (!normalized) configVariableFieldError(path, 'is required');
+  return normalized;
+}
+
+function normalizeDeclaredConfigVariables(
+  value: unknown,
+): SkillManifestConfigVariable[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    configVariableFieldError('config_variables', 'must be a list');
+  }
+
+  const variables: SkillManifestConfigVariable[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of value.entries()) {
+    const itemPath = `config_variables[${index}]`;
+    if (!isRecord(item)) {
+      configVariableFieldError(itemPath, 'must be an object');
+    }
+
+    const id = normalizeCredentialId(item.id, `${itemPath}.id`);
+    if (seen.has(id)) {
+      configVariableFieldError(`${itemPath}.id`, `duplicates variable "${id}"`);
+    }
+    seen.add(id);
+
+    const required = item.required;
+    if (typeof required !== 'boolean') {
+      configVariableFieldError(`${itemPath}.required`, 'must be true or false');
+    }
+
+    variables.push({
+      id,
+      env: normalizeConfigVariableEnv(item.env, `${itemPath}.env`),
+      required,
+      scope: normalizeConfigVariableStringField(
+        item.scope,
+        `${itemPath}.scope`,
+      ),
+      howToObtain: normalizeConfigVariableStringField(
+        item.how_to_obtain ?? item.howToObtain,
+        `${itemPath}.how_to_obtain`,
+      ),
+    });
+  }
+
+  return variables;
+}
+
 function mergeRequiredCredentials(
   legacy: SkillManifestCredential[],
   declared: SkillManifestDeclaredCredential[],
@@ -470,6 +551,9 @@ function parseSkillManifestFromFrontmatterObject(
   const declaredCredentials = normalizeDeclaredCredentials(
     frontmatter.credentials,
   );
+  const configVariables = normalizeDeclaredConfigVariables(
+    frontmatter.config_variables ?? frontmatter.configVariables,
+  );
   const rawChannels = findFirstValue(sources, [
     'supportedChannels',
     'supported_channels',
@@ -490,6 +574,7 @@ function parseSkillManifestFromFrontmatterObject(
       declaredCredentials,
     ),
     credentials: declaredCredentials,
+    configVariables,
     supportedChannels: normalizeSupportedChannels(rawChannels),
   };
 }
