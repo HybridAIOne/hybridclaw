@@ -26,6 +26,7 @@ function makeResponse(selectedThreadId: string | null): AdminA2AInboxResponse {
     threads: [
       {
         id: 'thread-new',
+        ownerCoworkerId: 'writer@team@local-dev',
         messageCount: 2,
         participants: ['main@team@local-dev', 'writer@team@local-dev'],
         latestMessage: {
@@ -41,6 +42,7 @@ function makeResponse(selectedThreadId: string | null): AdminA2AInboxResponse {
       },
       {
         id: 'thread-old',
+        ownerCoworkerId: null,
         messageCount: 1,
         participants: ['main@team@local-dev', 'researcher@team@local-dev'],
         latestMessage: {
@@ -124,6 +126,7 @@ describe('A2AInboxPage', () => {
 
     expect(await screen.findAllByText('thread-new')).not.toHaveLength(0);
     expect(screen.getAllByText('Final handoff is ready.')).not.toHaveLength(0);
+    expect(screen.getByText(/Owned by writer@team@local-dev/)).toBeTruthy();
     expect(screen.getByText('Please take this task.')).toBeTruthy();
     expect(
       screen.queryByRole('button', { name: /reply|send|intervene/i }),

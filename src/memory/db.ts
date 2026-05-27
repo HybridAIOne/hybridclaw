@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import type {
+  AgentBudgetUnit,
   AgentConfig,
   AgentCv,
   AgentModelConfig,
@@ -113,6 +114,8 @@ import type {
   ConversationHistoryPage,
   ForkSessionBranchParams,
   ForkSessionBranchResult,
+  ResponseRatingRecord,
+  ResponseRatingValue,
   Session,
   SessionShowMode,
   SessionTitleSource,
@@ -151,7 +154,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 40;
+export const DATABASE_SCHEMA_VERSION = 42;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -229,6 +232,31 @@ interface ConversationHistoryPageRow {
   content: string | null;
   artifacts_json: string | null;
   created_at: string | null;
+}
+
+interface ResponseRatingRow {
+  session_id: string;
+  message_id: number;
+  operator_user_id: string;
+  rating: string;
+  agent_id: string | null;
+  model: string | null;
+  provider: string | null;
+  skill_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResponseRatingTarget {
+  session_id: string;
+  message_id: number;
+  agent_id: string | null;
+  role: string;
+  model: string | null;
+  provider: string | null;
+  skill_observation_id: number | null;
+  skill_run_id: string | null;
+  skill_name: string | null;
 }
 
 interface SessionBranchRow {
@@ -524,6 +552,25 @@ function budgetSoftWarnEventsNeedMigration(
   database: Database.Database,
 ): boolean {
   return !tableExists(database, 'budget_soft_warn_events');
+}
+
+function budgetSoftWarnEventUnitsNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'budget_soft_warn_events') &&
+    !columnExists(database, 'budget_soft_warn_events', 'unit')
+  );
+}
+
+function budgetSoftWarnEventUnitKeyNeedMigration(
+  database: Database.Database,
+): boolean {
+  if (!tableExists(database, 'budget_soft_warn_events')) return false;
+  const definition = getTableSql(database, 'budget_soft_warn_events')
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  return !definition.includes('primary key (agent_id, billing_window, unit)');
 }
 
 function messageAgentIdentityNeedMigration(
@@ -842,6 +889,7 @@ function migrateV1(database: Database.Database): void {
       description TEXT
     );
   `);
+  createResponseRatingsSchema(database);
   recordMigration(database, 1, 'Initial schema');
 }
 
@@ -2460,9 +2508,10 @@ function migrateV33(database: Database.Database): void {
       emitted_at TEXT NOT NULL,
       used REAL NOT NULL,
       cap REAL NOT NULL,
+      unit TEXT NOT NULL DEFAULT 'USD' CHECK (unit IN ('USD', 'EUR', 'tokens')),
       currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR')),
       percent REAL NOT NULL,
-      PRIMARY KEY (agent_id, billing_window)
+      PRIMARY KEY (agent_id, billing_window, unit)
     );
     CREATE INDEX IF NOT EXISTS idx_budget_soft_warn_events_window
       ON budget_soft_warn_events(billing_window);
@@ -2740,6 +2789,161 @@ function migrateV40(database: Database.Database): void {
   );
 }
 
+function migrateV41(database: Database.Database): void {
+  if (!tableExists(database, 'budget_soft_warn_events')) {
+    recordMigration(
+      database,
+      41,
+      'Persist budget soft-warning unit and include it in marker dedupe key',
+    );
+    return;
+  }
+
+  addColumnIfMissing({
+    database,
+    table: 'budget_soft_warn_events',
+    column: 'unit',
+    ddl: "unit TEXT NOT NULL DEFAULT 'USD' CHECK (unit IN ('USD', 'EUR', 'tokens'))",
+    quiet: true,
+  });
+  database.exec(`
+    UPDATE budget_soft_warn_events
+    SET unit = currency
+    WHERE unit != currency;
+
+    CREATE TABLE budget_soft_warn_events_v41 (
+      agent_id TEXT NOT NULL,
+      billing_window TEXT NOT NULL,
+      emitted_at TEXT NOT NULL,
+      used REAL NOT NULL,
+      cap REAL NOT NULL,
+      unit TEXT NOT NULL DEFAULT 'USD' CHECK (unit IN ('USD', 'EUR', 'tokens')),
+      currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR')),
+      percent REAL NOT NULL,
+      PRIMARY KEY (agent_id, billing_window, unit)
+    );
+    INSERT OR IGNORE INTO budget_soft_warn_events_v41
+      (agent_id, billing_window, emitted_at, used, cap, unit, currency, percent)
+    SELECT
+      agent_id,
+      billing_window,
+      emitted_at,
+      used,
+      cap,
+      unit,
+      currency,
+      percent
+    FROM budget_soft_warn_events;
+    DROP TABLE budget_soft_warn_events;
+    ALTER TABLE budget_soft_warn_events_v41 RENAME TO budget_soft_warn_events;
+    CREATE INDEX IF NOT EXISTS idx_budget_soft_warn_events_window
+      ON budget_soft_warn_events(billing_window);
+  `);
+  recordMigration(
+    database,
+    41,
+    'Persist budget soft-warning unit and include it in marker dedupe key',
+  );
+}
+
+function createResponseRatingsSchema(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS response_ratings (
+      session_id TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      operator_user_id TEXT NOT NULL,
+      rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+      agent_id TEXT,
+      model TEXT,
+      provider TEXT,
+      skill_name TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      PRIMARY KEY (session_id, message_id, operator_user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_response_ratings_message
+      ON response_ratings(session_id, message_id);
+  `);
+}
+
+function responseRatingsNeedMigration(database: Database.Database): boolean {
+  if (!tableExists(database, 'response_ratings')) return false;
+  const columns = queryAll<ColumnInfoRow>(
+    database,
+    'PRAGMA table_info(response_ratings)',
+  );
+  if (columns.some((column) => column.name === 'source_surface')) return true;
+  const primaryKeyColumns = columns
+    .filter((column) => column.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((column) => column.name);
+  return (
+    primaryKeyColumns.join(',') !== 'session_id,message_id,operator_user_id'
+  );
+}
+
+function migrateResponseRatingsSchema(database: Database.Database): void {
+  if (!responseRatingsNeedMigration(database)) {
+    createResponseRatingsSchema(database);
+    return;
+  }
+
+  database.transaction(() => {
+    database.exec(`
+        ALTER TABLE response_ratings RENAME TO response_ratings_v42_legacy;
+        DROP INDEX IF EXISTS idx_response_ratings_message;
+        DROP INDEX IF EXISTS idx_response_ratings_updated;
+      `);
+    createResponseRatingsSchema(database);
+    database.exec(`
+        INSERT INTO response_ratings (
+          session_id,
+          message_id,
+          operator_user_id,
+          rating,
+          agent_id,
+          model,
+          provider,
+          skill_name,
+          created_at,
+          updated_at
+        )
+        SELECT
+          legacy.session_id,
+          legacy.message_id,
+          legacy.operator_user_id,
+          legacy.rating,
+          legacy.agent_id,
+          legacy.model,
+          legacy.provider,
+          legacy.skill_name,
+          legacy.created_at,
+          legacy.updated_at
+        FROM response_ratings_v42_legacy AS legacy
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM response_ratings_v42_legacy AS newer
+          WHERE newer.session_id = legacy.session_id
+            AND newer.message_id = legacy.message_id
+            AND newer.operator_user_id = legacy.operator_user_id
+            AND (
+              newer.updated_at > legacy.updated_at
+              OR (
+                newer.updated_at = legacy.updated_at
+                AND newer.rowid > legacy.rowid
+              )
+            )
+        );
+        DROP TABLE response_ratings_v42_legacy;
+      `);
+  })();
+}
+
+function migrateV42(database: Database.Database): void {
+  migrateResponseRatingsSchema(database);
+  recordMigration(database, 42, 'Persist per-response operator ratings');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2835,6 +3039,16 @@ function runMigrations(
   }
   if (currentVersion < 40 || auditTimestampIndexNeedMigration(database)) {
     migrateV40(database);
+  }
+  if (
+    currentVersion < 41 ||
+    budgetSoftWarnEventUnitsNeedMigration(database) ||
+    budgetSoftWarnEventUnitKeyNeedMigration(database)
+  ) {
+    migrateV41(database);
+  }
+  if (currentVersion < 42 || responseRatingsNeedMigration(database)) {
+    migrateV42(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -4088,11 +4302,16 @@ export interface BudgetSoftWarnMarkerEntry {
   emittedAt: string;
   used: number;
   cap: number;
+  unit: AgentBudgetUnit;
   currency: 'USD' | 'EUR';
   percent: number;
 }
 
-export type MonthlySpendUsdByAgent = Map<string, number>;
+export interface MonthlyUsageByAgentEntry {
+  totalCostUsd: number;
+  totalTokens: number;
+}
+export type MonthlyUsageByAgent = Map<string, MonthlyUsageByAgentEntry>;
 
 function schedulerJobToDbValues(job: RuntimeSchedulerJob): {
   name: string | null;
@@ -4344,19 +4563,22 @@ function notifyUsageRecordSubscribers(agentIds: string[]): void {
 export function hasBudgetSoftWarnMarker(
   agentId: string,
   billingWindow: string,
+  unit: AgentBudgetUnit,
 ): boolean {
   const normalizedAgentId = agentId.trim();
   const normalizedBillingWindow = billingWindow.trim();
   if (!normalizedAgentId || !normalizedBillingWindow) return false;
-  const row = queryOne<{ agent_id: string }, [string, string]>(
+  const row = queryOne<{ agent_id: string }, [string, string, AgentBudgetUnit]>(
     db,
     `SELECT agent_id
      FROM budget_soft_warn_events
      WHERE agent_id = ?
        AND billing_window = ?
+       AND unit = ?
      LIMIT 1`,
     normalizedAgentId,
     normalizedBillingWindow,
+    unit,
   );
   return Boolean(row);
 }
@@ -4367,18 +4589,27 @@ export function recordBudgetSoftWarnMarker(
   const agentId = entry.agentId.trim();
   const billingWindow = entry.billingWindow.trim();
   if (!agentId || !billingWindow) return false;
+  const used =
+    entry.unit === 'tokens'
+      ? normalizeUsageNumber(entry.used)
+      : normalizeUsageCost(entry.used);
+  const cap =
+    entry.unit === 'tokens'
+      ? normalizeUsageNumber(entry.cap)
+      : normalizeUsageCost(entry.cap);
   const result = db
     .prepare(
       `INSERT OR IGNORE INTO budget_soft_warn_events
-        (agent_id, billing_window, emitted_at, used, cap, currency, percent)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (agent_id, billing_window, emitted_at, used, cap, unit, currency, percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       agentId,
       billingWindow,
       entry.emittedAt,
-      normalizeUsageCost(entry.used),
-      normalizeUsageCost(entry.cap),
+      used,
+      cap,
+      entry.unit,
       entry.currency,
       normalizeUsageCost(entry.percent),
     );
@@ -4676,27 +4907,32 @@ export function monthlySpendEur(agentId: string): number {
   return monthlySpendUsd(agentId) / MODEL_METADATA_USD_TO_EUR.usdPerEur;
 }
 
-export function monthlySpendUsdByAgent(
+export function monthlyUsageByAgent(
   agentIds: string[],
   now = new Date(),
-): MonthlySpendUsdByAgent {
+): MonthlyUsageByAgent {
   const normalizedAgentIds = Array.from(
     new Set(agentIds.map((agentId) => agentId.trim()).filter(Boolean)),
   );
-  const spendByAgent = new Map<string, number>();
-  if (normalizedAgentIds.length === 0) return spendByAgent;
+  const usageByAgent = new Map<string, MonthlyUsageByAgentEntry>();
+  if (normalizedAgentIds.length === 0) return usageByAgent;
 
   const placeholders = normalizedAgentIds.map(() => '?').join(', ');
   const monthStart = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
   ).toISOString();
   const rows = queryAll<
-    { agent_id: string; total_cost_usd: number | null },
+    {
+      agent_id: string;
+      total_cost_usd: number | null;
+      total_tokens: number | null;
+    },
     unknown[]
   >(
     db,
     `SELECT agent_id,
-            COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd
+            COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+            COALESCE(SUM(total_tokens), 0) AS total_tokens
      FROM usage_events
      WHERE timestamp >= ?
        AND agent_id IN (${placeholders})
@@ -4705,9 +4941,12 @@ export function monthlySpendUsdByAgent(
     ...normalizedAgentIds,
   );
   for (const row of rows) {
-    spendByAgent.set(row.agent_id, normalizeUsageCost(row.total_cost_usd));
+    usageByAgent.set(row.agent_id, {
+      totalCostUsd: normalizeUsageCost(row.total_cost_usd),
+      totalTokens: normalizeUsageNumber(row.total_tokens),
+    });
   }
-  return spendByAgent;
+  return usageByAgent;
 }
 
 export function getSessionUsageTotals(sessionId: string): UsageTotals {
@@ -7118,6 +7357,31 @@ function parseMessageArtifacts(raw: string | null): ArtifactMetadata[] {
   }
 }
 
+function normalizeResponseRatingValue(
+  value: string | null | undefined,
+): ResponseRatingValue | null {
+  return value === 'up' || value === 'down' ? value : null;
+}
+
+function mapResponseRatingRow(
+  row: ResponseRatingRow,
+): ResponseRatingRecord | null {
+  const rating = normalizeResponseRatingValue(row.rating);
+  if (!rating) return null;
+  return {
+    session_id: row.session_id,
+    message_id: row.message_id,
+    operator_user_id: row.operator_user_id,
+    rating,
+    agent_id: row.agent_id,
+    model: row.model,
+    provider: row.provider,
+    skill_name: row.skill_name,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 export function storeMessage(
   sessionId: string,
   userId: string,
@@ -7132,7 +7396,16 @@ export function storeMessage(
   const artifactsJson = serializeMessageArtifacts(artifacts);
   const result = db
     .prepare(
-      'INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO messages (
+         session_id,
+         user_id,
+         username,
+         role,
+         agent_id,
+         content,
+         artifacts_json,
+         created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
     )
     .run(
       resolvedSessionId,
@@ -7162,6 +7435,196 @@ export function getConversationHistory(
     resolvedSessionId,
     limit,
   );
+}
+
+function inferProviderFromModel(model: string | null): string | null {
+  const trimmed = model?.trim() || '';
+  if (!trimmed) return null;
+  const slashIndex = trimmed.indexOf('/');
+  return slashIndex > 0 ? trimmed.slice(0, slashIndex) : null;
+}
+
+export function getResponseRatingTarget(params: {
+  sessionId: string;
+  messageId: number;
+}): ResponseRatingTarget | null {
+  const sessionId = resolveSessionIdCompat(params.sessionId);
+  const row = queryOne<
+    {
+      session_id: string;
+      message_id: number;
+      agent_id: string | null;
+      role: string;
+      model: string | null;
+      skill_observation_id: number | null;
+      skill_run_id: string | null;
+      skill_name: string | null;
+    },
+    [string, number]
+  >(
+    db,
+    `WITH target_message AS (
+       SELECT
+         m.session_id,
+         m.id AS message_id,
+         m.agent_id,
+         m.role,
+         m.created_at,
+         s.model,
+         (
+           SELECT julianday(MAX(previous_user_message.created_at))
+           FROM messages previous_user_message
+           WHERE previous_user_message.session_id = m.session_id
+             AND previous_user_message.id < m.id
+             AND previous_user_message.role = 'user'
+         ) AS turn_started_at
+       FROM messages m
+       LEFT JOIN sessions s ON s.id = m.session_id
+       WHERE m.session_id = ? AND m.id = ?
+       LIMIT 1
+     ),
+     attributed_skill AS (
+       SELECT
+         skill_observation.id,
+         skill_observation.run_id,
+         skill_observation.skill_name
+       FROM skill_observations skill_observation
+       JOIN target_message ON target_message.session_id = skill_observation.session_id
+       WHERE (
+           target_message.agent_id IS NULL
+           OR skill_observation.agent_id IS NULL
+           OR skill_observation.agent_id = target_message.agent_id
+         )
+         AND julianday(skill_observation.created_at) <= julianday(target_message.created_at)
+         AND julianday(skill_observation.created_at) >= COALESCE(target_message.turn_started_at, 0)
+       ORDER BY julianday(skill_observation.created_at) DESC, skill_observation.id DESC
+       LIMIT 1
+     )
+     SELECT
+       target_message.session_id,
+       target_message.message_id,
+       target_message.agent_id,
+       target_message.role,
+       target_message.model,
+       attributed_skill.id AS skill_observation_id,
+       attributed_skill.run_id AS skill_run_id,
+       attributed_skill.skill_name
+     FROM target_message
+     LEFT JOIN attributed_skill`,
+    sessionId,
+    params.messageId,
+  );
+  if (!row) return null;
+  return {
+    ...row,
+    provider: inferProviderFromModel(row.model),
+  };
+}
+
+export function upsertResponseRating(input: {
+  sessionId: string;
+  messageId: number;
+  operatorUserId: string;
+  rating: ResponseRatingValue;
+  agentId?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  skillName?: string | null;
+}): ResponseRatingRecord {
+  const sessionId = resolveSessionIdCompat(input.sessionId);
+  const operatorUserId = input.operatorUserId.trim();
+  const row = db
+    .prepare(
+      `INSERT INTO response_ratings (
+       session_id,
+       message_id,
+       operator_user_id,
+       rating,
+       agent_id,
+       model,
+       provider,
+       skill_name
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id, message_id, operator_user_id)
+     DO UPDATE SET
+       rating = excluded.rating,
+       agent_id = excluded.agent_id,
+       model = excluded.model,
+       provider = excluded.provider,
+       skill_name = excluded.skill_name,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     RETURNING *`,
+    )
+    .get(
+      sessionId,
+      input.messageId,
+      operatorUserId,
+      input.rating,
+      input.agentId?.trim() || null,
+      input.model?.trim() || null,
+      input.provider?.trim() || null,
+      input.skillName?.trim() || null,
+    ) as ResponseRatingRow | undefined;
+  const rating = row ? mapResponseRatingRow(row) : null;
+  if (!rating) {
+    throw new Error('Failed to read persisted response rating.');
+  }
+  return rating;
+}
+
+export function clearResponseRating(input: {
+  sessionId: string;
+  messageId: number;
+  operatorUserId: string;
+}): void {
+  db.prepare(
+    `DELETE FROM response_ratings
+     WHERE session_id = ?
+       AND message_id = ?
+       AND operator_user_id = ?`,
+  ).run(
+    resolveSessionIdCompat(input.sessionId),
+    input.messageId,
+    input.operatorUserId.trim(),
+  );
+}
+
+export function getResponseRatingsForMessages(input: {
+  sessionId: string;
+  messageIds: number[];
+  operatorUserId: string;
+}): Map<number, ResponseRatingValue> {
+  const sessionId = resolveSessionIdCompat(input.sessionId);
+  const messageIds = [
+    ...new Set(
+      input.messageIds
+        .filter((id) => Number.isInteger(id) && id > 0)
+        .map((id) => Math.floor(id)),
+    ),
+  ];
+  const operatorUserId = input.operatorUserId.trim();
+  if (messageIds.length === 0 || !operatorUserId) return new Map();
+  const placeholders = messageIds.map(() => '?').join(', ');
+  const rows = queryAll<
+    Pick<ResponseRatingRow, 'message_id' | 'rating'>,
+    Array<string | number>
+  >(
+    db,
+    `SELECT message_id, rating
+     FROM response_ratings
+     WHERE session_id = ?
+       AND operator_user_id = ?
+       AND message_id IN (${placeholders})`,
+    sessionId,
+    operatorUserId,
+    ...messageIds,
+  );
+  const ratings = new Map<number, ResponseRatingValue>();
+  for (const row of rows) {
+    const rating = normalizeResponseRatingValue(row.rating);
+    if (rating) ratings.set(row.message_id, rating);
+  }
+  return ratings;
 }
 
 function getBranchVariantMessageId(
@@ -9278,6 +9741,35 @@ export function attachFeedbackToObservation(input: {
     db,
     'SELECT * FROM skill_observations WHERE id = ?',
     target.id,
+  );
+  if (!row) {
+    throw new Error('Failed to read updated skill observation.');
+  }
+  return mapSkillObservationRow(row);
+}
+
+export function attachFeedbackToObservationById(input: {
+  observationId: number;
+  feedback: string;
+  sentiment: SkillFeedbackSentiment;
+}): SkillObservation | null {
+  const observationId = Math.floor(input.observationId);
+  if (!Number.isInteger(observationId) || observationId <= 0) return null;
+
+  const result = db
+    .prepare(
+      `UPDATE skill_observations
+       SET user_feedback = ?,
+           feedback_sentiment = ?
+       WHERE id = ?`,
+    )
+    .run(input.feedback.trim() || null, input.sentiment, observationId);
+  if (Number(result.changes || 0) <= 0) return null;
+
+  const row = queryOne<SkillObservationRow, [number]>(
+    db,
+    'SELECT * FROM skill_observations WHERE id = ?',
+    observationId,
   );
   if (!row) {
     throw new Error('Failed to read updated skill observation.');

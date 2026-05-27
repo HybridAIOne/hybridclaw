@@ -14,6 +14,7 @@ import {
   fetchAppStatus,
   fetchChatContext,
   fetchChatRecent,
+  rateChatResponse,
   uploadMedia,
 } from '../../api/chat';
 import type {
@@ -22,6 +23,7 @@ import type {
   ChatMobileQrResponse,
   ChatRecentSession,
   MediaItem,
+  ResponseRatingValue,
 } from '../../api/chat-types';
 import {
   deleteSession as deleteChatSession,
@@ -340,7 +342,7 @@ export function ChatPage() {
 
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
-    queryFn: () => loadChatHistoryUi(auth.token, sessionId),
+    queryFn: () => loadChatHistoryUi(auth.token, sessionId, userId),
     enabled: chatApiReady && Boolean(sessionId),
     staleTime: Infinity,
   });
@@ -387,6 +389,43 @@ export function ChatPage() {
     },
     onError: (err) => {
       setError(`Delete failed: ${getErrorMessage(err)}`);
+    },
+  });
+
+  const ratingMutation = useMutation({
+    mutationFn: (payload: {
+      message: ChatMessage;
+      rating: ResponseRatingValue | null;
+    }) => {
+      if (!payload.message.messageId) {
+        throw new Error('This response cannot be rated right now.');
+      }
+      return rateChatResponse(auth.token, {
+        sessionId: payload.message.sessionId,
+        messageId: payload.message.messageId,
+        userId,
+        rating: payload.rating,
+      });
+    },
+    onSuccess: (data, payload) => {
+      const targetSessionId = payload.message.sessionId;
+      queryClient.setQueryData<ChatHistoryUiData>(
+        chatHistoryQueryKey(auth.token, targetSessionId),
+        (previous) => {
+          if (!previous) return previous;
+          return {
+            ...previous,
+            messages: previous.messages.map((message) =>
+              message.messageId === data.messageId
+                ? { ...message, responseRating: data.rating }
+                : message,
+            ),
+          };
+        },
+      );
+    },
+    onError: (err) => {
+      setError(`Rating failed: ${getErrorMessage(err)}`);
     },
   });
 
@@ -496,7 +535,8 @@ export function ChatPage() {
         // before the deferred sendMessage fires.
         await queryClient.ensureQueryData({
           queryKey: chatHistoryQueryKey(auth.token, branch.sessionId),
-          queryFn: () => loadChatHistoryUi(auth.token, branch.sessionId),
+          queryFn: () =>
+            loadChatHistoryUi(auth.token, branch.sessionId, userId),
         });
         // Bind the ref before sending so the stream captures the branch's
         // sessionId even if React hasn't committed the URL-driven re-render yet.
@@ -506,7 +546,14 @@ export function ChatPage() {
         setError(getErrorMessage(err));
       }
     },
-    [auth.token, queryClient, setError, switchToSession, stream.sendMessage],
+    [
+      auth.token,
+      queryClient,
+      setError,
+      switchToSession,
+      stream.sendMessage,
+      userId,
+    ],
   );
 
   const handleRegenerate = useCallback(
@@ -535,6 +582,13 @@ export function ChatPage() {
       }
     },
     [jumpToBottom, stream.sendMessage],
+  );
+
+  const handleRateResponse = useCallback(
+    (message: ChatMessage, rating: ResponseRatingValue | null) => {
+      ratingMutation.mutate({ message, rating });
+    },
+    [ratingMutation],
   );
 
   const handleUploadFiles = useCallback(
@@ -608,7 +662,8 @@ export function ChatPage() {
       await queryClient
         .ensureQueryData({
           queryKey: chatHistoryQueryKey(auth.token, resolvedSessionId),
-          queryFn: () => loadChatHistoryUi(auth.token, resolvedSessionId),
+          queryFn: () =>
+            loadChatHistoryUi(auth.token, resolvedSessionId, userId),
         })
         .catch((err: unknown) => {
           console.warn(
@@ -618,7 +673,7 @@ export function ChatPage() {
           return null;
         });
     },
-    [auth.token, queryClient],
+    [auth.token, queryClient, userId],
   );
 
   const sendSlashSwitch = useCallback(
@@ -735,11 +790,11 @@ export function ChatPage() {
       if (targetId === getSessionId()) return;
       void queryClient.prefetchQuery({
         queryKey: chatHistoryQueryKey(auth.token, targetId),
-        queryFn: () => loadChatHistoryUi(auth.token, targetId),
+        queryFn: () => loadChatHistoryUi(auth.token, targetId, userId),
         staleTime: 30_000,
       });
     },
-    [queryClient, auth.token, getSessionId],
+    [queryClient, auth.token, getSessionId, userId],
   );
 
   const handleRefreshRecent = useCallback(() => {
@@ -916,6 +971,11 @@ export function ChatPage() {
                       onCopy={copyToClipboard}
                       onEdit={handleEditOpen}
                       onRegenerate={handleRegenerate}
+                      onRate={handleRateResponse}
+                      ratingBusy={
+                        ratingMutation.isPending &&
+                        ratingMutation.variables?.message.id === msg.id
+                      }
                       onApprovalAction={handleApprovalAction}
                       approvalBusy={approvalBusy}
                       branchInfo={branchInfoMap.get(msg.id) ?? null}

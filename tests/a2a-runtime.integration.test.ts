@@ -67,12 +67,20 @@ describe('A2A runtime API', () => {
         created_at: '2026-04-29T10:00:00.000Z',
       }),
     ).toThrow('unexpected field: sender_coworker_id');
+    expect(() => runtime.inboxThreads('  ')).toThrow(
+      envelope.A2AEnvelopeValidationError,
+    );
+    expect(() => runtime.inboxThreads('  ')).toThrow(
+      'Invalid A2A envelope: agentId is required',
+    );
   });
 
   test('delivers a message from stub agent A to stub agent B inbox', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtimeConfig = await import('../src/config/runtime-config.ts');
     const runtime = await import('../src/a2a/runtime.ts');
+    const store = await import('../src/a2a/store.ts');
+    const revisions = await import('../src/config/runtime-config-revisions.ts');
 
     initDatabase({ quiet: true });
     runtimeConfig.updateRuntimeConfig((draft) => {
@@ -136,6 +144,31 @@ describe('A2A runtime API', () => {
     expect(handoff?.content).toContain(
       'recipient_escalation_chain: main (lead)',
     );
+    expect(store.listA2AThreads()).toEqual([
+      expect.objectContaining({
+        thread_id: 'thread-1',
+        owner_coworker_id: 'stub-b@team@local-dev',
+      }),
+    ]);
+    expect(runtime.inboxThreads('stub-b')).toEqual([
+      expect.objectContaining({
+        thread_id: 'thread-1',
+        owner_coworker_id: 'stub-b@team@local-dev',
+        latest_intent: 'handoff',
+      }),
+    ]);
+    expect(runtime.inboxThreads('stub-a')).toEqual([]);
+    const persistedState = JSON.parse(
+      revisions.getRuntimeAssetRevisionState(
+        'a2a',
+        store.a2aThreadAssetPath('thread-1'),
+      )?.content ?? '{}',
+    );
+    expect(persistedState).toMatchObject({
+      thread_id: 'thread-1',
+      owner_coworker_id: 'stub-b@team@local-dev',
+      envelopes: [deliveredEnvelope],
+    });
   });
 
   test('writes A2A message events to the hash-chain audit wire log', async () => {

@@ -85,8 +85,7 @@ saved revision history directly.
 ## Important Config Areas
 
 - `container.*` for execution isolation, including `sandboxMode`, `memory`,
-  `memorySwap`, `cpus`, `network`, `binds`, additional mounts, and
-  `persistBashState`
+  `memorySwap`, `cpus`, `network`, `binds`, and `persistBashState`
 - `container.persistBashState` controls whether `bash` tool calls reuse shell
   state (`cd`, exported env vars, aliases) for the active runtime session
   (`true`, default) or start fresh on each call (`false`)
@@ -99,6 +98,9 @@ saved revision history directly.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
+- legacy `container.additionalMounts` JSON is migrated into `container.binds`
+  on startup; update config files to use `binds` before `additionalMounts` is
+  removed
 - `browser.provider` selects the browser automation backend. Supported values include `local`, `camofox`, `managed-cloud`, `browser-use-cloud`, and `mac-cua`. `browser.local.*` and `browser.camofox.*` configure persistent profile roots and headed mode; `browser.managedCloud.*` points at an operator-run HybridClaw browser pool with navigation-guard enforcement and optional `poolTokenRef` bearer authentication; `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef; and `browser.macCua.*` selects the operator-owned macOS browser, driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`). Camofox stealth mode is deny-by-default per host; allow it from the workspace policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS Accessibility and Screen Recording grants.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
@@ -214,6 +216,8 @@ saved revision history directly.
   in the encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
 - `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs behind a cloud URL or a local tunnel; cloud mode requires `deployment.public_url`, while local mode requires a tunnel provider such as `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`
+- `HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE` enables DNS-style canonical identity discovery for A2A cross-instance delivery; outbound A2A resolves canonical recipients in this order: local canonical agents from `deployment.public_url` or the active tunnel URL, trusted peer instances from the A2A public-key trust ledger, then DNS-style discovery.
+- DNS-style A2A identity discovery trusts the returned URL and public key as operator-provided discovery data; use DNSSEC or out-of-band verification for production peers before relying on first-seen DNS records.
 - The built-in ngrok tunnel provider reads `NGROK_AUTHTOKEN` from the encrypted runtime secret store and health-checks active tunnels every 30 seconds by default
 - The built-in Tailscale Funnel tunnel provider reads `TS_AUTHKEY` from the encrypted runtime secret store when the host is not already logged in to `tailscaled`
 - The built-in Cloudflare Tunnel provider reads `CLOUDFLARE_TUNNEL_TOKEN`, or `CLOUDFLARE_CERT_PEM` plus `CLOUDFLARE_TUNNEL_JSON`, from the encrypted runtime secret store and reports `deployment.public_url` as the stable public hostname
@@ -413,6 +417,7 @@ hybridclaw secret route remove <url-prefix> [header]
 - `/secret route ...` is a convenience surface for editing
   `tools.httpRequest.authRules[]` without hand-editing `config.json`
 - `secret: { "source": "google-oauth" }` routes mint and inject the Google OAuth access token from `hybridclaw auth login google` for matching `*.googleapis.com` requests
+- secrets injected with `bearerSecretName` or `secretHeaders` should have a companion `<NAME>_BOUND_DOMAIN` secret containing the exact hostname they may be sent to; unbound bearer secrets still work during the deprecation window, but runtime logs and `hybridclaw doctor security` warn before unbound injection is removed
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 Trust-model acceptance is persisted in `config.json` under `security.*` and is
@@ -434,7 +439,7 @@ credential checks run.
   text in `config.json`
 - In `host` sandbox mode, the agent can access the user home directory, the
   gateway working directory, `/tmp`, and any host paths explicitly added
-  through `container.binds` or `container.additionalMounts`
+  through `container.binds`
 - prefer storing BlueBubbles credentials as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext `imessage.password`
 - prefer storing email passwords as `EMAIL_PASSWORD` or a SecretRef-backed

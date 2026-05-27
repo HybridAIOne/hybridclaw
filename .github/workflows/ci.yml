@@ -82,17 +82,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
+        with:
+          fetch-depth: 2
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
 
       - name: Fetch PR base for dependency policy
         if: github.event_name == 'pull_request'
-        run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          PARENTS="$(git show -s --format=%P HEAD)"
+          BASE_SHA="${PARENTS%% *}"
+          BASE_SHA="${BASE_SHA:-${{ github.event.pull_request.base.sha }}}"
+          git fetch --no-tags --depth=1 origin "${BASE_SHA}"
 
       - name: Dependency policy (PR lockfiles)
         if: github.event_name == 'pull_request'
-        run: node ./scripts/check-dependency-policy.mjs --base "${{ github.event.pull_request.base.sha }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          PARENTS="$(git show -s --format=%P HEAD)"
+          BASE_SHA="${PARENTS%% *}"
+          BASE_SHA="${BASE_SHA:-${{ github.event.pull_request.base.sha }}}"
+          node ./scripts/check-dependency-policy.mjs --base "${BASE_SHA}"
 
       - name: Biome check (changed files)
         shell: bash
@@ -100,7 +114,9 @@ jobs:
           set -euo pipefail
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            PARENTS="$(git show -s --format=%P HEAD)"
+            BASE_SHA="${PARENTS%% *}"
+            BASE_SHA="${BASE_SHA:-${{ github.event.pull_request.base.sha }}}"
           else
             BASE_SHA="${{ github.event.before }}"
           fi

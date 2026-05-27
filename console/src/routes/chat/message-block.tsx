@@ -7,8 +7,13 @@ import {
   useState,
 } from 'react';
 import { fetchAgentAvatarBlob, fetchArtifactBlob } from '../../api/chat';
-import type { ChatArtifact, ChatMessage } from '../../api/chat-types';
+import type {
+  ChatArtifact,
+  ChatMessage,
+  ResponseRatingValue,
+} from '../../api/chat-types';
 import { Button } from '../../components/button';
+import { ThumbsDown, ThumbsUp } from '../../components/icons';
 import type { ApprovalAction } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { renderMarkdown } from '../../lib/markdown';
@@ -272,6 +277,8 @@ export const MessageBlock = memo(function MessageBlock(props: {
   onCopy: (text: string) => void;
   onEdit: (message: ChatMessage) => void;
   onRegenerate: (message: ChatMessage) => void;
+  onRate?: (message: ChatMessage, rating: ResponseRatingValue | null) => void;
+  ratingBusy?: boolean;
   onApprovalAction: (action: ApprovalAction, approvalId: string) => void;
   approvalBusy: boolean;
   branchInfo: { current: number; total: number } | null;
@@ -440,6 +447,79 @@ export const MessageBlock = memo(function MessageBlock(props: {
             >
               ↻
             </Button>
+          ) : null}
+          {isAssistant ? (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cx(
+                  css.actionButton,
+                  msg.responseRating === 'up' && css.actionButtonSelected,
+                )}
+                title={
+                  msg.responseRating === 'up' ? 'Clear thumbs up' : 'Thumbs up'
+                }
+                aria-label={
+                  msg.responseRating === 'up'
+                    ? 'Clear thumbs up rating'
+                    : 'Rate response thumbs up'
+                }
+                aria-pressed={msg.responseRating === 'up'}
+                data-rating-locked={msg.responseRating ? 'true' : undefined}
+                disabled={
+                  props.ratingBusy === true ||
+                  !msg.messageId ||
+                  msg.responseRating === 'down'
+                }
+                onClick={() =>
+                  props.onRate?.(msg, msg.responseRating === 'up' ? null : 'up')
+                }
+              >
+                <ThumbsUp
+                  width="13"
+                  height="13"
+                  filled={msg.responseRating === 'up'}
+                />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cx(
+                  css.actionButton,
+                  msg.responseRating === 'down' && css.actionButtonSelected,
+                )}
+                title={
+                  msg.responseRating === 'down'
+                    ? 'Clear thumbs down'
+                    : 'Thumbs down'
+                }
+                aria-label={
+                  msg.responseRating === 'down'
+                    ? 'Clear thumbs down rating'
+                    : 'Rate response thumbs down'
+                }
+                aria-pressed={msg.responseRating === 'down'}
+                data-rating-locked={msg.responseRating ? 'true' : undefined}
+                disabled={
+                  props.ratingBusy === true ||
+                  !msg.messageId ||
+                  msg.responseRating === 'up'
+                }
+                onClick={() =>
+                  props.onRate?.(
+                    msg,
+                    msg.responseRating === 'down' ? null : 'down',
+                  )
+                }
+              >
+                <ThumbsDown
+                  width="13"
+                  height="13"
+                  filled={msg.responseRating === 'down'}
+                />
+              </Button>
+            </>
           ) : null}
           <Button
             variant="ghost"

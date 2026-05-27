@@ -12,6 +12,7 @@ import {
   IMESSAGE_SERVER_URL,
   IMESSAGE_TEXT_CHUNK_LIMIT,
 } from '../../config/config.js';
+import { logger } from '../../logger.js';
 import { SlidingWindowRateLimiter } from '../discord/rate-limiter.js';
 import {
   readWebhookJsonBody,
@@ -119,21 +120,31 @@ function safeEqual(value: string, expected: string): boolean {
   return timingSafeEqual(valueBuffer, expectedBuffer);
 }
 
+type WebhookPasswordReadResult = {
+  password?: string;
+  source: 'header' | 'query' | null;
+  parameterName?: string;
+};
+
 function readWebhookPassword(
   req: IncomingMessage,
   url: URL,
-): string | undefined {
+): WebhookPasswordReadResult {
   const headerValue = req.headers['x-hybridclaw-imessage-password'];
   if (typeof headerValue === 'string' && headerValue.trim()) {
-    return headerValue.trim();
+    return { password: headerValue.trim(), source: 'header' };
   }
-  // Header auth is preferred. Query-param secrets remain as a compatibility
-  // fallback because some relay/proxy setups cannot inject custom headers.
   for (const key of ['password', 'guid', 'token']) {
     const value = url.searchParams.get(key);
-    if (value?.trim()) return value.trim();
+    if (value?.trim()) {
+      return {
+        password: value.trim(),
+        source: 'query',
+        parameterName: key,
+      };
+    }
   }
-  return undefined;
+  return { source: null };
 }
 
 async function sendBlueBubblesRequest(
@@ -304,9 +315,14 @@ export function createBlueBubblesIMessageBackend(
       }
 
       const expectedPassword = IMESSAGE_PASSWORD.trim();
-      const suppliedPassword = String(
-        readWebhookPassword(req, url) || '',
-      ).trim();
+      const suppliedAuth = readWebhookPassword(req, url);
+      if (suppliedAuth.source === 'query') {
+        logger.warn(
+          { parameterName: suppliedAuth.parameterName },
+          'BlueBubbles webhook used deprecated query-param auth; send x-hybridclaw-imessage-password instead before query-param auth is removed',
+        );
+      }
+      const suppliedPassword = String(suppliedAuth.password || '').trim();
       if (
         !expectedPassword ||
         !suppliedPassword ||

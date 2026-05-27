@@ -21,9 +21,12 @@ export interface ChatHistoryMessage {
   content: string;
   id?: number | string | null;
   agent_id?: string | null;
+  response_rating?: ResponseRatingValue | null;
   artifacts?: ChatArtifact[];
   assistantPresentation?: AssistantPresentation | null;
 }
+
+export type ResponseRatingValue = 'up' | 'down';
 
 export interface AssistantPresentation {
   agentId?: string | null;
@@ -142,6 +145,19 @@ export interface BranchResponse {
   sessionId: string;
 }
 
+export interface RateResponseRequest {
+  sessionId: string;
+  messageId: number | string;
+  userId?: string;
+  rating: ResponseRatingValue | null;
+}
+
+export interface RateResponseResponse {
+  sessionId: string;
+  messageId: number;
+  rating: ResponseRatingValue | null;
+}
+
 export interface ChatMessage {
   id: string;
   // `command` is slash-command/console output (rendered as a distinct terminal
@@ -156,5 +172,6 @@ export interface ChatMessage {
   replayRequest?: { content: string; media: MediaItem[] } | null;
   pendingApproval?: ChatStreamApproval | null;
   assistantPresentation?: AssistantPresentation | null;
+  responseRating?: ResponseRatingValue | null;
   branchKey?: string | null;
 }

@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatArtifact, ChatMessage } from '../../api/chat-types';
+import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
 import { MessageBlock } from './message-block';
 
@@ -64,6 +65,30 @@ describe('MessageBlock artifacts', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('renders multiline user message bubbles with newline-preserving styling', () => {
+    const content = 'first line\nsecond line\nthird line';
+    render(
+      <MessageBlock
+        message={makeMessage([], { role: 'user', content })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const bubble = screen.getByText(
+      (_text, element) => element?.textContent === content,
+    );
+    expect(bubble.textContent).toBe(content);
+    expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
   });
 
   it('renders image previews from blob URLs instead of tokenized artifact URLs', async () => {
@@ -435,6 +460,116 @@ describe('MessageBlock artifacts', () => {
 
     expect(renderMarkdownMock).toHaveBeenCalledTimes(3);
     expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABCD');
+  });
+
+  it('renders accessible response rating controls and clears the selected rating', () => {
+    const onRate = vi.fn();
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          messageId: 42,
+          responseRating: 'up',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={onRate}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const up = screen.getByRole('button', {
+      name: 'Clear thumbs up rating',
+    });
+    const down = screen.getByRole('button', {
+      name: 'Rate response thumbs down',
+    });
+    expect(up.getAttribute('aria-pressed')).toBe('true');
+    expect(down.getAttribute('aria-pressed')).toBe('false');
+    expect(up.getAttribute('data-rating-locked')).toBe('true');
+    expect(down.getAttribute('data-rating-locked')).toBe('true');
+    expect(up.hasAttribute('disabled')).toBe(false);
+    expect(down.hasAttribute('disabled')).toBe(true);
+    expect(up.querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
+    expect(down.querySelector('svg')?.getAttribute('fill')).toBe('none');
+
+    fireEvent.click(up);
+    expect(onRate).toHaveBeenCalledWith(expect.any(Object), null);
+  });
+
+  it('disables thumbs up after a thumbs down rating is selected', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          messageId: 42,
+          responseRating: 'down',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={vi.fn()}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs up' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole('button', { name: 'Clear thumbs down rating' })
+        .hasAttribute('disabled'),
+    ).toBe(false);
+    expect(
+      screen
+        .getByRole('button', { name: 'Clear thumbs down rating' })
+        .querySelector('svg')
+        ?.getAttribute('fill'),
+    ).toBe('currentColor');
+  });
+
+  it('keeps response rating controls visible but disabled before message persistence', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], { messageId: null })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onRate={vi.fn()}
+        ratingBusy={false}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs up' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole('button', { name: 'Rate response thumbs down' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
   });
 });
 

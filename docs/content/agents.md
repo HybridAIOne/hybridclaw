@@ -78,6 +78,7 @@ Main docs landing pages:
 - [Runtime](./developer-guide/runtime.md)
 - [Memory](./developer-guide/memory.md)
 - [Session Routing](./developer-guide/session-routing.md)
+- [Harness Evolution](./developer-guide/harness-evolution.md)
 
 ## Reference
 

@@ -1,7 +1,6 @@
 import path from 'node:path';
 
 import {
-  ADDITIONAL_MOUNTS,
   CONTAINER_BINDS,
   CONTAINER_SANDBOX_MODE,
   DATA_DIR,
@@ -107,7 +106,6 @@ export async function prependAudioTranscriptionsToUserContent(params: {
 
   const mountAliases = buildValidatedMountAliases({
     binds: CONTAINER_BINDS,
-    additionalMounts: ADDITIONAL_MOUNTS,
   });
   const transcripts: AudioTranscriptItem[] = [];
   let remainingChars = audioConfig.maxTotalChars;

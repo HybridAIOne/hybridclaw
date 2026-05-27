@@ -1,10 +1,10 @@
 ---
-title: 'HybridClaw: The AI Coworker Who''s Already On It'
+title: Manifesto
 description: The product principles HybridClaw is built around — what we will and will not ship.
 sidebar_position: 2
 ---
 
-# HybridClaw: The AI Coworker Who's Already On It
+# Manifesto
 
 *HybridClaw is not an AI assistant framework. It's an open-source agent harness for shipping coworkers that do the work. Reliably. Fast. At a level your team will trust with clients.*
 

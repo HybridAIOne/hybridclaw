@@ -597,6 +597,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   background: linear-gradient(135deg, var(--primary), var(--ring));
   color: var(--primary-foreground);
   border-bottom-right-radius: 4px;
+  white-space: pre-wrap;
 }
 
 .bubbleAssistant {
@@ -796,12 +797,20 @@ aside[data-state="collapsed"] .chatSidebarContent {
   font-size: 0.82rem;
 }
 
-.messageActions .actionButton:hover:not(:disabled):not([data-disabled]) {
+.messageActions
+  .actionButton:hover:not(:disabled):not([data-disabled]):not(
+    [data-rating-locked]
+  ) {
   background: var(--chat-hover-bg);
   color: var(--foreground);
 }
 
-.actionButtonSuccess {
+.messageActions .actionButtonSelected {
+  background: transparent;
+  color: var(--foreground);
+}
+
+.messageActions .actionButtonSuccess {
   color: var(--success);
 }
 

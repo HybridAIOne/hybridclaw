@@ -64,6 +64,13 @@ test('does not emit approval events for auto-approved read-only tools', async ()
     'authorization.check',
     'tool.call',
   ]);
+  expect(JSON.parse(events[0].payload)).toEqual(
+    expect.objectContaining({
+      type: 'tool.result',
+      resultSummary: 'ok',
+      resultPreview: 'ok',
+    }),
+  );
   expect(JSON.parse(events[1].payload)).toEqual(
     expect.objectContaining({
       type: 'autonomy.decision',
@@ -189,6 +196,55 @@ test('emits approval request and response events for pending red actions', async
       classifierReasoning: [],
     }),
   );
+});
+
+test('tool result audit stores a redacted truncated preview beyond the summary', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { getRecentStructuredAuditForSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
+  const { emitToolExecutionAuditEvents } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  emitToolExecutionAuditEvents({
+    sessionId: 'session-result-preview',
+    runId: 'run-result-preview',
+    toolExecutions: [
+      {
+        name: 'bash',
+        arguments: '{"command":"node script.js"}',
+        result: [
+          'prefix sk-test-ABCDEFGHIJKLMNOP1234567890',
+          'https://example.com/callback?token=opaque-query-token',
+          'unknown Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0Kk1',
+          'x'.repeat(5000),
+        ].join(' '),
+        durationMs: 10,
+        isError: false,
+      },
+    ],
+  });
+
+  const result = getRecentStructuredAuditForSession(
+    'session-result-preview',
+    10,
+  ).find((event) => event.event_type === 'tool.result');
+  const payload = JSON.parse(result?.payload || '{}') as Record<string, string>;
+  expect(payload.resultSummary.length).toBeLessThanOrEqual(283);
+  expect(payload.resultPreview.length).toBeGreaterThan(
+    payload.resultSummary.length,
+  );
+  expect(payload.resultPreview.length).toBeLessThanOrEqual(4003);
+  expect(payload.resultPreview).not.toContain(
+    'sk-test-ABCDEFGHIJKLMNOP1234567890',
+  );
+  expect(payload.resultPreview).toContain('token=***REDACTED***');
+  expect(payload.resultPreview).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
 });
 
 test('autonomy audit falls back to internally consistent approval metadata', async () => {

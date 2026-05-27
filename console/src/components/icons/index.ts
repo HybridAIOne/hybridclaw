@@ -35,5 +35,7 @@ export { Skills } from './Skills';
 export { SquarePen } from './SquarePen';
 export { Statistics } from './Statistics';
 export { Terminal } from './Terminal';
+export { ThumbsDown } from './ThumbsDown';
+export { ThumbsUp } from './ThumbsUp';
 export { Tools } from './Tools';
 export { Trash } from './Trash';

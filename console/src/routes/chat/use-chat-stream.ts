@@ -277,6 +277,7 @@ export function useChatStream(
           artifacts: finalArtifacts,
           assistantPresentation: result.assistantPresentation ?? null,
           pendingApproval: finalApproval,
+          responseRating: null,
           replayRequest: { content, media },
         });
 

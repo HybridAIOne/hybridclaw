@@ -1179,7 +1179,6 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
           network: 'bridge',
           timeoutMs: 300000,
           binds: [],
-          additionalMounts: '',
           maxOutputBytes: 10485760,
           maxConcurrent: 5,
         },
