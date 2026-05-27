@@ -19,6 +19,10 @@ function normalizeStringArray(value) {
   return out;
 }
 
+function isRecord(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function ensureEnum(value, allowed, fallback) {
   const normalized = normalizeString(value).toLowerCase();
   return allowed.includes(normalized) ? normalized : fallback;
@@ -41,7 +45,7 @@ function ensureNumber(value, fallback, { min, max } = {}) {
   return next;
 }
 
-function compileRegexEntry(entry, errors) {
+function compileRegexEntry(entry, errors, profileId) {
   if (!entry) return null;
   const trimmed = entry.trim();
   if (!trimmed) return null;
@@ -52,16 +56,17 @@ function compileRegexEntry(entry, errors) {
     }
     return new RegExp(trimmed, 'i');
   } catch (error) {
-    errors.push(
-      `output-guard: invalid regex pattern ${JSON.stringify(entry)}: ${
+    errors.push({
+      profileId,
+      error: `output-guard: invalid regex pattern ${JSON.stringify(entry)}: ${
         error instanceof Error ? error.message : String(error)
       }`,
-    );
+    });
     return null;
   }
 }
 
-function resolvePolicyFile(policyFile, runtime, logger) {
+function resolvePolicyFile(policyFile, runtime, logger, profileId) {
   if (!policyFile) return '';
   let resolved = policyFile;
   if (resolved.startsWith('~/')) {
@@ -74,7 +79,7 @@ function resolvePolicyFile(policyFile, runtime, logger) {
     return String(text || '').trim();
   } catch (error) {
     logger.warn(
-      { policyFile, resolvedPath: resolved, error },
+      { profileId, policyFile, resolvedPath: resolved, error },
       'output-guard: policyFile not readable; ignoring',
     );
     return '';
@@ -92,6 +97,120 @@ function resolveModelSourceConfig(rawConfig, label) {
   return { provider, model: provider === 'model' ? model : '' };
 }
 
+function resolveOutputGuardProfile(rawConfig, runtime, logger, errors, id) {
+  const raw = isRecord(rawConfig) ? rawConfig : {};
+  const policy = normalizeString(raw.policy);
+  const doList = normalizeStringArray(raw.doList);
+  const dontList = normalizeStringArray(raw.dontList);
+  const policyFileText = resolvePolicyFile(
+    normalizeString(raw.policyFile),
+    runtime,
+    logger,
+    id,
+  );
+  const bannedPhrases = normalizeStringArray(raw.bannedPhrases).map((entry) =>
+    entry.toLowerCase(),
+  );
+  const bannedPatternEntries = normalizeStringArray(raw.bannedPatterns)
+    .map((source) => {
+      const pattern = compileRegexEntry(source, errors, id);
+      return pattern === null ? null : { source, pattern };
+    })
+    .filter((value) => value !== null);
+  const requirePhrases = normalizeStringArray(raw.requirePhrases);
+
+  const profile = {
+    id,
+    policy,
+    doList: Object.freeze(doList),
+    dontList: Object.freeze(dontList),
+    policyFileText,
+    bannedPhrases: Object.freeze(bannedPhrases),
+    bannedPatterns: Object.freeze(
+      bannedPatternEntries.map((entry) => Object.freeze(entry)),
+    ),
+    requirePhrases: Object.freeze(requirePhrases),
+  };
+
+  return Object.freeze({
+    ...profile,
+    policyBrief: buildPolicyBrief(profile),
+  });
+}
+
+function resolveNamedProfiles(rawConfig, runtime, logger, errors) {
+  if (!isRecord(rawConfig?.profiles)) {
+    return Object.freeze({});
+  }
+  const profiles = {};
+  for (const [rawProfileId, rawProfileConfig] of Object.entries(
+    rawConfig.profiles,
+  )) {
+    const profileId = normalizeString(rawProfileId);
+    if (!profileId) continue;
+    profiles[profileId] = resolveOutputGuardProfile(
+      rawProfileConfig,
+      runtime,
+      logger,
+      errors,
+      profileId,
+    );
+  }
+  return Object.freeze(profiles);
+}
+
+function resolveChannelProfiles(rawConfig, logger) {
+  if (!isRecord(rawConfig?.channelProfiles)) {
+    return Object.freeze({});
+  }
+  const channelProfiles = {};
+  for (const [rawChannelId, rawProfileId] of Object.entries(
+    rawConfig.channelProfiles,
+  )) {
+    const channelId = normalizeString(rawChannelId);
+    const profileId = normalizeString(rawProfileId);
+    if (!channelId || !profileId) {
+      logger.warn(
+        { channelId: rawChannelId, profileId: rawProfileId },
+        'output-guard: channelProfiles entry is invalid; ignoring',
+      );
+      continue;
+    }
+    channelProfiles[channelId] = profileId;
+  }
+  return Object.freeze(channelProfiles);
+}
+
+export function resolveOutputGuardProfileSelection(config, channelId) {
+  const normalizedChannelId = normalizeString(channelId);
+  const requestedProfileId = normalizedChannelId
+    ? config.channelProfiles[normalizedChannelId]
+    : '';
+  if (!requestedProfileId) {
+    return {
+      profile: config.defaultProfile,
+      profileId: config.defaultProfile.id,
+      requestedProfileId: '',
+      fellBack: false,
+    };
+  }
+  const profile = config.profiles[requestedProfileId];
+  if (profile) {
+    return {
+      profile,
+      profileId: profile.id,
+      requestedProfileId,
+      fellBack: false,
+    };
+  }
+  return {
+    profile: config.defaultProfile,
+    profileId: config.defaultProfile.id,
+    requestedProfileId,
+    fellBack: true,
+  };
+}
+
 export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
   const errors = [];
   const enabled = rawConfig?.enabled !== false;
@@ -101,24 +220,15 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
     SUPPORTED_FAILURE_MODES,
     'allow',
   );
-  const policy = normalizeString(rawConfig?.policy);
-  const doList = normalizeStringArray(rawConfig?.doList);
-  const dontList = normalizeStringArray(rawConfig?.dontList);
-  const policyFileText = resolvePolicyFile(
-    normalizeString(rawConfig?.policyFile),
+  const defaultProfile = resolveOutputGuardProfile(
+    rawConfig,
     runtime,
     logger,
+    errors,
+    'default',
   );
-  const bannedPhrases = normalizeStringArray(rawConfig?.bannedPhrases).map(
-    (entry) => entry.toLowerCase(),
-  );
-  const bannedPatternEntries = normalizeStringArray(rawConfig?.bannedPatterns)
-    .map((source) => {
-      const pattern = compileRegexEntry(source, errors);
-      return pattern === null ? null : { source, pattern };
-    })
-    .filter((value) => value !== null);
-  const requirePhrases = normalizeStringArray(rawConfig?.requirePhrases);
+  const profiles = resolveNamedProfiles(rawConfig, runtime, logger, errors);
+  const channelProfiles = resolveChannelProfiles(rawConfig, logger);
   const blockMessage =
     normalizeString(rawConfig?.blockMessage) ||
     'Output blocked by output guard.';
@@ -130,23 +240,24 @@ export function resolveOutputGuardConfig(rawConfig, runtime, logger) {
   );
   const rewriter = resolveModelSourceConfig(rawConfig?.rewriter, 'rewriter');
 
-  for (const error of errors) {
-    logger.warn({ error }, 'output-guard config issue');
+  for (const entry of errors) {
+    logger.warn(entry, 'output-guard config issue');
+  }
+  for (const [channelId, profileId] of Object.entries(channelProfiles)) {
+    if (profiles[profileId]) continue;
+    logger.warn(
+      { channelId, profileId },
+      'output-guard: channelProfiles references unknown profile; will fall back to default',
+    );
   }
 
   return Object.freeze({
     enabled,
     mode,
     failureMode,
-    policy,
-    doList: Object.freeze(doList),
-    dontList: Object.freeze(dontList),
-    policyFileText,
-    bannedPhrases: Object.freeze(bannedPhrases),
-    bannedPatterns: Object.freeze(
-      bannedPatternEntries.map((entry) => Object.freeze(entry)),
-    ),
-    requirePhrases: Object.freeze(requirePhrases),
+    defaultProfile,
+    profiles,
+    channelProfiles,
     blockMessage,
     minLength,
     classifier: Object.freeze(classifier),
