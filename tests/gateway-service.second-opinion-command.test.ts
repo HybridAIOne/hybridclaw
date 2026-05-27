@@ -298,6 +298,51 @@ test('second-opinion caps explicit questions before the stronger model call', as
   });
 });
 
+test('second-opinion reuses a fresh model catalog refresh', async () => {
+  setupHome();
+  const { refreshAvailableModelCatalogs } = mockModelCatalog([
+    'openai-codex/gpt-5.5',
+  ]);
+
+  const callAuxiliaryModelMock = vi.fn(async () => ({
+    provider: 'openai-codex' as const,
+    model: 'openai-codex/gpt-5.5',
+    content: JSON.stringify({
+      verdict: 'The draft is acceptable.',
+      revised_answer: 'Use the staged rollout.',
+      material_disagreements: [],
+      missing_caveats: [],
+      confidence: 'medium',
+    }),
+  }));
+  vi.doMock('../src/providers/auxiliary.js', () => ({
+    callAuxiliaryModel: callAuxiliaryModelMock,
+  }));
+
+  const { memoryService, handleGatewayCommand } = await loadGatewayFixture();
+  const session = seedSession(
+    memoryService,
+    'session-second-opinion-catalog-cache',
+    [
+      { role: 'user', content: 'How should we roll this out?' },
+      { role: 'assistant', content: 'Use a staged rollout.' },
+    ],
+  );
+
+  for (let index = 0; index < 2; index += 1) {
+    const result = await handleGatewayCommand({
+      sessionId: session.id,
+      guildId: null,
+      channelId: 'web',
+      args: ['second-opinion', '--validate-last'],
+    });
+    expect(result.kind).toBe('info');
+  }
+
+  expect(refreshAvailableModelCatalogs).toHaveBeenCalledTimes(1);
+  expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(2);
+});
+
 test('second-opinion fails loud when no stronger default model is configured', async () => {
   setupHome();
   mockModelCatalog([]);

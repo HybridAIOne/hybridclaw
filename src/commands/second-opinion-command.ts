@@ -31,6 +31,7 @@ import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 
 const SECOND_OPINION_CONTEXT_MESSAGE_LIMIT = 8;
 const SECOND_OPINION_QUESTION_CHAR_LIMIT = 4000;
+const SECOND_OPINION_MODEL_CATALOG_REFRESH_TTL_MS = 60_000;
 const SECOND_OPINION_TIMEOUT_MS = 300_000;
 const SECOND_OPINION_DEFAULT_MAX_TOKENS = 1200;
 
@@ -58,6 +59,11 @@ interface SecondOpinionTarget {
   model: string;
   selection: 'requested' | 'configured' | 'default';
 }
+
+let secondOpinionCatalogRefreshCache: {
+  at: number;
+  promise: ReturnType<typeof refreshAvailableModelCatalogs>;
+} | null = null;
 
 const SECOND_OPINION_BASE_PROMPT = [
   'You are a stronger-model second opinion for HybridClaw.',
@@ -222,11 +228,34 @@ function validateAvailableTarget(target: SecondOpinionTarget): void {
   }
 }
 
+async function refreshSecondOpinionModelCatalogs(): Promise<void> {
+  const now = Date.now();
+  if (
+    secondOpinionCatalogRefreshCache &&
+    now - secondOpinionCatalogRefreshCache.at <
+      SECOND_OPINION_MODEL_CATALOG_REFRESH_TTL_MS
+  ) {
+    await secondOpinionCatalogRefreshCache.promise;
+    return;
+  }
+
+  const promise = refreshAvailableModelCatalogs({ includeHybridAI: true });
+  secondOpinionCatalogRefreshCache = { at: now, promise };
+  try {
+    await promise;
+  } catch (error) {
+    if (secondOpinionCatalogRefreshCache?.promise === promise) {
+      secondOpinionCatalogRefreshCache = null;
+    }
+    throw error;
+  }
+}
+
 async function resolveSecondOpinionTarget(
   parsed: ParsedSecondOpinionArgs,
 ): Promise<SecondOpinionTarget> {
   try {
-    await refreshAvailableModelCatalogs({ includeHybridAI: true });
+    await refreshSecondOpinionModelCatalogs();
   } catch (error) {
     throw new Error(
       `Could not refresh model catalog for second opinion: ${error instanceof Error ? error.message : String(error)}`,
