@@ -103,10 +103,7 @@ export function createConciergeCommandHandler(api, getConfig, setConfig) {
           'Usage: `concierge profile <asap|balanced|no_hurry> [model]`',
         );
       }
-      const configuredModel = resolveConciergeProfileModel(
-        concierge,
-        profile,
-      );
+      const configuredModel = resolveConciergeProfileModel(concierge, profile);
       const modelName = parseIdArg(args, 2);
       if (!modelName) {
         return info(

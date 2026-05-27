@@ -44,7 +44,10 @@ for (const buildDirName of macBuildDirs) {
   const appPath = path.join(releaseDir, buildDirName, `${productName}.app`);
   await fs.access(appPath);
 
-  const targetPath = path.join(releaseDir, `${productName}-${version}-${arch}.dmg`);
+  const targetPath = path.join(
+    releaseDir,
+    `${productName}-${version}-${arch}.dmg`,
+  );
   await fs.rm(targetPath, { force: true });
 
   const emitter = appdmg({
