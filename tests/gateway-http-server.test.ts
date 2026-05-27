@@ -10026,6 +10026,130 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('captures nested response fields without exposing the response body', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-nested-capture-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { readStoredRuntimeSecret } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          auth: { token: 'blink-auth-token' },
+          account: {
+            tier: 'e003',
+            account_id: 1234,
+            client_id: 5678,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-prod.immedia-semi.com/api/v5/account/login',
+        method: 'POST',
+        captureResponseFields: [
+          { jsonPath: 'auth.token', secretName: 'BLINK_AUTH_TOKEN' },
+          { jsonPath: 'account.tier', secretName: 'BLINK_TIER' },
+          { jsonPath: 'account.account_id', secretName: 'BLINK_ACCOUNT_ID' },
+          { jsonPath: 'account.client_id', secretName: 'BLINK_CLIENT_ID' },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        'auth.token': 'BLINK_AUTH_TOKEN',
+        'account.tier': 'BLINK_TIER',
+        'account.account_id': 'BLINK_ACCOUNT_ID',
+        'account.client_id': 'BLINK_CLIENT_ID',
+      },
+    });
+    expect(res.body).not.toContain('blink-auth-token');
+    expect(readStoredRuntimeSecret('BLINK_AUTH_TOKEN')).toBe(
+      'blink-auth-token',
+    );
+    expect(readStoredRuntimeSecret('BLINK_TIER')).toBe('e003');
+    expect(readStoredRuntimeSecret('BLINK_ACCOUNT_ID')).toBe('1234');
+    expect(readStoredRuntimeSecret('BLINK_CLIENT_ID')).toBe('5678');
+  });
+
+  test('suppresses outbound http_request response bodies for opaque results', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-suppress-body-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ hls_url: 'https://media.example/live.m3u8' }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-e003.immedia-semi.com/api/v5/accounts/1234/networks/111/cameras/222/liveview',
+        method: 'POST',
+        suppressResponseBody: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      ok: true,
+      status: 200,
+      bodySuppressed: true,
+    });
+    expect(JSON.parse(res.body)).not.toHaveProperty('body');
+    expect(res.body).not.toContain('media.example');
+  });
+
   test('rejects malformed captureResponseFields before making outbound request', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-invalid-');
     process.env.HOME = homeDir;

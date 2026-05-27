@@ -4445,6 +4445,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'When true (default), replace `<secret:NAME>` placeholders inside headers, body, and json values.',
           },
+          suppressResponseBody: {
+            type: 'boolean',
+            description:
+              'When true, the gateway forwards the request but omits the response body from the tool result. Use for binary artifacts, media, live-view handles, or other data that must not enter model context.',
+          },
           timeoutMs: {
             type: 'number',
             description: 'Optional timeout in milliseconds.',
