@@ -10108,15 +10108,20 @@ describe('gateway HTTP server', () => {
       dataDir: path.join(homeDir, '.hybridclaw', 'data'),
       gatewayApiToken: 'gateway-token',
     });
-    const fetchMock = vi.fn().mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ hls_url: 'https://media.example/live.m3u8' }),
-        {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        },
-      ),
-    );
+    const cancelBody = vi.fn(async () => undefined);
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://rest-e003.immedia-semi.com/api/v5/accounts/1234/networks/111/cameras/222/liveview',
+      headers: new Headers({
+        'content-length': '2048',
+        'content-type': 'application/json',
+      }),
+      body: {
+        cancel: cancelBody,
+      },
+    } as unknown as Response);
     vi.stubGlobal('fetch', fetchMock);
 
     const req = makeRequest({
@@ -10139,9 +10144,11 @@ describe('gateway HTTP server', () => {
       ok: true,
       status: 200,
       bodySuppressed: true,
+      bodyBytes: 2048,
     });
     expect(JSON.parse(res.body)).not.toHaveProperty('body');
     expect(res.body).not.toContain('media.example');
+    expect(cancelBody).toHaveBeenCalledTimes(1);
   });
 
   test('rejects malformed captureResponseFields before making outbound request', async () => {

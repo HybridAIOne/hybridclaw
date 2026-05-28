@@ -71,6 +71,7 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
   expect(skill).toContain(
     'Use the emitted `httpRequest` object with the gateway `http_request` tool',
   );
+  expect(skill).toContain('Stop after the first 401');
   expect(skill).toContain('F14 PIN');
   expect(skill).toContain('approvedHelperCommandText');
   expect(skill).toContain('arm-network');
@@ -132,7 +133,8 @@ test('Blink login request captures token and tier without emitting cleartext cre
   });
   expect(JSON.stringify(payload)).not.toContain('password123');
   expect(JSON.stringify(payload)).not.toContain('auth-token');
-  expect(payload.failurePolicy).toContain('Stop after the first 401');
+  expect(payload).not.toHaveProperty('failurePolicy');
+  expect(payload).not.toHaveProperty('secretRefPolicy');
 });
 
 test('Blink helper builds PIN handover and tier-pinned read requests', () => {

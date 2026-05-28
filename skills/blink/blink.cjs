@@ -257,16 +257,15 @@ function appendPath(base, path) {
 }
 
 function appendQueryString(url, entries) {
-  const parts = [];
+  const params = new URLSearchParams();
   for (const [key, value] of Object.entries(entries)) {
     if (value !== undefined && value !== null && value !== '') {
-      parts.push(
-        `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`,
-      );
+      params.append(key, String(value));
     }
   }
-  if (parts.length === 0) return url;
-  return `${url}${url.includes('?') ? '&' : '?'}${parts.join('&')}`;
+  const query = params.toString();
+  if (!query) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}${query}`;
 }
 
 function tierRequestUrl(args, path) {
@@ -322,10 +321,6 @@ function buildPayload(
       stakesTier,
     },
     costMeasurement: COST_MEASUREMENT,
-    secretRefPolicy:
-      'Blink credentials and tokens are referenced as runtime secrets only; never paste BLINK_PASSWORD or BLINK_AUTH_TOKEN into chat or helper arguments.',
-    failurePolicy:
-      'Stop after the first 401, invalid credentials, or verification-required response. Do not retry or fan out additional Blink calls until the operator resolves credentials or completes F14 PIN handover.',
   };
   if (json !== undefined) payload.httpRequest.json = json;
   if (captureResponseFields !== undefined) {
@@ -531,6 +526,46 @@ function parseClipPath(value, accountId) {
   return normalized;
 }
 
+const CAMERA_ACTION_PATHS = {
+  mini: {
+    motion: ({ accountId, network, camera, enable }) => ({
+      path: `/api/v1/accounts/${accountId}/networks/${network}/owls/${camera}/config`,
+      json: { enabled: enable },
+    }),
+    thumbnail: ({ accountId, network, camera }) => ({
+      path: `/api/v1/accounts/${accountId}/networks/${network}/owls/${camera}/thumbnail`,
+    }),
+    liveview: ({ accountId, network, camera }) => ({
+      path: `/api/v1/accounts/${accountId}/networks/${network}/owls/${camera}/liveview`,
+      json: { intent: 'liveview' },
+    }),
+  },
+  doorbell: {
+    motion: ({ accountId, network, camera, enable }) => ({
+      path: `/api/v1/accounts/${accountId}/networks/${network}/doorbells/${camera}/${enable ? 'enable' : 'disable'}`,
+    }),
+    thumbnail: ({ accountId, network, camera }) => ({
+      path: `/api/v1/accounts/${accountId}/networks/${network}/doorbells/${camera}/thumbnail`,
+    }),
+    liveview: ({ accountId, network, camera }) => ({
+      path: `/api/v1/accounts/${accountId}/networks/${network}/doorbells/${camera}/liveview`,
+      json: { intent: 'liveview' },
+    }),
+  },
+  default: {
+    motion: ({ network, camera, enable }) => ({
+      path: `/network/${network}/camera/${camera}/${enable ? 'enable' : 'disable'}`,
+    }),
+    thumbnail: ({ network, camera }) => ({
+      path: `/network/${network}/camera/${camera}/thumbnail`,
+    }),
+    liveview: ({ accountId, network, camera }) => ({
+      path: `/api/v5/accounts/${accountId}/networks/${network}/cameras/${camera}/liveview`,
+      json: { intent: 'liveview' },
+    }),
+  },
+};
+
 function cameraActionPath({
   accountId,
   network,
@@ -539,55 +574,11 @@ function cameraActionPath({
   action,
   enable,
 }) {
-  if (cameraType === 'mini') {
-    const actionPath =
-      action === 'motion'
-        ? 'config'
-        : action === 'thumbnail'
-          ? 'thumbnail'
-          : 'liveview';
-    return {
-      path: `/api/v1/accounts/${accountId}/networks/${network}/owls/${camera}/${actionPath}`,
-      json:
-        action === 'motion'
-          ? { enabled: enable }
-          : action === 'liveview'
-            ? { intent: 'liveview' }
-            : undefined,
-    };
+  const actionBuilder = CAMERA_ACTION_PATHS[cameraType]?.[action];
+  if (!actionBuilder) {
+    die(`Unsupported Blink camera action: ${cameraType}/${action}`);
   }
-  if (cameraType === 'doorbell') {
-    const actionPath =
-      action === 'motion'
-        ? enable
-          ? 'enable'
-          : 'disable'
-        : action === 'thumbnail'
-          ? 'thumbnail'
-          : 'liveview';
-    return {
-      path: `/api/v1/accounts/${accountId}/networks/${network}/doorbells/${camera}/${actionPath}`,
-      json: action === 'liveview' ? { intent: 'liveview' } : undefined,
-    };
-  }
-  const actionPath =
-    action === 'motion'
-      ? enable
-        ? 'enable'
-        : 'disable'
-      : action === 'thumbnail'
-        ? 'thumbnail'
-        : 'liveview';
-  if (action === 'liveview') {
-    return {
-      path: `/api/v5/accounts/${accountId}/networks/${network}/cameras/${camera}/liveview`,
-      json: { intent: 'liveview' },
-    };
-  }
-  return {
-    path: `/network/${network}/camera/${camera}/${actionPath}`,
-    json: undefined,
-  };
+  return actionBuilder({ accountId, network, camera, enable });
 }
 
 function requireOperatorGrant(args, operation) {
@@ -759,7 +750,6 @@ function buildPlan(operation, args) {
       method: payload.httpRequest.method,
     },
     httpRequest: payload.httpRequest,
-    costMeasurement: COST_MEASUREMENT,
   };
   if (payload.httpRequest.json !== undefined)
     plan.json = payload.httpRequest.json;
