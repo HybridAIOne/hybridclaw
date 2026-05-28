@@ -12,7 +12,7 @@ const DEFAULT_PROXY_PORT = 8080;
 const DEFAULT_TIMEOUT_MS = 600_000;
 const COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
 const REFRESH_TOKEN_SECRET = 'ALEXA_REMOTE_REFRESH_TOKEN';
-const COOKIE_LIB_VERSION = '5.0.3';
+const COOKIE_LIB_VERSION = '5.0.2';
 
 function fail(message, code = 2) {
   process.stderr.write(`${message}\n`);
@@ -506,9 +506,31 @@ function cookieLibModulePath() {
   );
 }
 
+function cookieLibPackagePath() {
+  return path.join(
+    defaultCookieLibRuntimeDir(),
+    'node_modules',
+    'alexa-cookie2',
+    'package.json',
+  );
+}
+
+function installedCookieLibVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(cookieLibPackagePath(), 'utf8')).version;
+  } catch (_error) {
+    return null;
+  }
+}
+
 function ensureCookieLibrary() {
   const modulePath = cookieLibModulePath();
-  if (fs.existsSync(modulePath)) return require(modulePath);
+  if (
+    fs.existsSync(modulePath) &&
+    installedCookieLibVersion() === COOKIE_LIB_VERSION
+  ) {
+    return require(modulePath);
+  }
 
   const runtimeDir = defaultCookieLibRuntimeDir();
   fs.mkdirSync(runtimeDir, { recursive: true });
@@ -618,22 +640,9 @@ function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
         proxyOwnIp: '127.0.0.1',
         proxyPort: proxy.port,
         proxyListenBind: '0.0.0.0',
-        deviceAppName: 'hybridclaw_alexa',
-        proxyCloseWindowHTML:
-          '<b>HybridClaw Alexa authentication complete. You can close this browser tab.</b>',
+        deviceAppName: 'alexa_cookie_cli',
       },
       (error, result) => {
-        if (result?.localCookie) {
-          finish(null, {
-            amazonPage: result.amazonPage,
-            cookieHeader: result.localCookie,
-            csrf: result.csrf,
-            refreshToken: result.refreshToken || null,
-            source: 'alexa-cookie2',
-          });
-          return;
-        }
-
         if (result?.refreshToken) {
           finish(null, {
             refreshToken: result.refreshToken,
