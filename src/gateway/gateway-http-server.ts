@@ -3846,6 +3846,7 @@ function handleApiAdminSecrets(
     200,
     getGatewayAdminSecrets({
       audit: resolveAdminSecretAuditContext(req, sessionPayload),
+      sessionPayload,
     }),
   );
 }

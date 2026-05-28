@@ -2,6 +2,10 @@ import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
+  type AdminRbacAction,
+  isAdminActionAllowed,
+} from '../security/admin-rbac.js';
+import {
   isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
   listRuntimeSecretMetadata,
@@ -12,6 +16,12 @@ import {
 export interface GatewayAdminSecretsResponse {
   secrets: RuntimeSecretMetadataEntry[];
   total: number;
+  /**
+   * Admin actions the requester is allowed to perform on this surface.
+   * The client uses this to render write affordances only when the
+   * caller can use them (spec: buttons absent, not just disabled).
+   */
+  actions: AdminRbacAction[];
 }
 
 export interface GatewayAdminSecretMutationResponse {
@@ -22,6 +32,20 @@ export interface AdminSecretAuditContext {
   sessionId?: string;
   actor?: string | null;
   sourceIp?: string | null;
+}
+
+const ADMIN_SECRET_ACTIONS: ReadonlyArray<AdminRbacAction> = [
+  'secret.list_metadata',
+  'secret.overwrite',
+  'secret.unset',
+];
+
+function resolveAllowedAdminSecretActions(
+  sessionPayload: Record<string, unknown> | null,
+): AdminRbacAction[] {
+  return ADMIN_SECRET_ACTIONS.filter((action) =>
+    isAdminActionAllowed(sessionPayload, action),
+  );
 }
 
 export type AdminSecretMutationType = 'secret.overwritten' | 'secret.unset';
@@ -142,13 +166,15 @@ function getRuntimeSecretMetadata(name: string): RuntimeSecretMetadataEntry {
 
 export function getGatewayAdminSecrets(options: {
   audit: AdminSecretAuditContext;
+  sessionPayload: Record<string, unknown> | null;
 }): GatewayAdminSecretsResponse {
   const secrets = listRuntimeSecretMetadata({
     declaredNames: listDeclaredRuntimeSecretNames(),
   });
-  const response = {
+  const response: GatewayAdminSecretsResponse = {
     secrets,
     total: secrets.length,
+    actions: resolveAllowedAdminSecretActions(options.sessionPayload),
   };
 
   recordAuditEvent({
