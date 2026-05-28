@@ -22,7 +22,7 @@ export function resolveRuntimeRoot(params: RuntimeRootInput): string {
   if (!fs.existsSync(path.join(root, 'package.json'))) {
     throw new Error(
       `HybridClaw runtime root resolved to ${root} but no package.json was found. ` +
-      `Run the desktop app from the repository root via \`npm run desktop\`.`,
+        `Run the desktop app from the repository root via \`npm run desktop\`.`,
     );
   }
   return root;
@@ -39,7 +39,8 @@ export function resolveGatewayNodeExecutable(
     return path.join(params.runtimeRoot, 'bin', 'node');
   }
 
-  const injectedNodePath = params.env.HYBRIDCLAW_DESKTOP_NODE_EXECUTABLE?.trim();
+  const injectedNodePath =
+    params.env.HYBRIDCLAW_DESKTOP_NODE_EXECUTABLE?.trim();
   if (injectedNodePath) {
     return path.resolve(injectedNodePath);
   }

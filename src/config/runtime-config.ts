@@ -95,6 +95,7 @@ import {
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import {
   SKILL_MANIFEST_CREDENTIAL_KINDS,
+  type SkillManifestConfigVariable,
   type SkillManifestCredentialKind,
   type SkillManifestDeclaredCredential,
 } from '../skills/skill-manifest.js';
@@ -898,6 +899,7 @@ export interface RuntimeInstalledSkillManifest {
   middleware: RuntimeSkillMiddlewareManifest;
   requiredCredentials: RuntimeSkillCredentialManifest[];
   credentials: SkillManifestDeclaredCredential[];
+  configVariables: SkillManifestConfigVariable[];
   supportedChannels: ChannelKind[];
   installedAt: string;
   updatedAt: string;
@@ -1066,6 +1068,7 @@ export interface RuntimeConfig {
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
     btw: RuntimeAuxiliaryModelPolicyConfig;
+    second_opinion: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
     cv_narration: RuntimeAuxiliaryModelPolicyConfig;
   };
@@ -1790,6 +1793,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       model: '',
       maxTokens: 160,
     },
+    second_opinion: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 1200,
+    },
     session_title: {
       provider: 'auto',
       model: '',
@@ -2430,6 +2438,45 @@ function normalizeRuntimeSkillDeclaredCredentialManifests(
   return credentials;
 }
 
+function normalizeRuntimeSkillConfigVariableManifests(
+  value: unknown,
+): SkillManifestConfigVariable[] {
+  if (!Array.isArray(value)) return [];
+
+  const variables: SkillManifestConfigVariable[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    if (!id || seen.has(id)) continue;
+    const env = normalizeString(item.env, '', { allowEmpty: false });
+    const scope = normalizeString(item.scope, '', { allowEmpty: false });
+    const howToObtain = normalizeString(item.howToObtain, '', {
+      allowEmpty: false,
+    });
+    if (
+      !/^[A-Z][A-Z0-9_]{0,127}$/u.test(env) ||
+      !scope ||
+      !howToObtain ||
+      typeof item.required !== 'boolean'
+    ) {
+      console.warn(
+        '[runtime-config] skipping malformed declared skill config variable in installed skill manifest',
+      );
+      continue;
+    }
+    seen.add(id);
+    variables.push({
+      id,
+      env,
+      required: item.required,
+      scope,
+      howToObtain,
+    });
+  }
+  return variables;
+}
+
 function normalizeRuntimeSkillMiddlewareManifest(
   value: unknown,
 ): RuntimeSkillMiddlewareManifest {
@@ -2507,6 +2554,9 @@ function normalizeRuntimeInstalledSkillManifests(
       ),
       credentials: normalizeRuntimeSkillDeclaredCredentialManifests(
         item.credentials,
+      ),
+      configVariables: normalizeRuntimeSkillConfigVariableManifests(
+        item.configVariables,
       ),
       supportedChannels: normalizeRuntimeSkillSupportedChannels(
         item.supportedChannels,
@@ -6164,6 +6214,11 @@ function normalizeRuntimeConfig(
   const rawBtwAuxiliaryModel = isRecord(rawAuxiliaryModels.btw)
     ? rawAuxiliaryModels.btw
     : {};
+  const rawSecondOpinionAuxiliaryModel = isRecord(
+    rawAuxiliaryModels.second_opinion,
+  )
+    ? rawAuxiliaryModels.second_opinion
+    : {};
   const rawSessionTitleAuxiliaryModel = isRecord(
     rawAuxiliaryModels.session_title,
   )
@@ -7244,6 +7299,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawBtwAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      second_opinion: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawSecondOpinionAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.second_opinion.provider,
+        ),
+        model: normalizeString(
+          rawSecondOpinionAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.second_opinion.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawSecondOpinionAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.second_opinion.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },

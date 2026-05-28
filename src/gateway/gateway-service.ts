@@ -121,6 +121,7 @@ import {
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import { runBtwSideQuestion } from '../commands/btw-command.js';
 import { runPolicyCommand } from '../commands/policy-command.js';
+import { runSecondOpinionCommand } from '../commands/second-opinion-command.js';
 import {
   APP_VERSION,
   DATA_DIR,
@@ -184,6 +185,13 @@ import {
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
 } from '../config/runtime-config-edit.js';
+import {
+  readStoredRuntimeEnv,
+  readStoredRuntimeEnvValue,
+  runtimeEnvPath,
+  saveNamedRuntimeEnv,
+  validateRuntimeEnvName,
+} from '../config/runtime-env.js';
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
@@ -212,6 +220,7 @@ import {
   getRecentSessionsForChannel,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
+  getResponseRatingsForMessages,
   getSessionBoundaryMessagesBySessionIds,
   getSessionCount,
   getSessionFileChangeCounts,
@@ -6373,6 +6382,7 @@ function mapGatewayAdminSkillBase(
     tags: skill.metadata.hybridclaw.tags,
     relatedSkills: skill.metadata.hybridclaw.relatedSkills,
     credentials: skill.manifest.credentials,
+    configVariables: skill.manifest.configVariables,
   };
 }
 
@@ -7353,11 +7363,24 @@ export function getGatewayBootstrapAutostartState(params: {
 export function getGatewayHistory(
   sessionId: string,
   limit = MAX_HISTORY_MESSAGES,
+  options?: {
+    operatorUserId?: string | null;
+  },
 ): ConversationHistoryPage {
   const page = memoryService.getConversationHistoryPage(
     sessionId,
     Math.max(1, Math.min(limit, 200)),
   );
+  const ratingOperatorUserId = options?.operatorUserId?.trim() || '';
+  const responseRatings = ratingOperatorUserId
+    ? getResponseRatingsForMessages({
+        sessionId: page.sessionId,
+        messageIds: page.history
+          .filter((message) => message.role === 'assistant')
+          .map((message) => message.id),
+        operatorUserId: ratingOperatorUserId,
+      })
+    : new Map();
   const history = page.history
     .filter((message) => {
       if (message.role !== 'assistant') return true;
@@ -7371,13 +7394,19 @@ export function getGatewayHistory(
       const content = stripSilentToken(message.content);
       const assistantPresentation =
         getGatewayAssistantPresentationForMessageAgent(message.agent_id);
-      if (content === message.content && !assistantPresentation) {
+      const responseRating = responseRatings.get(message.id) ?? null;
+      if (
+        content === message.content &&
+        !assistantPresentation &&
+        !responseRating
+      ) {
         return message;
       }
       return {
         ...message,
         ...(content !== message.content ? { content } : {}),
         ...(assistantPresentation ? { assistantPresentation } : {}),
+        ...(responseRating ? { response_rating: responseRating } : {}),
       };
     })
     .filter((message) => message.content.trim().length > 0)
@@ -9368,6 +9397,20 @@ export async function handleGatewayCommand(
         }
       }
 
+      case 'second-opinion': {
+        try {
+          return infoCommand(
+            'Second Opinion',
+            await runSecondOpinionCommand(session, req.args.slice(1)),
+          );
+        } catch (error) {
+          return badCommand(
+            'Second Opinion Failed',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
       case 'model': {
         const sub = parseLowerArg(req.args, 1);
         const providerFilterArg =
@@ -10148,6 +10191,88 @@ export async function handleGatewayCommand(
         return badCommand(
           'Usage',
           'Usage: `secret list`, `secret set <name> <value>`, `secret unset <name>`, `secret show <name>`, or `secret route list|add|remove ...`',
+        );
+      }
+
+      case 'env': {
+        if (!isLocalSession(req)) {
+          return badCommand(
+            'Env Command Restricted',
+            '`env` reads or writes local plaintext runtime env values and is only available from local TUI/web sessions.',
+          );
+        }
+
+        const sub = parseLowerArg(req.args, 1);
+        if (!sub || sub === 'list') {
+          const values = readStoredRuntimeEnv();
+          const names = Object.keys(values).sort((left, right) =>
+            left.localeCompare(right),
+          );
+          const text = [
+            `Runtime env store: ${runtimeEnvPath()}`,
+            ...(names.length > 0
+              ? names.map((name) => `${name}=${values[name]}`)
+              : ['(none)']),
+          ].join('\n');
+          return infoCommand('Runtime Env', text);
+        }
+
+        if (sub === 'set') {
+          try {
+            const name = validateRuntimeEnvName(parseIdArg(req.args, 2));
+            const value = req.args.slice(3).join(' ').trim();
+            if (!value) {
+              return badCommand('Usage', 'Usage: `env set <name> <value>`');
+            }
+            saveNamedRuntimeEnv({ [name]: value });
+            return plainCommand(
+              `Stored runtime env \`${name}\` in \`${runtimeEnvPath()}\`.`,
+            );
+          } catch (error) {
+            return badCommand(
+              'Invalid Env Value',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        if (sub === 'unset' || sub === 'delete' || sub === 'remove') {
+          try {
+            const name = validateRuntimeEnvName(parseIdArg(req.args, 2));
+            saveNamedRuntimeEnv({ [name]: null });
+            return plainCommand(`Removed runtime env \`${name}\`.`);
+          } catch (error) {
+            return badCommand(
+              'Invalid Env Value',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        if (sub === 'show' || sub === 'get') {
+          try {
+            const name = validateRuntimeEnvName(parseIdArg(req.args, 2));
+            const value = readStoredRuntimeEnvValue(name);
+            return infoCommand(
+              'Runtime Env',
+              [
+                `Name: ${name}`,
+                `Stored: ${value ? 'yes' : 'no'}`,
+                `Value: ${value || '(unset)'}`,
+                `Path: ${runtimeEnvPath()}`,
+              ].join('\n'),
+            );
+          } catch (error) {
+            return badCommand(
+              'Invalid Env Value',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `env list`, `env set <name> <value>`, `env unset <name>`, or `env show <name>`',
         );
       }
 

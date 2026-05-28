@@ -23,7 +23,10 @@ import type {
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
-import type { SkillManifestDeclaredCredential } from '../skills/skills.js';
+import type {
+  SkillManifestConfigVariable,
+  SkillManifestDeclaredCredential,
+} from '../skills/skills.js';
 import type { SkillGuardFinding } from '../skills/skills-guard.js';
 import type { TunnelState } from '../tunnel/tunnel-provider.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -70,6 +73,12 @@ export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
+  /**
+   * True when this result was produced by handling a slash command rather than
+   * by the model. Lets clients (e.g. the web console) render command/system
+   * output distinctly from assistant replies.
+   */
+  commandResult?: boolean;
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;
@@ -1365,6 +1374,7 @@ export interface GatewayAdminSkill {
   tags: string[];
   relatedSkills: string[];
   credentials: SkillManifestDeclaredCredential[];
+  configVariables: SkillManifestConfigVariable[];
 }
 
 export interface GatewayAdminSkillsResponse {

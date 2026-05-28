@@ -122,6 +122,36 @@ Use the skill.
   ]);
 });
 
+test('parses first-class config variable declarations from frontmatter', () => {
+  const manifest = parseSkillManifestFromMarkdown(
+    `---
+name: Config Skill
+manifest:
+  id: config-skill
+  version: 1.0.0
+config_variables:
+  - id: inverter-host
+    env: FRONIUS_LOCAL_HOST
+    required: false
+    scope: Local inverter base URL
+    how_to_obtain: Find the inverter IP in the router.
+---
+Use the skill.
+`,
+    { name: 'fallback' },
+  );
+
+  expect(manifest.configVariables).toEqual([
+    {
+      id: 'inverter-host',
+      env: 'FRONIUS_LOCAL_HOST',
+      required: false,
+      scope: 'Local inverter base URL',
+      howToObtain: 'Find the inverter IP in the router.',
+    },
+  ]);
+});
+
 test('reports precise credential frontmatter validation errors', () => {
   expect(() =>
     parseSkillManifestFromMarkdown(

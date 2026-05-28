@@ -3,6 +3,7 @@ import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   attachFeedbackToObservation,
+  attachFeedbackToObservationById,
   getSkillObservations,
   incrementAmendmentRunCount,
   recordSkillObservation as insertSkillObservation,
@@ -101,6 +102,13 @@ export function deriveSkillExecutionOutcome(params: {
   toolExecutions: ToolExecution[];
 }): SkillExecutionOutcome {
   if (params.outputStatus === 'error') return 'failure';
+  if (
+    params.toolExecutions.some(
+      (execution) => execution.isError || execution.blocked,
+    )
+  ) {
+    return 'partial';
+  }
   return 'success';
 }
 
@@ -342,6 +350,41 @@ export function recordSkillFeedback(input: {
           error,
         },
         'Failed to refresh agent CV after skill feedback',
+      );
+    }
+  }
+  return observation;
+}
+
+export function recordSkillFeedbackForObservation(input: {
+  observationId: number;
+  sessionId: string;
+  feedback: string;
+  sentiment: SkillFeedbackSentiment;
+}): SkillObservation | null {
+  const config = getRuntimeConfig().adaptiveSkills;
+  if (!config.observationEnabled) return null;
+  const observation = attachFeedbackToObservationById({
+    observationId: input.observationId,
+    feedback: input.feedback,
+    sentiment: input.sentiment,
+  });
+  if (observation?.agent_id) {
+    try {
+      recomputeAgentSkillScore({
+        agentId: observation.agent_id,
+        skillId: observation.skill_name,
+      });
+      scheduleAgentCvRefresh(observation.agent_id);
+    } catch (error) {
+      logger.warn(
+        {
+          agentId: observation.agent_id,
+          sessionId: input.sessionId,
+          runId: observation.run_id,
+          error,
+        },
+        'Failed to refresh agent CV after targeted skill feedback',
       );
     }
   }

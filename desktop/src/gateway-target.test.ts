@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
-  buildGatewayPath,
   buildGatewayEnv,
+  buildGatewayPath,
   isInAppUrl,
   normalizeGatewayBaseUrl,
   routeForUrl,
@@ -20,9 +20,9 @@ describe('normalizeGatewayBaseUrl', () => {
   });
 
   test('rejects URLs with extra path state', () => {
-    expect(() => normalizeGatewayBaseUrl('http://127.0.0.1:9090/admin')).toThrow(
-      /must not include a path/i,
-    );
+    expect(() =>
+      normalizeGatewayBaseUrl('http://127.0.0.1:9090/admin'),
+    ).toThrow(/must not include a path/i);
   });
 });
 
@@ -40,9 +40,9 @@ describe('route helpers', () => {
   });
 
   test('classifies in-app routes only for the configured gateway origin', () => {
-    expect(routeForUrl('http://127.0.0.1:9090/chat', 'http://127.0.0.1:9090')).toBe(
-      'chat',
-    );
+    expect(
+      routeForUrl('http://127.0.0.1:9090/chat', 'http://127.0.0.1:9090'),
+    ).toBe('chat');
     expect(
       routeForUrl('http://127.0.0.1:9090/agents', 'http://127.0.0.1:9090'),
     ).toBe('agents');
@@ -52,9 +52,9 @@ describe('route helpers', () => {
         'http://127.0.0.1:9090',
       ),
     ).toBe('admin');
-    expect(isInAppUrl('https://example.com/chat', 'http://127.0.0.1:9090')).toBe(
-      false,
-    );
+    expect(
+      isInAppUrl('https://example.com/chat', 'http://127.0.0.1:9090'),
+    ).toBe(false);
   });
 });
 

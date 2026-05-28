@@ -81,6 +81,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'policy',
   'dream',
   'secret',
+  'second-opinion',
   'concierge',
   'rag',
   'model',
@@ -219,6 +220,12 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     command: '/btw <question>',
     description: BTW_COMMAND_DESCRIPTION,
   },
+  'second-opinion': {
+    command:
+      '/second-opinion [compare [question]|validate [model]|fact-check [model]] [--model <model>] [--provider <provider>] [--strongest] [--max-context <n>] [--no-transcript]',
+    description:
+      'Ask a stronger configured model to compare a question or validate the last answer',
+  },
   concierge: {
     command:
       '/concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]',
@@ -227,6 +234,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   config: {
     command: '/config [check|reload|get <key>|set <key> <value>]',
     description: 'Show or update local runtime config',
+  },
+  env: {
+    command: '/env [list|set <name> <value>|show <name>|unset <name>]',
+    description: 'Manage plaintext runtime env values for agents and helpers',
   },
   context: {
     command: '/context',
@@ -334,6 +345,25 @@ function normalizeStringOption(
   return value || null;
 }
 
+function buildSecondOpinionSlashFlags(
+  interaction: CanonicalSlashInteractionInput,
+): string[] {
+  const model = normalizeStringOption(interaction, 'model');
+  const provider = normalizeStringOption(interaction, 'provider');
+  const maxContext = normalizeStringOption(interaction, 'max-context');
+  const noTranscript = normalizeStringOption(interaction, 'no-transcript');
+  const webSearch = normalizeStringOption(interaction, 'web-search');
+  const strongest = normalizeStringOption(interaction, 'strongest');
+  return [
+    ...(model ? ['--model', model] : []),
+    ...(provider ? ['--provider', provider] : []),
+    ...(maxContext ? ['--max-context', maxContext] : []),
+    ...(strongest ? ['--strongest'] : []),
+    ...(webSearch ? ['--web-search'] : []),
+    ...(noTranscript ? ['--no-transcript'] : []),
+  ];
+}
+
 function normalizeSubcommand(
   interaction: CanonicalSlashInteractionInput,
 ): string | null {
@@ -387,6 +417,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'btw':
       return ['btw', ...parts.slice(1)];
+
+    case 'second-opinion':
+      return ['second-opinion', ...parts.slice(1)];
 
     case 'model': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -578,6 +611,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'secret':
       return parts.length > 1 ? ['secret', ...parts.slice(1)] : ['secret'];
 
+    case 'env':
+      return parts.length > 1 ? ['env', ...parts.slice(1)] : ['env'];
+
     case 'voice': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub || sub === 'info' || sub === 'status') {
@@ -671,6 +707,152 @@ function buildSlashCommandCatalogDefinitions(
           name: 'question',
           description: 'The side question to answer',
           required: true,
+        },
+      ],
+    },
+    {
+      name: 'second-opinion',
+      description:
+        'Ask a stronger model to validate or compare the active answer',
+      localSurfaces: ['tui', 'web'],
+      tuiMenu: {
+        label: '/second-opinion <compare|validate|fact-check>',
+        insertText: '/second-opinion ',
+      },
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'compare',
+          description: 'Compare the previous answer against a stronger model',
+          options: [
+            {
+              kind: 'string',
+              name: 'question',
+              description: 'Question to rerun against the stronger model',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'model',
+              description: 'Optional provider/model override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Optional provider override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'max-context',
+              description: 'Maximum recent context messages to include',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'strongest',
+              description:
+                'Use the provider-specific strongest default instead of the configured model',
+              choices: [{ name: '--strongest', value: '--strongest' }],
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'no-transcript',
+              description: 'Do not send recent transcript context',
+              choices: [{ name: '--no-transcript', value: '--no-transcript' }],
+              required: false,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'validate',
+          description: 'Validate the previous answer',
+          options: [
+            {
+              kind: 'string',
+              name: 'model',
+              description: 'Optional provider/model override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Optional provider override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'max-context',
+              description: 'Maximum recent context messages to include',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'strongest',
+              description:
+                'Use the provider-specific strongest default instead of the configured model',
+              choices: [{ name: '--strongest', value: '--strongest' }],
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'web-search',
+              description: 'Use web_search/web_fetch evidence for validation',
+              choices: [{ name: '--web-search', value: '--web-search' }],
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'no-transcript',
+              description: 'Do not send recent transcript context',
+              choices: [{ name: '--no-transcript', value: '--no-transcript' }],
+              required: false,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'fact-check',
+          description:
+            'Validate the previous answer with web_search/web_fetch evidence',
+          options: [
+            {
+              kind: 'string',
+              name: 'model',
+              description: 'Optional provider/model override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'provider',
+              description: 'Optional provider override',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'max-context',
+              description: 'Maximum recent context messages to include',
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'strongest',
+              description:
+                'Use the provider-specific strongest default instead of the configured model',
+              choices: [{ name: '--strongest', value: '--strongest' }],
+              required: false,
+            },
+            {
+              kind: 'string',
+              name: 'no-transcript',
+              description: 'Do not send recent transcript context',
+              choices: [{ name: '--no-transcript', value: '--no-transcript' }],
+              required: false,
+            },
+          ],
         },
       ],
     },
@@ -1492,6 +1674,54 @@ function buildSlashCommandCatalogDefinitions(
           name: 'value',
           description:
             'Secret value, URL prefix, or additional route arguments',
+        },
+      ],
+    },
+    {
+      name: 'env',
+      description: 'Manage plaintext runtime env values for agents and helpers',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'env.list',
+          label: '/env list',
+          insertText: '/env list',
+          description: 'List stored runtime env values',
+        },
+        {
+          id: 'env.set',
+          label: '/env set <name> <value>',
+          insertText: '/env set ',
+          description: 'Store a plaintext runtime env value',
+        },
+        {
+          id: 'env.show',
+          label: '/env show <name>',
+          insertText: '/env show ',
+          description: 'Show one runtime env value',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'action',
+          description: 'Env command action',
+          choices: [
+            { name: 'list', value: 'list' },
+            { name: 'set', value: 'set' },
+            { name: 'unset', value: 'unset' },
+            { name: 'show', value: 'show' },
+          ],
+        },
+        {
+          kind: 'string',
+          name: 'name',
+          description: 'Runtime env name',
+        },
+        {
+          kind: 'string',
+          name: 'value',
+          description: 'Plaintext runtime env value',
         },
       ],
     },
@@ -2784,6 +3014,24 @@ export function parseCanonicalSlashCommandArgs(
       return question ? ['btw', question] : null;
     }
 
+    case 'second-opinion': {
+      const subcommand = normalizeSubcommand(interaction);
+      const flags = buildSecondOpinionSlashFlags(interaction);
+      if (subcommand === 'compare') {
+        const question = normalizeStringOption(interaction, 'question');
+        return question
+          ? ['second-opinion', ...flags, question]
+          : ['second-opinion', ...flags];
+      }
+      if (subcommand === 'validate') {
+        return ['second-opinion', '--validate-last', ...flags];
+      }
+      if (subcommand === 'fact-check') {
+        return ['second-opinion', '--validate-last', '--web-search', ...flags];
+      }
+      return null;
+    }
+
     case 'auth': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand !== 'status') return null;
@@ -2885,6 +3133,21 @@ export function parseCanonicalSlashCommandArgs(
       if (action === 'route' && name) {
         const routeArgs = value ? tokenizeFreeformText(value) : [];
         return ['secret', 'route', name, ...routeArgs];
+      }
+      return null;
+    }
+
+    case 'env': {
+      const action = normalizeStringOption(interaction, 'action');
+      const name = normalizeStringOption(interaction, 'name');
+      const value = normalizeStringOption(interaction, 'value');
+      if (!action && !name && !value) return ['env'];
+      if (action === 'list' && !name && !value) return ['env', 'list'];
+      if ((action === 'unset' || action === 'show') && name && !value) {
+        return ['env', action, name];
+      }
+      if (action === 'set' && name && value) {
+        return ['env', 'set', name, value];
       }
       return null;
     }

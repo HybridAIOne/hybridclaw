@@ -291,6 +291,10 @@ import {
 } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
+  ResponseRatingNotFoundError,
+  submitResponseRating,
+} from './response-ratings.js';
+import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
@@ -1787,10 +1791,13 @@ async function resolveApiChatSlashCommandResult(
 
   return {
     status: 'success',
+    // A command with no visible output returns an empty result; the web console
+    // renders nothing for it (like a shell command that succeeds silently)
+    // rather than a "Done." block. Approvals keep an explicit confirmation.
     result:
-      renderedText ||
-      (handledApprovalCommand ? 'Approval submitted.' : 'Done.'),
+      renderedText || (handledApprovalCommand ? 'Approval submitted.' : ''),
     toolsUsed: [],
+    commandResult: true,
     sessionId,
     ...(resolvedModel ? { model: resolvedModel } : {}),
     ...(sessionKey ? { sessionKey } : {}),
@@ -2883,6 +2890,73 @@ async function handleApiChatBranch(
   }
 }
 
+async function handleApiChatRating(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as {
+    sessionId?: unknown;
+    messageId?: unknown;
+    userId?: unknown;
+    rating?: unknown;
+  };
+  const sessionId = normalizeOptionalString(body.sessionId);
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+  const messageId = parsePositiveInteger(body.messageId);
+  if (messageId == null) {
+    sendJson(res, 400, {
+      error: 'Missing valid positive integer `messageId` in request body.',
+    });
+    return;
+  }
+  if (!Object.hasOwn(body, 'rating')) {
+    sendJson(res, 400, { error: 'Missing `rating` in request body.' });
+    return;
+  }
+  const rating =
+    body.rating === 'up' || body.rating === 'down' ? body.rating : null;
+  if (body.rating !== null && rating === null) {
+    sendJson(res, 400, {
+      error: '`rating` must be "up", "down", or null.',
+    });
+    return;
+  }
+
+  const operatorUserId =
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      requestedUserId: normalizeOptionalString(body.userId),
+      fallbackUserId: 'web',
+    }) || 'web';
+
+  try {
+    const result = submitResponseRating({
+      sessionId,
+      messageId,
+      operatorUserId,
+      rating,
+    });
+    sendJson(res, 200, {
+      sessionId: result.sessionId,
+      messageId: result.messageId,
+      rating: result.rating,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    sendJson(res, error instanceof ResponseRatingNotFoundError ? 404 : 400, {
+      error: message,
+    });
+  }
+}
+
 async function handleApiMediaUpload(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3261,7 +3335,11 @@ async function handleApiPluginTool(
   }
 }
 
-async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
+async function handleApiHistory(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
   const sessionId = url.searchParams.get('sessionId')?.trim();
   if (!sessionId) {
     sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
@@ -3283,7 +3361,15 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
       'Failed to start gateway bootstrap autostart',
     );
   });
-  const historyPage = getGatewayHistory(sessionId, limit);
+  const operatorUserId = resolveGatewayRequestUserId({
+    req,
+    channelId: 'web',
+    requestedUserId: url.searchParams.get('userId'),
+    fallbackUserId: 'web',
+  });
+  const historyPage = getGatewayHistory(sessionId, limit, {
+    operatorUserId,
+  });
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
@@ -6655,7 +6741,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/history' && method === 'GET') {
-            await handleApiHistory(res, url);
+            await handleApiHistory(req, res, url);
             return;
           }
           if (pathname === '/api/chat/recent' && method === 'GET') {
@@ -6705,6 +6791,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/chat/branch' && method === 'POST') {
             await handleApiChatBranch(req, res);
+            return;
+          }
+          if (pathname === '/api/chat/rating' && method === 'POST') {
+            await handleApiChatRating(req, res);
             return;
           }
           if (pathname === '/api/media/upload' && method === 'POST') {

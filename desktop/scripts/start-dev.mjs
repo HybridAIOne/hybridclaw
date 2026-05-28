@@ -21,13 +21,22 @@ const sourceAppPath = path.join(
 const devBundleRoot = path.join(desktopDir, '.electron-dev');
 const devAppPath = path.join(devBundleRoot, `${APP_NAME}.app`);
 const devPlistPath = path.join(devAppPath, 'Contents', 'Info.plist');
-const devIconPath = path.join(devAppPath, 'Contents', 'Resources', 'electron.icns');
+const devIconPath = path.join(
+  devAppPath,
+  'Contents',
+  'Resources',
+  'electron.icns',
+);
 const desktopIconPath = path.join(desktopDir, 'build', 'icon.icns');
 
 function runPlistBuddy(command) {
-  const result = spawnSync('/usr/libexec/PlistBuddy', ['-c', command, devPlistPath], {
-    stdio: 'inherit',
-  });
+  const result = spawnSync(
+    '/usr/libexec/PlistBuddy',
+    ['-c', command, devPlistPath],
+    {
+      stdio: 'inherit',
+    },
+  );
 
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
@@ -88,13 +97,17 @@ async function main() {
     return;
   }
 
-  const child = spawn('/usr/bin/open', ['-W', '-n', preparedExecutablePath, '--args', desktopDir], {
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      HYBRIDCLAW_DESKTOP_NODE_EXECUTABLE: process.execPath,
+  const child = spawn(
+    '/usr/bin/open',
+    ['-W', '-n', preparedExecutablePath, '--args', desktopDir],
+    {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        HYBRIDCLAW_DESKTOP_NODE_EXECUTABLE: process.execPath,
+      },
     },
-  });
+  );
 
   child.on('exit', (code, signal) => {
     if (signal) {

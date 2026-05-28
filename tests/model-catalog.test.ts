@@ -143,9 +143,7 @@ test('model catalog metadata falls back safely for missing models', async () => 
   writeRuntimeConfig(homeDir);
   const { catalog } = await importFreshCatalog(homeDir);
 
-  const metadata = catalog.getModelCatalogMetadata(
-    'unknown-provider/not-real-model',
-  );
+  const metadata = catalog.getModelCatalogMetadata('not-real-model');
 
   expect(metadata).toMatchObject({
     known: false,

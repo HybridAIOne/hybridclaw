@@ -1731,6 +1731,23 @@ async function importFreshHealth(options?: {
   }));
   const refreshRuntimeSecretsFromEnv = vi.fn();
   const reloadRuntimeConfig = vi.fn();
+  class ResponseRatingNotFoundError extends Error {
+    constructor() {
+      super('Response message was not found.');
+      this.name = 'ResponseRatingNotFoundError';
+    }
+  }
+  const submitResponseRating = vi.fn(
+    (input: {
+      sessionId: string;
+      messageId: number;
+      rating: 'up' | 'down' | null;
+    }) => ({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      rating: input.rating,
+    }),
+  );
 
   vi.doMock('node:http', () => ({
     default: { createServer },
@@ -1947,6 +1964,10 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/gateway-restart.js', () => ({
     requestGatewayRestart,
   }));
+  vi.doMock('../src/gateway/response-ratings.js', () => ({
+    ResponseRatingNotFoundError,
+    submitResponseRating,
+  }));
 
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
@@ -2019,6 +2040,8 @@ async function importFreshHealth(options?: {
     upgradeHandler,
     moveGatewayAdminSchedulerJob,
     requestGatewayRestart,
+    ResponseRatingNotFoundError,
+    submitResponseRating,
     refreshRuntimeSecretsFromEnv,
     reloadRuntimeConfig,
     createGatewayAdminAgent,
@@ -4149,7 +4172,9 @@ describe('gateway HTTP server', () => {
     expect(state.ensureGatewayBootstrapAutostart).toHaveBeenCalledWith({
       sessionId: 's1',
     });
-    expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2);
+    expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2, {
+      operatorUserId: 'web',
+    });
     expect(state.getGatewayHistorySummary).toHaveBeenCalledWith('s1', {
       sinceMs: null,
     });
@@ -4474,6 +4499,130 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       error: 'sqlite busy',
     });
+  });
+
+  test('accepts valid web chat response ratings', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: {
+        sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
+        messageId: 12,
+        userId: 'web-user-abcd',
+        rating: 'up',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.submitResponseRating).toHaveBeenCalledWith({
+      sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
+      messageId: 12,
+      operatorUserId: 'web-user-abcd',
+      rating: 'up',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
+      messageId: 12,
+      rating: 'up',
+    });
+  });
+
+  test('returns 404 for missing web chat response rating targets', async () => {
+    const state = await importFreshHealth();
+    state.submitResponseRating.mockImplementationOnce(() => {
+      throw new state.ResponseRatingNotFoundError();
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: {
+        sessionId: 'agent:main:channel:web:chat:dm:peer:abc123abc123abcd',
+        messageId: 999,
+        rating: 'up',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Response message was not found.',
+    });
+  });
+
+  test('rejects invalid web chat response rating payloads', async () => {
+    const state = await importFreshHealth();
+    const missingSessionReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: { messageId: 12, rating: 'up' },
+    });
+    const missingSessionRes = makeResponse();
+
+    state.handler(missingSessionReq as never, missingSessionRes as never);
+    await waitForResponse(missingSessionRes, (next) => next.writableEnded);
+
+    expect(missingSessionRes.statusCode).toBe(400);
+    expect(JSON.parse(missingSessionRes.body)).toEqual({
+      error: 'Missing `sessionId` in request body.',
+    });
+
+    const malformedSessionReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: {
+        sessionId: 'agent:main:channel:web:bad',
+        messageId: 12,
+        rating: 'up',
+      },
+    });
+    const malformedSessionRes = makeResponse();
+
+    state.handler(malformedSessionReq as never, malformedSessionRes as never);
+    await waitForResponse(malformedSessionRes, (next) => next.writableEnded);
+
+    expect(malformedSessionRes.statusCode).toBe(400);
+    expect(JSON.parse(malformedSessionRes.body)).toEqual({
+      error: 'Malformed canonical `sessionId`.',
+    });
+
+    const invalidMessageReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: { sessionId: 's1', messageId: '12abc', rating: 'up' },
+    });
+    const invalidMessageRes = makeResponse();
+
+    state.handler(invalidMessageReq as never, invalidMessageRes as never);
+    await waitForResponse(invalidMessageRes, (next) => next.writableEnded);
+
+    expect(invalidMessageRes.statusCode).toBe(400);
+    expect(JSON.parse(invalidMessageRes.body)).toEqual({
+      error: 'Missing valid positive integer `messageId` in request body.',
+    });
+
+    const invalidRatingReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/rating',
+      body: { sessionId: 's1', messageId: 12, rating: 'maybe' },
+    });
+    const invalidRatingRes = makeResponse();
+
+    state.handler(invalidRatingReq as never, invalidRatingRes as never);
+    await waitForResponse(invalidRatingRes, (next) => next.writableEnded);
+
+    expect(invalidRatingRes.statusCode).toBe(400);
+    expect(JSON.parse(invalidRatingRes.body)).toEqual({
+      error: '`rating` must be "up", "down", or null.',
+    });
+    expect(state.submitResponseRating).not.toHaveBeenCalled();
   });
 
   test('returns recent chat sessions for authorized loopback API requests', async () => {
@@ -7815,9 +7964,13 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await settle();
 
+    // No visible output -> empty result (the web console renders no bubble for
+    // it) rather than a "Done." placeholder. Success is still signalled by
+    // status, and the flag still marks it as command output.
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
-      result: 'Done.',
+      result: '',
+      commandResult: true,
       sessionId: 'session-web-empty',
     });
     expect(state.loggerDebug).toHaveBeenCalledWith(
