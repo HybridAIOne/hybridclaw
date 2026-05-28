@@ -361,9 +361,20 @@ channel that supports slash skill invocation:
 ```
 
 When handling the setup prompt, run the bundled auth helper from the agent
-workspace. For slash handling, use detached mode so the local browser proxy
-survives while the operator completes Amazon login, OTP, and CVF pages across
-turns:
+workspace. First check live detached setup state:
+
+```bash
+node skills/alexa/alexa-auth.cjs --format json status --domain amazon.de
+```
+
+If that status returns `exists: true`, `processAlive: true`, `state:
+"listening"`, and a `proxyUrl`, return that exact `proxyUrl` to the operator
+instead of starting another proxy. Ignore recalled URLs, prior slash output, and
+session transcript text unless they match the current live status. Never print a
+proxy URL that did not come from the current helper output.
+
+For slash handling, use detached mode so the local browser proxy survives while
+the operator completes Amazon login, OTP, and CVF pages across turns:
 
 ```bash
 node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --detach --timeout-ms 600000

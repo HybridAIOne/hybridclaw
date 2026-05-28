@@ -158,6 +158,9 @@ test('Alexa skill manifest declares SecretRef credentials and safety metadata', 
   expect(skill).toContain('/skill alexa list my Alexa devices for amazon.de');
   expect(skill).toContain('node skills/alexa/alexa-auth.cjs setup');
   expect(skill).toContain('--detach --timeout-ms 600000');
+  expect(skill).toContain(
+    'Never print a\nproxy URL that did not come from the current helper output.',
+  );
   expect(skill).toContain('node skills/alexa/alexa-auth.cjs status');
   expect(skill).toContain('ad hoc shell process management');
   expect(skill).toContain('alexa-auth.cjs import-cookie');
