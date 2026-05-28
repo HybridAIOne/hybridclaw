@@ -159,6 +159,11 @@ import {
   unsetGatewayAdminSecret,
 } from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import {
+  deleteGatewayAdminFleetTopologyInstance,
+  getGatewayAdminFleetTopology,
+  upsertGatewayAdminFleetTopologyInstance,
+} from './gateway-fleet-topology.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
   parsePositiveInteger,
@@ -248,6 +253,7 @@ import {
 import type {
   GatewayAdminA2ATrustUpsertRequest,
   GatewayAdminDiscordWebhookTargetRequest,
+  GatewayAdminFleetTopologyUpsertRequest,
   GatewayAdminSlackWebhookTargetRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
@@ -4741,6 +4747,56 @@ async function handleApiAdminA2ATrust(
   }
 }
 
+async function handleApiAdminFleetTopology(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  try {
+    if (method === 'GET') {
+      sendJson(res, 200, await getGatewayAdminFleetTopology());
+      return;
+    }
+
+    if (method === 'POST' || method === 'PUT') {
+      const body = (await readJsonBody(req).catch(() => ({}))) as
+        | GatewayAdminFleetTopologyUpsertRequest
+        | undefined;
+      sendJson(
+        res,
+        200,
+        await upsertGatewayAdminFleetTopologyInstance(body || {}),
+      );
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const peerId = (url.searchParams.get('peerId') || '').trim();
+      if (!peerId) {
+        sendJson(res, 400, { error: 'Missing `peerId` query parameter.' });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        await deleteGatewayAdminFleetTopologyInstance({ peerId }),
+      );
+      return;
+    }
+
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
 function handleApiAdminA2AInbox(res: ServerResponse, url: URL): void {
   const threadId = (url.searchParams.get('threadId') || '').trim() || null;
   try {
@@ -6597,9 +6653,22 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (
             pathname === '/api/admin/a2a/trust' &&
-            (method === 'GET' || method === 'DELETE')
+            (method === 'GET' ||
+              method === 'POST' ||
+              method === 'PUT' ||
+              method === 'DELETE')
           ) {
             await handleApiAdminA2ATrust(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/fleet-topology' &&
+            (method === 'GET' ||
+              method === 'POST' ||
+              method === 'PUT' ||
+              method === 'DELETE')
+          ) {
+            await handleApiAdminFleetTopology(req, res, url);
             return;
           }
           if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {
