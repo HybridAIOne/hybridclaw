@@ -186,31 +186,18 @@ test('Alexa auth helper --help documents HybridClaw-owned browser setup', () => 
   expect(result.stdout).toContain(
     'node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret',
   );
-  expect(result.stdout).toContain('Defaults to the bundled JS auth flow');
   expect(result.stdout).toContain('Defaults to 600000.');
   expect(result.stdout).toContain('captures the resulting refresh token');
+  expect(result.stdout).not.toContain('alexa-cookie-cli');
   expect(result.stdout).not.toContain('alexacli');
-});
-
-test('Alexa auth helper extracts refresh tokens from cookie-helper output blocks', () => {
-  expect(
-    alexaAuth.parseRefreshTokenFromOutput(`
-=======================================================================
- refreshToken: Atnr|example-token
-=======================================================================
-`),
-  ).toBe('Atnr|example-token');
-  expect(alexaAuth.parseRefreshTokenFromOutput('Atnr|direct-token')).toBe(
-    'Atnr|direct-token',
-  );
 });
 
 test('Alexa auth helper normalizes browser cookies and device API payloads', () => {
   expect(alexaAuth.alexaDevicesApiUrl('amazon.de')).toBe(
     'https://alexa.amazon.de/api/devices-v2/device?cached=false',
   );
-  expect(alexaAuth.cookieCliBaseDomain('amazon.de')).toBe('amazon.com');
-  expect(alexaAuth.cookieCliBaseDomain('amazon.co.jp')).toBe('amazon.co.jp');
+  expect(alexaAuth.authBaseDomain('amazon.de')).toBe('amazon.com');
+  expect(alexaAuth.authBaseDomain('amazon.co.jp')).toBe('amazon.co.jp');
   expect(alexaAuth.alexaRuntimeBaseUrl('amazon.de')).toBe(
     'https://layla.amazon.com',
   );
@@ -269,9 +256,6 @@ test('Alexa auth helper builds cookies from Amazon refresh-token exchange payloa
 
   expect(cookieHeader).toBe(
     'session-id=abc123; ubid-main=customer-region; csrf=csrf-token',
-  );
-  expect(alexaAuth.cookieCliDownloadUrl()).toContain(
-    'adn77/alexa-cookie-cli/releases/download/v5.0.1',
   );
 });
 

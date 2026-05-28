@@ -335,7 +335,7 @@ hybridclaw secret set ALEXA_AMAZON_DOMAIN "amazon.de"
 ```
 
 Use HybridClaw or slash commands for operator setup. Do not ask the operator to
-install or run third-party Alexa CLI tools.
+install or run external auth tools.
 
 Start a local session and invoke the Alexa skill:
 
@@ -373,10 +373,9 @@ handoff regularly take longer than 60 seconds; killing the shell command also
 kills the local proxy and produces Safari errors such as "server unexpectedly
 closed the connection" on `127.0.0.1:<port>/www.amazon.com/ap/signin`.
 
-Do not invoke `alexa-cookie-cli` directly during slash handling. The bundled
-helper owns the browser proxy and token callback. It uses Amazon's expected
-domain rules: for western marketplaces such as `amazon.de`, the proxy base is
-`amazon.com` and the marketplace stays `amazon.de`. If the browser shows
+The bundled helper owns the browser proxy and token callback. It uses Amazon's
+expected domain rules: for western marketplaces such as `amazon.de`, the proxy
+base is `amazon.com` and the marketplace stays `amazon.de`. If the browser shows
 Amazon's "Suchst du etwas?" 404 page at the local proxy URL, or login completes
 but no `Atnr|...` token is returned to the terminal, stop that run and restart
 through `alexa-auth.cjs`.

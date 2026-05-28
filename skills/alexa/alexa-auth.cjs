@@ -3,7 +3,6 @@
 
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const https = require('node:https');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
@@ -13,7 +12,6 @@ const DEFAULT_PROXY_PORT = 8080;
 const DEFAULT_TIMEOUT_MS = 600_000;
 const COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
 const REFRESH_TOKEN_SECRET = 'ALEXA_REMOTE_REFRESH_TOKEN';
-const COOKIE_CLI_VERSION = 'v5.0.1';
 const COOKIE_LIB_VERSION = '5.0.3';
 
 function fail(message, code = 2) {
@@ -37,7 +35,6 @@ Usage:
 Options:
   --domain DOMAIN       Amazon retail domain. Defaults to amazon.com.
   --country DOMAIN      Marketplace domain for login/API locale. Defaults to --domain.
-  --cookie-cli FILE     Optional alexa-cookie-cli binary fallback path. Defaults to the bundled JS auth flow.
   --proxy-port PORT     Preferred local login port. Defaults to ${DEFAULT_PROXY_PORT}; falls back to a free port if busy.
   --timeout-ms MS       Time to wait for browser login. Defaults to ${DEFAULT_TIMEOUT_MS}.
   --write-secret        Store the discovered cookie as ${COOKIE_SECRET}.
@@ -57,7 +54,6 @@ function parseArgs(argv) {
   const positional = [];
   const flagsWithValues = new Set([
     '--config',
-    '--cookie-cli',
     '--country',
     '--domain',
     '--format',
@@ -174,7 +170,7 @@ function alexaDevicesApiUrl(domain) {
   return `https://alexa.${domain}/api/devices-v2/device?cached=false`;
 }
 
-function cookieCliBaseDomain(domain) {
+function authBaseDomain(domain) {
   return domain === 'amazon.co.jp' ? 'amazon.co.jp' : 'amazon.com';
 }
 
@@ -433,33 +429,6 @@ function cookieResult({
   return result;
 }
 
-function cookieCliPlatform() {
-  switch (process.platform) {
-    case 'darwin':
-      return 'macos';
-    case 'linux':
-      return 'linux';
-    case 'win32':
-      return 'win';
-    default:
-      throw new Error(`Unsupported platform: ${process.platform}`);
-  }
-}
-
-function defaultCookieCliPath() {
-  const suffix = process.platform === 'win32' ? '.exe' : '';
-  return path.join(
-    os.homedir(),
-    '.hybridclaw',
-    'bin',
-    `alexa-cookie-cli${suffix}`,
-  );
-}
-
-function cookieCliDownloadUrl() {
-  return `https://github.com/adn77/alexa-cookie-cli/releases/download/${COOKIE_CLI_VERSION}/alexa-cookie-cli-${cookieCliPlatform()}-x64`;
-}
-
 function defaultCookieLibRuntimeDir() {
   if (process.env.ALEXA_COOKIE_LIB_DIR) {
     return expandHome(process.env.ALEXA_COOKIE_LIB_DIR);
@@ -474,45 +443,6 @@ function cookieLibModulePath() {
     'alexa-cookie2',
     'alexa-cookie.js',
   );
-}
-
-function downloadFile(url, destination, redirects = 0) {
-  return new Promise((resolve, reject) => {
-    https
-      .get(url, (response) => {
-        if (
-          response.statusCode >= 300 &&
-          response.statusCode < 400 &&
-          response.headers.location &&
-          redirects < 5
-        ) {
-          response.resume();
-          downloadFile(response.headers.location, destination, redirects + 1)
-            .then(resolve)
-            .catch(reject);
-          return;
-        }
-        if (response.statusCode !== 200) {
-          response.resume();
-          reject(new Error(`download failed with HTTP ${response.statusCode}`));
-          return;
-        }
-        fs.mkdirSync(path.dirname(destination), { recursive: true });
-        const file = fs.createWriteStream(destination, { mode: 0o755 });
-        response.pipe(file);
-        file.on('finish', () => {
-          file.close(() => {
-            fs.chmodSync(destination, 0o755);
-            resolve(destination);
-          });
-        });
-        file.on('error', (error) => {
-          fs.rmSync(destination, { force: true });
-          reject(error);
-        });
-      })
-      .on('error', reject);
-  });
 }
 
 function ensureCookieLibrary() {
@@ -544,22 +474,6 @@ function ensureCookieLibrary() {
   );
   process.stderr.write(`Installed Alexa cookie library to ${runtimeDir}\n`);
   return require(modulePath);
-}
-
-async function ensureCookieCli(opts) {
-  if (opts.cookieCli) return expandHome(opts.cookieCli);
-  if (process.env.ALEXA_COOKIE_CLI_BIN) {
-    return expandHome(process.env.ALEXA_COOKIE_CLI_BIN);
-  }
-
-  const binPath = defaultCookieCliPath();
-  if (fs.existsSync(binPath)) return binPath;
-
-  const url = cookieCliDownloadUrl();
-  process.stderr.write(`Downloading Alexa cookie helper ${COOKIE_CLI_VERSION}...\n`);
-  await downloadFile(url, binPath);
-  process.stderr.write(`Downloaded Alexa cookie helper to ${binPath}\n`);
-  return binPath;
 }
 
 function canListenOnPort(port) {
@@ -598,50 +512,11 @@ async function resolveProxyPort(rawProxyPort) {
   return { port: await findFreePort(), fallback: true };
 }
 
-function parseRefreshTokenFromOutput(output) {
-  const text = String(output || '').trim();
-  if (!text) return '';
-  const direct = text.match(/\bAtnr\|[^\s"'<>]+/);
-  if (direct) return direct[0];
-  const labeled = text.match(/refreshToken:\s*(Atnr\|[^\s"'<>]+)/i);
-  return labeled ? labeled[1] : '';
-}
-
-function shouldUseCookieCli(opts) {
-  return Boolean(opts.cookieCli || process.env.ALEXA_COOKIE_CLI_BIN);
-}
-
-async function runBrowserAuthWithCookieCli(opts, domain, country, proxy) {
-  const binPath = await ensureCookieCli(opts);
-  const args = [
-    '-b',
-    cookieCliBaseDomain(domain),
-    '-p',
-    country,
-    '-P',
-    String(proxy.port),
-    ...localeFlags(country),
-    '-q',
-  ];
-  process.stderr.write(
-    `Opening Amazon device login at http://127.0.0.1:${proxy.port}. Complete login in the browser, then return here.\n`,
-  );
-  const result = runCommand(binPath, args, {
-    stdio: ['inherit', 'pipe', 'inherit'],
-    timeout: timeoutMs(opts.timeoutMs),
-  });
-  const token = parseRefreshTokenFromOutput(result.stdout);
-  if (!token) {
-    throw new Error('No refresh token received from Amazon browser login.');
-  }
-  return token;
-}
-
 function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
   const alexaCookie = ensureCookieLibrary();
   const locale = localeSettings(country);
   const timeout = timeoutMs(opts.timeoutMs);
-  const baseAmazonPage = cookieCliBaseDomain(domain);
+  const baseAmazonPage = authBaseDomain(domain);
 
   process.stderr.write(
     `Opening Amazon device login at http://127.0.0.1:${proxy.port}. Complete login in the browser, then return here.\n`,
@@ -720,9 +595,6 @@ async function runBrowserAuth(opts, domain, country) {
     );
   }
 
-  if (shouldUseCookieCli(opts)) {
-    return runBrowserAuthWithCookieCli(opts, domain, country, proxy);
-  }
   return runBrowserAuthWithCookieLibrary(opts, domain, country, proxy);
 }
 
@@ -896,14 +768,12 @@ if (require.main === module) {
 module.exports = {
   alexaDevicesApiUrl,
   alexaRuntimeBaseUrl,
+  authBaseDomain,
   buildCookieHeader,
   csrfFromCookieHeader,
-  cookieCliBaseDomain,
-  cookieCliDownloadUrl,
   cookieHeaderFromExchange,
   findCookieHeader,
   localeFlags,
   normalizeDevices,
-  parseRefreshTokenFromOutput,
   validateAmazonDomain,
 };
