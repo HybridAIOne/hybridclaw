@@ -360,6 +360,11 @@ channel that supports slash skill invocation:
 /skill alexa play Münchner Freiheit on OK Computer
 ```
 
+Status-only prompts such as `/skill alexa status for amazon.de` are read-only.
+For those prompts, inspect stored credentials and detached setup state, but do
+not start a new auth proxy. If credentials are missing, tell the operator to run
+the setup prompt explicitly.
+
 When handling the setup prompt, run the bundled auth helper from the agent
 workspace. First check live detached setup state:
 
