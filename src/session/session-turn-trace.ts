@@ -334,10 +334,10 @@ function summarizeSkill(payload: Record<string, unknown>): string {
 
 function auditAuthorizationRowsForTurn(rows: StructuredAuditEntry[]): {
   byToolCallId: Map<string, StructuredAuditEntry[]>;
-  byAction: Map<string, StructuredAuditEntry[]>;
+  unscopedByAction: Map<string, StructuredAuditEntry[]>;
 } {
   const byToolCallId = new Map<string, StructuredAuditEntry[]>();
-  const byAction = new Map<string, StructuredAuditEntry[]>();
+  const unscopedByAction = new Map<string, StructuredAuditEntry[]>();
   const authEventTypes = new Set([
     'authorization.check',
     'autonomy.decision',
@@ -357,13 +357,49 @@ function auditAuthorizationRowsForTurn(rows: StructuredAuditEntry[]): {
     }
     const action = readString(payload, 'action');
     if (action) {
-      const entries = byAction.get(action) || [];
-      entries.push(row);
-      byAction.set(action, entries);
+      if (!toolCallId) {
+        const unscopedEntries = unscopedByAction.get(action) || [];
+        unscopedEntries.push(row);
+        unscopedByAction.set(action, unscopedEntries);
+      }
     }
   }
 
-  return { byToolCallId, byAction };
+  return { byToolCallId, unscopedByAction };
+}
+
+function nearestAuthorizationRowsForTool(params: {
+  authorizationRows: Map<string, StructuredAuditEntry[]>;
+  rowPositions: Map<StructuredAuditEntry, number>;
+  toolRows: Array<{ row: StructuredAuditEntry; toolName: string }>;
+  toolIndex: number;
+  action: string;
+}): StructuredAuditEntry[] {
+  const candidates = params.authorizationRows.get(params.action) || [];
+  if (candidates.length === 0) return [];
+
+  return candidates.filter((candidate) => {
+    const candidatePosition = params.rowPositions.get(candidate);
+    if (candidatePosition === undefined) return false;
+
+    let nearestIndex = -1;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < params.toolRows.length; index += 1) {
+      const toolRow = params.toolRows[index];
+      if (toolRow.toolName !== params.toolRows[params.toolIndex]?.toolName) {
+        continue;
+      }
+      const toolPosition = params.rowPositions.get(toolRow.row);
+      if (toolPosition === undefined) continue;
+      const distance = Math.abs(toolPosition - candidatePosition);
+      if (distance < nearestDistance) {
+        nearestIndex = index;
+        nearestDistance = distance;
+      }
+    }
+
+    return nearestIndex === params.toolIndex;
+  });
 }
 
 export function buildAuditTurnTraceRecords(params: {
@@ -411,48 +447,62 @@ export function buildAuditTurnTraceRecords(params: {
       if (toolCallId) resultByCallId.set(toolCallId, payload);
     }
     const authorizationRows = auditAuthorizationRowsForTurn(turn.rows);
-
-    const tools = turn.rows
+    const rowPositions = new Map(
+      turn.rows.map((row, index) => [row, index] as const),
+    );
+    const toolRows = turn.rows
       .filter((row) => row.event_type === 'tool.call')
-      .map((row, index) => {
-        const payload = parseJsonObject(row.payload);
-        const toolCallId =
-          readString(payload, 'toolCallId') ||
-          `${turn.runId}:tool:${index + 1}`;
-        const toolName = readString(payload, 'toolName') || 'unknown';
-        const result = resultByCallId.get(toolCallId) || null;
-        const resultSummary = result
-          ? readString(result, 'resultPreview') ||
-            readString(result, 'resultSummary') ||
-            truncateAuditText(JSON.stringify(result), 280)
-          : null;
-        const authorizationRowsForTool = [
-          ...(authorizationRows.byToolCallId.get(toolCallId) || []),
-          ...(authorizationRows.byAction.get(`tool:${toolName}`) || []),
-        ];
-        const authorization = [...new Set(authorizationRowsForTool)].map(
-          (entry) => ({
-            eventType: entry.event_type,
-            timestamp: entry.timestamp,
-            summary: redactTraceValue(parseJsonObject(entry.payload), 520),
-          }),
-        );
+      .map((row) => ({
+        row,
+        toolName:
+          readString(parseJsonObject(row.payload), 'toolName') || 'unknown',
+      }));
 
-        return {
-          order: index + 1,
-          toolCallId,
-          toolName,
-          kind: toolKind(toolName, payload),
-          argumentsSummary: redactTraceValue(payload.arguments ?? {}, 700),
-          startedAt: row.timestamp,
-          durationMs: result ? readNumber(result, 'durationMs') : null,
-          status: toolStatus(result),
-          authorization,
-          resultSummary: resultSummary
-            ? redactTraceText(resultSummary, 520)
-            : null,
-        };
-      });
+    const tools = toolRows.map((toolRow, index) => {
+      const row = toolRow.row;
+      const payload = parseJsonObject(row.payload);
+      const toolCallId =
+        readString(payload, 'toolCallId') || `${turn.runId}:tool:${index + 1}`;
+      const toolName = toolRow.toolName;
+      const result = resultByCallId.get(toolCallId) || null;
+      const resultSummary = result
+        ? readString(result, 'resultPreview') ||
+          readString(result, 'resultSummary') ||
+          truncateAuditText(JSON.stringify(result), 280)
+        : null;
+      const authorizationRowsForTool = [
+        ...(authorizationRows.byToolCallId.get(toolCallId) || []),
+        ...nearestAuthorizationRowsForTool({
+          authorizationRows: authorizationRows.unscopedByAction,
+          rowPositions,
+          toolRows,
+          toolIndex: index,
+          action: `tool:${toolName}`,
+        }),
+      ];
+      const authorization = [...new Set(authorizationRowsForTool)].map(
+        (entry) => ({
+          eventType: entry.event_type,
+          timestamp: entry.timestamp,
+          summary: redactTraceValue(parseJsonObject(entry.payload), 520),
+        }),
+      );
+
+      return {
+        order: index + 1,
+        toolCallId,
+        toolName,
+        kind: toolKind(toolName, payload),
+        argumentsSummary: redactTraceValue(payload.arguments ?? {}, 700),
+        startedAt: row.timestamp,
+        durationMs: result ? readNumber(result, 'durationMs') : null,
+        status: toolStatus(result),
+        authorization,
+        resultSummary: resultSummary
+          ? redactTraceText(resultSummary, 520)
+          : null,
+      };
+    });
 
     records.push({
       sessionId: params.sessionId,

@@ -57,6 +57,7 @@ import {
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
+import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
@@ -1040,14 +1041,20 @@ async function runContainerInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: modelRuntime.model || model,
   });
-  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
-    const recoveryHint = getGoogleWorkspaceRuntimeEnvRecoveryHint(error);
-    logger.warn(
-      { error, recoveryHint },
-      `Failed to resolve Google access token for Workspace CLI runtime environment. ${recoveryHint}`,
-    );
-    return {};
-  });
+  const storedRuntimeEnv = readStoredRuntimeEnv();
+  const googleWorkspaceRuntimeEnv =
+    await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
+      const recoveryHint = getGoogleWorkspaceRuntimeEnvRecoveryHint(error);
+      logger.warn(
+        { error, recoveryHint },
+        `Failed to resolve Google access token for Workspace CLI runtime environment. ${recoveryHint}`,
+      );
+      return {};
+    });
+  const runtimeEnv = {
+    ...storedRuntimeEnv,
+    ...googleWorkspaceRuntimeEnv,
+  };
   enforceWarmContainerPressure();
   if (
     getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
@@ -1158,6 +1165,7 @@ async function runContainerInner(
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     taskModels: input.taskModels,
     providerCredentials: input.providerCredentials,
+    runtimeEnv: storedRuntimeEnv,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,

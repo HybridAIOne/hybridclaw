@@ -221,6 +221,33 @@ test('LAN HTTP access reports custom when manual private host rules exist', () =
   });
 });
 
+test('managed LAN HTTP access state tolerates additional manual LAN rules', () => {
+  const workspacePath = makeWorkspace();
+
+  addPolicyRule(workspacePath, {
+    action: 'allow',
+    host: '192.168.178.198',
+    port: 80,
+    methods: ['GET'],
+    paths: ['/**'],
+    agent: '*',
+    comment: 'Device-specific LAN read-only',
+  });
+
+  const state = setLanHttpAccessMode(workspacePath, 'read-only');
+
+  expect(state.lanHttpAccess).toEqual({
+    mode: 'read-only',
+    managedRuleIndexes: [3, 4, 5],
+  });
+  expect(state.rules[1]).toEqual(
+    expect.objectContaining({
+      host: '192.168.178.198',
+    }),
+  );
+  expect(state.rules[1]).not.toHaveProperty('managedByPreset');
+});
+
 test('wildcard-port rules omit the port field when written to YAML', () => {
   const workspacePath = makeWorkspace();
 

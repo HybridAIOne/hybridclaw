@@ -2,6 +2,7 @@ import fs from 'node:fs';
 
 import Database from 'better-sqlite3';
 import { expect, test, vi } from 'vitest';
+import type { StructuredAuditEntry } from '../src/types/audit.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const { runAgentMock } = vi.hoisted(() => ({
@@ -21,6 +22,28 @@ const { setupHome } = setupGatewayTest({
     vi.doUnmock('../src/logger.js');
   },
 });
+
+function structuredAuditEntry(params: {
+  id: number;
+  eventType: string;
+  runId?: string;
+  payload?: Record<string, unknown>;
+}): StructuredAuditEntry {
+  const timestamp = new Date(1_800_000_000_000 + params.id).toISOString();
+  return {
+    id: params.id,
+    session_id: 'session-audit-unit',
+    seq: params.id,
+    event_type: params.eventType,
+    timestamp,
+    run_id: params.runId || 'turn_audit_unit',
+    parent_run_id: null,
+    payload: JSON.stringify(params.payload || {}),
+    wire_hash: `hash-${params.id}`,
+    wire_prev_hash: `hash-${params.id - 1}`,
+    created_at: timestamp,
+  };
+}
 
 test('audit command shows recent structured audit events for the current session', async () => {
   setupHome();
@@ -178,6 +201,99 @@ test('audit command shows latest turn-level tool trace with redacted details', a
   expect(result.text).not.toContain('sk-test-ABCDEFGHIJKLMNOP1234567890');
   expect(result.text).not.toContain('abcdefghijklmnopqrstuvwxyz');
   expect(result.text).toContain('***REDACTED***');
+});
+
+test('turn audit scopes action-only authorization checks to nearest matching tool', async () => {
+  const { buildAuditTurnTraceRecords } = await import(
+    '../src/session/session-turn-trace.js'
+  );
+  const auditEntries = [
+    structuredAuditEntry({
+      id: 1,
+      eventType: 'turn.start',
+      payload: { turnIndex: 1, userInput: 'Run two shell checks' },
+    }),
+    structuredAuditEntry({
+      id: 2,
+      eventType: 'tool.call',
+      payload: {
+        toolCallId: 'turn_audit_unit:tool:1',
+        toolName: 'bash',
+        arguments: { command: 'first' },
+      },
+    }),
+    structuredAuditEntry({
+      id: 3,
+      eventType: 'authorization.check',
+      payload: {
+        action: 'tool:bash',
+        resource: 'container.sandbox',
+        allowed: true,
+        reason: 'first-check',
+      },
+    }),
+    structuredAuditEntry({
+      id: 4,
+      eventType: 'tool.result',
+      payload: {
+        toolCallId: 'turn_audit_unit:tool:1',
+        toolName: 'bash',
+        durationMs: 1,
+        isError: false,
+      },
+    }),
+    structuredAuditEntry({
+      id: 5,
+      eventType: 'tool.call',
+      payload: {
+        toolCallId: 'turn_audit_unit:tool:2',
+        toolName: 'bash',
+        arguments: { command: 'second' },
+      },
+    }),
+    structuredAuditEntry({
+      id: 6,
+      eventType: 'authorization.check',
+      payload: {
+        action: 'tool:bash',
+        resource: 'container.sandbox',
+        allowed: true,
+        reason: 'second-check',
+      },
+    }),
+    structuredAuditEntry({
+      id: 7,
+      eventType: 'tool.result',
+      payload: {
+        toolCallId: 'turn_audit_unit:tool:2',
+        toolName: 'bash',
+        durationMs: 1,
+        isError: false,
+      },
+    }),
+    structuredAuditEntry({
+      id: 8,
+      eventType: 'turn.end',
+      payload: { turnIndex: 1, finishReason: 'completed' },
+    }),
+  ];
+
+  const result = buildAuditTurnTraceRecords({
+    sessionId: 'session-audit-unit',
+    auditEntries,
+    selector: { latest: true },
+  });
+
+  expect(result).toHaveProperty('records');
+  if ('error' in result) throw new Error(result.error);
+  expect(result.records[0]?.tools[0]?.authorization).toHaveLength(1);
+  expect(result.records[0]?.tools[0]?.authorization[0]?.summary).toContain(
+    'first-check',
+  );
+  expect(result.records[0]?.tools[1]?.authorization).toHaveLength(1);
+  expect(result.records[0]?.tools[1]?.authorization[0]?.summary).toContain(
+    'second-check',
+  );
 });
 
 test('audit command selects a turn by session id and stable turn index', async () => {

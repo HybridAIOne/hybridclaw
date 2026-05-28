@@ -1767,6 +1767,11 @@ async function handleSecretCommand(args: string[]): Promise<void> {
   await cliSecret.handleSecretCommand(args);
 }
 
+async function handleEnvCommand(args: string[]): Promise<void> {
+  const cliEnv = await import('./cli/env-command.js');
+  await cliEnv.handleEnvCommand(args);
+}
+
 async function handlePluginCommand(args: string[]): Promise<void> {
   const cliPlugin = await import('./cli/plugin-command.js');
   await cliPlugin.handlePluginCommand(args);
@@ -1848,6 +1853,9 @@ export async function main(
       break;
     case 'secret':
       await handleSecretCommand(subargs);
+      break;
+    case 'env':
+      await handleEnvCommand(subargs);
       break;
     case 'policy':
       await handlePolicyCommand(subargs);

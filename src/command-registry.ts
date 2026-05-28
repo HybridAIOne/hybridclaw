@@ -235,6 +235,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     command: '/config [check|reload|get <key>|set <key> <value>]',
     description: 'Show or update local runtime config',
   },
+  env: {
+    command: '/env [list|set <name> <value>|show <name>|unset <name>]',
+    description: 'Manage plaintext runtime env values for agents and helpers',
+  },
   context: {
     command: '/context',
     description: 'Show context window usage and compaction headroom',
@@ -606,6 +610,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'secret':
       return parts.length > 1 ? ['secret', ...parts.slice(1)] : ['secret'];
+
+    case 'env':
+      return parts.length > 1 ? ['env', ...parts.slice(1)] : ['env'];
 
     case 'voice': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -1667,6 +1674,54 @@ function buildSlashCommandCatalogDefinitions(
           name: 'value',
           description:
             'Secret value, URL prefix, or additional route arguments',
+        },
+      ],
+    },
+    {
+      name: 'env',
+      description: 'Manage plaintext runtime env values for agents and helpers',
+      tuiOnly: true,
+      tuiMenuEntries: [
+        {
+          id: 'env.list',
+          label: '/env list',
+          insertText: '/env list',
+          description: 'List stored runtime env values',
+        },
+        {
+          id: 'env.set',
+          label: '/env set <name> <value>',
+          insertText: '/env set ',
+          description: 'Store a plaintext runtime env value',
+        },
+        {
+          id: 'env.show',
+          label: '/env show <name>',
+          insertText: '/env show ',
+          description: 'Show one runtime env value',
+        },
+      ],
+      options: [
+        {
+          kind: 'string',
+          name: 'action',
+          description: 'Env command action',
+          choices: [
+            { name: 'list', value: 'list' },
+            { name: 'set', value: 'set' },
+            { name: 'unset', value: 'unset' },
+            { name: 'show', value: 'show' },
+          ],
+        },
+        {
+          kind: 'string',
+          name: 'name',
+          description: 'Runtime env name',
+        },
+        {
+          kind: 'string',
+          name: 'value',
+          description: 'Plaintext runtime env value',
         },
       ],
     },
@@ -3078,6 +3133,21 @@ export function parseCanonicalSlashCommandArgs(
       if (action === 'route' && name) {
         const routeArgs = value ? tokenizeFreeformText(value) : [];
         return ['secret', 'route', name, ...routeArgs];
+      }
+      return null;
+    }
+
+    case 'env': {
+      const action = normalizeStringOption(interaction, 'action');
+      const name = normalizeStringOption(interaction, 'name');
+      const value = normalizeStringOption(interaction, 'value');
+      if (!action && !name && !value) return ['env'];
+      if (action === 'list' && !name && !value) return ['env', 'list'];
+      if ((action === 'unset' || action === 'show') && name && !value) {
+        return ['env', action, name];
+      }
+      if (action === 'set' && name && value) {
+        return ['env', 'set', name, value];
       }
       return null;
     }
