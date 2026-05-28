@@ -748,6 +748,7 @@ async function importFreshHealth(options?: {
       },
     ],
     total: 2,
+    actions: ['secret.list_metadata' as const],
   }));
   const overwriteGatewayAdminSecret = vi.fn(
     (params: { name: string; value: unknown }) => ({
@@ -5031,6 +5032,10 @@ describe('gateway HTTP server', () => {
         actor: 'admin-user',
         sourceIp: '127.0.0.1',
       },
+      sessionPayload: expect.objectContaining({
+        actor: 'admin-user',
+        actions: ['secret.list_metadata'],
+      }),
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
@@ -5056,6 +5061,7 @@ describe('gateway HTTP server', () => {
         },
       ],
       total: 2,
+      actions: ['secret.list_metadata'],
     });
     expect(res.body).not.toContain('super-secret');
   });
