@@ -15,6 +15,7 @@ const DEFAULT_AMAZON_DOMAIN = 'amazon.com';
 const SMARTHOME_BEARER_SECRET = 'ALEXA_SMARTHOME_ACCESS_TOKEN';
 const COMMUNITY_COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
 const MAX_TEXT_BYTES = 4096;
+const DEFAULT_MUSIC_PROVIDER = 'AMAZON_MUSIC';
 const AUTH_STOP = {
   stopOnStatuses: [401, 403],
   stopOnErrorTypes: ['INVALID_AUTHORIZATION_CREDENTIAL'],
@@ -75,6 +76,8 @@ const PLAN_COMMANDS = new Set([
   'shopping-list-complete',
   'todo-list-add',
   'todo-list-complete',
+  'music-play',
+  'voice-command',
   'routine-trigger',
 ]);
 
@@ -83,14 +86,20 @@ const COMMAND_OPTION_FLAGS = [
   '--amazon-domain',
   '--brightness',
   '--color',
+  '--customer-id',
   '--device',
+  '--device-name',
+  '--device-type',
   '--endpoint-id',
   '--item',
   '--item-id',
+  '--provider',
+  '--query',
   '--region-host',
   '--routine',
   '--temperature',
   '--text',
+  '--voice-command',
 ];
 
 const SMARTHOME_ACTIONS = new Map([
@@ -150,6 +159,9 @@ Usage:
   node skills/alexa/alexa.cjs --format json http-request shopping-list
   node skills/alexa/alexa.cjs --format json plan announce --device living-room --text "Package delivered."
   node skills/alexa/alexa.cjs --format json http-request announce --device living-room --text "Package delivered." --operator-grant approve-alexa-write
+  node skills/alexa/alexa.cjs --format json plan music-play --device SERIAL --device-type TYPE --customer-id CUSTOMER --query "Münchner Freiheit" --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json http-request music-play --device SERIAL --device-type TYPE --customer-id CUSTOMER --query "Münchner Freiheit" --amazon-domain amazon.de --operator-grant approve-alexa-write
+  node skills/alexa/alexa.cjs --format json plan voice-command --device SERIAL --device-type TYPE --customer-id CUSTOMER --voice-command "play Münchner Freiheit" --amazon-domain amazon.de
   node skills/alexa/alexa.cjs --format json plan shopping-list-add --item milk
   node skills/alexa/alexa.cjs --format json http-request shopping-list-complete --item-id item-1 --operator-grant approve-alexa-write
 
@@ -171,8 +183,8 @@ Commands:
   parse-request
   build-response
   http-request smarthome-discover|smarthome-state|devices|shopping-list|todo-list|last-commands|dnd-state
-  http-request smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|routine-trigger
-  plan smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|routine-trigger
+  http-request smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
+  plan smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
   relink-required
 
 Secret values are not accepted on the command line. Store Alexa credentials with:
@@ -316,6 +328,23 @@ function parseNumber(value, label, min, max) {
     fail(`${label} must be between ${min} and ${max}.`);
   }
   return number;
+}
+
+function parseMusicProvider(value) {
+  const provider = normalizeText(value || DEFAULT_MUSIC_PROVIDER).toUpperCase();
+  const allowed = new Set([
+    'AMAZON_MUSIC',
+    'APPLE_MUSIC',
+    'CLOUDPLAYER',
+    'DEEZER',
+    'I_HEART_RADIO',
+    'SPOTIFY',
+    'TUNEIN',
+  ]);
+  if (!allowed.has(provider)) {
+    fail(`--provider must be one of ${[...allowed].join(', ')}.`);
+  }
+  return provider;
 }
 
 function parseHsvColor(value) {
@@ -959,6 +988,13 @@ function communityHost(domain) {
   return `alexa.${normalized}`;
 }
 
+function communityLocale(domain) {
+  const normalized = normalizeText(
+    domain || DEFAULT_AMAZON_DOMAIN,
+  ).toLowerCase();
+  return normalized === 'amazon.de' ? 'de-DE' : 'en-US';
+}
+
 function communityPath(operation, opts) {
   if (operation === 'devices') return '/api/devices-v2/device';
   if (operation === 'shopping-list') return '/api/namedLists';
@@ -1004,6 +1040,8 @@ function httpRequest(commandArgs) {
   if (operation === 'smarthome-state') return smarthomeStateRequest(opts);
   if (operation === 'smarthome-control') return smarthomeControlRequest(opts);
   if (operation === 'announce') return announceRequest(opts);
+  if (operation === 'music-play') return musicPlayRequest(opts);
+  if (operation === 'voice-command') return voiceCommandRequest(opts);
   if (operation === 'shopping-list-add')
     return listAddRequest('shopping-list-add', opts);
   if (operation === 'shopping-list-complete')
@@ -1026,6 +1064,8 @@ function plan(commandArgs) {
   });
   if (operation === 'smarthome-control') return planSmarthomeControl(opts);
   if (operation === 'announce') return planAnnounce(opts);
+  if (operation === 'music-play') return planMusicPlay(opts);
+  if (operation === 'voice-command') return planVoiceCommand(opts);
   if (operation === 'shopping-list-add')
     return planListAdd('shopping-list-add', opts);
   if (operation === 'shopping-list-complete')
@@ -1273,6 +1313,176 @@ function announceRequest(opts) {
     httpRequest: announceHttpRequest(opts, device, text),
     authSurface: 'community',
     authTarget: device,
+  });
+}
+
+function musicPlayTarget(opts) {
+  const device = requireIdentifier(opts.device, '--device');
+  const deviceType = requireIdentifier(opts.deviceType, '--device-type');
+  const customerId = requireIdentifier(opts.customerId, '--customer-id');
+  const deviceName =
+    opts.deviceName === undefined
+      ? device
+      : requireBoundedText(opts.deviceName, '--device-name', 256);
+  const query = stripMarkdownForTts(requireBoundedText(opts.query, '--query'));
+  const provider = parseMusicProvider(opts.provider);
+  return { customerId, device, deviceName, deviceType, provider, query };
+}
+
+function musicPlayHttpRequest(opts, target) {
+  return {
+    method: 'POST',
+    url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    bodyJson: {
+      behaviorId: 'PREVIEW',
+      sequenceJson: JSON.stringify({
+        '@type': 'com.amazon.alexa.behaviors.model.Sequence',
+        startNode: {
+          '@type': 'com.amazon.alexa.behaviors.model.ParallelNode',
+          nodesToExecute: [
+            {
+              '@type':
+                'com.amazon.alexa.behaviors.model.OpaquePayloadOperationNode',
+              type: 'Alexa.Music.PlaySearchPhrase',
+              operationPayload: {
+                deviceType: target.deviceType,
+                deviceSerialNumber: target.device,
+                customerId: target.customerId,
+                locale: communityLocale(opts.amazonDomain),
+                musicProviderId: target.provider,
+                searchPhrase: target.query,
+                sanitizedSearchPhrase: target.query,
+              },
+            },
+          ],
+        },
+      }),
+      status: 'ENABLED',
+    },
+  };
+}
+
+function planMusicPlay(opts) {
+  const target = musicPlayTarget(opts);
+  return plannedWritePayload({
+    surface: 'community',
+    operation: 'music-play',
+    stakesTier: 'amber',
+    httpRequest: musicPlayHttpRequest(opts, target),
+    approvalOperation: 'music playback',
+    approvalTarget: target.deviceName,
+    approvalAction: `play "${target.query}" via ${target.provider}`,
+    approvedCommand: approvedCommand('http-request music-play', {
+      '--device': target.device,
+      '--device-name': opts.deviceName,
+      '--device-type': target.deviceType,
+      '--customer-id': target.customerId,
+      '--query': target.query,
+      '--provider': target.provider,
+      '--amazon-domain': opts.amazonDomain,
+      '--operator-grant': grantForTier('amber'),
+    }),
+    authSurface: 'community',
+    authTarget: target.deviceName,
+  });
+}
+
+function musicPlayRequest(opts) {
+  const target = musicPlayTarget(opts);
+  requireOperatorGrant('music-play', 'amber', opts.operatorGrant);
+  return executableWritePayload({
+    surface: 'community',
+    operation: 'music-play',
+    stakesTier: 'amber',
+    httpRequest: musicPlayHttpRequest(opts, target),
+    authSurface: 'community',
+    authTarget: target.deviceName,
+  });
+}
+
+function voiceCommandTarget(opts) {
+  const device = requireIdentifier(opts.device, '--device');
+  const deviceType = requireIdentifier(opts.deviceType, '--device-type');
+  const customerId = requireIdentifier(opts.customerId, '--customer-id');
+  const deviceName =
+    opts.deviceName === undefined
+      ? device
+      : requireBoundedText(opts.deviceName, '--device-name', 256);
+  const command = stripMarkdownForTts(
+    requireBoundedText(opts.voiceCommand, '--voice-command'),
+  );
+  return { command, customerId, device, deviceName, deviceType };
+}
+
+function voiceCommandHttpRequest(opts, target) {
+  return {
+    method: 'POST',
+    url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    bodyJson: {
+      behaviorId: 'PREVIEW',
+      sequenceJson: JSON.stringify({
+        '@type': 'com.amazon.alexa.behaviors.model.Sequence',
+        startNode: {
+          '@type':
+            'com.amazon.alexa.behaviors.model.OpaquePayloadOperationNode',
+          type: 'Alexa.TextCommand',
+          operationPayload: {
+            deviceType: target.deviceType,
+            deviceSerialNumber: target.device,
+            customerId: target.customerId,
+            locale: communityLocale(opts.amazonDomain),
+            skillId: 'amzn1.ask.1p.tellalexa',
+            text: target.command,
+          },
+        },
+      }),
+      status: 'ENABLED',
+    },
+  };
+}
+
+function planVoiceCommand(opts) {
+  const target = voiceCommandTarget(opts);
+  return plannedWritePayload({
+    surface: 'community',
+    operation: 'voice-command',
+    stakesTier: 'red',
+    httpRequest: voiceCommandHttpRequest(opts, target),
+    approvalOperation: 'voice command',
+    approvalTarget: target.deviceName,
+    approvalAction: `send "${target.command}" to Alexa`,
+    approvedCommand: approvedCommand('http-request voice-command', {
+      '--device': target.device,
+      '--device-name': opts.deviceName,
+      '--device-type': target.deviceType,
+      '--customer-id': target.customerId,
+      '--voice-command': target.command,
+      '--amazon-domain': opts.amazonDomain,
+      '--operator-grant': grantForTier('red'),
+    }),
+    authSurface: 'community',
+    authTarget: target.deviceName,
+  });
+}
+
+function voiceCommandRequest(opts) {
+  const target = voiceCommandTarget(opts);
+  requireOperatorGrant('voice-command', 'red', opts.operatorGrant);
+  return executableWritePayload({
+    surface: 'community',
+    operation: 'voice-command',
+    stakesTier: 'red',
+    httpRequest: voiceCommandHttpRequest(opts, target),
+    authSurface: 'community',
+    authTarget: target.deviceName,
   });
 }
 

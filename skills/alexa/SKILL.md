@@ -64,9 +64,11 @@ credentials:
       id: ALEXA_REFRESH_COOKIE
     scope: "Opt-in community Alexa Remote / alexapy-compatible session cookie"
     how_to_obtain: |
-      Only enable the community surface after operator approval. Store the
-      persistent refresh cookie with
-      `hybridclaw secret set ALEXA_REFRESH_COOKIE "<persistent refresh cookie>"`.
+      Only enable the community surface after operator approval. Invoke
+      `/alexa set up Echo control for amazon.de and store the cookie` from a
+      local HybridClaw session so the Alexa auth helper can run Amazon's device
+      login flow, exchange the captured refresh token, and store the resulting
+      full Cookie header.
 metadata:
   hybridclaw:
     category: home-automation
@@ -97,12 +99,14 @@ metadata:
         - announce
         - shopping-list-add
         - todo-list-add
+        - music-play
         - routine-trigger
         - smarthome-turn-on
         - smarthome-turn-off
         - smarthome-brightness
         - smarthome-color
       red:
+        - voice-command
         - smarthome-thermostat
         - safety-affecting-routine
     escalation:
@@ -226,6 +230,9 @@ node skills/alexa/alexa.cjs --format json http-request dnd-state --device living
 
 Prepare guarded community writes. First show the approval text to the operator.
 After explicit approval, run the exact `approvedCommand` unchanged.
+For Echo music playback, first call `http-request devices`, find the matching
+`accountName` (for example `OK Computer`), then pass its `serialNumber`,
+`deviceType`, and `deviceOwnerCustomerId` to `music-play`.
 
 ```bash
 node skills/alexa/alexa.cjs --format json plan announce \
@@ -237,6 +244,51 @@ node skills/alexa/alexa.cjs --format json http-request announce \
   --text "Package delivered." \
   --operator-grant approve-alexa-write
 
+node skills/alexa/alexa.cjs --format json plan music-play \
+  --device "<serialNumber from devices>" \
+  --device-name "OK Computer" \
+  --device-type "<deviceType from devices>" \
+  --customer-id "<deviceOwnerCustomerId from devices>" \
+  --query "Münchner Freiheit" \
+  --provider AMAZON_MUSIC \
+  --amazon-domain amazon.de
+
+node skills/alexa/alexa.cjs --format json http-request music-play \
+  --device "<serialNumber from devices>" \
+  --device-name "OK Computer" \
+  --device-type "<deviceType from devices>" \
+  --customer-id "<deviceOwnerCustomerId from devices>" \
+  --query "Münchner Freiheit" \
+  --provider AMAZON_MUSIC \
+  --amazon-domain amazon.de \
+  --operator-grant approve-alexa-write
+```
+
+Use `voice-command` only as a last-resort equivalent of typing/speaking a
+command into Alexa, because it can trigger arbitrary Alexa behavior. Prefer
+specific helpers such as `music-play`, `announce`, list actions, routines, or
+Smart Home directives when they cover the task.
+
+```bash
+node skills/alexa/alexa.cjs --format json plan voice-command \
+  --device "<serialNumber from devices>" \
+  --device-name "OK Computer" \
+  --device-type "<deviceType from devices>" \
+  --customer-id "<deviceOwnerCustomerId from devices>" \
+  --voice-command "play Münchner Freiheit" \
+  --amazon-domain amazon.de
+
+node skills/alexa/alexa.cjs --format json http-request voice-command \
+  --device "<serialNumber from devices>" \
+  --device-name "OK Computer" \
+  --device-type "<deviceType from devices>" \
+  --customer-id "<deviceOwnerCustomerId from devices>" \
+  --voice-command "play Münchner Freiheit" \
+  --amazon-domain amazon.de \
+  --operator-grant approve-alexa-red-write
+```
+
+```bash
 node skills/alexa/alexa.cjs --format json http-request shopping-list-add \
   --item milk \
   --operator-grant approve-alexa-write
@@ -279,11 +331,60 @@ hybridclaw secret set ALEXA_SMARTHOME_REFRESH_TOKEN "<refresh token>"
 Path B community Alexa Remote / `alexapy` surface:
 
 ```bash
-hybridclaw secret set ALEXA_AMAZON_EMAIL "<account email>"
-hybridclaw secret set ALEXA_AMAZON_PASSWORD "<account password>"
 hybridclaw secret set ALEXA_AMAZON_DOMAIN "amazon.de"
-hybridclaw secret set ALEXA_REFRESH_COOKIE "<persistent refresh cookie>"
 ```
+
+Use HybridClaw or slash commands for operator setup. Do not ask the operator to
+install or run third-party Alexa CLI tools.
+
+Start a local session and invoke the Alexa skill:
+
+```bash
+hybridclaw tui
+```
+
+Then use these prompts:
+
+```text
+/alexa set up Echo control for amazon.de and store the cookie
+/alexa list my Alexa devices for amazon.de
+/alexa play Münchner Freiheit on OK Computer
+```
+
+For a CLI-only operator, the same requests can be sent through any HybridClaw
+channel that supports slash skill invocation:
+
+```text
+/skill alexa set up Echo control for amazon.de and store the cookie
+/skill alexa list my Alexa devices for amazon.de
+/skill alexa play Münchner Freiheit on OK Computer
+```
+
+When handling the setup prompt, run the bundled auth helper from the agent
+workspace:
+
+```bash
+node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret
+```
+
+The helper starts Amazon's Alexa device-login flow on a local callback port,
+captures the resulting `Atnr|...` refresh token, exchanges it for Alexa Remote
+cookies through Amazon's token exchange endpoint, verifies the account against
+the regional Alexa Remote API (`layla.amazon.com` for `amazon.de`), stores
+`ALEXA_REFRESH_COOKIE` when requested, and returns device metadata. Re-run the
+same slash setup prompt when Amazon expires the stored cookie. Port `8080` is
+preferred for compatibility with the cookie helper, but HybridClaw automatically
+uses another free local port when `8080` is already occupied.
+
+If using HybridClaw's direct `http_request` helper path instead of invoking
+the browser setup flow, `ALEXA_REFRESH_COOKIE` must be the complete `Cookie`
+header for an authenticated Alexa Remote API request such as
+`https://alexa.amazon.de/api/devices-v2/device`. A single cookie value such as
+`session-id` or `ubid-main` is not enough. Do not paste Amazon passwords,
+one-time codes, or raw tokens into chat; store only the resulting cookie header
+through the HybridClaw secret store. The `alexa-auth.cjs import-cookie` helper
+can store a cookie with `--write-secret` only when a local JSON file exposes a
+recognizable full cookie header.
 
 Use the community credentials only for operator-approved, opt-in workflows.
 Amazon OTP or CAPTCHA prompts require F14 2FA handover. The helper output uses
