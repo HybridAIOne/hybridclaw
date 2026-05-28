@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterAll, expect, test } from 'vitest';
+import { afterAll, afterEach, expect, test, vi } from 'vitest';
 
 import { parseSkillManifestFromMarkdown } from '../src/skills/skill-manifest.js';
 
@@ -38,6 +38,10 @@ afterAll(() => {
   for (const dir of tempDirs) {
     fs.rmSync(dir, { force: true, recursive: true });
   }
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 function runHelper(args: string[]) {
@@ -325,6 +329,49 @@ test('Alexa auth helper builds cookies from Amazon refresh-token exchange payloa
 
   expect(cookieHeader).toBe(
     'session-id=abc123; ubid-main=customer-region; csrf=csrf-token',
+  );
+});
+
+test('Alexa auth helper verifies browser cookies against requested marketplace first', async () => {
+  const fetchMock = vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation(async (url) => {
+      const href = String(url);
+      if (href === 'https://layla.amazon.com/api/devices-v2/device?cached=true') {
+        return new Response(
+          JSON.stringify({
+            devices: [
+              {
+                accountName: 'OK Computer',
+                serialNumber: 'G090LF09647500TV',
+                deviceType: 'A3S5BH2HU6VAYF',
+                deviceOwnerCustomerId: 'A1EXAMPLECUSTOMER',
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (
+        href ===
+        'https://pitangui.amazon.com/api/devices-v2/device?cached=true'
+      ) {
+        return new Response('', { status: 500 });
+      }
+      throw new Error(`Unexpected fetch: ${href}`);
+    });
+
+  const auth = await alexaAuth.verifyCookieHeaderWithFallbacks(
+    'session-id=abc123; csrf=csrf-token',
+    'amazon.de',
+    ['amazon.de', 'amazon.com'],
+    'csrf-token',
+  );
+
+  expect(auth.runtimeBaseUrl).toBe('https://layla.amazon.com');
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    'https://layla.amazon.com/api/devices-v2/device?cached=true',
   );
 });
 

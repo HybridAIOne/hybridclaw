@@ -676,6 +676,7 @@ function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
 
 async function runBrowserAuth(opts, domain, country) {
   const proxy = await resolveProxyPort(opts.proxyPort);
+  opts.activeProxy = proxy;
   if (proxy.fallback) {
     process.stderr.write(
       `Local port ${DEFAULT_PROXY_PORT} is busy; using ${proxy.port} for Amazon device login.\n`,
@@ -708,7 +709,9 @@ async function postForm(url, fields, headers = {}) {
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${text}`);
+    throw new Error(
+      `HTTP ${response.status} from ${url}: ${text || '<empty body>'}`,
+    );
   }
   return parseJsonOutput(text, url);
 }
@@ -733,7 +736,9 @@ async function fetchJson(url, headers = {}) {
   const response = await fetch(url, { headers });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${text}`);
+    throw new Error(
+      `HTTP ${response.status} from ${url}: ${text || '<empty body>'}`,
+    );
   }
   return { payload: parseJsonOutput(text, url), response };
 }
@@ -815,6 +820,24 @@ async function verifyCookieHeader(
   return { cookieHeader, devices, runtimeBaseUrl };
 }
 
+async function verifyCookieHeaderWithFallbacks(
+  cookieHeader,
+  domain,
+  countries,
+  csrfOverride = null,
+) {
+  const uniqueCountries = [...new Set(countries.filter(Boolean))];
+  let lastError = null;
+  for (const country of uniqueCountries) {
+    try {
+      return await verifyCookieHeader(cookieHeader, domain, country, csrfOverride);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('Could not verify Alexa cookies.');
+}
+
 async function fetchCsrf(cookieHeader, domain, country) {
   const candidates = [
     `https://alexa.${country}/api/language`,
@@ -870,10 +893,10 @@ async function setup(opts) {
       throw new Error('Amazon login completed without returning Alexa cookies or a refresh token.');
     }
     const auth = browserAuth?.cookieHeader
-      ? await verifyCookieHeader(
+      ? await verifyCookieHeaderWithFallbacks(
           browserAuth.cookieHeader,
           domain,
-          browserAuth.amazonPage || country,
+          [country, browserAuth.amazonPage],
           browserAuth.csrf,
         )
       : await exchangeRefreshToken(refreshToken, domain, country);
@@ -912,6 +935,10 @@ async function setup(opts) {
         error: error.message || String(error),
         failedAt: new Date().toISOString(),
         pid: process.pid,
+        port: opts.activeProxy?.port,
+        proxyUrl: opts.activeProxy
+          ? `http://127.0.0.1:${opts.activeProxy.port}/`
+          : undefined,
         state: 'error',
       });
     }
@@ -1062,4 +1089,5 @@ module.exports = {
   localeFlags,
   normalizeDevices,
   validateAmazonDomain,
+  verifyCookieHeaderWithFallbacks,
 };
