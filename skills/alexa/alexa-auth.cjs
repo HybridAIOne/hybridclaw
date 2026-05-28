@@ -34,6 +34,7 @@ Usage:
   node skills/alexa/alexa-auth.cjs status --domain amazon.de
   node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --write-refresh-token --timeout-ms 600000
   node skills/alexa/alexa-auth.cjs import-cookie --config /path/to/cookie-config.json --write-secret
+  node skills/alexa/alexa-auth.cjs import-cookie --config /path/to/copied-curl.txt --write-secret
 
 Options:
   --domain DOMAIN       Amazon retail domain. Defaults to amazon.com.
@@ -46,7 +47,7 @@ Options:
   --timeout-ms MS       Time to wait for browser login. Defaults to ${DEFAULT_TIMEOUT_MS}.
   --write-secret        Store the discovered cookie as ${COOKIE_SECRET}.
   --write-refresh-token Store the captured refresh token as ${REFRESH_TOKEN_SECRET}.
-  --config FILE         JSON file to inspect for a cookie header.
+  --config FILE         JSON, copied cURL, or raw headers/text containing a full Cookie header.
   --format json|pretty  json emits compact output; pretty emits indented output. Defaults to pretty.
   --help                Show this help.
 
@@ -360,7 +361,32 @@ function normalizeCookieHeader(value) {
     .trim();
 }
 
+function findCookieHeaderInText(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+
+  const headerLine = text.match(/^cookie:\s*(.+)$/im);
+  if (headerLine) {
+    const normalized = normalizeCookieHeader(headerLine[1]);
+    if (looksLikeCookieHeader(normalized)) return normalized;
+  }
+
+  const curlHeader = text.match(
+    /(?:^|\s)(?:-H|--header)\s+(["'])cookie:\s*([\s\S]*?)\1/i,
+  );
+  if (curlHeader) {
+    const normalized = normalizeCookieHeader(curlHeader[2]);
+    if (looksLikeCookieHeader(normalized)) return normalized;
+  }
+
+  const normalized = normalizeCookieHeader(text);
+  if (looksLikeCookieHeader(normalized)) return normalized;
+
+  return null;
+}
+
 function findCookieHeader(value) {
+  if (typeof value === 'string') return findCookieHeaderInText(value);
   if (!value || typeof value !== 'object') return null;
   const stack = [value];
 
@@ -431,10 +457,15 @@ function writeHybridClawRefreshToken(refreshToken) {
 }
 
 function readJsonFile(filePath) {
+  const raw = fs.readFileSync(filePath, 'utf8');
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return JSON.parse(raw);
   } catch (error) {
-    throw new Error(`Could not read JSON config ${filePath}: ${error.message}`);
+    const cookieHeader = findCookieHeaderInText(raw);
+    if (cookieHeader) return { cookie: cookieHeader };
+    throw new Error(
+      `Could not read ${filePath} as JSON or find a Cookie header: ${error.message}`,
+    );
   }
 }
 

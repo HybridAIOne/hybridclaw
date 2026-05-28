@@ -435,8 +435,10 @@ header for an authenticated Alexa Remote API request such as
 `session-id` or `ubid-main` is not enough. Do not paste Amazon passwords,
 one-time codes, or raw tokens into chat; store only the resulting cookie header
 through the HybridClaw secret store. The `alexa-auth.cjs import-cookie` helper
-can store a cookie with `--write-secret` only when a local JSON file exposes a
-recognizable full cookie header.
+can store a cookie with `--write-secret` when a local JSON file, copied cURL
+request, raw headers file, or raw text file exposes a recognizable full cookie
+header. Use this fallback when Amazon's device-login proxy is blocked by CVF
+phone verification but the operator can log into Amazon normally in a browser.
 
 Use the community credentials only for operator-approved, opt-in workflows.
 Amazon OTP or CAPTCHA prompts require F14 2FA handover. The helper output uses
