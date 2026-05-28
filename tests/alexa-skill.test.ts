@@ -162,6 +162,10 @@ test('Alexa skill manifest declares SecretRef credentials and safety metadata', 
   expect(skill).toContain('/skill alexa list my Alexa devices for amazon.de');
   expect(skill).toContain('node skills/alexa/alexa-auth.cjs setup');
   expect(skill).toContain('--detach --timeout-ms 600000');
+  expect(skill).toContain('http-request phoenix-devices');
+  expect(skill).toContain('http-request phoenix-state');
+  expect(skill).toContain('http-request phoenix-control');
+  expect(skill).toContain('connectedhomes/v1/appliances');
   expect(skill).toContain(
     'Never print a\nproxy URL that did not come from the current helper output.',
   );
@@ -1005,6 +1009,127 @@ test('Alexa helper emits bounded community requests and relink events without se
     'Package delivered.',
   );
   expect(announcePayload.stopOnStatuses).toEqual([401, 403]);
+});
+
+test('Alexa helper prepares Phoenix smart-home device discovery and state reads', () => {
+  const devices = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'phoenix-devices',
+    '--amazon-domain',
+    'amazon.de',
+  ]);
+  const state = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'phoenix-state',
+    '--entity-id',
+    '11111111-2222-4333-8444-555555555555',
+    '--amazon-domain',
+    'amazon.de',
+  ]);
+
+  expect(devices.status).toBe(0);
+  const devicesPayload = JSON.parse(devices.stdout);
+  expect(devicesPayload.httpRequest).toMatchObject({
+    method: 'POST',
+    url: 'https://alexa.amazon.de/nexus/v1/graphql',
+    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+  });
+  expect(devicesPayload.httpRequest.bodyJson.query).toContain(
+    'legacyAppliance',
+  );
+
+  expect(state.status).toBe(0);
+  const statePayload = JSON.parse(state.stdout);
+  expect(statePayload.httpRequest).toMatchObject({
+    method: 'POST',
+    url: 'https://alexa.amazon.de/api/phoenix/state',
+    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    bodyJson: {
+      stateRequests: [
+        {
+          entityId: '11111111-2222-4333-8444-555555555555',
+          entityType: 'ENTITY',
+        },
+      ],
+    },
+  });
+});
+
+test('Alexa helper plans red-gated Phoenix smart-home on and off controls', () => {
+  const plan = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'phoenix-control',
+    '--entity-id',
+    '11111111-2222-4333-8444-555555555555',
+    '--action',
+    'off',
+    '--amazon-domain',
+    'amazon.de',
+  ]);
+  const granted = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'phoenix-control',
+    '--entity-id',
+    '11111111-2222-4333-8444-555555555555',
+    '--action',
+    'off',
+    '--amazon-domain',
+    'amazon.de',
+    '--operator-grant',
+    'approve-alexa-red-write',
+  ]);
+
+  expect(plan.status).toBe(0);
+  const planPayload = JSON.parse(plan.stdout);
+  expect(planPayload.requiredApproval).toMatchObject({
+    framework: 'F8/F14',
+    stakesTier: 'red',
+    requiredGrant: 'approve-alexa-red-write',
+  });
+  expect(planPayload.approvedCommand).toEqual(
+    expect.arrayContaining([
+      'phoenix-control',
+      '--entity-id',
+      '11111111-2222-4333-8444-555555555555',
+      '--action',
+      'turnOff',
+      '--amazon-domain',
+      'amazon.de',
+      '--operator-grant',
+      'approve-alexa-red-write',
+    ]),
+  );
+
+  expect(granted.status).toBe(0);
+  const grantedPayload = JSON.parse(granted.stdout);
+  expect(grantedPayload.httpRequest).toMatchObject({
+    method: 'PUT',
+    url: 'https://alexa.amazon.de/api/phoenix/state',
+    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    bodyJson: {
+      controlRequests: [
+        {
+          entityId: '11111111-2222-4333-8444-555555555555',
+          entityType: 'ENTITY',
+          parameters: {
+            action: 'turnOff',
+          },
+        },
+      ],
+    },
+  });
 });
 
 test('Alexa helper plans guarded Echo music playback from resolved device ids', () => {

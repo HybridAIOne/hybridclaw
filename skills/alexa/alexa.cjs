@@ -67,6 +67,8 @@ const READ_HTTP_COMMANDS = new Set([
   'todo-list',
   'last-commands',
   'dnd-state',
+  'phoenix-devices',
+  'phoenix-state',
 ]);
 
 const PLAN_COMMANDS = new Set([
@@ -79,6 +81,7 @@ const PLAN_COMMANDS = new Set([
   'music-play',
   'voice-command',
   'routine-trigger',
+  'phoenix-control',
 ]);
 
 const COMMAND_OPTION_FLAGS = [
@@ -91,6 +94,8 @@ const COMMAND_OPTION_FLAGS = [
   '--device-name',
   '--device-type',
   '--endpoint-id',
+  '--entity-id',
+  '--entity-type',
   '--item',
   '--item-id',
   '--provider',
@@ -101,6 +106,30 @@ const COMMAND_OPTION_FLAGS = [
   '--text',
   '--voice-command',
 ];
+
+const PHOENIX_SMARTHOME_QUERY = `
+query CustomerSmartHome {
+  endpoints(endpointsQueryParams: { paginationParams: { disablePagination: true } }) {
+    items {
+      legacyAppliance {
+        applianceId
+        applianceTypes
+        friendlyName
+        friendlyDescription
+        manufacturerName
+        connectedVia
+        modelName
+        entityId
+        aliases
+        capabilities
+        customerDefinedDeviceType
+        alexaDeviceIdentifierList
+        driverIdentity
+      }
+    }
+  }
+}
+`.trim();
 
 const SMARTHOME_ACTIONS = new Map([
   [
@@ -156,6 +185,9 @@ Usage:
   node skills/alexa/alexa.cjs --format json plan smarthome-control --endpoint-id endpoint-1 --action TurnOn
   node skills/alexa/alexa.cjs --format json http-request smarthome-control --endpoint-id endpoint-1 --action TurnOn --operator-grant approve-alexa-write
   node skills/alexa/alexa.cjs --format json http-request devices --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json http-request phoenix-devices --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json http-request phoenix-state --entity-id ENTITY --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json plan phoenix-control --entity-id ENTITY --action off --amazon-domain amazon.de
   node skills/alexa/alexa.cjs --format json http-request shopping-list
   node skills/alexa/alexa.cjs --format json plan announce --device living-room --text "Package delivered."
   node skills/alexa/alexa.cjs --format json http-request announce --device living-room --text "Package delivered." --operator-grant approve-alexa-write
@@ -182,9 +214,9 @@ Commands:
   account-link-session
   parse-request
   build-response
-  http-request smarthome-discover|smarthome-state|devices|shopping-list|todo-list|last-commands|dnd-state
-  http-request smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
-  plan smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
+  http-request smarthome-discover|smarthome-state|devices|shopping-list|todo-list|last-commands|dnd-state|phoenix-devices|phoenix-state
+  http-request smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger|phoenix-control
+  plan smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger|phoenix-control
   relink-required
 
 Secret values are not accepted on the command line. Store Alexa credentials with:
@@ -1009,6 +1041,9 @@ function communityPath(operation, opts) {
 }
 
 function communityReadRequest(operation, opts) {
+  if (operation === 'phoenix-devices') return phoenixDevicesRequest(opts);
+  if (operation === 'phoenix-state') return phoenixStateRequest(opts);
+
   const host = communityHost(opts.amazonDomain);
   return {
     ...endpointBasePayload('community', operation, 'green'),
@@ -1028,6 +1063,62 @@ function communityReadRequest(operation, opts) {
   };
 }
 
+function phoenixDevicesRequest(opts) {
+  return {
+    ...endpointBasePayload('community', 'phoenix-devices', 'green'),
+    httpRequest: {
+      method: 'POST',
+      url: `https://${communityHost(opts.amazonDomain)}/nexus/v1/graphql`,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      cookieSecretName: COMMUNITY_COOKIE_SECRET,
+      bodyJson: {
+        query: PHOENIX_SMARTHOME_QUERY,
+      },
+      maxResponseBytes: 500_000,
+    },
+    authFailureEvent: relinkRequired('community', 'phoenix-devices'),
+    ...AUTH_STOP,
+    driftRisk:
+      'community-cookie Phoenix surface is reverse-engineered and may require re-link after Amazon changes.',
+  };
+}
+
+function phoenixEntityRequest(opts) {
+  return {
+    entityId: requireIdentifier(opts.entityId, '--entity-id'),
+    entityType: opts.entityType
+      ? requireIdentifier(opts.entityType, '--entity-type')
+      : 'ENTITY',
+  };
+}
+
+function phoenixStateRequest(opts) {
+  const entity = phoenixEntityRequest(opts);
+  return {
+    ...endpointBasePayload('community', 'phoenix-state', 'green'),
+    httpRequest: {
+      method: 'POST',
+      url: `https://${communityHost(opts.amazonDomain)}/api/phoenix/state`,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      cookieSecretName: COMMUNITY_COOKIE_SECRET,
+      bodyJson: {
+        stateRequests: [entity],
+      },
+      maxResponseBytes: 200_000,
+    },
+    authFailureEvent: relinkRequired('community', entity.entityId),
+    ...AUTH_STOP,
+    driftRisk:
+      'community-cookie Phoenix surface is reverse-engineered and may require re-link after Amazon changes.',
+  };
+}
+
 function httpRequest(commandArgs) {
   const operation = commandArgs[0];
   if (!READ_HTTP_COMMANDS.has(operation) && !PLAN_COMMANDS.has(operation)) {
@@ -1042,6 +1133,7 @@ function httpRequest(commandArgs) {
   if (operation === 'announce') return announceRequest(opts);
   if (operation === 'music-play') return musicPlayRequest(opts);
   if (operation === 'voice-command') return voiceCommandRequest(opts);
+  if (operation === 'phoenix-control') return phoenixControlRequest(opts);
   if (operation === 'shopping-list-add')
     return listAddRequest('shopping-list-add', opts);
   if (operation === 'shopping-list-complete')
@@ -1066,6 +1158,7 @@ function plan(commandArgs) {
   if (operation === 'announce') return planAnnounce(opts);
   if (operation === 'music-play') return planMusicPlay(opts);
   if (operation === 'voice-command') return planVoiceCommand(opts);
+  if (operation === 'phoenix-control') return planPhoenixControl(opts);
   if (operation === 'shopping-list-add')
     return planListAdd('shopping-list-add', opts);
   if (operation === 'shopping-list-complete')
@@ -1630,6 +1723,82 @@ function routineTriggerRequest(opts) {
     httpRequest: routineTriggerHttpRequest(opts, routine),
     authSurface: 'community',
     authTarget: routine,
+  });
+}
+
+function phoenixControlTarget(opts) {
+  const entity = phoenixEntityRequest(opts);
+  const rawAction = requireIdentifier(opts.action, '--action').toLowerCase();
+  const actionMap = new Map([
+    ['on', 'turnOn'],
+    ['turnon', 'turnOn'],
+    ['turn_on', 'turnOn'],
+    ['off', 'turnOff'],
+    ['turnoff', 'turnOff'],
+    ['turn_off', 'turnOff'],
+  ]);
+  const action = actionMap.get(rawAction);
+  if (!action) {
+    fail('--action must be one of on, off, turnOn, or turnOff.');
+  }
+  return { ...entity, action };
+}
+
+function phoenixControlHttpRequest(opts, target) {
+  return {
+    method: 'PUT',
+    url: `https://${communityHost(opts.amazonDomain)}/api/phoenix/state`,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    bodyJson: {
+      controlRequests: [
+        {
+          entityId: target.entityId,
+          entityType: target.entityType,
+          parameters: {
+            action: target.action,
+          },
+        },
+      ],
+    },
+  };
+}
+
+function planPhoenixControl(opts) {
+  const target = phoenixControlTarget(opts);
+  return plannedWritePayload({
+    surface: 'community',
+    operation: 'phoenix-control',
+    stakesTier: 'red',
+    httpRequest: phoenixControlHttpRequest(opts, target),
+    approvalOperation: 'smart-home control',
+    approvalTarget: target.entityId,
+    approvalAction: target.action,
+    approvedCommand: approvedCommand('http-request phoenix-control', {
+      '--entity-id': target.entityId,
+      '--entity-type': target.entityType,
+      '--action': target.action,
+      '--amazon-domain': opts.amazonDomain,
+      '--operator-grant': grantForTier('red'),
+    }),
+    authSurface: 'community',
+    authTarget: target.entityId,
+  });
+}
+
+function phoenixControlRequest(opts) {
+  const target = phoenixControlTarget(opts);
+  requireOperatorGrant('phoenix-control', 'red', opts.operatorGrant);
+  return executableWritePayload({
+    surface: 'community',
+    operation: 'phoenix-control',
+    stakesTier: 'red',
+    httpRequest: phoenixControlHttpRequest(opts, target),
+    authSurface: 'community',
+    authTarget: target.entityId,
   });
 }
 

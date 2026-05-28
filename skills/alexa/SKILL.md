@@ -228,6 +228,35 @@ node skills/alexa/alexa.cjs --format json http-request last-commands
 node skills/alexa/alexa.cjs --format json http-request dnd-state --device living-room
 ```
 
+For Alexa-connected smart plugs/lights exposed through the Alexa app (for
+example `Poolpumpe`), use the Phoenix smart-home path. Do not use
+`connectedhomes/v1/appliances`; Amazon can return a 200 HTML deeplink page
+instead of JSON. First list Phoenix devices, find the matching
+`legacyAppliance.friendlyName`, then use its `entityId` for status or control.
+This path uses `ALEXA_REFRESH_COOKIE`; do not ask for
+`ALEXA_SMARTHOME_ACCESS_TOKEN` or Smart Home Skill OAuth when the operator asks
+to use the stored Alexa cookie for these Alexa-app appliances.
+
+```bash
+node skills/alexa/alexa.cjs --format json http-request phoenix-devices \
+  --amazon-domain amazon.de
+
+node skills/alexa/alexa.cjs --format json http-request phoenix-state \
+  --entity-id "<legacyAppliance.entityId from phoenix-devices>" \
+  --amazon-domain amazon.de
+
+node skills/alexa/alexa.cjs --format json plan phoenix-control \
+  --entity-id "<legacyAppliance.entityId from phoenix-devices>" \
+  --action off \
+  --amazon-domain amazon.de
+
+node skills/alexa/alexa.cjs --format json http-request phoenix-control \
+  --entity-id "<legacyAppliance.entityId from phoenix-devices>" \
+  --action off \
+  --amazon-domain amazon.de \
+  --operator-grant approve-alexa-red-write
+```
+
 Prepare guarded community writes. First show the approval text to the operator.
 After explicit approval, run the exact `approvedCommand` unchanged.
 For Echo music playback, first call `http-request devices`, find the matching
