@@ -8,6 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const DEFAULT_DOMAIN = 'amazon.com';
+const DEFAULT_PROXY_HOST = '127.0.0.1';
 const DEFAULT_PROXY_PORT = 8080;
 const DEFAULT_TIMEOUT_MS = 600_000;
 const COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
@@ -37,6 +38,7 @@ Usage:
 Options:
   --domain DOMAIN       Amazon retail domain. Defaults to amazon.com.
   --country DOMAIN      Marketplace domain for login/API locale. Defaults to --domain.
+  --proxy-host HOST     Local browser host. Use 127.0.0.1 or localhost. Defaults to ${DEFAULT_PROXY_HOST}.
   --proxy-port PORT     Preferred local login port. Defaults to ${DEFAULT_PROXY_PORT}; falls back to a free port if busy.
   --detach              Start setup as a detached local proxy and return its status file.
   --status-file FILE    Status file for detached setup/status. Defaults to a temp file per domain.
@@ -63,6 +65,7 @@ function parseArgs(argv) {
     '--domain',
     '--format',
     '--log-file',
+    '--proxy-host',
     '--proxy-port',
     '--status-file',
     '--timeout-ms',
@@ -173,6 +176,20 @@ function requestedProxyPort(rawProxyPort) {
     throw new Error('--proxy-port must be an integer between 1 and 65535.');
   }
   return parsed;
+}
+
+function requestedProxyHost(rawProxyHost) {
+  const host = String(rawProxyHost || DEFAULT_PROXY_HOST)
+    .trim()
+    .toLowerCase();
+  if (!['127.0.0.1', 'localhost'].includes(host)) {
+    throw new Error('--proxy-host must be 127.0.0.1 or localhost.');
+  }
+  return host;
+}
+
+function proxyUrl(proxy) {
+  return `http://${proxy.host || DEFAULT_PROXY_HOST}:${proxy.port}/`;
 }
 
 function safeDomainId(domain) {
@@ -602,7 +619,7 @@ function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
   const baseAmazonPage = authBaseDomain(domain);
 
   process.stderr.write(
-    `Opening Amazon device login at http://127.0.0.1:${proxy.port}. Complete login in the browser, then return here.\n`,
+    `Opening Amazon device login at ${proxyUrl(proxy)}. Complete login in the browser, then return here.\n`,
   );
 
   return new Promise((resolve, reject) => {
@@ -637,7 +654,7 @@ function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
         baseAmazonPage,
         amazonPageProxyLanguage: locale.proxyLanguage,
         acceptLanguage: locale.acceptLanguage,
-        proxyOwnIp: '127.0.0.1',
+        proxyOwnIp: proxy.host || DEFAULT_PROXY_HOST,
         proxyPort: proxy.port,
         proxyListenBind: '0.0.0.0',
         deviceAppName: 'alexa_cookie_cli',
@@ -659,7 +676,8 @@ function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
               domain,
               pid: process.pid,
               port: proxy.port,
-              proxyUrl: `http://127.0.0.1:${proxy.port}/`,
+              proxyHost: proxy.host || DEFAULT_PROXY_HOST,
+              proxyUrl: proxyUrl(proxy),
               state: 'listening',
               startedAt: opts.startedAt || new Date().toISOString(),
             });
@@ -685,7 +703,10 @@ function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
 }
 
 async function runBrowserAuth(opts, domain, country) {
-  const proxy = await resolveProxyPort(opts.proxyPort);
+  const proxy = {
+    ...(await resolveProxyPort(opts.proxyPort)),
+    host: requestedProxyHost(opts.proxyHost),
+  };
   opts.activeProxy = proxy;
   if (proxy.fallback) {
     process.stderr.write(
@@ -699,7 +720,8 @@ async function runBrowserAuth(opts, domain, country) {
       domain,
       pid: process.pid,
       port: proxy.port,
-      proxyUrl: `http://127.0.0.1:${proxy.port}/`,
+      proxyHost: proxy.host,
+      proxyUrl: proxyUrl(proxy),
       state: 'starting',
       startedAt: opts.startedAt || new Date().toISOString(),
     });
@@ -966,9 +988,8 @@ async function setup(opts) {
         failedAt: new Date().toISOString(),
         pid: process.pid,
         port: opts.activeProxy?.port,
-        proxyUrl: opts.activeProxy
-          ? `http://127.0.0.1:${opts.activeProxy.port}/`
-          : undefined,
+        proxyHost: opts.activeProxy?.host,
+        proxyUrl: opts.activeProxy ? proxyUrl(opts.activeProxy) : undefined,
         state: 'error',
       });
     }
@@ -1001,7 +1022,10 @@ async function startDetachedSetup(opts, domain, country) {
     };
   }
 
-  const proxy = await resolveProxyPort(opts.proxyPort);
+  const proxy = {
+    ...(await resolveProxyPort(opts.proxyPort)),
+    host: requestedProxyHost(opts.proxyHost),
+  };
   const startedAt = new Date().toISOString();
   const args = [
     __filename,
@@ -1012,6 +1036,8 @@ async function startDetachedSetup(opts, domain, country) {
     country,
     '--proxy-port',
     String(proxy.port),
+    '--proxy-host',
+    proxy.host,
     '--timeout-ms',
     String(timeout),
     '--status-file',
@@ -1038,7 +1064,8 @@ async function startDetachedSetup(opts, domain, country) {
     logFile,
     pid: child.pid,
     port: proxy.port,
-    proxyUrl: `http://127.0.0.1:${proxy.port}/`,
+    proxyHost: proxy.host,
+    proxyUrl: proxyUrl(proxy),
     startedAt,
     state: 'starting',
   });
@@ -1050,7 +1077,8 @@ async function startDetachedSetup(opts, domain, country) {
     logFile,
     pid: child.pid,
     port: proxy.port,
-    proxyUrl: `http://127.0.0.1:${proxy.port}/`,
+    proxyHost: proxy.host,
+    proxyUrl: proxyUrl(proxy),
     statusFile,
     statusCommand: `node skills/alexa/alexa-auth.cjs status --domain ${domain}`,
     timeoutMs: timeout,

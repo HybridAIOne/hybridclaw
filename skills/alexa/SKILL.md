@@ -385,6 +385,15 @@ the operator completes Amazon login, OTP, and CVF pages across turns:
 node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --detach --timeout-ms 600000
 ```
 
+If the operator reports Amazon's "Wir können deine Handynummer nicht
+verifizieren" challenge on a `127.0.0.1:<port>` proxy URL, do not reuse that
+proxy. Stop the stale process if it is still alive, then start a fresh detached
+setup on `localhost` so the browser uses a separate local cookie jar:
+
+```bash
+node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --detach --timeout-ms 600000 --proxy-host localhost
+```
+
 Return the `proxyUrl` from the helper output to the operator. When the operator
 comes back after login, check the same setup with:
 
