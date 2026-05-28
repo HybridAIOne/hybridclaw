@@ -337,7 +337,10 @@ test('Alexa auth helper verifies browser cookies against requested marketplace f
     .spyOn(globalThis, 'fetch')
     .mockImplementation(async (url) => {
       const href = String(url);
-      if (href === 'https://layla.amazon.com/api/devices-v2/device?cached=true') {
+      if (
+        href ===
+        'https://alexa.amazon.de/api/devices-v2/device?cached=false'
+      ) {
         return new Response(
           JSON.stringify({
             devices: [
@@ -351,6 +354,12 @@ test('Alexa auth helper verifies browser cookies against requested marketplace f
           }),
           { status: 200 },
         );
+      }
+      if (
+        href ===
+        'https://layla.amazon.com/api/devices-v2/device?cached=true'
+      ) {
+        return new Response('', { status: 500 });
       }
       if (
         href ===
@@ -371,7 +380,7 @@ test('Alexa auth helper verifies browser cookies against requested marketplace f
   expect(auth.runtimeBaseUrl).toBe('https://layla.amazon.com');
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(fetchMock.mock.calls[0]?.[0]).toBe(
-    'https://layla.amazon.com/api/devices-v2/device?cached=true',
+    'https://alexa.amazon.de/api/devices-v2/device?cached=false',
   );
 });
 

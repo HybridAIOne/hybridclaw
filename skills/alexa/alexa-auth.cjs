@@ -795,7 +795,9 @@ async function verifyCookieHeader(
   csrfOverride = null,
 ) {
   const csrf =
-    csrfOverride || csrfFromCookieHeader(cookieHeader) || await fetchCsrf(cookieHeader, domain, country);
+    csrfOverride ||
+    csrfFromCookieHeader(cookieHeader) ||
+    await fetchCsrf(cookieHeader, domain, country);
   if (!csrf) {
     throw new Error('Could not retrieve Alexa CSRF token from cookies.');
   }
@@ -804,20 +806,36 @@ async function verifyCookieHeader(
   }
 
   const runtimeBaseUrl = alexaRuntimeBaseUrl(country);
-  const { payload } = await fetchJson(
+  const deviceUrls = [
+    `https://alexa.${domain}/api/devices-v2/device?cached=false`,
+    `https://alexa.${country}/api/devices-v2/device?cached=false`,
     `${runtimeBaseUrl}/api/devices-v2/device?cached=true`,
-    {
-      Accept: 'application/json',
-      Cookie: cookieHeader,
-      csrf,
-    },
-  );
-  const devices = normalizeDevices(payload);
-  if (devices.length === 0) {
-    throw new Error('Alexa Remote API returned no devices after authentication.');
+  ];
+  const headers = {
+    Accept: 'application/json',
+    Cookie: cookieHeader,
+    Origin: `https://alexa.${domain}`,
+    Referer: `https://alexa.${domain}/spa/index.html`,
+    csrf,
+  };
+
+  let lastError = null;
+  for (const url of [...new Set(deviceUrls)]) {
+    try {
+      const { payload } = await fetchJson(url, headers);
+      const devices = normalizeDevices(payload);
+      if (devices.length === 0) {
+        throw new Error(
+          `Alexa Remote API returned no devices from ${url} after authentication.`,
+        );
+      }
+      return { cookieHeader, devices, runtimeBaseUrl };
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  return { cookieHeader, devices, runtimeBaseUrl };
+  throw lastError || new Error('Could not verify Alexa cookies.');
 }
 
 async function verifyCookieHeaderWithFallbacks(
