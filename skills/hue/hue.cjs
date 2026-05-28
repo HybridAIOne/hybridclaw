@@ -8,7 +8,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const LOCAL_HOST_SECRET = 'HUE_BRIDGE_HOST';
 const LOCAL_KEY_SECRET = 'HUE_APPLICATION_KEY';
-const V1_USERNAME_SECRET = 'HUE_BRIDGE_USERNAME_V1';
+const LOCAL_TLS_SECRET = 'HUE_BRIDGE_TLS_SHA256';
 const REMOTE_CLIENT_ID_SECRET = 'HUE_REMOTE_CLIENT_ID';
 const REMOTE_CLIENT_SECRET_SECRET = 'HUE_REMOTE_CLIENT_SECRET';
 const REMOTE_REFRESH_TOKEN_SECRET = 'HUE_REMOTE_REFRESH_TOKEN';
@@ -57,32 +57,26 @@ const CLIP_V2_RESOURCES = {
 const READ_ALIASES = new Set([
   ...Object.keys(CLIP_V2_RESOURCES),
   'eventstream',
-  'v1-lights',
   'remote-bridges',
   'remote-lights',
   'remote-oauth-token',
 ]);
-
-const PLAN_OPERATIONS = new Set([
-  'light-on',
-  'light-off',
-  'light-brightness',
-  'light-color',
-  'group-on',
-  'group-off',
-  'group-brightness',
-  'group-color',
-  'room-on',
-  'room-off',
-  'group-recall-scene',
-  'scene-recall',
-  'behavior-enable',
-  'behavior-disable',
-  'scene-create',
-  'behavior-create',
-  'bridge-config-timezone',
-  'bridge-config-software-update',
-]);
+const SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{0,127}$/u;
+const SECRET_TEMPLATE_RE = /^<secret:([A-Z][A-Z0-9_]{0,127})>$/u;
+const LOCAL_SECRET_REF_POLICY =
+  'The Hue application key is emitted only as a secretHeaders reference. Never paste the application key into chat or helper arguments.';
+const LOCAL_MUTATION_SECRET_REF_POLICY =
+  'The Hue application key is emitted only as a secretHeaders reference. Mutating operations require an exact operator grant.';
+const LOCAL_EVENTSTREAM_SECRET_REF_POLICY =
+  'The Hue application key is emitted only as a secretHeaders reference. Eventstream output may reveal occupancy; keep diagnostic windows short.';
+const REMOTE_SECRET_REF_POLICY =
+  'Hue Remote API calls are off-LAN amber operations. Remote tokens and bridge id are SecretRef-backed.';
+const REMOTE_MUTATION_SECRET_REF_POLICY =
+  'The Hue Remote API access token is emitted only as a secretHeaders reference. Mutating off-LAN operations require an exact operator grant.';
+const REMOTE_BRIDGE_SECRETS = [
+  REMOTE_ACCESS_TOKEN_SECRET,
+  REMOTE_BRIDGE_ID_SECRET,
+];
 
 function die(message, code = 2) {
   console.error(message);
@@ -102,7 +96,6 @@ Read resources:
   http-request motion-sensors|temperature-sensors|light-levels|buttons
   http-request behavior-instances|entertainment-configurations
   http-request eventstream --duration 30s
-  http-request v1-lights
   http-request remote-bridges
   http-request remote-lights --bridge <id>
   http-request remote-oauth-token
@@ -126,7 +119,7 @@ Environment:
   HYBRIDCLAW_GATEWAY_TOKEN gateway bearer token for live execution
   HUE_BRIDGE_HOST          stored bridge URL used through <secret:HUE_BRIDGE_HOST>
   HUE_APPLICATION_KEY      stored CLIP v2 application key, emitted only as a secretHeaders ref
-  HUE_BRIDGE_TLS_SHA256    optional TLS pin usable with --tls-sha256-secret HUE_BRIDGE_TLS_SHA256
+  HUE_BRIDGE_TLS_SHA256    required local bridge TLS certificate SHA-256 pin
 `);
 }
 
@@ -166,6 +159,10 @@ function requireText(value, label) {
   return normalized;
 }
 
+function requireFlag(args, name, defaultValue = undefined) {
+  return requireText(popFlag(args, name, defaultValue), name);
+}
+
 function parsePct(value, label = '--pct') {
   const parsed = Number(requireText(value, label));
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
@@ -186,9 +183,8 @@ function parseIntegerRange(value, label, min, max) {
 
 function parseBooleanValue(value, label) {
   const normalized = requireText(value, label).toLowerCase();
-  if (['true', 'on', '1', 'yes', 'enabled'].includes(normalized)) return true;
-  if (['false', 'off', '0', 'no', 'disabled'].includes(normalized))
-    return false;
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
   die(`${label} must be true or false.`);
 }
 
@@ -316,10 +312,31 @@ function parseXy(value) {
   return { x, y };
 }
 
+function parseSecretTemplate(value, label) {
+  const match = SECRET_TEMPLATE_RE.exec(value);
+  if (!match) {
+    die(`${label} secret template must be exactly <secret:NAME>.`);
+  }
+  return match[1];
+}
+
+function isSecretTemplate(value) {
+  return SECRET_TEMPLATE_RE.test(value);
+}
+
+function validateSecretName(value, label) {
+  if (!SECRET_NAME_RE.test(value)) {
+    die(`${label} must be an uppercase runtime secret name.`);
+  }
+  return value;
+}
+
 function normalizeBaseUrl(value, label, options = {}) {
   const raw = requireText(value, label);
   if (raw.includes('<secret:')) {
-    return raw.replace(/\/+$/u, '');
+    const normalized = raw.replace(/\/+$/u, '');
+    parseSecretTemplate(normalized, label);
+    return normalized;
   }
   let parsed;
   try {
@@ -351,7 +368,7 @@ function resolveBridgeBase(args) {
 }
 
 function appendPath(base, path) {
-  if (base.includes('<secret:')) return `${base}${path}`;
+  if (isSecretTemplate(base)) return `${base}${path}`;
   const parsed = new URL(base);
   parsed.pathname = `${parsed.pathname}${path}`.replace(/\/{2,}/gu, '/');
   return parsed.toString();
@@ -365,7 +382,7 @@ function clipUrl(base, resource, id) {
 function remoteClipUrl(base, resource, id, bridgeId) {
   const suffix = id ? `/${encodeURIComponent(id)}` : '';
   const bridgeQueryValue = bridgeId.includes('<secret:')
-    ? bridgeId
+    ? `<secret:${parseSecretTemplate(bridgeId, '--bridge')}>`
     : encodeURIComponent(bridgeId);
   return `${appendPath(base, `/route/clip/v2/resource/${resource}${suffix}`)}?bridge_id=${bridgeQueryValue}`;
 }
@@ -407,8 +424,18 @@ function buildHttpPayload(operation, tier, options) {
   if (options.secretRefPolicy)
     payload.secretRefPolicy = options.secretRefPolicy;
   if (options.liveExecution) payload.liveExecution = options.liveExecution;
-  if (options.tls) payload.tls = options.tls;
+  if (options.tls) payload.tls = publicTlsPolicy(options.tls);
   return payload;
+}
+
+function publicTlsPolicy(tls) {
+  return {
+    selfSignedBridgeCertificateExpected:
+      tls.selfSignedBridgeCertificateExpected,
+    pinning: tls.pinning,
+    inlineSha256Configured: Boolean(tls.sha256),
+    secretNameConfigured: Boolean(tls.secretName),
+  };
 }
 
 function localSecretHeaders() {
@@ -428,12 +455,9 @@ function localTlsPolicy(args) {
     die('Use only one of --tls-sha256 or --tls-sha256-secret.');
   }
   if (secretName) {
-    if (!/^[A-Z][A-Z0-9_]{0,127}$/u.test(secretName)) {
-      die('--tls-sha256-secret must be an uppercase runtime secret name.');
-    }
     return {
       selfSignedBridgeCertificateExpected: true,
-      secretName,
+      secretName: validateSecretName(secretName, '--tls-sha256-secret'),
       pinning:
         'Operator supplied Hue Bridge certificate SHA-256 fingerprint secret.',
     };
@@ -441,8 +465,9 @@ function localTlsPolicy(args) {
   if (!sha256) {
     return {
       selfSignedBridgeCertificateExpected: true,
+      secretName: LOCAL_TLS_SECRET,
       pinning:
-        'Optional: pass --tls-sha256 to pin the trusted Hue Bridge certificate fingerprint. Do not disable TLS verification globally.',
+        'Local Hue HTTPS calls require a pinned bridge certificate SHA-256 fingerprint. Configure HUE_BRIDGE_TLS_SHA256 or pass --tls-sha256/--tls-sha256-secret.',
     };
   }
   if (!/^[A-Fa-f0-9:]{64,95}$/u.test(sha256)) {
@@ -476,19 +501,7 @@ function buildLocalRead(args, resourceAlias) {
       replaceSecretPlaceholders: true,
       tls,
       target: { resource: 'eventstream' },
-      secretRefPolicy:
-        'The Hue application key is emitted only as a secretHeaders reference. Eventstream output may reveal occupancy; keep diagnostic windows short.',
-    });
-  }
-
-  if (resourceAlias === 'v1-lights') {
-    return buildHttpPayload('local-v1-lights', 'green', {
-      url: appendPath(base, `/api/<secret:${V1_USERNAME_SECRET}>/lights`),
-      replaceSecretPlaceholders: true,
-      tls,
-      target: { resource: 'lights', apiVersion: 'clip-v1-read-only' },
-      secretRefPolicy:
-        'CLIP v1 fallback is read-only. The v1 username is emitted only as a URL secret placeholder.',
+      secretRefPolicy: LOCAL_EVENTSTREAM_SECRET_REF_POLICY,
     });
   }
 
@@ -503,8 +516,7 @@ function buildLocalRead(args, resourceAlias) {
       replaceSecretPlaceholders: true,
       tls,
       target: { resource },
-      secretRefPolicy:
-        'The Hue application key is emitted only as a secretHeaders reference. Never paste the application key into chat or helper arguments.',
+      secretRefPolicy: LOCAL_SECRET_REF_POLICY,
     },
   );
 }
@@ -525,6 +537,14 @@ function remoteBearerHeaders() {
       prefix: 'Bearer',
     },
   ];
+}
+
+function remoteBridgeLiveExecution(bridgeId) {
+  return {
+    requiresConfiguredSecrets: bridgeId.includes('<secret:')
+      ? REMOTE_BRIDGE_SECRETS
+      : [REMOTE_ACCESS_TOKEN_SECRET],
+  };
 }
 
 function buildRemoteRead(args, resourceAlias) {
@@ -579,10 +599,7 @@ function buildRemoteRead(args, resourceAlias) {
     });
   }
 
-  if (
-    resourceAlias.startsWith('remote-') &&
-    resourceAlias !== 'remote-lights'
-  ) {
+  if (resourceAlias.startsWith('remote-')) {
     const resource = CLIP_V2_RESOURCES[resourceAlias.slice('remote-'.length)];
     if (!resource)
       die(`Unsupported Hue remote read resource: ${resourceAlias}`);
@@ -597,43 +614,264 @@ function buildRemoteRead(args, resourceAlias) {
         secretHeaders: remoteBearerHeaders(),
         replaceSecretPlaceholders: true,
         target: { resource, bridgeId, remote: true },
-        secretRefPolicy:
-          'Hue Remote API calls are off-LAN amber operations. Remote tokens and bridge id are SecretRef-backed.',
-        liveExecution: {
-          requiresConfiguredSecrets: [
-            REMOTE_ACCESS_TOKEN_SECRET,
-            REMOTE_BRIDGE_ID_SECRET,
-          ],
-        },
+        secretRefPolicy: REMOTE_SECRET_REF_POLICY,
+        liveExecution: remoteBridgeLiveExecution(bridgeId),
       },
     );
   }
+}
 
-  const bridgeId =
-    popFlag(args, '--bridge') || `<secret:${REMOTE_BRIDGE_ID_SECRET}>`;
-  assertNoUnexpectedArgs(args);
-  const bridgeQueryValue = bridgeId.includes('<secret:')
-    ? bridgeId
-    : encodeURIComponent(bridgeId);
-  return buildHttpPayload('remote-lights', 'amber', {
-    url: `${appendPath(base, '/route/clip/v2/resource/light')}?bridge_id=${bridgeQueryValue}`,
-    secretHeaders: remoteBearerHeaders(),
-    replaceSecretPlaceholders: true,
-    target: { resource: 'light', bridgeId },
-    secretRefPolicy:
-      'Hue Remote API calls are off-LAN amber operations. Remote tokens and bridge id are SecretRef-backed.',
-    liveExecution: {
-      requiresConfiguredSecrets: [
-        REMOTE_ACCESS_TOKEN_SECRET,
-        REMOTE_BRIDGE_ID_SECRET,
-      ],
+function parseOnOffPlan(args, options) {
+  const id = requireFlag(args, options.flag);
+  return {
+    resource: options.resource,
+    id,
+    json: { on: { on: options.on } },
+    target: {
+      type: options.targetType,
+      id,
+      action: options.on ? 'on' : 'off',
     },
-  });
+  };
+}
+
+function parseBrightnessPlan(args, options) {
+  const id = requireFlag(args, options.flag);
+  const pct = parsePct(popFlag(args, '--pct'));
+  return {
+    resource: options.resource,
+    id,
+    json: { dimming: { brightness: pct } },
+    target: { type: options.targetType, id, action: 'brightness', pct },
+  };
+}
+
+function parseColorPlan(args, options) {
+  const id = requireFlag(args, options.flag);
+  const xy = popFlag(args, '--xy');
+  const mirek = popFlag(args, '--mirek');
+  if ((xy && mirek) || (!xy && !mirek)) {
+    die(`${options.operation} requires exactly one of --xy or --mirek.`);
+  }
+  if (xy) {
+    const parsedXy = parseXy(xy);
+    return {
+      resource: options.resource,
+      id,
+      json: { color: { xy: parsedXy } },
+      target: {
+        type: options.targetType,
+        id,
+        action: 'color-xy',
+        xy: parsedXy,
+      },
+    };
+  }
+  const parsedMirek = parseIntegerRange(mirek, '--mirek', 153, 500);
+  return {
+    resource: options.resource,
+    id,
+    json: { color_temperature: { mirek: parsedMirek } },
+    target: {
+      type: options.targetType,
+      id,
+      action: 'color-temperature',
+      mirek: parsedMirek,
+    },
+  };
+}
+
+function parseSceneRecallPlan(args) {
+  const id = requireFlag(args, '--scene');
+  return {
+    resource: 'scene',
+    id,
+    json: { recall: { action: 'active' } },
+    target: { type: 'scene', id, action: 'recall-active' },
+  };
+}
+
+function parseBehaviorTogglePlan(args, enabled) {
+  const id = requireFlag(args, '--behavior');
+  return {
+    resource: 'behavior_instance',
+    id,
+    json: { enabled },
+    target: {
+      type: 'behavior_instance',
+      id,
+      action: enabled ? 'enable' : 'disable',
+    },
+  };
+}
+
+function parseSceneCreatePlan(args) {
+  const name = requireFlag(args, '--name');
+  const groupRid = requireFlag(args, '--group');
+  const groupType = requireFlag(args, '--group-type', 'room');
+  if (!['room', 'zone', 'bridge_home'].includes(groupType)) {
+    die('--group-type must be room, zone, or bridge_home.');
+  }
+  const actions = parseSceneActions(popFlag(args, '--actions-json'));
+  const autoDynamic = popFlag(args, '--auto-dynamic');
+  const json = {
+    type: 'scene',
+    actions,
+    metadata: { name },
+    group: { rid: groupRid, rtype: groupType },
+  };
+  if (autoDynamic !== undefined) {
+    json.auto_dynamic = parseBooleanValue(autoDynamic, '--auto-dynamic');
+  }
+  return {
+    resource: 'scene',
+    json,
+    target: { type: 'scene', action: 'create', name, groupRid, groupType },
+  };
+}
+
+function parseBehaviorCreatePlan(args) {
+  const name = requireFlag(args, '--name');
+  const configuration = parseJsonObject(
+    popFlag(args, '--configuration-json'),
+    '--configuration-json',
+  );
+  return {
+    resource: 'behavior_instance',
+    json: {
+      type: 'behavior_instance',
+      metadata: { name },
+      enabled: parseBooleanValue(
+        popFlag(args, '--enabled', 'true'),
+        '--enabled',
+      ),
+      configuration,
+    },
+    target: { type: 'behavior_instance', action: 'create', name },
+  };
+}
+
+function parseBridgeTimezonePlan(args) {
+  const id = requireFlag(args, '--bridge');
+  const timezone = requireFlag(args, '--timezone');
+  return {
+    resource: 'bridge',
+    id,
+    json: { time_zone: { time_zone: timezone } },
+    target: { type: 'bridge', id, action: 'set-timezone', timezone },
+  };
+}
+
+function parseBridgeSoftwareUpdatePlan(args) {
+  const id = requireFlag(args, '--bridge');
+  const enabled = parseBooleanValue(popFlag(args, '--enabled'), '--enabled');
+  return {
+    resource: 'bridge',
+    id,
+    json: { software_update: { auto_update: { on: enabled } } },
+    target: {
+      type: 'bridge',
+      id,
+      action: 'set-software-update-auto',
+      enabled,
+    },
+  };
+}
+
+const PLAN_BUILDERS = {
+  'light-on': (args) =>
+    parseOnOffPlan(args, {
+      resource: 'light',
+      targetType: 'light',
+      flag: '--light',
+      on: true,
+    }),
+  'light-off': (args) =>
+    parseOnOffPlan(args, {
+      resource: 'light',
+      targetType: 'light',
+      flag: '--light',
+      on: false,
+    }),
+  'light-brightness': (args) =>
+    parseBrightnessPlan(args, {
+      resource: 'light',
+      targetType: 'light',
+      flag: '--light',
+    }),
+  'light-color': (args, operation) =>
+    parseColorPlan(args, {
+      resource: 'light',
+      targetType: 'light',
+      flag: '--light',
+      operation,
+    }),
+  'group-on': (args) =>
+    parseOnOffPlan(args, {
+      resource: 'grouped_light',
+      targetType: 'grouped_light',
+      flag: '--group',
+      on: true,
+    }),
+  'group-off': (args) =>
+    parseOnOffPlan(args, {
+      resource: 'grouped_light',
+      targetType: 'grouped_light',
+      flag: '--group',
+      on: false,
+    }),
+  'group-brightness': (args) =>
+    parseBrightnessPlan(args, {
+      resource: 'grouped_light',
+      targetType: 'grouped_light',
+      flag: '--group',
+    }),
+  'group-color': (args, operation) =>
+    parseColorPlan(args, {
+      resource: 'grouped_light',
+      targetType: 'grouped_light',
+      flag: '--group',
+      operation,
+    }),
+  'room-on': (args) =>
+    parseOnOffPlan(args, {
+      resource: 'grouped_light',
+      targetType: 'grouped_light',
+      flag: '--room',
+      on: true,
+    }),
+  'room-off': (args) =>
+    parseOnOffPlan(args, {
+      resource: 'grouped_light',
+      targetType: 'grouped_light',
+      flag: '--room',
+      on: false,
+    }),
+  'group-recall-scene': parseSceneRecallPlan,
+  'scene-recall': parseSceneRecallPlan,
+  'behavior-enable': (args) => parseBehaviorTogglePlan(args, true),
+  'behavior-disable': (args) => parseBehaviorTogglePlan(args, false),
+  'scene-create': parseSceneCreatePlan,
+  'behavior-create': parseBehaviorCreatePlan,
+  'bridge-config-timezone': parseBridgeTimezonePlan,
+  'bridge-config-software-update': parseBridgeSoftwareUpdatePlan,
+};
+
+function stripFlagWithValue(args, flag) {
+  const stripped = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === flag) {
+      index += 1;
+      continue;
+    }
+    stripped.push(args[index]);
+  }
+  return stripped;
 }
 
 function parsePlanBody(operation, args) {
-  if (!PLAN_OPERATIONS.has(operation))
-    die(`Unsupported Hue plan operation: ${operation}`);
+  const planBuilder = PLAN_BUILDERS[operation];
+  if (!planBuilder) die(`Unsupported Hue plan operation: ${operation}`);
   const originalArgs = [...args];
   const remote = popBoolean(args, '--remote');
   const remoteBridgeId = remote
@@ -644,204 +882,35 @@ function parsePlanBody(operation, args) {
   const grant = bridgeConfig ? BRIDGE_CONFIG_GRANT : WRITE_GRANT;
   const base = remote ? remoteBase(args) : resolveBridgeBase(args);
   const tls = remote ? undefined : localTlsPolicy(args);
-  let target = {};
-  let resource;
-  let id;
-  let json;
-
-  if (operation === 'light-on' || operation === 'light-off') {
-    resource = 'light';
-    id = requireText(popFlag(args, '--light'), '--light');
-    json = { on: { on: operation === 'light-on' } };
-    target = {
-      type: 'light',
-      id,
-      action: operation === 'light-on' ? 'on' : 'off',
-    };
-  } else if (operation === 'light-brightness') {
-    resource = 'light';
-    id = requireText(popFlag(args, '--light'), '--light');
-    const pct = parsePct(popFlag(args, '--pct'));
-    json = { dimming: { brightness: pct } };
-    target = { type: 'light', id, action: 'brightness', pct };
-  } else if (operation === 'light-color') {
-    resource = 'light';
-    id = requireText(popFlag(args, '--light'), '--light');
-    const xy = popFlag(args, '--xy');
-    const mirek = popFlag(args, '--mirek');
-    if ((xy && mirek) || (!xy && !mirek)) {
-      die('light-color requires exactly one of --xy or --mirek.');
-    }
-    if (xy) {
-      json = { color: { xy: parseXy(xy) } };
-      target = { type: 'light', id, action: 'color-xy', xy: json.color.xy };
-    } else {
-      const parsed = parseIntegerRange(mirek, '--mirek', 153, 500);
-      json = { color_temperature: { mirek: parsed } };
-      target = {
-        type: 'light',
-        id,
-        action: 'color-temperature',
-        mirek: parsed,
-      };
-    }
-  } else if (
-    operation === 'group-on' ||
-    operation === 'group-off' ||
-    operation === 'room-on' ||
-    operation === 'room-off'
-  ) {
-    resource = 'grouped_light';
-    id = requireText(
-      popFlag(args, '--group') || popFlag(args, '--room'),
-      operation.startsWith('room-') ? '--room' : '--group',
-    );
-    const on = operation.endsWith('-on');
-    json = { on: { on } };
-    target = { type: 'grouped_light', id, action: on ? 'on' : 'off' };
-  } else if (operation === 'group-brightness') {
-    resource = 'grouped_light';
-    id = requireText(popFlag(args, '--group'), '--group');
-    const pct = parsePct(popFlag(args, '--pct'));
-    json = { dimming: { brightness: pct } };
-    target = { type: 'grouped_light', id, action: 'brightness', pct };
-  } else if (operation === 'group-color') {
-    resource = 'grouped_light';
-    id = requireText(popFlag(args, '--group'), '--group');
-    const xy = popFlag(args, '--xy');
-    const mirek = popFlag(args, '--mirek');
-    if ((xy && mirek) || (!xy && !mirek)) {
-      die('group-color requires exactly one of --xy or --mirek.');
-    }
-    if (xy) {
-      json = { color: { xy: parseXy(xy) } };
-      target = {
-        type: 'grouped_light',
-        id,
-        action: 'color-xy',
-        xy: json.color.xy,
-      };
-    } else {
-      const parsed = parseIntegerRange(mirek, '--mirek', 153, 500);
-      json = { color_temperature: { mirek: parsed } };
-      target = {
-        type: 'grouped_light',
-        id,
-        action: 'color-temperature',
-        mirek: parsed,
-      };
-    }
-  } else if (
-    operation === 'group-recall-scene' ||
-    operation === 'scene-recall'
-  ) {
-    resource = 'scene';
-    id = requireText(popFlag(args, '--scene'), '--scene');
-    json = { recall: { action: 'active' } };
-    target = { type: 'scene', id, action: 'recall-active' };
-  } else if (
-    operation === 'behavior-enable' ||
-    operation === 'behavior-disable'
-  ) {
-    resource = 'behavior_instance';
-    id = requireText(popFlag(args, '--behavior'), '--behavior');
-    const enabled = operation === 'behavior-enable';
-    json = { enabled };
-    target = {
-      type: 'behavior_instance',
-      id,
-      action: enabled ? 'enable' : 'disable',
-    };
-  } else if (operation === 'scene-create') {
-    resource = 'scene';
-    const name = requireText(popFlag(args, '--name'), '--name');
-    const groupRid = requireText(popFlag(args, '--group'), '--group');
-    const groupType = requireText(
-      popFlag(args, '--group-type', 'room'),
-      '--group-type',
-    );
-    if (!['room', 'zone', 'bridge_home'].includes(groupType)) {
-      die('--group-type must be room, zone, or bridge_home.');
-    }
-    const actions = parseSceneActions(popFlag(args, '--actions-json'));
-    const autoDynamic = popFlag(args, '--auto-dynamic');
-    json = {
-      type: 'scene',
-      actions,
-      metadata: { name },
-      group: { rid: groupRid, rtype: groupType },
-    };
-    if (autoDynamic !== undefined) {
-      json.auto_dynamic = parseBooleanValue(autoDynamic, '--auto-dynamic');
-    }
-    target = { type: 'scene', action: 'create', name, groupRid, groupType };
-  } else if (operation === 'behavior-create') {
-    resource = 'behavior_instance';
-    const name = requireText(popFlag(args, '--name'), '--name');
-    const configuration = parseJsonObject(
-      popFlag(args, '--configuration-json'),
-      '--configuration-json',
-    );
-    json = {
-      type: 'behavior_instance',
-      metadata: { name },
-      enabled: parseBooleanValue(
-        popFlag(args, '--enabled', 'true'),
-        '--enabled',
-      ),
-      configuration,
-    };
-    target = { type: 'behavior_instance', action: 'create', name };
-  } else if (operation === 'bridge-config-timezone') {
-    resource = 'bridge';
-    id = requireText(popFlag(args, '--bridge'), '--bridge');
-    const timezone = requireText(popFlag(args, '--timezone'), '--timezone');
-    json = { time_zone: { time_zone: timezone } };
-    target = { type: 'bridge', id, action: 'set-timezone', timezone };
-  } else if (operation === 'bridge-config-software-update') {
-    resource = 'bridge';
-    id = requireText(popFlag(args, '--bridge'), '--bridge');
-    const enabled = parseBooleanValue(popFlag(args, '--enabled'), '--enabled');
-    json = { software_update: { auto_update: { on: enabled } } };
-    target = {
-      type: 'bridge',
-      id,
-      action: 'set-software-update-auto',
-      enabled,
-    };
-  }
+  const { resource, id, json, target } = planBuilder(args, operation);
 
   const operatorGrant = popFlag(args, '--operator-grant');
   assertNoUnexpectedArgs(args);
 
-  const httpPayload = buildHttpPayload(`local-${operation}`, tier, {
-    url: remote
-      ? remoteClipUrl(base, resource, id, remoteBridgeId)
-      : clipUrl(base, resource, id),
-    method: id ? 'PUT' : 'POST',
-    json,
-    secretHeaders: remote ? remoteBearerHeaders() : localSecretHeaders(),
-    replaceSecretPlaceholders: true,
-    tls,
-    target: {
-      ...target,
-      ...(remote ? { remote: true, bridgeId: remoteBridgeId } : {}),
+  const httpPayload = buildHttpPayload(
+    `${remote ? 'remote' : 'local'}-${operation}`,
+    tier,
+    {
+      url: remote
+        ? remoteClipUrl(base, resource, id, remoteBridgeId)
+        : clipUrl(base, resource, id),
+      method: id ? 'PUT' : 'POST',
+      json,
+      secretHeaders: remote ? remoteBearerHeaders() : localSecretHeaders(),
+      replaceSecretPlaceholders: true,
+      tls,
+      target: {
+        ...target,
+        ...(remote ? { remote: true, bridgeId: remoteBridgeId } : {}),
+      },
+      secretRefPolicy: remote
+        ? REMOTE_MUTATION_SECRET_REF_POLICY
+        : LOCAL_MUTATION_SECRET_REF_POLICY,
+      liveExecution: remote
+        ? remoteBridgeLiveExecution(remoteBridgeId)
+        : undefined,
     },
-    secretRefPolicy: remote
-      ? 'The Hue Remote API access token is emitted only as a secretHeaders reference. Mutating off-LAN operations require an exact operator grant.'
-      : 'The Hue application key is emitted only as a secretHeaders reference. Mutating operations require an exact operator grant.',
-    liveExecution: remote
-      ? {
-          requiresConfiguredSecrets: [
-            REMOTE_ACCESS_TOKEN_SECRET,
-            ...(remoteBridgeId.includes('<secret:')
-              ? [REMOTE_BRIDGE_ID_SECRET]
-              : []),
-          ],
-        }
-      : undefined,
-  });
-  httpPayload.operation = `${remote ? 'remote' : 'local'}-${operation}`;
+  );
   httpPayload.requiredGrant = grant;
 
   if (operatorGrant) {
@@ -854,12 +923,7 @@ function parsePlanBody(operation, args) {
   const approvedArgs = [
     'plan',
     operation,
-    ...originalArgs.filter((arg, index) => {
-      if (arg === '--operator-grant') return false;
-      if (index > 0 && originalArgs[index - 1] === '--operator-grant')
-        return false;
-      return true;
-    }),
+    ...stripFlagWithValue(originalArgs, '--operator-grant'),
     '--operator-grant',
     grant,
   ];
@@ -1099,6 +1163,22 @@ function extractHueLinkUsername(bodyJson) {
   return undefined;
 }
 
+function isTerminalHueLinkResult(result) {
+  if (!result) return false;
+  const status = Number(result.status || result.gatewayStatus || 0);
+  if (status === 404 || status >= 500) return true;
+  const body = result.bodyJson;
+  if (!Array.isArray(body)) return false;
+  return body.some((entry) => {
+    const error = entry && typeof entry === 'object' ? entry.error : undefined;
+    if (!error || typeof error !== 'object') return false;
+    const type = String(error.type || '').toLowerCase();
+    return Boolean(
+      type && type !== 'link_button_not_pressed' && type !== '101',
+    );
+  });
+}
+
 async function executeLivePayload(payload, options = {}) {
   if (!payload.httpRequest) return payload;
   if (payload.operation === 'local-link-button') {
@@ -1125,6 +1205,17 @@ async function executeLivePayload(payload, options = {}) {
             url: payload.httpRequest.url,
             method: payload.httpRequest.method,
           },
+        };
+      }
+      if (isTerminalHueLinkResult(lastResult)) {
+        return {
+          command: 'live-link-result',
+          ok: false,
+          operation: payload.operation,
+          event: 'hue.link_button_failed',
+          message:
+            'Hue Bridge returned a terminal error during link-button polling. Check the bridge host, TLS pin, and gateway proxy result before retrying.',
+          lastResult,
         };
       }
       await new Promise((resolve) =>

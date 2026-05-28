@@ -21,10 +21,10 @@ credentials:
       source: store
       id: HUE_APPLICATION_KEY
     scope: "Philips Hue CLIP v2 hue-application-key header"
-    how_to_obtain: "Press the bridge link button and run `node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab`; the helper stores the returned key as `HUE_APPLICATION_KEY`."
+    how_to_obtain: "Press the bridge link button and run `node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --tls-sha256-secret HUE_BRIDGE_TLS_SHA256 --app-name hybridclaw --instance-name lab`; the helper stores the returned key as `HUE_APPLICATION_KEY`."
   - id: hue-bridge-tls-sha256
     kind: header
-    required: false
+    required: true
     secret_ref:
       source: store
       id: HUE_BRIDGE_TLS_SHA256
@@ -76,12 +76,11 @@ metadata:
         - local-behavior-instance-list
         - local-entertainment-configuration-list
         - local-eventstream
-        - local-v1-lights
       amber:
         - local-link-button
         - remote-oauth-token
         - remote-bridges
-        - remote-lights
+        - remote-light-list
         - local-light-on
         - local-light-off
         - local-light-brightness
@@ -129,9 +128,9 @@ bridge access is unavailable.
    run the exact `approvedHelperCommandText`.
 5. Include the target light, grouped light, room, scene, behavior, bridge id,
    action, and expected physical effect in approval text.
-6. Never paste the Hue application key, v1 username, OAuth client secret, or
-   remote token into chat. The helper emits `secretHeaders` or
-   `<secret:...>` placeholders for gateway-side resolution.
+6. Never paste the Hue application key, OAuth client secret, or remote token
+   into chat. The helper emits `secretHeaders` or `<secret:...>` placeholders
+   for gateway-side resolution.
 7. Hue Bridge certificates are self-signed by default. Use a pinned bridge
    certificate SHA-256 fingerprint or operator-supplied CA trust. Do not use a
    blanket insecure TLS bypass.
@@ -195,6 +194,7 @@ Link a bridge after pressing the physical link button:
 ```bash
 node skills/hue/hue.cjs --format json link \
   --host https://192.168.1.30 \
+  --tls-sha256-secret HUE_BRIDGE_TLS_SHA256 \
   --app-name hybridclaw \
   --instance-name lab
 ```
@@ -219,16 +219,13 @@ Store the local bridge URL and application key in the runtime secret store:
 
 ```bash
 hybridclaw secret set HUE_BRIDGE_HOST "https://192.168.1.30"
-node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab
-```
-
-Optionally store a TLS pin for requests that pass
-`--tls-sha256-secret HUE_BRIDGE_TLS_SHA256`, and store a v1 fallback username:
-
-```bash
 hybridclaw secret set HUE_BRIDGE_TLS_SHA256 "<sha256-fingerprint>"
-hybridclaw secret set HUE_BRIDGE_USERNAME_V1 "<v1-username>"
+node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --tls-sha256-secret HUE_BRIDGE_TLS_SHA256 --app-name hybridclaw --instance-name lab
 ```
+
+Local bridge requests default to the `HUE_BRIDGE_TLS_SHA256` runtime secret.
+Use `--tls-sha256` only for one-off diagnostics from an operator-owned
+terminal.
 
 For the Hue Remote API, create a developer app, complete the OAuth flow, then
 store the resulting values:
@@ -249,9 +246,6 @@ OpenAPI contract and Philips Hue CLIP v2 docs: `bridge`, `device`, `light`,
 `light_level`, `button`, `behavior_instance`, and
 `entertainment_configuration`. Arbitrary `/clip/v2/resource/<type>` passthrough
 is rejected.
-
-CLIP v1 is available only as `http-request v1-lights` for read-only fallback on
-old bridges. Do not use CLIP v1 for new writes.
 
 ## Result Handling
 
