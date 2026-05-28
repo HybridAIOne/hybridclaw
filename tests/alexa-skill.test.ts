@@ -33,6 +33,13 @@ const authHelperPath = path.join(
   'alexa-auth.cjs',
 );
 const tempDirs: string[] = [];
+const communityCookieSecretHeaders = [
+  {
+    name: 'Cookie',
+    secretName: 'ALEXA_REFRESH_COOKIE',
+    prefix: 'none',
+  },
+];
 
 afterAll(() => {
   for (const dir of tempDirs) {
@@ -935,7 +942,7 @@ test('Alexa write http-request commands require exact operator grants', () => {
   expect(payload.httpRequest).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.com/api/behaviors/preview',
-    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    secretHeaders: communityCookieSecretHeaders,
   });
   expect(payload.requiredApproval).toBeUndefined();
 
@@ -944,7 +951,7 @@ test('Alexa write http-request commands require exact operator grants', () => {
   expect(completePayload.httpRequest).toMatchObject({
     method: 'PUT',
     url: 'https://alexa.amazon.com/api/namedLists/shopping/items/item-1',
-    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    secretHeaders: communityCookieSecretHeaders,
     bodyJson: { completed: true },
   });
 
@@ -985,7 +992,7 @@ test('Alexa helper emits bounded community requests and relink events without se
   expect(readPayload.httpRequest).toMatchObject({
     method: 'GET',
     url: 'https://alexa.amazon.de/api/devices-v2/device',
-    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    secretHeaders: communityCookieSecretHeaders,
   });
   expect(readPayload.authFailureEvent).toMatchObject({
     event: 'alexa.relink_required',
@@ -999,7 +1006,7 @@ test('Alexa helper emits bounded community requests and relink events without se
   expect(announcePayload.httpRequestTemplate).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.de/api/behaviors/preview',
-    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    secretHeaders: communityCookieSecretHeaders,
   });
   expect(announcePayload.httpRequest).toBeUndefined();
   expect(announcePayload.requiredApproval.approvalText).toContain(
@@ -1036,7 +1043,7 @@ test('Alexa helper prepares Phoenix smart-home device discovery and state reads'
   expect(devicesPayload.httpRequest).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.de/nexus/v1/graphql',
-    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    secretHeaders: communityCookieSecretHeaders,
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -1051,7 +1058,7 @@ test('Alexa helper prepares Phoenix smart-home device discovery and state reads'
   expect(statePayload.httpRequest).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.de/api/phoenix/state',
-    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    secretHeaders: communityCookieSecretHeaders,
     bodyJson: {
       stateRequests: [
         {
@@ -1117,7 +1124,7 @@ test('Alexa helper plans red-gated Phoenix smart-home on and off controls', () =
   expect(grantedPayload.httpRequest).toMatchObject({
     method: 'PUT',
     url: 'https://alexa.amazon.de/api/phoenix/state',
-    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    secretHeaders: communityCookieSecretHeaders,
     bodyJson: {
       controlRequests: [
         {
@@ -1188,7 +1195,7 @@ test('Alexa helper plans guarded Echo music playback from resolved device ids', 
   expect(payload.httpRequestTemplate).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.de/api/behaviors/preview',
-    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    secretHeaders: communityCookieSecretHeaders,
   });
   const sequence = JSON.parse(payload.httpRequestTemplate.bodyJson.sequenceJson);
   expect(sequence.startNode).toMatchObject({
@@ -1259,7 +1266,7 @@ test('Alexa helper plans red-gated Echo voice commands as a guarded fallback', (
   expect(payload.httpRequestTemplate).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.de/api/behaviors/preview',
-    cookieSecretName: 'ALEXA_REFRESH_COOKIE',
+    secretHeaders: communityCookieSecretHeaders,
   });
   const sequence = JSON.parse(payload.httpRequestTemplate.bodyJson.sequenceJson);
   expect(sequence.startNode).toMatchObject({

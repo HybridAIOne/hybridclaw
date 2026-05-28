@@ -20,6 +20,16 @@ const AUTH_STOP = {
   stopOnStatuses: [401, 403],
   stopOnErrorTypes: ['INVALID_AUTHORIZATION_CREDENTIAL'],
 };
+
+function communityCookieSecretHeaders() {
+  return [
+    {
+      name: 'Cookie',
+      secretName: COMMUNITY_COOKIE_SECRET,
+      prefix: 'none',
+    },
+  ];
+}
 const STARFIELD_SERVICES_ROOT_CA_G2_PEM = `-----BEGIN CERTIFICATE-----
 MIID7zCCAtegAwIBAgIBADANBgkqhkiG9w0BAQsFADCBmDELMAkGA1UEBhMCVVMxEDAOBgNV
 BAgTB0FyaXpvbmExEzARBgNVBAcTClNjb3R0c2RhbGUxJTAjBgNVBAoTHFN0YXJmaWVsZCBU
@@ -1053,7 +1063,7 @@ function communityReadRequest(operation, opts) {
       headers: {
         Accept: 'application/json',
       },
-      cookieSecretName: COMMUNITY_COOKIE_SECRET,
+      secretHeaders: communityCookieSecretHeaders(),
       maxResponseBytes: 200_000,
     },
     authFailureEvent: relinkRequired('community', operation),
@@ -1073,7 +1083,7 @@ function phoenixDevicesRequest(opts) {
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      cookieSecretName: COMMUNITY_COOKIE_SECRET,
+      secretHeaders: communityCookieSecretHeaders(),
       bodyJson: {
         query: PHOENIX_SMARTHOME_QUERY,
       },
@@ -1106,7 +1116,7 @@ function phoenixStateRequest(opts) {
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      cookieSecretName: COMMUNITY_COOKIE_SECRET,
+      secretHeaders: communityCookieSecretHeaders(),
       bodyJson: {
         stateRequests: [entity],
       },
@@ -1350,7 +1360,7 @@ function announceHttpRequest(opts, device, text) {
     headers: {
       'Content-Type': 'application/json',
     },
-    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       behaviorId: 'PREVIEW',
       sequenceJson: JSON.stringify({
@@ -1429,7 +1439,7 @@ function musicPlayHttpRequest(opts, target) {
     headers: {
       'Content-Type': 'application/json',
     },
-    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       behaviorId: 'PREVIEW',
       sequenceJson: JSON.stringify({
@@ -1518,7 +1528,7 @@ function voiceCommandHttpRequest(opts, target) {
     headers: {
       'Content-Type': 'application/json',
     },
-    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       behaviorId: 'PREVIEW',
       sequenceJson: JSON.stringify({
@@ -1586,7 +1596,7 @@ function listAddHttpRequest(listType, opts, item) {
     headers: {
       'Content-Type': 'application/json',
     },
-    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       value: item,
       completed: false,
@@ -1636,7 +1646,7 @@ function listCompleteHttpRequest(listType, opts, itemId) {
     headers: {
       'Content-Type': 'application/json',
     },
-    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       completed: true,
     },
@@ -1685,7 +1695,7 @@ function routineTriggerHttpRequest(opts, routine) {
     headers: {
       'Content-Type': 'application/json',
     },
-    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       behaviorId: routine,
       status: 'ENABLED',
@@ -1752,7 +1762,7 @@ function phoenixControlHttpRequest(opts, target) {
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    cookieSecretName: COMMUNITY_COOKIE_SECRET,
+    secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       controlRequests: [
         {

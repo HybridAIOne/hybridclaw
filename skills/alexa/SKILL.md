@@ -236,6 +236,14 @@ instead of JSON. First list Phoenix devices, find the matching
 This path uses `ALEXA_REFRESH_COOKIE`; do not ask for
 `ALEXA_SMARTHOME_ACCESS_TOKEN` or Smart Home Skill OAuth when the operator asks
 to use the stored Alexa cookie for these Alexa-app appliances.
+The helper emits the exact `http_request.secretHeaders` shape required for this
+cookie: header `Cookie`, secret `ALEXA_REFRESH_COOKIE`, and `prefix: "none"`.
+Do not rewrite that to a bearer token header or omit the `none` prefix. If the
+Phoenix GraphQL endpoint returns HTTP 200 with `errors[].message` containing
+`Unauthenticated call` or `extensions.errorCode: "FORBIDDEN"`, treat that as an
+auth failure for the cookie path. Inspect the stored cookie/import path first;
+do not immediately start the browser proxy unless the operator explicitly asks
+for a new proxy login.
 
 ```bash
 node skills/alexa/alexa.cjs --format json http-request phoenix-devices \
