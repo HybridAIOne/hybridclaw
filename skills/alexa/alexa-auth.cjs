@@ -220,7 +220,8 @@ function processIsAlive(pid) {
   try {
     process.kill(numericPid, 0);
     return true;
-  } catch {
+  } catch (error) {
+    if (error?.code === 'EPERM') return true;
     return false;
   }
 }
@@ -621,8 +622,22 @@ function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
           '<b>HybridClaw Alexa authentication complete. You can close this browser tab.</b>',
       },
       (error, result) => {
+        if (result?.localCookie) {
+          finish(null, {
+            amazonPage: result.amazonPage,
+            cookieHeader: result.localCookie,
+            csrf: result.csrf,
+            refreshToken: result.refreshToken || null,
+            source: 'alexa-cookie2',
+          });
+          return;
+        }
+
         if (result?.refreshToken) {
-          finish(null, result.refreshToken);
+          finish(null, {
+            refreshToken: result.refreshToken,
+            source: 'refresh-token',
+          });
           return;
         }
 
@@ -765,6 +780,24 @@ async function exchangeRefreshToken(refreshToken, domain, country) {
     cookieHeader = `${cookieHeader}; csrf=${csrf}`;
   }
 
+  return verifyCookieHeader(cookieHeader, domain, country, csrf);
+}
+
+async function verifyCookieHeader(
+  cookieHeader,
+  domain,
+  country,
+  csrfOverride = null,
+) {
+  const csrf =
+    csrfOverride || csrfFromCookieHeader(cookieHeader) || await fetchCsrf(cookieHeader, domain, country);
+  if (!csrf) {
+    throw new Error('Could not retrieve Alexa CSRF token from cookies.');
+  }
+  if (!cookieHeader.includes('csrf=')) {
+    cookieHeader = `${cookieHeader}; csrf=${csrf}`;
+  }
+
   const runtimeBaseUrl = alexaRuntimeBaseUrl(country);
   const { payload } = await fetchJson(
     `${runtimeBaseUrl}/api/devices-v2/device?cached=true`,
@@ -819,17 +852,31 @@ async function setup(opts) {
   opts.startedAt = new Date().toISOString();
 
   try {
-    const refreshToken = await runBrowserAuth(opts, domain, country);
+    const browserAuth = await runBrowserAuth(opts, domain, country);
     if (opts.statusFile) {
       writeAuthStatus(opts.statusFile, {
         command: 'setup',
         domain,
         pid: process.pid,
-        state: 'exchanging',
+        state: 'verifying',
         startedAt: opts.startedAt,
       });
     }
-    const auth = await exchangeRefreshToken(refreshToken, domain, country);
+    const refreshToken =
+      typeof browserAuth === 'string'
+        ? browserAuth
+        : browserAuth?.refreshToken || null;
+    if (!browserAuth?.cookieHeader && !refreshToken) {
+      throw new Error('Amazon login completed without returning Alexa cookies or a refresh token.');
+    }
+    const auth = browserAuth?.cookieHeader
+      ? await verifyCookieHeader(
+          browserAuth.cookieHeader,
+          domain,
+          browserAuth.amazonPage || country,
+          browserAuth.csrf,
+        )
+      : await exchangeRefreshToken(refreshToken, domain, country);
 
     const result = cookieResult({
       command: 'setup',
@@ -873,10 +920,31 @@ async function setup(opts) {
 }
 
 async function startDetachedSetup(opts, domain, country) {
-  const proxy = await resolveProxyPort(opts.proxyPort);
   const statusFile = resolveStatusFile(opts, domain);
   const logFile = resolveLogFile(opts, domain);
   const timeout = timeoutMs(opts.timeoutMs);
+  const existing = readAuthStatus(statusFile);
+  if (
+    existing?.proxyUrl &&
+    ['starting', 'listening', 'verifying'].includes(existing.state) &&
+    processIsAlive(existing.pid)
+  ) {
+    return {
+      command: 'setup',
+      detached: true,
+      domain,
+      logFile: existing.logFile || logFile,
+      pid: existing.pid,
+      port: existing.port,
+      proxyUrl: existing.proxyUrl,
+      reused: true,
+      statusFile,
+      statusCommand: `node skills/alexa/alexa-auth.cjs status --domain ${domain}`,
+      timeoutMs: timeout,
+    };
+  }
+
+  const proxy = await resolveProxyPort(opts.proxyPort);
   const startedAt = new Date().toISOString();
   const args = [
     __filename,
@@ -946,12 +1014,12 @@ function setupStatus(opts) {
     };
   }
   return {
+    ...status,
     command: 'status',
     domain,
     exists: true,
     processAlive: processIsAlive(status.pid),
     statusFile,
-    ...status,
   };
 }
 

@@ -221,6 +221,43 @@ test('Alexa auth helper status reports missing detached setup safely', () => {
   });
 });
 
+test('Alexa auth helper status reports a live detached setup process', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-alexa-auth-'));
+  tempDirs.push(dir);
+  const statusFile = path.join(dir, 'live-status.json');
+  fs.writeFileSync(
+    statusFile,
+    JSON.stringify({
+      command: 'setup',
+      domain: 'amazon.de',
+      pid: process.pid,
+      port: 50102,
+      proxyUrl: 'http://127.0.0.1:50102/',
+      state: 'listening',
+    }),
+  );
+
+  const result = runAuthHelper([
+    '--format',
+    'json',
+    'status',
+    '--domain',
+    'amazon.de',
+    '--status-file',
+    statusFile,
+  ]);
+
+  expect(result.status, result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    command: 'status',
+    domain: 'amazon.de',
+    exists: true,
+    processAlive: true,
+    state: 'listening',
+    proxyUrl: 'http://127.0.0.1:50102/',
+  });
+});
+
 test('Alexa auth helper normalizes browser cookies and device API payloads', () => {
   expect(alexaAuth.alexaDevicesApiUrl('amazon.de')).toBe(
     'https://alexa.amazon.de/api/devices-v2/device?cached=false',
