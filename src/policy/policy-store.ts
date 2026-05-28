@@ -130,7 +130,6 @@ function deriveLanHttpAccess(rules: IndexedNetworkRule[]): LanHttpAccessState {
   );
   if (
     managedRules.length === LAN_HTTP_ACCESS_RANGES.length &&
-    !hasCustomLanRule &&
     hasExpectedHosts &&
     hasOnlyExpectedHosts &&
     managedRules.every((rule) => isManagedLanRuleForMode(rule, 'read-only'))
@@ -139,7 +138,6 @@ function deriveLanHttpAccess(rules: IndexedNetworkRule[]): LanHttpAccessState {
   }
   if (
     managedRules.length === LAN_HTTP_ACCESS_RANGES.length &&
-    !hasCustomLanRule &&
     hasExpectedHosts &&
     hasOnlyExpectedHosts &&
     managedRules.every((rule) => isManagedLanRuleForMode(rule, 'read-write'))

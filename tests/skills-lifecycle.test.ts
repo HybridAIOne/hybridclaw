@@ -145,6 +145,7 @@ describe('skill package lifecycle', () => {
         },
       ],
       credentials: [],
+      configVariables: [],
       supportedChannels: ['slack', 'email', 'tui'],
     });
   });

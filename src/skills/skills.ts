@@ -43,6 +43,7 @@ import {
 import { guardSkillDirectory, type SkillGuardFinding } from './skills-guard.js';
 
 export type {
+  SkillManifestConfigVariable,
   SkillManifestCredentialKind,
   SkillManifestDeclaredCredential,
   SkillManifestSecretRef,
@@ -946,6 +947,7 @@ function createDefaultSkillManifest(name: string): SkillManifest {
     },
     requiredCredentials: [],
     credentials: [],
+    configVariables: [],
     supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
   };
 }

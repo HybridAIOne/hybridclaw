@@ -158,6 +158,7 @@ Interactive slash commands inside TUI:
   /compact
   /concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
   /eval [list|env|<suite>|<command...>]
+  /env list   /env set <name> <value>   /env show <name>   /env unset <name>
   /config   /config check   /config reload   /config get <key>   /config set <key> <value>
   /exit
   /export session [sessionId]   /export trace [sessionId|all]
@@ -845,6 +846,26 @@ Notes:
   - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
 }
 
+export function printEnvUsage(): void {
+  console.log(`Usage: hybridclaw env <command>
+
+Commands:
+  hybridclaw env list
+  hybridclaw env set <name> <value>
+  hybridclaw env show <name>
+  hybridclaw env unset <name>
+
+Examples:
+  hybridclaw env list
+  hybridclaw env set FRONIUS_LOCAL_HOST http://192.168.178.40
+  hybridclaw env show FRONIUS_LOCAL_HOST
+  hybridclaw env unset FRONIUS_LOCAL_HOST
+
+Notes:
+  - Runtime env values are plaintext configuration and visible to agents and helper processes.
+  - Store credentials, tokens, passwords, and API keys with \`hybridclaw secret set\` instead.`);
+}
+
 export function printAgentUsage(): void {
   console.log(`Usage: hybridclaw agent <command>
 
@@ -1051,6 +1072,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'skill':
       printSkillUsage();
+      return true;
+    case 'env':
+      printEnvUsage();
       return true;
     case 'tool':
       printToolUsage();
