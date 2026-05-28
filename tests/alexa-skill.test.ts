@@ -186,9 +186,23 @@ test('Alexa auth helper --help documents HybridClaw-owned browser setup', () => 
   expect(result.stdout).toContain(
     'node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret',
   );
+  expect(result.stdout).toContain('Defaults to the bundled JS auth flow');
   expect(result.stdout).toContain('Defaults to 600000.');
   expect(result.stdout).toContain('captures the resulting refresh token');
   expect(result.stdout).not.toContain('alexacli');
+});
+
+test('Alexa auth helper extracts refresh tokens from cookie-helper output blocks', () => {
+  expect(
+    alexaAuth.parseRefreshTokenFromOutput(`
+=======================================================================
+ refreshToken: Atnr|example-token
+=======================================================================
+`),
+  ).toBe('Atnr|example-token');
+  expect(alexaAuth.parseRefreshTokenFromOutput('Atnr|direct-token')).toBe(
+    'Atnr|direct-token',
+  );
 });
 
 test('Alexa auth helper normalizes browser cookies and device API payloads', () => {

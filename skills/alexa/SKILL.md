@@ -374,11 +374,12 @@ kills the local proxy and produces Safari errors such as "server unexpectedly
 closed the connection" on `127.0.0.1:<port>/www.amazon.com/ap/signin`.
 
 Do not invoke `alexa-cookie-cli` directly during slash handling. The bundled
-helper wraps it with the domain rules Alexa expects: for western marketplaces
-such as `amazon.de`, the proxy base is `amazon.com` and the marketplace stays
-`amazon.de`. If the browser shows Amazon's "Suchst du etwas?" 404 page at the
-local proxy URL, the cookie helper was likely started with the marketplace as
-the proxy base; stop that run and restart through `alexa-auth.cjs`.
+helper owns the browser proxy and token callback. It uses Amazon's expected
+domain rules: for western marketplaces such as `amazon.de`, the proxy base is
+`amazon.com` and the marketplace stays `amazon.de`. If the browser shows
+Amazon's "Suchst du etwas?" 404 page at the local proxy URL, or login completes
+but no `Atnr|...` token is returned to the terminal, stop that run and restart
+through `alexa-auth.cjs`.
 
 The helper starts Amazon's Alexa device-login flow on a local callback port,
 captures the resulting `Atnr|...` refresh token, exchanges it for Alexa Remote

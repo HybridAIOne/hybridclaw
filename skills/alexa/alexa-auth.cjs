@@ -14,6 +14,7 @@ const DEFAULT_TIMEOUT_MS = 600_000;
 const COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
 const REFRESH_TOKEN_SECRET = 'ALEXA_REMOTE_REFRESH_TOKEN';
 const COOKIE_CLI_VERSION = 'v5.0.1';
+const COOKIE_LIB_VERSION = '5.0.3';
 
 function fail(message, code = 2) {
   process.stderr.write(`${message}\n`);
@@ -36,7 +37,7 @@ Usage:
 Options:
   --domain DOMAIN       Amazon retail domain. Defaults to amazon.com.
   --country DOMAIN      Marketplace domain for login/API locale. Defaults to --domain.
-  --cookie-cli FILE     alexa-cookie-cli binary path. Defaults to an internal HybridClaw download.
+  --cookie-cli FILE     Optional alexa-cookie-cli binary fallback path. Defaults to the bundled JS auth flow.
   --proxy-port PORT     Preferred local login port. Defaults to ${DEFAULT_PROXY_PORT}; falls back to a free port if busy.
   --timeout-ms MS       Time to wait for browser login. Defaults to ${DEFAULT_TIMEOUT_MS}.
   --write-secret        Store the discovered cookie as ${COOKIE_SECRET}.
@@ -227,6 +228,14 @@ function localeFlags(domain) {
     default:
       return ['-a', 'en_US', '-L', 'en-US'];
   }
+}
+
+function localeSettings(domain) {
+  const flags = localeFlags(domain);
+  return {
+    proxyLanguage: flags[1],
+    acceptLanguage: flags[3],
+  };
 }
 
 function parseJsonOutput(raw, label) {
@@ -451,6 +460,22 @@ function cookieCliDownloadUrl() {
   return `https://github.com/adn77/alexa-cookie-cli/releases/download/${COOKIE_CLI_VERSION}/alexa-cookie-cli-${cookieCliPlatform()}-x64`;
 }
 
+function defaultCookieLibRuntimeDir() {
+  if (process.env.ALEXA_COOKIE_LIB_DIR) {
+    return expandHome(process.env.ALEXA_COOKIE_LIB_DIR);
+  }
+  return path.join(os.tmpdir(), 'hybridclaw-alexa-cookie2-runtime');
+}
+
+function cookieLibModulePath() {
+  return path.join(
+    defaultCookieLibRuntimeDir(),
+    'node_modules',
+    'alexa-cookie2',
+    'alexa-cookie.js',
+  );
+}
+
 function downloadFile(url, destination, redirects = 0) {
   return new Promise((resolve, reject) => {
     https
@@ -488,6 +513,37 @@ function downloadFile(url, destination, redirects = 0) {
       })
       .on('error', reject);
   });
+}
+
+function ensureCookieLibrary() {
+  const modulePath = cookieLibModulePath();
+  if (fs.existsSync(modulePath)) return require(modulePath);
+
+  const runtimeDir = defaultCookieLibRuntimeDir();
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  process.stderr.write(
+    `Installing Alexa cookie library alexa-cookie2@${COOKIE_LIB_VERSION}...\n`,
+  );
+  runCommand(
+    'npm',
+    [
+      'install',
+      '--prefix',
+      runtimeDir,
+      '--cache',
+      path.join(runtimeDir, '.npm-cache'),
+      '--omit=dev',
+      '--no-audit',
+      '--no-fund',
+      `alexa-cookie2@${COOKIE_LIB_VERSION}`,
+    ],
+    {
+      stdio: 'inherit',
+      timeout: 120_000,
+    },
+  );
+  process.stderr.write(`Installed Alexa cookie library to ${runtimeDir}\n`);
+  return require(modulePath);
 }
 
 async function ensureCookieCli(opts) {
@@ -542,9 +598,21 @@ async function resolveProxyPort(rawProxyPort) {
   return { port: await findFreePort(), fallback: true };
 }
 
-async function runBrowserAuth(opts, domain, country) {
+function parseRefreshTokenFromOutput(output) {
+  const text = String(output || '').trim();
+  if (!text) return '';
+  const direct = text.match(/\bAtnr\|[^\s"'<>]+/);
+  if (direct) return direct[0];
+  const labeled = text.match(/refreshToken:\s*(Atnr\|[^\s"'<>]+)/i);
+  return labeled ? labeled[1] : '';
+}
+
+function shouldUseCookieCli(opts) {
+  return Boolean(opts.cookieCli || process.env.ALEXA_COOKIE_CLI_BIN);
+}
+
+async function runBrowserAuthWithCookieCli(opts, domain, country, proxy) {
   const binPath = await ensureCookieCli(opts);
-  const proxy = await resolveProxyPort(opts.proxyPort);
   const args = [
     '-b',
     cookieCliBaseDomain(domain),
@@ -555,11 +623,6 @@ async function runBrowserAuth(opts, domain, country) {
     ...localeFlags(country),
     '-q',
   ];
-  if (proxy.fallback) {
-    process.stderr.write(
-      `Local port ${DEFAULT_PROXY_PORT} is busy; using ${proxy.port} for Amazon device login.\n`,
-    );
-  }
   process.stderr.write(
     `Opening Amazon device login at http://127.0.0.1:${proxy.port}. Complete login in the browser, then return here.\n`,
   );
@@ -567,14 +630,100 @@ async function runBrowserAuth(opts, domain, country) {
     stdio: ['inherit', 'pipe', 'inherit'],
     timeout: timeoutMs(opts.timeoutMs),
   });
-  const token = result.stdout.trim();
+  const token = parseRefreshTokenFromOutput(result.stdout);
   if (!token) {
     throw new Error('No refresh token received from Amazon browser login.');
   }
-  if (!token.startsWith('Atnr|')) {
-    throw new Error('Unexpected auth output; expected an Atnr refresh token.');
-  }
   return token;
+}
+
+function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
+  const alexaCookie = ensureCookieLibrary();
+  const locale = localeSettings(country);
+  const timeout = timeoutMs(opts.timeoutMs);
+  const baseAmazonPage = cookieCliBaseDomain(domain);
+
+  process.stderr.write(
+    `Opening Amazon device login at http://127.0.0.1:${proxy.port}. Complete login in the browser, then return here.\n`,
+  );
+
+  return new Promise((resolve, reject) => {
+    let completed = false;
+    const finish = (error, token) => {
+      if (completed) return;
+      completed = true;
+      clearTimeout(timer);
+      try {
+        if (typeof alexaCookie.stopProxyServer === 'function') {
+          alexaCookie.stopProxyServer();
+        }
+      } catch (_error) {
+        // Best-effort cleanup only.
+      }
+      if (error) reject(error);
+      else resolve(token);
+    };
+    const timer = setTimeout(() => {
+      finish(
+        new Error(
+          `Timed out after ${timeout} ms waiting for Amazon to return an Alexa refresh token.`,
+        ),
+      );
+    }, timeout);
+
+    alexaCookie.generateAlexaCookie(
+      {
+        setupProxy: true,
+        proxyOnly: true,
+        amazonPage: country,
+        baseAmazonPage,
+        amazonPageProxyLanguage: locale.proxyLanguage,
+        acceptLanguage: locale.acceptLanguage,
+        proxyOwnIp: '127.0.0.1',
+        proxyPort: proxy.port,
+        proxyListenBind: '0.0.0.0',
+        deviceAppName: 'hybridclaw_alexa',
+        proxyCloseWindowHTML:
+          '<b>HybridClaw Alexa authentication complete. You can close this browser tab.</b>',
+      },
+      (error, result) => {
+        if (result?.refreshToken) {
+          finish(null, result.refreshToken);
+          return;
+        }
+
+        const message = error ? String(error.message || error) : '';
+        if (message.includes('Please open http://')) return;
+
+        if (error) {
+          finish(error);
+          return;
+        }
+
+        if (result?.loginCookie && !result.refreshToken) {
+          finish(
+            new Error(
+              'Amazon login returned cookies but no Alexa refresh token. Retry the setup flow and complete the device authorization page, not just the Amazon account sign-in page.',
+            ),
+          );
+        }
+      },
+    );
+  });
+}
+
+async function runBrowserAuth(opts, domain, country) {
+  const proxy = await resolveProxyPort(opts.proxyPort);
+  if (proxy.fallback) {
+    process.stderr.write(
+      `Local port ${DEFAULT_PROXY_PORT} is busy; using ${proxy.port} for Amazon device login.\n`,
+    );
+  }
+
+  if (shouldUseCookieCli(opts)) {
+    return runBrowserAuthWithCookieCli(opts, domain, country, proxy);
+  }
+  return runBrowserAuthWithCookieLibrary(opts, domain, country, proxy);
 }
 
 async function postForm(url, fields, headers = {}) {
@@ -755,5 +904,6 @@ module.exports = {
   findCookieHeader,
   localeFlags,
   normalizeDevices,
+  parseRefreshTokenFromOutput,
   validateAmazonDomain,
 };
