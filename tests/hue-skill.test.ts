@@ -50,12 +50,12 @@ test('Hue skill manifest declares SecretRefs and guarded stakes', () => {
       },
       scope: 'Philips Hue CLIP v2 hue-application-key header',
       howToObtain:
-        'Press the bridge link button and run `node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab`; the helper stores the returned key as `HUE_APPLICATION_KEY`.',
+        'Press the bridge link button and run `node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --tls-sha256-secret HUE_BRIDGE_TLS_SHA256 --app-name hybridclaw --instance-name lab`; the helper stores the returned key as `HUE_APPLICATION_KEY`.',
     },
     {
       id: 'hue-bridge-tls-sha256',
       kind: 'header',
-      required: false,
+      required: true,
       secretRef: {
         source: 'store',
         id: 'HUE_BRIDGE_TLS_SHA256',
@@ -103,7 +103,7 @@ test('Hue skill manifest declares SecretRefs and guarded stakes', () => {
   expect(skill).toContain('approval-plan');
   expect(skill).toContain('approvedHelperCommandText');
   expect(skill).toContain('OpenHue');
-  expect(skill).toContain('Do not use CLIP v1 for new writes');
+  expect(skill).not.toContain('CLIP v1');
 });
 
 test('Hue helper --help exits cleanly and lists local, remote, and plan commands', () => {
@@ -153,8 +153,8 @@ test('Hue helper builds local CLIP v2 resource-list requests without exposing se
       skillName: 'hue',
     },
   });
-  expect(bridge.httpRequest).not.toHaveProperty(
-    'tlsCertificateSha256SecretName',
+  expect(bridge.httpRequest.tlsCertificateSha256SecretName).toBe(
+    'HUE_BRIDGE_TLS_SHA256',
   );
   expect(lights.httpRequest.url).toBe(
     'https://192.0.2.30/clip/v2/resource/light',
@@ -162,9 +162,8 @@ test('Hue helper builds local CLIP v2 resource-list requests without exposing se
   expect(lights.httpRequest.tlsCertificateSha256).toBe(
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   );
-  expect(lights.tls.sha256).toBe(
-    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  );
+  expect(lights.tls.inlineSha256Configured).toBe(true);
+  expect(lights.tls).not.toHaveProperty('sha256');
   const pinnedBySecret = request([
     '--request',
     'http-request',
@@ -178,7 +177,7 @@ test('Hue helper builds local CLIP v2 resource-list requests without exposing se
   expect(JSON.stringify(bridge)).not.toContain('test-application-key');
 });
 
-test('Hue helper builds eventstream and v1 fallback reads as bounded requests', () => {
+test('Hue helper builds eventstream reads as bounded requests', () => {
   const eventstream = request([
     '--request',
     'http-request',
@@ -186,7 +185,6 @@ test('Hue helper builds eventstream and v1 fallback reads as bounded requests', 
     '--duration',
     '30s',
   ]);
-  const v1 = request(['--request', 'http-request', 'v1-lights']);
 
   expect(eventstream.httpRequest).toMatchObject({
     url: '<secret:HUE_BRIDGE_HOST>/eventstream/clip/v2',
@@ -197,14 +195,6 @@ test('Hue helper builds eventstream and v1 fallback reads as bounded requests', 
     },
   });
   expect(eventstream.secretRefPolicy).toContain('occupancy');
-  expect(v1).toMatchObject({
-    operation: 'local-v1-lights',
-    stakesTier: 'green',
-    target: {
-      apiVersion: 'clip-v1-read-only',
-    },
-  });
-  expect(v1.httpRequest.url).toContain('<secret:HUE_BRIDGE_USERNAME_V1>');
 });
 
 test('Hue helper emits approval plans before light and scene mutations', () => {
@@ -490,7 +480,7 @@ test('Hue helper builds link and remote requests without secret output', () => {
     },
   });
   expect(remoteLights).toMatchObject({
-    operation: 'remote-lights',
+    operation: 'remote-light-list',
     stakesTier: 'amber',
     httpRequest: {
       url: 'https://api.meethue.com/route/clip/v2/resource/light?bridge_id=<secret:HUE_REMOTE_BRIDGE_ID>',
@@ -528,6 +518,37 @@ test('Hue helper builds link and remote requests without secret output', () => {
   expect(JSON.stringify(link)).not.toContain('fresh-key');
   expect(JSON.stringify(remoteLights)).not.toContain('refresh-token');
   expect(JSON.stringify(remoteOauth)).not.toContain('client-secret');
+});
+
+test('Hue helper rejects loose booleans and invalid secret templates early', () => {
+  const booleanResult = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'behavior-create',
+    '--name',
+    'Vacation',
+    '--enabled',
+    'on',
+    '--configuration-json',
+    '{"script_id":"example"}',
+  ]);
+  const secretTemplateResult = runHelper([
+    '--format',
+    'json',
+    '--request',
+    'http-request',
+    'lights',
+    '--host',
+    '<secret:hue-bridge-host>',
+  ]);
+
+  expect(booleanResult.status).not.toBe(0);
+  expect(booleanResult.stderr).toContain('--enabled must be true or false');
+  expect(secretTemplateResult.status).not.toBe(0);
+  expect(secretTemplateResult.stderr).toContain(
+    '--host secret template must be exactly <secret:NAME>',
+  );
 });
 
 test('Hue live execution stores link keys through injected SecretRef writer', async () => {
@@ -579,6 +600,42 @@ test('Hue live execution stores link keys through injected SecretRef writer', as
     'fresh-application-key',
   );
   expect(JSON.stringify(result)).not.toContain('fresh-application-key');
+});
+
+test('Hue live link polling stops early on terminal bridge errors', async () => {
+  const payload = request([
+    '--request',
+    'link',
+    '--host',
+    'https://192.0.2.30',
+    '--app-name',
+    'hybridclaw',
+    '--instance-name',
+    'lab',
+  ]);
+  const fetchMock = vi.fn(async () => ({
+    ok: false,
+    status: 502,
+    text: async () =>
+      JSON.stringify({
+        ok: false,
+        status: 502,
+        body: 'bad gateway',
+      }),
+  }));
+
+  const result = await hue.executeLivePayload(payload, {
+    fetch: fetchMock,
+    gatewayUrl: 'http://127.0.0.1:9090',
+    pollDelayMs: 1,
+  });
+
+  expect(result).toMatchObject({
+    command: 'live-link-result',
+    ok: false,
+    event: 'hue.link_button_failed',
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
 test('Hue live execution marks unauthorized responses as relink events', async () => {
