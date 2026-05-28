@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import * as net from 'node:net';
 import path from 'node:path';
 
 import { expect, test } from 'vitest';
@@ -18,6 +19,11 @@ function runHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
     encoding: 'utf-8',
     env: { ...process.env, ...env },
   });
+}
+
+async function buildRequest(args: string[], env: NodeJS.ProcessEnv = {}) {
+  const { opts, positionals } = byd.parseArgs(args);
+  return byd.buildRequest(opts, positionals, env);
 }
 
 function encodeI16(value: number) {
@@ -173,6 +179,7 @@ test('BYD helper --help exposes reads without secret or write flags', () => {
   expect(result.stdout).toContain('be-connect-metadata');
   expect(result.stdout).toContain('energy-counters');
   expect(result.stdout).toContain('BYD_BMU_HOST');
+  expect(result.stdout).not.toContain('--mock-registers-json');
   expect(result.stdout).not.toContain('--password');
   expect(result.stdout).not.toContain('write-register');
   expect(result.stdout).not.toContain('write-coil');
@@ -194,6 +201,7 @@ test('BYD helper publishes the bounded read register map only', () => {
     start: 0x0000,
     quantity: 0x0066,
   });
+  expect(payload.ranges).not.toHaveProperty('diagnosticStatus');
 });
 
 test('BYD state decode emits SoC, pack telemetry, alarms, R5, and R29 shapes', () => {
@@ -214,6 +222,7 @@ test('BYD state decode emits SoC, pack telemetry, alarms, R5, and R29 shapes', (
     chargeEnergyKwh: 1234.5,
     dischargeEnergyKwh: 2345.6,
   });
+  expect(state).not.toHaveProperty('etaDischargeToChargeRatio');
   expect(state.alarmCodes).toEqual([
     { bit: 6, code: 'Cells Imbalance' },
     { bit: 10, code: 'Cell Over Voltage' },
@@ -327,6 +336,21 @@ test('BYD diagnostic pages decode per-module voltage and temperature summaries',
   ]);
 });
 
+test('BYD diagnostic decoder fails fast when required pages are missing', () => {
+  const system = byd.decodeSystemRegisters(fixtureSystemRegisters());
+  const bms = byd.decodeBmsParametersRegisters(
+    fixtureBmsParametersRegisters(),
+    system,
+  );
+
+  expect(() =>
+    byd.decodeDiagnosticPages([fixtureDiagnosticPages()[0]], {
+      ...system,
+      ...bms,
+    }),
+  ).toThrow(/Missing diagnostic page 2/);
+});
+
 test('BYD inverter decode normalizes undefined community-map entries to unknown', () => {
   const system = byd.decodeSystemRegisters(fixtureSystemRegisters());
   const bytes = [15, 0, 1, 0, 0, 0];
@@ -339,7 +363,7 @@ test('BYD inverter decode normalizes undefined community-map entries to unknown'
 });
 
 test('BYD helper decodes mock allowlisted registers without leaking configured secrets', async () => {
-  const payload = await byd.buildRequest(
+  const payload = await buildRequest(
     [
       '--format',
       'json',
@@ -360,6 +384,8 @@ test('BYD helper decodes mock allowlisted registers without leaking configured s
     command: 'read',
     operation: 'state-of-charge',
     via: 'local-modbus',
+    warning:
+      '--mock-registers-json active: decoded allowlisted mock registers; data is not live BMU telemetry.',
     data: {
       socPercent: 67,
       sohPercent: 98,
@@ -383,7 +409,7 @@ test('BYD helper emits module telemetry and enriched inventory from diagnostic p
     bmsParameters: fixtureBmsParametersRegisters(),
     diagnosticPages: fixtureDiagnosticPages(),
   };
-  const moduleTelemetry = await byd.buildRequest(
+  const moduleTelemetry = await buildRequest(
     [
       '--format',
       'json',
@@ -394,7 +420,7 @@ test('BYD helper emits module telemetry and enriched inventory from diagnostic p
     ],
     {},
   );
-  const inventory = await byd.buildRequest(
+  const inventory = await buildRequest(
     [
       '--format',
       'json',
@@ -448,7 +474,7 @@ test('BYD helper emits firmware and Be Connect Plus metadata without installer s
     system: fixtureSystemRegisters(),
     bmsParameters: fixtureBmsParametersRegisters(),
   };
-  const firmware = await byd.buildRequest(
+  const firmware = await buildRequest(
     [
       '--format',
       'json',
@@ -459,7 +485,7 @@ test('BYD helper emits firmware and Be Connect Plus metadata without installer s
     ],
     {},
   );
-  const metadata = await byd.buildRequest(
+  const metadata = await buildRequest(
     [
       '--format',
       'json',
@@ -481,11 +507,9 @@ test('BYD helper emits firmware and Be Connect Plus metadata without installer s
       hardwareRevision: 'HW1',
       batteryTypeCode: 1,
       inverterName: 'Fronius HV',
-      beConnectPlus: {
-        status: 'metadata-only',
-      },
     },
   });
+  expect(firmware.data).not.toHaveProperty('beConnectPlus');
   expect(metadata).toMatchObject({
     command: 'read',
     operation: 'be-connect-metadata',
@@ -555,11 +579,11 @@ test('BYD helper reports valid via values and preserves pretty error format', ()
 });
 
 test('BYD helper delegates Fronius path and degrades cleanly when unconfigured', async () => {
-  const fronius = await byd.buildRequest(
+  const fronius = await buildRequest(
     ['read', 'state-of-charge', '--via', 'fronius'],
     {},
   );
-  const unconfigured = await byd.buildRequest(['read', 'state-of-charge'], {});
+  const unconfigured = await buildRequest(['read', 'state-of-charge'], {});
 
   expect(fronius).toMatchObject({
     command: 'read',
@@ -572,6 +596,7 @@ test('BYD helper delegates Fronius path and degrades cleanly when unconfigured',
     },
   });
   expect(fronius.delegatedTo).not.toHaveProperty('helperCommand');
+  expect(fronius.delegatedTo).not.toHaveProperty('capability');
   expect(unconfigured).toMatchObject({
     status: 'unconfigured',
     error: {
@@ -583,6 +608,25 @@ test('BYD helper delegates Fronius path and degrades cleanly when unconfigured',
       ],
     },
   });
+});
+
+test('BYD helper rejects non-LAN BMU hosts without echoing configured values', () => {
+  const result = runHelper(
+    ['--format', 'json', 'read', 'state-of-charge', '--via', 'local'],
+    {
+      BYD_BMU_HOST: '8.8.8.8',
+      BYD_BMU_MODBUS_PORT: '8080',
+      BYD_BMU_UNIT_ID: '1',
+      BYD_BMU_MODEL: 'Premium HVS',
+    },
+  );
+
+  expect(result.status).toBe(1);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.error.code).toBe('BYD_BATTERY_HELPER_ERROR');
+  expect(payload.error.message).toContain('LAN BMU host');
+  expect(JSON.stringify(payload)).not.toContain('8.8.8.8');
+  expect(JSON.stringify(payload)).not.toContain('Premium HVS');
 });
 
 test('BYD Modbus connection errors become R29 BMU comms-lost payloads', () => {
@@ -614,4 +658,34 @@ test('BYD Modbus connection errors become R29 BMU comms-lost payloads', () => {
       title: 'BMU comms lost',
     }),
   ]);
+});
+
+test('BYD Modbus read fails when BMU closes before a complete response', async () => {
+  const server = net.createServer((socket) => {
+    socket.end();
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('Expected TCP test server address');
+  }
+
+  try {
+    await expect(
+      byd.readHoldingRegisters(
+        {
+          host: '127.0.0.1',
+          port: address.port,
+          unitId: 1,
+          timeoutMs: 1000,
+        },
+        byd.READ_RANGES.state,
+        1,
+      ),
+    ).rejects.toThrow(/closed connection before complete response/);
+  } finally {
+    server.close();
+  }
 });

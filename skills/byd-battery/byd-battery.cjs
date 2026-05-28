@@ -32,11 +32,6 @@ const READ_RANGES = {
     quantity: 0x0003,
     label: 'BMS parameter snapshot',
   },
-  diagnosticStatus: {
-    start: 0x0551,
-    quantity: 0x0001,
-    label: 'Diagnostic measurement status',
-  },
   diagnosticBlock: {
     start: 0x0558,
     quantity: 0x0041,
@@ -157,7 +152,6 @@ Operations:
 Flags:
   --via local|fronius         Transport selector. Default auto-selects local when BYD_BMU_HOST is set.
   --timeout-ms <ms>           Local Modbus timeout. Default ${DEFAULT_TIMEOUT_MS}.
-  --mock-registers-json <js>  Decode provided allowlisted register arrays without network I/O.
   --format json|pretty        Output format. Default pretty.
 
 Credentials are read from SecretRef-backed runtime secrets:
@@ -174,6 +168,11 @@ function parseArgs(argv) {
     mockRegistersJson: undefined,
   };
   const positionals = [];
+  const fail = (message) => {
+    const error = new Error(message);
+    error.outputFormat = opts.format;
+    throw error;
+  };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -182,24 +181,29 @@ function parseArgs(argv) {
     } else if (arg === '--format') {
       opts.format = requireValue(argv, ++i, '--format');
       if (!['json', 'pretty'].includes(opts.format)) {
-        throw new Error('--format must be json or pretty');
+        fail('--format must be json or pretty');
       }
     } else if (arg === '--via') {
       opts.via = requireValue(argv, ++i, '--via');
       if (!['auto', 'local', 'fronius'].includes(opts.via)) {
-        throw new Error('--via must be auto, local, or fronius');
+        fail('--via must be auto, local, or fronius');
       }
     } else if (arg === '--timeout-ms') {
-      opts.timeoutMs = parseBoundedInteger(
-        requireValue(argv, ++i, '--timeout-ms'),
-        '--timeout-ms',
-        250,
-        60_000,
-      );
+      try {
+        opts.timeoutMs = parseBoundedInteger(
+          requireValue(argv, ++i, '--timeout-ms'),
+          '--timeout-ms',
+          250,
+          60_000,
+        );
+      } catch (error) {
+        error.outputFormat = opts.format;
+        throw error;
+      }
     } else if (arg === '--mock-registers-json') {
       opts.mockRegistersJson = requireValue(argv, ++i, '--mock-registers-json');
     } else if (arg.startsWith('--')) {
-      throw new Error(`Unknown flag ${arg}`);
+      fail(`Unknown flag ${arg}`);
     } else {
       positionals.push(arg);
     }
@@ -240,9 +244,13 @@ function readU16(registers, index) {
   return registers[index] & 0xffff;
 }
 
+function toI16(value) {
+  const normalized = value & 0xffff;
+  return normalized >= 0x8000 ? normalized - 0x10000 : normalized;
+}
+
 function readI16(registers, index) {
-  const value = readU16(registers, index);
-  return value >= 0x8000 ? value - 0x10000 : value;
+  return toI16(readU16(registers, index));
 }
 
 function readU32LittleWord(registers, index) {
@@ -253,8 +261,7 @@ function readU32LittleWord(registers, index) {
 
 function readI16Bytes(bytes, offset) {
   assertByte(bytes, offset + 1);
-  const value = bytes[offset] * 256 + bytes[offset + 1];
-  return value >= 0x8000 ? value - 0x10000 : value;
+  return toI16(bytes[offset] * 256 + bytes[offset + 1]);
 }
 
 function readU32MixedBytes(bytes, offset) {
@@ -342,10 +349,6 @@ function decodeStateRegisters(registers) {
     alarmCodes,
     chargeEnergyKwh,
     dischargeEnergyKwh,
-    etaDischargeToChargeRatio:
-      chargeEnergyKwh > 0
-        ? round(dischargeEnergyKwh / chargeEnergyKwh, 4)
-        : null,
     incidentCards,
   };
 }
@@ -423,8 +426,7 @@ function decodeBmsParametersRegisters(registers, system = {}) {
 
   return {
     inverterType,
-    inverterName:
-      inverterName && inverterName !== 'undefined' ? inverterName : 'unknown',
+    inverterName: inverterName || 'unknown',
     batteryTypeCode,
     modelFamily,
     capacityPerModuleKwh,
@@ -448,14 +450,28 @@ function decodeDiagnosticPages(pageRegisters, topology = {}) {
     throw new Error('At least one diagnostic page is required');
   }
 
-  const firstBytes = registersToBytes(normalizedPages[0]);
+  const pageBytes = normalizedPages.map((page) => registersToBytes(page));
+  const firstBytes = pageBytes[0];
   const cellVoltagesMv = [];
   const temperaturesC = [];
+  const cellsPerModule = topology.cellsPerModule || 0;
+  const temperaturesPerModule = topology.temperaturesPerModule || 0;
+  const modulesPerTower = topology.modulesPerTower || 0;
+  const cellsPerTower =
+    topology.cellsPerTower || modulesPerTower * cellsPerModule;
+  const temperaturesPerTower =
+    topology.temperaturesPerTower || modulesPerTower * temperaturesPerModule;
+
+  const requirePageBytes = (pageIndex) => {
+    const bytes = pageBytes[pageIndex];
+    if (!bytes) {
+      throw new Error(`Missing diagnostic page ${pageIndex + 1}`);
+    }
+    return bytes;
+  };
 
   const readVoltagePage = (pageIndex, startCellIndex, offset, count) => {
-    const page = normalizedPages[pageIndex];
-    if (!page) return;
-    const bytes = registersToBytes(page);
+    const bytes = requirePageBytes(pageIndex);
     for (let index = 0; index < count; index += 1) {
       if (offset + index * 2 + 1 >= bytes.length) break;
       const raw = readI16Bytes(bytes, offset + index * 2);
@@ -464,9 +480,7 @@ function decodeDiagnosticPages(pageRegisters, topology = {}) {
   };
 
   const readTemperaturePage = (pageIndex, startTempIndex, offset, count) => {
-    const page = normalizedPages[pageIndex];
-    if (!page) return;
-    const bytes = registersToBytes(page);
+    const bytes = requirePageBytes(pageIndex);
     for (let index = 0; index < count; index += 1) {
       if (offset + index >= bytes.length) break;
       const raw = bytes[offset + index];
@@ -474,17 +488,20 @@ function decodeDiagnosticPages(pageRegisters, topology = {}) {
     }
   };
 
-  readVoltagePage(0, 0, 98, 16);
-  readVoltagePage(1, 16, 2, 64);
-  readVoltagePage(2, 80, 2, 48);
-  readVoltagePage(4, 128, 98, 16);
-  readVoltagePage(5, 144, 2, 16);
-  readTemperaturePage(2, 0, 100, 30);
-  readTemperaturePage(3, 30, 2, 34);
+  readVoltagePage(0, 0, 98, Math.min(16, cellsPerTower || 16));
+  if (cellsPerTower > 16) {
+    readVoltagePage(1, 16, 2, Math.min(64, cellsPerTower - 16));
+  }
+  if (cellsPerTower > 80) {
+    readVoltagePage(2, 80, 2, Math.min(48, cellsPerTower - 80));
+  }
+  if (temperaturesPerTower > 0) {
+    readTemperaturePage(2, 0, 100, Math.min(30, temperaturesPerTower));
+  }
+  if (temperaturesPerTower > 30) {
+    readTemperaturePage(3, 30, 2, Math.min(34, temperaturesPerTower - 30));
+  }
 
-  const cellsPerModule = topology.cellsPerModule || 0;
-  const temperaturesPerModule = topology.temperaturesPerModule || 0;
-  const modulesPerTower = topology.modulesPerTower || 0;
   const modules = buildModuleSummaries({
     cellVoltagesMv,
     temperaturesC,
@@ -682,35 +699,94 @@ function buildCommsLostIncident(error) {
   };
 }
 
+function once(fn) {
+  let called = false;
+  let value;
+  return () => {
+    if (!called) {
+      value = fn();
+      called = true;
+    }
+    return value;
+  };
+}
+
+function requireRegisterBlock(registerBlocks, name, operation) {
+  if (registerBlocks[name] === undefined) {
+    throw new Error(`Operation ${operation} requires ${name} registers`);
+  }
+  return registerBlocks[name];
+}
+
+function requireDiagnosticBlock(registerBlocks, operation) {
+  if (registerBlocks.diagnosticPages !== undefined) {
+    return registerBlocks.diagnosticPages;
+  }
+  if (registerBlocks.diagnosticBlock !== undefined) {
+    return registerBlocks.diagnosticBlock;
+  }
+  throw new Error(`Operation ${operation} requires diagnosticPages registers`);
+}
+
+function buildIdentityBlock(system, bmsParameters) {
+  return {
+    serialNumber: system.serialNumber,
+    modelFamily: system.modelFamily,
+    batteryTypeCode: bmsParameters?.batteryTypeCode ?? null,
+    inverterName: bmsParameters?.inverterName ?? null,
+    bmuFirmware: system.bmuFirmware,
+    bmsFirmware: system.bmsFirmware,
+    hardwareRevision: system.hardwareRevision,
+  };
+}
+
 function decodeOperation(operation, registerBlocks) {
   if (!OPERATION_RANGES[operation]) {
     throw new Error(`Unsupported read operation ${operation}`);
   }
 
-  const state =
-    registerBlocks.state !== undefined
-      ? decodeStateRegisters(registerBlocks.state)
-      : undefined;
-  const system =
-    registerBlocks.system !== undefined
-      ? decodeSystemRegisters(registerBlocks.system)
-      : undefined;
-  const bmsParameters =
-    registerBlocks.bmsParameters !== undefined
-      ? decodeBmsParametersRegisters(registerBlocks.bmsParameters, system)
-      : undefined;
-  const topology = {
-    ...system,
-    ...(bmsParameters || {}),
-  };
-  const diagnostic =
-    registerBlocks.diagnosticPages !== undefined
-      ? decodeDiagnosticPages(registerBlocks.diagnosticPages, topology)
-      : registerBlocks.diagnosticBlock !== undefined
-        ? decodeDiagnosticPages(registerBlocks.diagnosticBlock, topology)
-        : undefined;
+  const getState = once(() =>
+    decodeStateRegisters(
+      requireRegisterBlock(registerBlocks, 'state', operation),
+    ),
+  );
+  const getSystem = once(() =>
+    decodeSystemRegisters(
+      requireRegisterBlock(registerBlocks, 'system', operation),
+    ),
+  );
+  const getBmsParameters = once(() =>
+    decodeBmsParametersRegisters(
+      requireRegisterBlock(registerBlocks, 'bmsParameters', operation),
+      getSystem(),
+    ),
+  );
+  const getDiagnostic = once(() =>
+    decodeDiagnosticPages(requireDiagnosticBlock(registerBlocks, operation), {
+      ...getSystem(),
+      ...getBmsParameters(),
+    }),
+  );
+  const getOptionalDiagnostic = once(() => {
+    if (
+      registerBlocks.diagnosticPages === undefined &&
+      registerBlocks.diagnosticBlock === undefined
+    ) {
+      return undefined;
+    }
+    return decodeDiagnosticPages(
+      registerBlocks.diagnosticPages ?? registerBlocks.diagnosticBlock,
+      {
+        ...(registerBlocks.system !== undefined ? getSystem() : {}),
+        ...(registerBlocks.bmsParameters !== undefined
+          ? getBmsParameters()
+          : {}),
+      },
+    );
+  });
 
   if (operation === 'state-of-charge') {
+    const state = getState();
     return {
       socPercent: state.socPercent,
       sohPercent: state.sohPercent,
@@ -721,6 +797,7 @@ function decodeOperation(operation, registerBlocks) {
     };
   }
   if (operation === 'pack-telemetry') {
+    const state = getState();
     return {
       packVoltageV: state.packVoltageV,
       outputVoltageV: state.outputVoltageV,
@@ -731,6 +808,8 @@ function decodeOperation(operation, registerBlocks) {
     };
   }
   if (operation === 'cell-extremes') {
+    const state = getState();
+    const diagnostic = getOptionalDiagnostic();
     return {
       maxCellVoltageMv: state.maxCellVoltageMv,
       minCellVoltageMv: state.minCellVoltageMv,
@@ -756,6 +835,7 @@ function decodeOperation(operation, registerBlocks) {
     };
   }
   if (operation === 'alarms') {
+    const state = getState();
     return {
       alarmBitmap: state.alarmBitmap,
       alarmCodes: state.alarmCodes,
@@ -763,10 +843,10 @@ function decodeOperation(operation, registerBlocks) {
     };
   }
   if (operation === 'energy-counters') {
+    const state = getState();
     return {
       chargeEnergyKwh: state.chargeEnergyKwh,
       dischargeEnergyKwh: state.dischargeEnergyKwh,
-      etaDischargeToChargeRatio: state.etaDischargeToChargeRatio,
       r5Rollup: {
         system: 'R5',
         source: 'byd-battery',
@@ -776,6 +856,9 @@ function decodeOperation(operation, registerBlocks) {
     };
   }
   if (operation === 'inventory') {
+    const system = getSystem();
+    const bmsParameters = getBmsParameters();
+    const diagnostic = getOptionalDiagnostic();
     return {
       modelFamily: system.modelFamily,
       batteryType:
@@ -805,6 +888,9 @@ function decodeOperation(operation, registerBlocks) {
     };
   }
   if (operation === 'module-telemetry') {
+    const system = getSystem();
+    const bmsParameters = getBmsParameters();
+    const diagnostic = getDiagnostic();
     return {
       tower: diagnostic.tower,
       modulesPerTower: system.modulesPerTower,
@@ -830,34 +916,22 @@ function decodeOperation(operation, registerBlocks) {
     };
   }
   if (operation === 'firmware') {
+    const system = getSystem();
+    const bmsParameters = getBmsParameters();
     return {
-      serialNumber: system.serialNumber,
-      modelFamily: system.modelFamily,
-      batteryTypeCode: bmsParameters?.batteryTypeCode ?? null,
-      inverterName: bmsParameters?.inverterName ?? null,
-      bmuFirmware: system.bmuFirmware,
+      ...buildIdentityBlock(system, bmsParameters),
       bmuBankA: system.bmuBankA,
       bmuBankB: system.bmuBankB,
-      bmsFirmware: system.bmsFirmware,
-      hardwareRevision: system.hardwareRevision,
-      beConnectPlus: {
-        status: 'metadata-only',
-        note: 'BYD does not publish a public Be Connect Plus API; firmware and commissioning handoff metadata are read from local BMU registers only.',
-      },
     };
   }
   if (operation === 'be-connect-metadata') {
+    const system = getSystem();
+    const bmsParameters = getBmsParameters();
     return {
       status: 'metadata-only',
       source: 'local-bmu-registers',
       publicBeConnectPlusApiAvailable: false,
-      serialNumber: system.serialNumber,
-      modelFamily: system.modelFamily,
-      batteryTypeCode: bmsParameters?.batteryTypeCode ?? null,
-      inverterName: bmsParameters?.inverterName ?? null,
-      bmuFirmware: system.bmuFirmware,
-      bmsFirmware: system.bmsFirmware,
-      hardwareRevision: system.hardwareRevision,
+      ...buildIdentityBlock(system, bmsParameters),
       topology: {
         towers: system.towers,
         modulesPerTower: system.modulesPerTower,
@@ -889,9 +963,9 @@ function buildSource(operation, rangeNames) {
   };
 }
 
-function buildSuccessPayload(operation, registerBlocks) {
+function buildSuccessPayload(operation, registerBlocks, options = {}) {
   const rangeNames = OPERATION_RANGES[operation];
-  return {
+  const payload = {
     command: 'read',
     operation,
     via: 'local-modbus',
@@ -899,6 +973,11 @@ function buildSuccessPayload(operation, registerBlocks) {
     data: decodeOperation(operation, registerBlocks),
     source: buildSource(operation, rangeNames),
   };
+  if (options.mockRegisters) {
+    payload.warning =
+      '--mock-registers-json active: decoded allowlisted mock registers; data is not live BMU telemetry.';
+  }
+  return payload;
 }
 
 function buildFroniusDelegation(operation) {
@@ -915,8 +994,6 @@ function buildFroniusDelegation(operation) {
       roadmapItem: 'R21.111',
       skillName: 'fronius',
       endpoint,
-      capability:
-        'Use the bundled Fronius skill/helper once R21.111 is present in this checkout.',
     },
     status: 'delegated',
     note: 'Use the R21.111 Fronius skill when BYD local Modbus is not configured and the battery is paired with a Fronius inverter. This checkout does not currently include a Fronius helper path to execute directly.',
@@ -1007,11 +1084,53 @@ function selectTransport(opts, env) {
   return 'unconfigured';
 }
 
+function isPrivateHost(host) {
+  const value = String(host || '')
+    .trim()
+    .toLowerCase();
+  if (!value) return false;
+  if (value === 'localhost' || value === '::1') return true;
+  if (
+    value.endsWith('.local') ||
+    value.endsWith('.lan') ||
+    value.endsWith('.home.arpa')
+  ) {
+    return true;
+  }
+  const ipv4 = value.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/);
+  if (ipv4) {
+    const octets = value.split('.').map(Number);
+    if (octets.some((octet) => octet < 0 || octet > 255)) return false;
+    const [a, b] = octets;
+    return (
+      a === 10 ||
+      a === 127 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254)
+    );
+  }
+  if (value.includes(':')) {
+    return (
+      value === '::1' ||
+      value.startsWith('fe80:') ||
+      value.startsWith('fc') ||
+      value.startsWith('fd')
+    );
+  }
+  return false;
+}
+
 function resolveLocalConfig(opts, env) {
   const host = env[SECRET_REFS.host];
   if (!host) {
     throw new Error(
       `Missing ${SECRET_REFS.host}; store it with hybridclaw secret set`,
+    );
+  }
+  if (!isPrivateHost(host)) {
+    throw new Error(
+      `${SECRET_REFS.host} must identify a loopback, link-local, or LAN BMU host`,
     );
   }
   return {
@@ -1093,7 +1212,8 @@ function readHoldingRegisters(config, range, transactionId) {
       transactionId,
     );
     const socket = new net.Socket();
-    let chunks = Buffer.alloc(0);
+    let responseBuffer = Buffer.alloc(512);
+    let responseLength = 0;
     let settled = false;
 
     const finish = (error, value) => {
@@ -1113,16 +1233,25 @@ function readHoldingRegisters(config, range, transactionId) {
     socket.once('error', (error) => {
       finish(new Error(`Failed to connect to BYD BMU: ${error.message}`));
     });
+    socket.once('close', () => {
+      finish(new Error('BYD BMU closed connection before complete response'));
+    });
     socket.on('data', (chunk) => {
-      chunks = Buffer.concat([chunks, chunk]);
-      if (chunks.length < 9) return;
-      const modbusLength = chunks.readUInt16BE(4);
+      while (responseLength + chunk.length > responseBuffer.length) {
+        const expanded = Buffer.alloc(responseBuffer.length * 2);
+        responseBuffer.copy(expanded, 0, 0, responseLength);
+        responseBuffer = expanded;
+      }
+      chunk.copy(responseBuffer, responseLength);
+      responseLength += chunk.length;
+      if (responseLength < 9) return;
+      const modbusLength = responseBuffer.readUInt16BE(4);
       const expectedLength = 6 + modbusLength;
-      if (chunks.length < expectedLength) return;
+      if (responseLength < expectedLength) return;
       try {
         finish(
           null,
-          parseModbusReadResponse(chunks.slice(0, expectedLength), {
+          parseModbusReadResponse(responseBuffer.subarray(0, expectedLength), {
             transactionId,
             unitId: config.unitId,
             quantity: range.quantity,
@@ -1157,11 +1286,15 @@ async function readLocalOperation(operation, opts, env = process.env) {
       }
       selectedBlocks[rangeName] = mockBlocks[rangeName];
     }
-    return buildSuccessPayload(operation, selectedBlocks);
+    return buildSuccessPayload(operation, selectedBlocks, {
+      mockRegisters: true,
+    });
   }
 
   const config = resolveLocalConfig(opts, env);
   const blocks = {};
+  // Keep BYD diagnostic reads sequential: repeated reads of 0x0558 advance
+  // page data on some BMU firmware, and parallel sockets can reorder pages.
   for (let index = 0; index < rangeNames.length; index += 1) {
     const rangeName = rangeNames[index];
     if (rangeName === 'diagnosticBlock') {
@@ -1218,8 +1351,7 @@ function printPayload(payload, format) {
   }
 }
 
-async function buildRequest(argv, env = process.env) {
-  const { opts, positionals } = parseArgs(argv);
+async function buildRequest(opts, positionals, env = process.env) {
   if (opts.help) {
     return { help: true };
   }
@@ -1247,22 +1379,30 @@ async function buildRequest(argv, env = process.env) {
   return readLocalOperation(operation, opts, env);
 }
 
+async function buildRequestFromArgs(argv, env = process.env) {
+  const { opts, positionals } = parseArgs(argv);
+  return buildRequest(opts, positionals, env);
+}
+
 async function main() {
   const argv = process.argv.slice(2);
-  let requestedFormat = detectRequestedFormat(argv);
+  let requestedFormat = 'pretty';
   try {
-    const { opts } = parseArgs(argv);
+    const { opts, positionals } = parseArgs(argv);
     requestedFormat = opts.format;
     if (opts.help) {
       process.stdout.write(`${usage()}\n`);
       return;
     }
-    const payload = await buildRequest(argv);
+    const payload = await buildRequest(opts, positionals);
     const exitCode = payload.exitCode || 0;
     if (payload.exitCode) delete payload.exitCode;
     printPayload(payload, opts.format);
     process.exitCode = exitCode;
   } catch (error) {
+    if (error.outputFormat) {
+      requestedFormat = error.outputFormat;
+    }
     const payload = {
       command: 'error',
       skillName: SKILL_NAME,
@@ -1284,12 +1424,6 @@ async function main() {
   }
 }
 
-function detectRequestedFormat(argv) {
-  const formatIndex = argv.indexOf('--format');
-  if (formatIndex === -1) return 'pretty';
-  return argv[formatIndex + 1] === 'json' ? 'json' : 'pretty';
-}
-
 if (require.main === module) {
   main();
 }
@@ -1303,6 +1437,7 @@ module.exports = {
   buildModbusReadRequest,
   buildRegisterMapPayload,
   buildRequest,
+  buildRequestFromArgs,
   buildSuccessPayload,
   decodeAlarmBitmap,
   decodeBmsParametersRegisters,
@@ -1311,6 +1446,9 @@ module.exports = {
   decodeStateRegisters,
   decodeSystemRegisters,
   isAllowlistedRange,
+  isPrivateHost,
+  parseArgs,
   parseModbusReadResponse,
   parseUnitId,
+  readHoldingRegisters,
 };

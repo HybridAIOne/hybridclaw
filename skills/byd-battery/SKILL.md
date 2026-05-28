@@ -169,7 +169,6 @@ the community BYD Battery-Box Premium Modbus maps:
 - `0x0000:0x0066` BMU identity, firmware, topology, inverter/grid mode.
 - `0x0500:0x0019` live SoC, SoH, pack voltage/current, alarms, energy counters.
 - `0x0010:0x0003` BMS parameter snapshot.
-- `0x0551:0x0001` diagnostic measurement status.
 - `0x0558:0x0041` tower/module diagnostic block.
 
 No arbitrary register passthrough exists. No write function codes are exposed.
