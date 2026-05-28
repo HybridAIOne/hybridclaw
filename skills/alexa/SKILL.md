@@ -361,13 +361,27 @@ channel that supports slash skill invocation:
 ```
 
 When handling the setup prompt, run the bundled auth helper from the agent
-workspace:
+workspace. For slash handling, use detached mode so the local browser proxy
+survives while the operator completes Amazon login, OTP, and CVF pages across
+turns:
 
 ```bash
-node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --timeout-ms 600000
+node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --detach --timeout-ms 600000
 ```
 
-If invoking this through a shell tool that has its own timeout, set that tool
+Return the `proxyUrl` from the helper output to the operator. When the operator
+comes back after login, check the same setup with:
+
+```bash
+node skills/alexa/alexa-auth.cjs status --domain amazon.de
+```
+
+Do not keep the setup proxy alive with ad hoc shell process management.
+Detached mode is the supported lifecycle: it writes a status file, keeps the
+proxy process alive after the slash turn ends, and stores the secret itself
+after Amazon returns the token.
+
+If invoking non-detached foreground setup through a shell tool, set that tool
 timeout to at least `600000` ms too. Browser login, OTP, CAPTCHA, and Safari
 handoff regularly take longer than 60 seconds; killing the shell command also
 kills the local proxy and produces Safari errors such as "server unexpectedly

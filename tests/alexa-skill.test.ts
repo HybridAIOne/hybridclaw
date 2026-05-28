@@ -157,6 +157,9 @@ test('Alexa skill manifest declares SecretRef credentials and safety metadata', 
   );
   expect(skill).toContain('/skill alexa list my Alexa devices for amazon.de');
   expect(skill).toContain('node skills/alexa/alexa-auth.cjs setup');
+  expect(skill).toContain('--detach --timeout-ms 600000');
+  expect(skill).toContain('node skills/alexa/alexa-auth.cjs status');
+  expect(skill).toContain('ad hoc shell process management');
   expect(skill).toContain('alexa-auth.cjs import-cookie');
   expect(skill).toContain('full Cookie header');
   expect(skill).toContain('A single cookie value such as');
@@ -186,10 +189,36 @@ test('Alexa auth helper --help documents HybridClaw-owned browser setup', () => 
   expect(result.stdout).toContain(
     'node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret',
   );
+  expect(result.stdout).toContain('--detach');
+  expect(result.stdout).toContain('status --domain amazon.de');
   expect(result.stdout).toContain('Defaults to 600000.');
   expect(result.stdout).toContain('captures the resulting refresh token');
   expect(result.stdout).not.toContain('alexa-cookie-cli');
   expect(result.stdout).not.toContain('alexacli');
+});
+
+test('Alexa auth helper status reports missing detached setup safely', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-alexa-auth-'));
+  tempDirs.push(dir);
+  const statusFile = path.join(dir, 'missing-status.json');
+  const result = runAuthHelper([
+    '--format',
+    'json',
+    'status',
+    '--domain',
+    'amazon.de',
+    '--status-file',
+    statusFile,
+  ]);
+
+  expect(result.status, result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    command: 'status',
+    domain: 'amazon.de',
+    exists: false,
+    state: 'missing',
+    statusFile,
+  });
 });
 
 test('Alexa auth helper normalizes browser cookies and device API payloads', () => {

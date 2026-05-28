@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
@@ -29,6 +29,8 @@ function usage() {
 
 Usage:
   node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --timeout-ms 600000
+  node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --detach
+  node skills/alexa/alexa-auth.cjs status --domain amazon.de
   node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --write-refresh-token --timeout-ms 600000
   node skills/alexa/alexa-auth.cjs import-cookie --config /path/to/cookie-config.json --write-secret
 
@@ -36,6 +38,9 @@ Options:
   --domain DOMAIN       Amazon retail domain. Defaults to amazon.com.
   --country DOMAIN      Marketplace domain for login/API locale. Defaults to --domain.
   --proxy-port PORT     Preferred local login port. Defaults to ${DEFAULT_PROXY_PORT}; falls back to a free port if busy.
+  --detach              Start setup as a detached local proxy and return its status file.
+  --status-file FILE    Status file for detached setup/status. Defaults to a temp file per domain.
+  --log-file FILE       Log file for detached setup. Defaults to a temp file per domain.
   --timeout-ms MS       Time to wait for browser login. Defaults to ${DEFAULT_TIMEOUT_MS}.
   --write-secret        Store the discovered cookie as ${COOKIE_SECRET}.
   --write-refresh-token Store the captured refresh token as ${REFRESH_TOKEN_SECRET}.
@@ -57,10 +62,13 @@ function parseArgs(argv) {
     '--country',
     '--domain',
     '--format',
+    '--log-file',
     '--proxy-port',
+    '--status-file',
     '--timeout-ms',
   ]);
   const booleanFlags = new Set([
+    '--detach',
     '--help',
     '-h',
     '--write-refresh-token',
@@ -70,6 +78,7 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (booleanFlags.has(arg)) {
+      if (arg === '--detach') opts.detach = true;
       if (arg === '--help' || arg === '-h') opts.help = true;
       if (arg === '--write-refresh-token') opts.writeRefreshToken = true;
       if (arg === '--write-secret') opts.writeSecret = true;
@@ -164,6 +173,56 @@ function requestedProxyPort(rawProxyPort) {
     throw new Error('--proxy-port must be an integer between 1 and 65535.');
   }
   return parsed;
+}
+
+function safeDomainId(domain) {
+  return validateAmazonDomain(domain).replace(/[^a-z0-9.-]/g, '_');
+}
+
+function authStatusPath(domain) {
+  return path.join(os.tmpdir(), `hybridclaw-alexa-auth-${safeDomainId(domain)}.json`);
+}
+
+function authLogPath(domain) {
+  return path.join(os.tmpdir(), `hybridclaw-alexa-auth-${safeDomainId(domain)}.log`);
+}
+
+function resolveStatusFile(opts, domain) {
+  return expandHome(opts.statusFile || authStatusPath(domain));
+}
+
+function resolveLogFile(opts, domain) {
+  return expandHome(opts.logFile || authLogPath(domain));
+}
+
+function writeAuthStatus(statusFile, payload) {
+  if (!statusFile) return;
+  const safePayload = {
+    ...payload,
+    updatedAt: new Date().toISOString(),
+  };
+  fs.mkdirSync(path.dirname(statusFile), { recursive: true });
+  const tmpFile = `${statusFile}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpFile, `${JSON.stringify(safePayload, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  fs.renameSync(tmpFile, statusFile);
+}
+
+function readAuthStatus(statusFile) {
+  if (!fs.existsSync(statusFile)) return null;
+  return parseJsonOutput(fs.readFileSync(statusFile, 'utf8'), statusFile);
+}
+
+function processIsAlive(pid) {
+  const numericPid = Number.parseInt(String(pid || ''), 10);
+  if (!Number.isFinite(numericPid) || numericPid < 1) return false;
+  try {
+    process.kill(numericPid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function alexaDevicesApiUrl(domain) {
@@ -568,7 +627,20 @@ function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
         }
 
         const message = error ? String(error.message || error) : '';
-        if (message.includes('Please open http://')) return;
+        if (message.includes('Please open http://')) {
+          if (opts.statusFile) {
+            writeAuthStatus(opts.statusFile, {
+              command: 'setup',
+              domain,
+              pid: process.pid,
+              port: proxy.port,
+              proxyUrl: `http://127.0.0.1:${proxy.port}/`,
+              state: 'listening',
+              startedAt: opts.startedAt || new Date().toISOString(),
+            });
+          }
+          return;
+        }
 
         if (error) {
           finish(error);
@@ -593,6 +665,18 @@ async function runBrowserAuth(opts, domain, country) {
     process.stderr.write(
       `Local port ${DEFAULT_PROXY_PORT} is busy; using ${proxy.port} for Amazon device login.\n`,
     );
+  }
+
+  if (opts.statusFile) {
+    writeAuthStatus(opts.statusFile, {
+      command: 'setup',
+      domain,
+      pid: process.pid,
+      port: proxy.port,
+      proxyUrl: `http://127.0.0.1:${proxy.port}/`,
+      state: 'starting',
+      startedAt: opts.startedAt || new Date().toISOString(),
+    });
   }
 
   return runBrowserAuthWithCookieLibrary(opts, domain, country, proxy);
@@ -727,19 +811,148 @@ async function fetchCsrf(cookieHeader, domain, country) {
 async function setup(opts) {
   const domain = validateAmazonDomain(opts.domain);
   const country = validateAmazonDomain(opts.country || domain);
-  const refreshToken = await runBrowserAuth(opts, domain, country);
-  const auth = await exchangeRefreshToken(refreshToken, domain, country);
+  if (opts.detach) {
+    return startDetachedSetup(opts, domain, country);
+  }
 
-  return cookieResult({
-    command: 'setup',
-    cookieHeader: auth.cookieHeader,
-    devices: auth.devices,
+  opts.statusFile = opts.statusFile ? resolveStatusFile(opts, domain) : null;
+  opts.startedAt = new Date().toISOString();
+
+  try {
+    const refreshToken = await runBrowserAuth(opts, domain, country);
+    if (opts.statusFile) {
+      writeAuthStatus(opts.statusFile, {
+        command: 'setup',
+        domain,
+        pid: process.pid,
+        state: 'exchanging',
+        startedAt: opts.startedAt,
+      });
+    }
+    const auth = await exchangeRefreshToken(refreshToken, domain, country);
+
+    const result = cookieResult({
+      command: 'setup',
+      cookieHeader: auth.cookieHeader,
+      devices: auth.devices,
+      domain,
+      refreshToken,
+      runtimeBaseUrl: auth.runtimeBaseUrl,
+      writeRefreshToken: opts.writeRefreshToken,
+      writeSecret: opts.writeSecret,
+    });
+
+    if (opts.statusFile) {
+      writeAuthStatus(opts.statusFile, {
+        command: 'setup',
+        completedAt: new Date().toISOString(),
+        deviceCount: auth.devices.length,
+        domain,
+        pid: process.pid,
+        secretName: result.secretName,
+        state: 'complete',
+        storedSecret: Boolean(result.wroteSecret),
+        storedRefreshToken: Boolean(result.wroteRefreshToken),
+      });
+    }
+
+    return result;
+  } catch (error) {
+    if (opts.statusFile) {
+      writeAuthStatus(opts.statusFile, {
+        command: 'setup',
+        domain,
+        error: error.message || String(error),
+        failedAt: new Date().toISOString(),
+        pid: process.pid,
+        state: 'error',
+      });
+    }
+    throw error;
+  }
+}
+
+async function startDetachedSetup(opts, domain, country) {
+  const proxy = await resolveProxyPort(opts.proxyPort);
+  const statusFile = resolveStatusFile(opts, domain);
+  const logFile = resolveLogFile(opts, domain);
+  const timeout = timeoutMs(opts.timeoutMs);
+  const startedAt = new Date().toISOString();
+  const args = [
+    __filename,
+    'setup',
+    '--domain',
     domain,
-    refreshToken,
-    runtimeBaseUrl: auth.runtimeBaseUrl,
-    writeRefreshToken: opts.writeRefreshToken,
-    writeSecret: opts.writeSecret,
+    '--country',
+    country,
+    '--proxy-port',
+    String(proxy.port),
+    '--timeout-ms',
+    String(timeout),
+    '--status-file',
+    statusFile,
+    '--format',
+    'json',
+  ];
+  if (opts.writeSecret) args.push('--write-secret');
+  if (opts.writeRefreshToken) args.push('--write-refresh-token');
+
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  const logFd = fs.openSync(logFile, 'a', 0o600);
+  const child = spawn(process.execPath, args, {
+    detached: true,
+    env: process.env,
+    stdio: ['ignore', logFd, logFd],
   });
+  child.unref();
+  fs.closeSync(logFd);
+
+  writeAuthStatus(statusFile, {
+    command: 'setup',
+    domain,
+    logFile,
+    pid: child.pid,
+    port: proxy.port,
+    proxyUrl: `http://127.0.0.1:${proxy.port}/`,
+    startedAt,
+    state: 'starting',
+  });
+
+  return {
+    command: 'setup',
+    detached: true,
+    domain,
+    logFile,
+    pid: child.pid,
+    port: proxy.port,
+    proxyUrl: `http://127.0.0.1:${proxy.port}/`,
+    statusFile,
+    statusCommand: `node skills/alexa/alexa-auth.cjs status --domain ${domain}`,
+    timeoutMs: timeout,
+  };
+}
+
+function setupStatus(opts) {
+  const domain = validateAmazonDomain(opts.domain);
+  const statusFile = resolveStatusFile(opts, domain);
+  const status = readAuthStatus(statusFile);
+  if (!status) {
+    return {
+      command: 'status',
+      domain,
+      exists: false,
+      state: 'missing',
+      statusFile,
+    };
+  }
+  return {
+    command: 'status',
+    domain,
+    exists: true,
+    processAlive: processIsAlive(status.pid),
+    statusFile,
+    ...status,
+  };
 }
 
 async function main() {
@@ -752,6 +965,10 @@ async function main() {
   const command = positional[0];
   if (command === 'setup') {
     printJson(await setup(opts), opts.format);
+    return;
+  }
+  if (command === 'status') {
+    printJson(setupStatus(opts), opts.format);
     return;
   }
   if (command === 'import-cookie') {
@@ -768,6 +985,7 @@ if (require.main === module) {
 module.exports = {
   alexaDevicesApiUrl,
   alexaRuntimeBaseUrl,
+  authStatusPath,
   authBaseDomain,
   buildCookieHeader,
   csrfFromCookieHeader,
