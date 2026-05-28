@@ -364,8 +364,14 @@ When handling the setup prompt, run the bundled auth helper from the agent
 workspace:
 
 ```bash
-node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret
+node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --timeout-ms 600000
 ```
+
+If invoking this through a shell tool that has its own timeout, set that tool
+timeout to at least `600000` ms too. Browser login, OTP, CAPTCHA, and Safari
+handoff regularly take longer than 60 seconds; killing the shell command also
+kills the local proxy and produces Safari errors such as "server unexpectedly
+closed the connection" on `127.0.0.1:<port>/www.amazon.com/ap/signin`.
 
 Do not invoke `alexa-cookie-cli` directly during slash handling. The bundled
 helper wraps it with the domain rules Alexa expects: for western marketplaces

@@ -10,7 +10,7 @@ const path = require('node:path');
 
 const DEFAULT_DOMAIN = 'amazon.com';
 const DEFAULT_PROXY_PORT = 8080;
-const DEFAULT_TIMEOUT_MS = 180_000;
+const DEFAULT_TIMEOUT_MS = 600_000;
 const COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
 const REFRESH_TOKEN_SECRET = 'ALEXA_REMOTE_REFRESH_TOKEN';
 const COOKIE_CLI_VERSION = 'v5.0.1';
@@ -29,8 +29,8 @@ function usage() {
   return `Alexa Remote authentication helper
 
 Usage:
-  node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret
-  node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --write-refresh-token
+  node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --timeout-ms 600000
+  node skills/alexa/alexa-auth.cjs setup --domain amazon.de --write-secret --write-refresh-token --timeout-ms 600000
   node skills/alexa/alexa-auth.cjs import-cookie --config /path/to/cookie-config.json --write-secret
 
 Options:
