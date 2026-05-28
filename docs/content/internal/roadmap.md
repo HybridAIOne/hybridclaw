@@ -20,14 +20,14 @@ The roadmap is anchored in the [HybridClaw manifesto — *The AI Coworker Who's 
 | # | Feature | Description | Priority | Status |
 |---|---------|-------------|----------|--------|
 | 21 | **Business skills and connectors** | Production skills and connector work. See **R21 Production Skills** below for sub-issue rows. *Principle I — the skills are the product.* | P0 | 🟡 21/111 |
-| 1 | **Agent-to-agent messaging** | First-class primitive for agents to message, hand off, escalate, federate across instances, and speak multiple transport formats. See **R1 Messaging Work** below for sub-issue rows. *Principle VI.* | P0 | 🟡 9/14 |
+| 1 | **Agent-to-agent messaging** | First-class primitive for agents to message, hand off, escalate, federate across instances, and speak multiple transport formats. See **R1 Messaging Work** below for sub-issue rows. *Principle VI.* | P0 | 🟡 11/14 |
 | 2 | **Workflow engine — autonomous-by-default with high-stakes escalation** | Declarative YAML workflows. Sequential runner; escalation gates only on high-stakes steps. Return-for-revision rewinds. Built on top of #1. See **R2 Workflow Work** below for sub-issue rows. *Principles II + VI.* | P0 | 🔄 #461 |
 | 3 | **Agent scoreboard + auto-`CV.md`** | Per-skill score data model populated from the skill-run event bus. Auto-rendered CV per agent; admin scoreboard; "best at X" recommendation API. See **R3 Scoreboard Work** below for the follow-up row. *Principle IV.* | P0 | ✅ (5/5; follow-up R3.7 ✅ #618; #616, #619 still open) |
 | 4 | **Business-secret masking + demasking** | **Substantially built** — round-trip placeholder scheme (`«CONF:RULE_ID»`), `dehydrateConfidential` / `rehydrateConfidential`, streaming-aware rehydrate, scoring + leak scan all live in [`src/security/confidential-redact.ts`](../../../src/security/confidential-redact.ts) + [`confidential-runtime.ts`](../../../src/security/confidential-runtime.ts) + [`confidential-rules.ts`](../../../src/security/confidential-rules.ts). Net-new: (a) first-class `nda` / `price` / `contract` rule kinds (current schema has generic `keyword`/`pattern`), (b) `confidential.dehydrated` / `confidential.rehydrated` audit events. *Principle VII.* | P0 | 🟡 4/6 (round-trip + streaming + scoring shipped; rule-kinds + audit events open) |
 | 5 | **Token / money budgets per agent** | Metering substrate done: `UsageTotals` + `monthlySpendUsd()` / `monthlySpendEur()` ([`src/memory/db.ts:3437-3560`](../../../src/memory/db.ts)) + agent-card surfacing. Enforcement remains open. See **R5 Budget Work** below for sub-issue rows. *Principle IX.* | P0 | 🟡 2/8 |
 | 6 | **NDA / secret-leak classifier** | **Rule-based offline scanner already shipped** via #406 — [`src/audit/leak-scanner.ts`](../../../src/audit/leak-scanner.ts) (650 lines) reuses `scanForLeaks` from [`confidential-redact.ts:168`](../../../src/security/confidential-redact.ts) with severity/category buckets + CLI. **Inline `post_receive` middleware ✅ via PR #763 (2026-05-01)** — leak scanner now ships as a `ClassifierMiddlewareSkill` adapter with real escalation approvals on `block`, hooked into the executor turn loop. **F3 action mapping ✅ via PR #763** — middleware contract returns `allow` / `block` / `warn` / `transform` / `escalate` and the executor dispatches accordingly. Net-new remaining: (c) optional **F11 LLM-judge fallback** for borderline scores via the F11.4 subscriber pattern, (d) eval suite. *Principle VII.* | P0 | 🟡 3/4 (rule-based scanner ✅ #406; pre-ship hook + F3 action wiring ✅ via PR #763; LLM-judge + eval open) |
 | 7 | **Shared enterprise memory** | RAG over team docs / CRM / wiki, available in self-hosted HC. **Substrate already exists**: [`src/memory/`](../../../src/memory/) ships chunker (`chunk.ts`), embeddings (`transformers-embedding-provider.ts`), semantic recall (`semantic-recall.ts`), knowledge graph, consolidation — but agent-scoped, not team-scoped. Net-new: (a) **`source` dimension** on the recall index (agent / team / tenant / external), (b) ingestion CLI for team docs/CRM/wiki sources, (c) per-agent source-scoping policy, (d) retrieval-quality eval suite. **Reuse the existing chunker + embeddings + recall — don't spin up a fresh vector store.** *Principle I.* | P1 | ⬜ (substrate ready) |
-| 8 | **Brand-voice + output classifier** | Per-tenant voice profile and pre-ship response classifier. Refactored onto the F8 classifier-middleware contract via PR #763. See **R8 Brand-Voice Work** below for sub-issue rows. *Principle VII.* | P1 | 🟡 4/6 |
+| 8 | **Brand-voice + output classifier** | Per-tenant voice profile and pre-ship response classifier. Refactored onto the F8 classifier-middleware contract via PR #763. See **R8 Brand-Voice Work** below for sub-issue rows. *Principle VII.* | P1 | 🟡 5/6 |
 | 9 | **Hierarchical swarm — RPC delegation track** | Cross-instance delegation where one instance dispatches a task and awaits a result from another. Shares transport, auth, and audit infrastructure with R1 federation. See **R9 Delegation Work** below for sub-issue rows. *Principle VI.* | P0 | 🟡 2/7 |
 | 10 | **Auto-improvement on real tasks** | Trajectory pipeline feeding adaptive skill optimization, auto harness evolution, and fine-tuning. See **R10 Auto-Improvement Work** below for sub-issue rows. *Principle VIII.* | P1 | 🟡 5/10 |
 | 11 | **Operator notification windows + escalation routing** | *Reframed under v3 Principle III.* The coworker is always on; this issue covers per-operator notification preferences (when to page vs. queue for the morning summary) and escalation routing through F8. | P2 | ⬜ (2 anti-principle children closed) |
@@ -350,11 +350,11 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 |----|------|------|--------|
 | R1.1 | Core | Persisted A2A envelope store | ✅ Done |
 | R1.2 | Core | A2A send-message primitive | ✅ Done #425 via PR #695 |
-| R1.3 | Admin | Admin inbox surface for inbound agent work | ⬜ #426 |
+| R1.3 | Admin | Admin inbox surface for inbound agent work | ✅ #426 via PR #1060 |
 | R1.5 | Audit | Hash-chain audit-log integration for saved A2A envelopes | ✅ #429 via PR #1025 (`src/a2a/audit.ts`) |
 | R1.6 | Federation | Cross-instance routing in `sendMessage` | ✅ #717 via PR #1083 |
 | R1.7 | Federation | Inbound peer endpoint | ⬜ #718 |
-| R1.8 | Federation | Envelope schema additions for cross-instance routing | ⬜ #719 |
+| R1.8 | Federation | Envelope schema additions for cross-instance routing | ✅ #719 via PR #997 |
 | R1.9 | Federation | Operator pairing UX | ⬜ #720 |
 | R1.10 | Transport | Transport registry and peer descriptor schema | ✅ #765 via PR #777 |
 | R1.11 | Transport | A2A outbound adapter | ✅ #766 via PR #795 (retry classification follow-up via PR #884) |
@@ -407,7 +407,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R8.1 | Classifier | Brand-voice profile schema | ✅ Done |
 | R8.2 | Classifier | Response classifier integration | ✅ Done |
 | R8.3 | Middleware | Brand-voice middleware adapter | ✅ PR #408, refactored via PR #763 |
-| R8.4 | Admin | Brand-voice profile editor | ⬜ #477 |
+| R8.4 | Admin | Brand-voice profile editor | ✅ #477 via PR #1065 |
 | R8.5 | Channels | Per-channel voice variants | ✅ #478 via PR #1079 |
 | R8.6 | Policy | Gate enforcement config for brand-voice middleware | ⬜ #682 |
 
