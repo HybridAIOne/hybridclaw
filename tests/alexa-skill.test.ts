@@ -476,6 +476,7 @@ process.exit(1);
       '--config',
       config,
       '--write-secret',
+      '--skip-verify',
     ],
     { HYBRIDCLAW_BIN: fakeHybridClaw },
   );
@@ -495,6 +496,62 @@ process.exit(1);
   ]);
   expect(result.stdout).not.toContain('abc123');
   expect(result.stdout).not.toContain('csrf-token');
+});
+
+test('Alexa auth helper infers amazon.de from copied Safari cURL imports', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-alexa-auth-'));
+  tempDirs.push(dir);
+  const config = path.join(dir, 'safari-curl.txt');
+  fs.writeFileSync(
+    config,
+    [
+      "curl 'https://alexa.amazon.de/api/devices-v2/device?cached=false'",
+      "-H 'Cookie: session-id=abc123; csrf=csrf-token; at-acbde=access-token; ubid-acbde=region'",
+    ].join(' \\\n'),
+  );
+  const fakeHybridClaw = writeExecutable(
+    'hybridclaw',
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === 'secret' && args[1] === 'set' && args[2] === 'ALEXA_REFRESH_COOKIE') {
+  console.log('Stored encrypted secret ALEXA_REFRESH_COOKIE.');
+  process.exit(0);
+}
+console.error('unexpected args: ' + args.slice(0, 3).join(' '));
+process.exit(1);
+`,
+  );
+
+  const result = runAuthHelper(
+    [
+      '--format',
+      'json',
+      'import-cookie',
+      '--config',
+      config,
+      '--write-secret',
+      '--skip-verify',
+    ],
+    { HYBRIDCLAW_BIN: fakeHybridClaw },
+  );
+
+  expect(result.status, result.stderr).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload).toMatchObject({
+    command: 'import-cookie',
+    domain: 'amazon.de',
+    runtimeBaseUrl: 'https://layla.amazon.com',
+    wroteSecret: true,
+  });
+  expect(payload.cookie.cookieNames).toEqual([
+    'session-id',
+    'csrf',
+    'at-acbde',
+    'ubid-acbde',
+  ]);
+  expect(result.stdout).not.toContain('abc123');
+  expect(result.stdout).not.toContain('csrf-token');
+  expect(result.stdout).not.toContain('access-token');
 });
 
 test('Alexa response builder strips unsafe markdown and long URLs from SSML', () => {

@@ -48,6 +48,7 @@ Options:
   --write-secret        Store the discovered cookie as ${COOKIE_SECRET}.
   --write-refresh-token Store the captured refresh token as ${REFRESH_TOKEN_SECRET}.
   --config FILE         JSON, copied cURL, or raw headers/text containing a full Cookie header.
+  --skip-verify         Store/import without calling Alexa Remote APIs.
   --format json|pretty  json emits compact output; pretty emits indented output. Defaults to pretty.
   --help                Show this help.
 
@@ -75,6 +76,7 @@ function parseArgs(argv) {
     '--detach',
     '--help',
     '-h',
+    '--skip-verify',
     '--write-refresh-token',
     '--write-secret',
   ]);
@@ -84,6 +86,7 @@ function parseArgs(argv) {
     if (booleanFlags.has(arg)) {
       if (arg === '--detach') opts.detach = true;
       if (arg === '--help' || arg === '-h') opts.help = true;
+      if (arg === '--skip-verify') opts.skipVerify = true;
       if (arg === '--write-refresh-token') opts.writeRefreshToken = true;
       if (arg === '--write-secret') opts.writeSecret = true;
       continue;
@@ -100,6 +103,7 @@ function parseArgs(argv) {
       if (arg === '--format' && !['json', 'pretty'].includes(value)) {
         fail('--format must be json or pretty.');
       }
+      if (arg === '--domain') opts.domainExplicit = true;
       opts[toCamel(arg.slice(2))] = value;
       index += 1;
       continue;
@@ -385,6 +389,36 @@ function findCookieHeaderInText(value) {
   return null;
 }
 
+function inferAlexaDomainFromText(value) {
+  const text = String(value || '');
+  for (const match of text.matchAll(/https?:\/\/([^/\s'"\\]+)/gi)) {
+    const host = match[1].toLowerCase();
+    const domain = host
+      .replace(/^alexa\./, '')
+      .replace(/^www\./, '')
+      .replace(/^api\./, '');
+    if (/^amazon\.[a-z0-9.-]+$/.test(domain)) return domain;
+  }
+  return null;
+}
+
+function inferAlexaDomainFromCookie(cookieHeader) {
+  const names = cookieHeader
+    .split(';')
+    .map((part) => part.trim().split('=')[0].toLowerCase());
+  const hasCookie = (suffix) => names.some((name) => name.endsWith(suffix));
+
+  if (hasCookie('-acbde')) return 'amazon.de';
+  if (hasCookie('-acbuk')) return 'amazon.co.uk';
+  if (hasCookie('-acbfr')) return 'amazon.fr';
+  if (hasCookie('-acbit')) return 'amazon.it';
+  if (hasCookie('-acbes')) return 'amazon.es';
+  if (hasCookie('-acbjp')) return 'amazon.co.jp';
+  if (hasCookie('-main')) return 'amazon.com';
+
+  return null;
+}
+
 function findCookieHeader(value) {
   if (typeof value === 'string') return findCookieHeaderInText(value);
   if (!value || typeof value !== 'object') return null;
@@ -459,10 +493,21 @@ function writeHybridClawRefreshToken(refreshToken) {
 function readJsonFile(filePath) {
   const raw = fs.readFileSync(filePath, 'utf8');
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !parsed.domain) {
+      parsed.domain = inferAlexaDomainFromText(raw);
+    }
+    return parsed;
   } catch (error) {
     const cookieHeader = findCookieHeaderInText(raw);
-    if (cookieHeader) return { cookie: cookieHeader };
+    if (cookieHeader) {
+      return {
+        cookie: cookieHeader,
+        domain:
+          inferAlexaDomainFromText(raw) ||
+          inferAlexaDomainFromCookie(cookieHeader),
+      };
+    }
     throw new Error(
       `Could not read ${filePath} as JSON or find a Cookie header: ${error.message}`,
     );
@@ -475,7 +520,7 @@ function findReadableConfig(configPath) {
   throw new Error('Pass --config FILE pointing at JSON that contains a cookie header.');
 }
 
-function importCookie(opts) {
+async function importCookie(opts) {
   const configPath = findReadableConfig(opts.config);
   const config = readJsonFile(configPath);
   const cookieHeader = findCookieHeader(config);
@@ -484,13 +529,24 @@ function importCookie(opts) {
       `No full Alexa Remote Cookie header was found in ${configPath}.`,
     );
   }
+  const domain = validateAmazonDomain(
+    opts.domainExplicit
+      ? opts.domain
+      : config.domain || inferAlexaDomainFromCookie(cookieHeader) || opts.domain,
+  );
+  const country = validateAmazonDomain(opts.country || domain);
+
+  const auth = opts.skipVerify
+    ? { devices: [], runtimeBaseUrl: alexaRuntimeBaseUrl(country) }
+    : await verifyCookieHeaderWithFallbacks(cookieHeader, domain, [country]);
 
   return cookieResult({
     command: 'import-cookie',
-    cookieHeader,
-    devices: [],
-    domain: null,
+    cookieHeader: auth.cookieHeader || cookieHeader,
+    devices: auth.devices,
+    domain,
     profileDir: null,
+    runtimeBaseUrl: auth.runtimeBaseUrl,
     writeSecret: opts.writeSecret,
   });
 }
@@ -1156,7 +1212,7 @@ async function main() {
     return;
   }
   if (command === 'import-cookie') {
-    printJson(importCookie(opts), opts.format);
+    printJson(await importCookie(opts), opts.format);
     return;
   }
   fail(`Unknown command: ${command}`);
