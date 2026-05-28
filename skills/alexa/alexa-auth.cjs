@@ -231,9 +231,8 @@ function alexaDevicesApiUrl(domain) {
 }
 
 function authBaseDomain(domain) {
-  if (domain === 'amazon.com') return 'amazon.com';
   if (domain === 'amazon.co.jp') return 'amazon.co.jp';
-  return domain;
+  return 'amazon.com';
 }
 
 function alexaRuntimeBaseUrl(domain) {
@@ -760,7 +759,7 @@ function cookieHeaderFromExchange(payload) {
   return parts.join('; ');
 }
 
-async function exchangeRefreshToken(refreshToken, domain, country) {
+async function exchangeRefreshToken(refreshToken, authDomain, localDomain) {
   const exchange = await postForm(
     'https://api.amazon.com/ap/exchangetoken/cookies',
     {
@@ -768,10 +767,10 @@ async function exchangeRefreshToken(refreshToken, domain, country) {
       requested_token_type: 'auth_cookies',
       source_token_type: 'refresh_token',
       source_token: refreshToken,
-      domain: `.${domain}`,
+      domain: `.${authDomain}`,
     },
     {
-      'x-amzn-identity-auth-domain': `api.${domain}`,
+      'x-amzn-identity-auth-domain': `api.${authDomain}`,
     },
   );
   let cookieHeader = cookieHeaderFromExchange(exchange);
@@ -779,7 +778,9 @@ async function exchangeRefreshToken(refreshToken, domain, country) {
     throw new Error('Amazon token exchange returned no cookies.');
   }
 
-  const csrf = await fetchCsrf(cookieHeader, domain, country);
+  const csrf =
+    csrfFromCookieHeader(cookieHeader) ||
+    await fetchCsrf(cookieHeader, localDomain, localDomain);
   if (!csrf) {
     throw new Error('Could not retrieve Alexa CSRF token from exchanged cookies.');
   }
@@ -787,7 +788,7 @@ async function exchangeRefreshToken(refreshToken, domain, country) {
     cookieHeader = `${cookieHeader}; csrf=${csrf}`;
   }
 
-  return verifyCookieHeader(cookieHeader, domain, country, csrf);
+  return verifyCookieHeader(cookieHeader, localDomain, localDomain, csrf);
 }
 
 async function verifyCookieHeader(
@@ -912,14 +913,14 @@ async function setup(opts) {
     if (!browserAuth?.cookieHeader && !refreshToken) {
       throw new Error('Amazon login completed without returning Alexa cookies or a refresh token.');
     }
-    const auth = browserAuth?.cookieHeader
-      ? await verifyCookieHeaderWithFallbacks(
+    const auth = refreshToken
+      ? await exchangeRefreshToken(refreshToken, authBaseDomain(domain), country)
+      : await verifyCookieHeaderWithFallbacks(
           browserAuth.cookieHeader,
           domain,
           [country, browserAuth.amazonPage],
           browserAuth.csrf,
-        )
-      : await exchangeRefreshToken(refreshToken, domain, country);
+        );
 
     const result = cookieResult({
       command: 'setup',
@@ -1105,6 +1106,7 @@ module.exports = {
   buildCookieHeader,
   csrfFromCookieHeader,
   cookieHeaderFromExchange,
+  exchangeRefreshToken,
   findCookieHeader,
   localeFlags,
   normalizeDevices,

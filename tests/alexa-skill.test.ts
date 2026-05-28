@@ -269,7 +269,7 @@ test('Alexa auth helper normalizes browser cookies and device API payloads', () 
   expect(alexaAuth.alexaDevicesApiUrl('amazon.de')).toBe(
     'https://alexa.amazon.de/api/devices-v2/device?cached=false',
   );
-  expect(alexaAuth.authBaseDomain('amazon.de')).toBe('amazon.de');
+  expect(alexaAuth.authBaseDomain('amazon.de')).toBe('amazon.com');
   expect(alexaAuth.authBaseDomain('amazon.co.jp')).toBe('amazon.co.jp');
   expect(alexaAuth.alexaRuntimeBaseUrl('amazon.de')).toBe(
     'https://layla.amazon.com',
@@ -382,6 +382,64 @@ test('Alexa auth helper verifies browser cookies against requested marketplace f
   expect(fetchMock.mock.calls[0]?.[0]).toBe(
     'https://alexa.amazon.de/api/devices-v2/device?cached=false',
   );
+});
+
+test('Alexa auth helper exchanges refresh tokens on auth domain and verifies local marketplace', async () => {
+  const fetchMock = vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation(async (url, init) => {
+      const href = String(url);
+      if (href === 'https://api.amazon.com/ap/exchangetoken/cookies') {
+        expect(String(init?.body)).toContain('domain=.amazon.com');
+        expect(init?.headers).toMatchObject({
+          'x-amzn-identity-auth-domain': 'api.amazon.com',
+        });
+        return new Response(
+          JSON.stringify({
+            response: {
+              tokens: {
+                cookies: {
+                  '.amazon.com': [{ Name: 'session-id', Value: 'abc123' }],
+                  '.alexa.amazon.com': [
+                    { Name: 'csrf', Value: 'csrf-token' },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (
+        href ===
+        'https://alexa.amazon.de/api/devices-v2/device?cached=false'
+      ) {
+        return new Response(
+          JSON.stringify({
+            devices: [
+              {
+                accountName: 'OK Computer',
+                serialNumber: 'G090LF09647500TV',
+                deviceType: 'A3S5BH2HU6VAYF',
+                deviceOwnerCustomerId: 'A1EXAMPLECUSTOMER',
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${href}`);
+    });
+
+  const auth = await alexaAuth.exchangeRefreshToken(
+    'Atnr|test-token',
+    'amazon.com',
+    'amazon.de',
+  );
+
+  expect(auth.runtimeBaseUrl).toBe('https://layla.amazon.com');
+  expect(auth.cookieHeader).toContain('session-id=abc123');
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
 test('Alexa auth helper imports a recognized cookie header without printing secret values', () => {
