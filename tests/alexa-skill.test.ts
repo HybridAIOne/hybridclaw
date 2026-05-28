@@ -269,7 +269,7 @@ test('Alexa auth helper normalizes browser cookies and device API payloads', () 
   expect(alexaAuth.alexaDevicesApiUrl('amazon.de')).toBe(
     'https://alexa.amazon.de/api/devices-v2/device?cached=false',
   );
-  expect(alexaAuth.authBaseDomain('amazon.de')).toBe('amazon.com');
+  expect(alexaAuth.authBaseDomain('amazon.de')).toBe('amazon.de');
   expect(alexaAuth.authBaseDomain('amazon.co.jp')).toBe('amazon.co.jp');
   expect(alexaAuth.alexaRuntimeBaseUrl('amazon.de')).toBe(
     'https://layla.amazon.com',

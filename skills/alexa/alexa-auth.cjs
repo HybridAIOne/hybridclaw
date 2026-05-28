@@ -231,7 +231,9 @@ function alexaDevicesApiUrl(domain) {
 }
 
 function authBaseDomain(domain) {
-  return domain === 'amazon.co.jp' ? 'amazon.co.jp' : 'amazon.com';
+  if (domain === 'amazon.com') return 'amazon.com';
+  if (domain === 'amazon.co.jp') return 'amazon.co.jp';
+  return domain;
 }
 
 function alexaRuntimeBaseUrl(domain) {

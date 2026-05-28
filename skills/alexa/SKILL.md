@@ -396,14 +396,14 @@ If invoking non-detached foreground setup through a shell tool, set that tool
 timeout to at least `600000` ms too. Browser login, OTP, CAPTCHA, and Safari
 handoff regularly take longer than 60 seconds; killing the shell command also
 kills the local proxy and produces Safari errors such as "server unexpectedly
-closed the connection" on `127.0.0.1:<port>/www.amazon.com/ap/signin`.
+closed the connection" on `127.0.0.1:<port>/www.amazon.de/ap/signin`.
 
 The bundled helper owns the browser proxy and token callback. It uses Amazon's
-expected domain rules: for western marketplaces such as `amazon.de`, the proxy
-base is `amazon.com` and the marketplace stays `amazon.de`. If the browser shows
-Amazon's "Suchst du etwas?" 404 page at the local proxy URL, or login completes
-but no `Atnr|...` token is returned to the terminal, stop that run and restart
-through `alexa-auth.cjs`.
+marketplace domain for the login proxy, so `--domain amazon.de` starts from
+Amazon.de sign-in instead of routing a German account through Amazon.com. If the
+browser shows Amazon's "Suchst du etwas?" 404 page at the local proxy URL, or
+login completes but no `Atnr|...` token is returned to the terminal, stop that
+run and restart through `alexa-auth.cjs`.
 
 The helper starts Amazon's Alexa device-login flow on a local callback port,
 captures the resulting `Atnr|...` refresh token, exchanges it for Alexa Remote
