@@ -272,6 +272,38 @@ type HttpResponseReadResult = {
   truncated: boolean;
 };
 
+function readDeclaredBodyBytes(response: Response): number | undefined {
+  const contentLength = Number.parseInt(
+    String(response.headers.get('content-length') || ''),
+    10,
+  );
+  return Number.isFinite(contentLength) ? contentLength : undefined;
+}
+
+function sendSuppressedBodyResponse(
+  res: ServerResponse,
+  response: Response,
+  bodyBytes: number,
+  bodyTruncated: boolean,
+  maxResponseBytes: number,
+): void {
+  sendJson(res, 200, {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    url: response.url,
+    headers: Object.fromEntries(response.headers.entries()),
+    bodySuppressed: true,
+    bodyBytes,
+    ...(bodyTruncated
+      ? {
+          bodyTruncated: true,
+          maxResponseBytes,
+        }
+      : {}),
+  });
+}
+
 async function readHttpResponseBuffer(
   response: Response,
   maxResponseBytes: number,
@@ -1241,7 +1273,6 @@ function captureSecretResponseFields(
 function normalizeCapturedValue(value: unknown): string {
   if (typeof value === 'string') return value.trim();
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  if (typeof value === 'boolean') return String(value);
   return '';
 }
 
@@ -1655,45 +1686,33 @@ export async function handleApiHttpRequest(
     );
   }
 
-  const contentLength = Number.parseInt(
-    String(response.headers.get('content-length') || ''),
-    10,
-  );
+  const declaredBodyBytes = readDeclaredBodyBytes(response);
+
+  if (suppressResponseBody && captureFields.length === 0) {
+    await response.body?.cancel();
+    sendSuppressedBodyResponse(
+      res,
+      response,
+      declaredBodyBytes ?? 0,
+      false,
+      maxResponseBytes,
+    );
+    return;
+  }
+
   const responseBody =
-    Number.isFinite(contentLength) && contentLength > maxResponseBytes
+    declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes
       ? {
           buffer: Buffer.alloc(0),
-          bytesRead: contentLength,
+          bytesRead: declaredBodyBytes,
           truncated: true,
         }
       : await readHttpResponseBuffer(response, maxResponseBytes);
-  const declaredBodyBytes = Number.isFinite(contentLength)
-    ? contentLength
-    : undefined;
   const bodyBytes =
     responseBody.truncated && declaredBodyBytes !== undefined
       ? declaredBodyBytes
       : responseBody.bytesRead;
   const bodyTruncated = responseBody.truncated;
-
-  if (suppressResponseBody && captureFields.length === 0) {
-    sendJson(res, 200, {
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      url: response.url,
-      headers: Object.fromEntries(response.headers.entries()),
-      bodySuppressed: true,
-      bodyBytes,
-      ...(bodyTruncated
-        ? {
-            bodyTruncated: true,
-            maxResponseBytes,
-          }
-        : {}),
-    });
-    return;
-  }
 
   const responseText = responseBody.buffer.toString('utf-8');
   let responseJson: unknown;
@@ -1722,21 +1741,13 @@ export async function handleApiHttpRequest(
   }
 
   if (suppressResponseBody) {
-    sendJson(res, 200, {
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      url: response.url,
-      headers: Object.fromEntries(response.headers.entries()),
-      bodySuppressed: true,
+    sendSuppressedBodyResponse(
+      res,
+      response,
       bodyBytes,
-      ...(bodyTruncated
-        ? {
-            bodyTruncated: true,
-            maxResponseBytes,
-          }
-        : {}),
-    });
+      bodyTruncated,
+      maxResponseBytes,
+    );
     return;
   }
 
