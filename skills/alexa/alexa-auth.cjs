@@ -12,7 +12,7 @@ const DEFAULT_PROXY_PORT = 8080;
 const DEFAULT_TIMEOUT_MS = 600_000;
 const COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
 const REFRESH_TOKEN_SECRET = 'ALEXA_REMOTE_REFRESH_TOKEN';
-const COOKIE_LIB_VERSION = '5.0.1';
+const COOKIE_LIB_VERSION = '5.0.3';
 
 function fail(message, code = 2) {
   process.stderr.write(`${message}\n`);
@@ -618,7 +618,9 @@ function runBrowserAuthWithCookieLibrary(opts, domain, country, proxy) {
         proxyOwnIp: '127.0.0.1',
         proxyPort: proxy.port,
         proxyListenBind: '0.0.0.0',
-        deviceAppName: 'alexa_cookie_cli',
+        deviceAppName: 'hybridclaw_alexa',
+        proxyCloseWindowHTML:
+          '<b>HybridClaw Alexa authentication complete. You can close this browser tab.</b>',
       },
       (error, result) => {
         if (result?.localCookie) {
