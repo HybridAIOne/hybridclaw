@@ -58,7 +58,16 @@ sessions).
 ## Request Logging
 
 When environment-level checks pass but a specific turn still needs debugging,
-start or restart the gateway with request logging enabled:
+start with the focused audit trace before enabling persistent request logging:
+
+```text
+/audit turn 3
+/audit run run_abc123
+```
+
+Those views show the request, response, tool, approval, and audit events around
+one turn. If the trace is not enough, start or restart the gateway with request
+logging enabled:
 
 ```bash
 hybridclaw gateway start --log-requests
