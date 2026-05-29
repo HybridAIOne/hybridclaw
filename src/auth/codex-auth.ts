@@ -19,7 +19,7 @@ export const CODEX_DEFAULT_CALLBACK_HOST = '127.0.0.1';
 export const CODEX_DEFAULT_CALLBACK_PORT = 1455;
 export const CODEX_DEFAULT_CALLBACK_REDIRECT_HOST = 'localhost';
 export const CODEX_DEFAULT_DEVICE_CODE_VERIFICATION_URL =
-  'https://auth.openai.com/activate';
+  'https://auth.openai.com/codex/device';
 export const CODEX_REFRESH_SKEW_MS = 2 * 60_000;
 export const CODEX_LOCK_STALE_MS = 30_000;
 export const CODEX_LOCK_TIMEOUT_MS = 15_000;
@@ -785,7 +785,9 @@ function normalizeDeviceCodeResponse(payload: unknown): DeviceCodeResponse {
     normalizeString(payload.device_code) ||
     normalizeString(payload.deviceCode);
   const userCode =
-    normalizeString(payload.user_code) || normalizeString(payload.userCode);
+    normalizeString(payload.user_code) ||
+    normalizeString(payload.userCode) ||
+    normalizeString(payload.usercode);
   const verificationUrl =
     normalizeString(payload.verification_uri) ||
     normalizeString(payload.verification_url) ||
