@@ -1,0 +1,2583 @@
+#!/usr/bin/env node
+'use strict';
+
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const https = require('node:https');
+const os = require('node:os');
+const path = require('node:path');
+
+const SKILL_NAME = 'alexa';
+const ASK_SIGNATURE_WINDOW_SECONDS = 150;
+const ASK_CERT_HOST = 's3.amazonaws.com';
+const ASK_CERT_PATH_PREFIX = '/echo.api/';
+const ASK_CERT_SAN_HOST = 'echo-api.amazon.com';
+const DEFAULT_SMARTHOME_REGION_HOST = 'api.amazonalexa.com';
+const DEFAULT_AMAZON_DOMAIN = 'amazon.com';
+const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
+const SMARTHOME_BEARER_SECRET = 'ALEXA_SMARTHOME_ACCESS_TOKEN';
+const COMMUNITY_COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
+const MAX_TEXT_BYTES = 4096;
+const DEFAULT_MUSIC_PROVIDER = 'AMAZON_MUSIC';
+const DEFAULT_TIMEOUT_MS = 30_000;
+const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
+const COMMUNITY_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Safari/605.1.15';
+const AUTH_STOP = {
+  stopOnStatuses: [401, 403],
+  stopOnErrorTypes: ['INVALID_AUTHORIZATION_CREDENTIAL'],
+};
+const RUNTIME_SECRETS_FILE = 'credentials.json';
+const RUNTIME_MASTER_KEY_FILE = 'credentials.master.key';
+const RUNTIME_MASTER_KEY_SECRET_PATH = '/run/secrets/hybridclaw_master_key';
+const PASSPHRASE_KDF_SALT = 'hybridclaw-master-key-v1';
+const SECRET_STORE_ALGORITHM = 'aes-256-gcm';
+const SECRET_STORE_TAG_BYTES = 16;
+
+function communityCookieSecretHeaders() {
+  return [
+    {
+      name: 'Cookie',
+      secretName: COMMUNITY_COOKIE_SECRET,
+      prefix: 'none',
+    },
+  ];
+}
+const STARFIELD_SERVICES_ROOT_CA_G2_PEM = `-----BEGIN CERTIFICATE-----
+MIID7zCCAtegAwIBAgIBADANBgkqhkiG9w0BAQsFADCBmDELMAkGA1UEBhMCVVMxEDAOBgNV
+BAgTB0FyaXpvbmExEzARBgNVBAcTClNjb3R0c2RhbGUxJTAjBgNVBAoTHFN0YXJmaWVsZCBU
+ZWNobm9sb2dpZXMsIEluYy4xOzA5BgNVBAMTMlN0YXJmaWVsZCBTZXJ2aWNlcyBSb290IENl
+cnRpZmljYXRlIEF1dGhvcml0eSAtIEcyMB4XDTA5MDkwMTAwMDAwMFoXDTM3MTIzMTIzNTk1
+OVowgZgxCzAJBgNVBAYTAlVTMRAwDgYDVQQIEwdBcml6b25hMRMwEQYDVQQHEwpTY290dHNk
+YWxlMSUwIwYDVQQKExxTdGFyZmllbGQgVGVjaG5vbG9naWVzLCBJbmMuMTswOQYDVQQDEzJT
+dGFyZmllbGQgU2VydmljZXMgUm9vdCBDZXJ0aWZpY2F0ZSBBdXRob3JpdHkgLSBHMjCCASIw
+DQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANUMOsQq+U7i9b4Zl1+OiFOxHz/Lz58gE20p
+OsgPfTz3a3Y4Y9k2YKibXlwAgLIvWX/2h/klQ4bnaRtSmpDhcePYLQ1Ob/bISdm28xpWriu2
+dBTrz/sm4xq6HZYuajtYlIlHVv8loJNwU4PahHQUw2eeBGg6345AWh1KTs9DkTvnVtYAcMtS
+7nt9rjrnvDH5RfbCYM8TWQIrgMw0R9+53pBlbQLPLJGmpufehRhJfGZOozptqbXuNC66DQO4
+M99H67FrjSXZm86B0UVGMpZwh94CDklDhbZsc7tk6mFBrMnUVN+HL8cisibMn1lUaJ/8viov
+xFUcdUBgF4UCVTmLfwUCAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMC
+AQYwHQYDVR0OBBYEFJxfAN+qAdcwKziIorhtSpzyEZGDMA0GCSqGSIb3DQEBCwUAA4IBAQBL
+NqaEd2ndOxmfZyMIbw5hyf2E3F/YNoHN2BtBLZ9g3ccaaNnRbobhiCPPE95Dz+I0swSdHynV
+v/heyNXBve6SbzJ08pGCL72CQnqtKrcgfU28elUSwhXqvfdqlS5sdJ/PHLTyxQGjhdByPq1z
+qwubdQxtRbeOlKyWN7Wg0I8VRw7j6IPdj/3vQQF3zCepYoUz8jcI73HPdwbeyBkdiEDPfUYd
+/x7H4c7/I9vG+o1VTqkC50cRRj70/b17KSa7qWFiNyi2LSr2EIZkyXCn0q23KXB56jzaYyWf
+/Wi3MOxw+3WKt21gZ7IeyLnp2KhvAotnDU0mV3HaIPzBSlCNsSi6
+-----END CERTIFICATE-----`;
+const STARFIELD_SERVICES_ROOT_CA_G2 = new crypto.X509Certificate(
+  STARFIELD_SERVICES_ROOT_CA_G2_PEM,
+);
+
+const SECRET_FLAGS = new Set([
+  '--access-token',
+  '--authorization',
+  '--authorization-header',
+  '--bearer',
+  '--client-secret',
+  '--cookie',
+  '--email',
+  '--password',
+  '--refresh-cookie',
+  '--refresh-token',
+  '--token',
+]);
+
+const READ_HTTP_COMMANDS = new Set([
+  'smarthome-discover',
+  'smarthome-state',
+  'devices',
+  'shopping-list',
+  'todo-list',
+  'last-commands',
+  'dnd-state',
+]);
+
+const PLAN_COMMANDS = new Set([
+  'smarthome-control',
+  'announce',
+  'shopping-list-add',
+  'shopping-list-complete',
+  'todo-list-add',
+  'todo-list-complete',
+  'music-play',
+  'voice-command',
+  'routine-trigger',
+]);
+
+const COMMAND_OPTION_FLAGS = [
+  '--action',
+  '--amazon-domain',
+  '--artist',
+  '--brightness',
+  '--color',
+  '--customer-id',
+  '--device',
+  '--device-name',
+  '--device-type',
+  '--endpoint-id',
+  '--entity-id',
+  '--entity-type',
+  '--item',
+  '--item-id',
+  '--name',
+  '--provider',
+  '--query',
+  '--region-host',
+  '--routine',
+  '--song',
+  '--temperature',
+  '--text',
+  '--voice-command',
+];
+
+const PHOENIX_SMARTHOME_QUERY = `
+query CustomerSmartHome {
+  endpoints(endpointsQueryParams: { paginationParams: { disablePagination: true } }) {
+    items {
+      legacyAppliance {
+        applianceId
+        applianceTypes
+        friendlyName
+        friendlyDescription
+        manufacturerName
+        connectedVia
+        modelName
+        entityId
+        aliases
+        capabilities
+        customerDefinedDeviceType
+        alexaDeviceIdentifierList
+        driverIdentity
+      }
+    }
+  }
+}
+`.trim();
+
+const SMARTHOME_ACTIONS = new Map([
+  [
+    'TurnOn',
+    { namespace: 'Alexa.PowerController', name: 'TurnOn', tier: 'amber' },
+  ],
+  [
+    'TurnOff',
+    { namespace: 'Alexa.PowerController', name: 'TurnOff', tier: 'amber' },
+  ],
+  [
+    'SetBrightness',
+    {
+      namespace: 'Alexa.BrightnessController',
+      name: 'SetBrightness',
+      tier: 'amber',
+    },
+  ],
+  [
+    'SetColor',
+    { namespace: 'Alexa.ColorController', name: 'SetColor', tier: 'amber' },
+  ],
+  [
+    'SetTargetTemperature',
+    {
+      namespace: 'Alexa.ThermostatController',
+      name: 'SetTargetTemperature',
+      tier: 'red',
+    },
+  ],
+]);
+
+function fail(message, code = 2) {
+  process.stderr.write(`${message}\n`);
+  process.exit(code);
+}
+
+function printJson(payload, format = 'pretty') {
+  const indent = format === 'pretty' ? 2 : undefined;
+  process.stdout.write(`${JSON.stringify(payload, null, indent)}\n`);
+}
+
+function usage() {
+  return `Alexa skill helper
+
+Usage:
+  node skills/alexa/alexa.cjs --format json verify-request --request-body request.json --signature-cert-url URL --signature BASE64
+  node skills/alexa/alexa.cjs --format json account-link-session --request-body request.json
+  node skills/alexa/alexa.cjs --format json parse-request --request-body request.json
+  node skills/alexa/alexa.cjs --format json build-response --speech "On it." --reprompt "Anything else?"
+  node skills/alexa/alexa.cjs --format json run smarthome-discover
+  node skills/alexa/alexa.cjs --format json run smarthome-state --endpoint-id endpoint-1
+  node skills/alexa/alexa.cjs --format json plan smarthome-control --endpoint-id endpoint-1 --action TurnOn
+  node skills/alexa/alexa.cjs --format json run smarthome-control --endpoint-id endpoint-1 --action TurnOn --operator-grant approve-alexa-write
+  node skills/alexa/alexa.cjs --format json run devices --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json smart-home status --name Poolpumpe --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json smart-home plan-control --name Poolpumpe --action off --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json smart-home control --name Poolpumpe --action off --amazon-domain amazon.de --operator-grant approve-alexa-red-write
+  node skills/alexa/alexa.cjs --format json run shopping-list
+  node skills/alexa/alexa.cjs --format json plan announce --device living-room --text "Package delivered."
+  node skills/alexa/alexa.cjs --format json run announce --device living-room --text "Package delivered." --operator-grant approve-alexa-write
+  node skills/alexa/alexa.cjs --format json plan music-play --device SERIAL --device-type TYPE --customer-id CUSTOMER --query "Münchner Freiheit" --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json run music-play --device SERIAL --device-type TYPE --customer-id CUSTOMER --query "Münchner Freiheit" --amazon-domain amazon.de --operator-grant approve-alexa-write
+  node skills/alexa/alexa.cjs --format json plan voice-command --device SERIAL --device-type TYPE --customer-id CUSTOMER --voice-command "play Münchner Freiheit" --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json plan shopping-list-add --item milk
+  node skills/alexa/alexa.cjs --format json run shopping-list-complete --item-id item-1 --operator-grant approve-alexa-write
+
+Global options:
+  --format json|pretty          json emits compact output; pretty emits indented output. Defaults to pretty.
+  --now ISO_OR_EPOCH_MS         Deterministic clock for ASK validation tests.
+  --help                        Show this help.
+
+ASK validation options:
+  --request-body FILE           Raw ASK request JSON body exactly as received.
+  --signature-cert-url URL      SignatureCertChainUrl header value.
+  --signature BASE64            Signature header value.
+  --cert-pem FILE               Local certificate chain PEM for tests/offline validation.
+  --expected-skill-id ID        Optional applicationId check. Use SecretRef in production.
+
+Commands:
+  verify-request
+  account-link-session
+  parse-request
+  build-response
+  smart-home status|plan-control|control
+  run smarthome-discover|smarthome-state|devices|shopping-list|todo-list|last-commands|dnd-state
+  run smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
+  http-request smarthome-discover|smarthome-state|devices|shopping-list|todo-list|last-commands|dnd-state
+  http-request smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
+  plan smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
+  relink-required
+
+Secret values are not accepted on the command line. Store Alexa credentials with:
+  hybridclaw secret set ALEXA_ASK_SKILL_ID "amzn1.ask.skill.<uuid>"
+  hybridclaw secret set ALEXA_LWA_CLIENT_ID "amzn1.application-oa2-client.<id>"
+  hybridclaw secret set ALEXA_LWA_CLIENT_SECRET "<client secret>"
+  hybridclaw secret set ALEXA_SMARTHOME_REFRESH_TOKEN "<refresh token>"
+  hybridclaw secret set ALEXA_REFRESH_COOKIE "<persistent refresh cookie>"`;
+}
+
+function toCamel(value) {
+  return value.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+}
+
+function parseGlobalArgs(argv) {
+  const opts = { format: 'pretty' };
+  const positional = [];
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--help' || arg === '-h') {
+      opts.help = true;
+      continue;
+    }
+    rejectSecretFlag(arg);
+    if (
+      [
+        '--cert-pem',
+        '--expected-skill-id',
+        '--format',
+        '--now',
+        '--request-body',
+        '--signature',
+        '--signature-cert-url',
+      ].includes(arg)
+    ) {
+      const value = argv[index + 1];
+      if (
+        value === undefined ||
+        value.startsWith('--') ||
+        !String(value).trim()
+      ) {
+        fail(`${arg} requires a value.`);
+      }
+      if (arg === '--format' && !['json', 'pretty'].includes(value)) {
+        fail('--format must be json or pretty.');
+      }
+      opts[toCamel(arg.slice(2))] = value;
+      index += 1;
+      continue;
+    }
+    positional.push(arg);
+  }
+
+  return { opts, positional };
+}
+
+function parseCommandOptions(args, spec = {}) {
+  // CLI flags use --kebab-case and are stored as camelCase option keys.
+  const values = new Set(spec.values || []);
+  const booleans = new Set(spec.booleans || []);
+  const result = {};
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    rejectSecretFlag(arg);
+    if (booleans.has(arg)) {
+      result[toCamel(arg.slice(2))] = true;
+      continue;
+    }
+    if (values.has(arg)) {
+      const value = args[index + 1];
+      if (
+        value === undefined ||
+        value.startsWith('--') ||
+        !String(value).trim()
+      ) {
+        fail(`${arg} requires a value.`);
+      }
+      result[toCamel(arg.slice(2))] = value;
+      index += 1;
+      continue;
+    }
+    fail(`Unknown option or argument: ${arg}`);
+  }
+
+  return result;
+}
+
+function rejectSecretFlag(arg) {
+  if (SECRET_FLAGS.has(arg)) {
+    fail(
+      `${arg} is not supported. Store Alexa credentials in HybridClaw secrets.`,
+    );
+  }
+}
+
+function normalizeText(value) {
+  return String(value || '').trim();
+}
+
+function requireText(value, label) {
+  const text = normalizeText(value);
+  if (!text) fail(`${label} is required.`);
+  return text;
+}
+
+function requireBoundedText(value, label, maxBytes = MAX_TEXT_BYTES) {
+  const text = requireText(value, label);
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+    fail(`${label} must be ${maxBytes} bytes or fewer.`);
+  }
+  return text;
+}
+
+function requireIdentifier(value, label) {
+  const text = requireText(value, label);
+  if (!/^[A-Za-z0-9_.:-]+$/.test(text)) {
+    fail(
+      `${label} may contain only letters, numbers, underscore, dot, colon, and dash.`,
+    );
+  }
+  return text;
+}
+
+function parseBoolean(value, label, fallback = false) {
+  if (value === undefined) return fallback;
+  const text = normalizeText(value);
+  if (text === 'true') return true;
+  if (text === 'false') return false;
+  fail(`${label} must be true or false.`);
+}
+
+function parseNumber(value, label, min, max) {
+  const text = requireText(value, label);
+  if (!/^-?(?:\d+|\d+\.\d+)$/.test(text)) {
+    fail(`${label} must be a number between ${min} and ${max}.`);
+  }
+  const number = Number.parseFloat(text);
+  if (number < min || number > max) {
+    fail(`${label} must be between ${min} and ${max}.`);
+  }
+  return number;
+}
+
+function parseMusicProvider(value) {
+  const provider = normalizeText(value || DEFAULT_MUSIC_PROVIDER).toUpperCase();
+  const allowed = new Set([
+    'AMAZON_MUSIC',
+    'APPLE_MUSIC',
+    'CLOUDPLAYER',
+    'DEEZER',
+    'I_HEART_RADIO',
+    'SPOTIFY',
+    'TUNEIN',
+  ]);
+  if (!allowed.has(provider)) {
+    fail(`--provider must be one of ${[...allowed].join(', ')}.`);
+  }
+  return provider;
+}
+
+function parseHsvColor(value) {
+  const text = requireText(value, '--color');
+  let color;
+  try {
+    color = JSON.parse(text);
+  } catch {
+    fail(
+      '--color must be JSON: {"hue":0-360,"saturation":0-1,"brightness":0-1}.',
+    );
+  }
+  if (!color || typeof color !== 'object' || Array.isArray(color)) {
+    fail('--color must be a JSON object.');
+  }
+  const hue = Number(color.hue);
+  const saturation = Number(color.saturation);
+  const brightness = Number(color.brightness);
+  if (
+    !Number.isFinite(hue) ||
+    hue < 0 ||
+    hue > 360 ||
+    !Number.isFinite(saturation) ||
+    saturation < 0 ||
+    saturation > 1 ||
+    !Number.isFinite(brightness) ||
+    brightness < 0 ||
+    brightness > 1
+  ) {
+    fail('--color hue must be 0-360 and saturation/brightness must be 0-1.');
+  }
+  return { hue, saturation, brightness };
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function readRequestBody(filePath) {
+  const path = requireText(filePath, '--request-body');
+  let body;
+  try {
+    body = fs.readFileSync(path, 'utf8');
+  } catch (error) {
+    fail(`Unable to read request body: ${error.message}`);
+  }
+  return body;
+}
+
+function parseJsonBody(body) {
+  try {
+    return JSON.parse(body);
+  } catch {
+    fail('Request body must be valid JSON.');
+  }
+}
+
+function nowFromOptions(opts) {
+  if (!opts.now) return new Date();
+  const numeric = Number(opts.now);
+  const date = Number.isFinite(numeric)
+    ? new Date(numeric)
+    : new Date(opts.now);
+  if (Number.isNaN(date.getTime()))
+    fail('--now must be an ISO timestamp or epoch milliseconds.');
+  return date;
+}
+
+function validateAskTimestamp(envelope, now) {
+  const timestamp = envelope?.request?.timestamp;
+  const requestTime = new Date(timestamp);
+  if (!timestamp || Number.isNaN(requestTime.getTime())) {
+    fail('ASK request timestamp is missing or invalid.');
+  }
+  const driftSeconds = Math.abs(now.getTime() - requestTime.getTime()) / 1000;
+  if (driftSeconds >= ASK_SIGNATURE_WINDOW_SECONDS) {
+    fail(
+      `ASK request timestamp drift ${Math.round(driftSeconds)}s exceeds 150s.`,
+    );
+  }
+  return { timestamp, driftSeconds };
+}
+
+function validateExpectedSkillId(envelope, expectedSkillId) {
+  if (!expectedSkillId) return { checked: false };
+  const applicationId =
+    envelope?.context?.System?.application?.applicationId ||
+    envelope?.session?.application?.applicationId;
+  if (applicationId !== expectedSkillId) {
+    fail('ASK applicationId did not match the expected skill id.');
+  }
+  return { checked: true, applicationId };
+}
+
+function validateAskCertUrl(rawUrl) {
+  const text = requireText(rawUrl, '--signature-cert-url');
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    fail('SignatureCertChainUrl must be a valid URL.');
+  }
+  if (url.protocol !== 'https:') {
+    fail('SignatureCertChainUrl must use https.');
+  }
+  if (url.hostname !== ASK_CERT_HOST) {
+    fail(`SignatureCertChainUrl host must be ${ASK_CERT_HOST}.`);
+  }
+  if (url.port && url.port !== '443') {
+    fail('SignatureCertChainUrl must use the default HTTPS port.');
+  }
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(url.pathname);
+  } catch {
+    fail('SignatureCertChainUrl path must use valid percent-encoding.');
+  }
+  if (!decodedPath.startsWith(ASK_CERT_PATH_PREFIX)) {
+    fail(`SignatureCertChainUrl path must start with ${ASK_CERT_PATH_PREFIX}.`);
+  }
+  return url;
+}
+
+function readCertPem(certPath) {
+  if (!certPath) return null;
+  try {
+    return fs.readFileSync(certPath, 'utf8');
+  } catch (error) {
+    fail(`Unable to read certificate PEM: ${error.message}`);
+  }
+}
+
+function fetchCertPem(url) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(
+      url,
+      {
+        timeout: 10_000,
+        headers: { 'user-agent': 'hybridclaw-alexa-skill/1' },
+      },
+      (response) => {
+        if (response.statusCode !== 200) {
+          response.resume();
+          reject(
+            new Error(
+              `Certificate fetch failed with HTTP ${response.statusCode}.`,
+            ),
+          );
+          return;
+        }
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          body += chunk;
+          if (body.length > 200_000) {
+            request.destroy(new Error('Certificate chain is too large.'));
+          }
+        });
+        response.on('end', () => resolve(body));
+      },
+    );
+    request.on('timeout', () =>
+      request.destroy(new Error('Certificate fetch timed out.')),
+    );
+    request.on('error', reject);
+  });
+}
+
+function splitPemChain(pem) {
+  const matches = String(pem || '').match(
+    /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g,
+  );
+  if (!matches || matches.length === 0)
+    fail('Certificate chain PEM did not contain a certificate.');
+  return matches;
+}
+
+function parseCertificate(pem) {
+  try {
+    return new crypto.X509Certificate(pem);
+  } catch (error) {
+    fail(`Unable to parse certificate: ${error.message}`);
+  }
+}
+
+function validateCertificateTime(cert, now, label) {
+  const validFrom = new Date(cert.validFrom);
+  const validTo = new Date(cert.validTo);
+  if (now < validFrom || now > validTo) {
+    fail(`${label} is not valid for the request time.`);
+  }
+}
+
+function validateCertificateChain(certs, now, allowSingleCert) {
+  if (certs.length === 1 && !allowSingleCert) {
+    fail(
+      'ASK certificate chain must include at least the leaf and issuing certificate.',
+    );
+  }
+  certs.forEach((cert, index) => {
+    validateCertificateTime(cert, now, `ASK certificate chain entry ${index}`);
+  });
+  for (let index = 0; index < certs.length - 1; index += 1) {
+    const child = certs[index];
+    const issuer = certs[index + 1];
+    if (!child.verify(issuer.publicKey)) {
+      fail(`ASK certificate chain entry ${index} is not signed by its issuer.`);
+    }
+  }
+  if (certs.length > 1) {
+    const root = certs[certs.length - 1];
+    if (!root.verify(root.publicKey)) {
+      fail('ASK certificate chain root is not self-signed.');
+    }
+    if (
+      !allowSingleCert &&
+      root.fingerprint256 !== STARFIELD_SERVICES_ROOT_CA_G2.fingerprint256
+    ) {
+      fail(
+        'ASK certificate chain root is not the pinned Starfield Services Root CA - G2.',
+      );
+    }
+  }
+}
+
+function validateAskCertificate(pem, now, { allowSingleCert = false } = {}) {
+  const certs = splitPemChain(pem).map(parseCertificate);
+  const cert = certs[0];
+  validateCertificateChain(certs, now, allowSingleCert);
+  const subjectAltName = cert.subjectAltName || '';
+  const askSanPattern = new RegExp(
+    `(?:^|,\\s*)DNS:${escapeRegExp(ASK_CERT_SAN_HOST)}\\.?(?:,|$)`,
+    'i',
+  );
+  if (!askSanPattern.test(subjectAltName)) {
+    fail(
+      `ASK signing certificate SAN validation failed: expected DNS:${ASK_CERT_SAN_HOST}.`,
+    );
+  }
+  return cert;
+}
+
+function verifyAskSignature(body, signature, cert) {
+  const b64 = requireText(signature, '--signature');
+  let ok = false;
+  try {
+    ok = crypto
+      .createVerify('RSA-SHA1')
+      .update(body, 'utf8')
+      .verify(cert.publicKey, b64, 'base64');
+  } catch {
+    ok = false;
+  }
+  if (!ok) {
+    fail('ASK request signature validation failed.');
+  }
+  return true;
+}
+
+async function verifyRequest(opts) {
+  const body = readRequestBody(opts.requestBody);
+  const envelope = parseJsonBody(body);
+  const now = nowFromOptions(opts);
+  const certUrl = validateAskCertUrl(opts.signatureCertUrl);
+  const timestamp = validateAskTimestamp(envelope, now);
+  const skillId = validateExpectedSkillId(envelope, opts.expectedSkillId);
+  const pem = readCertPem(opts.certPem) || (await fetchCertPem(certUrl));
+  const cert = validateAskCertificate(pem, now, {
+    allowSingleCert: Boolean(opts.certPem),
+  });
+  verifyAskSignature(body, opts.signature, cert);
+
+  return {
+    skill: SKILL_NAME,
+    command: 'verify-request',
+    valid: true,
+    checks: {
+      certUrl: 'pass',
+      certificateSan: ASK_CERT_SAN_HOST,
+      signature: 'pass',
+      timestamp: {
+        status: 'pass',
+        driftSeconds: Number(timestamp.driftSeconds.toFixed(3)),
+        maxDriftSeconds: ASK_SIGNATURE_WINDOW_SECONDS,
+      },
+      applicationId: skillId.checked ? 'pass' : 'not_checked',
+    },
+    request: summarizeAskRequest(envelope),
+  };
+}
+
+function summarizeAskRequest(envelope) {
+  const request = envelope?.request || {};
+  const intent = request.intent || {};
+  return {
+    type: request.type || 'Unknown',
+    requestId: request.requestId || null,
+    locale: request.locale || null,
+    applicationId:
+      envelope?.context?.System?.application?.applicationId ||
+      envelope?.session?.application?.applicationId ||
+      null,
+    intentName: intent.name || null,
+  };
+}
+
+function parseAskSlots(intent) {
+  const slots = intent?.slots || {};
+  const result = {};
+  for (const [name, slot] of Object.entries(slots)) {
+    result[name] = {
+      name,
+      value: slot?.value ?? null,
+      confirmationStatus: slot?.confirmationStatus || 'NONE',
+      resolutions: slot?.resolutions?.resolutionsPerAuthority || [],
+    };
+  }
+  return result;
+}
+
+function parseRequest(opts) {
+  const body = readRequestBody(opts.requestBody);
+  const envelope = parseJsonBody(body);
+  const request = envelope?.request || {};
+  const type = request.type || 'Unknown';
+  const payload = {
+    skill: SKILL_NAME,
+    command: 'parse-request',
+    request: summarizeAskRequest(envelope),
+    session: {
+      new: Boolean(envelope?.session?.new),
+      sessionId: envelope?.session?.sessionId || null,
+      linkedAccountTokenPresent: Boolean(
+        envelope?.context?.System?.user?.accessToken,
+      ),
+    },
+    agentBridge: null,
+  };
+
+  if (type === 'LaunchRequest') {
+    payload.agentBridge = {
+      action: 'launch',
+      stakesTier: 'green',
+      args: {},
+      asyncAllowed: false,
+    };
+  } else if (type === 'IntentRequest') {
+    const intent = request.intent || {};
+    payload.intent = {
+      name: intent.name || null,
+      confirmationStatus: intent.confirmationStatus || 'NONE',
+      slots: parseAskSlots(intent),
+    };
+    payload.agentBridge = bridgeIntent(intent);
+  } else if (type === 'SessionEndedRequest') {
+    payload.reason = request.reason || null;
+    payload.agentBridge = {
+      action: 'session-ended',
+      stakesTier: 'green',
+      args: { reason: request.reason || null },
+      asyncAllowed: false,
+    };
+  } else if (type === 'System.ExceptionEncountered') {
+    payload.error = {
+      message: request.error?.message || null,
+      type: request.error?.type || null,
+      causeRequestId: request.cause?.requestId || null,
+    };
+    payload.agentBridge = {
+      action: 'exception',
+      stakesTier: 'amber',
+      args: payload.error,
+      asyncAllowed: false,
+      event: 'alexa.exception_encountered',
+    };
+  } else {
+    payload.agentBridge = {
+      action: 'unsupported-request',
+      stakesTier: 'green',
+      args: { type },
+      asyncAllowed: false,
+    };
+  }
+
+  return payload;
+}
+
+function accountLinkSession(opts) {
+  const body = readRequestBody(opts.requestBody);
+  const envelope = parseJsonBody(body);
+  const accessTokenPresent = Boolean(
+    envelope?.context?.System?.user?.accessToken,
+  );
+  if (!accessTokenPresent) {
+    fail('ASK account linking access_token is missing.');
+  }
+  return {
+    skill: SKILL_NAME,
+    command: 'account-link-session',
+    request: summarizeAskRequest(envelope),
+    linkedAccountTokenPresent: true,
+    tokenVisibleToModel: false,
+    persistLwaToken: false,
+    sessionExchange: {
+      source: 'context.System.user.accessToken',
+      tokenType: 'LoginWithAmazonAccessToken',
+      exchange: 'hybridclaw-operator-session',
+      secretRail: 'F13 SecretRef',
+      output: '<opaque:hybridclaw-operator-session>',
+    },
+  };
+}
+
+function bridgeIntent(intent) {
+  const name = intent?.name || 'UnknownIntent';
+  const slots = parseAskSlots(intent);
+  const args = Object.fromEntries(
+    Object.entries(slots).map(([slotName, slot]) => [slotName, slot.value]),
+  );
+  if (name === 'AskHybridClawIntent') {
+    return {
+      action: 'agent-question',
+      stakesTier: 'green',
+      args,
+      asyncAllowed: true,
+    };
+  }
+  if (name === 'RunSkillIntent') {
+    return {
+      action: 'run-skill',
+      stakesTier: 'amber',
+      args,
+      asyncAllowed: true,
+    };
+  }
+  if (name === 'StatusReportIntent') {
+    return {
+      action: 'status-report',
+      stakesTier: 'green',
+      args,
+      asyncAllowed: false,
+    };
+  }
+  return {
+    action: 'intent',
+    intentName: name,
+    stakesTier: 'green',
+    args,
+    asyncAllowed: true,
+  };
+}
+
+function stripMarkdownForTts(input) {
+  let text = String(input || '');
+  text = text.replace(/```[\s\S]*?```/g, ' ');
+  text = text.replace(/`([^`]+)`/g, '$1');
+  text = text.replace(/!\[[^\]]*]\([^)]*\)/g, ' ');
+  text = text.replace(/\[([^\]]+)]\(([^)]+)\)/g, '$1');
+  text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+  text = text.replace(/\*([^*]+)\*/g, '$1');
+  text = text.replace(/__([^_]+)__/g, '$1');
+  text = text.replace(/_([^_]+)_/g, '$1');
+  text = text.replace(/^#{1,6}\s+/gm, '');
+  text = text.replace(/^>\s?/gm, '');
+  text = text.replace(/https?:\/\/\S+/gi, (url) => {
+    const clean = url.replace(/[),.;!?]+$/, '');
+    return clean.length > 60 ? '[link omitted]' : clean;
+  });
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function buildSsml(text) {
+  const sanitized = stripMarkdownForTts(text);
+  return `<speak>${escapeXml(sanitized)}</speak>`;
+}
+
+function buildResponse(args) {
+  const options = parseCommandOptions(args, {
+    values: [
+      '--speech',
+      '--reprompt',
+      '--card-title',
+      '--card-text',
+      '--should-end-session',
+    ],
+  });
+  const shouldEndSession = parseBoolean(
+    options.shouldEndSession,
+    '--should-end-session',
+    true,
+  );
+  const response = {
+    outputSpeech: {
+      type: 'SSML',
+      ssml: buildSsml(requireText(options.speech, '--speech')),
+    },
+    shouldEndSession,
+  };
+  if (options.reprompt) {
+    response.reprompt = {
+      outputSpeech: {
+        type: 'SSML',
+        ssml: buildSsml(options.reprompt),
+      },
+    };
+  }
+  if (options.cardTitle || options.cardText) {
+    response.card = {
+      type: 'Simple',
+      title: stripMarkdownForTts(options.cardTitle || 'HybridClaw'),
+      content: stripMarkdownForTts(options.cardText || options.speech),
+    };
+  }
+  return {
+    version: '1.0',
+    sessionAttributes: {},
+    response,
+  };
+}
+
+function endpointBasePayload(surface, operation, stakesTier) {
+  return {
+    skill: SKILL_NAME,
+    surface,
+    operation,
+    stakesTier,
+    costMeasurement: {
+      system: 'UsageTotals',
+      subLimitKey: 'alexa',
+    },
+  };
+}
+
+function smarthomeEventGatewayUrl(opts) {
+  const host = opts.regionHost || DEFAULT_SMARTHOME_REGION_HOST;
+  if (
+    ![
+      'api.amazonalexa.com',
+      'api.eu.amazonalexa.com',
+      'api.fe.amazonalexa.com',
+    ].includes(host)
+  ) {
+    fail(
+      '--region-host must be one of api.amazonalexa.com, api.eu.amazonalexa.com, api.fe.amazonalexa.com.',
+    );
+  }
+  return `https://${host}/v3/events`;
+}
+
+function smarthomeEndpoint(endpointId) {
+  return {
+    scope: {
+      type: 'BearerToken',
+      token: `<secret:${SMARTHOME_BEARER_SECRET}>`,
+    },
+    endpointId: requireIdentifier(endpointId, '--endpoint-id'),
+  };
+}
+
+function directiveHeader(namespace, name) {
+  return {
+    namespace,
+    name,
+    messageId: crypto.randomUUID(),
+    payloadVersion: '3',
+  };
+}
+
+function smarthomeDiscoverRequest(opts) {
+  return {
+    ...endpointBasePayload('smart-home', 'smarthome-discover', 'green'),
+    httpRequest: {
+      method: 'POST',
+      url: smarthomeEventGatewayUrl(opts),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      bearerSecretName: SMARTHOME_BEARER_SECRET,
+      bodyJson: {
+        event: {
+          header: directiveHeader('Alexa.Discovery', 'Discover.Response'),
+          payload: {
+            endpoints: [],
+          },
+        },
+      },
+    },
+    allowedHosts: [
+      'api.amazonalexa.com',
+      'api.eu.amazonalexa.com',
+      'api.fe.amazonalexa.com',
+    ],
+    authFailureEvent: relinkRequired('smart-home', 'discovery'),
+    ...AUTH_STOP,
+  };
+}
+
+function smarthomeStateRequest(opts) {
+  const endpointId = requireIdentifier(opts.endpointId, '--endpoint-id');
+  return {
+    ...endpointBasePayload('smart-home', 'smarthome-state', 'green'),
+    httpRequest: {
+      method: 'POST',
+      url: smarthomeEventGatewayUrl(opts),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      bearerSecretName: SMARTHOME_BEARER_SECRET,
+      bodyJson: {
+        context: {
+          properties: [],
+        },
+        event: {
+          header: directiveHeader('Alexa', 'StateReport'),
+          endpoint: smarthomeEndpoint(endpointId),
+          payload: {},
+        },
+      },
+    },
+    authFailureEvent: relinkRequired('smart-home', endpointId),
+    ...AUTH_STOP,
+  };
+}
+
+function communityHost(domain) {
+  const normalized = normalizeText(
+    domain || DEFAULT_AMAZON_DOMAIN,
+  ).toLowerCase();
+  if (!['amazon.com', 'amazon.de'].includes(normalized)) {
+    fail('--amazon-domain must be amazon.com or amazon.de.');
+  }
+  return `alexa.${normalized}`;
+}
+
+function communityLocale(domain) {
+  const normalized = normalizeText(
+    domain || DEFAULT_AMAZON_DOMAIN,
+  ).toLowerCase();
+  return normalized === 'amazon.de' ? 'de-DE' : 'en-US';
+}
+
+function communityBrowserHeaders(domain) {
+  const host = communityHost(domain);
+  return {
+    'Accept-Language': communityLocale(domain),
+    'Accept-Encoding': 'identity',
+    Origin: `https://${host}`,
+    Referer: `https://${host}/`,
+    'User-Agent': COMMUNITY_USER_AGENT,
+  };
+}
+
+function communityJsonHeaders(domain) {
+  return {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    ...communityBrowserHeaders(domain),
+  };
+}
+
+function communityPath(operation, opts) {
+  if (operation === 'devices') return '/api/devices-v2/device';
+  if (operation === 'shopping-list') return '/api/namedLists';
+  if (operation === 'todo-list') return '/api/todos';
+  if (operation === 'last-commands')
+    return '/api/activities?startTime=&size=10&offset=1';
+  if (operation === 'dnd-state') {
+    const device = requireIdentifier(opts.device, '--device');
+    return `/api/dnd/status?deviceSerialNumber=${encodeURIComponent(device)}`;
+  }
+  fail(`Unsupported community operation: ${operation}`);
+}
+
+function communityReadRequest(operation, opts) {
+  const host = communityHost(opts.amazonDomain);
+  return {
+    ...endpointBasePayload('community', operation, 'green'),
+    httpRequest: {
+      method: 'GET',
+      url: `https://${host}${communityPath(operation, opts)}`,
+      headers: {
+        Accept: 'application/json',
+      },
+      secretHeaders: communityCookieSecretHeaders(),
+      maxResponseBytes: 200_000,
+    },
+    authFailureEvent: relinkRequired('community', operation),
+    ...AUTH_STOP,
+    driftRisk:
+      'community-cookie surface is reverse-engineered and may require re-link after Amazon changes.',
+  };
+}
+
+function amazonAppSmartHomeDevicesRequest(opts) {
+  return {
+    ...endpointBasePayload('community', 'smart-home-discover', 'green'),
+    httpRequest: {
+      method: 'POST',
+      url: `https://${communityHost(opts.amazonDomain)}/nexus/v1/graphql`,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...communityBrowserHeaders(opts.amazonDomain),
+      },
+      secretHeaders: communityCookieSecretHeaders(),
+      bodyJson: {
+        query: PHOENIX_SMARTHOME_QUERY,
+      },
+      maxResponseBytes: 5_000_000,
+    },
+    authFailureEvent: relinkRequired('community', 'smart-home-discover'),
+    ...AUTH_STOP,
+    driftRisk:
+      'community-cookie Alexa app smart-home surface is reverse-engineered and may require re-link after Amazon changes.',
+  };
+}
+
+function amazonAppSmartHomeEntityRequest(opts) {
+  return {
+    entityId: requireIdentifier(opts.entityId, '--entity-id'),
+    entityType: opts.entityType
+      ? requireIdentifier(opts.entityType, '--entity-type')
+      : 'ENTITY',
+  };
+}
+
+function amazonAppSmartHomeStateRequest(opts) {
+  const entity = amazonAppSmartHomeEntityRequest(opts);
+  return {
+    ...endpointBasePayload('community', 'smart-home-status', 'green'),
+    httpRequest: {
+      method: 'POST',
+      url: `https://${communityHost(opts.amazonDomain)}/api/phoenix/state`,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...communityBrowserHeaders(opts.amazonDomain),
+      },
+      secretHeaders: communityCookieSecretHeaders(),
+      bodyJson: {
+        stateRequests: [entity],
+      },
+      maxResponseBytes: 1_000_000,
+    },
+    authFailureEvent: relinkRequired('community', entity.entityId),
+    ...AUTH_STOP,
+    driftRisk:
+      'community-cookie Alexa app smart-home surface is reverse-engineered and may require re-link after Amazon changes.',
+  };
+}
+
+function httpRequest(commandArgs) {
+  const operation = commandArgs[0];
+  if (!READ_HTTP_COMMANDS.has(operation) && !PLAN_COMMANDS.has(operation)) {
+    fail(`Unsupported http-request command: ${operation || '(missing)'}`);
+  }
+  const opts = parseCommandOptions(commandArgs.slice(1), {
+    values: [...COMMAND_OPTION_FLAGS, '--operator-grant'],
+  });
+  if (operation === 'smarthome-discover') return smarthomeDiscoverRequest(opts);
+  if (operation === 'smarthome-state') return smarthomeStateRequest(opts);
+  if (operation === 'smarthome-control') return smarthomeControlRequest(opts);
+  if (operation === 'announce') return announceRequest(opts);
+  if (operation === 'music-play') return musicPlayRequest(opts);
+  if (operation === 'voice-command') return voiceCommandRequest(opts);
+  if (operation === 'shopping-list-add')
+    return listAddRequest('shopping-list-add', opts);
+  if (operation === 'shopping-list-complete')
+    return listCompleteRequest('shopping-list-complete', opts);
+  if (operation === 'todo-list-add')
+    return listAddRequest('todo-list-add', opts);
+  if (operation === 'todo-list-complete')
+    return listCompleteRequest('todo-list-complete', opts);
+  if (operation === 'routine-trigger') return routineTriggerRequest(opts);
+  return communityReadRequest(operation, opts);
+}
+
+function splitRunOptions(commandArgs) {
+  const args = [...commandArgs];
+  let gatewayUrl;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    rejectSecretFlag(arg);
+    if (arg !== '--gateway-url') continue;
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--') || !String(value).trim()) {
+      fail('--gateway-url requires a value.');
+    }
+    gatewayUrl = value;
+    args.splice(index, 2);
+    index -= 1;
+  }
+  return { args, gatewayUrl };
+}
+
+function resolveGatewayUrl(raw) {
+  const value =
+    normalizeText(raw) ||
+    normalizeText(process.env.HYBRIDCLAW_GATEWAY_URL) ||
+    normalizeText(process.env.GATEWAY_BASE_URL) ||
+    DEFAULT_GATEWAY_URL;
+  const normalized = value.replace(/\/+$/u, '');
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    fail('--gateway-url must be an absolute http or https URL.');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    fail('--gateway-url must use http or https.');
+  }
+  return normalized;
+}
+
+function resolveGatewayToken() {
+  return (
+    normalizeText(process.env.HYBRIDCLAW_GATEWAY_TOKEN) ||
+    normalizeText(process.env.GATEWAY_API_TOKEN) ||
+    normalizeText(process.env.WEB_API_TOKEN)
+  );
+}
+
+function gatewayHttpRequest(httpRequest) {
+  const out = { ...httpRequest };
+  if (Object.hasOwn(out, 'bodyJson')) {
+    out.json = out.bodyJson;
+    delete out.bodyJson;
+  }
+  return out;
+}
+
+function usesCommunityCookie(httpRequest) {
+  return Array.isArray(httpRequest.secretHeaders)
+    ? httpRequest.secretHeaders.some(
+        (entry) => entry?.secretName === COMMUNITY_COOKIE_SECRET,
+      )
+    : false;
+}
+
+function csrfFromCookieHeader(cookieHeader) {
+  const csrf = String(cookieHeader || '')
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.toLowerCase().startsWith('csrf='));
+  return csrf ? csrf.slice('csrf='.length) : null;
+}
+
+async function executeGatewayHttpRequest(httpRequest, gatewayUrl) {
+  const token = resolveGatewayToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  let text = '';
+  try {
+    try {
+      response = await fetch(`${gatewayUrl}/api/http/request`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(gatewayHttpRequest(httpRequest)),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      fail(
+        `Cannot reach HybridClaw gateway at ${gatewayUrl}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        1,
+      );
+    }
+    text = await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+  let envelope;
+  try {
+    envelope = text ? JSON.parse(text) : {};
+  } catch {
+    fail(`Gateway returned non-JSON response: ${text.slice(0, 500)}`, 1);
+  }
+  if (!response.ok) {
+    fail(
+      `Gateway request failed with HTTP ${response.status}: ${text.slice(
+        0,
+        500,
+      )}`,
+      1,
+    );
+  }
+  return envelope;
+}
+
+function responseStatus(response) {
+  const status = Number(response?.status ?? response?.statusCode ?? 0);
+  return Number.isFinite(status) ? status : 0;
+}
+
+function responseAccepted(response) {
+  if (response?.ok === false) return false;
+  const status = responseStatus(response);
+  return status === 0 || (status >= 200 && status < 300);
+}
+
+function runResultPayload({ requestPayload, transport, status, ok, response }) {
+  const musicPlaybackUnverified =
+    ok && requestPayload.operation === 'music-play';
+  const payload = {
+    ...endpointBasePayload(
+      requestPayload.surface,
+      requestPayload.operation,
+      requestPayload.stakesTier,
+    ),
+    command: 'run',
+    transport,
+    ok,
+    outcome: ok ? 'accepted' : 'failed',
+    message: ok
+      ? musicPlaybackUnverified
+        ? 'Alexa accepted music-play, but the Alexa Remote response does not verify the selected track or playback state.'
+        : `Alexa accepted ${requestPayload.operation}.`
+      : `Alexa did not accept ${requestPayload.operation}.`,
+  };
+  if (status) payload.status = status;
+  payload.response = response;
+  if (musicPlaybackUnverified) {
+    payload.verification = {
+      status: 'not_verified',
+      reason:
+        'The Alexa behaviors API returned an accepted response without now-playing evidence. Do not claim the requested track is playing unless a separate read confirms it.',
+    };
+  }
+  if (!ok && requestPayload.authFailureEvent) {
+    payload.authFailureEvent = requestPayload.authFailureEvent;
+  }
+  if (requestPayload.expectedContent) {
+    payload.expectedContent = requestPayload.expectedContent;
+  }
+  if (requestPayload.driftRisk) payload.driftRisk = requestPayload.driftRisk;
+  return payload;
+}
+
+async function run(commandArgs) {
+  const { args, gatewayUrl: rawGatewayUrl } = splitRunOptions(commandArgs);
+  const requestPayload = httpRequest(args);
+  const request = requestPayload.httpRequest;
+  if (usesCommunityCookie(request)) {
+    const cookie = readRuntimeSecret(COMMUNITY_COOKIE_SECRET);
+    const csrf = csrfFromCookieHeader(cookie);
+    const headers = { ...request.headers };
+    if (String(request.method || 'GET').toUpperCase() !== 'GET') {
+      if (!csrf) {
+        fail(
+          `Missing csrf in ${COMMUNITY_COOKIE_SECRET}; re-import the Alexa cookie.`,
+          1,
+        );
+      }
+      headers.csrf = csrf;
+    }
+    const response = await executeHttpsJson(
+      {
+        ...request,
+        headers,
+      },
+      cookie,
+    );
+    assertAlexaJsonOk(response, requestPayload.operation);
+    return runResultPayload({
+      requestPayload,
+      transport: 'direct-community-cookie',
+      status: response.statusCode,
+      ok: response.statusCode >= 200 && response.statusCode < 300,
+      response: response.json,
+    });
+  }
+
+  const response = await executeGatewayHttpRequest(
+    request,
+    resolveGatewayUrl(rawGatewayUrl),
+  );
+  return runResultPayload({
+    requestPayload,
+    transport: 'gateway-http-request',
+    status: responseStatus(response),
+    ok: responseAccepted(response),
+    response,
+  });
+}
+
+function plan(commandArgs) {
+  const operation = commandArgs[0];
+  if (!PLAN_COMMANDS.has(operation)) {
+    fail(`Unsupported plan command: ${operation || '(missing)'}`);
+  }
+  const opts = parseCommandOptions(commandArgs.slice(1), {
+    values: COMMAND_OPTION_FLAGS,
+  });
+  if (operation === 'smarthome-control') return planSmarthomeControl(opts);
+  if (operation === 'announce') return planAnnounce(opts);
+  if (operation === 'music-play') return planMusicPlay(opts);
+  if (operation === 'voice-command') return planVoiceCommand(opts);
+  if (operation === 'shopping-list-add')
+    return planListAdd('shopping-list-add', opts);
+  if (operation === 'shopping-list-complete')
+    return planListComplete('shopping-list-complete', opts);
+  if (operation === 'todo-list-add') return planListAdd('todo-list-add', opts);
+  if (operation === 'todo-list-complete')
+    return planListComplete('todo-list-complete', opts);
+  return planRoutineTrigger(opts);
+}
+
+function approvalPayload(
+  operation,
+  target,
+  action,
+  stakesTier,
+  approvedCommand,
+) {
+  const grant = grantForTier(stakesTier);
+  return {
+    requiredApproval: {
+      framework: 'F8/F14',
+      stakesTier,
+      requiredGrant: grant,
+      approvalText: [
+        `Approve Alexa ${operation}.`,
+        `Target: ${target}.`,
+        `Action: ${action}.`,
+        'This may change a physical device, list, routine, or audible announcement.',
+        `Only continue if the operator grants ${grant} for this exact target and action.`,
+      ].join(' '),
+    },
+    approvedCommand,
+  };
+}
+
+function grantForTier(stakesTier) {
+  return stakesTier === 'red'
+    ? 'approve-alexa-red-write'
+    : 'approve-alexa-write';
+}
+
+function requireOperatorGrant(operation, stakesTier, value) {
+  const requiredGrant = grantForTier(stakesTier);
+  if (value !== requiredGrant) {
+    fail(`${operation} requires --operator-grant ${requiredGrant}.`);
+  }
+}
+
+function plannedWritePayload({
+  surface,
+  operation,
+  stakesTier,
+  httpRequest,
+  approvalOperation,
+  approvalTarget,
+  approvalAction,
+  approvedCommand,
+  authSurface,
+  authTarget,
+  extra = {},
+}) {
+  return {
+    ...endpointBasePayload(surface, operation, stakesTier),
+    ...extra,
+    httpRequestTemplate: httpRequest,
+    authFailureEvent: relinkRequired(authSurface, authTarget),
+    ...AUTH_STOP,
+    ...approvalPayload(
+      approvalOperation,
+      approvalTarget,
+      approvalAction,
+      stakesTier,
+      approvedCommand,
+    ),
+  };
+}
+
+function executableWritePayload({
+  surface,
+  operation,
+  stakesTier,
+  httpRequest,
+  authSurface,
+  authTarget,
+  extra = {},
+}) {
+  return {
+    ...endpointBasePayload(surface, operation, stakesTier),
+    ...extra,
+    httpRequest,
+    authFailureEvent: relinkRequired(authSurface, authTarget),
+    ...AUTH_STOP,
+  };
+}
+
+function smarthomeControlDirective(opts) {
+  const endpointId = requireIdentifier(opts.endpointId, '--endpoint-id');
+  const action = requireText(opts.action, '--action');
+  const actionSpec = SMARTHOME_ACTIONS.get(action);
+  if (!actionSpec) {
+    fail(
+      `--action must be one of ${[...SMARTHOME_ACTIONS.keys()].join(', ')}.`,
+    );
+  }
+  const payload = {};
+  if (action === 'SetBrightness') {
+    payload.brightness = parseNumber(opts.brightness, '--brightness', 0, 100);
+  }
+  if (action === 'SetColor') {
+    payload.color = parseHsvColor(opts.color);
+  }
+  if (action === 'SetTargetTemperature') {
+    payload.targetSetpoint = {
+      value: parseNumber(opts.temperature, '--temperature', 5, 35),
+      scale: 'CELSIUS',
+    };
+  }
+  return {
+    endpointId,
+    action,
+    actionSpec,
+    directive: {
+      header: directiveHeader(actionSpec.namespace, actionSpec.name),
+      endpoint: smarthomeEndpoint(endpointId),
+      payload,
+    },
+  };
+}
+
+function planSmarthomeControl(opts) {
+  const { endpointId, action, actionSpec, directive } =
+    smarthomeControlDirective(opts);
+  return plannedWritePayload({
+    surface: 'smart-home',
+    operation: 'smarthome-control',
+    stakesTier: actionSpec.tier,
+    httpRequest: smarthomeControlHttpRequest(opts, directive),
+    approvalOperation: 'smart-home control',
+    approvalTarget: `${endpointId} via ${opts.regionHost || DEFAULT_SMARTHOME_REGION_HOST}`,
+    approvalAction: action,
+    approvedCommand: approvedCommand('run smarthome-control', {
+      '--endpoint-id': endpointId,
+      '--action': action,
+      '--region-host': opts.regionHost,
+      '--brightness': opts.brightness,
+      '--color': opts.color,
+      '--temperature': opts.temperature,
+      '--operator-grant': grantForTier(actionSpec.tier),
+    }),
+    authSurface: 'smart-home',
+    authTarget: endpointId,
+    extra: { directive },
+  });
+}
+
+function smarthomeControlHttpRequest(opts, directive) {
+  return {
+    method: 'POST',
+    url: smarthomeEventGatewayUrl(opts),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    bearerSecretName: SMARTHOME_BEARER_SECRET,
+    bodyJson: {
+      directive,
+    },
+  };
+}
+
+function smarthomeControlRequest(opts) {
+  const { actionSpec, directive } = smarthomeControlDirective(opts);
+  requireOperatorGrant(
+    'smarthome-control',
+    actionSpec.tier,
+    opts.operatorGrant,
+  );
+  return executableWritePayload({
+    surface: 'smart-home',
+    operation: 'smarthome-control',
+    stakesTier: actionSpec.tier,
+    httpRequest: smarthomeControlHttpRequest(opts, directive),
+    authSurface: 'smart-home',
+    authTarget: directive.endpoint.endpointId,
+  });
+}
+
+function announceHttpRequest(opts, device, text) {
+  return {
+    method: 'POST',
+    url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
+    headers: communityJsonHeaders(opts.amazonDomain),
+    secretHeaders: communityCookieSecretHeaders(),
+    bodyJson: {
+      behaviorId: 'PREVIEW',
+      sequenceJson: JSON.stringify({
+        '@type': 'com.amazon.alexa.behaviors.model.Sequence',
+        startNode: {
+          '@type':
+            'com.amazon.alexa.behaviors.model.OpaquePayloadOperationNode',
+          type: 'Alexa.Speak',
+          operationPayload: {
+            deviceType: 'ALEXA_CURRENT_DEVICE_TYPE',
+            deviceSerialNumber: device,
+            locale: 'en-US',
+            customerId: '<resolved-by-alexa-account>',
+            textToSpeak: text,
+          },
+        },
+      }),
+      status: 'ENABLED',
+    },
+  };
+}
+
+function planAnnounce(opts) {
+  const device = requireIdentifier(opts.device, '--device');
+  const text = stripMarkdownForTts(requireBoundedText(opts.text, '--text'));
+  return plannedWritePayload({
+    surface: 'community',
+    operation: 'announce',
+    stakesTier: 'amber',
+    httpRequest: announceHttpRequest(opts, device, text),
+    approvalOperation: 'announce',
+    approvalTarget: device,
+    approvalAction: `speak "${text}"`,
+    approvedCommand: approvedCommand('run announce', {
+      '--device': device,
+      '--text': text,
+      '--amazon-domain': opts.amazonDomain,
+      '--operator-grant': grantForTier('amber'),
+    }),
+    authSurface: 'community',
+    authTarget: device,
+  });
+}
+
+function announceRequest(opts) {
+  const device = requireIdentifier(opts.device, '--device');
+  const text = stripMarkdownForTts(requireBoundedText(opts.text, '--text'));
+  requireOperatorGrant('announce', 'amber', opts.operatorGrant);
+  return executableWritePayload({
+    surface: 'community',
+    operation: 'announce',
+    stakesTier: 'amber',
+    httpRequest: announceHttpRequest(opts, device, text),
+    authSurface: 'community',
+    authTarget: device,
+  });
+}
+
+function musicPlayTarget(opts) {
+  const device = requireIdentifier(opts.device, '--device');
+  const deviceType = requireIdentifier(opts.deviceType, '--device-type');
+  const customerId = requireIdentifier(opts.customerId, '--customer-id');
+  const deviceName =
+    opts.deviceName === undefined
+      ? device
+      : requireBoundedText(opts.deviceName, '--device-name', 256);
+  const explicitSong = opts.song
+    ? stripMarkdownForTts(requireBoundedText(opts.song, '--song'))
+    : null;
+  const explicitArtist = opts.artist
+    ? stripMarkdownForTts(requireBoundedText(opts.artist, '--artist'))
+    : null;
+  if (opts.query && (explicitSong || explicitArtist)) {
+    fail('--query cannot be combined with --song or --artist.');
+  }
+  if (explicitArtist && !explicitSong) {
+    fail('--artist requires --song for exact music playback.');
+  }
+  let query;
+  let expectedContent;
+  if (explicitSong) {
+    query = explicitArtist
+      ? `${explicitSong} ${communityLocale(opts.amazonDomain) === 'de-DE' ? 'von' : 'by'} ${explicitArtist}`
+      : explicitSong;
+    expectedContent = {
+      type: 'song',
+      title: explicitSong,
+      artist: explicitArtist || null,
+    };
+  } else {
+    query = stripMarkdownForTts(requireBoundedText(opts.query, '--query'));
+    expectedContent = {
+      type: 'search',
+      query,
+    };
+  }
+  const provider = parseMusicProvider(opts.provider);
+  return {
+    customerId,
+    device,
+    deviceName,
+    deviceType,
+    expectedContent,
+    provider,
+    query,
+  };
+}
+
+function musicPlayHttpRequest(opts, target) {
+  return {
+    method: 'POST',
+    url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
+    headers: communityJsonHeaders(opts.amazonDomain),
+    secretHeaders: communityCookieSecretHeaders(),
+    bodyJson: {
+      behaviorId: 'PREVIEW',
+      sequenceJson: JSON.stringify({
+        '@type': 'com.amazon.alexa.behaviors.model.Sequence',
+        startNode: {
+          '@type': 'com.amazon.alexa.behaviors.model.ParallelNode',
+          nodesToExecute: [
+            {
+              '@type':
+                'com.amazon.alexa.behaviors.model.OpaquePayloadOperationNode',
+              type: 'Alexa.Music.PlaySearchPhrase',
+              operationPayload: {
+                deviceType: target.deviceType,
+                deviceSerialNumber: target.device,
+                customerId: target.customerId,
+                locale: communityLocale(opts.amazonDomain),
+                musicProviderId: target.provider,
+                searchPhrase: target.query,
+                sanitizedSearchPhrase: target.query,
+              },
+            },
+          ],
+        },
+      }),
+      status: 'ENABLED',
+    },
+  };
+}
+
+function planMusicPlay(opts) {
+  const target = musicPlayTarget(opts);
+  const contentFlags = opts.song
+    ? {
+        '--song': opts.song,
+        '--artist': opts.artist,
+      }
+    : {
+        '--query': target.query,
+      };
+  return plannedWritePayload({
+    surface: 'community',
+    operation: 'music-play',
+    stakesTier: 'amber',
+    httpRequest: musicPlayHttpRequest(opts, target),
+    approvalOperation: 'music playback',
+    approvalTarget: target.deviceName,
+    approvalAction: `play "${target.query}" via ${target.provider}`,
+    approvedCommand: approvedCommand('run music-play', {
+      '--device': target.device,
+      '--device-name': opts.deviceName,
+      '--device-type': target.deviceType,
+      '--customer-id': target.customerId,
+      ...contentFlags,
+      '--provider': target.provider,
+      '--amazon-domain': opts.amazonDomain,
+      '--operator-grant': grantForTier('amber'),
+    }),
+    authSurface: 'community',
+    authTarget: target.deviceName,
+    extra: {
+      expectedContent: target.expectedContent,
+    },
+  });
+}
+
+function musicPlayRequest(opts) {
+  const target = musicPlayTarget(opts);
+  requireOperatorGrant('music-play', 'amber', opts.operatorGrant);
+  return executableWritePayload({
+    surface: 'community',
+    operation: 'music-play',
+    stakesTier: 'amber',
+    httpRequest: musicPlayHttpRequest(opts, target),
+    authSurface: 'community',
+    authTarget: target.deviceName,
+    extra: {
+      expectedContent: target.expectedContent,
+    },
+  });
+}
+
+function voiceCommandTarget(opts) {
+  const device = requireIdentifier(opts.device, '--device');
+  const deviceType = requireIdentifier(opts.deviceType, '--device-type');
+  const customerId = requireIdentifier(opts.customerId, '--customer-id');
+  const deviceName =
+    opts.deviceName === undefined
+      ? device
+      : requireBoundedText(opts.deviceName, '--device-name', 256);
+  const command = stripMarkdownForTts(
+    requireBoundedText(opts.voiceCommand, '--voice-command'),
+  );
+  return { command, customerId, device, deviceName, deviceType };
+}
+
+function voiceCommandHttpRequest(opts, target) {
+  return {
+    method: 'POST',
+    url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
+    headers: communityJsonHeaders(opts.amazonDomain),
+    secretHeaders: communityCookieSecretHeaders(),
+    bodyJson: {
+      behaviorId: 'PREVIEW',
+      sequenceJson: JSON.stringify({
+        '@type': 'com.amazon.alexa.behaviors.model.Sequence',
+        startNode: {
+          '@type':
+            'com.amazon.alexa.behaviors.model.OpaquePayloadOperationNode',
+          type: 'Alexa.TextCommand',
+          operationPayload: {
+            deviceType: target.deviceType,
+            deviceSerialNumber: target.device,
+            customerId: target.customerId,
+            locale: communityLocale(opts.amazonDomain),
+            skillId: 'amzn1.ask.1p.tellalexa',
+            text: target.command,
+          },
+        },
+      }),
+      status: 'ENABLED',
+    },
+  };
+}
+
+function planVoiceCommand(opts) {
+  const target = voiceCommandTarget(opts);
+  return plannedWritePayload({
+    surface: 'community',
+    operation: 'voice-command',
+    stakesTier: 'red',
+    httpRequest: voiceCommandHttpRequest(opts, target),
+    approvalOperation: 'voice command',
+    approvalTarget: target.deviceName,
+    approvalAction: `send "${target.command}" to Alexa`,
+    approvedCommand: approvedCommand('run voice-command', {
+      '--device': target.device,
+      '--device-name': opts.deviceName,
+      '--device-type': target.deviceType,
+      '--customer-id': target.customerId,
+      '--voice-command': target.command,
+      '--amazon-domain': opts.amazonDomain,
+      '--operator-grant': grantForTier('red'),
+    }),
+    authSurface: 'community',
+    authTarget: target.deviceName,
+  });
+}
+
+function voiceCommandRequest(opts) {
+  const target = voiceCommandTarget(opts);
+  requireOperatorGrant('voice-command', 'red', opts.operatorGrant);
+  return executableWritePayload({
+    surface: 'community',
+    operation: 'voice-command',
+    stakesTier: 'red',
+    httpRequest: voiceCommandHttpRequest(opts, target),
+    authSurface: 'community',
+    authTarget: target.deviceName,
+  });
+}
+
+function listAddHttpRequest(listType, opts, item) {
+  return {
+    method: 'POST',
+    url: `https://${communityHost(opts.amazonDomain)}/api/namedLists/${listType}/items`,
+    headers: communityJsonHeaders(opts.amazonDomain),
+    secretHeaders: communityCookieSecretHeaders(),
+    bodyJson: {
+      value: item,
+      completed: false,
+    },
+  };
+}
+
+function planListAdd(operation, opts) {
+  const item = stripMarkdownForTts(requireBoundedText(opts.item, '--item'));
+  const listType = operation === 'shopping-list-add' ? 'shopping' : 'todo';
+  return plannedWritePayload({
+    surface: 'community',
+    operation,
+    stakesTier: 'amber',
+    httpRequest: listAddHttpRequest(listType, opts, item),
+    approvalOperation: operation,
+    approvalTarget: `${listType} list`,
+    approvalAction: `add "${item}"`,
+    approvedCommand: approvedCommand(`run ${operation}`, {
+      '--item': item,
+      '--amazon-domain': opts.amazonDomain,
+      '--operator-grant': grantForTier('amber'),
+    }),
+    authSurface: 'community',
+    authTarget: listType,
+  });
+}
+
+function listAddRequest(operation, opts) {
+  const item = stripMarkdownForTts(requireBoundedText(opts.item, '--item'));
+  const listType = operation === 'shopping-list-add' ? 'shopping' : 'todo';
+  requireOperatorGrant(operation, 'amber', opts.operatorGrant);
+  return executableWritePayload({
+    surface: 'community',
+    operation,
+    stakesTier: 'amber',
+    httpRequest: listAddHttpRequest(listType, opts, item),
+    authSurface: 'community',
+    authTarget: listType,
+  });
+}
+
+function listCompleteHttpRequest(listType, opts, itemId) {
+  return {
+    method: 'PUT',
+    url: `https://${communityHost(opts.amazonDomain)}/api/namedLists/${listType}/items/${encodeURIComponent(itemId)}`,
+    headers: communityJsonHeaders(opts.amazonDomain),
+    secretHeaders: communityCookieSecretHeaders(),
+    bodyJson: {
+      completed: true,
+    },
+  };
+}
+
+function planListComplete(operation, opts) {
+  const itemId = requireIdentifier(opts.itemId, '--item-id');
+  const listType = operation === 'shopping-list-complete' ? 'shopping' : 'todo';
+  return plannedWritePayload({
+    surface: 'community',
+    operation,
+    stakesTier: 'amber',
+    httpRequest: listCompleteHttpRequest(listType, opts, itemId),
+    approvalOperation: operation,
+    approvalTarget: `${listType} list item ${itemId}`,
+    approvalAction: 'complete item',
+    approvedCommand: approvedCommand(`run ${operation}`, {
+      '--item-id': itemId,
+      '--amazon-domain': opts.amazonDomain,
+      '--operator-grant': grantForTier('amber'),
+    }),
+    authSurface: 'community',
+    authTarget: listType,
+  });
+}
+
+function listCompleteRequest(operation, opts) {
+  const itemId = requireIdentifier(opts.itemId, '--item-id');
+  const listType = operation === 'shopping-list-complete' ? 'shopping' : 'todo';
+  requireOperatorGrant(operation, 'amber', opts.operatorGrant);
+  return executableWritePayload({
+    surface: 'community',
+    operation,
+    stakesTier: 'amber',
+    httpRequest: listCompleteHttpRequest(listType, opts, itemId),
+    authSurface: 'community',
+    authTarget: listType,
+  });
+}
+
+function routineTriggerHttpRequest(opts, routine) {
+  return {
+    method: 'POST',
+    url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
+    headers: communityJsonHeaders(opts.amazonDomain),
+    secretHeaders: communityCookieSecretHeaders(),
+    bodyJson: {
+      behaviorId: routine,
+      status: 'ENABLED',
+    },
+  };
+}
+
+function planRoutineTrigger(opts) {
+  const routine = requireIdentifier(opts.routine, '--routine');
+  return plannedWritePayload({
+    surface: 'community',
+    operation: 'routine-trigger',
+    stakesTier: 'amber',
+    httpRequest: routineTriggerHttpRequest(opts, routine),
+    approvalOperation: 'routine trigger',
+    approvalTarget: routine,
+    approvalAction: 'trigger routine',
+    approvedCommand: approvedCommand('run routine-trigger', {
+      '--routine': routine,
+      '--amazon-domain': opts.amazonDomain,
+      '--operator-grant': grantForTier('amber'),
+    }),
+    authSurface: 'community',
+    authTarget: routine,
+  });
+}
+
+function routineTriggerRequest(opts) {
+  const routine = requireIdentifier(opts.routine, '--routine');
+  requireOperatorGrant('routine-trigger', 'amber', opts.operatorGrant);
+  return executableWritePayload({
+    surface: 'community',
+    operation: 'routine-trigger',
+    stakesTier: 'amber',
+    httpRequest: routineTriggerHttpRequest(opts, routine),
+    authSurface: 'community',
+    authTarget: routine,
+  });
+}
+
+function smartHomeControlTarget(opts) {
+  const entity = amazonAppSmartHomeEntityRequest(opts);
+  const rawAction = requireIdentifier(opts.action, '--action').toLowerCase();
+  const actionMap = new Map([
+    ['on', 'turnOn'],
+    ['turnon', 'turnOn'],
+    ['turn_on', 'turnOn'],
+    ['off', 'turnOff'],
+    ['turnoff', 'turnOff'],
+    ['turn_off', 'turnOff'],
+  ]);
+  const action = actionMap.get(rawAction);
+  if (!action) {
+    fail('--action must be one of on, off, turnOn, or turnOff.');
+  }
+  return { ...entity, action };
+}
+
+function amazonAppSmartHomeControlHttpRequest(opts, target) {
+  return {
+    method: 'PUT',
+    url: `https://${communityHost(opts.amazonDomain)}/api/phoenix/state`,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...communityBrowserHeaders(opts.amazonDomain),
+    },
+    secretHeaders: communityCookieSecretHeaders(),
+    bodyJson: {
+      controlRequests: [
+        {
+          entityId: target.entityId,
+          entityType: target.entityType,
+          parameters: {
+            action: target.action,
+          },
+        },
+      ],
+    },
+  };
+}
+
+function runtimeHomeDir() {
+  const envDir = normalizeText(process.env.HYBRIDCLAW_DATA_DIR);
+  if (envDir) {
+    if (!path.isAbsolute(envDir)) {
+      fail(`HYBRIDCLAW_DATA_DIR must be an absolute path, got: ${envDir}.`);
+    }
+    return envDir;
+  }
+  return path.join(os.homedir(), '.hybridclaw');
+}
+
+function parseMasterKey(raw) {
+  const trimmed = normalizeText(raw);
+  if (!trimmed) fail('HybridClaw master key source is empty.');
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return Buffer.from(trimmed, 'hex');
+  }
+  const decoded = Buffer.from(trimmed, 'base64');
+  if (decoded.length === 32) return decoded;
+  return crypto.scryptSync(trimmed, PASSPHRASE_KDF_SALT, 32);
+}
+
+function readMasterKey() {
+  const envKey = normalizeText(process.env.HYBRIDCLAW_MASTER_KEY);
+  if (envKey) return parseMasterKey(envKey);
+
+  for (const filePath of [
+    RUNTIME_MASTER_KEY_SECRET_PATH,
+    path.join(runtimeHomeDir(), RUNTIME_MASTER_KEY_FILE),
+  ]) {
+    if (fs.existsSync(filePath)) {
+      return parseMasterKey(fs.readFileSync(filePath, 'utf8'));
+    }
+  }
+  fail(
+    `No HybridClaw master key available; restore ${path.join(runtimeHomeDir(), RUNTIME_MASTER_KEY_FILE)}.`,
+  );
+}
+
+function decryptRuntimeSecret(masterKey, secretName, entry) {
+  const nonce = Buffer.from(entry.nonce, 'base64');
+  const payload = Buffer.from(entry.ciphertext, 'base64');
+  if (payload.length < SECRET_STORE_TAG_BYTES) {
+    fail(`Stored ${secretName} ciphertext is truncated.`);
+  }
+  const ciphertext = payload.subarray(0, -SECRET_STORE_TAG_BYTES);
+  const authTag = payload.subarray(-SECRET_STORE_TAG_BYTES);
+  const decipher = crypto.createDecipheriv(
+    SECRET_STORE_ALGORITHM,
+    masterKey,
+    nonce,
+  );
+  decipher.setAAD(Buffer.from(secretName, 'utf8'));
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([
+    decipher.update(ciphertext),
+    decipher.final(),
+  ]).toString('utf8');
+}
+
+function readRuntimeSecret(secretName) {
+  const envValue = normalizeText(process.env[secretName]);
+  if (envValue) return envValue;
+
+  const secretsPath = path.join(runtimeHomeDir(), RUNTIME_SECRETS_FILE);
+  if (!fs.existsSync(secretsPath)) {
+    fail(
+      `Missing ${secretName}; store it with hybridclaw secret set ${secretName} "<value>".`,
+    );
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
+  const encryptedEntry = parsed?.entries?.[secretName];
+  if (encryptedEntry?.alg === SECRET_STORE_ALGORITHM) {
+    const value = normalizeText(
+      decryptRuntimeSecret(readMasterKey(), secretName, encryptedEntry),
+    );
+    if (value) return value;
+  }
+
+  const plaintext = normalizeText(parsed?.[secretName]);
+  if (plaintext) return plaintext;
+  fail(
+    `Missing ${secretName}; store it with hybridclaw secret set ${secretName} "<value>".`,
+  );
+}
+
+function executeHttpsJson(httpRequest, cookie) {
+  const url = new URL(httpRequest.url);
+  const body =
+    httpRequest.bodyJson === undefined
+      ? null
+      : JSON.stringify(httpRequest.bodyJson);
+  const headers = {
+    ...httpRequest.headers,
+    Cookie: cookie,
+  };
+  if (body) headers['Content-Length'] = Buffer.byteLength(body);
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      url,
+      {
+        method: httpRequest.method,
+        headers,
+      },
+      (res) => {
+        const chunks = [];
+        let totalBytes = 0;
+        let truncated = false;
+        const maxBytes = httpRequest.maxResponseBytes || 200_000;
+        res.on('data', (chunk) => {
+          totalBytes += chunk.length;
+          if (totalBytes <= maxBytes) {
+            chunks.push(chunk);
+          } else {
+            truncated = true;
+          }
+        });
+        res.on('end', () => {
+          const bodyText = Buffer.concat(chunks).toString('utf8');
+          if (truncated) {
+            reject(
+              new Error(
+                `Alexa response from ${url.hostname}${url.pathname} exceeded ${maxBytes} bytes.`,
+              ),
+            );
+            return;
+          }
+          const statusCode = Number(res.statusCode || 0);
+          let json = null;
+          if (!bodyText.trim() && statusCode >= 200 && statusCode < 300) {
+            json = {};
+          } else {
+            try {
+              json = JSON.parse(bodyText);
+            } catch {
+              if (AUTH_STOP.stopOnStatuses.includes(statusCode)) {
+                reject(
+                  new Error(
+                    `Alexa authorization failed for ${url.hostname}${url.pathname} with HTTP ${statusCode}. Re-import ${COMMUNITY_COOKIE_SECRET}.`,
+                  ),
+                );
+                return;
+              }
+              const contentType = res.headers['content-type'] || '(none)';
+              const snippet = bodyText
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 240);
+              reject(
+                new Error(
+                  `Alexa returned non-JSON response from ${url.hostname}${url.pathname} with HTTP ${statusCode}, content-type ${contentType}. Body starts: ${snippet || '(empty)'}`,
+                ),
+              );
+              return;
+            }
+          }
+          resolve({
+            bodyText,
+            headers: res.headers,
+            json,
+            statusCode,
+          });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.setTimeout(30_000, () => {
+      req.destroy(new Error(`Alexa request timed out for ${url.hostname}.`));
+    });
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+function assertAlexaJsonOk(response, target) {
+  if (AUTH_STOP.stopOnStatuses.includes(response.statusCode)) {
+    fail(
+      `Alexa authorization failed for ${target} with HTTP ${response.statusCode}. Re-import ${COMMUNITY_COOKIE_SECRET}.`,
+    );
+  }
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    fail(`Alexa request failed for ${target} with HTTP ${response.statusCode}.`);
+  }
+  const body = JSON.stringify(response.json);
+  if (
+    /Unauthenticated call/i.test(body) ||
+    /INVALID_AUTHORIZATION_CREDENTIAL/i.test(body) ||
+    /"FORBIDDEN"/i.test(body)
+  ) {
+    fail(
+      `Alexa authorization failed for ${target}; re-import ${COMMUNITY_COOKIE_SECRET}.`,
+    );
+  }
+}
+
+function extractSmartHomeAppliances(discoveryJson) {
+  const items = discoveryJson?.data?.endpoints?.items;
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => item?.legacyAppliance || item)
+    .filter((item) => item && typeof item === 'object');
+}
+
+function applianceAliases(appliance) {
+  const aliases = Array.isArray(appliance.aliases) ? appliance.aliases : [];
+  return aliases
+    .map((alias) => {
+      if (typeof alias === 'string') return alias;
+      return alias?.friendlyName || alias?.name || alias?.value || '';
+    })
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function applianceNames(appliance) {
+  return [
+    appliance.friendlyName,
+    appliance.applianceId,
+    appliance.entityId,
+    ...applianceAliases(appliance),
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function resolveSmartHomeAppliance(appliances, name) {
+  const requested = normalizeText(name).toLowerCase();
+  const exact = appliances.find((appliance) =>
+    applianceNames(appliance).some((candidate) => {
+      return candidate.toLowerCase() === requested;
+    }),
+  );
+  if (exact) return exact;
+
+  const available = appliances
+    .map((appliance) => normalizeText(appliance.friendlyName))
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+  fail(
+    `Alexa smart-home device "${name}" was not found. Available devices: ${available.join(', ') || '(none)'}.`,
+  );
+}
+
+function summarizeSmartHomeAppliance(appliance) {
+  return {
+    friendlyName: appliance.friendlyName || null,
+    entityId: appliance.entityId || null,
+    entityType: appliance.entityType || 'ENTITY',
+    applianceId: appliance.applianceId || null,
+    applianceTypes: appliance.applianceTypes || [],
+    manufacturerName: appliance.manufacturerName || null,
+    modelName: appliance.modelName || null,
+    connectedVia: appliance.connectedVia || null,
+    aliases: applianceAliases(appliance),
+  };
+}
+
+function collectStateProperties(value, properties = []) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+      return properties;
+    }
+    try {
+      return collectStateProperties(JSON.parse(trimmed), properties);
+    } catch {
+      return properties;
+    }
+  }
+  if (!value || typeof value !== 'object') return properties;
+  if (Array.isArray(value)) {
+    for (const item of value) collectStateProperties(item, properties);
+    return properties;
+  }
+  if (
+    typeof value.namespace === 'string' &&
+    typeof value.name === 'string' &&
+    Object.hasOwn(value, 'value')
+  ) {
+    properties.push({
+      namespace: value.namespace,
+      name: value.name,
+      value: value.value,
+      timeOfSample: value.timeOfSample || null,
+    });
+  }
+  for (const child of Object.values(value)) {
+    collectStateProperties(child, properties);
+  }
+  return properties;
+}
+
+function summarizeSmartHomeState(stateJson) {
+  const properties = collectStateProperties(stateJson);
+  const power = properties.find((property) => {
+    return (
+      /power/i.test(property.namespace) || /power/i.test(property.name)
+    );
+  });
+  const connectivity = properties.find((property) => {
+    return (
+      /endpointhealth/i.test(property.namespace) ||
+      /connectivity/i.test(property.name)
+    );
+  });
+  return {
+    powerState: power?.value || null,
+    connectivity: connectivity?.value || null,
+    properties,
+  };
+}
+
+function smartHomeAction(opts) {
+  return smartHomeControlTarget({
+    action: opts.action,
+    entityId: 'placeholder',
+    entityType: 'ENTITY',
+  }).action;
+}
+
+async function discoverSmartHomeByName(opts) {
+  const name = requireBoundedText(opts.name, '--name', 256);
+  const cookie = readRuntimeSecret(COMMUNITY_COOKIE_SECRET);
+  const discoveryPayload = amazonAppSmartHomeDevicesRequest(opts);
+  const discoveryResponse = await executeHttpsJson(
+    discoveryPayload.httpRequest,
+    cookie,
+  );
+  assertAlexaJsonOk(discoveryResponse, 'Alexa smart-home discovery');
+  const appliances = extractSmartHomeAppliances(discoveryResponse.json);
+  const appliance = resolveSmartHomeAppliance(appliances, name);
+  return { appliance, appliances, cookie, discoveryResponse, name };
+}
+
+async function smartHomeStatus(opts) {
+  const { appliance, cookie, name } = await discoverSmartHomeByName(opts);
+  const applianceSummary = summarizeSmartHomeAppliance(appliance);
+  const entityId = applianceSummary.entityId;
+  if (!entityId) fail(`Alexa smart-home device "${name}" has no entityId.`);
+  const statePayload = amazonAppSmartHomeStateRequest({
+    ...opts,
+    entityId,
+    entityType: applianceSummary.entityType || 'ENTITY',
+  });
+  const stateResponse = await executeHttpsJson(statePayload.httpRequest, cookie);
+  assertAlexaJsonOk(stateResponse, `Alexa smart-home status for ${name}`);
+  return {
+    ...endpointBasePayload('community', 'smart-home-status', 'green'),
+    domain: opts.amazonDomain || DEFAULT_AMAZON_DOMAIN,
+    name,
+    appliance: applianceSummary,
+    state: summarizeSmartHomeState(stateResponse.json),
+    rawStateResponse: stateResponse.json,
+    driftRisk:
+      'community-cookie Alexa app smart-home surface is reverse-engineered and may require re-link after Amazon changes.',
+  };
+}
+
+function planSmartHomeControl(opts) {
+  const name = requireBoundedText(opts.name, '--name', 256);
+  const action = smartHomeAction(opts);
+  return {
+    ...endpointBasePayload('community', 'smart-home-control', 'red'),
+    target: { name },
+    action,
+    resolution:
+      'The helper resolves the Alexa app smart-home entity by name at execution time.',
+    ...approvalPayload(
+      'smart-home control',
+      name,
+      action,
+      'red',
+      approvedCommand('smart-home control', {
+        '--name': name,
+        '--action': action,
+        '--amazon-domain': opts.amazonDomain,
+        '--operator-grant': grantForTier('red'),
+      }),
+    ),
+  };
+}
+
+async function controlSmartHome(opts) {
+  const action = smartHomeAction(opts);
+  requireOperatorGrant('smart-home control', 'red', opts.operatorGrant);
+  const { appliance, cookie, name } = await discoverSmartHomeByName(opts);
+  const applianceSummary = summarizeSmartHomeAppliance(appliance);
+  if (!applianceSummary.entityId) {
+    fail(`Alexa smart-home device "${name}" has no entityId.`);
+  }
+  const request = amazonAppSmartHomeControlHttpRequest(opts, {
+    entityId: applianceSummary.entityId,
+    entityType: applianceSummary.entityType || 'ENTITY',
+    action,
+  });
+  const controlResponse = await executeHttpsJson(request, cookie);
+  assertAlexaJsonOk(controlResponse, `Alexa smart-home control for ${name}`);
+  return {
+    ...endpointBasePayload('community', 'smart-home-control', 'red'),
+    domain: opts.amazonDomain || DEFAULT_AMAZON_DOMAIN,
+    name,
+    appliance: applianceSummary,
+    action,
+    statusCode: controlResponse.statusCode,
+    response: controlResponse.json,
+  };
+}
+
+async function smartHome(commandArgs) {
+  const operation = commandArgs[0];
+  if (!['status', 'plan-control', 'control'].includes(operation)) {
+    fail(`Unsupported smart-home command: ${operation || '(missing)'}`);
+  }
+  const opts = parseCommandOptions(commandArgs.slice(1), {
+    values: [...COMMAND_OPTION_FLAGS, '--operator-grant'],
+  });
+  if (operation === 'status') return smartHomeStatus(opts);
+  if (operation === 'plan-control') return planSmartHomeControl(opts);
+  return controlSmartHome(opts);
+}
+
+function approvedCommand(base, flags) {
+  const parts = [
+    'node',
+    'skills/alexa/alexa.cjs',
+    '--format',
+    'json',
+    ...base.split(' '),
+  ];
+  for (const [flag, value] of Object.entries(flags)) {
+    if (value !== undefined && value !== null && String(value).trim()) {
+      parts.push(flag, String(value));
+    }
+  }
+  return parts;
+}
+
+function relinkRequired(surface = 'community', target = null) {
+  return {
+    event: 'alexa.relink_required',
+    surface,
+    target,
+    message:
+      'Alexa authorization failed. Stop this flow and ask the operator to re-link the Alexa account.',
+  };
+}
+
+async function main() {
+  const { opts, positional } = parseGlobalArgs(process.argv.slice(2));
+  if (opts.help || positional.length === 0) {
+    process.stdout.write(`${usage()}\n`);
+    return;
+  }
+
+  const command = positional[0];
+  if (command === 'verify-request') {
+    printJson(await verifyRequest(opts), opts.format);
+    return;
+  }
+  if (command === 'account-link-session') {
+    printJson(accountLinkSession(opts), opts.format);
+    return;
+  }
+  if (command === 'parse-request') {
+    printJson(parseRequest(opts), opts.format);
+    return;
+  }
+  if (command === 'build-response') {
+    printJson(buildResponse(positional.slice(1)), opts.format);
+    return;
+  }
+  if (command === 'http-request') {
+    printJson(httpRequest(positional.slice(1)), opts.format);
+    return;
+  }
+  if (command === 'run') {
+    printJson(await run(positional.slice(1)), opts.format);
+    return;
+  }
+  if (command === 'smart-home') {
+    printJson(await smartHome(positional.slice(1)), opts.format);
+    return;
+  }
+  if (command === 'plan') {
+    printJson(plan(positional.slice(1)), opts.format);
+    return;
+  }
+  if (command === 'relink-required') {
+    printJson(relinkRequired(), opts.format);
+    return;
+  }
+  fail(`Unknown command: ${command}`);
+}
+
+if (require.main === module) {
+  main().catch((error) => fail(error.message || String(error), 1));
+}
+
+module.exports = {
+  ASK_SIGNATURE_WINDOW_SECONDS,
+  buildResponse,
+  csrfFromCookieHeader,
+  extractSmartHomeAppliances,
+  gatewayHttpRequest,
+  parseRequest,
+  relinkRequired,
+  responseAccepted,
+  runResultPayload,
+  resolveSmartHomeAppliance,
+  summarizeSmartHomeState,
+  stripMarkdownForTts,
+  validateAskCertUrl,
+};
