@@ -101,6 +101,7 @@ best-effort and stop on the first authentication or verification failure.
 - Build all Blink API calls with `skills/blink/blink.cjs`; do not handcraft Blink URLs, auth headers, or JSON bodies when the helper supports the operation.
 - Use the emitted `httpRequest` object with the gateway `http_request` tool; do not use shell `curl` for live Blink calls.
 - Credentials and tokens must stay in the SecretRef-backed runtime secret store; never ask the operator to paste `BLINK_PASSWORD` or `BLINK_AUTH_TOKEN` into chat, and never include either value in prose.
+- The Blink-specific implementation lives under `skills/blink/`; the gateway pieces this skill relies on are generic `http_request` primitives for nested response capture, secret-backed headers, and response-body suppression.
 - The helper only emits allowlisted hosts: `rest-prod.immedia-semi.com`, `rest-<BLINK_TIER>.immedia-semi.com`, and `prod.immedia-semi.com` for selected media artifact paths; arbitrary host/path passthrough is not supported.
 - Clip downloads must go through the gateway artifact path; return artifact handles or metadata only, and rely on the helper-emitted `suppressResponseBody: true` so raw video bytes do not enter model context.
 - Live-view requests are red and operator-UI-only; the helper emits `suppressResponseBody: true`, and RTSP/HLS/session handles must not be copied into chat even after approval.
@@ -162,6 +163,8 @@ plan mark-clip-watched --clip <clip-id>
 plan delete-clip --clip <clip-id>
 plan live-view --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
 ```
+
+Blink clip listing uses the account-scoped `media/changed` API, so `clips` intentionally does not accept `--network`; use the returned clip metadata to choose a clip path for `clip-download`.
 
 `plan` emits no live side effect. It returns `approvalText`,
 `approvedHelperCommandText`, the exact target host/path/method, and the
