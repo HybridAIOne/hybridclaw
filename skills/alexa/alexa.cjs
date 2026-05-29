@@ -107,6 +107,7 @@ const PLAN_COMMANDS = new Set([
 const COMMAND_OPTION_FLAGS = [
   '--action',
   '--amazon-domain',
+  '--artist',
   '--brightness',
   '--color',
   '--customer-id',
@@ -123,6 +124,7 @@ const COMMAND_OPTION_FLAGS = [
   '--query',
   '--region-host',
   '--routine',
+  '--song',
   '--temperature',
   '--text',
   '--voice-command',
@@ -1318,6 +1320,8 @@ function responseAccepted(response) {
 }
 
 function runResultPayload({ requestPayload, transport, status, ok, response }) {
+  const musicPlaybackUnverified =
+    ok && requestPayload.operation === 'music-play';
   const payload = {
     ...endpointBasePayload(
       requestPayload.surface,
@@ -1329,13 +1333,25 @@ function runResultPayload({ requestPayload, transport, status, ok, response }) {
     ok,
     outcome: ok ? 'accepted' : 'failed',
     message: ok
-      ? `Alexa accepted ${requestPayload.operation}.`
+      ? musicPlaybackUnverified
+        ? 'Alexa accepted music-play, but the Alexa Remote response does not verify the selected track or playback state.'
+        : `Alexa accepted ${requestPayload.operation}.`
       : `Alexa did not accept ${requestPayload.operation}.`,
   };
   if (status) payload.status = status;
   payload.response = response;
+  if (musicPlaybackUnverified) {
+    payload.verification = {
+      status: 'not_verified',
+      reason:
+        'The Alexa behaviors API returned an accepted response without now-playing evidence. Do not claim the requested track is playing unless a separate read confirms it.',
+    };
+  }
   if (!ok && requestPayload.authFailureEvent) {
     payload.authFailureEvent = requestPayload.authFailureEvent;
+  }
+  if (requestPayload.expectedContent) {
+    payload.expectedContent = requestPayload.expectedContent;
   }
   if (requestPayload.driftRisk) payload.driftRisk = requestPayload.driftRisk;
   return payload;
@@ -1484,9 +1500,11 @@ function executableWritePayload({
   httpRequest,
   authSurface,
   authTarget,
+  extra = {},
 }) {
   return {
     ...endpointBasePayload(surface, operation, stakesTier),
+    ...extra,
     httpRequest,
     authFailureEvent: relinkRequired(authSurface, authTarget),
     ...AUTH_STOP,
@@ -1656,9 +1674,46 @@ function musicPlayTarget(opts) {
     opts.deviceName === undefined
       ? device
       : requireBoundedText(opts.deviceName, '--device-name', 256);
-  const query = stripMarkdownForTts(requireBoundedText(opts.query, '--query'));
+  const explicitSong = opts.song
+    ? stripMarkdownForTts(requireBoundedText(opts.song, '--song'))
+    : null;
+  const explicitArtist = opts.artist
+    ? stripMarkdownForTts(requireBoundedText(opts.artist, '--artist'))
+    : null;
+  if (opts.query && (explicitSong || explicitArtist)) {
+    fail('--query cannot be combined with --song or --artist.');
+  }
+  if (explicitArtist && !explicitSong) {
+    fail('--artist requires --song for exact music playback.');
+  }
+  let query;
+  let expectedContent;
+  if (explicitSong) {
+    query = explicitArtist
+      ? `${explicitSong} ${communityLocale(opts.amazonDomain) === 'de-DE' ? 'von' : 'by'} ${explicitArtist}`
+      : explicitSong;
+    expectedContent = {
+      type: 'song',
+      title: explicitSong,
+      artist: explicitArtist || null,
+    };
+  } else {
+    query = stripMarkdownForTts(requireBoundedText(opts.query, '--query'));
+    expectedContent = {
+      type: 'search',
+      query,
+    };
+  }
   const provider = parseMusicProvider(opts.provider);
-  return { customerId, device, deviceName, deviceType, provider, query };
+  return {
+    customerId,
+    device,
+    deviceName,
+    deviceType,
+    expectedContent,
+    provider,
+    query,
+  };
 }
 
 function musicPlayHttpRequest(opts, target) {
@@ -1698,6 +1753,14 @@ function musicPlayHttpRequest(opts, target) {
 
 function planMusicPlay(opts) {
   const target = musicPlayTarget(opts);
+  const contentFlags = opts.song
+    ? {
+        '--song': opts.song,
+        '--artist': opts.artist,
+      }
+    : {
+        '--query': target.query,
+      };
   return plannedWritePayload({
     surface: 'community',
     operation: 'music-play',
@@ -1711,13 +1774,16 @@ function planMusicPlay(opts) {
       '--device-name': opts.deviceName,
       '--device-type': target.deviceType,
       '--customer-id': target.customerId,
-      '--query': target.query,
+      ...contentFlags,
       '--provider': target.provider,
       '--amazon-domain': opts.amazonDomain,
       '--operator-grant': grantForTier('amber'),
     }),
     authSurface: 'community',
     authTarget: target.deviceName,
+    extra: {
+      expectedContent: target.expectedContent,
+    },
   });
 }
 
@@ -1731,6 +1797,9 @@ function musicPlayRequest(opts) {
     httpRequest: musicPlayHttpRequest(opts, target),
     authSurface: 'community',
     authTarget: target.deviceName,
+    extra: {
+      expectedContent: target.expectedContent,
+    },
   });
 }
 

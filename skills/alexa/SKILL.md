@@ -283,6 +283,22 @@ node skills/alexa/alexa.cjs --format json plan music-play \
   --provider AMAZON_MUSIC \
   --amazon-domain amazon.de
 
+For exact song requests, do not concatenate artist and title into `--query`.
+Pass the song title and artist separately so the helper can build a
+locale-aware Alexa search phrase:
+
+```bash
+node skills/alexa/alexa.cjs --format json plan music-play \
+  --device "<serialNumber from devices>" \
+  --device-name "OK Computer" \
+  --device-type "<deviceType from devices>" \
+  --customer-id "<deviceOwnerCustomerId from devices>" \
+  --song "Junge Römer" \
+  --artist "Falco" \
+  --provider APPLE_MUSIC \
+  --amazon-domain amazon.de
+```
+
 node skills/alexa/alexa.cjs --format json run music-play \
   --device "<serialNumber from devices>" \
   --device-name "OK Computer" \
@@ -345,7 +361,10 @@ gateway-ready request object. For normal reads and writes, use `run ...` so the
 CJS owns endpoint selection, headers, CSRF handling, execution, and result
 reporting. When `run ...` returns `ok: true` and `outcome: "accepted"`, treat
 the operation as accepted even if Alexa's response body is `{}`. Do not infer
-an auth failure from an empty successful response body.
+an auth failure from an empty successful response body. For `music-play`,
+`accepted` only means Alexa accepted the playback request. Do not tell the
+operator the requested song is now playing unless the result includes
+successful verification or a separate read confirms the selected track.
 
 ## Required Setup
 

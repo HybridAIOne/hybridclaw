@@ -1054,7 +1054,7 @@ test('Alexa helper prepares live execution without exposing derived cookie secre
   expect(gatewayRequest).not.toHaveProperty('bodyJson');
 });
 
-test('Alexa run result treats accepted responses as success without auth hint', () => {
+test('Alexa run result treats accepted responses as accepted without auth hint', () => {
   const requestPayload = {
     surface: 'community',
     operation: 'music-play',
@@ -1081,8 +1081,12 @@ test('Alexa run result treats accepted responses as success without auth hint', 
     status: 200,
     ok: true,
     outcome: 'accepted',
-    message: 'Alexa accepted music-play.',
+    message:
+      'Alexa accepted music-play, but the Alexa Remote response does not verify the selected track or playback state.',
     response: {},
+    verification: {
+      status: 'not_verified',
+    },
   });
   expect(accepted).not.toHaveProperty('authFailureEvent');
 
@@ -1098,6 +1102,51 @@ test('Alexa run result treats accepted responses as success without auth hint', 
     ok: false,
     outcome: 'failed',
     authFailureEvent: requestPayload.authFailureEvent,
+  });
+});
+
+test('Alexa helper plans exact song playback with artist and title flags', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'music-play',
+    '--device',
+    'G090LF09647500TV',
+    '--device-name',
+    'OK Computer',
+    '--device-type',
+    'A3S5BH2HU6VAYF',
+    '--customer-id',
+    'A1EXAMPLECUSTOMER',
+    '--song',
+    'Junge Römer',
+    '--artist',
+    'Falco',
+    '--provider',
+    'APPLE_MUSIC',
+    '--amazon-domain',
+    'amazon.de',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.approvedCommand).toEqual(
+    expect.arrayContaining([
+      '--song',
+      'Junge Römer',
+      '--artist',
+      'Falco',
+      '--provider',
+      'APPLE_MUSIC',
+    ]),
+  );
+  expect(payload.approvedCommand).not.toContain('--query');
+  const sequence = JSON.parse(payload.httpRequestTemplate.bodyJson.sequenceJson);
+  expect(sequence.startNode.nodesToExecute[0].operationPayload).toMatchObject({
+    musicProviderId: 'APPLE_MUSIC',
+    searchPhrase: 'Junge Römer von Falco',
+    sanitizedSearchPhrase: 'Junge Römer von Falco',
   });
 });
 
