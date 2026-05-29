@@ -100,7 +100,12 @@ class TrustedPeerA2AIdentityResolverBackend implements IdentityResolverBackend {
     if (parsed.kind !== 'agent') return null;
 
     const peer = getA2ATrustedPublicKeyPeer(parsed.parsed.instanceId);
-    if (!peer || peer.status !== 'trusted') return null;
+    if (!peer) return null;
+    if (peer.status !== 'trusted') {
+      throw new IdentityResolverError(
+        `peer-untrusted: A2A peer trust has been revoked for ${peer.peerId}`,
+      );
+    }
     const reachableUrl = peer.deliveryUrl || peer.agentCardUrl;
     if (!reachableUrl) return null;
     return {

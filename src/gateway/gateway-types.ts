@@ -1,6 +1,7 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
+import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import type {
@@ -1031,6 +1032,7 @@ export interface GatewayAdminA2ATrustPeer extends GatewayAdminA2ATrustPeerBase {
 export interface GatewayAdminA2ATrustResponse {
   identity: GatewayAdminA2AIdentity;
   peers: GatewayAdminA2ATrustPeer[];
+  pairingRequests: GatewayAdminA2APairingRequest[];
 }
 
 export interface GatewayAdminA2ATrustUpsertRequest {
@@ -1087,6 +1089,49 @@ export interface GatewayAdminFleetTopologyUpsertRequest {
   publicKeyFingerprint?: unknown;
   publicKeyJwk?: unknown;
   reason?: unknown;
+}
+
+export interface GatewayAdminA2APairingRequest
+  extends A2AIncomingPairingRequest {}
+
+export interface GatewayAdminA2APairingStartRequest {
+  peerUrl?: unknown;
+  canonicalId?: unknown;
+  canonicalInstanceId?: unknown;
+  reason?: unknown;
+  notifyPeer?: unknown;
+}
+
+export interface GatewayAdminA2APairingPreviewResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    publicKeyJwk: JsonWebKey;
+    name: string | null;
+  };
+}
+
+export interface GatewayAdminA2APairingDecisionRequest {
+  requestId?: unknown;
+  reason?: unknown;
+}
+
+export interface GatewayAdminA2APairingStartResponse
+  extends GatewayAdminA2ATrustResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    name: string | null;
+  };
+  remoteNotification: {
+    status: 'not_requested' | 'sent' | 'failed';
+    url: string | null;
+    error: string | null;
+  };
 }
 
 export interface GatewayAdminA2AThreadMessage {

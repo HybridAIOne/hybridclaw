@@ -531,7 +531,8 @@ export async function deliverA2AItem(
       error instanceof A2AHttpError ? error.statusCode : undefined;
     if (
       error instanceof A2AFailFastError ||
-      error instanceof IdentityNotFoundError
+      error instanceof IdentityNotFoundError ||
+      reason.startsWith('peer-untrusted:')
     ) {
       failA2AItem(deliveryItem, now, reason, attemptDetails(deliveryItem));
       return 'failed';

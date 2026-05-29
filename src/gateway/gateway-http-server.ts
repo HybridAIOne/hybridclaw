@@ -11,6 +11,7 @@ import {
   handleA2AJsonRpcInbound,
   resolveA2AAgentCardPeerTrust,
 } from '../a2a/a2a-inbound.js';
+import { handleA2APairingRequestInbound } from '../a2a/pairing.js';
 import {
   handleA2AWebhookInbound,
   parseA2AWebhookInboundPath,
@@ -187,8 +188,10 @@ import {
 import { handleApiSecretInject } from './gateway-secret-injection.js';
 import {
   applyGatewayAdminPolicyPreset,
+  approveGatewayAdminA2APairingRequest,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
+  declineGatewayAdminA2APairingRequest,
   deleteGatewayAdminA2ATrustPeer,
   deleteGatewayAdminAgent,
   deleteGatewayAdminEmailMessage,
@@ -228,6 +231,7 @@ import {
   getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
+  previewGatewayAdminA2APairing,
   reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
@@ -243,6 +247,7 @@ import {
   saveGatewayAdminPolicyRule,
   saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
+  startGatewayAdminA2APairing,
   unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
@@ -251,6 +256,8 @@ import {
   upsertGatewayAdminMcpServer,
 } from './gateway-service.js';
 import type {
+  GatewayAdminA2APairingDecisionRequest,
+  GatewayAdminA2APairingStartRequest,
   GatewayAdminA2ATrustUpsertRequest,
   GatewayAdminDiscordWebhookTargetRequest,
   GatewayAdminFleetTopologyUpsertRequest,
@@ -4722,6 +4729,12 @@ async function handleApiAdminA2ATrust(
   url: URL,
 ): Promise<void> {
   const method = req.method || 'GET';
+  const actor =
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      fallbackUserId: 'admin-console',
+    }) || 'admin-console';
   if (method === 'GET') {
     sendJson(res, 200, getGatewayAdminA2ATrust());
     return;
@@ -4732,7 +4745,7 @@ async function handleApiAdminA2ATrust(
       | GatewayAdminA2ATrustUpsertRequest
       | undefined;
     try {
-      sendJson(res, 200, upsertGatewayAdminA2ATrustPeer(body || {}));
+      sendJson(res, 200, upsertGatewayAdminA2ATrustPeer(body || {}, actor));
     } catch (error) {
       sendJson(
         res,
@@ -4762,8 +4775,8 @@ async function handleApiAdminA2ATrust(
       res,
       200,
       action === 'delete'
-        ? deleteGatewayAdminA2ATrustPeer({ peerId })
-        : revokeGatewayAdminA2ATrustPeer({ peerId, reason }),
+        ? deleteGatewayAdminA2ATrustPeer({ peerId, actor })
+        : revokeGatewayAdminA2ATrustPeer({ peerId, reason, actor }),
     );
   } catch (error) {
     sendJson(
@@ -4822,6 +4835,56 @@ async function handleApiAdminFleetTopology(
       {
         error: error instanceof Error ? error.message : String(error),
       },
+    );
+  }
+}
+
+async function handleApiAdminA2APairing(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+  const actor =
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      fallbackUserId: 'admin-console',
+    }) || 'admin-console';
+  const body = (await readJsonBody(req).catch(() => ({}))) as
+    | GatewayAdminA2APairingStartRequest
+    | GatewayAdminA2APairingDecisionRequest
+    | undefined;
+  try {
+    if (pathname === '/api/admin/a2a/pairing/approve') {
+      sendJson(
+        res,
+        200,
+        approveGatewayAdminA2APairingRequest(body || {}, actor),
+      );
+      return;
+    }
+    if (pathname === '/api/admin/a2a/pairing/decline') {
+      sendJson(
+        res,
+        200,
+        declineGatewayAdminA2APairingRequest(body || {}, actor),
+      );
+      return;
+    }
+    if (pathname === '/api/admin/a2a/pairing/preview') {
+      sendJson(res, 200, await previewGatewayAdminA2APairing(body || {}));
+      return;
+    }
+    sendJson(res, 200, await startGatewayAdminA2APairing(body || {}, actor));
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      { error: error instanceof Error ? error.message : String(error) },
     );
   }
 }
@@ -6441,6 +6504,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/a2a/pairing/requests') {
+      dispatchWebhookRoute(res, () =>
+        handleA2APairingRequestInbound(req, res, url),
+      );
+      return;
+    }
+
     if (parseA2AWebhookInboundPath(pathname)) {
       dispatchWebhookRoute(res, () => handleA2AWebhookInbound(req, res, url));
       return;
@@ -6698,6 +6768,16 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               method === 'DELETE')
           ) {
             await handleApiAdminFleetTopology(req, res, url);
+            return;
+          }
+          if (
+            (pathname === '/api/admin/a2a/pairing' ||
+              pathname === '/api/admin/a2a/pairing/preview' ||
+              pathname === '/api/admin/a2a/pairing/approve' ||
+              pathname === '/api/admin/a2a/pairing/decline') &&
+            method === 'POST'
+          ) {
+            await handleApiAdminA2APairing(req, res, pathname);
             return;
           }
           if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {

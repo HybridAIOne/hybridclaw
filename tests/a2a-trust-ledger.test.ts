@@ -224,10 +224,18 @@ describe('A2A public-key trust ledger', () => {
       trust.assertA2APeerPublicKeyTrust({
         agentCardUrl: 'https://rotate.example.com/.well-known/agent.json',
         deliveryUrl: 'https://rotate.example.com/a2a',
+        key: firstKey,
+        now: new Date('2030-01-01T00:01:30.000Z'),
+      }),
+    ).toThrow('peer-untrusted');
+    expect(() =>
+      trust.assertA2APeerPublicKeyTrust({
+        agentCardUrl: 'https://rotate.example.com/.well-known/agent.json',
+        deliveryUrl: 'https://rotate.example.com/a2a',
         key: secondKey,
         now: new Date('2030-01-01T00:02:00.000Z'),
       }),
-    ).toThrow('public key mismatch');
+    ).toThrow('peer-untrusted');
 
     const trusted = trust.upsertA2ATrustedPublicKeyPeer(
       {
