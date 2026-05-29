@@ -9,7 +9,9 @@ const SKILL_NAME = 'blink';
 const REST_PROD_HOST = 'rest-prod.immedia-semi.com';
 const PROD_HOST = 'prod.immedia-semi.com';
 const DEFAULT_REST_BASE = `https://${REST_PROD_HOST}`;
-const USER_AGENT = 'HybridClaw Blink/1.0';
+const DEFAULT_BLINK_APP_VERSION = '55.2';
+const DEFAULT_USER_AGENT = `BlinkHomeSecurity/${DEFAULT_BLINK_APP_VERSION} (iPhone; iOS 17.6; Scale/3.00)`;
+let userAgent = DEFAULT_USER_AGENT;
 const COST_MEASUREMENT = {
   system: 'UsageTotals',
   subLimitKey: 'blink',
@@ -30,52 +32,74 @@ const ENV_NAMES = {
 };
 
 const OPERATION_TIERS = {
-  login: 'green',
-  'verify-pin': 'amber',
-  homescreen: 'green',
-  networks: 'green',
-  'network-status': 'green',
-  'sync-modules': 'green',
-  cameras: 'green',
-  'camera-config': 'green',
-  'camera-signals': 'green',
-  doorbells: 'green',
-  'motion-events': 'green',
-  clips: 'green',
+  'account-login': 'green',
+  'pin-verify': 'amber',
+  'devices-list': 'green',
+  'networks-list': 'green',
+  'network-status-read': 'green',
+  'sync-modules-list': 'green',
+  'cameras-list': 'green',
+  'camera-config-read': 'green',
+  'camera-signals-read': 'green',
+  'doorbells-list': 'green',
+  'motion-events-list': 'green',
+  'clips-list': 'green',
   'clip-download': 'green',
-  'arm-network': 'amber',
-  'disarm-network': 'amber',
-  'camera-motion': 'amber',
-  thumbnail: 'amber',
-  'mark-clip-watched': 'amber',
-  'delete-clip': 'red',
-  'live-view': 'red',
+  'network-arm': 'amber',
+  'network-disarm': 'amber',
+  'camera-motion-set': 'amber',
+  'camera-thumbnail-refresh': 'amber',
+  'clip-watched-mark': 'amber',
+  'clip-delete': 'red',
+  'camera-live-view-start': 'red',
 };
 
 const HTTP_OPERATIONS = new Set([
-  'login',
-  'verify-pin',
-  'homescreen',
-  'networks',
-  'network-status',
-  'sync-modules',
-  'cameras',
-  'camera-config',
-  'camera-signals',
-  'doorbells',
-  'motion-events',
-  'clips',
+  'account-login',
+  'pin-verify',
+  'devices-list',
+  'networks-list',
+  'network-status-read',
+  'sync-modules-list',
+  'cameras-list',
+  'camera-config-read',
+  'camera-signals-read',
+  'doorbells-list',
+  'motion-events-list',
+  'clips-list',
   'clip-download',
 ]);
 
 const PLAN_OPERATIONS = new Set([
-  'arm-network',
-  'disarm-network',
-  'camera-motion',
-  'thumbnail',
-  'mark-clip-watched',
-  'delete-clip',
-  'live-view',
+  'network-arm',
+  'network-disarm',
+  'camera-motion-set',
+  'camera-thumbnail-refresh',
+  'clip-watched-mark',
+  'clip-delete',
+  'camera-live-view-start',
+]);
+
+const OPERATION_ALIASES = new Map([
+  ['login', 'account-login'],
+  ['verify-pin', 'pin-verify'],
+  ['homescreen', 'devices-list'],
+  ['networks', 'networks-list'],
+  ['network-status', 'network-status-read'],
+  ['sync-modules', 'sync-modules-list'],
+  ['cameras', 'cameras-list'],
+  ['camera-config', 'camera-config-read'],
+  ['camera-signals', 'camera-signals-read'],
+  ['doorbells', 'doorbells-list'],
+  ['motion-events', 'motion-events-list'],
+  ['clips', 'clips-list'],
+  ['arm-network', 'network-arm'],
+  ['disarm-network', 'network-disarm'],
+  ['camera-motion', 'camera-motion-set'],
+  ['thumbnail', 'camera-thumbnail-refresh'],
+  ['mark-clip-watched', 'clip-watched-mark'],
+  ['delete-clip', 'clip-delete'],
+  ['live-view', 'camera-live-view-start'],
 ]);
 
 function die(message, code = 2) {
@@ -87,42 +111,46 @@ function printHelp() {
   console.log(`Blink skill helper
 
 Usage:
-  node skills/blink/blink.cjs [--format json|pretty] http-request <operation> [flags]
-  node skills/blink/blink.cjs [--format json|pretty] plan <operation> [flags]
+  node skills/blink/blink.cjs [--format json|pretty] [--user-agent <ua>] http-request <operation> [flags]
+  node skills/blink/blink.cjs [--format json|pretty] [--user-agent <ua>] plan <operation> [flags]
 
 Read/request commands:
-  http-request login [--device-id <stable-id>] [--client-name <name>]
-  http-request verify-pin --pin <code>
-  http-request homescreen
-  http-request networks
-  http-request network-status --network <network-id>
-  http-request sync-modules --network <network-id>
-  http-request cameras --network <network-id>
-  http-request camera-config --network <network-id> --camera <camera-id>
-  http-request camera-signals --network <network-id> --camera <camera-id>
-  http-request doorbells --network <network-id>
-  http-request motion-events --network <network-id> [--since 2026-05-26T00:00:00Z]
-  http-request clips [--since 2026-05-26T00:00:00Z] [--page 0] [--max 50]
+  http-request account-login [--device-id <stable-id>] [--client-name <name>]
+  http-request pin-verify --pin <code>
+  http-request devices-list
+  http-request networks-list
+  http-request network-status-read --network <network-id>
+  http-request sync-modules-list --network <network-id>
+  http-request cameras-list --network <network-id>
+  http-request camera-config-read --network <network-id> --camera <camera-id>
+  http-request camera-signals-read --network <network-id> --camera <camera-id>
+  http-request doorbells-list --network <network-id>
+  http-request motion-events-list --network <network-id> [--since 2026-05-26T00:00:00Z]
+  http-request clips-list [--since 2026-05-26T00:00:00Z] [--page 0] [--max 50]
   http-request clip-download --path /api/v2/accounts/<account-id>/media/clip/<file.mp4>
 
 Guarded operation plans:
-  plan arm-network --network <network-id>
-  plan disarm-network --network <network-id>
-  plan camera-motion --network <network-id> --camera <camera-id> --enable true
-  plan thumbnail --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
-  plan mark-clip-watched --clip <clip-id>
-  plan delete-clip --clip <clip-id>
-  plan live-view --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
+  plan network-arm --network <network-id>
+  plan network-disarm --network <network-id>
+  plan camera-motion-set --network <network-id> --camera <camera-id> --enable true
+  plan camera-thumbnail-refresh --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
+  plan clip-watched-mark --clip <clip-id>
+  plan clip-delete --clip <clip-id>
+  plan camera-live-view-start --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
 
 Environment:
   BLINK_DEVICE_ID     optional stable client id; generated when unset
   BLINK_CLIENT_NAME   optional Blink app display name; default hybridclaw
+  BLINK_USER_AGENT    optional Blink app user-agent override
   BLINK_TIER          optional resolved tier, for example e003
   BLINK_ACCOUNT_ID    optional numeric account id fallback
   BLINK_CLIENT_ID     optional numeric client id fallback
 
 Notes:
-  clips is account-scoped on Blink's media/changed API; --network is rejected.
+  Operation names use subject-verb form. Legacy aliases such as login, homescreen,
+  cameras, and clips are accepted but canonical output uses account-login,
+  devices-list, cameras-list, and clips-list.
+  clips-list is account-scoped on Blink's media/changed API; --network is rejected.
 `);
 }
 
@@ -236,6 +264,27 @@ function parseClientName(value, label) {
   return normalized;
 }
 
+function parseUserAgent(value) {
+  const normalized = requireText(value, '--user-agent');
+  if (
+    normalized.includes('<secret:') ||
+    !/^[A-Za-z0-9 .;:/()_-]{8,160}$/u.test(normalized)
+  ) {
+    die(
+      '--user-agent must be a bounded Blink app User-Agent string and must not contain SecretRefs.',
+    );
+  }
+  return normalized;
+}
+
+function configureUserAgent(args) {
+  userAgent = parseUserAgent(
+    popFlag(args, '--user-agent') ||
+      process.env.BLINK_USER_AGENT ||
+      DEFAULT_USER_AGENT,
+  );
+}
+
 function generatedDeviceId() {
   const seed = [
     process.env.HYBRIDCLAW_INSTANCE_ID,
@@ -257,6 +306,11 @@ function generatedDeviceId() {
     digest.slice(20, 32),
   ].join('-');
   return `hybridclaw-${uuid}`;
+}
+
+function canonicalOperation(operation) {
+  const normalized = String(operation || '').trim();
+  return OPERATION_ALIASES.get(normalized) || normalized;
 }
 
 function resolveDeviceId(args) {
@@ -351,7 +405,7 @@ function tierRequestUrl(args, path) {
 function blinkHeaders(extra = {}) {
   return {
     'Content-Type': 'application/json',
-    'User-Agent': USER_AGENT,
+    'User-Agent': userAgent,
     ...extra,
   };
 }
@@ -398,6 +452,8 @@ function buildPayload(
       stakesTier,
     },
     costMeasurement: COST_MEASUREMENT,
+    toolCallInstructions:
+      'Pass the httpRequest object to the http_request tool as structured JSON. Do not stringify nested fields such as captureResponseFields or secretHeaders.',
   };
   if (usesStoredAuthToken) {
     payload.httpRequest.secretHeaders = authSecretHeaders();
@@ -416,11 +472,11 @@ function buildPayload(
   return payload;
 }
 
-function buildLogin(args) {
+function buildAccountLogin(args) {
   const deviceId = resolveDeviceId(args);
   const clientName = resolveClientName(args);
   assertNoUnexpectedArgs(args);
-  return buildPayload('login', {
+  return buildPayload('account-login', {
     url: `${DEFAULT_REST_BASE}/api/v5/account/login`,
     method: 'POST',
     headers: blinkHeaders(),
@@ -440,17 +496,18 @@ function buildLogin(args) {
     handover: {
       route: 'f14',
       trigger:
-        'If Blink responds with verification_required, client_verification_required, a 412 response, or an account/client verification challenge, ask the operator for the email/SMS PIN through durable F14 handover and then run verify-pin.',
+        'If Blink responds with verification_required, client_verification_required, a 412 response, or an account/client verification challenge, ask the operator for the email/SMS PIN through durable F14 handover and then run pin-verify.',
       resumeCommand:
-        'node skills/blink/blink.cjs --format json http-request verify-pin --pin <code>',
+        'node skills/blink/blink.cjs --format json http-request pin-verify --pin <code>',
     },
     responseHandling: {
-      authStopStatuses: [401, 412],
+      authStopStatuses: [401, 412, 426],
       authStopSignals: [
         'invalid credentials',
         'verification_required',
         'client_verification_required',
         'needs verification',
+        'app update is required',
       ],
       capturePersistsSecrets: [
         SECRET_NAMES.authToken,
@@ -458,17 +515,19 @@ function buildLogin(args) {
         SECRET_NAMES.accountId,
         SECRET_NAMES.clientId,
       ],
+      appUpdate:
+        'A 426 app-update response means the helper app identity is stale. Stop; do not guess alternate Blink endpoints. Update BLINK_USER_AGENT or the helper default.',
     },
     maxResponseBytes: 64_000,
   });
 }
 
-function buildVerifyPin(args) {
+function buildPinVerify(args) {
   const accountId = resolveAccountId(args);
   const clientId = resolveClientId(args);
   const pin = parsePin(popFlag(args, '--pin'));
   assertNoUnexpectedArgs(args);
-  return buildPayload('verify-pin', {
+  return buildPayload('pin-verify', {
     url: tierRequestUrl(
       args,
       `/api/v4/account/${accountId}/client/${clientId}/pin/verify`,
@@ -485,8 +544,8 @@ function buildVerifyPin(args) {
 }
 
 function buildReadOperation(operation, args) {
-  if (operation === 'login') return buildLogin(args);
-  if (operation === 'verify-pin') return buildVerifyPin(args);
+  if (operation === 'account-login') return buildAccountLogin(args);
+  if (operation === 'pin-verify') return buildPinVerify(args);
 
   const accountId = resolveAccountId(args);
   const requireNetwork = () =>
@@ -494,41 +553,41 @@ function buildReadOperation(operation, args) {
   let url;
   let artifact;
 
-  if (operation === 'homescreen') {
+  if (operation === 'devices-list') {
     url = tierRequestUrl(args, `/api/v3/accounts/${accountId}/homescreen`);
-  } else if (operation === 'networks') {
+  } else if (operation === 'networks-list') {
     url = tierRequestUrl(args, '/networks');
-  } else if (operation === 'network-status') {
+  } else if (operation === 'network-status-read') {
     const network = requireNetwork();
     url = tierRequestUrl(args, `/network/${network}`);
-  } else if (operation === 'sync-modules') {
+  } else if (operation === 'sync-modules-list') {
     const network = requireNetwork();
     url = tierRequestUrl(args, `/network/${network}/syncmodules`);
-  } else if (operation === 'cameras') {
+  } else if (operation === 'cameras-list') {
     const network = requireNetwork();
     url = tierRequestUrl(args, `/network/${network}/cameras`);
-  } else if (operation === 'camera-config') {
+  } else if (operation === 'camera-config-read') {
     const network = requireNetwork();
     const camera = parseIdentifier(popFlag(args, '--camera'), '--camera');
     url = tierRequestUrl(args, `/network/${network}/camera/${camera}/config`);
-  } else if (operation === 'camera-signals') {
+  } else if (operation === 'camera-signals-read') {
     const network = requireNetwork();
     const camera = parseIdentifier(popFlag(args, '--camera'), '--camera');
     url = tierRequestUrl(args, `/network/${network}/camera/${camera}/signals`);
-  } else if (operation === 'doorbells') {
+  } else if (operation === 'doorbells-list') {
     const network = requireNetwork();
     url = tierRequestUrl(
       args,
       `/api/v1/accounts/${accountId}/networks/${network}/doorbells`,
     );
-  } else if (operation === 'motion-events') {
+  } else if (operation === 'motion-events-list') {
     const network = requireNetwork();
     const since = popFlag(args, '--since');
     url = appendQueryString(
       tierRequestUrl(args, `/events/network/${network}`),
       since === undefined ? {} : { since: parseIsoTime(since, '--since') },
     );
-  } else if (operation === 'clips') {
+  } else if (operation === 'clips-list') {
     const since = parseIsoTime(
       popFlag(args, '--since', '1970-01-01T00:00:00Z'),
       '--since',
@@ -680,17 +739,17 @@ function buildMutationRequest(operation, args, options = {}) {
   let json;
   let approvalDetails;
 
-  if (operation === 'arm-network' || operation === 'disarm-network') {
+  if (operation === 'network-arm' || operation === 'network-disarm') {
     const network = parseIdentifier(popFlag(args, '--network'), '--network');
-    target = `/api/v1/accounts/${accountId}/networks/${network}/state/${operation === 'arm-network' ? 'arm' : 'disarm'}`;
+    target = `/api/v1/accounts/${accountId}/networks/${network}/state/${operation === 'network-arm' ? 'arm' : 'disarm'}`;
     approvalDetails = {
       action:
-        operation === 'arm-network'
+        operation === 'network-arm'
           ? 'arm Blink network'
           : 'disarm Blink network',
       network,
     };
-  } else if (operation === 'camera-motion') {
+  } else if (operation === 'camera-motion-set') {
     const network = parseIdentifier(popFlag(args, '--network'), '--network');
     const camera = parseIdentifier(popFlag(args, '--camera'), '--camera');
     const enable = parseBooleanValue(popFlag(args, '--enable'), '--enable');
@@ -715,7 +774,10 @@ function buildMutationRequest(operation, args, options = {}) {
       camera,
       cameraType,
     };
-  } else if (operation === 'thumbnail' || operation === 'live-view') {
+  } else if (
+    operation === 'camera-thumbnail-refresh' ||
+    operation === 'camera-live-view-start'
+  ) {
     const network = parseIdentifier(popFlag(args, '--network'), '--network');
     const camera = parseIdentifier(popFlag(args, '--camera'), '--camera');
     const cameraType = parseCameraType(
@@ -726,27 +788,28 @@ function buildMutationRequest(operation, args, options = {}) {
       network,
       camera,
       cameraType,
-      action: operation === 'thumbnail' ? 'thumbnail' : 'liveview',
+      action:
+        operation === 'camera-thumbnail-refresh' ? 'thumbnail' : 'liveview',
     });
     target = action.path;
     json = action.json;
     approvalDetails = {
       action:
-        operation === 'thumbnail'
+        operation === 'camera-thumbnail-refresh'
           ? 'trigger Blink camera thumbnail snapshot'
           : 'start Blink camera live view',
       network,
       camera,
       cameraType,
     };
-  } else if (operation === 'mark-clip-watched') {
+  } else if (operation === 'clip-watched-mark') {
     const clip = parseIdentifier(popFlag(args, '--clip'), '--clip');
     target = `/api/v1/accounts/${accountId}/media/${clip}/watched`;
     approvalDetails = {
       action: 'mark Blink clip watched',
       clip,
     };
-  } else if (operation === 'delete-clip') {
+  } else if (operation === 'clip-delete') {
     const clip = parseIdentifier(popFlag(args, '--clip'), '--clip');
     target = `/api/v1/accounts/${accountId}/media/delete`;
     json = { media: [clip] };
@@ -766,7 +829,7 @@ function buildMutationRequest(operation, args, options = {}) {
     json,
     maxResponseBytes: 512_000,
   };
-  if (operation === 'live-view') {
+  if (operation === 'camera-live-view-start') {
     payloadOptions.suppressResponseBody = true;
     payloadOptions.artifact = {
       mode: 'operator-ui-only',
@@ -846,8 +909,9 @@ function buildRequest(argv) {
   const format = popFlag(args, '--format', 'pretty');
   if (!['json', 'pretty'].includes(format))
     die('--format must be json or pretty.');
+  configureUserAgent(args);
   const command = args.shift();
-  const operation = args.shift();
+  const operation = canonicalOperation(args.shift());
   if (command === 'http-request') {
     if (HTTP_OPERATIONS.has(operation))
       return buildReadOperation(operation, args);
