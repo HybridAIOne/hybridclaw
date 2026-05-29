@@ -29,8 +29,8 @@ doc at once, start from [For Agents](./agents.md).
 
 - Native `image_generate` and `video_generate` tools produce managed media
   artifacts through configured image and video providers.
-- Bundled skills cover Airtable, FastBill, Firecrawl, HeyGen, Google Ads, and
-  SearXNG-backed web/news/image search workflows.
+- Bundled skills cover Airtable, FastBill, Firecrawl, Fronius, HeyGen,
+  Homematic, Google Ads, and SearXNG-backed web/news/image search workflows.
 - Threema Gateway Basic mode is available for outbound operator messaging in
   DACH-regulated or privacy-sensitive deployments.
 - A2A federation includes JSON-RPC Agent Card inbound delivery, signed
@@ -41,6 +41,10 @@ doc at once, start from [For Agents](./agents.md).
   skill-trace review a deterministic test path.
 - Harness evolution runs eval-driven coworker workspace improvement loops with
   F12 manifests, seed-delta reporting, and admin inspection.
+- `/second-opinion` compares or validates answers with a stronger configured
+  model while honoring confidentiality, context, and agent-budget limits.
+- Web chat renders slash-command results distinctly and records persisted
+  thumbs-up/down response ratings for observability and Adaptive Skills.
 - `npm run desktop` launches a native macOS wrapper around the local chat UI,
   with gateway reuse/startup and admin access from the app menu.
 - Canonical user and agent identity helpers now include DNS-style discovery for

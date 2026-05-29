@@ -2,8 +2,84 @@
 
 ## Unreleased
 
+## [0.21.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.0) - 2026-05-29
+
+### Added
+
+- **A2A cross-instance transport**: Outbound A2A delivery can resolve
+  canonical peer IDs through the local deployment URL or active tunnel URL, the
+  public-key trust ledger, and DNS-style discovery, then dispatch over the A2A
+  transport with route invalidation and coverage for remote handoff delivery.
+- **Harness evolution loop**: Added `hybridclaw harness-evolve` for
+  eval-driven coworker workspace evolution, including seed validation,
+  round/rollout summaries, F12 manifest reporting, allowed-surface write
+  enforcement, and admin inspection support.
+- **Second-opinion command**: Added `/second-opinion` for stronger-model
+  comparison, validation of the last answer, and optional fact-checking with
+  web-search evidence. The command refreshes the model catalog, estimates
+  context/cost, honors per-agent budgets, and redacts or blocks confidential
+  payloads before remote model calls.
+- **Web response ratings**: Added thumbs-up/thumbs-down controls for persisted
+  web chat assistant responses, backed by idempotent per-operator ratings,
+  `response.rating` observability events, and Adaptive Skills feedback when a
+  response maps to a skill observation.
+- **Turn-level audit traces**: Added focused `/audit turn` and `/audit run`
+  trace views plus session trace export support for inspecting the exact
+  request, response, tool, approval, and audit events around one turn.
+- **Token agent budgets**: Agent budget config now supports token caps in
+  addition to USD/EUR spend caps, and board/job budget chips report token
+  usage with neutral, warning, and over-budget states.
+- **Per-channel brand-voice profiles**: The `output-guard` plugin can apply
+  channel-specific brand-voice profiles, blocked terms, rewrite behavior, and
+  guard configuration.
+- **`homematic` skill**: Added Homematic IP Home Control Unit state reads,
+  Connect API auth setup payloads, WebSocket message planning, guarded switch,
+  thermostat, shutter, scene, and safety-alarm control plans, and offline HCU
+  state fixture summaries.
+- **`fronius` skill**: Added Fronius photovoltaic monitoring through local
+  Fronius Solar API V1 and Solar.web Query API reads, including local health,
+  live power flow, energy rollups, cloud system/device/status endpoints, and
+  SecretRef-backed Solar.web access-key headers.
+
+### Changed
+
+- **Security fallback deprecations**: Added migration warnings for legacy
+  BlueBubbles query-param webhook auth, unbound `bearerSecretName` and
+  `secretHeaders` injection, and legacy `container.additionalMounts` config.
+  Existing setups continue to work during the deprecation window while docs and
+  `hybridclaw doctor security` point operators to header auth, bound bearer
+  secrets, and `container.binds`.
+- **A2A handoff ownership**: Handoff envelopes now preserve recipient
+  ownership and org-chart context so inbox views, persisted threads, and audit
+  records can distinguish handoff recipient responsibility from ordinary chat
+  routing.
+- **Slash-command rendering**: Web chat treats slash-command output as a
+  distinct command-result block instead of rendering it as ordinary assistant
+  prose, with stream metadata carried through history reloads.
+- **Admin console dialog behavior**: Console sheets were consolidated into the
+  dialog component, exit animation handling moved to the Web Animations API,
+  and focus guards were tightened for modal navigation.
+- **Console linting**: Added a console lint script and moved Biome scoping into
+  the shared config so root and console checks use the same formatting source
+  of truth.
+- **Roadmap status**: Updated internal roadmap status for merged A2A,
+  brand-voice, budget-chip, second-opinion, response-rating, harness
+  evolution, Homematic, Fronius, and T Cloud Public work, and added follow-up
+  rows for AWS, Blink, BYD Battery, Alexa, Hue, skill identity assets/chat
+  rendering, and pluggable secret backends.
+
 ### Fixed
 
+- **Unknown provider prefixes**: Provider factory validation now rejects
+  unknown provider-prefixed model ids instead of falling through to an
+  unintended provider.
+- **Recovered skill tool failures**: Skill evaluations that recover from tool
+  failures are classified as partial instead of successful, and the admin
+  Skills page surfaces those partial states more clearly.
+- **Idle heartbeat runs**: Heartbeat scheduling skips idle agent runs instead
+  of creating empty proactive work.
+- **Web chat newlines**: Assistant message rendering preserves newlines in web
+  chat responses.
 - **npm signature audit attestation 404s**: Treat missing npm registry
   attestation endpoint artifacts as best-effort after retries while keeping
   registry signature validation failures fatal.
@@ -74,16 +150,6 @@
 
 ### Changed
 
-- **Security fallback deprecations**: Added migration warnings for legacy
-  BlueBubbles query-param webhook auth, unbound `bearerSecretName` and
-  `secretHeaders` injection, and legacy `container.additionalMounts` config.
-  Existing setups continue to work during the deprecation window while docs and
-  `hybridclaw doctor security` point operators to header auth, bound bearer
-  secrets, and `container.binds`.
-- **A2A cross-instance transport**: Outbound A2A delivery can resolve
-  canonical peer IDs through identity discovery, pin the resolved public key
-  against the peer Agent Card, and round-trip messages between two HTTP
-  instances.
 - **Diagram validation and accounting**: Mermaid diagrams are validated with
   the bundled Mermaid parser before render, diagram render artifacts retain
   skill-scoped source/rendered metadata, and local diagram renders emit

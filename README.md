@@ -117,6 +117,9 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat accepts `/btw <question>` side questions while a primary run is
   active, so you can ask an ephemeral follow-up without interrupting the
   current run
+- Web Chat renders slash-command output as command results and lets operators
+  rate persisted assistant responses with thumbs-up/down feedback that feeds
+  observability and skill-improvement signals
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, statistics, config, secrets, output guard, A2A inbox threads, and
   channel-specific instructions
@@ -147,6 +150,8 @@ Once the gateway is running, open HybridClaw locally:
   spend summaries without scanning every stored session on page load.
 - `/admin/agent-scoreboard` ranks agents by observed skill scores, reliability,
   timing, best skills, and CV links.
+- `/audit turn <n>` and `/audit run <runId>` show focused turn traces for
+  debugging one request without reading the full session audit stream.
 - `hybridclaw agent config` accepts generated JSON payloads to upsert agent
   metadata, write bootstrap markdown, import profile images into the agent
   workspace, and optionally activate the agent.
@@ -180,6 +185,9 @@ Once the gateway is running, open HybridClaw locally:
 - `/goal` stores a standing completion condition for the current thread and
   queues supervised continuations until the goal is judged complete, paused,
   cleared, interrupted, or blocked by approval policy.
+- `/second-opinion` asks a stronger configured model to compare a question,
+  validate the last answer, or fact-check with web-search evidence while
+  honoring configured model context, confidentiality, and agent-budget limits.
 - `proactive.delegation.model` can pin delegated work to a different model
   from the parent turn; `/status` shows delegate token totals and local-token
   share when that split is configured.
@@ -198,6 +206,9 @@ Once the gateway is running, open HybridClaw locally:
 - `container.persistBashState` controls whether bash tool calls share shell
   state (`cd`, exported env vars, aliases) across turns in the same active
   runtime session; `/admin/config` exposes the same setting as `Persistent bash state`.
+- Agent budget config supports monthly USD/EUR caps and token caps; job and
+  board budget chips show neutral, warning, and over-budget states for
+  configured agents.
 - `security.confidentialRedactionEnabled` controls whether optional
   `.confidential.yml` rules redact prompts and block matching outbound text;
   `/admin/config` exposes the same setting as `Confidential leak guard`.
@@ -226,8 +237,8 @@ Once the gateway is running, open HybridClaw locally:
   local operators review scanner-blocked skills and record a bypass marker for
   the installed copy when the finding has been accepted.
 - Bundled skills include CRM, finance, infrastructure, monitoring,
-  home-automation, fax, local PII redaction, media, search, and office
-  workflows. Skill setup guides live in the
+  home-automation and solar monitoring, fax, local PII redaction, media,
+  search, and office workflows. Skill setup guides live in the
   [Skills Catalog](https://hybridaione.github.io/hybridclaw/docs/guides/skills/).
 - The bundled tutorials cover owner, GTM, marketing, sales, DevRel, content,
   invoicing, webinar, and release-launch workflows that can run from the TUI,
@@ -282,7 +293,8 @@ Once the gateway is running, open HybridClaw locally:
   Salesforce inspection, GitHub issue queue processing (`gh-issues`),
   monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
   FastBill, Lexware Office, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
-  HeyGen, Hermes3000 long-form writing, natural-language warehouse SQL
+  HeyGen, Hermes3000 long-form writing, Fronius solar monitoring, Homematic
+  HCU state/control planning, natural-language warehouse SQL
   (`warehouse-sql`), brand-voice drafting, speech transcription and language
   detection (`speech.transcribe`, `speech.detect-language`), validated
   diagram-as-code creation through `diagram`, and editable Excalidraw diagram

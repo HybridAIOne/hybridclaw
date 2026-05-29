@@ -6,7 +6,7 @@ sidebar_position: 1
 
 # Skills Catalog
 
-HybridClaw ships **68 bundled skills** across ten categories. Each page below
+HybridClaw ships **70 bundled skills** across ten categories. Each page below
 covers every skill in its category with prerequisites, install commands,
 tips & tricks, ready-to-try example prompts, and troubleshooting.
 
@@ -32,7 +32,7 @@ For production package requirements see
 |---|---|---|
 | Office | pdf, xlsx, docx, pptx, office-workflows | [Office Skills](./office.md) |
 | Development | code-review, gh-issues, github-pr-workflow, salesforce, skill-creator, warehouse-sql | [Development Skills](./development.md) |
-| Infrastructure & Production Ops | hetzner-cloud, hetzner-dns, hetzner-storage-box, mittwald, t-cloud-public, zabbix, shelly | [Development Skills](./development.md#hetzner-devops) |
+| Infrastructure, Production Ops & Energy | hetzner-cloud, hetzner-dns, hetzner-storage-box, mittwald, t-cloud-public, zabbix, shelly, homematic, fronius | [Development Skills](./development.md#hetzner-devops) |
 | Communication | brand-voice, discord, channel-catchup, fax-send | [Communication Skills](./communication.md) |
 | Apple | apple-calendar, apple-music, apple-passwords | [Apple Skills](./apple.md) |
 | Productivity | feature-planning, project-manager, trello | [Productivity Skills](./productivity.md) |

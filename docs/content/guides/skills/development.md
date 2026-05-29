@@ -1,6 +1,6 @@
 ---
 title: Development Skills
-description: Code review, GitHub issue automation, PR workflows, Salesforce inspection, Hetzner DevOps, and skill creation tools.
+description: Code review, GitHub issue automation, PR workflows, Salesforce inspection, Hetzner DevOps, smart-home monitoring, and skill creation tools.
 sidebar_position: 3
 ---
 
@@ -498,6 +498,100 @@ documented Shelly OAuth flow for the Real Time Events API access token.
   `SHELLY_CLOUD_ACCESS_TOKEN`.
 - **Control refused** — rerun the generated approval plan and include the
   exact operator grant from a later confirmation.
+
+---
+
+## homematic
+
+Inspect Homematic IP Home Control Unit state and prepare guarded smart-home
+control messages through the HCU Connect API.
+
+**Prerequisites** — an HCU with developer mode enabled, local network
+reachability to the HCU, and Connect API credentials stored in HybridClaw
+secrets.
+
+```bash
+hybridclaw secret set HOMEMATIC_HCU_ACTIVATION_KEY "<activation-key>"
+hybridclaw secret set HOMEMATIC_HCU_AUTH_TOKEN "<auth-token>"
+```
+
+Use the activation key only long enough to enroll a Connect API token, then
+prefer the stored `HOMEMATIC_HCU_AUTH_TOKEN` for normal read and control
+planning flows.
+
+> 💡 **Tips & Tricks**
+>
+> Start with `plugin-ready`, `get-state`, or `get-system-state` before planning controls.
+>
+> The helper emits WebSocket connection headers and message payloads with SecretRef placeholders; do not paste HCU tokens into chat or command arguments.
+>
+> Switch, thermostat, shutter, and scene controls are approval-gated. Safety alarm acknowledgement is red-tier.
+
+> 🎯 **Try it yourself**
+>
+> `Summarize the current Homematic HCU state from this fixture`
+>
+> `Prepare a read-only get-state message for my HCU at https://hcu1-1234.local`
+>
+> `Build an approval plan to set the hallway thermostat group to 20.5 degrees`
+>
+> `Plan a shutter move to 25 percent for this device without executing it`
+
+**Troubleshooting**
+
+- **HCU URL rejected** — use the local HCUweb hostname such as
+  `https://hcu1-1234.local` or the HCU IP address when mDNS is unavailable.
+- **Token missing** — store `HOMEMATIC_HCU_AUTH_TOKEN`; do not pass it as a
+  CLI argument.
+- **Local connection fails** — verify gateway network policy, macOS Local
+  Network permission, and HCU WebSocket exposure separately.
+
+---
+
+## fronius
+
+Read Fronius photovoltaic inverter and Solar.web monitoring data without
+exposing local host configuration or Solar.web access-key material.
+
+**Prerequisites** — a local inverter host for LAN reads, or Solar.web Query API
+access keys for cloud reads.
+
+```bash
+hybridclaw env set FRONIUS_LOCAL_HOST "http://<fronius-ip>"
+hybridclaw secret set FRONIUS_SOLARWEB_ACCESS_KEY_ID "<access-key-id>"
+hybridclaw secret set FRONIUS_SOLARWEB_ACCESS_KEY_VALUE "<access-key-value>"
+```
+
+`FRONIUS_LOCAL_HOST` is plaintext configuration because it is a local hostname
+or IP address. Solar.web access keys stay in encrypted secrets and are injected
+server-side as request headers.
+
+> 💡 **Tips & Tricks**
+>
+> Use `local-summary` or `local-power-flow` for live production, load, grid, and battery status.
+>
+> Use `cloud-pvsystems`, `cloud-flowdata`, `cloud-aggrdata`, and `cloud-histdata` for Solar.web inventory and energy rollups.
+>
+> State whether an answer came from local inverter data or Solar.web cloud data.
+
+> 🎯 **Try it yourself**
+>
+> `Show current Fronius local production, load, grid exchange, and battery state`
+>
+> `Check whether my Solar.web credentials can list PV systems`
+>
+> `Summarize produced energy for this PV system yesterday`
+>
+> `List recent Fronius cloud error messages and turn them into an incident summary`
+
+**Troubleshooting**
+
+- **Local host missing** — set `FRONIUS_LOCAL_HOST` or pass the inverter base
+  URL for the request.
+- **Solar.web 401 or 403** — verify both access-key secrets and the Solar.web
+  Query API package attached to the account.
+- **Gateway policy denial** — allow the selected local inverter host or
+  `api.solarweb.com` before running live requests.
 
 ---
 
