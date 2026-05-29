@@ -4,6 +4,8 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const https = require('node:https');
+const os = require('node:os');
+const path = require('node:path');
 
 const SKILL_NAME = 'alexa';
 const ASK_SIGNATURE_WINDOW_SECONDS = 150;
@@ -16,10 +18,18 @@ const SMARTHOME_BEARER_SECRET = 'ALEXA_SMARTHOME_ACCESS_TOKEN';
 const COMMUNITY_COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
 const MAX_TEXT_BYTES = 4096;
 const DEFAULT_MUSIC_PROVIDER = 'AMAZON_MUSIC';
+const COMMUNITY_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Safari/605.1.15';
 const AUTH_STOP = {
   stopOnStatuses: [401, 403],
   stopOnErrorTypes: ['INVALID_AUTHORIZATION_CREDENTIAL'],
 };
+const RUNTIME_SECRETS_FILE = 'credentials.json';
+const RUNTIME_MASTER_KEY_FILE = 'credentials.master.key';
+const RUNTIME_MASTER_KEY_SECRET_PATH = '/run/secrets/hybridclaw_master_key';
+const PASSPHRASE_KDF_SALT = 'hybridclaw-master-key-v1';
+const SECRET_STORE_ALGORITHM = 'aes-256-gcm';
+const SECRET_STORE_TAG_BYTES = 16;
 
 function communityCookieSecretHeaders() {
   return [
@@ -77,8 +87,6 @@ const READ_HTTP_COMMANDS = new Set([
   'todo-list',
   'last-commands',
   'dnd-state',
-  'phoenix-devices',
-  'phoenix-state',
 ]);
 
 const PLAN_COMMANDS = new Set([
@@ -91,7 +99,6 @@ const PLAN_COMMANDS = new Set([
   'music-play',
   'voice-command',
   'routine-trigger',
-  'phoenix-control',
 ]);
 
 const COMMAND_OPTION_FLAGS = [
@@ -108,6 +115,7 @@ const COMMAND_OPTION_FLAGS = [
   '--entity-type',
   '--item',
   '--item-id',
+  '--name',
   '--provider',
   '--query',
   '--region-host',
@@ -195,9 +203,9 @@ Usage:
   node skills/alexa/alexa.cjs --format json plan smarthome-control --endpoint-id endpoint-1 --action TurnOn
   node skills/alexa/alexa.cjs --format json http-request smarthome-control --endpoint-id endpoint-1 --action TurnOn --operator-grant approve-alexa-write
   node skills/alexa/alexa.cjs --format json http-request devices --amazon-domain amazon.de
-  node skills/alexa/alexa.cjs --format json http-request phoenix-devices --amazon-domain amazon.de
-  node skills/alexa/alexa.cjs --format json http-request phoenix-state --entity-id ENTITY --amazon-domain amazon.de
-  node skills/alexa/alexa.cjs --format json plan phoenix-control --entity-id ENTITY --action off --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json smart-home status --name Poolpumpe --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json smart-home plan-control --name Poolpumpe --action off --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json smart-home control --name Poolpumpe --action off --amazon-domain amazon.de --operator-grant approve-alexa-red-write
   node skills/alexa/alexa.cjs --format json http-request shopping-list
   node skills/alexa/alexa.cjs --format json plan announce --device living-room --text "Package delivered."
   node skills/alexa/alexa.cjs --format json http-request announce --device living-room --text "Package delivered." --operator-grant approve-alexa-write
@@ -224,9 +232,10 @@ Commands:
   account-link-session
   parse-request
   build-response
-  http-request smarthome-discover|smarthome-state|devices|shopping-list|todo-list|last-commands|dnd-state|phoenix-devices|phoenix-state
-  http-request smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger|phoenix-control
-  plan smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger|phoenix-control
+  smart-home status|plan-control|control
+  http-request smarthome-discover|smarthome-state|devices|shopping-list|todo-list|last-commands|dnd-state
+  http-request smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
+  plan smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
   relink-required
 
 Secret values are not accepted on the command line. Store Alexa credentials with:
@@ -1037,6 +1046,17 @@ function communityLocale(domain) {
   return normalized === 'amazon.de' ? 'de-DE' : 'en-US';
 }
 
+function communityBrowserHeaders(domain) {
+  const host = communityHost(domain);
+  return {
+    'Accept-Language': communityLocale(domain),
+    'Accept-Encoding': 'identity',
+    Origin: `https://${host}`,
+    Referer: `https://${host}/`,
+    'User-Agent': COMMUNITY_USER_AGENT,
+  };
+}
+
 function communityPath(operation, opts) {
   if (operation === 'devices') return '/api/devices-v2/device';
   if (operation === 'shopping-list') return '/api/namedLists';
@@ -1051,9 +1071,6 @@ function communityPath(operation, opts) {
 }
 
 function communityReadRequest(operation, opts) {
-  if (operation === 'phoenix-devices') return phoenixDevicesRequest(opts);
-  if (operation === 'phoenix-state') return phoenixStateRequest(opts);
-
   const host = communityHost(opts.amazonDomain);
   return {
     ...endpointBasePayload('community', operation, 'green'),
@@ -1073,30 +1090,31 @@ function communityReadRequest(operation, opts) {
   };
 }
 
-function phoenixDevicesRequest(opts) {
+function amazonAppSmartHomeDevicesRequest(opts) {
   return {
-    ...endpointBasePayload('community', 'phoenix-devices', 'green'),
+    ...endpointBasePayload('community', 'smart-home-discover', 'green'),
     httpRequest: {
       method: 'POST',
       url: `https://${communityHost(opts.amazonDomain)}/nexus/v1/graphql`,
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        ...communityBrowserHeaders(opts.amazonDomain),
       },
       secretHeaders: communityCookieSecretHeaders(),
       bodyJson: {
         query: PHOENIX_SMARTHOME_QUERY,
       },
-      maxResponseBytes: 500_000,
+      maxResponseBytes: 5_000_000,
     },
-    authFailureEvent: relinkRequired('community', 'phoenix-devices'),
+    authFailureEvent: relinkRequired('community', 'smart-home-discover'),
     ...AUTH_STOP,
     driftRisk:
-      'community-cookie Phoenix surface is reverse-engineered and may require re-link after Amazon changes.',
+      'community-cookie Alexa app smart-home surface is reverse-engineered and may require re-link after Amazon changes.',
   };
 }
 
-function phoenixEntityRequest(opts) {
+function amazonAppSmartHomeEntityRequest(opts) {
   return {
     entityId: requireIdentifier(opts.entityId, '--entity-id'),
     entityType: opts.entityType
@@ -1105,27 +1123,28 @@ function phoenixEntityRequest(opts) {
   };
 }
 
-function phoenixStateRequest(opts) {
-  const entity = phoenixEntityRequest(opts);
+function amazonAppSmartHomeStateRequest(opts) {
+  const entity = amazonAppSmartHomeEntityRequest(opts);
   return {
-    ...endpointBasePayload('community', 'phoenix-state', 'green'),
+    ...endpointBasePayload('community', 'smart-home-status', 'green'),
     httpRequest: {
       method: 'POST',
       url: `https://${communityHost(opts.amazonDomain)}/api/phoenix/state`,
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        ...communityBrowserHeaders(opts.amazonDomain),
       },
       secretHeaders: communityCookieSecretHeaders(),
       bodyJson: {
         stateRequests: [entity],
       },
-      maxResponseBytes: 200_000,
+      maxResponseBytes: 1_000_000,
     },
     authFailureEvent: relinkRequired('community', entity.entityId),
     ...AUTH_STOP,
     driftRisk:
-      'community-cookie Phoenix surface is reverse-engineered and may require re-link after Amazon changes.',
+      'community-cookie Alexa app smart-home surface is reverse-engineered and may require re-link after Amazon changes.',
   };
 }
 
@@ -1143,7 +1162,6 @@ function httpRequest(commandArgs) {
   if (operation === 'announce') return announceRequest(opts);
   if (operation === 'music-play') return musicPlayRequest(opts);
   if (operation === 'voice-command') return voiceCommandRequest(opts);
-  if (operation === 'phoenix-control') return phoenixControlRequest(opts);
   if (operation === 'shopping-list-add')
     return listAddRequest('shopping-list-add', opts);
   if (operation === 'shopping-list-complete')
@@ -1168,7 +1186,6 @@ function plan(commandArgs) {
   if (operation === 'announce') return planAnnounce(opts);
   if (operation === 'music-play') return planMusicPlay(opts);
   if (operation === 'voice-command') return planVoiceCommand(opts);
-  if (operation === 'phoenix-control') return planPhoenixControl(opts);
   if (operation === 'shopping-list-add')
     return planListAdd('shopping-list-add', opts);
   if (operation === 'shopping-list-complete')
@@ -1736,8 +1753,8 @@ function routineTriggerRequest(opts) {
   });
 }
 
-function phoenixControlTarget(opts) {
-  const entity = phoenixEntityRequest(opts);
+function smartHomeControlTarget(opts) {
+  const entity = amazonAppSmartHomeEntityRequest(opts);
   const rawAction = requireIdentifier(opts.action, '--action').toLowerCase();
   const actionMap = new Map([
     ['on', 'turnOn'],
@@ -1754,13 +1771,14 @@ function phoenixControlTarget(opts) {
   return { ...entity, action };
 }
 
-function phoenixControlHttpRequest(opts, target) {
+function amazonAppSmartHomeControlHttpRequest(opts, target) {
   return {
     method: 'PUT',
     url: `https://${communityHost(opts.amazonDomain)}/api/phoenix/state`,
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
+      ...communityBrowserHeaders(opts.amazonDomain),
     },
     secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
@@ -1777,39 +1795,414 @@ function phoenixControlHttpRequest(opts, target) {
   };
 }
 
-function planPhoenixControl(opts) {
-  const target = phoenixControlTarget(opts);
-  return plannedWritePayload({
-    surface: 'community',
-    operation: 'phoenix-control',
-    stakesTier: 'red',
-    httpRequest: phoenixControlHttpRequest(opts, target),
-    approvalOperation: 'smart-home control',
-    approvalTarget: target.entityId,
-    approvalAction: target.action,
-    approvedCommand: approvedCommand('http-request phoenix-control', {
-      '--entity-id': target.entityId,
-      '--entity-type': target.entityType,
-      '--action': target.action,
-      '--amazon-domain': opts.amazonDomain,
-      '--operator-grant': grantForTier('red'),
-    }),
-    authSurface: 'community',
-    authTarget: target.entityId,
+function runtimeHomeDir() {
+  const envDir = normalizeText(process.env.HYBRIDCLAW_DATA_DIR);
+  if (envDir) {
+    if (!path.isAbsolute(envDir)) {
+      fail(`HYBRIDCLAW_DATA_DIR must be an absolute path, got: ${envDir}.`);
+    }
+    return envDir;
+  }
+  return path.join(os.homedir(), '.hybridclaw');
+}
+
+function parseMasterKey(raw) {
+  const trimmed = normalizeText(raw);
+  if (!trimmed) fail('HybridClaw master key source is empty.');
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return Buffer.from(trimmed, 'hex');
+  }
+  const decoded = Buffer.from(trimmed, 'base64');
+  if (decoded.length === 32) return decoded;
+  return crypto.scryptSync(trimmed, PASSPHRASE_KDF_SALT, 32);
+}
+
+function readMasterKey() {
+  const envKey = normalizeText(process.env.HYBRIDCLAW_MASTER_KEY);
+  if (envKey) return parseMasterKey(envKey);
+
+  for (const filePath of [
+    RUNTIME_MASTER_KEY_SECRET_PATH,
+    path.join(runtimeHomeDir(), RUNTIME_MASTER_KEY_FILE),
+  ]) {
+    if (fs.existsSync(filePath)) {
+      return parseMasterKey(fs.readFileSync(filePath, 'utf8'));
+    }
+  }
+  fail(
+    `No HybridClaw master key available; restore ${path.join(runtimeHomeDir(), RUNTIME_MASTER_KEY_FILE)}.`,
+  );
+}
+
+function decryptRuntimeSecret(masterKey, secretName, entry) {
+  const nonce = Buffer.from(entry.nonce, 'base64');
+  const payload = Buffer.from(entry.ciphertext, 'base64');
+  if (payload.length < SECRET_STORE_TAG_BYTES) {
+    fail(`Stored ${secretName} ciphertext is truncated.`);
+  }
+  const ciphertext = payload.subarray(0, -SECRET_STORE_TAG_BYTES);
+  const authTag = payload.subarray(-SECRET_STORE_TAG_BYTES);
+  const decipher = crypto.createDecipheriv(
+    SECRET_STORE_ALGORITHM,
+    masterKey,
+    nonce,
+  );
+  decipher.setAAD(Buffer.from(secretName, 'utf8'));
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([
+    decipher.update(ciphertext),
+    decipher.final(),
+  ]).toString('utf8');
+}
+
+function readRuntimeSecret(secretName) {
+  const envValue = normalizeText(process.env[secretName]);
+  if (envValue) return envValue;
+
+  const secretsPath = path.join(runtimeHomeDir(), RUNTIME_SECRETS_FILE);
+  if (!fs.existsSync(secretsPath)) {
+    fail(
+      `Missing ${secretName}; store it with hybridclaw secret set ${secretName} "<value>".`,
+    );
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
+  const encryptedEntry = parsed?.entries?.[secretName];
+  if (encryptedEntry?.alg === SECRET_STORE_ALGORITHM) {
+    const value = normalizeText(
+      decryptRuntimeSecret(readMasterKey(), secretName, encryptedEntry),
+    );
+    if (value) return value;
+  }
+
+  const plaintext = normalizeText(parsed?.[secretName]);
+  if (plaintext) return plaintext;
+  fail(
+    `Missing ${secretName}; store it with hybridclaw secret set ${secretName} "<value>".`,
+  );
+}
+
+function executeHttpsJson(httpRequest, cookie) {
+  const url = new URL(httpRequest.url);
+  const body =
+    httpRequest.bodyJson === undefined
+      ? null
+      : JSON.stringify(httpRequest.bodyJson);
+  const headers = {
+    ...httpRequest.headers,
+    Cookie: cookie,
+  };
+  if (body) headers['Content-Length'] = Buffer.byteLength(body);
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      url,
+      {
+        method: httpRequest.method,
+        headers,
+      },
+      (res) => {
+        const chunks = [];
+        let totalBytes = 0;
+        let truncated = false;
+        const maxBytes = httpRequest.maxResponseBytes || 200_000;
+        res.on('data', (chunk) => {
+          totalBytes += chunk.length;
+          if (totalBytes <= maxBytes) {
+            chunks.push(chunk);
+          } else {
+            truncated = true;
+          }
+        });
+        res.on('end', () => {
+          const bodyText = Buffer.concat(chunks).toString('utf8');
+          if (truncated) {
+            reject(
+              new Error(
+                `Alexa response from ${url.hostname}${url.pathname} exceeded ${maxBytes} bytes.`,
+              ),
+            );
+            return;
+          }
+          let json = null;
+          try {
+            json = JSON.parse(bodyText);
+          } catch {
+            const contentType = res.headers['content-type'] || '(none)';
+            const snippet = bodyText
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 240);
+            reject(
+              new Error(
+                `Alexa returned non-JSON response from ${url.hostname}${url.pathname} with HTTP ${res.statusCode}, content-type ${contentType}. Body starts: ${snippet || '(empty)'}`,
+              ),
+            );
+            return;
+          }
+          resolve({
+            bodyText,
+            headers: res.headers,
+            json,
+            statusCode: res.statusCode,
+          });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.setTimeout(30_000, () => {
+      req.destroy(new Error(`Alexa request timed out for ${url.hostname}.`));
+    });
+    if (body) req.write(body);
+    req.end();
   });
 }
 
-function phoenixControlRequest(opts) {
-  const target = phoenixControlTarget(opts);
-  requireOperatorGrant('phoenix-control', 'red', opts.operatorGrant);
-  return executableWritePayload({
-    surface: 'community',
-    operation: 'phoenix-control',
-    stakesTier: 'red',
-    httpRequest: phoenixControlHttpRequest(opts, target),
-    authSurface: 'community',
-    authTarget: target.entityId,
+function assertAlexaJsonOk(response, target) {
+  if (AUTH_STOP.stopOnStatuses.includes(response.statusCode)) {
+    fail(
+      `Alexa authorization failed for ${target} with HTTP ${response.statusCode}. Re-import ${COMMUNITY_COOKIE_SECRET}.`,
+    );
+  }
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    fail(`Alexa request failed for ${target} with HTTP ${response.statusCode}.`);
+  }
+  const body = JSON.stringify(response.json);
+  if (
+    /Unauthenticated call/i.test(body) ||
+    /INVALID_AUTHORIZATION_CREDENTIAL/i.test(body) ||
+    /"FORBIDDEN"/i.test(body)
+  ) {
+    fail(
+      `Alexa authorization failed for ${target}; re-import ${COMMUNITY_COOKIE_SECRET}.`,
+    );
+  }
+}
+
+function extractSmartHomeAppliances(discoveryJson) {
+  const items = discoveryJson?.data?.endpoints?.items;
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => item?.legacyAppliance || item)
+    .filter((item) => item && typeof item === 'object');
+}
+
+function applianceAliases(appliance) {
+  const aliases = Array.isArray(appliance.aliases) ? appliance.aliases : [];
+  return aliases
+    .map((alias) => {
+      if (typeof alias === 'string') return alias;
+      return alias?.friendlyName || alias?.name || alias?.value || '';
+    })
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function applianceNames(appliance) {
+  return [
+    appliance.friendlyName,
+    appliance.applianceId,
+    appliance.entityId,
+    ...applianceAliases(appliance),
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function resolveSmartHomeAppliance(appliances, name) {
+  const requested = normalizeText(name).toLowerCase();
+  const exact = appliances.find((appliance) =>
+    applianceNames(appliance).some((candidate) => {
+      return candidate.toLowerCase() === requested;
+    }),
+  );
+  if (exact) return exact;
+
+  const available = appliances
+    .map((appliance) => normalizeText(appliance.friendlyName))
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+  fail(
+    `Alexa smart-home device "${name}" was not found. Available devices: ${available.join(', ') || '(none)'}.`,
+  );
+}
+
+function summarizeSmartHomeAppliance(appliance) {
+  return {
+    friendlyName: appliance.friendlyName || null,
+    entityId: appliance.entityId || null,
+    entityType: appliance.entityType || 'ENTITY',
+    applianceId: appliance.applianceId || null,
+    applianceTypes: appliance.applianceTypes || [],
+    manufacturerName: appliance.manufacturerName || null,
+    modelName: appliance.modelName || null,
+    connectedVia: appliance.connectedVia || null,
+    aliases: applianceAliases(appliance),
+  };
+}
+
+function collectStateProperties(value, properties = []) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+      return properties;
+    }
+    try {
+      return collectStateProperties(JSON.parse(trimmed), properties);
+    } catch {
+      return properties;
+    }
+  }
+  if (!value || typeof value !== 'object') return properties;
+  if (Array.isArray(value)) {
+    for (const item of value) collectStateProperties(item, properties);
+    return properties;
+  }
+  if (
+    typeof value.namespace === 'string' &&
+    typeof value.name === 'string' &&
+    Object.hasOwn(value, 'value')
+  ) {
+    properties.push({
+      namespace: value.namespace,
+      name: value.name,
+      value: value.value,
+      timeOfSample: value.timeOfSample || null,
+    });
+  }
+  for (const child of Object.values(value)) {
+    collectStateProperties(child, properties);
+  }
+  return properties;
+}
+
+function summarizeSmartHomeState(stateJson) {
+  const properties = collectStateProperties(stateJson);
+  const power = properties.find((property) => {
+    return (
+      /power/i.test(property.namespace) || /power/i.test(property.name)
+    );
   });
+  const connectivity = properties.find((property) => {
+    return (
+      /endpointhealth/i.test(property.namespace) ||
+      /connectivity/i.test(property.name)
+    );
+  });
+  return {
+    powerState: power?.value || null,
+    connectivity: connectivity?.value || null,
+    properties,
+  };
+}
+
+function smartHomeAction(opts) {
+  return smartHomeControlTarget({
+    action: opts.action,
+    entityId: 'placeholder',
+    entityType: 'ENTITY',
+  }).action;
+}
+
+async function discoverSmartHomeByName(opts) {
+  const name = requireBoundedText(opts.name, '--name', 256);
+  const cookie = readRuntimeSecret(COMMUNITY_COOKIE_SECRET);
+  const discoveryPayload = amazonAppSmartHomeDevicesRequest(opts);
+  const discoveryResponse = await executeHttpsJson(
+    discoveryPayload.httpRequest,
+    cookie,
+  );
+  assertAlexaJsonOk(discoveryResponse, 'Alexa smart-home discovery');
+  const appliances = extractSmartHomeAppliances(discoveryResponse.json);
+  const appliance = resolveSmartHomeAppliance(appliances, name);
+  return { appliance, appliances, cookie, discoveryResponse, name };
+}
+
+async function smartHomeStatus(opts) {
+  const { appliance, cookie, name } = await discoverSmartHomeByName(opts);
+  const applianceSummary = summarizeSmartHomeAppliance(appliance);
+  const entityId = applianceSummary.entityId;
+  if (!entityId) fail(`Alexa smart-home device "${name}" has no entityId.`);
+  const statePayload = amazonAppSmartHomeStateRequest({
+    ...opts,
+    entityId,
+    entityType: applianceSummary.entityType || 'ENTITY',
+  });
+  const stateResponse = await executeHttpsJson(statePayload.httpRequest, cookie);
+  assertAlexaJsonOk(stateResponse, `Alexa smart-home status for ${name}`);
+  return {
+    ...endpointBasePayload('community', 'smart-home-status', 'green'),
+    domain: opts.amazonDomain || DEFAULT_AMAZON_DOMAIN,
+    name,
+    appliance: applianceSummary,
+    state: summarizeSmartHomeState(stateResponse.json),
+    rawStateResponse: stateResponse.json,
+    driftRisk:
+      'community-cookie Alexa app smart-home surface is reverse-engineered and may require re-link after Amazon changes.',
+  };
+}
+
+function planSmartHomeControl(opts) {
+  const name = requireBoundedText(opts.name, '--name', 256);
+  const action = smartHomeAction(opts);
+  return {
+    ...endpointBasePayload('community', 'smart-home-control', 'red'),
+    target: { name },
+    action,
+    resolution:
+      'The helper resolves the Alexa app smart-home entity by name at execution time.',
+    ...approvalPayload(
+      'smart-home control',
+      name,
+      action,
+      'red',
+      approvedCommand('smart-home control', {
+        '--name': name,
+        '--action': action,
+        '--amazon-domain': opts.amazonDomain,
+        '--operator-grant': grantForTier('red'),
+      }),
+    ),
+  };
+}
+
+async function controlSmartHome(opts) {
+  const action = smartHomeAction(opts);
+  requireOperatorGrant('smart-home control', 'red', opts.operatorGrant);
+  const { appliance, cookie, name } = await discoverSmartHomeByName(opts);
+  const applianceSummary = summarizeSmartHomeAppliance(appliance);
+  if (!applianceSummary.entityId) {
+    fail(`Alexa smart-home device "${name}" has no entityId.`);
+  }
+  const request = amazonAppSmartHomeControlHttpRequest(opts, {
+    entityId: applianceSummary.entityId,
+    entityType: applianceSummary.entityType || 'ENTITY',
+    action,
+  });
+  const controlResponse = await executeHttpsJson(request, cookie);
+  assertAlexaJsonOk(controlResponse, `Alexa smart-home control for ${name}`);
+  return {
+    ...endpointBasePayload('community', 'smart-home-control', 'red'),
+    domain: opts.amazonDomain || DEFAULT_AMAZON_DOMAIN,
+    name,
+    appliance: applianceSummary,
+    action,
+    statusCode: controlResponse.statusCode,
+    response: controlResponse.json,
+  };
+}
+
+async function smartHome(commandArgs) {
+  const operation = commandArgs[0];
+  if (!['status', 'plan-control', 'control'].includes(operation)) {
+    fail(`Unsupported smart-home command: ${operation || '(missing)'}`);
+  }
+  const opts = parseCommandOptions(commandArgs.slice(1), {
+    values: [...COMMAND_OPTION_FLAGS, '--operator-grant'],
+  });
+  if (operation === 'status') return smartHomeStatus(opts);
+  if (operation === 'plan-control') return planSmartHomeControl(opts);
+  return controlSmartHome(opts);
 }
 
 function approvedCommand(base, flags) {
@@ -1866,6 +2259,10 @@ async function main() {
     printJson(httpRequest(positional.slice(1)), opts.format);
     return;
   }
+  if (command === 'smart-home') {
+    printJson(await smartHome(positional.slice(1)), opts.format);
+    return;
+  }
   if (command === 'plan') {
     printJson(plan(positional.slice(1)), opts.format);
     return;
@@ -1884,8 +2281,11 @@ if (require.main === module) {
 module.exports = {
   ASK_SIGNATURE_WINDOW_SECONDS,
   buildResponse,
+  extractSmartHomeAppliances,
   parseRequest,
   relinkRequired,
+  resolveSmartHomeAppliance,
+  summarizeSmartHomeState,
   stripMarkdownForTts,
   validateAskCertUrl,
 };

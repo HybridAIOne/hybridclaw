@@ -229,37 +229,30 @@ node skills/alexa/alexa.cjs --format json http-request dnd-state --device living
 ```
 
 For Alexa-connected smart plugs/lights exposed through the Alexa app (for
-example `Poolpumpe`), use the Phoenix smart-home path. Do not use
+example `Poolpumpe`), use the `smart-home` helper commands. Do not use
 `connectedhomes/v1/appliances`; Amazon can return a 200 HTML deeplink page
-instead of JSON. First list Phoenix devices, find the matching
-`legacyAppliance.friendlyName`, then use its `entityId` for status or control.
-This path uses `ALEXA_REFRESH_COOKIE`; do not ask for
+instead of JSON. The helper resolves the Alexa app device by name, runs the
+discovery and status/control calls itself, and returns the result JSON. This
+path uses `ALEXA_REFRESH_COOKIE`; do not ask for
 `ALEXA_SMARTHOME_ACCESS_TOKEN` or Smart Home Skill OAuth when the operator asks
-to use the stored Alexa cookie for these Alexa-app appliances.
-The helper emits the exact `http_request.secretHeaders` shape required for this
-cookie: header `Cookie`, secret `ALEXA_REFRESH_COOKIE`, and `prefix: "none"`.
-Do not rewrite that to a bearer token header or omit the `none` prefix. If the
-Phoenix GraphQL endpoint returns HTTP 200 with `errors[].message` containing
-`Unauthenticated call` or `extensions.errorCode: "FORBIDDEN"`, treat that as an
-auth failure for the cookie path. Inspect the stored cookie/import path first;
-do not immediately start the browser proxy unless the operator explicitly asks
-for a new proxy login.
+to use the stored Alexa cookie for these Alexa-app appliances. If the helper
+reports `Unauthenticated call`, `FORBIDDEN`, `INVALID_AUTHORIZATION_CREDENTIAL`,
+or an HTTP 401/403, treat that as an auth failure for the cookie path. Inspect
+the stored cookie/import path first; do not immediately start the browser proxy
+unless the operator explicitly asks for a new proxy login.
 
 ```bash
-node skills/alexa/alexa.cjs --format json http-request phoenix-devices \
+node skills/alexa/alexa.cjs --format json smart-home status \
+  --name Poolpumpe \
   --amazon-domain amazon.de
 
-node skills/alexa/alexa.cjs --format json http-request phoenix-state \
-  --entity-id "<legacyAppliance.entityId from phoenix-devices>" \
-  --amazon-domain amazon.de
-
-node skills/alexa/alexa.cjs --format json plan phoenix-control \
-  --entity-id "<legacyAppliance.entityId from phoenix-devices>" \
+node skills/alexa/alexa.cjs --format json smart-home plan-control \
+  --name Poolpumpe \
   --action off \
   --amazon-domain amazon.de
 
-node skills/alexa/alexa.cjs --format json http-request phoenix-control \
-  --entity-id "<legacyAppliance.entityId from phoenix-devices>" \
+node skills/alexa/alexa.cjs --format json smart-home control \
+  --name Poolpumpe \
   --action off \
   --amazon-domain amazon.de \
   --operator-grant approve-alexa-red-write
