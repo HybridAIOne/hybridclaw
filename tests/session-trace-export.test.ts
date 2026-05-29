@@ -965,7 +965,10 @@ test('gateway export trace command writes a focused turn trace', async () => {
   )[0];
   const toolTrace = (turnTrace.tools as Array<Record<string, unknown>>)[0];
   expect(String(toolTrace.resultSummary)).toContain('result');
-  expect(String(toolTrace.resultSummary).length).toBeLessThanOrEqual(523);
+  expect(String(toolTrace.resultSummary).length).toBeGreaterThan(6000);
+  expect(String(toolTrace.resultSummary)).not.toContain(
+    'sk-test-ABCDEFGHIJKLMNOP1234567890',
+  );
 
   const runResult = await handleGatewayCommand({
     sessionId: session.id,
