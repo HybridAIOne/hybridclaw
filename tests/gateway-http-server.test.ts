@@ -7651,6 +7651,41 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('blocks shell secret set commands from /api/chat before the model sees them', async () => {
+    const state = await importFreshHealth();
+    const leakedValue = 'very-secret-password';
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-secret-cli-guard',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: `hybridclaw secret set BLINK_PASSWORD "${leakedValue}"`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    const body = JSON.parse(res.body);
+    expect(body).toMatchObject({
+      status: 'success',
+      commandResult: true,
+      sessionId: 'session-secret-cli-guard',
+    });
+    expect(body.result).toContain('did not run or send');
+    expect(body.result).toContain('/secret set BLINK_PASSWORD <value>');
+    expect(body.result).toContain(
+      'hybridclaw secret set BLINK_PASSWORD <value>',
+    );
+    expect(body.result).not.toContain(leakedValue);
+  });
+
   test('uses the signed session subject for web chat requests', async () => {
     const authSecret = 'health-secret';
     const sessionToken = signAuthPayload(
@@ -7877,6 +7912,46 @@ describe('gateway HTTP server', () => {
         }),
       },
     ]);
+  });
+
+  test('blocks shell secret set commands from streaming /api/chat before the model sees them', async () => {
+    const state = await importFreshHealth();
+    const leakedValue = 'stream-secret-token';
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-secret-cli-guard-stream',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: `/usr/local/bin/hybridclaw secret set API_TOKEN ${leakedValue}`,
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          commandResult: true,
+          sessionId: 'session-secret-cli-guard-stream',
+          result: expect.stringContaining('/secret set API_TOKEN <value>'),
+        }),
+      },
+    ]);
+    expect(events[0].result.result).not.toContain(leakedValue);
   });
 
   test('threads updated session ids through expanded web slash commands', async () => {
