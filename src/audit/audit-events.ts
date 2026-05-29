@@ -1,3 +1,4 @@
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { logStructuredAuditEvent } from '../memory/db.js';
 import {
@@ -61,7 +62,22 @@ function fullToolResult(text: string): string {
       '$1***REDACTED***',
     ),
   );
+  const toolResultsConfig = getRuntimeConfig().audit?.toolResults;
+  if (toolResultsConfig?.mode === 'truncate') {
+    return truncatePreservingWhitespace(
+      redacted,
+      toolResultsConfig.maxChars || 4_000,
+    );
+  }
   return redacted;
+}
+
+function truncatePreservingWhitespace(text: string, maxChars: number): string {
+  const safeMaxChars = Number.isFinite(maxChars)
+    ? Math.max(1, Math.trunc(maxChars))
+    : 4_000;
+  if (text.length <= safeMaxChars) return text;
+  return `${text.slice(0, safeMaxChars)}...`;
 }
 
 type ApprovalTier = NonNullable<ToolExecution['approvalTier']>;
