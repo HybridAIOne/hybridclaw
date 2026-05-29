@@ -5,7 +5,6 @@ import {
   readAuditString as readString,
   truncateAuditText,
 } from '../audit/audit-trail.js';
-import { logger } from '../logger.js';
 import {
   redactHighEntropyStrings,
   redactSecretsDeep,
@@ -95,6 +94,15 @@ function redactTraceText(text: string, maxChars = 320): string {
   return truncateAuditText(redacted, maxChars);
 }
 
+function redactTraceTextFull(text: string): string {
+  return redactHighEntropyStrings(
+    String(redactSecretsDeep(text)).replace(
+      URL_SECRET_QUERY_PARAM_RE,
+      '$1***REDACTED***',
+    ),
+  );
+}
+
 function redactPreservedTraceText(text: string): string {
   return String(redactSecretsDeep(text)).replace(
     URL_SECRET_QUERY_PARAM_RE,
@@ -123,15 +131,29 @@ function redactTraceStructuredValue(value: unknown): unknown {
   return out;
 }
 
-function redactTraceValue(value: unknown, maxChars = 480): string {
+function redactTraceValue(
+  value: unknown,
+  maxChars: number | null = 480,
+): string {
   try {
-    return truncateAuditText(
-      JSON.stringify(redactTraceStructuredValue(value)),
-      maxChars,
-    );
+    const redacted = JSON.stringify(redactTraceStructuredValue(value));
+    return maxChars == null ? redacted : truncateAuditText(redacted, maxChars);
   } catch {
-    return redactTraceText(String(value), maxChars);
+    return maxChars == null
+      ? redactTraceTextFull(String(value))
+      : redactTraceText(String(value), maxChars);
   }
+}
+
+function warnMissingTurnStart(runId: string, rowCount: number): void {
+  void import('../logger.js')
+    .then(({ logger }) => {
+      logger.warn(
+        { runId, rowCount },
+        'audit turn group has no turn.start event, skipping',
+      );
+    })
+    .catch(() => undefined);
 }
 
 function readTurnIndex(row: StructuredAuditEntry): number | null {
@@ -155,10 +177,7 @@ export function groupAuditTurnRows(
   for (const [runId, runRows] of grouped) {
     const turnStart = runRows.find((row) => row.event_type === 'turn.start');
     if (!turnStart) {
-      logger.warn(
-        { runId, rowCount: runRows.length },
-        'audit turn group has no turn.start event, skipping',
-      );
+      warnMissingTurnStart(runId, runRows.length);
       continue;
     }
     turns.push({
@@ -466,7 +485,8 @@ export function buildAuditTurnTraceRecords(params: {
       const toolName = toolRow.toolName;
       const result = resultByCallId.get(toolCallId) || null;
       const resultSummary = result
-        ? readString(result, 'resultPreview') ||
+        ? readString(result, 'resultFull') ||
+          readString(result, 'resultPreview') ||
           readString(result, 'resultSummary') ||
           truncateAuditText(JSON.stringify(result), 280)
         : null;
@@ -484,7 +504,7 @@ export function buildAuditTurnTraceRecords(params: {
         (entry) => ({
           eventType: entry.event_type,
           timestamp: entry.timestamp,
-          summary: redactTraceValue(parseJsonObject(entry.payload), 520),
+          summary: redactTraceValue(parseJsonObject(entry.payload), null),
         }),
       );
 
@@ -499,7 +519,7 @@ export function buildAuditTurnTraceRecords(params: {
         status: toolStatus(result),
         authorization,
         resultSummary: resultSummary
-          ? redactTraceText(resultSummary, 520)
+          ? redactTraceTextFull(resultSummary)
           : null,
       };
     });

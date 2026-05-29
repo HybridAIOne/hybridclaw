@@ -206,6 +206,17 @@ export interface RuntimeConfigLoadError {
   message: string;
 }
 
+export type RuntimeAuditToolResultMode = 'full' | 'truncate';
+
+export interface RuntimeAuditToolResultsConfig {
+  mode: RuntimeAuditToolResultMode;
+  maxChars: number;
+}
+
+export interface RuntimeAuditConfig {
+  toolResults: RuntimeAuditToolResultsConfig;
+}
+
 export type DiscordGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordSendPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordCommandMode = 'public' | 'restricted';
@@ -917,6 +928,7 @@ const skillAutonomyRuleIndexes = new WeakMap<
 
 export interface RuntimeConfig {
   version: number;
+  audit: RuntimeAuditConfig;
   security: RuntimeSecurityConfig;
   deployment: RuntimeDeploymentConfig;
   browser: RuntimeBrowserConfig;
@@ -1303,6 +1315,12 @@ const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
+  audit: {
+    toolResults: {
+      mode: 'full',
+      maxChars: 4_000,
+    },
+  },
   security: {
     trustModelAccepted: false,
     trustModelAcceptedAt: '',
@@ -6258,6 +6276,14 @@ function normalizeRuntimeConfig(
   const rawHeartbeat = isRecord(raw.heartbeat) ? raw.heartbeat : {};
   const rawMemory = isRecord(raw.memory) ? raw.memory : {};
   const rawOps = isRecord(raw.ops) ? raw.ops : {};
+  const rawAudit = isRecord(raw.audit) ? raw.audit : {};
+  const rawAuditToolResults = isRecord(rawAudit.toolResults)
+    ? rawAudit.toolResults
+    : {};
+  const auditToolResultsMode = normalizeString(
+    rawAuditToolResults.mode,
+    DEFAULT_RUNTIME_CONFIG.audit.toolResults.mode,
+  );
   const rawObservability = isRecord(raw.observability) ? raw.observability : {};
   const rawSessionCompaction = isRecord(raw.sessionCompaction)
     ? raw.sessionCompaction
@@ -6515,6 +6541,20 @@ function normalizeRuntimeConfig(
 
   return {
     version: CONFIG_VERSION,
+    audit: {
+      toolResults: {
+        mode:
+          auditToolResultsMode === 'truncate' ||
+          auditToolResultsMode === 'truncated'
+            ? 'truncate'
+            : DEFAULT_RUNTIME_CONFIG.audit.toolResults.mode,
+        maxChars: normalizeInteger(
+          rawAuditToolResults.maxChars,
+          DEFAULT_RUNTIME_CONFIG.audit.toolResults.maxChars,
+          { min: 1 },
+        ),
+      },
+    },
     security: {
       trustModelAccepted: normalizeBoolean(
         rawSecurity.trustModelAccepted,
