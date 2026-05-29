@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.21.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.1) - 2026-05-29
+
+### Fixed
+
+- **Codex device-code login**: Accepted OpenAI Codex device-code responses that
+  return `usercode` instead of `user_code`, and defaulted missing verification
+  URLs to the current Codex device login page.
+
 ## [0.21.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.0) - 2026-05-29
 
 ### Added
