@@ -13,7 +13,7 @@ credentials:
       source: store
       id: BLINK_EMAIL
     scope: "Blink account email for the login request body"
-    how_to_obtain: "Store the Blink account email with `hybridclaw secret set BLINK_EMAIL \"<account email>\"`."
+    how_to_obtain: "In the TUI, store the Blink account email with `/secret set BLINK_EMAIL \"<account email>\"`."
   - id: blink-password
     kind: api_key
     required: true
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: BLINK_PASSWORD
     scope: "Blink account password for first login only"
-    how_to_obtain: "Store the Blink account password with `hybridclaw secret set BLINK_PASSWORD \"<account password>\"`."
+    how_to_obtain: "In the TUI, store the Blink account password with `/secret set BLINK_PASSWORD \"<account password>\"`."
   - id: blink-auth-token
     kind: bearer
     required: false
@@ -95,9 +95,9 @@ best-effort and stop on the first authentication or verification failure.
 
 Store the initial secrets:
 
-```bash
-hybridclaw secret set BLINK_EMAIL "<account email>"
-hybridclaw secret set BLINK_PASSWORD "<account password>"
+```text
+/secret set BLINK_EMAIL "<account email>"
+/secret set BLINK_PASSWORD "<account password>"
 ```
 
 `BLINK_DEVICE_ID` and `BLINK_CLIENT_NAME` are not secrets. `BLINK_CLIENT_NAME` is only the display name shown in the Blink app and defaults to `hybridclaw`. `BLINK_DEVICE_ID` is the stable client identifier sent as Blink `unique_id`; the helper generates a deterministic `hybridclaw-<uuid>` value from the local HybridClaw environment when unset. Override either with environment variables or login flags when you need a specific client identity:
@@ -112,12 +112,9 @@ node skills/blink/blink.cjs --format json http-request login \
 
 The first successful login captures:
 
-```bash
-hybridclaw secret set BLINK_AUTH_TOKEN "<token>"
-hybridclaw secret set BLINK_TIER "<rest tier, e.g. e003>"
-hybridclaw secret set BLINK_ACCOUNT_ID "<numeric account id>"
-hybridclaw secret set BLINK_CLIENT_ID "<numeric client id>"
-```
+`BLINK_AUTH_TOKEN`, `BLINK_TIER`, `BLINK_ACCOUNT_ID`, and `BLINK_CLIENT_ID`.
+Do not ask the operator to set these manually after login; the gateway
+`captureResponseFields` flow writes them to the secret store automatically.
 
 If Blink marks the client as unverified, it sends an email/SMS PIN. Use F14
 durable handover to receive that PIN from the operator, then run the
