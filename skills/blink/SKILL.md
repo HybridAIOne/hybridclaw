@@ -28,7 +28,7 @@ credentials:
     secret_ref:
       source: store
       id: BLINK_AUTH_TOKEN
-    scope: "Blink TOKEN_AUTH value captured after login"
+    scope: "Blink OAuth bearer token captured after login or refresh"
     how_to_obtain: "Captured by `node skills/blink/blink.cjs --format json run account-login`."
   - id: blink-refresh-token
     kind: bearer
@@ -94,9 +94,10 @@ best-effort and stop on the first authentication or verification failure.
 - Build and run all Blink API calls with `skills/blink/blink.cjs`; do not handcraft Blink URLs, auth headers, or JSON bodies when the helper supports the operation.
 - Use `run` for live Blink calls. The helper sends its own request objects through the gateway `/api/http/request` path, so the model does not reconstruct endpoint details.
 - Use `http-request` only as dry-run JSON for inspection or fallback direct `http_request` execution when helper live execution is unavailable. Pass emitted `httpRequest` fields as structured JSON; do not stringify nested fields such as `captureResponseFields` or `secretHeaders`.
+- For ordinary operator requests, do not read or grep `skills/blink/blink.cjs` to debug the helper. Trust the helper output. Source inspection is for maintainers changing this skill, not for listing devices.
 - Helper operations use subject-verb names (`devices-list`, `account-login`, `camera-motion-set`). Legacy aliases are accepted, but prefer the canonical names shown below.
 - Credentials and tokens must stay in the SecretRef-backed runtime secret store; never ask the operator to paste `BLINK_PASSWORD` or `BLINK_AUTH_TOKEN` into chat, and never include either value in prose.
-- Do not run `hybridclaw secret get`; it is not a supported command. Do not inspect host secrets from inside the agent sandbox. If the helper reports missing session secrets such as `BLINK_TIER`, run `run account-login`; email/password may already be stored.
+- Do not run `hybridclaw secret get`, call `/api/secret`, inspect `env`, or use `curl`/ad hoc scripts to fetch Blink secrets. If the helper reports missing session secrets such as `BLINK_TIER`, run `run account-refresh` once, then `run account-login` if refresh cannot recover the session; email/password may already be stored.
 - `account-login` is implemented as OAuth v2 Authorization Code + PKCE in the helper. Run `node skills/blink/blink.cjs --format json run account-login`; do not call old password login endpoints and do not web-search or endpoint-probe inside the user task.
 - The Blink-specific implementation lives under `skills/blink/`; the gateway pieces this skill relies on are generic `http_request` primitives for nested response capture, explicit token bind-domain capture, secret-backed headers, manual redirect inspection, and response-body suppression.
 - The helper only emits allowlisted hosts: `rest-prod.immedia-semi.com`, `rest-<BLINK_TIER>.immedia-semi.com`, and `prod.immedia-semi.com` for selected media artifact paths; arbitrary host/path passthrough is not supported.
@@ -192,11 +193,13 @@ the approved helper command exactly.
 ## Read Workflow
 
 1. Use `devices-list` first for a compact account overview; it includes networks, sync modules, cameras, and doorbell-like devices on current Blink accounts.
-2. If `devices-list` returns `blink-login-required` or fails because `BLINK_AUTH_TOKEN`, `BLINK_TIER`, or `BLINK_ACCOUNT_ID` is missing or stale, run `node skills/blink/blink.cjs --format json run account-login` once. Do not tell the operator all Blink credentials are missing just because token/tier/account session secrets are not set yet.
-3. If login returns `handover-required`, ask for the Blink PIN via F14 and run `node skills/blink/blink.cjs --format json run account-login --pin <code>`.
-4. If login reports invalid credentials, app update, unsupported grant, or verification failure, stop immediately; do not try guessed `/api/v3`, `/api/v4`, `/api/v6`, OAuth password-grant, or User-Agent variants.
-5. Use the narrower list commands when the operator asks for a specific network or device class; use `camera-config-read` for motion/video/illuminator settings and `camera-signals-read` for camera battery, Wi-Fi/sync signal, and temperature telemetry when the homescreen response is not enough.
-6. For incident-card summaries, report concrete device ids/names, network ids, offline duration, low battery, poor signal, temperature, and motion bursts only from successful live Blink responses.
+2. If `devices-list` returns `blink-login-required` or fails because `BLINK_AUTH_TOKEN`, `BLINK_REFRESH_TOKEN`, `BLINK_TIER`, or `BLINK_ACCOUNT_ID` is missing or stale, run `node skills/blink/blink.cjs --format json run account-refresh` once before `account-login`. Do not tell the operator all Blink credentials are missing just because token/tier/account session secrets are not set yet.
+3. If refresh cannot recover the session, run `node skills/blink/blink.cjs --format json run account-login` once.
+4. If login returns `handover-required`, ask for the Blink PIN via F14. When the operator provides the PIN, run exactly `node skills/blink/blink.cjs --format json run account-login --pin <code>`, then immediately run `node skills/blink/blink.cjs --format json run devices-list` if login succeeds. Do not read source, inspect secrets, call `http_request`, or try direct gateway/curl calls between those two helper commands.
+5. If login or the PIN resume fails, report the helper error and stop. Do not guess alternate endpoints, read tokens, or retry a fresh login unless the helper explicitly returns another `handover-required`.
+6. If login reports invalid credentials, app update, unsupported grant, or verification failure, stop immediately; do not try guessed `/api/v3`, `/api/v4`, `/api/v6`, OAuth password-grant, or User-Agent variants.
+7. Use the narrower list commands when the operator asks for a specific network or device class; use `camera-config-read` for motion/video/illuminator settings and `camera-signals-read` for camera battery, Wi-Fi/sync signal, and temperature telemetry when the homescreen response is not enough.
+8. For incident-card summaries, report concrete device ids/names, network ids, offline duration, low battery, poor signal, temperature, and motion bursts only from successful live Blink responses.
 
 ## Guarded Writes
 

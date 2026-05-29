@@ -78,6 +78,12 @@ type CaptureFieldRule = {
   bindDomain?: string;
 };
 
+type CaptureHeaderRule = {
+  header: string;
+  secretName: string;
+  bindDomain?: string;
+};
+
 type ApiHttpRequestBody = {
   url?: unknown;
   method?: unknown;
@@ -93,6 +99,7 @@ type ApiHttpRequestBody = {
   otcAkSk?: unknown;
   replaceSecretPlaceholders?: unknown;
   captureResponseFields?: unknown;
+  captureResponseHeaders?: unknown;
   suppressResponseBody?: unknown;
   allowManualRedirect?: unknown;
   includeResponseCookies?: unknown;
@@ -945,6 +952,56 @@ function normalizeCaptureResponseFields(
   return rules;
 }
 
+function normalizeCaptureResponseHeaders(
+  value: unknown,
+): CaptureHeaderRule[] | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) return null;
+  const rules: CaptureHeaderRule[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const header =
+      typeof entry.header === 'string' ? entry.header.trim().toLowerCase() : '';
+    const secretName =
+      typeof entry.secretName === 'string' ? entry.secretName.trim() : '';
+    if (!header || !secretName) continue;
+    if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/u.test(header)) {
+      throw new GatewayRequestError(
+        400,
+        `Invalid header name in captureResponseHeaders: ${header}`,
+      );
+    }
+    if (!isRuntimeSecretName(secretName)) {
+      throw new GatewayRequestError(
+        400,
+        `Invalid secret name in captureResponseHeaders: ${secretName}`,
+      );
+    }
+    if (isReservedNonSecretRuntimeName(secretName)) {
+      throw new GatewayRequestError(
+        400,
+        `Reserved runtime config name cannot be used in captureResponseHeaders: ${secretName}`,
+      );
+    }
+    const rawBindDomain =
+      typeof (entry as Record<string, unknown>).bindDomain === 'string'
+        ? String((entry as Record<string, unknown>).bindDomain).trim()
+        : '';
+    let bindDomain: string | undefined;
+    if (rawBindDomain) {
+      if (!/^[A-Za-z0-9.-]{1,253}$/u.test(rawBindDomain)) {
+        throw new GatewayRequestError(
+          400,
+          `Invalid bindDomain in captureResponseHeaders: ${rawBindDomain}`,
+        );
+      }
+      bindDomain = extractBaseDomain(rawBindDomain.toLowerCase());
+    }
+    rules.push({ header, secretName, ...(bindDomain ? { bindDomain } : {}) });
+  }
+  return rules;
+}
+
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -1346,6 +1403,39 @@ function captureSecretResponseFields(
   return captured;
 }
 
+function captureSecretResponseHeaders(
+  responseHeaders: Headers,
+  rules: CaptureHeaderRule[],
+  requestUrl: URL,
+): Record<string, string> | null {
+  if (rules.length === 0) return null;
+  const defaultBaseDomain = extractBaseDomain(requestUrl.hostname);
+  const secrets: Record<string, string> = {};
+  const captured: Record<string, string> = {};
+
+  for (const rule of rules) {
+    const value = normalizeCapturedValue(responseHeaders.get(rule.header));
+    if (value) {
+      secrets[rule.secretName] = value;
+      captured[`headers.${rule.header}`] = rule.secretName;
+      secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] =
+        rule.bindDomain || defaultBaseDomain;
+    }
+  }
+
+  if (Object.keys(secrets).length === 0) {
+    return null;
+  }
+
+  try {
+    saveNamedRuntimeSecrets(secrets);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new GatewayRequestError(400, message);
+  }
+  return captured;
+}
+
 function normalizeCapturedValue(value: unknown): string {
   if (typeof value === 'string') return value.trim();
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
@@ -1374,6 +1464,18 @@ function resolveCaptureResponseFields(value: unknown): CaptureFieldRule[] {
     );
   }
   return fields;
+}
+
+function resolveCaptureResponseHeaders(value: unknown): CaptureHeaderRule[] {
+  if (value === undefined || value === null) return [];
+  const headers = normalizeCaptureResponseHeaders(value);
+  if (!headers) {
+    throw new GatewayRequestError(
+      400,
+      '`captureResponseHeaders` must be an array when provided.',
+    );
+  }
+  return headers;
 }
 
 function matchesHttpRequestAuthRulePrefix(
@@ -1530,6 +1632,9 @@ export async function handleApiHttpRequest(
   };
   const captureFields = resolveCaptureResponseFields(
     body.captureResponseFields,
+  );
+  const captureHeaders = resolveCaptureResponseHeaders(
+    body.captureResponseHeaders,
   );
   const rawUrl = replacePlaceholders
     ? await replaceSecretPlaceholdersInString(String(body.url || ''), {
@@ -1790,7 +1895,11 @@ export async function handleApiHttpRequest(
 
   const declaredBodyBytes = readDeclaredBodyBytes(response);
 
-  if (suppressResponseBody && captureFields.length === 0) {
+  if (
+    suppressResponseBody &&
+    captureFields.length === 0 &&
+    captureHeaders.length === 0
+  ) {
     await response.body?.cancel();
     sendSuppressedBodyResponse(
       res,
@@ -1827,13 +1936,22 @@ export async function handleApiHttpRequest(
     }
   }
 
-  // Capture selected response fields into the secret store and return only a
+  // Capture selected response fields/headers into the secret store and return only a
   // confirmation. The original response body is never forwarded on capture.
-  const captured = captureSecretResponseFields(
+  const capturedFields = captureSecretResponseFields(
     responseJson,
     captureFields,
     url,
   );
+  const capturedHeaders = captureSecretResponseHeaders(
+    response.headers,
+    captureHeaders,
+    url,
+  );
+  const captured =
+    capturedFields || capturedHeaders
+      ? { ...(capturedFields || {}), ...(capturedHeaders || {}) }
+      : null;
   if (captured) {
     sendJson(res, 200, {
       ok: response.ok,

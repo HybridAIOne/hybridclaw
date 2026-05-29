@@ -2,7 +2,9 @@
 'use strict';
 
 const { createHash, randomBytes } = require('node:crypto');
+const fs = require('node:fs');
 const os = require('node:os');
+const path = require('node:path');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
@@ -26,6 +28,7 @@ const OAUTH_BROWSER_USER_AGENT =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Mobile/15E148 Safari/604.1';
 const OAUTH_TOKEN_USER_AGENT =
   'Blink/2511191620 CFNetwork/3860.200.71 Darwin/25.1.0';
+const OAUTH_HANDOVER_DEFAULT_SECONDS = 90;
 let userAgent = DEFAULT_USER_AGENT;
 const COST_MEASUREMENT = {
   system: 'UsageTotals',
@@ -459,9 +462,9 @@ function blinkHeaders(extra = {}) {
 function authSecretHeaders() {
   return [
     {
-      name: 'TOKEN_AUTH',
+      name: 'Authorization',
       secretName: SECRET_NAMES.authToken,
-      prefix: 'none',
+      prefix: 'Bearer',
     },
   ];
 }
@@ -832,6 +835,81 @@ function formFields(entries) {
   return Object.fromEntries(entries);
 }
 
+function oauthHandoverPath(options = {}) {
+  if (options.handoverPath) return String(options.handoverPath);
+  if (process.env.BLINK_OAUTH_HANDOVER_FILE) {
+    return process.env.BLINK_OAUTH_HANDOVER_FILE;
+  }
+  const dataDir =
+    process.env.HYBRIDCLAW_DATA_DIR ||
+    path.join(os.homedir(), '.hybridclaw', 'data');
+  return path.join(dataDir, 'skills', 'blink', 'oauth-handover.json');
+}
+
+function clearOAuthHandover(options = {}) {
+  try {
+    fs.rmSync(oauthHandoverPath(options), { force: true });
+  } catch {}
+}
+
+function verificationSeconds(response) {
+  const bodyJson =
+    response?.bodyJson && typeof response.bodyJson === 'object'
+      ? response.bodyJson
+      : parseJsonMaybe(response?.body);
+  const seconds = Number(
+    bodyJson?.valid_seconds ||
+      bodyJson?.validSeconds ||
+      bodyJson?.expires_in ||
+      0,
+  );
+  return Number.isFinite(seconds) && seconds > 0
+    ? seconds
+    : OAUTH_HANDOVER_DEFAULT_SECONDS;
+}
+
+function saveOAuthHandover(state, options = {}) {
+  const filePath = oauthHandoverPath(options);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  const tmpPath = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpPath, `${JSON.stringify(state)}\n`, { mode: 0o600 });
+  fs.renameSync(tmpPath, filePath);
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {}
+}
+
+function readOAuthHandover(options = {}) {
+  const filePath = oauthHandoverPath(options);
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (Number(parsed.expiresAt || 0) <= Date.now()) {
+    clearOAuthHandover(options);
+    return null;
+  }
+  if (
+    parsed.version !== 1 ||
+    typeof parsed.csrfToken !== 'string' ||
+    typeof parsed.verifier !== 'string' ||
+    typeof parsed.hardwareId !== 'string' ||
+    !Array.isArray(parsed.cookies)
+  ) {
+    clearOAuthHandover(options);
+    return null;
+  }
+  return {
+    csrfToken: parsed.csrfToken,
+    verifier: parsed.verifier,
+    hardwareId: parsed.hardwareId,
+    cookieJar: new Map(parsed.cookies),
+  };
+}
+
 function extractCsrfToken(html) {
   const scriptMatch = String(html || '').match(
     /<script[^>]*id=["']oauth-args["'][^>]*>([\s\S]*?)<\/script>/iu,
@@ -960,6 +1038,51 @@ function buildAccountRefresh(args) {
     ],
     maxResponseBytes: 256_000,
   });
+}
+
+function buildAuthMetadataCaptureRequest(operation) {
+  const stakesTier = OPERATION_TIERS[operation] || 'green';
+  return {
+    url: `${DEFAULT_REST_BASE}/api/v1/users/tier_info`,
+    method: 'GET',
+    headers: blinkHeaders(),
+    secretHeaders: authSecretHeaders(),
+    captureResponseFields: [
+      { jsonPath: 'tier', secretName: SECRET_NAMES.tier },
+      { jsonPath: 'account_id', secretName: SECRET_NAMES.accountId },
+      { jsonPath: 'client_id', secretName: SECRET_NAMES.clientId },
+    ],
+    captureResponseHeaders: [
+      { header: 'client-id', secretName: SECRET_NAMES.clientId },
+    ],
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxResponseBytes: 256_000,
+    replaceSecretPlaceholders: true,
+    skillName: SKILL_NAME,
+    stakesTier,
+  };
+}
+
+function buildAuthClientCaptureRequest(operation) {
+  const stakesTier = OPERATION_TIERS[operation] || 'green';
+  return {
+    url: tierRequestUrl(
+      [],
+      `/api/v3/accounts/<secret:${SECRET_NAMES.accountId}>/homescreen`,
+    ),
+    method: 'GET',
+    headers: blinkHeaders(),
+    secretHeaders: authSecretHeaders(),
+    captureResponseHeaders: [
+      { header: 'client-id', secretName: SECRET_NAMES.clientId },
+    ],
+    suppressResponseBody: true,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxResponseBytes: 2_000_000,
+    replaceSecretPlaceholders: true,
+    skillName: SKILL_NAME,
+    stakesTier,
+  };
 }
 
 function buildPinVerify(args) {
@@ -1376,6 +1499,22 @@ async function runAccountLoginFlow(args, options = {}) {
   );
   assertNoUnexpectedArgs(args);
 
+  if (parsedPin) {
+    const pending = readOAuthHandover(options);
+    if (pending) {
+      return await completeAccountLoginAfter2fa(
+        {
+          parsedPin,
+          csrfToken: pending.csrfToken,
+          verifier: pending.verifier,
+          hardwareId: pending.hardwareId,
+          cookieJar: pending.cookieJar,
+        },
+        options,
+      );
+    }
+  }
+
   const { verifier, challenge } = generatePkcePair();
   const authorizeUrl = oauthAuthorizeUrl(hardwareId, challenge);
   const cookieJar = new Map();
@@ -1431,16 +1570,33 @@ async function runAccountLoginFlow(args, options = {}) {
   );
   mergeSetCookies(cookieJar, response.headers);
   const authStop = blinkOAuthAuthStopResult('account-login', response);
-  if (authStop) return authStop;
+  if (authStop) {
+    clearOAuthHandover(options);
+    return authStop;
+  }
 
   if (response.status === 412) {
     if (!parsedPin) {
+      const seconds = verificationSeconds(response);
+      saveOAuthHandover(
+        {
+          version: 1,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + seconds * 1000,
+          csrfToken,
+          verifier,
+          hardwareId,
+          cookies: Array.from(cookieJar.entries()),
+        },
+        options,
+      );
       return {
         command: 'handover-required',
         operation: 'account-login',
         stakesTier: OPERATION_TIERS['account-login'],
         route: 'f14',
         reason: 'blink-2fa-required',
+        expiresInSeconds: seconds,
         result:
           'Blink requested an email/SMS verification PIN. Ask the operator for the PIN via F14, then run the resumeCommand.',
         resumeCommand: [
@@ -1457,39 +1613,57 @@ async function runAccountLoginFlow(args, options = {}) {
       };
     }
 
-    response = await executeGatewayRequest(
-      oauthGatewayRequest({
-        url: OAUTH_2FA_VERIFY_URL,
-        method: 'POST',
-        headers: withCookie(
-          oauthHeaders({
-            Accept: '*/*',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Origin: OAUTH_BASE_URL,
-            Referer: OAUTH_SIGNIN_URL,
-          }),
-          cookieJar,
-        ),
-        form: formFields([
-          ['2fa_code', parsedPin],
-          ['csrf-token', csrfToken],
-          ['remember_me', 'false'],
-        ]),
-      }),
+    return await completeAccountLoginAfter2fa(
+      { parsedPin, csrfToken, verifier, hardwareId, cookieJar },
       options,
     );
-    mergeSetCookies(cookieJar, response.headers);
-    if (
-      response.status !== 201 ||
-      response.bodyJson?.status !== 'auth-completed'
-    ) {
-      throw new Error(`Blink 2FA verification returned HTTP ${response.status}.`);
-    }
   } else if (response.status < 300 || response.status > 399) {
     throw new Error(`Blink OAuth sign-in returned HTTP ${response.status}.`);
   }
 
-  response = await executeGatewayRequest(
+  return await captureAccountLoginTokens(
+    { verifier, hardwareId, cookieJar },
+    options,
+  );
+}
+
+async function completeAccountLoginAfter2fa(
+  { parsedPin, csrfToken, verifier, hardwareId, cookieJar },
+  options,
+) {
+  const response = await executeGatewayRequest(
+    oauthGatewayRequest({
+      url: OAUTH_2FA_VERIFY_URL,
+      method: 'POST',
+      headers: withCookie(
+        oauthHeaders({
+          Accept: '*/*',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Origin: OAUTH_BASE_URL,
+          Referer: OAUTH_SIGNIN_URL,
+        }),
+        cookieJar,
+      ),
+      form: formFields([
+        ['2fa_code', parsedPin],
+        ['csrf-token', csrfToken],
+        ['remember_me', 'false'],
+      ]),
+    }),
+    options,
+  );
+  mergeSetCookies(cookieJar, response.headers);
+  if (response.status !== 201 || response.bodyJson?.status !== 'auth-completed') {
+    throw new Error(`Blink 2FA verification returned HTTP ${response.status}.`);
+  }
+  return await captureAccountLoginTokens(
+    { verifier, hardwareId, cookieJar },
+    options,
+  );
+}
+
+async function captureAccountLoginTokens({ verifier, hardwareId, cookieJar }, options) {
+  let response = await executeGatewayRequest(
     oauthGatewayRequest({
       url: OAUTH_AUTHORIZE_URL,
       headers: withCookie(
@@ -1548,23 +1722,11 @@ async function runAccountLoginFlow(args, options = {}) {
   };
   const tokenResult = await executeGatewayRequest(tokenRequest, options);
 
-  const tierRequest = {
-    url: `${DEFAULT_REST_BASE}/api/v1/users/tier_info`,
-    method: 'GET',
-    headers: blinkHeaders(),
-    secretHeaders: authSecretHeaders(),
-    captureResponseFields: [
-      { jsonPath: 'tier', secretName: SECRET_NAMES.tier },
-      { jsonPath: 'account_id', secretName: SECRET_NAMES.accountId },
-      { jsonPath: 'client_id', secretName: SECRET_NAMES.clientId },
-    ],
-    timeoutMs: DEFAULT_TIMEOUT_MS,
-    maxResponseBytes: 256_000,
-    replaceSecretPlaceholders: true,
-    skillName: SKILL_NAME,
-    stakesTier: OPERATION_TIERS['account-login'],
-  };
+  const tierRequest = buildAuthMetadataCaptureRequest('account-login');
   const tierResult = await executeGatewayRequest(tierRequest, options);
+  const clientRequest = buildAuthClientCaptureRequest('account-login');
+  const clientResult = await executeGatewayRequest(clientRequest, options);
+  clearOAuthHandover(options);
 
   return {
     command: 'live-auth',
@@ -1574,11 +1736,13 @@ async function runAccountLoginFlow(args, options = {}) {
       auth: { url: OAUTH_AUTHORIZE_URL, method: 'GET/POST' },
       token: liveRequestSummary(tokenRequest),
       tier: liveRequestSummary(tierRequest),
+      client: liveRequestSummary(clientRequest),
     },
     result: {
       ok: true,
       tokenCaptured: tokenResult.captured || {},
       tierCaptured: tierResult.captured || {},
+      clientCaptured: clientResult.captured || {},
       nextCommand:
         'node skills/blink/blink.cjs --format json run devices-list',
     },
@@ -1586,7 +1750,57 @@ async function runAccountLoginFlow(args, options = {}) {
   };
 }
 
-async function executeLivePayload(payload, options = {}) {
+async function runAccountRefresh(args, options = {}) {
+  try {
+    return await runAccountRefreshFlow(args, options);
+  } catch (error) {
+    const missingSecret = blinkMissingSecretName(error);
+    const missingResult = missingSecret
+      ? blinkMissingSecretResult('account-refresh', missingSecret)
+      : null;
+    if (missingResult) return missingResult;
+    throw error;
+  }
+}
+
+async function runAccountRefreshFlow(args, options = {}) {
+  const payload = buildAccountRefresh(args);
+  const refreshResult = await executeGatewayRequest(
+    payload.httpRequest,
+    options,
+  );
+  const tierResult = await executeGatewayRequest(
+    buildAuthMetadataCaptureRequest('account-refresh'),
+    options,
+  );
+  const clientResult = await executeGatewayRequest(
+    buildAuthClientCaptureRequest('account-refresh'),
+    options,
+  );
+  const tierRequest = buildAuthMetadataCaptureRequest('account-refresh');
+  const clientRequest = buildAuthClientCaptureRequest('account-refresh');
+  return {
+    command: 'live-auth',
+    operation: 'account-refresh',
+    stakesTier: OPERATION_TIERS['account-refresh'],
+    request: {
+      refresh: liveRequestSummary(payload.httpRequest),
+      tier: liveRequestSummary(tierRequest),
+      client: liveRequestSummary(clientRequest),
+    },
+    result: {
+      ok: true,
+      refreshCaptured: refreshResult.captured || {},
+      tierCaptured: tierResult.captured || {},
+      clientCaptured: clientResult.captured || {},
+      nextCommand:
+        'node skills/blink/blink.cjs --format json run devices-list',
+    },
+    costMeasurement: COST_MEASUREMENT,
+  };
+}
+
+async function executeLivePayload(payload, options = {}, didRecoverAuth = false) {
   try {
     return {
       command: 'live',
@@ -1598,6 +1812,26 @@ async function executeLivePayload(payload, options = {}) {
     };
   } catch (error) {
     const missingSecret = blinkMissingSecretName(error);
+    if (
+      !didRecoverAuth &&
+      [
+        SECRET_NAMES.tier,
+        SECRET_NAMES.accountId,
+        SECRET_NAMES.clientId,
+      ].includes(missingSecret)
+    ) {
+      try {
+        await runAccountRefreshFlow([], options);
+        return executeLivePayload(payload, options, true);
+      } catch (recoveryError) {
+        const recoveryMissingSecret = blinkMissingSecretName(recoveryError);
+        const recoveryMissingResult = recoveryMissingSecret
+          ? blinkMissingSecretResult(payload.operation, recoveryMissingSecret)
+          : null;
+        if (recoveryMissingResult) return recoveryMissingResult;
+        throw recoveryError;
+      }
+    }
     const missingResult = missingSecret
       ? blinkMissingSecretResult(payload.operation, missingSecret)
       : null;
@@ -1619,6 +1853,9 @@ async function runLive(argv, options = {}) {
   const operation = canonicalOperation(args.shift());
   if (operation === 'account-login') {
     return runAccountLogin(args, options);
+  }
+  if (operation === 'account-refresh') {
+    return runAccountRefresh(args, options);
   }
   if (!HTTP_OPERATIONS.has(operation) && !PLAN_OPERATIONS.has(operation)) {
     die(`Unsupported Blink run operation: ${operation || '(missing)'}`);

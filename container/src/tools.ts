@@ -4448,6 +4448,56 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               required: ['name', 'secretName'],
             },
           },
+          captureResponseFields: {
+            type: 'array',
+            description:
+              'Capture selected JSON response fields into named runtime secrets and return only secret names, never captured values.',
+            items: {
+              type: 'object',
+              properties: {
+                jsonPath: {
+                  type: 'string',
+                  description:
+                    'Dot-separated JSON path to capture, for example `auth.token`.',
+                },
+                secretName: {
+                  type: 'string',
+                  description: 'Stored secret name to write.',
+                },
+                bindDomain: {
+                  type: 'string',
+                  description:
+                    'Optional domain binding for captured bearer-like secrets.',
+                },
+              },
+              required: ['jsonPath', 'secretName'],
+            },
+          },
+          captureResponseHeaders: {
+            type: 'array',
+            description:
+              'Capture selected response headers into named runtime secrets and return only secret names, never captured values.',
+            items: {
+              type: 'object',
+              properties: {
+                header: {
+                  type: 'string',
+                  description:
+                    'Response header name to capture, for example `client-id`.',
+                },
+                secretName: {
+                  type: 'string',
+                  description: 'Stored secret name to write.',
+                },
+                bindDomain: {
+                  type: 'string',
+                  description:
+                    'Optional domain binding for captured bearer-like secrets.',
+                },
+              },
+              required: ['header', 'secretName'],
+            },
+          },
           replaceSecretPlaceholders: {
             type: 'boolean',
             description:
