@@ -343,7 +343,9 @@ node skills/alexa/alexa.cjs --format json run routine-trigger \
 Use `http-request ...` only as a debugging dry run when you need to inspect the
 gateway-ready request object. For normal reads and writes, use `run ...` so the
 CJS owns endpoint selection, headers, CSRF handling, execution, and result
-reporting.
+reporting. When `run ...` returns `ok: true` and `outcome: "accepted"`, treat
+the operation as accepted even if Alexa's response body is `{}`. Do not infer
+an auth failure from an empty successful response body.
 
 ## Required Setup
 

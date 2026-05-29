@@ -1306,6 +1306,41 @@ async function executeGatewayHttpRequest(httpRequest, gatewayUrl) {
   return envelope;
 }
 
+function responseStatus(response) {
+  const status = Number(response?.status ?? response?.statusCode ?? 0);
+  return Number.isFinite(status) ? status : 0;
+}
+
+function responseAccepted(response) {
+  if (response?.ok === false) return false;
+  const status = responseStatus(response);
+  return status === 0 || (status >= 200 && status < 300);
+}
+
+function runResultPayload({ requestPayload, transport, status, ok, response }) {
+  const payload = {
+    ...endpointBasePayload(
+      requestPayload.surface,
+      requestPayload.operation,
+      requestPayload.stakesTier,
+    ),
+    command: 'run',
+    transport,
+    ok,
+    outcome: ok ? 'accepted' : 'failed',
+    message: ok
+      ? `Alexa accepted ${requestPayload.operation}.`
+      : `Alexa did not accept ${requestPayload.operation}.`,
+  };
+  if (status) payload.status = status;
+  payload.response = response;
+  if (!ok && requestPayload.authFailureEvent) {
+    payload.authFailureEvent = requestPayload.authFailureEvent;
+  }
+  if (requestPayload.driftRisk) payload.driftRisk = requestPayload.driftRisk;
+  return payload;
+}
+
 async function run(commandArgs) {
   const { args, gatewayUrl: rawGatewayUrl } = splitRunOptions(commandArgs);
   const requestPayload = httpRequest(args);
@@ -1331,37 +1366,26 @@ async function run(commandArgs) {
       cookie,
     );
     assertAlexaJsonOk(response, requestPayload.operation);
-    return {
-      ...endpointBasePayload(
-        requestPayload.surface,
-        requestPayload.operation,
-        requestPayload.stakesTier,
-      ),
-      command: 'run',
+    return runResultPayload({
+      requestPayload,
       transport: 'direct-community-cookie',
       status: response.statusCode,
       ok: response.statusCode >= 200 && response.statusCode < 300,
       response: response.json,
-      authFailureEvent: requestPayload.authFailureEvent,
-      driftRisk: requestPayload.driftRisk,
-    };
+    });
   }
 
   const response = await executeGatewayHttpRequest(
     request,
     resolveGatewayUrl(rawGatewayUrl),
   );
-  return {
-    ...endpointBasePayload(
-      requestPayload.surface,
-      requestPayload.operation,
-      requestPayload.stakesTier,
-    ),
-    command: 'run',
+  return runResultPayload({
+    requestPayload,
     transport: 'gateway-http-request',
+    status: responseStatus(response),
+    ok: responseAccepted(response),
     response,
-    authFailureEvent: requestPayload.authFailureEvent,
-  };
+  });
 }
 
 function plan(commandArgs) {
@@ -2481,6 +2505,8 @@ module.exports = {
   gatewayHttpRequest,
   parseRequest,
   relinkRequired,
+  responseAccepted,
+  runResultPayload,
   resolveSmartHomeAppliance,
   summarizeSmartHomeState,
   stripMarkdownForTts,

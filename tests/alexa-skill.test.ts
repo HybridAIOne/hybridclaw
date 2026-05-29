@@ -1054,6 +1054,53 @@ test('Alexa helper prepares live execution without exposing derived cookie secre
   expect(gatewayRequest).not.toHaveProperty('bodyJson');
 });
 
+test('Alexa run result treats accepted responses as success without auth hint', () => {
+  const requestPayload = {
+    surface: 'community',
+    operation: 'music-play',
+    stakesTier: 'amber',
+    authFailureEvent: {
+      event: 'alexa.relink_required',
+      surface: 'community',
+      target: 'ok computer',
+    },
+    driftRisk: 'community-cookie surface is reverse-engineered',
+  };
+
+  const accepted = alexa.runResultPayload({
+    requestPayload,
+    transport: 'direct-community-cookie',
+    status: 200,
+    ok: true,
+    response: {},
+  });
+
+  expect(accepted).toMatchObject({
+    command: 'run',
+    transport: 'direct-community-cookie',
+    status: 200,
+    ok: true,
+    outcome: 'accepted',
+    message: 'Alexa accepted music-play.',
+    response: {},
+  });
+  expect(accepted).not.toHaveProperty('authFailureEvent');
+
+  const rejected = alexa.runResultPayload({
+    requestPayload,
+    transport: 'direct-community-cookie',
+    status: 401,
+    ok: false,
+    response: { error: 'Unauthorized' },
+  });
+
+  expect(rejected).toMatchObject({
+    ok: false,
+    outcome: 'failed',
+    authFailureEvent: requestPayload.authFailureEvent,
+  });
+});
+
 test('Alexa helper resolves Alexa app smart-home devices and summarizes state', () => {
   const appliances = alexa.extractSmartHomeAppliances({
     data: {
