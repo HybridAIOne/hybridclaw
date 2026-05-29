@@ -885,7 +885,17 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
     'http-request',
     'clip-download',
     '--path',
-    '/api/v2/accounts/<secret:BLINK_ACCOUNT_ID>/media/clip/2026/05/26/front.mp4',
+    '/api/v2/accounts/1234/media/clip/2026/05/26/front.mp4',
+    '--filename',
+    'front.mp4',
+  ]);
+  const thumbnailDownload = request([
+    'http-request',
+    'thumbnail-download',
+    '--path',
+    '/api/v3/media/accounts/1234/networks/111/xt2/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=',
+    '--filename',
+    'backyard.jpg',
   ]);
 
   expect(verifyPin).toMatchObject({
@@ -931,8 +941,25 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
       maxInlineBytes: 0,
     },
     httpRequest: {
-      url: 'https://prod.immedia-semi.com/api/v2/accounts/<secret:BLINK_ACCOUNT_ID>/media/clip/2026/05/26/front.mp4',
+      url: 'https://rest-<secret:BLINK_TIER>.immedia-semi.com/api/v2/accounts/1234/media/clip/2026/05/26/front.mp4',
       suppressResponseBody: true,
+      responseArtifact: {
+        filename: 'front.mp4',
+      },
+    },
+  });
+  expect(thumbnailDownload).toMatchObject({
+    operation: 'thumbnail-download',
+    artifact: {
+      mode: 'gateway-artifact',
+      maxInlineBytes: 0,
+    },
+    httpRequest: {
+      url: 'https://rest-<secret:BLINK_TIER>.immedia-semi.com/api/v3/media/accounts/1234/networks/111/xt2/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=',
+      suppressResponseBody: true,
+      responseArtifact: {
+        filename: 'backyard.jpg',
+      },
     },
   });
 });
@@ -960,6 +987,14 @@ test('Blink helper rejects arbitrary endpoint passthrough and unsafe clip paths'
     '--network',
     '111',
   ]);
+  const unsafeThumbnail = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'thumbnail-download',
+    '--path',
+    '/api/v3/media/accounts/1234/networks/111/xt2/222/thumbnail/thumbnail.jpg?redirect=http://127.0.0.1/',
+  ]);
 
   expect(arbitrary.status).not.toBe(0);
   expect(arbitrary.stderr).toContain(
@@ -969,6 +1004,10 @@ test('Blink helper rejects arbitrary endpoint passthrough and unsafe clip paths'
   expect(traversal.stderr).toContain('--path must be a Blink media path');
   expect(ignoredNetwork.status).not.toBe(0);
   expect(ignoredNetwork.stderr).toContain('Unexpected argument: --network');
+  expect(unsafeThumbnail.status).not.toBe(0);
+  expect(unsafeThumbnail.stderr).toContain(
+    '--path thumbnail query may only include ts and ext.',
+  );
 });
 
 test('Blink helper builds exact approval plans for privacy-sensitive operations', () => {

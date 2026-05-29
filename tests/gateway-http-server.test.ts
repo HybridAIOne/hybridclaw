@@ -10838,6 +10838,69 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('saves outbound http_request response bodies as workspace artifacts', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '54.230.228.80', family: 4 }]),
+    }));
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const imageBody = Buffer.from('jpeg-bytes', 'utf8');
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(new Uint8Array(imageBody), {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-e003.immedia-semi.com/api/v3/media/accounts/123/networks/456/xt2/789/thumbnail/thumbnail.jpg',
+        method: 'GET',
+        responseArtifact: {
+          filename: 'backyard.jpg',
+        },
+        suppressResponseBody: true,
+        agentId: 'main',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body).toMatchObject({
+      success: true,
+      ok: true,
+      bodySuppressed: true,
+      bodyBytes: imageBody.length,
+      artifact: {
+        filename: 'backyard.jpg',
+        mimeType: 'image/jpeg',
+      },
+    });
+    expect(body.artifact.path).toMatch(
+      /^\/workspace\/\.http-artifacts\/\d+-[a-f0-9]{8}-backyard\.jpg$/u,
+    );
+    const hostPath = path.join(
+      dataDir,
+      'agents',
+      'main',
+      'workspace',
+      body.artifact.path.replace(/^\/workspace\//u, ''),
+    );
+    expect(fs.readFileSync(hostPath)).toEqual(imageBody);
+  });
+
   test('blocks outbound http_request redirects to avoid SSRF bypasses', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
