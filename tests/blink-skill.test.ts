@@ -58,7 +58,11 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
   expect(skill).toContain('`BLINK_DEVICE_ID` and `BLINK_CLIENT_NAME` are not secrets');
   expect(skill).toContain('/secret set BLINK_EMAIL');
   expect(skill).toContain('/secret set BLINK_PASSWORD');
-  expect(skill).not.toContain('hybridclaw secret set BLINK_');
+  expect(skill).toContain('hybridclaw secret set BLINK_EMAIL');
+  expect(skill).toContain('hybridclaw secret set BLINK_PASSWORD');
+  expect(skill.indexOf('/secret set BLINK_EMAIL')).toBeLessThan(
+    skill.indexOf('hybridclaw secret set BLINK_EMAIL'),
+  );
   expect(skill).toContain('Do not ask the operator to set these manually after login');
   expect(skill).toContain('rest-<BLINK_TIER>.immedia-semi.com');
   expect(skill).toContain(

@@ -13,7 +13,7 @@ credentials:
       source: store
       id: BLINK_EMAIL
     scope: "Blink account email for the login request body"
-    how_to_obtain: "In the TUI, store the Blink account email with `/secret set BLINK_EMAIL \"<account email>\"`."
+    how_to_obtain: "In the TUI, use `/secret set BLINK_EMAIL \"<account email>\"`. From a shell, use `hybridclaw secret set BLINK_EMAIL \"<account email>\"`."
   - id: blink-password
     kind: api_key
     required: true
@@ -21,7 +21,7 @@ credentials:
       source: store
       id: BLINK_PASSWORD
     scope: "Blink account password for first login only"
-    how_to_obtain: "In the TUI, store the Blink account password with `/secret set BLINK_PASSWORD \"<account password>\"`."
+    how_to_obtain: "In the TUI, use `/secret set BLINK_PASSWORD \"<account password>\"`. From a shell, use `hybridclaw secret set BLINK_PASSWORD \"<account password>\"`."
   - id: blink-auth-token
     kind: bearer
     required: false
@@ -93,11 +93,18 @@ best-effort and stop on the first authentication or verification failure.
 
 ## Setup
 
-Store the initial secrets:
+Store the initial secrets in the TUI:
 
 ```text
 /secret set BLINK_EMAIL "<account email>"
 /secret set BLINK_PASSWORD "<account password>"
+```
+
+Equivalent shell commands:
+
+```bash
+hybridclaw secret set BLINK_EMAIL "<account email>"
+hybridclaw secret set BLINK_PASSWORD "<account password>"
 ```
 
 `BLINK_DEVICE_ID` and `BLINK_CLIENT_NAME` are not secrets. `BLINK_CLIENT_NAME` is only the display name shown in the Blink app and defaults to `hybridclaw`. `BLINK_DEVICE_ID` is the stable client identifier sent as Blink `unique_id`; the helper generates a deterministic `hybridclaw-<uuid>` value from the local HybridClaw environment when unset. Override either with environment variables or login flags when you need a specific client identity:
