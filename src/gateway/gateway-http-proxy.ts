@@ -72,7 +72,11 @@ const GOG_ACCESS_TOKEN_SECRET = 'GOG_ACCESS_TOKEN';
 const GOOGLE_SERVICE_ACCOUNT_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_SERVICE_ACCOUNT_JWT_TTL_SECONDS = 3600;
 
-type CaptureFieldRule = { jsonPath: string; secretName: string };
+type CaptureFieldRule = {
+  jsonPath: string;
+  secretName: string;
+  bindDomain?: string;
+};
 
 type ApiHttpRequestBody = {
   url?: unknown;
@@ -89,6 +93,7 @@ type ApiHttpRequestBody = {
   replaceSecretPlaceholders?: unknown;
   captureResponseFields?: unknown;
   suppressResponseBody?: unknown;
+  allowManualRedirect?: unknown;
   timeoutMs?: unknown;
   maxResponseBytes?: unknown;
   sessionId?: unknown;
@@ -893,7 +898,21 @@ function normalizeCaptureResponseFields(
         `Reserved runtime config name cannot be used in captureResponseFields: ${secretName}`,
       );
     }
-    rules.push({ jsonPath, secretName });
+    const rawBindDomain =
+      typeof (entry as Record<string, unknown>).bindDomain === 'string'
+        ? String((entry as Record<string, unknown>).bindDomain).trim()
+        : '';
+    let bindDomain: string | undefined;
+    if (rawBindDomain) {
+      if (!/^[A-Za-z0-9.-]{1,253}$/u.test(rawBindDomain)) {
+        throw new GatewayRequestError(
+          400,
+          `Invalid bindDomain in captureResponseFields: ${rawBindDomain}`,
+        );
+      }
+      bindDomain = extractBaseDomain(rawBindDomain.toLowerCase());
+    }
+    rules.push({ jsonPath, secretName, ...(bindDomain ? { bindDomain } : {}) });
   }
   return rules;
 }
@@ -1239,7 +1258,7 @@ function captureSecretResponseFields(
   if (!responseJson || typeof responseJson !== 'object') return null;
   const obj = responseJson as Record<string, unknown>;
 
-  const baseDomain = extractBindingDomainFromResponse(obj, requestUrl);
+  const defaultBaseDomain = extractBindingDomainFromResponse(obj, requestUrl);
   const secrets: Record<string, string> = {};
   const captured: Record<string, string> = {};
 
@@ -1252,7 +1271,8 @@ function captureSecretResponseFields(
       // Bind captured secrets by default so future token field names such
       // as "access" or "bearer" cannot silently become cross-host credentials.
       if (!UNBOUND_CAPTURE_JSON_PATHS.has(rule.jsonPath)) {
-        secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] = baseDomain;
+        secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] =
+          rule.bindDomain || defaultBaseDomain;
       }
     }
   }
@@ -1476,6 +1496,7 @@ export async function handleApiHttpRequest(
     parsePositiveInteger(body.maxResponseBytes) ??
     HTTP_REQUEST_MAX_RESPONSE_BYTES;
   const suppressResponseBody = body.suppressResponseBody === true;
+  const allowManualRedirect = body.allowManualRedirect === true;
   const config = getRuntimeConfig();
 
   const headers = normalizeHttpRequestHeaders(body.headers);
@@ -1677,6 +1698,7 @@ export async function handleApiHttpRequest(
   }
 
   if (
+    !allowManualRedirect &&
     response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
     response.status <= REDIRECT_RESPONSE_STATUS_MAX
   ) {

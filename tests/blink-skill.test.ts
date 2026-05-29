@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import { parseSkillManifestFromMarkdown } from '../src/skills/skill-manifest.js';
 
@@ -33,26 +33,32 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
   const skill = fs.readFileSync(skillPath, 'utf-8');
   const manifest = parseSkillManifestFromMarkdown(skill, { name: 'blink' });
 
-  expect(manifest.credentials).toMatchObject([
-    {
+  expect(manifest.credentials).toEqual(expect.arrayContaining([
+    expect.objectContaining({
       id: 'blink-email',
       kind: 'api_key',
       required: true,
       secretRef: { source: 'store', id: 'BLINK_EMAIL' },
-    },
-    {
+    }),
+    expect.objectContaining({
       id: 'blink-password',
       kind: 'api_key',
       required: true,
       secretRef: { source: 'store', id: 'BLINK_PASSWORD' },
-    },
-    {
+    }),
+    expect.objectContaining({
       id: 'blink-auth-token',
       kind: 'bearer',
       required: false,
       secretRef: { source: 'store', id: 'BLINK_AUTH_TOKEN' },
-    },
-  ]);
+    }),
+    expect.objectContaining({
+      id: 'blink-refresh-token',
+      kind: 'bearer',
+      required: false,
+      secretRef: { source: 'store', id: 'BLINK_REFRESH_TOKEN' },
+    }),
+  ]));
   expect(skill).toContain('category: home-automation');
   expect(skill).toContain('video-doorbell');
   expect(skill).toContain('`BLINK_DEVICE_ID` and `BLINK_CLIENT_NAME` are not secrets');
@@ -63,18 +69,16 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
   expect(skill.indexOf('/secret set BLINK_EMAIL')).toBeLessThan(
     skill.indexOf('hybridclaw secret set BLINK_EMAIL'),
   );
-  expect(skill).toContain('Do not ask the operator to set these manually after login');
+  expect(skill).toContain('Do not ask the operator to set these manually after');
   expect(skill).toContain('rest-<BLINK_TIER>.immedia-semi.com');
-  expect(skill).toContain(
-    'Use the emitted `httpRequest` object with the gateway `http_request` tool',
-  );
+  expect(skill).toContain('Use `run` for live Blink calls');
   expect(skill).toContain('generic `http_request` primitives');
   expect(skill).toContain('subject-verb names');
   expect(skill).toContain('captureResponseFields');
-  expect(skill).toContain('app update is required');
+  expect(skill).toContain('OAuth v2 Authorization Code + PKCE');
   expect(skill).toContain('clips-list` intentionally does not accept `--network`');
   expect(skill).toContain('Stop after the first 401');
-  expect(skill).toContain('F14 PIN');
+  expect(skill).toContain('PIN via F14');
   expect(skill).toContain('approvedHelperCommandText');
   expect(skill).toContain('network-arm');
   expect(skill).toContain('clip-delete');
@@ -86,10 +90,11 @@ test('Blink helper --help exits cleanly and lists read and guarded commands', ()
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Blink skill helper');
+  expect(result.stdout).toContain('run account-login');
   expect(result.stdout).toContain('http-request account-login');
   expect(result.stdout).toContain('subject-verb');
   expect(result.stdout).toContain('BLINK_DEVICE_ID');
-  expect(result.stdout).toContain('reserved for future OAuth v2 login support');
+  expect(result.stdout).toContain('optional generated OAuth v2 hardware id override');
   expect(result.stdout).toContain('BLINK_USER_AGENT');
   expect(result.stdout).toContain('http-request pin-verify --pin <code>');
   expect(result.stdout).toContain('http-request devices-list');
@@ -100,26 +105,32 @@ test('Blink helper --help exits cleanly and lists read and guarded commands', ()
   expect(result.stdout).toContain('plan camera-live-view-start');
 });
 
-test('Blink login returns an OAuth v2 hard stop without emitting deprecated requests or credentials', () => {
+test('Blink login dry-run returns OAuth v2 helper-run instructions without credentials', () => {
   const payload = request(['http-request', 'account-login']);
 
   expect(payload).toMatchObject({
-    command: 'auth-required',
+    command: 'auth-plan',
     operation: 'account-login',
     stakesTier: 'green',
-    hardStop: true,
-    reason: 'blink-oauth-v2-required',
-    requiredFlow: {
+    liveHelperCommand: [
+      'node',
+      'skills/blink/blink.cjs',
+      '--format',
+      'json',
+      'run',
+      'account-login',
+    ],
+    flow: {
       type: 'oauth-v2-authorization-code-pkce',
       hosts: ['api.oauth.blink.com', 'rest-prod.immedia-semi.com'],
     },
   });
   expect(payload).not.toHaveProperty('httpRequest');
   expect(payload.toolCallInstructions).toContain(
-    'Do not call http_request for legacy Blink login',
+    'Run the helper with `run account-login` for live auth',
   );
   expect(payload.toolCallInstructions).toContain('grant_type=password');
-  expect(payload.result).toContain('Existing stored tokens may still work');
+  expect(payload.result).toContain('OAuth v2 Authorization Code + PKCE');
   expect(JSON.stringify(payload)).not.toContain('<secret:BLINK_EMAIL>');
   expect(JSON.stringify(payload)).not.toContain('<secret:BLINK_PASSWORD>');
   expect(JSON.stringify(payload)).not.toContain('password123');
@@ -128,7 +139,7 @@ test('Blink login returns an OAuth v2 hard stop without emitting deprecated requ
   expect(payload).not.toHaveProperty('secretRefPolicy');
 });
 
-test('Blink login rejects stale identity flags instead of using the deprecated password path', () => {
+test('Blink login dry-run ignores stale env identity flags and rejects unexpected flag values', () => {
   const envResult = runHelper(
     ['--format', 'json', 'http-request', 'account-login'],
     {
@@ -150,12 +161,208 @@ test('Blink login rejects stale identity flags instead of using the deprecated p
 
   expect(envResult.status).toBe(0);
   expect(JSON.parse(envResult.stdout)).toMatchObject({
-    command: 'auth-required',
-    reason: 'blink-oauth-v2-required',
+    command: 'auth-plan',
+    operation: 'account-login',
   });
   expect(flagResult.status).not.toBe(0);
   expect(flagResult.stderr).toContain('Unexpected argument: --device-id');
   expect(flagResult.stderr).not.toContain('hybridclaw-flag-device');
+});
+
+test('Blink helper runs OAuth v2 login through gateway and captures secrets', async () => {
+  const seenRequests: Array<Record<string, unknown>> = [];
+  const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    seenRequests.push(requestBody);
+    const targetUrl = String(requestBody.url);
+    if (targetUrl.includes('/oauth/v2/authorize') && seenRequests.length === 1) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          headers: { 'set-cookie': 'oauth=one; Path=/; Secure' },
+          body: '<html></html>',
+        }),
+      );
+    }
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/v2/signin') {
+      if (requestBody.method === 'GET') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            headers: { 'set-cookie': 'signin=two; Path=/; Secure' },
+            body: '<script id="oauth-args" type="application/json">{"csrf-token":"csrf-123"}</script>',
+          }),
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          status: 302,
+          statusText: 'Found',
+          headers: { 'set-cookie': 'signed=three; Path=/; Secure' },
+          body: '',
+        }),
+      );
+    }
+    if (targetUrl.includes('/oauth/v2/authorize')) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          status: 302,
+          statusText: 'Found',
+          headers: {
+            location:
+              'immedia-blink://applinks.blink.com/signin/callback?code=code-123',
+          },
+          body: '',
+        }),
+      );
+    }
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/token') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          captured: {
+            access_token: 'BLINK_AUTH_TOKEN',
+            refresh_token: 'BLINK_REFRESH_TOKEN',
+          },
+        }),
+      );
+    }
+    if (targetUrl === 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          captured: {
+            tier: 'BLINK_TIER',
+            account_id: 'BLINK_ACCOUNT_ID',
+            client_id: 'BLINK_CLIENT_ID',
+          },
+        }),
+      );
+    }
+    throw new Error(`unexpected request to ${targetUrl}`);
+  });
+
+  const result = await blink.runAccountLogin([], {
+    fetch: fetchMock,
+    gatewayUrl: 'http://127.0.0.1:9090',
+    gatewayToken: 'gateway-token',
+  });
+
+  expect(result).toMatchObject({
+    command: 'live-auth',
+    operation: 'account-login',
+    result: {
+      ok: true,
+      tokenCaptured: {
+        access_token: 'BLINK_AUTH_TOKEN',
+        refresh_token: 'BLINK_REFRESH_TOKEN',
+      },
+      tierCaptured: {
+        tier: 'BLINK_TIER',
+        account_id: 'BLINK_ACCOUNT_ID',
+      },
+    },
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(6);
+  expect(seenRequests[0]).toMatchObject({
+    allowManualRedirect: true,
+    skillName: 'blink',
+  });
+  expect(String(seenRequests[0].url)).toContain('/oauth/v2/authorize');
+  expect(String(seenRequests[0].url)).toContain('code_challenge_method=S256');
+  expect(seenRequests[2]).toMatchObject({
+    method: 'POST',
+    allowManualRedirect: true,
+    body: expect.stringContaining('username=<secret:BLINK_EMAIL>'),
+  });
+  expect(String(seenRequests[2].body)).toContain(
+    'password=<secret:BLINK_PASSWORD>',
+  );
+  expect(String(seenRequests[2].body)).toContain('csrf-token=csrf-123');
+  expect(seenRequests[4]).toMatchObject({
+    url: 'https://api.oauth.blink.com/oauth/token',
+    method: 'POST',
+    captureResponseFields: [
+      {
+        jsonPath: 'access_token',
+        secretName: 'BLINK_AUTH_TOKEN',
+        bindDomain: 'immedia-semi.com',
+      },
+      {
+        jsonPath: 'refresh_token',
+        secretName: 'BLINK_REFRESH_TOKEN',
+        bindDomain: 'api.oauth.blink.com',
+      },
+    ],
+  });
+  expect(seenRequests[5]).toMatchObject({
+    url: 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info',
+    secretHeaders: [
+      {
+        name: 'TOKEN_AUTH',
+        secretName: 'BLINK_AUTH_TOKEN',
+        prefix: 'none',
+      },
+    ],
+  });
+  expect(JSON.stringify(seenRequests)).not.toContain('password123');
+});
+
+test('Blink helper stops OAuth login for F14 PIN handover when 2FA is required', async () => {
+  const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    const targetUrl = String(requestBody.url);
+    if (targetUrl.includes('/oauth/v2/authorize')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          headers: { 'set-cookie': 'oauth=one; Path=/; Secure' },
+          body: '',
+        }),
+      );
+    }
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/v2/signin') {
+      if (requestBody.method === 'GET') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            headers: {},
+            body: '<script id="oauth-args" type="application/json">{"csrf-token":"csrf-123"}</script>',
+          }),
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          status: 412,
+          statusText: 'Precondition Failed',
+          headers: {},
+          body: '',
+        }),
+      );
+    }
+    throw new Error(`unexpected request to ${targetUrl}`);
+  });
+
+  const result = await blink.runAccountLogin([], {
+    fetch: fetchMock,
+    gatewayUrl: 'http://127.0.0.1:9090',
+  });
+
+  expect(result).toMatchObject({
+    command: 'handover-required',
+    route: 'f14',
+    reason: 'blink-2fa-required',
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(3);
 });
 
 test('Blink helper accepts legacy operation aliases but emits canonical subject-verb operations', () => {
