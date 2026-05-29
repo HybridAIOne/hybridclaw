@@ -822,6 +822,19 @@ export function readStoredRuntimeSecrets(): RuntimeSecrets {
   return { ...store.readAll() };
 }
 
+export function normalizeRuntimeSecretInputValue(raw: string): string {
+  const value = String(raw || '').trim();
+  if (value.length < 2) return value;
+
+  const first = value[0];
+  const last = value[value.length - 1];
+  if ((first === '"' || first === "'") && first === last) {
+    return value.slice(1, -1);
+  }
+
+  return value;
+}
+
 export function migrateLegacyRuntimeSecretsFile(): boolean {
   const store = new SecretStore();
   const filePath = runtimeSecretsPath();

@@ -22,6 +22,7 @@ import {
   isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
   listStoredRuntimeSecretNames,
+  normalizeRuntimeSecretInputValue,
   readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveNamedRuntimeSecrets,
@@ -124,7 +125,9 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
 
   if (sub === 'set') {
     const secretName = String(normalized[1] || '').trim();
-    const secretValue = normalized.slice(2).join(' ').trim();
+    const secretValue = normalizeRuntimeSecretInputValue(
+      normalized.slice(2).join(' '),
+    );
     if (!secretName || !secretValue) {
       printSecretUsage();
       throw new Error('Usage: `hybridclaw secret set <name> <value>`');
