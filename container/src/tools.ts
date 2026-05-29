@@ -4350,11 +4350,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Optional application/x-www-form-urlencoded fields. The gateway resolves <secret:NAME> placeholders first, then URL-encodes values so secrets with special characters cannot break form encoding.',
             additionalProperties: {
-              anyOf: [
-                { type: 'string' },
-                { type: 'number' },
-                { type: 'boolean' },
-              ],
+              type: ['string', 'number', 'boolean'],
             },
           },
           bodyBase64: {
