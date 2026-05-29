@@ -63,6 +63,7 @@ metadata:
         - motion-events-list
         - clips-list
         - clip-download
+        - thumbnail-download
       amber:
         - pin-verify
         - network-arm
@@ -100,7 +101,7 @@ best-effort and stop on the first authentication or verification failure.
 - Do not run `hybridclaw secret get`, call `/api/secret`, inspect `env`, or use `curl`/ad hoc scripts to fetch Blink secrets. If the helper reports missing session secrets such as `BLINK_TIER`, run `run account-refresh` once, then `run account-login` if refresh cannot recover the session; email/password may already be stored.
 - `account-login` is implemented as OAuth v2 Authorization Code + PKCE in the helper. Run `node skills/blink/blink.cjs --format json run account-login`; do not call old password login endpoints and do not web-search or endpoint-probe inside the user task.
 - The Blink-specific implementation lives under `skills/blink/`; the gateway pieces this skill relies on are generic `http_request` primitives for nested response capture, explicit token bind-domain capture, secret-backed headers, manual redirect inspection, and response-body suppression.
-- The helper only emits allowlisted hosts: `rest-prod.immedia-semi.com`, `rest-<BLINK_TIER>.immedia-semi.com`, and `prod.immedia-semi.com` for selected media artifact paths; arbitrary host/path passthrough is not supported.
+- The helper only emits allowlisted hosts: `rest-prod.immedia-semi.com` and `rest-<BLINK_TIER>.immedia-semi.com`; arbitrary host/path passthrough is not supported.
 - Clip downloads must go through the gateway artifact path; return artifact handles or metadata only, and rely on the helper-emitted `suppressResponseBody: true` so raw video bytes do not enter model context.
 - Live-view requests are red and operator-UI-only; the helper emits `suppressResponseBody: true`, and RTSP/HLS/session handles must not be copied into chat even after approval.
 - Stop after the first 401, invalid-credentials, or verification-required response; do not retry, poll, or fan out more Blink calls until credentials or the PIN handover are resolved.
@@ -171,7 +172,8 @@ http-request camera-signals-read --network <network-id> --camera <camera-id>
 http-request doorbells-list --network <network-id>
 http-request motion-events-list --network <network-id> --since 2026-05-26T00:00:00Z
 http-request clips-list --since 2026-05-26T00:00:00Z --page 0 --max 50
-http-request clip-download --path /api/v2/accounts/<account-id>/media/clip/<file.mp4>
+http-request clip-download --path /api/v2/accounts/<account-id>/media/clip/<file.mp4> [--filename clip.mp4]
+http-request thumbnail-download --path /api/v3/media/accounts/<account-id>/networks/<network-id>/<camera-type>/<camera-id>/thumbnail/thumbnail.jpg?ts=<ts>&ext= [--filename camera.jpg]
 
 plan network-arm --network <network-id>
 plan network-disarm --network <network-id>
@@ -183,6 +185,7 @@ plan camera-live-view-start --network <network-id> --camera <camera-id> [--camer
 ```
 
 Blink clip listing uses the account-scoped `media/changed` API, so `clips-list` intentionally does not accept `--network`; use the returned clip metadata to choose a clip path for `clip-download`.
+For a current still image, run the approved `camera-thumbnail-refresh`, run `devices-list`, then pass the returned camera `thumbnail` path to `thumbnail-download`. Do not rewrite thumbnail paths onto `prod.immedia-semi.com`; the helper routes them through the authenticated `rest-<BLINK_TIER>.immedia-semi.com` host and stores the image as an artifact instead of exposing bytes in model context.
 
 `plan` emits no live side effect. It returns `approvalText`,
 `approvedHelperCommandText`, the exact target host/path/method, and the

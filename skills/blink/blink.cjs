@@ -11,7 +11,6 @@ const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const SKILL_NAME = 'blink';
 const REST_PROD_HOST = 'rest-prod.immedia-semi.com';
-const PROD_HOST = 'prod.immedia-semi.com';
 const DEFAULT_REST_BASE = `https://${REST_PROD_HOST}`;
 const DEFAULT_USER_AGENT = '27.0ANDROID_28373244';
 const OAUTH_BASE_URL = 'https://api.oauth.blink.com';
@@ -65,6 +64,7 @@ const OPERATION_TIERS = {
   'motion-events-list': 'green',
   'clips-list': 'green',
   'clip-download': 'green',
+  'thumbnail-download': 'green',
   'network-arm': 'amber',
   'network-disarm': 'amber',
   'camera-motion-set': 'amber',
@@ -89,6 +89,7 @@ const HTTP_OPERATIONS = new Set([
   'motion-events-list',
   'clips-list',
   'clip-download',
+  'thumbnail-download',
 ]);
 
 const PLAN_OPERATIONS = new Set([
@@ -115,6 +116,7 @@ const OPERATION_ALIASES = new Map([
   ['doorbells', 'doorbells-list'],
   ['motion-events', 'motion-events-list'],
   ['clips', 'clips-list'],
+  ['download-thumbnail', 'thumbnail-download'],
   ['arm-network', 'network-arm'],
   ['disarm-network', 'network-disarm'],
   ['camera-motion', 'camera-motion-set'],
@@ -154,7 +156,8 @@ Read/request commands:
   http-request doorbells-list --network <network-id>
   http-request motion-events-list --network <network-id> [--since 2026-05-26T00:00:00Z]
   http-request clips-list [--since 2026-05-26T00:00:00Z] [--page 0] [--max 50]
-  http-request clip-download --path /api/v2/accounts/<account-id>/media/clip/<file.mp4>
+  http-request clip-download --path /api/v2/accounts/<account-id>/media/clip/<file.mp4> [--filename clip.mp4]
+  http-request thumbnail-download --path /api/v3/media/accounts/<account-id>/networks/<network-id>/<camera-type>/<camera-id>/thumbnail/thumbnail.jpg?ts=<ts>&ext= [--filename camera.jpg]
 
 Guarded operation plans:
   plan network-arm --network <network-id>
@@ -181,6 +184,8 @@ Notes:
   devices-list, cameras-list, and clips-list.
   Use run for live gateway execution; use http-request for dry-run JSON.
   clips-list is account-scoped on Blink's media/changed API; --network is rejected.
+  thumbnail-download is for thumbnail paths returned by devices-list; do not rewrite
+  those paths onto prod.immedia-semi.com.
 `);
 }
 
@@ -508,6 +513,11 @@ function normalizeGatewayResult(wrapper, fallbackStatus) {
         : parseJsonMaybe(body),
     bodyTruncated: wrapper.bodyTruncated === true,
     maxResponseBytes: wrapper.maxResponseBytes,
+    bodySuppressed: wrapper.bodySuppressed === true,
+    bodyBytes: wrapper.bodyBytes,
+    success: wrapper.success === true,
+    artifact: wrapper.artifact,
+    artifacts: Array.isArray(wrapper.artifacts) ? wrapper.artifacts : undefined,
     captured: wrapper.captured,
   };
 }
@@ -728,6 +738,7 @@ function buildPayload(
     maxResponseBytes,
     captureResponseFields,
     suppressResponseBody,
+    responseArtifact,
     artifact,
     handover,
     responseHandling,
@@ -764,6 +775,9 @@ function buildPayload(
   }
   if (suppressResponseBody === true) {
     payload.httpRequest.suppressResponseBody = true;
+  }
+  if (responseArtifact !== undefined) {
+    payload.httpRequest.responseArtifact = responseArtifact;
   }
   if (artifact !== undefined) payload.artifact = artifact;
   if (handover !== undefined) payload.handover = handover;
@@ -1172,13 +1186,26 @@ function buildReadOperation(operation, args) {
       maxItems: max,
     };
   } else if (operation === 'clip-download') {
-    const clipPath = parseClipPath(popFlag(args, '--path'), accountId);
-    url = `${prodBase()}{PATH}`.replace('{PATH}', clipPath);
+    const clipPath = parseClipPath(popFlag(args, '--path'));
+    const filename = popFlag(args, '--filename');
+    url = tierRequestUrl(args, clipPath);
     artifact = {
       mode: 'gateway-artifact',
       maxInlineBytes: 0,
+      responseArtifact: responseArtifactForPath(clipPath, filename),
       handling:
         'Return an artifact handle only; do not include raw video bytes in model context.',
+    };
+  } else if (operation === 'thumbnail-download') {
+    const thumbnailPath = parseThumbnailPath(popFlag(args, '--path'));
+    const filename = popFlag(args, '--filename');
+    url = tierRequestUrl(args, thumbnailPath);
+    artifact = {
+      mode: 'gateway-artifact',
+      maxInlineBytes: 0,
+      responseArtifact: responseArtifactForPath(thumbnailPath, filename),
+      handling:
+        'Return an artifact handle only; do not include raw image bytes in model context.',
     };
   } else {
     die(
@@ -1190,14 +1217,18 @@ function buildReadOperation(operation, args) {
   return buildPayload(operation, {
     url,
     method: 'GET',
-    maxResponseBytes: operation === 'clip-download' ? 50_000_000 : 2_000_000,
-    suppressResponseBody: operation === 'clip-download',
+    maxResponseBytes:
+      operation === 'clip-download'
+        ? 50_000_000
+        : operation === 'thumbnail-download'
+          ? 5_000_000
+          : 2_000_000,
+    suppressResponseBody:
+      operation === 'clip-download' || operation === 'thumbnail-download',
+    responseArtifact:
+      artifact && artifact.responseArtifact ? artifact.responseArtifact : undefined,
     artifact,
   });
-}
-
-function prodBase() {
-  return `https://${PROD_HOST}`;
 }
 
 function parseHttpRequestTarget(rawUrl) {
@@ -1209,26 +1240,56 @@ function parseHttpRequestTarget(rawUrl) {
   };
 }
 
-function parseClipPath(value, accountId) {
+function normalizeMediaDownloadPath(value) {
   const normalized = requireText(value, '--path');
-  const accountPrefix = `/api/v2/accounts/${accountId}/media/`;
-  const accountPattern = accountId.startsWith('<secret:')
-    ? '<secret:BLINK_ACCOUNT_ID>'
-    : accountId;
-  const pathPattern = new RegExp(
-    `^/api/v2/accounts/${accountPattern.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/media/(clip|thumb)/[A-Za-z0-9_.%/-]+$`,
-    'u',
-  );
-  if (
-    !normalized.startsWith(accountPrefix) ||
-    normalized.includes('..') ||
-    !pathPattern.test(normalized)
-  ) {
+  if (!normalized.startsWith('/') || normalized.includes('..')) {
+    die('--path must be a Blink media path and must not contain traversal.');
+  }
+  let parsed;
+  try {
+    parsed = new URL(`https://blink.local${normalized}`);
+  } catch {
+    die('--path must be a valid Blink media path.');
+  }
+  return `${parsed.pathname}${parsed.search}`;
+}
+
+function parseClipPath(value) {
+  const normalized = normalizeMediaDownloadPath(value);
+  const parsed = new URL(`https://blink.local${normalized}`);
+  const pathPattern =
+    /^\/api\/v2\/accounts\/(?:\d+|<secret:BLINK_ACCOUNT_ID>)\/media\/(?:clip|thumb)\/[A-Za-z0-9_.%/-]+$/u;
+  if (!pathPattern.test(parsed.pathname) || parsed.search) {
     die(
-      `--path must be a Blink media path under ${accountPrefix}clip/ or ${accountPrefix}thumb/.`,
+      '--path must be a Blink clip/thumb path under /api/v2/accounts/<account-id>/media/clip/ or /media/thumb/.',
     );
   }
   return normalized;
+}
+
+function parseThumbnailPath(value) {
+  const normalized = normalizeMediaDownloadPath(value);
+  const parsed = new URL(`https://blink.local${normalized}`);
+  const pathPattern =
+    /^\/api\/v3\/media\/accounts\/(?:\d+|<secret:BLINK_ACCOUNT_ID>)\/networks\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/thumbnail\/thumbnail\.jpg$/u;
+  if (!pathPattern.test(parsed.pathname)) {
+    die(
+      '--path must be a Blink thumbnail path returned by devices-list under /api/v3/media/accounts/<account-id>/networks/<network-id>/<camera-type>/<camera-id>/thumbnail/thumbnail.jpg.',
+    );
+  }
+  for (const key of parsed.searchParams.keys()) {
+    if (key !== 'ts' && key !== 'ext') {
+      die('--path thumbnail query may only include ts and ext.');
+    }
+  }
+  return normalized;
+}
+
+function responseArtifactForPath(mediaPath, filename) {
+  const parsed = new URL(`https://blink.local${mediaPath}`);
+  return {
+    filename: filename || path.basename(parsed.pathname) || 'blink-media',
+  };
 }
 
 const CAMERA_ACTION_PATHS = {

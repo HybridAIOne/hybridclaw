@@ -113,6 +113,7 @@ let pendingDelegations: DelegationSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
 let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
+let currentAgentId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
 let gatewayChannelId = '';
@@ -794,6 +795,7 @@ export function setGatewayContext(
     agentId,
     browserAllowPrivateNetwork,
   );
+  currentAgentId = String(agentId || '').trim();
   gatewayChannelId = String(channelId || '').trim();
   gatewayConfiguredChannels =
     normalizeConfiguredChannelList(configuredChannels);
@@ -1405,6 +1407,7 @@ async function callGatewayHttpRequest(
       body: JSON.stringify({
         ...requestArgs,
         ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+        ...(currentAgentId ? { agentId: currentAgentId } : {}),
       }),
     });
   } catch (err) {
@@ -4507,6 +4510,23 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'boolean',
             description:
               'When true, the gateway forwards the request but omits the response body from the tool result. Use for binary artifacts, media, live-view handles, or other data that must not enter model context.',
+          },
+          responseArtifact: {
+            type: 'object',
+            description:
+              'Save the response body as a workspace artifact and return only the artifact metadata. Use for images, videos, PDFs, and other binary responses that should be attached instead of entering model context.',
+            properties: {
+              filename: {
+                type: 'string',
+                description:
+                  'Suggested artifact filename. The gateway sanitizes it and may add a unique prefix.',
+              },
+              mimeType: {
+                type: 'string',
+                description:
+                  'Optional expected MIME type. Defaults to the upstream Content-Type header.',
+              },
+            },
           },
           allowManualRedirect: {
             type: 'boolean',

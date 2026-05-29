@@ -6,11 +6,14 @@
  * explicit response-field capture.
  */
 
-import { createHash, createHmac, createSign } from 'node:crypto';
+import { createHash, createHmac, createSign, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
+import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
+import path from 'node:path';
 
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import {
   HUBSPOT_ACCESS_TOKEN_SECRET,
@@ -25,7 +28,9 @@ import {
   isGoogleOAuthSecretRef,
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { sanitizeUploadedMediaFilename } from '../media/uploaded-media-cache.js';
 import { evaluateNetworkPolicyAccess } from '../policy/network-policy.js';
 import { readPolicyState } from '../policy/policy-store.js';
 import {
@@ -101,6 +106,7 @@ type ApiHttpRequestBody = {
   captureResponseFields?: unknown;
   captureResponseHeaders?: unknown;
   suppressResponseBody?: unknown;
+  responseArtifact?: unknown;
   allowManualRedirect?: unknown;
   includeResponseCookies?: unknown;
   timeoutMs?: unknown;
@@ -216,6 +222,29 @@ type PrivateHostCheck = {
   blocked: boolean;
   reason: 'private' | 'dns_failed';
 };
+
+type ResponseArtifactOptions = {
+  filename: string;
+  mimeType?: string;
+};
+
+function normalizeResponseArtifactOptions(
+  value: unknown,
+): ResponseArtifactOptions | null {
+  if (value !== true && (typeof value !== 'object' || value === null)) {
+    return null;
+  }
+  if (value === true) {
+    return { filename: 'http-response' };
+  }
+  const record = value as Record<string, unknown>;
+  const filename = String(record.filename || 'http-response').trim();
+  const mimeType = String(record.mimeType || '').trim();
+  return {
+    filename: filename || 'http-response',
+    ...(mimeType ? { mimeType } : {}),
+  };
+}
 
 async function checkPrivateHost(hostname: string): Promise<PrivateHostCheck> {
   const host = hostname.trim().toLowerCase();
@@ -342,6 +371,37 @@ function sendSuppressedBodyResponse(
         }
       : {}),
   });
+}
+
+async function saveHttpResponseArtifact(params: {
+  body: Buffer;
+  response: Response;
+  options: ResponseArtifactOptions;
+  agentId?: string;
+}): Promise<{ path: string; filename: string; mimeType: string }> {
+  const workspaceDir = agentWorkspaceDir(params.agentId || DEFAULT_AGENT_ID);
+  const artifactDir = path.join(workspaceDir, '.http-artifacts');
+  await fs.promises.mkdir(artifactDir, { recursive: true, mode: 0o700 });
+
+  const responseMimeType =
+    params.options.mimeType ||
+    String(params.response.headers.get('content-type') || '')
+      .split(';')[0]
+      .trim() ||
+    'application/octet-stream';
+  const filename = sanitizeUploadedMediaFilename(
+    params.options.filename,
+    responseMimeType,
+  );
+  const storedFilename = `${Date.now()}-${randomUUID().slice(0, 8)}-${filename}`;
+  const hostPath = path.join(artifactDir, storedFilename);
+  await fs.promises.writeFile(hostPath, params.body, { mode: 0o600 });
+
+  return {
+    path: `/workspace/.http-artifacts/${storedFilename}`,
+    filename,
+    mimeType: responseMimeType,
+  };
 }
 
 async function readHttpResponseBuffer(
@@ -1657,6 +1717,9 @@ export async function handleApiHttpRequest(
     parsePositiveInteger(body.maxResponseBytes) ??
     HTTP_REQUEST_MAX_RESPONSE_BYTES;
   const suppressResponseBody = body.suppressResponseBody === true;
+  const responseArtifact = normalizeResponseArtifactOptions(
+    body.responseArtifact,
+  );
   const allowManualRedirect = body.allowManualRedirect === true;
   const includeResponseCookies = body.includeResponseCookies === true;
   const config = getRuntimeConfig();
@@ -1897,6 +1960,7 @@ export async function handleApiHttpRequest(
 
   if (
     suppressResponseBody &&
+    !responseArtifact &&
     captureFields.length === 0 &&
     captureHeaders.length === 0
   ) {
@@ -1957,6 +2021,34 @@ export async function handleApiHttpRequest(
       ok: response.ok,
       status: response.status,
       captured,
+    });
+    return;
+  }
+
+  if (responseArtifact) {
+    if (bodyTruncated) {
+      throw new GatewayRequestError(
+        502,
+        `Response artifact exceeds maxResponseBytes (${maxResponseBytes}).`,
+      );
+    }
+    const artifact = await saveHttpResponseArtifact({
+      body: responseBody.buffer,
+      response,
+      options: responseArtifact,
+      agentId: baseSecretContext.agentId,
+    });
+    sendJson(res, 200, {
+      success: true,
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      url: response.url,
+      headers: responseHeadersObject(response, includeResponseCookies),
+      artifact,
+      artifacts: [artifact],
+      bodySuppressed: true,
+      bodyBytes,
     });
     return;
   }
