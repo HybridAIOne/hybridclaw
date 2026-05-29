@@ -30,6 +30,7 @@ import {
   updateJob,
 } from '../memory/jobs.js';
 import type { ScheduledTask } from '../types/scheduler.js';
+import { hasActionableHeartbeatFile } from '../workspace.js';
 import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
 
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift
@@ -40,6 +41,12 @@ const SCHEDULER_STATE_PATH = path.join(DATA_DIR, 'scheduler-jobs-state.json');
 const SQLITE_SECOND_PRECISION_TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const DEFAULT_SCHEDULER_TIME_ZONE = 'UTC';
 const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
+const HEARTBEAT_STYLE_SCHEDULER_MESSAGES = new Set([
+  '',
+  'hi',
+  'heartbeat',
+  'heartbeat poll',
+]);
 
 type CronWeekdayNumbering = 'crontab' | 'monday-zero-based';
 
@@ -136,6 +143,20 @@ function describeScheduledDeliveryTarget(
   if (isWhatsAppJid(trimmed)) return `WhatsApp chat ${trimmed}`;
   if (trimmed === 'tui') return 'the local TUI inbox';
   return `channel ${trimmed}`;
+}
+
+function isHeartbeatStyleSchedulerJob(job: RuntimeSchedulerJob): boolean {
+  if (job.action.kind !== 'agent_turn') return false;
+  if (!job.agentId) return false;
+  const normalized = job.action.message
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+  if (HEARTBEAT_STYLE_SCHEDULER_MESSAGES.has(normalized)) return true;
+  return (
+    normalized.includes('heartbeat.md') &&
+    normalized.includes('periodic task')
+  );
 }
 
 export function wrapCronPrompt(
@@ -685,6 +706,18 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
     job.action.message === RESOURCE_HYGIENE_SYSTEM_EVENT
   ) {
     await runResourceHygieneMaintenance();
+    return;
+  }
+
+  if (
+    isHeartbeatStyleSchedulerJob(job) &&
+    job.agentId &&
+    !hasActionableHeartbeatFile(job.agentId)
+  ) {
+    logger.debug(
+      { jobId: job.id, agentId: job.agentId },
+      'Scheduler heartbeat-style job skipped — no actionable HEARTBEAT.md',
+    );
     return;
   }
 

@@ -1238,6 +1238,53 @@ describe('gateway bootstrap', () => {
     );
   });
 
+  test('does not deliver empty HEARTBEAT.md scheduler no-op reports to the TUI inbox', async () => {
+    const state = await importFreshGatewayMain();
+    const idleText =
+      'Nothing to report. HEARTBEAT.md is empty — no periodic tasks configured.';
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onResult = args[4] as (result: {
+          text: string;
+        }) => Promise<void>;
+        await onResult({ text: idleText });
+      },
+    );
+
+    await state.scheduledTaskRunner?.({
+      source: 'scheduler-job',
+      jobId: 'budget-tokens',
+      sessionId: 'scheduler:budget-tokens',
+      channelId: 'tui',
+      prompt: 'Hi',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'channel',
+        channelId: 'tui',
+      },
+    });
+
+    expect(state.runGatewayScheduledTask).toHaveBeenCalledTimes(1);
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
+        channelId: 'tui',
+        result: idleText,
+      },
+      'Scheduled task completed without TUI delivery',
+    );
+    expect(state.loggerInfo).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'budget-tokens',
+        channelId: 'tui',
+        result: idleText,
+      }),
+      'Scheduled task completed',
+    );
+  });
+
   test('delivers scheduler no-op text to TUI when artifacts are present', async () => {
     const state = await importFreshGatewayMain();
     const artifacts = [

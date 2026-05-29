@@ -67,6 +67,67 @@ useCleanMocks({
   resetModules: true,
 });
 
+test('heartbeat-style scheduler jobs do not dispatch when HEARTBEAT.md has no actionable tasks', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-27T08:00:00.000Z'));
+
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+
+  writeRuntimeConfig(homeDir, (config) => {
+    config.scheduler.jobs = [
+      {
+        id: 'empty-heartbeat',
+        name: 'Empty heartbeat',
+        agentId: 'main',
+        enabled: true,
+        schedule: {
+          kind: 'at',
+          at: '2026-03-27T08:00:00.000Z',
+          everyMs: null,
+          expr: null,
+          tz: 'UTC',
+        },
+        action: {
+          kind: 'agent_turn',
+          message: 'Hi',
+        },
+        delivery: {
+          kind: 'channel',
+          channel: '',
+          to: 'tui',
+          webhookUrl: '',
+        },
+      },
+    ];
+  });
+
+  vi.resetModules();
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { replaceJobs } = await import('../src/memory/jobs.ts');
+  const { migrateConfigSchedulerJobsToDatabase } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
+  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+    '../src/scheduler/scheduler.ts'
+  );
+  initDatabase({ quiet: true });
+  replaceJobs([]);
+  migrateConfigSchedulerJobsToDatabase();
+
+  const runner = vi.fn(async () => {});
+  startScheduler(runner);
+  await vi.advanceTimersByTimeAsync(0);
+  stopScheduler();
+
+  expect(runner).not.toHaveBeenCalled();
+  expect(getConfigJobState('empty-heartbeat')).toMatchObject({
+    lastStatus: 'success',
+    consecutiveErrors: 0,
+  });
+});
+
 test('legacy backlog-assigned one-shot scheduler jobs move to review after the default retry budget', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-03-27T08:00:00.000Z'));
