@@ -4345,6 +4345,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Optional raw text request body. Use `json` instead for JSON payloads.',
           },
+          form: {
+            type: 'object',
+            description:
+              'Optional application/x-www-form-urlencoded fields. The gateway resolves <secret:NAME> placeholders first, then URL-encodes values so secrets with special characters cannot break form encoding.',
+            additionalProperties: {
+              anyOf: [
+                { type: 'string' },
+                { type: 'number' },
+                { type: 'boolean' },
+              ],
+            },
+          },
           bodyBase64: {
             type: 'string',
             description:

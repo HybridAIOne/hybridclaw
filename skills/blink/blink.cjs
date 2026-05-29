@@ -655,6 +655,64 @@ function blinkMissingSecretResult(operation, secretName) {
   return null;
 }
 
+function blinkOAuthErrorCause(response) {
+  const bodyJson =
+    response?.bodyJson && typeof response.bodyJson === 'object'
+      ? response.bodyJson
+      : parseJsonMaybe(response?.body);
+  if (!bodyJson || typeof bodyJson !== 'object' || Array.isArray(bodyJson)) {
+    return '';
+  }
+  return String(bodyJson.error_cause || bodyJson.error || '').trim();
+}
+
+function blinkOAuthAuthStopResult(operation, response) {
+  const cause = blinkOAuthErrorCause(response);
+  if (
+    response?.status === 401 &&
+    ['invalid_user_credentials', 'session_expired', 'unauthorized'].includes(
+      cause,
+    )
+  ) {
+    return {
+      command: 'auth-stopped',
+      operation,
+      stakesTier: OPERATION_TIERS[operation] || 'green',
+      ok: false,
+      reason:
+        cause === 'invalid_user_credentials'
+          ? 'blink-invalid-credentials'
+          : 'blink-oauth-session-rejected',
+      result:
+        'Blink rejected the stored primary credentials or OAuth session. Do not retry automatically; ask the operator to verify BLINK_EMAIL and BLINK_PASSWORD in the host secret store.',
+      setupCommands: [
+        '/secret set BLINK_EMAIL "<account email>"',
+        '/secret set BLINK_PASSWORD "<account password>"',
+      ],
+      costMeasurement: COST_MEASUREMENT,
+    };
+  }
+  if (response?.status === 429) {
+    const bodyJson =
+      response.bodyJson && typeof response.bodyJson === 'object'
+        ? response.bodyJson
+        : parseJsonMaybe(response.body);
+    const retryAfterSeconds = Number(bodyJson?.next_time_in_secs || 0) || 0;
+    return {
+      command: 'auth-stopped',
+      operation,
+      stakesTier: OPERATION_TIERS[operation] || 'green',
+      ok: false,
+      reason: 'blink-rate-limited',
+      retryAfterSeconds,
+      result:
+        'Blink rate-limited OAuth login attempts. Do not retry until the retry window has elapsed.',
+      costMeasurement: COST_MEASUREMENT,
+    };
+  }
+  return null;
+}
+
 function buildPayload(
   operation,
   {
@@ -662,6 +720,7 @@ function buildPayload(
     method = 'GET',
     headers,
     body,
+    form,
     json,
     maxResponseBytes,
     captureResponseFields,
@@ -695,6 +754,7 @@ function buildPayload(
     payload.httpRequest.secretHeaders = authSecretHeaders();
   }
   if (body !== undefined) payload.httpRequest.body = body;
+  if (form !== undefined) payload.httpRequest.form = form;
   if (json !== undefined) payload.httpRequest.json = json;
   if (captureResponseFields !== undefined) {
     payload.httpRequest.captureResponseFields = captureResponseFields;
@@ -768,25 +828,8 @@ function withCookie(headers, cookieJar) {
   return cookie ? { ...headers, Cookie: cookie } : headers;
 }
 
-function formBody(entries) {
-  return entries
-    .map(
-      ([key, value]) =>
-        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
-    )
-    .join('&');
-}
-
-function secretFormBody(entries) {
-  return entries
-    .map(([key, value]) => {
-      const encodedValue =
-        typeof value === 'string' && value.startsWith('<secret:')
-          ? value
-          : encodeURIComponent(value);
-      return `${encodeURIComponent(key)}=${encodedValue}`;
-    })
-    .join('&');
+function formFields(entries) {
+  return Object.fromEntries(entries);
 }
 
 function extractCsrfToken(html) {
@@ -826,16 +869,17 @@ function extractAuthorizationCode(location) {
   return code;
 }
 
-function oauthGatewayRequest({ url, method = 'GET', headers, body }) {
+function oauthGatewayRequest({ url, method = 'GET', headers, form }) {
   return {
     url,
     method,
     headers,
-    body,
+    form,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     maxResponseBytes: 1_000_000,
     replaceSecretPlaceholders: true,
     allowManualRedirect: true,
+    includeResponseCookies: true,
     skillName: SKILL_NAME,
     stakesTier: OPERATION_TIERS['account-login'],
   };
@@ -894,7 +938,7 @@ function buildAccountRefresh(args) {
       Accept: '*/*',
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: secretFormBody([
+    form: formFields([
       ['app_brand', 'blink'],
       ['client_id', OAUTH_CLIENT_ID],
       ['grant_type', 'refresh_token'],
@@ -1377,15 +1421,17 @@ async function runAccountLoginFlow(args, options = {}) {
         }),
         cookieJar,
       ),
-      body: secretFormBody([
+      form: formFields([
         ['username', `<secret:${SECRET_NAMES.email}>`],
         ['password', `<secret:${SECRET_NAMES.password}>`],
         ['csrf-token', csrfToken],
       ]),
     }),
-    { ...options, allowedStatuses: [412] },
+    { ...options, allowedStatuses: [401, 412, 429] },
   );
   mergeSetCookies(cookieJar, response.headers);
+  const authStop = blinkOAuthAuthStopResult('account-login', response);
+  if (authStop) return authStop;
 
   if (response.status === 412) {
     if (!parsedPin) {
@@ -1424,7 +1470,7 @@ async function runAccountLoginFlow(args, options = {}) {
           }),
           cookieJar,
         ),
-        body: formBody([
+        form: formFields([
           ['2fa_code', parsedPin],
           ['csrf-token', csrfToken],
           ['remember_me', 'false'],
@@ -1445,8 +1491,14 @@ async function runAccountLoginFlow(args, options = {}) {
 
   response = await executeGatewayRequest(
     oauthGatewayRequest({
-      url: authorizeUrl,
-      headers: withCookie(oauthHeaders(), cookieJar),
+      url: OAUTH_AUTHORIZE_URL,
+      headers: withCookie(
+        oauthHeaders({
+          Accept: '*/*',
+          Referer: OAUTH_SIGNIN_URL,
+        }),
+        cookieJar,
+      ),
     }),
     options,
   );
@@ -1466,7 +1518,7 @@ async function runAccountLoginFlow(args, options = {}) {
       Accept: '*/*',
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: formBody([
+    form: formFields([
       ['app_brand', 'blink'],
       ['client_id', OAUTH_CLIENT_ID],
       ['code', code],

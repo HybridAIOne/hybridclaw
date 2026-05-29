@@ -274,6 +274,7 @@ test('Blink helper runs OAuth v2 login through gateway and captures secrets', as
   expect(fetchMock).toHaveBeenCalledTimes(6);
   expect(seenRequests[0]).toMatchObject({
     allowManualRedirect: true,
+    includeResponseCookies: true,
     skillName: 'blink',
   });
   expect(String(seenRequests[0].url)).toContain('/oauth/v2/authorize');
@@ -281,12 +282,20 @@ test('Blink helper runs OAuth v2 login through gateway and captures secrets', as
   expect(seenRequests[2]).toMatchObject({
     method: 'POST',
     allowManualRedirect: true,
-    body: expect.stringContaining('username=<secret:BLINK_EMAIL>'),
+    form: {
+      username: '<secret:BLINK_EMAIL>',
+      password: '<secret:BLINK_PASSWORD>',
+      'csrf-token': 'csrf-123',
+    },
   });
-  expect(String(seenRequests[2].body)).toContain(
-    'password=<secret:BLINK_PASSWORD>',
-  );
-  expect(String(seenRequests[2].body)).toContain('csrf-token=csrf-123');
+  expect(seenRequests[2]).not.toHaveProperty('body');
+  expect(seenRequests[3]).toMatchObject({
+    url: 'https://api.oauth.blink.com/oauth/v2/authorize',
+    headers: expect.objectContaining({
+      Accept: '*/*',
+      Referer: 'https://api.oauth.blink.com/oauth/v2/signin',
+    }),
+  });
   expect(seenRequests[4]).toMatchObject({
     url: 'https://api.oauth.blink.com/oauth/token',
     method: 'POST',
@@ -363,6 +372,123 @@ test('Blink helper stops OAuth login for F14 PIN handover when 2FA is required',
     command: 'handover-required',
     route: 'f14',
     reason: 'blink-2fa-required',
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+test('Blink helper stops OAuth login when stored credentials are rejected', async () => {
+  const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    const targetUrl = String(requestBody.url);
+    if (targetUrl.includes('/oauth/v2/authorize')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          headers: { 'set-cookie': 'oauth=one; Path=/; Secure' },
+          body: '',
+        }),
+      );
+    }
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/v2/signin') {
+      if (requestBody.method === 'GET') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            headers: {},
+            body: '<script id="oauth-args" type="application/json">{"csrf-token":"csrf-123"}</script>',
+          }),
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: {},
+          body: JSON.stringify({
+            error: 'unauthorized',
+            error_cause: 'invalid_user_credentials',
+          }),
+        }),
+      );
+    }
+    throw new Error(`unexpected request to ${targetUrl}`);
+  });
+
+  const result = await blink.runAccountLogin([], {
+    fetch: fetchMock,
+    gatewayUrl: 'http://127.0.0.1:9090',
+  });
+
+  expect(result).toMatchObject({
+    command: 'auth-stopped',
+    operation: 'account-login',
+    ok: false,
+    reason: 'blink-invalid-credentials',
+    setupCommands: [
+      '/secret set BLINK_EMAIL "<account email>"',
+      '/secret set BLINK_PASSWORD "<account password>"',
+    ],
+  });
+  expect(JSON.stringify(result)).not.toContain('hybridclaw secret set');
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+test('Blink helper stops OAuth login while Blink rate limit is active', async () => {
+  const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    const targetUrl = String(requestBody.url);
+    if (targetUrl.includes('/oauth/v2/authorize')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          headers: { 'set-cookie': 'oauth=one; Path=/; Secure' },
+          body: '',
+        }),
+      );
+    }
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/v2/signin') {
+      if (requestBody.method === 'GET') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            headers: {},
+            body: '<script id="oauth-args" type="application/json">{"csrf-token":"csrf-123"}</script>',
+          }),
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: {},
+          body: JSON.stringify({
+            error: 'too_many_requests',
+            error_cause: 'too_many_invalid_request',
+            next_time_in_secs: 600,
+          }),
+        }),
+      );
+    }
+    throw new Error(`unexpected request to ${targetUrl}`);
+  });
+
+  const result = await blink.runAccountLogin([], {
+    fetch: fetchMock,
+    gatewayUrl: 'http://127.0.0.1:9090',
+  });
+
+  expect(result).toMatchObject({
+    command: 'auth-stopped',
+    operation: 'account-login',
+    ok: false,
+    reason: 'blink-rate-limited',
+    retryAfterSeconds: 600,
   });
   expect(fetchMock).toHaveBeenCalledTimes(3);
 });

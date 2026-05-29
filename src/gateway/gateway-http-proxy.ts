@@ -84,6 +84,7 @@ type ApiHttpRequestBody = {
   headers?: unknown;
   body?: unknown;
   bodyBase64?: unknown;
+  form?: unknown;
   json?: unknown;
   bearerSecretName?: unknown;
   bearerSecretRef?: unknown;
@@ -94,6 +95,7 @@ type ApiHttpRequestBody = {
   captureResponseFields?: unknown;
   suppressResponseBody?: unknown;
   allowManualRedirect?: unknown;
+  includeResponseCookies?: unknown;
   timeoutMs?: unknown;
   maxResponseBytes?: unknown;
   sessionId?: unknown;
@@ -285,19 +287,45 @@ function readDeclaredBodyBytes(response: Response): number | undefined {
   return Number.isFinite(contentLength) ? contentLength : undefined;
 }
 
+function responseHeadersObject(
+  response: Response,
+  includeResponseCookies: boolean,
+): Record<string, string | string[]> {
+  const headers: Record<string, string | string[]> = Object.fromEntries(
+    response.headers.entries(),
+  );
+  if (!includeResponseCookies) {
+    delete headers['set-cookie'];
+    return headers;
+  }
+
+  const cookieHeaders =
+    typeof response.headers.getSetCookie === 'function'
+      ? response.headers.getSetCookie()
+      : [];
+  const fallbackCookie = response.headers.get('set-cookie');
+  if (cookieHeaders.length > 0) {
+    headers['set-cookie'] = cookieHeaders;
+  } else if (fallbackCookie) {
+    headers['set-cookie'] = fallbackCookie;
+  }
+  return headers;
+}
+
 function sendSuppressedBodyResponse(
   res: ServerResponse,
   response: Response,
   bodyBytes: number,
   bodyTruncated: boolean,
   maxResponseBytes: number,
+  includeResponseCookies: boolean,
 ): void {
   sendJson(res, 200, {
     ok: response.ok,
     status: response.status,
     statusText: response.statusText,
     url: response.url,
-    headers: Object.fromEntries(response.headers.entries()),
+    headers: responseHeadersObject(response, includeResponseCookies),
     bodySuppressed: true,
     bodyBytes,
     ...(bodyTruncated
@@ -925,6 +953,34 @@ function normalizeStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function normalizeHttpForm(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      '`form` must be an object when provided.',
+    );
+  }
+  const form: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const name = key.trim();
+    if (!name) {
+      throw new GatewayRequestError(400, '`form` field names cannot be empty.');
+    }
+    if (
+      typeof entry !== 'string' &&
+      typeof entry !== 'number' &&
+      typeof entry !== 'boolean'
+    ) {
+      throw new GatewayRequestError(
+        400,
+        '`form` values must be strings, numbers, or booleans.',
+      );
+    }
+    form[name] = String(entry);
+  }
+  return form;
+}
+
 function normalizeGoogleServiceAccountAuth(
   value: unknown,
 ): GoogleServiceAccountAuthRule | null {
@@ -1497,6 +1553,7 @@ export async function handleApiHttpRequest(
     HTTP_REQUEST_MAX_RESPONSE_BYTES;
   const suppressResponseBody = body.suppressResponseBody === true;
   const allowManualRedirect = body.allowManualRedirect === true;
+  const includeResponseCookies = body.includeResponseCookies === true;
   const config = getRuntimeConfig();
 
   const headers = normalizeHttpRequestHeaders(body.headers);
@@ -1613,11 +1670,12 @@ export async function handleApiHttpRequest(
     body.json !== undefined,
     body.body !== undefined,
     body.bodyBase64 !== undefined,
+    body.form !== undefined,
   ].filter(Boolean).length;
   if (payloadSources > 1) {
     throw new GatewayRequestError(
       400,
-      'Use only one of `json`, `body`, or `bodyBase64`.',
+      'Use only one of `json`, `body`, `bodyBase64`, or `form`.',
     );
   }
 
@@ -1634,6 +1692,28 @@ export async function handleApiHttpRequest(
       !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
     ) {
       setHeaderValue(headers, 'Content-Type', 'application/json');
+    }
+  } else if (body.form !== undefined) {
+    const rawForm = normalizeHttpForm(body.form);
+    const formValue = replacePlaceholders
+      ? ((await replaceSecretPlaceholders(rawForm, {
+          ...secretContext,
+          selector: 'form',
+        })) as Record<string, string>)
+      : rawForm;
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(formValue)) {
+      params.append(key, String(value));
+    }
+    payloadBody = params.toString();
+    if (
+      !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
+    ) {
+      setHeaderValue(
+        headers,
+        'Content-Type',
+        'application/x-www-form-urlencoded',
+      );
     }
   } else if (typeof body.body === 'string') {
     payloadBody = replacePlaceholders
@@ -1718,6 +1798,7 @@ export async function handleApiHttpRequest(
       declaredBodyBytes ?? 0,
       false,
       maxResponseBytes,
+      includeResponseCookies,
     );
     return;
   }
@@ -1769,6 +1850,7 @@ export async function handleApiHttpRequest(
       bodyBytes,
       bodyTruncated,
       maxResponseBytes,
+      includeResponseCookies,
     );
     return;
   }
@@ -1778,7 +1860,7 @@ export async function handleApiHttpRequest(
     status: response.status,
     statusText: response.statusText,
     url: response.url,
-    headers: Object.fromEntries(response.headers.entries()),
+    headers: responseHeadersObject(response, includeResponseCookies),
     body: responseText,
     ...(bodyTruncated
       ? {

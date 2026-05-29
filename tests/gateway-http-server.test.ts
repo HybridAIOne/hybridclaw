@@ -10095,6 +10095,64 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('url-encodes form fields after resolving secret placeholders', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-form-secret-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      FORM_PASSWORD: 'a&b+c=d%',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/login',
+        method: 'POST',
+        form: {
+          username: 'user@example.com',
+          password: '<secret:FORM_PASSWORD>',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        body: 'username=user%40example.com&password=a%26b%2Bc%3Dd%25',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }),
+      }),
+    );
+  });
+
   test('captures explicit token bindDomain for cross-host OAuth tokens', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-bind-domain-capture-');
     process.env.HOME = homeDir;
@@ -10785,6 +10843,66 @@ describe('gateway HTTP server', () => {
           'immedia-blink://applinks.blink.com/signin/callback?code=abc123',
       },
     });
+  });
+
+  test('only returns upstream Set-Cookie headers when explicitly requested', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('ok', {
+          status: 200,
+          headers: {
+            'set-cookie': 'blink-oauth=abc; Path=/; HttpOnly',
+            'content-type': 'text/plain',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('ok', {
+          status: 200,
+          headers: {
+            'set-cookie': 'blink-oauth=abc; Path=/; HttpOnly',
+            'content-type': 'text/plain',
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const hiddenReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.oauth.blink.com/oauth/v2/signin',
+      },
+    });
+    const hiddenRes = makeResponse();
+    state.handler(hiddenReq as never, hiddenRes as never);
+    await settle();
+
+    const visibleReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.oauth.blink.com/oauth/v2/signin',
+        includeResponseCookies: true,
+      },
+    });
+    const visibleRes = makeResponse();
+    state.handler(visibleReq as never, visibleRes as never);
+    await settle();
+
+    expect(JSON.parse(hiddenRes.body).headers).not.toHaveProperty(
+      'set-cookie',
+    );
+    expect(
+      String(JSON.parse(visibleRes.body).headers['set-cookie']),
+    ).toContain('blink-oauth=abc');
   });
 
   test('preserves outbound http_request fetch failure causes in 502 responses', async () => {
