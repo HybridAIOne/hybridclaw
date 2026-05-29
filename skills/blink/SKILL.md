@@ -22,22 +22,6 @@ credentials:
       id: BLINK_PASSWORD
     scope: "Blink account password for first login only"
     how_to_obtain: "Store the Blink account password with `hybridclaw secret set BLINK_PASSWORD \"<account password>\"`."
-  - id: blink-device-id
-    kind: api_key
-    required: true
-    secret_ref:
-      source: store
-      id: BLINK_DEVICE_ID
-    scope: "Stable per-install UUID sent as Blink unique_id to reduce repeated client verification"
-    how_to_obtain: "Generate a stable UUID and store it with `hybridclaw secret set BLINK_DEVICE_ID \"hybridclaw-<uuid>\"`."
-  - id: blink-client-name
-    kind: api_key
-    required: true
-    secret_ref:
-      source: store
-      id: BLINK_CLIENT_NAME
-    scope: "Blink client display name shown in the Blink app"
-    how_to_obtain: "Store a neutral client name with `hybridclaw secret set BLINK_CLIENT_NAME \"hybridclaw\"`."
   - id: blink-auth-token
     kind: bearer
     required: false
@@ -114,8 +98,16 @@ Store the initial secrets:
 ```bash
 hybridclaw secret set BLINK_EMAIL "<account email>"
 hybridclaw secret set BLINK_PASSWORD "<account password>"
-hybridclaw secret set BLINK_DEVICE_ID "hybridclaw-<stable uuid>"
-hybridclaw secret set BLINK_CLIENT_NAME "hybridclaw"
+```
+
+`BLINK_DEVICE_ID` and `BLINK_CLIENT_NAME` are not secrets. `BLINK_CLIENT_NAME` is only the display name shown in the Blink app and defaults to `hybridclaw`. `BLINK_DEVICE_ID` is the stable client identifier sent as Blink `unique_id`; the helper generates a deterministic `hybridclaw-<uuid>` value from the local HybridClaw environment when unset. Override either with environment variables or login flags when you need a specific client identity:
+
+```bash
+BLINK_DEVICE_ID="hybridclaw-<stable uuid>" BLINK_CLIENT_NAME="hybridclaw" \
+  node skills/blink/blink.cjs --format json http-request login
+
+node skills/blink/blink.cjs --format json http-request login \
+  --device-id "hybridclaw-<stable uuid>" --client-name "hybridclaw"
 ```
 
 The first successful login captures:
@@ -141,7 +133,7 @@ Use this command surface directly:
 node skills/blink/blink.cjs [--format json|pretty] http-request <operation> [flags]
 node skills/blink/blink.cjs [--format json|pretty] plan <operation> [flags]
 
-http-request login
+http-request login [--device-id <stable-id>] [--client-name <name>]
 http-request verify-pin --pin <code>
 http-request homescreen
 http-request networks

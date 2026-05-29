@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
+const { createHash } = require('node:crypto');
+const os = require('node:os');
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 const SKILL_NAME = 'blink';
 const REST_PROD_HOST = 'rest-prod.immedia-semi.com';
@@ -15,12 +18,15 @@ const COST_MEASUREMENT = {
 const SECRET_NAMES = {
   email: 'BLINK_EMAIL',
   password: 'BLINK_PASSWORD',
-  deviceId: 'BLINK_DEVICE_ID',
-  clientName: 'BLINK_CLIENT_NAME',
   authToken: 'BLINK_AUTH_TOKEN',
   tier: 'BLINK_TIER',
   accountId: 'BLINK_ACCOUNT_ID',
   clientId: 'BLINK_CLIENT_ID',
+};
+
+const ENV_NAMES = {
+  deviceId: 'BLINK_DEVICE_ID',
+  clientName: 'BLINK_CLIENT_NAME',
 };
 
 const OPERATION_TIERS = {
@@ -85,7 +91,7 @@ Usage:
   node skills/blink/blink.cjs [--format json|pretty] plan <operation> [flags]
 
 Read/request commands:
-  http-request login
+  http-request login [--device-id <stable-id>] [--client-name <name>]
   http-request verify-pin --pin <code>
   http-request homescreen
   http-request networks
@@ -109,6 +115,8 @@ Guarded operation plans:
   plan live-view --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
 
 Environment:
+  BLINK_DEVICE_ID     optional stable client id; generated when unset
+  BLINK_CLIENT_NAME   optional Blink app display name; default hybridclaw
   BLINK_TIER          optional resolved tier, for example e003
   BLINK_ACCOUNT_ID    optional numeric account id fallback
   BLINK_CLIENT_ID     optional numeric client id fallback
@@ -206,6 +214,67 @@ function parsePin(value) {
   const normalized = requireText(value, '--pin');
   if (!/^\d{4,8}$/u.test(normalized)) die('--pin must be a 4-8 digit code.');
   return normalized;
+}
+
+function parseDeviceId(value, label) {
+  const normalized = requireText(value, label);
+  if (!/^[A-Za-z0-9_.:-]{1,96}$/u.test(normalized)) {
+    die(
+      `${label} must be a bounded id using letters, numbers, dot, colon, dash, or underscore.`,
+    );
+  }
+  return normalized;
+}
+
+function parseClientName(value, label) {
+  const normalized = requireText(value, label);
+  if (!/^[A-Za-z0-9_.: -]{1,64}$/u.test(normalized)) {
+    die(
+      `${label} must be a bounded display name using letters, numbers, space, dot, colon, dash, or underscore.`,
+    );
+  }
+  return normalized;
+}
+
+function generatedDeviceId() {
+  const seed = [
+    process.env.HYBRIDCLAW_INSTANCE_ID,
+    process.env.HYBRIDCLAW_DATA_DIR,
+    process.env.HOME,
+    os.homedir(),
+    os.hostname(),
+  ]
+    .filter(Boolean)
+    .join('|');
+  const digest = createHash('sha256')
+    .update(seed || 'hybridclaw')
+    .digest('hex');
+  const uuid = [
+    digest.slice(0, 8),
+    digest.slice(8, 12),
+    digest.slice(12, 16),
+    digest.slice(16, 20),
+    digest.slice(20, 32),
+  ].join('-');
+  return `hybridclaw-${uuid}`;
+}
+
+function resolveDeviceId(args) {
+  return parseDeviceId(
+    popFlag(args, '--device-id') ||
+      process.env[ENV_NAMES.deviceId] ||
+      generatedDeviceId(),
+    '--device-id',
+  );
+}
+
+function resolveClientName(args) {
+  return parseClientName(
+    popFlag(args, '--client-name') ||
+      process.env[ENV_NAMES.clientName] ||
+      'hybridclaw',
+    '--client-name',
+  );
 }
 
 function parseCameraType(value) {
@@ -348,6 +417,8 @@ function buildPayload(
 }
 
 function buildLogin(args) {
+  const deviceId = resolveDeviceId(args);
+  const clientName = resolveClientName(args);
   assertNoUnexpectedArgs(args);
   return buildPayload('login', {
     url: `${DEFAULT_REST_BASE}/api/v5/account/login`,
@@ -356,8 +427,8 @@ function buildLogin(args) {
     json: {
       email: `<secret:${SECRET_NAMES.email}>`,
       password: `<secret:${SECRET_NAMES.password}>`,
-      unique_id: `<secret:${SECRET_NAMES.deviceId}>`,
-      client_name: `<secret:${SECRET_NAMES.clientName}>`,
+      unique_id: deviceId,
+      client_name: clientName,
       reauth: 'true',
     },
     captureResponseFields: [
