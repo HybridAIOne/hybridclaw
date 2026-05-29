@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.21.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.0) - 2026-05-29
+
 ### Added
 
 - **A2A cross-instance transport**: Outbound A2A delivery can resolve
