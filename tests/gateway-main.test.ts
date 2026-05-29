@@ -664,15 +664,24 @@ async function importFreshGatewayMain(options?: {
     startGatewayHttpServer: state.startGatewayHttpServer,
   }));
   vi.doMock('../src/gateway/proactive-delivery.js', () => ({
-    deliverProactiveMessage: vi.fn(async () => {}),
     deliverWebhookMessage: vi.fn(async () => {}),
     hasQueuedProactiveDeliveryPath: vi.fn(() => true),
     isDiscordChannelId: vi.fn(() => true),
     isEmailAddress: vi.fn(() => false),
+    isHeartbeatOkText: vi.fn((text: string) => {
+      const normalized = text
+        .trim()
+        .replace(/[^a-z]/gi, '')
+        .toUpperCase();
+      return (
+        normalized === 'HEARTBEATOK' || normalized.startsWith('HEARTBEATOK')
+      );
+    }),
     isSupportedProactiveChannelId: vi.fn(() => true),
     resolveHeartbeatDeliveryChannelId: vi.fn(() => '123456789012345678'),
     resolveLastUsedDeliverableChannelId: vi.fn(() => '123456789012345678'),
     shouldDropQueuedProactiveMessage: vi.fn(() => false),
+    shouldSuppressProactiveMessage: vi.fn(() => false),
   }));
   vi.doMock('../src/gateway/managed-media-cleanup.js', () => ({
     runManagedMediaCleanup: state.runManagedMediaCleanup,
@@ -1134,6 +1143,151 @@ describe('gateway bootstrap', () => {
         delivery: 'last-channel',
       }),
       'Scheduled task failed',
+    );
+  });
+
+  test('does not deliver scheduler HEARTBEAT_OK results to the TUI inbox', async () => {
+    const state = await importFreshGatewayMain();
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onResult = args[4] as (result: {
+          text: string;
+        }) => Promise<void>;
+        await onResult({ text: 'HEARTBEAT_OK' });
+      },
+    );
+
+    await state.scheduledTaskRunner?.({
+      source: 'scheduler-job',
+      jobId: 'budget-tokens',
+      sessionId: 'scheduler:budget-tokens',
+      channelId: 'tui',
+      prompt: 'Hi',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'channel',
+        channelId: 'tui',
+      },
+    });
+
+    expect(state.runGatewayScheduledTask).toHaveBeenCalledTimes(1);
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
+        channelId: 'tui',
+        result: 'HEARTBEAT_OK',
+      },
+      'Scheduled task completed without TUI delivery',
+    );
+    expect(state.loggerInfo).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'budget-tokens',
+        channelId: 'tui',
+        result: 'HEARTBEAT_OK',
+      }),
+      'Scheduled task completed',
+    );
+  });
+
+  test('does not deliver scheduler idle reports to the TUI inbox', async () => {
+    const state = await importFreshGatewayMain();
+    const idleText =
+      'Nothing to report. No pending tasks configured for this agent, no queued work, and no changes to act on. Idle — standing by.';
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onResult = args[4] as (result: {
+          text: string;
+        }) => Promise<void>;
+        await onResult({ text: idleText });
+      },
+    );
+
+    await state.scheduledTaskRunner?.({
+      source: 'scheduler-job',
+      jobId: 'budget-tokens',
+      sessionId: 'scheduler:budget-tokens',
+      channelId: 'tui',
+      prompt: 'Hi',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'channel',
+        channelId: 'tui',
+      },
+    });
+
+    expect(state.runGatewayScheduledTask).toHaveBeenCalledTimes(1);
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
+        channelId: 'tui',
+        result: idleText,
+      },
+      'Scheduled task completed without TUI delivery',
+    );
+    expect(state.loggerInfo).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'budget-tokens',
+        channelId: 'tui',
+        result: idleText,
+      }),
+      'Scheduled task completed',
+    );
+  });
+
+  test('delivers scheduler no-op text to TUI when artifacts are present', async () => {
+    const state = await importFreshGatewayMain();
+    const artifacts = [
+      {
+        path: '/tmp/report.txt',
+        filename: 'report.txt',
+        mimeType: 'text/plain',
+      },
+    ];
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onResult = args[4] as (result: {
+          text: string;
+          artifacts?: typeof artifacts;
+        }) => Promise<void>;
+        await onResult({ text: 'HEARTBEAT_OK', artifacts });
+      },
+    );
+
+    await state.scheduledTaskRunner?.({
+      source: 'scheduler-job',
+      jobId: 'budget-tokens',
+      sessionId: 'scheduler:budget-tokens',
+      channelId: 'tui',
+      prompt: 'Hi',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'channel',
+        channelId: 'tui',
+      },
+    });
+
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
+        channelId: 'tui',
+        result: 'HEARTBEAT_OK',
+        artifactCount: 1,
+      },
+      'Scheduled task completed',
+    );
+    expect(state.loggerInfo).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'budget-tokens',
+        channelId: 'tui',
+        result: 'HEARTBEAT_OK',
+      }),
+      'Scheduled task completed without TUI delivery',
     );
   });
 

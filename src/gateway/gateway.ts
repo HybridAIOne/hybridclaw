@@ -220,6 +220,7 @@ import {
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
   isEmailAddress,
+  isHeartbeatOkText,
   isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
@@ -3303,6 +3304,23 @@ async function runScheduledTask(
           'No delivery channel available for scheduled delivery.',
         );
       }
+      if (
+        resolvedDeliveryChannelId === 'tui' &&
+        (result.artifacts?.length || 0) === 0 &&
+        isSchedulerNoopTuiResult(result.text)
+      ) {
+        logger.info(
+          {
+            jobId: request.jobId,
+            taskId: request.taskId,
+            source: request.source,
+            channelId: resolvedDeliveryChannelId,
+            result: result.text,
+          },
+          'Scheduled task completed without TUI delivery',
+        );
+        return;
+      }
       await deliverProactiveMessage(
         resolvedDeliveryChannelId,
         result.text,
@@ -3335,6 +3353,26 @@ async function runScheduledTask(
     },
     runKey,
     request.agentId,
+  );
+}
+
+function isSchedulerNoopTuiResult(text: string): boolean {
+  if (isHeartbeatOkText(text)) return true;
+
+  const normalized = text.trim().replace(/\s+/g, ' ').toLowerCase();
+  if (!normalized) return true;
+
+  const reportsNoWork =
+    normalized.startsWith('nothing to report') ||
+    normalized.startsWith('no work to report') ||
+    normalized.startsWith('no pending work');
+  if (!reportsNoWork) return false;
+
+  return (
+    normalized.includes('no pending') ||
+    normalized.includes('no queued') ||
+    normalized.includes('no changes') ||
+    normalized.includes('idle')
   );
 }
 
