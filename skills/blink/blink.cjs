@@ -606,6 +606,55 @@ async function executeGatewayRequest(httpRequest, options = {}) {
   return normalized;
 }
 
+function blinkMissingSecretName(error) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  const match = message.match(/Stored secret (BLINK_[A-Z0-9_]+) is not set/u);
+  return match?.[1] || '';
+}
+
+function blinkMissingSecretResult(operation, secretName) {
+  const authStateSecrets = new Set([
+    SECRET_NAMES.authToken,
+    SECRET_NAMES.tier,
+    SECRET_NAMES.accountId,
+    SECRET_NAMES.clientId,
+    SECRET_NAMES.refreshToken,
+  ]);
+  if (authStateSecrets.has(secretName)) {
+    return {
+      command: 'auth-required',
+      operation,
+      stakesTier: OPERATION_TIERS[operation] || 'green',
+      ok: false,
+      reason: 'blink-login-required',
+      missingSecret: secretName,
+      result:
+        'Blink email/password can already be stored while session secrets are still missing. Run the helper login flow to capture BLINK_AUTH_TOKEN, BLINK_REFRESH_TOKEN, BLINK_TIER, BLINK_ACCOUNT_ID, and BLINK_CLIENT_ID.',
+      nextCommand:
+        'node skills/blink/blink.cjs --format json run account-login',
+      costMeasurement: COST_MEASUREMENT,
+    };
+  }
+  if (secretName === SECRET_NAMES.email || secretName === SECRET_NAMES.password) {
+    return {
+      command: 'credentials-required',
+      operation,
+      stakesTier: OPERATION_TIERS[operation] || 'green',
+      ok: false,
+      reason: 'blink-primary-credentials-required',
+      missingSecret: secretName,
+      result:
+        'Blink primary credentials are missing from the host runtime secret store. Set them with TUI slash commands, not shell commands in chat.',
+      setupCommands: [
+        '/secret set BLINK_EMAIL "<account email>"',
+        '/secret set BLINK_PASSWORD "<account password>"',
+      ],
+      costMeasurement: COST_MEASUREMENT,
+    };
+  }
+  return null;
+}
+
 function buildPayload(
   operation,
   {
@@ -1260,6 +1309,19 @@ function liveRequestSummary(httpRequest) {
 }
 
 async function runAccountLogin(args, options = {}) {
+  try {
+    return await runAccountLoginFlow(args, options);
+  } catch (error) {
+    const missingSecret = blinkMissingSecretName(error);
+    const missingResult = missingSecret
+      ? blinkMissingSecretResult('account-login', missingSecret)
+      : null;
+    if (missingResult) return missingResult;
+    throw error;
+  }
+}
+
+async function runAccountLoginFlow(args, options = {}) {
   const pin = popFlag(args, '--pin');
   const parsedPin = pin === undefined ? undefined : parsePin(pin);
   const hardwareId = parseDeviceId(
@@ -1473,14 +1535,23 @@ async function runAccountLogin(args, options = {}) {
 }
 
 async function executeLivePayload(payload, options = {}) {
-  return {
-    command: 'live',
-    operation: payload.operation,
-    stakesTier: payload.stakesTier,
-    request: liveRequestSummary(payload.httpRequest),
-    result: await executeGatewayRequest(payload.httpRequest, options),
-    costMeasurement: payload.costMeasurement,
-  };
+  try {
+    return {
+      command: 'live',
+      operation: payload.operation,
+      stakesTier: payload.stakesTier,
+      request: liveRequestSummary(payload.httpRequest),
+      result: await executeGatewayRequest(payload.httpRequest, options),
+      costMeasurement: payload.costMeasurement,
+    };
+  } catch (error) {
+    const missingSecret = blinkMissingSecretName(error);
+    const missingResult = missingSecret
+      ? blinkMissingSecretResult(payload.operation, missingSecret)
+      : null;
+    if (missingResult) return missingResult;
+    throw error;
+  }
 }
 
 async function runLive(argv, options = {}) {

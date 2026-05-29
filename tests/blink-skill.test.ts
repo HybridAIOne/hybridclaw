@@ -76,6 +76,8 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
   expect(skill).toContain('subject-verb names');
   expect(skill).toContain('captureResponseFields');
   expect(skill).toContain('OAuth v2 Authorization Code + PKCE');
+  expect(skill).toContain('Do not run `hybridclaw secret get`');
+  expect(skill).toContain('Do not tell the operator all Blink credentials are missing');
   expect(skill).toContain('clips-list` intentionally does not accept `--network`');
   expect(skill).toContain('Stop after the first 401');
   expect(skill).toContain('PIN via F14');
@@ -363,6 +365,54 @@ test('Blink helper stops OAuth login for F14 PIN handover when 2FA is required',
     reason: 'blink-2fa-required',
   });
   expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+test('Blink live read routes missing session secrets to account-login instead of asking for all credentials', async () => {
+  const payload = request(['http-request', 'devices-list']);
+  const result = await blink.executeLivePayload(payload, {
+    fetch: vi.fn(async () =>
+      new Response(
+        JSON.stringify({ error: 'Stored secret BLINK_TIER is not set.' }),
+        { status: 400 },
+      ),
+    ),
+    gatewayUrl: 'http://127.0.0.1:9090',
+  });
+
+  expect(result).toMatchObject({
+    command: 'auth-required',
+    operation: 'devices-list',
+    ok: false,
+    reason: 'blink-login-required',
+    missingSecret: 'BLINK_TIER',
+    nextCommand: 'node skills/blink/blink.cjs --format json run account-login',
+  });
+  expect(result.result).toContain('email/password can already be stored');
+});
+
+test('Blink login reports missing primary credentials with TUI slash commands', async () => {
+  const result = await blink.runAccountLogin([], {
+    fetch: vi.fn(async () =>
+      new Response(
+        JSON.stringify({ error: 'Stored secret BLINK_EMAIL is not set.' }),
+        { status: 400 },
+      ),
+    ),
+    gatewayUrl: 'http://127.0.0.1:9090',
+  });
+
+  expect(result).toMatchObject({
+    command: 'credentials-required',
+    operation: 'account-login',
+    ok: false,
+    reason: 'blink-primary-credentials-required',
+    missingSecret: 'BLINK_EMAIL',
+    setupCommands: [
+      '/secret set BLINK_EMAIL "<account email>"',
+      '/secret set BLINK_PASSWORD "<account password>"',
+    ],
+  });
+  expect(JSON.stringify(result)).not.toContain('hybridclaw secret set');
 });
 
 test('Blink helper accepts legacy operation aliases but emits canonical subject-verb operations', () => {
