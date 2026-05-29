@@ -112,6 +112,9 @@ Environment:
   BLINK_TIER          optional resolved tier, for example e003
   BLINK_ACCOUNT_ID    optional numeric account id fallback
   BLINK_CLIENT_ID     optional numeric client id fallback
+
+Notes:
+  clips is account-scoped on Blink's media/changed API; --network is rejected.
 `);
 }
 
@@ -284,10 +287,14 @@ function blinkHeaders(extra = {}) {
   };
 }
 
-function authHeaders() {
-  return blinkHeaders({
-    TOKEN_AUTH: `<secret:${SECRET_NAMES.authToken}>`,
-  });
+function authSecretHeaders() {
+  return [
+    {
+      name: 'TOKEN_AUTH',
+      secretName: SECRET_NAMES.authToken,
+      prefix: 'none',
+    },
+  ];
 }
 
 function buildPayload(
@@ -306,6 +313,7 @@ function buildPayload(
   },
 ) {
   const stakesTier = OPERATION_TIERS[operation];
+  const usesStoredAuthToken = headers === undefined;
   const payload = {
     command: 'http-request',
     operation,
@@ -313,7 +321,7 @@ function buildPayload(
     httpRequest: {
       url,
       method,
-      headers: headers || authHeaders(),
+      headers: headers || blinkHeaders(),
       timeoutMs: DEFAULT_TIMEOUT_MS,
       maxResponseBytes: maxResponseBytes || 1_000_000,
       replaceSecretPlaceholders: true,
@@ -322,6 +330,9 @@ function buildPayload(
     },
     costMeasurement: COST_MEASUREMENT,
   };
+  if (usesStoredAuthToken) {
+    payload.httpRequest.secretHeaders = authSecretHeaders();
+  }
   if (json !== undefined) payload.httpRequest.json = json;
   if (captureResponseFields !== undefined) {
     payload.httpRequest.captureResponseFields = captureResponseFields;

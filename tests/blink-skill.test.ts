@@ -71,6 +71,8 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
   expect(skill).toContain(
     'Use the emitted `httpRequest` object with the gateway `http_request` tool',
   );
+  expect(skill).toContain('generic `http_request` primitives');
+  expect(skill).toContain('clips` intentionally does not accept `--network`');
   expect(skill).toContain('Stop after the first 401');
   expect(skill).toContain('F14 PIN');
   expect(skill).toContain('approvedHelperCommandText');
@@ -88,6 +90,7 @@ test('Blink helper --help exits cleanly and lists read and guarded commands', ()
   expect(result.stdout).toContain('http-request verify-pin --pin <code>');
   expect(result.stdout).toContain('http-request camera-config');
   expect(result.stdout).toContain('http-request camera-signals');
+  expect(result.stdout).toContain('clips is account-scoped');
   expect(result.stdout).toContain('plan camera-motion');
   expect(result.stdout).toContain('plan live-view');
 });
@@ -198,9 +201,14 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
     mode: 'metadata-only',
     maxItems: 25,
   });
-  expect(clips.httpRequest.headers.TOKEN_AUTH).toBe(
-    '<secret:BLINK_AUTH_TOKEN>',
-  );
+  expect(clips.httpRequest.headers).not.toHaveProperty('TOKEN_AUTH');
+  expect(clips.httpRequest.secretHeaders).toEqual([
+    {
+      name: 'TOKEN_AUTH',
+      secretName: 'BLINK_AUTH_TOKEN',
+      prefix: 'none',
+    },
+  ]);
   expect(download).toMatchObject({
     operation: 'clip-download',
     artifact: {
@@ -276,7 +284,14 @@ test('Blink helper builds exact approval plans for privacy-sensitive operations'
   expect(plan.approvalText).toContain('Network: 111.');
   expect(plan.approvalText).toContain('Camera: 222.');
   expect(plan.approvedHelperCommandText).toContain('--operator-grant');
-  expect(plan.httpRequest.headers.TOKEN_AUTH).toBe('<secret:BLINK_AUTH_TOKEN>');
+  expect(plan.httpRequest.headers).not.toHaveProperty('TOKEN_AUTH');
+  expect(plan.httpRequest.secretHeaders).toEqual([
+    {
+      name: 'TOKEN_AUTH',
+      secretName: 'BLINK_AUTH_TOKEN',
+      prefix: 'none',
+    },
+  ]);
 });
 
 test('Blink helper requires operator grant for mutating http-request commands', () => {
