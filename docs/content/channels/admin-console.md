@@ -64,6 +64,8 @@ The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message t
   without editing runtime config by hand
 - `/admin/audit` includes filter and search controls for audit event types,
   actors, resources, date ranges, and text queries
+- `/admin/audit` and local `/audit turn` or `/audit run` commands can inspect
+  focused turn traces when a single request needs debugging
 - `/admin/jobs` shows richer job rows with status, queue, owner, budget, and
   schedule context while keeping navigation inside the SPA
 - `/admin/scheduler` edits scheduled jobs through the shared form controls and
@@ -78,10 +80,13 @@ The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message t
   native-select, number, radio, switch, textarea, validation, draft, and
   unsaved-change components so behavior is consistent across pages
 - pages that show owned work can render per-agent budget chips, including
-  neutral, warning, and over-budget states when agent budgets are configured
+  neutral, warning, and over-budget states when USD/EUR or token budgets are
+  configured
 - the web chat route shares the admin shell, supports improved session
   management, preserves scroll position while reading older messages, and
   renders assistant message blocks with better structured content handling
+- the web chat route renders slash-command results distinctly and lets
+  operators apply persisted thumbs-up/down ratings to assistant responses
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 
