@@ -47,18 +47,6 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
       secretRef: { source: 'store', id: 'BLINK_PASSWORD' },
     },
     {
-      id: 'blink-device-id',
-      kind: 'api_key',
-      required: true,
-      secretRef: { source: 'store', id: 'BLINK_DEVICE_ID' },
-    },
-    {
-      id: 'blink-client-name',
-      kind: 'api_key',
-      required: true,
-      secretRef: { source: 'store', id: 'BLINK_CLIENT_NAME' },
-    },
-    {
       id: 'blink-auth-token',
       kind: 'bearer',
       required: false,
@@ -67,6 +55,7 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
   ]);
   expect(skill).toContain('category: home-automation');
   expect(skill).toContain('video-doorbell');
+  expect(skill).toContain('`BLINK_DEVICE_ID` and `BLINK_CLIENT_NAME` are not secrets');
   expect(skill).toContain('rest-<BLINK_TIER>.immedia-semi.com');
   expect(skill).toContain(
     'Use the emitted `httpRequest` object with the gateway `http_request` tool',
@@ -86,7 +75,9 @@ test('Blink helper --help exits cleanly and lists read and guarded commands', ()
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Blink skill helper');
-  expect(result.stdout).toContain('http-request login');
+  expect(result.stdout).toContain('http-request login [--device-id');
+  expect(result.stdout).toContain('BLINK_DEVICE_ID');
+  expect(result.stdout).toContain('generated when unset');
   expect(result.stdout).toContain('http-request verify-pin --pin <code>');
   expect(result.stdout).toContain('http-request camera-config');
   expect(result.stdout).toContain('http-request camera-signals');
@@ -110,8 +101,10 @@ test('Blink login request captures token and tier without emitting cleartext cre
       json: {
         email: '<secret:BLINK_EMAIL>',
         password: '<secret:BLINK_PASSWORD>',
-        unique_id: '<secret:BLINK_DEVICE_ID>',
-        client_name: '<secret:BLINK_CLIENT_NAME>',
+        unique_id: expect.stringMatching(
+          /^hybridclaw-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u,
+        ),
+        client_name: 'hybridclaw',
         reauth: 'true',
       },
       captureResponseFields: [
@@ -138,6 +131,34 @@ test('Blink login request captures token and tier without emitting cleartext cre
   expect(JSON.stringify(payload)).not.toContain('auth-token');
   expect(payload).not.toHaveProperty('failurePolicy');
   expect(payload).not.toHaveProperty('secretRefPolicy');
+});
+
+test('Blink login accepts non-secret device identity overrides', () => {
+  const envResult = runHelper(
+    ['--format', 'json', 'http-request', 'login'],
+    {
+      BLINK_DEVICE_ID: 'hybridclaw-env-device',
+      BLINK_CLIENT_NAME: 'hybridclaw env',
+    },
+  );
+  const flagPayload = request([
+    'http-request',
+    'login',
+    '--device-id',
+    'hybridclaw-flag-device',
+    '--client-name',
+    'hybridclaw flag',
+  ]);
+
+  expect(envResult.status).toBe(0);
+  expect(JSON.parse(envResult.stdout).httpRequest.json).toMatchObject({
+    unique_id: 'hybridclaw-env-device',
+    client_name: 'hybridclaw env',
+  });
+  expect(flagPayload.httpRequest.json).toMatchObject({
+    unique_id: 'hybridclaw-flag-device',
+    client_name: 'hybridclaw flag',
+  });
 });
 
 test('Blink helper builds PIN handover and tier-pinned read requests', () => {
