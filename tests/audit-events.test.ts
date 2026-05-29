@@ -240,11 +240,17 @@ test('tool result audit stores a redacted truncated preview beyond the summary',
     payload.resultSummary.length,
   );
   expect(payload.resultPreview.length).toBeLessThanOrEqual(4003);
+  expect(payload.resultFull.length).toBeGreaterThan(5000);
   expect(payload.resultPreview).not.toContain(
     'sk-test-ABCDEFGHIJKLMNOP1234567890',
   );
+  expect(payload.resultFull).not.toContain(
+    'sk-test-ABCDEFGHIJKLMNOP1234567890',
+  );
   expect(payload.resultPreview).toContain('token=***REDACTED***');
+  expect(payload.resultFull).toContain('token=***REDACTED***');
   expect(payload.resultPreview).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
+  expect(payload.resultFull).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
 });
 
 test('autonomy audit falls back to internally consistent approval metadata', async () => {

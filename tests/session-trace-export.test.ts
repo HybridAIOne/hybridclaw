@@ -199,7 +199,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
     atif_version: '1.6',
   });
   expect(record.metadata.limitations).toEqual([
-    'Tool observations use structured audit summaries because full tool stdout/stderr is not retained in the audit trail.',
+    'Legacy audit records may only contain summarized tool output when they were captured before full tool-result retention was introduced.',
     'Environment metadata fields such as os and shell are exported as runtime host information and are not anonymized.',
   ]);
   expect(record.metrics).toMatchObject({
@@ -946,11 +946,11 @@ test('gateway export trace command writes a focused turn trace', async () => {
   expect(steps).toHaveLength(2);
   expect(steps[0]).toMatchObject({ role: 'user', content: 'Prompt 2' });
   expect(String(steps[1]?.content)).toContain('Assistant 2');
-  expect(String(steps[1]?.content).length).toBeLessThan(4100);
+  expect(String(steps[1]?.content).length).toBeGreaterThan(6000);
   const observations = steps[1]?.observations as Array<Record<string, unknown>>;
   expect(String(observations[0]?.content)).toContain('result');
   expect(String(observations[0]?.content).length).toBeGreaterThan(1000);
-  expect(String(observations[0]?.content).length).toBeLessThanOrEqual(2003);
+  expect(String(observations[0]?.content).length).toBeGreaterThan(6000);
   const serialized = JSON.stringify(record);
   expect(serialized).toContain('turn_trace_focus_2');
   expect(serialized).toContain('"turn_traces"');
@@ -1051,7 +1051,7 @@ test('trace export adds a fallback limitation when structured turn audit is unav
 
   expect(record.system_prompts).toEqual({});
   expect(record.metadata.limitations).toEqual([
-    'Tool observations use structured audit summaries because full tool stdout/stderr is not retained in the audit trail.',
+    'Legacy audit records may only contain summarized tool output when they were captured before full tool-result retention was introduced.',
     'Environment metadata fields such as os and shell are exported as runtime host information and are not anonymized.',
     'Structured turn audit was unavailable, so steps were reconstructed directly from stored session messages.',
   ]);
@@ -1554,7 +1554,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   expect(toolCommandContent).toContain('npm_ab...3456');
   expect(toolCommandContent).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
   expect(observationContent).toContain('***DISCORD_WEBHOOK_REDACTED***');
-  expect(observationContent).toContain('***PYPI_TOKEN_REDACTED***');
+  expect(observationContent).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
   expect(observationContent).toContain('C:/Users/user_');
   const systemPromptValues = Object.values(
     (record.system_prompts as Record<string, unknown>) || {},

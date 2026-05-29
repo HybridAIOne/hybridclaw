@@ -51,13 +51,17 @@ function summarizeToolResult(text: string): string {
 }
 
 function previewToolResult(text: string): string {
+  return truncateAuditText(fullToolResult(text), 4_000);
+}
+
+function fullToolResult(text: string): string {
   const redacted = redactHighEntropyStrings(
     String(redactSecretsDeep(text)).replace(
       URL_SECRET_QUERY_PARAM_RE,
       '$1***REDACTED***',
     ),
   );
-  return truncateAuditText(redacted, 4_000);
+  return redacted;
 }
 
 type ApprovalTier = NonNullable<ToolExecution['approvalTier']>;
@@ -330,6 +334,7 @@ export function emitToolExecutionAuditEvents(input: {
         blocked: Boolean(execution.blocked),
         resultSummary: summarizeToolResult(execution.result || ''),
         resultPreview: previewToolResult(execution.result || ''),
+        resultFull: fullToolResult(execution.result || ''),
         durationMs: execution.durationMs,
         anomaly,
       },
