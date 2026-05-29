@@ -795,7 +795,12 @@ test('Alexa Smart Home plans emit directive-compatible payloads with F8/F14 appr
   expect(regional.status).toBe(0);
   const regionalPayload = JSON.parse(regional.stdout);
   expect(regionalPayload.approvedCommand).toEqual(
-    expect.arrayContaining(['--region-host', 'api.eu.amazonalexa.com']),
+    expect.arrayContaining([
+      'run',
+      'smarthome-control',
+      '--region-host',
+      'api.eu.amazonalexa.com',
+    ]),
   );
   expect(regionalPayload.requiredApproval.approvalText).toContain(
     'api.eu.amazonalexa.com',
@@ -1010,6 +1015,11 @@ test('Alexa helper emits bounded community requests and relink events without se
   expect(announcePayload.httpRequestTemplate).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.de/api/behaviors/preview',
+    headers: expect.objectContaining({
+      Accept: 'application/json',
+      Origin: 'https://alexa.amazon.de',
+      Referer: 'https://alexa.amazon.de/',
+    }),
     secretHeaders: communityCookieSecretHeaders,
   });
   expect(announcePayload.httpRequest).toBeUndefined();
@@ -1020,6 +1030,28 @@ test('Alexa helper emits bounded community requests and relink events without se
     'Package delivered.',
   );
   expect(announcePayload.stopOnStatuses).toEqual([401, 403]);
+});
+
+test('Alexa helper prepares live execution without exposing derived cookie secrets', () => {
+  expect(
+    alexa.csrfFromCookieHeader('session-id=abc123; csrf=csrf-token; ubid=xyz'),
+  ).toBe('csrf-token');
+
+  const gatewayRequest = alexa.gatewayHttpRequest({
+    method: 'POST',
+    url: 'https://api.amazonalexa.com/v3/events',
+    headers: { 'Content-Type': 'application/json' },
+    bearerSecretName: 'ALEXA_SMARTHOME_ACCESS_TOKEN',
+    bodyJson: { event: { header: { name: 'Discover' } } },
+  });
+
+  expect(gatewayRequest).toMatchObject({
+    method: 'POST',
+    url: 'https://api.amazonalexa.com/v3/events',
+    bearerSecretName: 'ALEXA_SMARTHOME_ACCESS_TOKEN',
+    json: { event: { header: { name: 'Discover' } } },
+  });
+  expect(gatewayRequest).not.toHaveProperty('bodyJson');
 });
 
 test('Alexa helper resolves Alexa app smart-home devices and summarizes state', () => {
@@ -1160,6 +1192,8 @@ test('Alexa helper plans guarded Echo music playback from resolved device ids', 
   );
   expect(payload.approvedCommand).toEqual(
     expect.arrayContaining([
+      'run',
+      'music-play',
       '--device',
       'G090LF09647500TV',
       '--device-name',
@@ -1179,6 +1213,12 @@ test('Alexa helper plans guarded Echo music playback from resolved device ids', 
   expect(payload.httpRequestTemplate).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.de/api/behaviors/preview',
+    headers: expect.objectContaining({
+      Accept: 'application/json',
+      Origin: 'https://alexa.amazon.de',
+      Referer: 'https://alexa.amazon.de/',
+      'Accept-Language': 'de-DE',
+    }),
     secretHeaders: communityCookieSecretHeaders,
   });
   const sequence = JSON.parse(payload.httpRequestTemplate.bodyJson.sequenceJson);
@@ -1231,6 +1271,8 @@ test('Alexa helper plans red-gated Echo voice commands as a guarded fallback', (
   );
   expect(payload.approvedCommand).toEqual(
     expect.arrayContaining([
+      'run',
+      'voice-command',
       '--device',
       'G090LF09647500TV',
       '--device-name',

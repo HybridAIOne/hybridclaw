@@ -14,10 +14,13 @@ const ASK_CERT_PATH_PREFIX = '/echo.api/';
 const ASK_CERT_SAN_HOST = 'echo-api.amazon.com';
 const DEFAULT_SMARTHOME_REGION_HOST = 'api.amazonalexa.com';
 const DEFAULT_AMAZON_DOMAIN = 'amazon.com';
+const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const SMARTHOME_BEARER_SECRET = 'ALEXA_SMARTHOME_ACCESS_TOKEN';
 const COMMUNITY_COOKIE_SECRET = 'ALEXA_REFRESH_COOKIE';
 const MAX_TEXT_BYTES = 4096;
 const DEFAULT_MUSIC_PROVIDER = 'AMAZON_MUSIC';
+const DEFAULT_TIMEOUT_MS = 30_000;
+const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
 const COMMUNITY_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Safari/605.1.15';
 const AUTH_STOP = {
@@ -198,22 +201,22 @@ Usage:
   node skills/alexa/alexa.cjs --format json account-link-session --request-body request.json
   node skills/alexa/alexa.cjs --format json parse-request --request-body request.json
   node skills/alexa/alexa.cjs --format json build-response --speech "On it." --reprompt "Anything else?"
-  node skills/alexa/alexa.cjs --format json http-request smarthome-discover
-  node skills/alexa/alexa.cjs --format json http-request smarthome-state --endpoint-id endpoint-1
+  node skills/alexa/alexa.cjs --format json run smarthome-discover
+  node skills/alexa/alexa.cjs --format json run smarthome-state --endpoint-id endpoint-1
   node skills/alexa/alexa.cjs --format json plan smarthome-control --endpoint-id endpoint-1 --action TurnOn
-  node skills/alexa/alexa.cjs --format json http-request smarthome-control --endpoint-id endpoint-1 --action TurnOn --operator-grant approve-alexa-write
-  node skills/alexa/alexa.cjs --format json http-request devices --amazon-domain amazon.de
+  node skills/alexa/alexa.cjs --format json run smarthome-control --endpoint-id endpoint-1 --action TurnOn --operator-grant approve-alexa-write
+  node skills/alexa/alexa.cjs --format json run devices --amazon-domain amazon.de
   node skills/alexa/alexa.cjs --format json smart-home status --name Poolpumpe --amazon-domain amazon.de
   node skills/alexa/alexa.cjs --format json smart-home plan-control --name Poolpumpe --action off --amazon-domain amazon.de
   node skills/alexa/alexa.cjs --format json smart-home control --name Poolpumpe --action off --amazon-domain amazon.de --operator-grant approve-alexa-red-write
-  node skills/alexa/alexa.cjs --format json http-request shopping-list
+  node skills/alexa/alexa.cjs --format json run shopping-list
   node skills/alexa/alexa.cjs --format json plan announce --device living-room --text "Package delivered."
-  node skills/alexa/alexa.cjs --format json http-request announce --device living-room --text "Package delivered." --operator-grant approve-alexa-write
+  node skills/alexa/alexa.cjs --format json run announce --device living-room --text "Package delivered." --operator-grant approve-alexa-write
   node skills/alexa/alexa.cjs --format json plan music-play --device SERIAL --device-type TYPE --customer-id CUSTOMER --query "Münchner Freiheit" --amazon-domain amazon.de
-  node skills/alexa/alexa.cjs --format json http-request music-play --device SERIAL --device-type TYPE --customer-id CUSTOMER --query "Münchner Freiheit" --amazon-domain amazon.de --operator-grant approve-alexa-write
+  node skills/alexa/alexa.cjs --format json run music-play --device SERIAL --device-type TYPE --customer-id CUSTOMER --query "Münchner Freiheit" --amazon-domain amazon.de --operator-grant approve-alexa-write
   node skills/alexa/alexa.cjs --format json plan voice-command --device SERIAL --device-type TYPE --customer-id CUSTOMER --voice-command "play Münchner Freiheit" --amazon-domain amazon.de
   node skills/alexa/alexa.cjs --format json plan shopping-list-add --item milk
-  node skills/alexa/alexa.cjs --format json http-request shopping-list-complete --item-id item-1 --operator-grant approve-alexa-write
+  node skills/alexa/alexa.cjs --format json run shopping-list-complete --item-id item-1 --operator-grant approve-alexa-write
 
 Global options:
   --format json|pretty          json emits compact output; pretty emits indented output. Defaults to pretty.
@@ -233,6 +236,8 @@ Commands:
   parse-request
   build-response
   smart-home status|plan-control|control
+  run smarthome-discover|smarthome-state|devices|shopping-list|todo-list|last-commands|dnd-state
+  run smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
   http-request smarthome-discover|smarthome-state|devices|shopping-list|todo-list|last-commands|dnd-state
   http-request smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
   plan smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
@@ -1057,6 +1062,14 @@ function communityBrowserHeaders(domain) {
   };
 }
 
+function communityJsonHeaders(domain) {
+  return {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    ...communityBrowserHeaders(domain),
+  };
+}
+
 function communityPath(operation, opts) {
   if (operation === 'devices') return '/api/devices-v2/device';
   if (operation === 'shopping-list') return '/api/namedLists';
@@ -1172,6 +1185,183 @@ function httpRequest(commandArgs) {
     return listCompleteRequest('todo-list-complete', opts);
   if (operation === 'routine-trigger') return routineTriggerRequest(opts);
   return communityReadRequest(operation, opts);
+}
+
+function splitRunOptions(commandArgs) {
+  const args = [...commandArgs];
+  let gatewayUrl;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    rejectSecretFlag(arg);
+    if (arg !== '--gateway-url') continue;
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--') || !String(value).trim()) {
+      fail('--gateway-url requires a value.');
+    }
+    gatewayUrl = value;
+    args.splice(index, 2);
+    index -= 1;
+  }
+  return { args, gatewayUrl };
+}
+
+function resolveGatewayUrl(raw) {
+  const value =
+    normalizeText(raw) ||
+    normalizeText(process.env.HYBRIDCLAW_GATEWAY_URL) ||
+    normalizeText(process.env.GATEWAY_BASE_URL) ||
+    DEFAULT_GATEWAY_URL;
+  const normalized = value.replace(/\/+$/u, '');
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    fail('--gateway-url must be an absolute http or https URL.');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    fail('--gateway-url must use http or https.');
+  }
+  return normalized;
+}
+
+function resolveGatewayToken() {
+  return (
+    normalizeText(process.env.HYBRIDCLAW_GATEWAY_TOKEN) ||
+    normalizeText(process.env.GATEWAY_API_TOKEN) ||
+    normalizeText(process.env.WEB_API_TOKEN)
+  );
+}
+
+function gatewayHttpRequest(httpRequest) {
+  const out = { ...httpRequest };
+  if (Object.hasOwn(out, 'bodyJson')) {
+    out.json = out.bodyJson;
+    delete out.bodyJson;
+  }
+  return out;
+}
+
+function usesCommunityCookie(httpRequest) {
+  return Array.isArray(httpRequest.secretHeaders)
+    ? httpRequest.secretHeaders.some(
+        (entry) => entry?.secretName === COMMUNITY_COOKIE_SECRET,
+      )
+    : false;
+}
+
+function csrfFromCookieHeader(cookieHeader) {
+  const csrf = String(cookieHeader || '')
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.toLowerCase().startsWith('csrf='));
+  return csrf ? csrf.slice('csrf='.length) : null;
+}
+
+async function executeGatewayHttpRequest(httpRequest, gatewayUrl) {
+  const token = resolveGatewayToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  let text = '';
+  try {
+    try {
+      response = await fetch(`${gatewayUrl}/api/http/request`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(gatewayHttpRequest(httpRequest)),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      fail(
+        `Cannot reach HybridClaw gateway at ${gatewayUrl}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        1,
+      );
+    }
+    text = await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+  let envelope;
+  try {
+    envelope = text ? JSON.parse(text) : {};
+  } catch {
+    fail(`Gateway returned non-JSON response: ${text.slice(0, 500)}`, 1);
+  }
+  if (!response.ok) {
+    fail(
+      `Gateway request failed with HTTP ${response.status}: ${text.slice(
+        0,
+        500,
+      )}`,
+      1,
+    );
+  }
+  return envelope;
+}
+
+async function run(commandArgs) {
+  const { args, gatewayUrl: rawGatewayUrl } = splitRunOptions(commandArgs);
+  const requestPayload = httpRequest(args);
+  const request = requestPayload.httpRequest;
+  if (usesCommunityCookie(request)) {
+    const cookie = readRuntimeSecret(COMMUNITY_COOKIE_SECRET);
+    const csrf = csrfFromCookieHeader(cookie);
+    const headers = { ...request.headers };
+    if (String(request.method || 'GET').toUpperCase() !== 'GET') {
+      if (!csrf) {
+        fail(
+          `Missing csrf in ${COMMUNITY_COOKIE_SECRET}; re-import the Alexa cookie.`,
+          1,
+        );
+      }
+      headers.csrf = csrf;
+    }
+    const response = await executeHttpsJson(
+      {
+        ...request,
+        headers,
+      },
+      cookie,
+    );
+    assertAlexaJsonOk(response, requestPayload.operation);
+    return {
+      ...endpointBasePayload(
+        requestPayload.surface,
+        requestPayload.operation,
+        requestPayload.stakesTier,
+      ),
+      command: 'run',
+      transport: 'direct-community-cookie',
+      status: response.statusCode,
+      ok: response.statusCode >= 200 && response.statusCode < 300,
+      response: response.json,
+      authFailureEvent: requestPayload.authFailureEvent,
+      driftRisk: requestPayload.driftRisk,
+    };
+  }
+
+  const response = await executeGatewayHttpRequest(
+    request,
+    resolveGatewayUrl(rawGatewayUrl),
+  );
+  return {
+    ...endpointBasePayload(
+      requestPayload.surface,
+      requestPayload.operation,
+      requestPayload.stakesTier,
+    ),
+    command: 'run',
+    transport: 'gateway-http-request',
+    response,
+    authFailureEvent: requestPayload.authFailureEvent,
+  };
 }
 
 function plan(commandArgs) {
@@ -1324,7 +1514,7 @@ function planSmarthomeControl(opts) {
     approvalOperation: 'smart-home control',
     approvalTarget: `${endpointId} via ${opts.regionHost || DEFAULT_SMARTHOME_REGION_HOST}`,
     approvalAction: action,
-    approvedCommand: approvedCommand('http-request smarthome-control', {
+    approvedCommand: approvedCommand('run smarthome-control', {
       '--endpoint-id': endpointId,
       '--action': action,
       '--region-host': opts.regionHost,
@@ -1374,9 +1564,7 @@ function announceHttpRequest(opts, device, text) {
   return {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: communityJsonHeaders(opts.amazonDomain),
     secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       behaviorId: 'PREVIEW',
@@ -1411,7 +1599,7 @@ function planAnnounce(opts) {
     approvalOperation: 'announce',
     approvalTarget: device,
     approvalAction: `speak "${text}"`,
-    approvedCommand: approvedCommand('http-request announce', {
+    approvedCommand: approvedCommand('run announce', {
       '--device': device,
       '--text': text,
       '--amazon-domain': opts.amazonDomain,
@@ -1453,9 +1641,7 @@ function musicPlayHttpRequest(opts, target) {
   return {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: communityJsonHeaders(opts.amazonDomain),
     secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       behaviorId: 'PREVIEW',
@@ -1496,7 +1682,7 @@ function planMusicPlay(opts) {
     approvalOperation: 'music playback',
     approvalTarget: target.deviceName,
     approvalAction: `play "${target.query}" via ${target.provider}`,
-    approvedCommand: approvedCommand('http-request music-play', {
+    approvedCommand: approvedCommand('run music-play', {
       '--device': target.device,
       '--device-name': opts.deviceName,
       '--device-type': target.deviceType,
@@ -1542,9 +1728,7 @@ function voiceCommandHttpRequest(opts, target) {
   return {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: communityJsonHeaders(opts.amazonDomain),
     secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       behaviorId: 'PREVIEW',
@@ -1579,7 +1763,7 @@ function planVoiceCommand(opts) {
     approvalOperation: 'voice command',
     approvalTarget: target.deviceName,
     approvalAction: `send "${target.command}" to Alexa`,
-    approvedCommand: approvedCommand('http-request voice-command', {
+    approvedCommand: approvedCommand('run voice-command', {
       '--device': target.device,
       '--device-name': opts.deviceName,
       '--device-type': target.deviceType,
@@ -1610,9 +1794,7 @@ function listAddHttpRequest(listType, opts, item) {
   return {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/namedLists/${listType}/items`,
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: communityJsonHeaders(opts.amazonDomain),
     secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       value: item,
@@ -1632,7 +1814,7 @@ function planListAdd(operation, opts) {
     approvalOperation: operation,
     approvalTarget: `${listType} list`,
     approvalAction: `add "${item}"`,
-    approvedCommand: approvedCommand(`http-request ${operation}`, {
+    approvedCommand: approvedCommand(`run ${operation}`, {
       '--item': item,
       '--amazon-domain': opts.amazonDomain,
       '--operator-grant': grantForTier('amber'),
@@ -1660,9 +1842,7 @@ function listCompleteHttpRequest(listType, opts, itemId) {
   return {
     method: 'PUT',
     url: `https://${communityHost(opts.amazonDomain)}/api/namedLists/${listType}/items/${encodeURIComponent(itemId)}`,
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: communityJsonHeaders(opts.amazonDomain),
     secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       completed: true,
@@ -1681,7 +1861,7 @@ function planListComplete(operation, opts) {
     approvalOperation: operation,
     approvalTarget: `${listType} list item ${itemId}`,
     approvalAction: 'complete item',
-    approvedCommand: approvedCommand(`http-request ${operation}`, {
+    approvedCommand: approvedCommand(`run ${operation}`, {
       '--item-id': itemId,
       '--amazon-domain': opts.amazonDomain,
       '--operator-grant': grantForTier('amber'),
@@ -1709,9 +1889,7 @@ function routineTriggerHttpRequest(opts, routine) {
   return {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: communityJsonHeaders(opts.amazonDomain),
     secretHeaders: communityCookieSecretHeaders(),
     bodyJson: {
       behaviorId: routine,
@@ -1730,7 +1908,7 @@ function planRoutineTrigger(opts) {
     approvalOperation: 'routine trigger',
     approvalTarget: routine,
     approvalAction: 'trigger routine',
-    approvedCommand: approvedCommand('http-request routine-trigger', {
+    approvedCommand: approvedCommand('run routine-trigger', {
       '--routine': routine,
       '--amazon-domain': opts.amazonDomain,
       '--operator-grant': grantForTier('amber'),
@@ -1924,27 +2102,40 @@ function executeHttpsJson(httpRequest, cookie) {
             );
             return;
           }
+          const statusCode = Number(res.statusCode || 0);
           let json = null;
-          try {
-            json = JSON.parse(bodyText);
-          } catch {
-            const contentType = res.headers['content-type'] || '(none)';
-            const snippet = bodyText
-              .replace(/\s+/g, ' ')
-              .trim()
-              .slice(0, 240);
-            reject(
-              new Error(
-                `Alexa returned non-JSON response from ${url.hostname}${url.pathname} with HTTP ${res.statusCode}, content-type ${contentType}. Body starts: ${snippet || '(empty)'}`,
-              ),
-            );
-            return;
+          if (!bodyText.trim() && statusCode >= 200 && statusCode < 300) {
+            json = {};
+          } else {
+            try {
+              json = JSON.parse(bodyText);
+            } catch {
+              if (AUTH_STOP.stopOnStatuses.includes(statusCode)) {
+                reject(
+                  new Error(
+                    `Alexa authorization failed for ${url.hostname}${url.pathname} with HTTP ${statusCode}. Re-import ${COMMUNITY_COOKIE_SECRET}.`,
+                  ),
+                );
+                return;
+              }
+              const contentType = res.headers['content-type'] || '(none)';
+              const snippet = bodyText
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 240);
+              reject(
+                new Error(
+                  `Alexa returned non-JSON response from ${url.hostname}${url.pathname} with HTTP ${statusCode}, content-type ${contentType}. Body starts: ${snippet || '(empty)'}`,
+                ),
+              );
+              return;
+            }
           }
           resolve({
             bodyText,
             headers: res.headers,
             json,
-            statusCode: res.statusCode,
+            statusCode,
           });
         });
       },
@@ -2259,6 +2450,10 @@ async function main() {
     printJson(httpRequest(positional.slice(1)), opts.format);
     return;
   }
+  if (command === 'run') {
+    printJson(await run(positional.slice(1)), opts.format);
+    return;
+  }
   if (command === 'smart-home') {
     printJson(await smartHome(positional.slice(1)), opts.format);
     return;
@@ -2281,7 +2476,9 @@ if (require.main === module) {
 module.exports = {
   ASK_SIGNATURE_WINDOW_SECONDS,
   buildResponse,
+  csrfFromCookieHeader,
   extractSmartHomeAppliances,
+  gatewayHttpRequest,
   parseRequest,
   relinkRequired,
   resolveSmartHomeAppliance,

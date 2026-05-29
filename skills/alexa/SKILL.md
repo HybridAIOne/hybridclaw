@@ -193,19 +193,19 @@ node skills/alexa/alexa.cjs --format json build-response \
   --reprompt "Anything else?"
 ```
 
-Prepare Smart Home Skill API payloads:
+Run Smart Home Skill API calls through the helper:
 
 ```bash
-node skills/alexa/alexa.cjs --format json http-request smarthome-discover
+node skills/alexa/alexa.cjs --format json run smarthome-discover
 
-node skills/alexa/alexa.cjs --format json http-request smarthome-state \
+node skills/alexa/alexa.cjs --format json run smarthome-state \
   --endpoint-id light-kitchen
 
 node skills/alexa/alexa.cjs --format json plan smarthome-control \
   --endpoint-id light-kitchen \
   --action TurnOn
 
-node skills/alexa/alexa.cjs --format json http-request smarthome-control \
+node skills/alexa/alexa.cjs --format json run smarthome-control \
   --endpoint-id light-kitchen \
   --action TurnOn \
   --operator-grant approve-alexa-write
@@ -216,16 +216,16 @@ node skills/alexa/alexa.cjs --format json plan smarthome-control \
   --temperature 20.5
 ```
 
-Prepare community Alexa Remote / `alexapy` read payloads:
+Run community Alexa Remote / `alexapy` reads through the helper:
 
 ```bash
-node skills/alexa/alexa.cjs --format json http-request devices \
+node skills/alexa/alexa.cjs --format json run devices \
   --amazon-domain amazon.de
 
-node skills/alexa/alexa.cjs --format json http-request shopping-list
-node skills/alexa/alexa.cjs --format json http-request todo-list
-node skills/alexa/alexa.cjs --format json http-request last-commands
-node skills/alexa/alexa.cjs --format json http-request dnd-state --device living-room
+node skills/alexa/alexa.cjs --format json run shopping-list
+node skills/alexa/alexa.cjs --format json run todo-list
+node skills/alexa/alexa.cjs --format json run last-commands
+node skills/alexa/alexa.cjs --format json run dnd-state --device living-room
 ```
 
 For Alexa-connected smart plugs/lights exposed through the Alexa app (for
@@ -260,7 +260,7 @@ node skills/alexa/alexa.cjs --format json smart-home control \
 
 Prepare guarded community writes. First show the approval text to the operator.
 After explicit approval, run the exact `approvedCommand` unchanged.
-For Echo music playback, first call `http-request devices`, find the matching
+For Echo music playback, first call `run devices`, find the matching
 `accountName` (for example `OK Computer`), then pass its `serialNumber`,
 `deviceType`, and `deviceOwnerCustomerId` to `music-play`.
 
@@ -269,7 +269,7 @@ node skills/alexa/alexa.cjs --format json plan announce \
   --device living-room \
   --text "Package delivered."
 
-node skills/alexa/alexa.cjs --format json http-request announce \
+node skills/alexa/alexa.cjs --format json run announce \
   --device living-room \
   --text "Package delivered." \
   --operator-grant approve-alexa-write
@@ -283,7 +283,7 @@ node skills/alexa/alexa.cjs --format json plan music-play \
   --provider AMAZON_MUSIC \
   --amazon-domain amazon.de
 
-node skills/alexa/alexa.cjs --format json http-request music-play \
+node skills/alexa/alexa.cjs --format json run music-play \
   --device "<serialNumber from devices>" \
   --device-name "OK Computer" \
   --device-type "<deviceType from devices>" \
@@ -308,7 +308,7 @@ node skills/alexa/alexa.cjs --format json plan voice-command \
   --voice-command "play Münchner Freiheit" \
   --amazon-domain amazon.de
 
-node skills/alexa/alexa.cjs --format json http-request voice-command \
+node skills/alexa/alexa.cjs --format json run voice-command \
   --device "<serialNumber from devices>" \
   --device-name "OK Computer" \
   --device-type "<deviceType from devices>" \
@@ -319,26 +319,31 @@ node skills/alexa/alexa.cjs --format json http-request voice-command \
 ```
 
 ```bash
-node skills/alexa/alexa.cjs --format json http-request shopping-list-add \
+node skills/alexa/alexa.cjs --format json run shopping-list-add \
   --item milk \
   --operator-grant approve-alexa-write
 
-node skills/alexa/alexa.cjs --format json http-request shopping-list-complete \
+node skills/alexa/alexa.cjs --format json run shopping-list-complete \
   --item-id item-123 \
   --operator-grant approve-alexa-write
 
-node skills/alexa/alexa.cjs --format json http-request todo-list-add \
+node skills/alexa/alexa.cjs --format json run todo-list-add \
   --item "call plumber" \
   --operator-grant approve-alexa-write
 
-node skills/alexa/alexa.cjs --format json http-request todo-list-complete \
+node skills/alexa/alexa.cjs --format json run todo-list-complete \
   --item-id item-456 \
   --operator-grant approve-alexa-write
 
-node skills/alexa/alexa.cjs --format json http-request routine-trigger \
+node skills/alexa/alexa.cjs --format json run routine-trigger \
   --routine evening \
   --operator-grant approve-alexa-write
 ```
+
+Use `http-request ...` only as a debugging dry run when you need to inspect the
+gateway-ready request object. For normal reads and writes, use `run ...` so the
+CJS owns endpoint selection, headers, CSRF handling, execution, and result
+reporting.
 
 ## Required Setup
 
