@@ -482,7 +482,7 @@ describe('codex auth device code flow', () => {
     vi.useRealTimers();
   });
 
-  it('falls back to the default activation URL and tolerates nested pending errors', async () => {
+  it('falls back to the Codex device URL and tolerates usercode plus nested pending errors', async () => {
     vi.useFakeTimers();
     const homeDir = makeTempHome();
     const codexAuth = await importFreshCodexAuth(homeDir);
@@ -506,7 +506,7 @@ describe('codex auth device code flow', () => {
         return new Response(
           JSON.stringify({
             device_auth_id: 'device_auth_nested',
-            user_code: 'USER-NESTED',
+            usercode: 'USER-NESTED',
             interval: '1',
             expires_at: '2026-03-06T17:59:56.536528+00:00',
           }),
@@ -575,7 +575,7 @@ describe('codex auth device code flow', () => {
 
     expect(result.credentials.accountId).toBe('acct_device_nested');
     expect(consoleLog).toHaveBeenCalledWith(
-      'Verify: https://auth.openai.com/activate',
+      'Verify: https://auth.openai.com/codex/device',
     );
     expect(fetchMock).toHaveBeenCalledTimes(4);
     vi.useRealTimers();
