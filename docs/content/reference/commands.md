@@ -299,6 +299,10 @@ hybridclaw secret unset <name>
 hybridclaw secret route list
 hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 hybridclaw secret route remove <url-prefix> [header]
+hybridclaw env list
+hybridclaw env set <name> <value>
+hybridclaw env show <name>
+hybridclaw env unset <name>
 ```
 
 ```text
@@ -309,6 +313,10 @@ hybridclaw secret route remove <url-prefix> [header]
 /secret route list
 /secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 /secret route remove <url-prefix> [header]
+/env list
+/env set <name> <value>
+/env show <name>
+/env unset <name>
 ```
 
 - local-only surface: `/secret ...` is available from local TUI and local web
@@ -325,6 +333,9 @@ hybridclaw secret route remove <url-prefix> [header]
 - use `google-oauth` as the secret name for direct Google API routes after
   `hybridclaw auth login google`; see
   [Google OAuth For Direct Google APIs](../getting-started/authentication.md#google-oauth-for-direct-google-apis)
+- `env` stores plaintext runtime values such as local device hostnames,
+  account ids, or usernames for agent helpers. Do not use it for passwords,
+  tokens, API keys, or signing material; use encrypted secrets for those.
 
 ## Channels
 
@@ -579,14 +590,19 @@ actions. Common examples:
 !claw schedule add every <ms> <prompt>
 ```
 
-`/agent`, `/model`, `/reset`, `/mcp`, `/btw`, and related slash commands route
-through the same gateway command surface used by TUI and web chat. `/context`
-is local-only because it exposes session context-window accounting.
+`/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/second-opinion`, and related
+slash commands route through the same gateway command surface used by TUI and
+web chat. `/context` is local-only because it exposes session context-window
+accounting.
 
 ## In Session
 
 - `/help` shows the same canonical slash-command list in TUI and embedded web
   chat, filtered per surface and kept in a consistent alphabetical order
+- `/audit turn <n>` and `/audit run <runId>` show focused turn traces for one
+  request, including nearby tool, approval, and audit events
+- `/second-opinion` compares a question or validates the last answer with a
+  stronger configured model; `fact-check` adds bounded web-search evidence
 
 ### Slash Command Inventory
 
@@ -599,7 +615,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 |---|---|---|
 | `/agent [info|list|switch|create|install|model]` | local and chat channels | Inspect, create, switch, install, or set models for agents |
 | `/approve [view|yes|session|agent|all|no] [approval_id]` | local and chat channels | View or answer pending tool approval requests |
-| `/audit [sessionId]` | local and chat channels | Show recent structured audit events |
+| `/audit [sessionId]|last|turn <n>|run <runId>` | local and chat channels | Show recent audit events or focused turn traces |
 | `/auth status <provider>` | local TUI/web | Show local auth and provider config state |
 | `/bot [info|list|set <id|name>|clear]` | local and chat channels | Inspect or select the active chatbot |
 | `/btw <question>` | local and chat channels | Ask an ephemeral side question without tools or persistence |
@@ -611,6 +627,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/config [check|reload|get|set]` | local TUI/web | Inspect, reload, or edit runtime config |
 | `/context` | local TUI/web | Show context-window usage and compaction headroom |
 | `/dream [status|on|off|now]` | local TUI/web | Configure or run memory consolidation |
+| `/env [list|set|show|unset]` | local TUI/web | Manage plaintext runtime env values for agents and helpers |
 | `/eval [list|env|<suite>|<command...>]` | local TUI/web | Run local eval helpers or detached benchmark commands |
 | `/export session [sessionId]` | local and chat channels | Export a session snapshot |
 | `/export trace [sessionId|all]` | local and chat channels | Export trace JSONL |
@@ -630,6 +647,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/reset [yes|no]` | local and chat channels | Run the confirmed workspace reset flow |
 | `/schedule add|list|remove|toggle ...` | local and chat channels | Manage scheduled tasks for the session |
 | `/secret [list|set|show|unset|route]` | local TUI/web | Manage encrypted secrets and HTTP auth routes |
+| `/second-opinion [compare|validate|fact-check]` | local and chat channels | Ask a stronger configured model to compare, validate, or fact-check |
 | `/sessions [active|clear-active]` | local and chat channels | Inspect or clear active session tracking |
 | `/show [all|thinking|tools|none]` | local and chat channels | Control thinking/tool activity visibility |
 | `/skill ...` or `/<skill>` | local TUI/web | Manage skills or explicitly invoke one skill |
