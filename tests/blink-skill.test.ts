@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
@@ -247,6 +248,20 @@ test('Blink helper runs OAuth v2 login through gateway and captures secrets', as
         }),
       );
     }
+    if (
+      targetUrl.includes('/api/v3/accounts/') &&
+      Array.isArray(requestBody.captureResponseHeaders)
+    ) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          captured: {
+            'headers.client-id': 'BLINK_CLIENT_ID',
+          },
+        }),
+      );
+    }
     throw new Error(`unexpected request to ${targetUrl}`);
   });
 
@@ -269,9 +284,12 @@ test('Blink helper runs OAuth v2 login through gateway and captures secrets', as
         tier: 'BLINK_TIER',
         account_id: 'BLINK_ACCOUNT_ID',
       },
+      clientCaptured: {
+        'headers.client-id': 'BLINK_CLIENT_ID',
+      },
     },
   });
-  expect(fetchMock).toHaveBeenCalledTimes(6);
+  expect(fetchMock).toHaveBeenCalledTimes(7);
   expect(seenRequests[0]).toMatchObject({
     allowManualRedirect: true,
     includeResponseCookies: true,
@@ -316,16 +334,42 @@ test('Blink helper runs OAuth v2 login through gateway and captures secrets', as
     url: 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info',
     secretHeaders: [
       {
-        name: 'TOKEN_AUTH',
+        name: 'Authorization',
         secretName: 'BLINK_AUTH_TOKEN',
-        prefix: 'none',
+        prefix: 'Bearer',
       },
     ],
+    captureResponseHeaders: [
+      {
+        header: 'client-id',
+        secretName: 'BLINK_CLIENT_ID',
+      },
+    ],
+  });
+  expect(seenRequests[6]).toMatchObject({
+    secretHeaders: [
+      {
+        name: 'Authorization',
+        secretName: 'BLINK_AUTH_TOKEN',
+        prefix: 'Bearer',
+      },
+    ],
+    captureResponseHeaders: [
+      {
+        header: 'client-id',
+        secretName: 'BLINK_CLIENT_ID',
+      },
+    ],
+    suppressResponseBody: true,
   });
   expect(JSON.stringify(seenRequests)).not.toContain('password123');
 });
 
 test('Blink helper stops OAuth login for F14 PIN handover when 2FA is required', async () => {
+  const handoverPath = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'blink-oauth-handover-')),
+    'handover.json',
+  );
   const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
     const requestBody = JSON.parse(String(init.body));
     const targetUrl = String(requestBody.url);
@@ -356,7 +400,7 @@ test('Blink helper stops OAuth login for F14 PIN handover when 2FA is required',
           status: 412,
           statusText: 'Precondition Failed',
           headers: {},
-          body: '',
+          body: JSON.stringify({ valid_seconds: 60 }),
         }),
       );
     }
@@ -366,14 +410,161 @@ test('Blink helper stops OAuth login for F14 PIN handover when 2FA is required',
   const result = await blink.runAccountLogin([], {
     fetch: fetchMock,
     gatewayUrl: 'http://127.0.0.1:9090',
+    handoverPath,
   });
 
   expect(result).toMatchObject({
     command: 'handover-required',
     route: 'f14',
     reason: 'blink-2fa-required',
+    expiresInSeconds: 60,
   });
+  expect(fs.existsSync(handoverPath)).toBe(true);
+  expect(fs.readFileSync(handoverPath, 'utf8')).not.toContain('BLINK_PASSWORD');
   expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+test('Blink helper resumes OAuth 2FA handover without re-submitting credentials', async () => {
+  const handoverPath = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'blink-oauth-resume-')),
+    'handover.json',
+  );
+  const initialFetch = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    const targetUrl = String(requestBody.url);
+    if (targetUrl.includes('/oauth/v2/authorize')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          headers: { 'set-cookie': 'oauth=one; Path=/; Secure' },
+          body: '',
+        }),
+      );
+    }
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/v2/signin') {
+      if (requestBody.method === 'GET') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            headers: { 'set-cookie': 'signin=two; Path=/; Secure' },
+            body: '<script id="oauth-args" type="application/json">{"csrf-token":"csrf-123"}</script>',
+          }),
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          status: 412,
+          statusText: 'Precondition Failed',
+          headers: { 'set-cookie': 'challenge=three; Path=/; Secure' },
+          body: JSON.stringify({ valid_seconds: 60 }),
+        }),
+      );
+    }
+    throw new Error(`unexpected request to ${targetUrl}`);
+  });
+
+  await blink.runAccountLogin([], {
+    fetch: initialFetch,
+    gatewayUrl: 'http://127.0.0.1:9090',
+    handoverPath,
+  });
+
+  const seenRequests: Array<Record<string, unknown>> = [];
+  const resumeFetch = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    seenRequests.push(requestBody);
+    const targetUrl = String(requestBody.url);
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/v2/2fa/verify') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 201,
+          headers: { 'set-cookie': 'verified=four; Path=/; Secure' },
+          body: JSON.stringify({ status: 'auth-completed' }),
+        }),
+      );
+    }
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/v2/authorize') {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          status: 302,
+          statusText: 'Found',
+          headers: {
+            location:
+              'immedia-blink://applinks.blink.com/signin/callback?code=code-123',
+          },
+          body: '',
+        }),
+      );
+    }
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/token') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          captured: {
+            access_token: 'BLINK_AUTH_TOKEN',
+            refresh_token: 'BLINK_REFRESH_TOKEN',
+          },
+        }),
+      );
+    }
+    if (targetUrl === 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          captured: {
+            tier: 'BLINK_TIER',
+            account_id: 'BLINK_ACCOUNT_ID',
+            client_id: 'BLINK_CLIENT_ID',
+          },
+        }),
+      );
+    }
+    if (
+      targetUrl.includes('/api/v3/accounts/') &&
+      Array.isArray(requestBody.captureResponseHeaders)
+    ) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          captured: {
+            'headers.client-id': 'BLINK_CLIENT_ID',
+          },
+        }),
+      );
+    }
+    throw new Error(`unexpected request to ${targetUrl}`);
+  });
+
+  const result = await blink.runAccountLogin(['--pin', '123456'], {
+    fetch: resumeFetch,
+    gatewayUrl: 'http://127.0.0.1:9090',
+    handoverPath,
+  });
+
+  expect(result).toMatchObject({
+    command: 'live-auth',
+    operation: 'account-login',
+    result: { ok: true },
+  });
+  expect(seenRequests[0]).toMatchObject({
+    url: 'https://api.oauth.blink.com/oauth/v2/2fa/verify',
+    method: 'POST',
+    form: {
+      '2fa_code': '123456',
+      'csrf-token': 'csrf-123',
+      remember_me: 'false',
+    },
+  });
+  expect(JSON.stringify(seenRequests)).not.toContain('BLINK_PASSWORD');
+  expect(fs.existsSync(handoverPath)).toBe(false);
 });
 
 test('Blink helper stops OAuth login when stored credentials are rejected', async () => {
@@ -493,15 +684,115 @@ test('Blink helper stops OAuth login while Blink rate limit is active', async ()
   expect(fetchMock).toHaveBeenCalledTimes(3);
 });
 
-test('Blink live read routes missing session secrets to account-login instead of asking for all credentials', async () => {
+test('Blink live read recovers missing account metadata from a saved refresh token', async () => {
+  const payload = request(['http-request', 'devices-list']);
+  const seenRequests: Array<Record<string, unknown>> = [];
+  const result = await blink.executeLivePayload(payload, {
+    fetch: vi.fn(async (_url: string, init: RequestInit) => {
+      const requestBody = JSON.parse(String(init.body));
+      seenRequests.push(requestBody);
+      const targetUrl = String(requestBody.url);
+      if (seenRequests.length === 1) {
+        return new Response(
+          JSON.stringify({ error: 'Stored secret BLINK_TIER is not set.' }),
+          { status: 400 },
+        );
+      }
+      if (targetUrl === 'https://api.oauth.blink.com/oauth/token') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            captured: {
+              access_token: 'BLINK_AUTH_TOKEN',
+              refresh_token: 'BLINK_REFRESH_TOKEN',
+            },
+          }),
+        );
+      }
+      if (targetUrl === 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            captured: {
+              tier: 'BLINK_TIER',
+              account_id: 'BLINK_ACCOUNT_ID',
+            },
+          }),
+        );
+      }
+      if (
+        targetUrl.includes('/api/v3/accounts/') &&
+        Array.isArray(requestBody.captureResponseHeaders)
+      ) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            captured: {
+              'headers.client-id': 'BLINK_CLIENT_ID',
+            },
+          }),
+        );
+      }
+      if (seenRequests.length === 5) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            body: JSON.stringify({ networks: [] }),
+          }),
+        );
+      }
+      throw new Error(`unexpected request to ${targetUrl}`);
+    }),
+    gatewayUrl: 'http://127.0.0.1:9090',
+  });
+
+  expect(result).toMatchObject({
+    command: 'live',
+    operation: 'devices-list',
+    result: { ok: true, status: 200 },
+  });
+  expect(seenRequests).toHaveLength(5);
+  expect(seenRequests[1]).toMatchObject({
+    url: 'https://api.oauth.blink.com/oauth/token',
+    method: 'POST',
+  });
+  expect(seenRequests[2]).toMatchObject({
+    url: 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info',
+  });
+  expect(seenRequests[3]).toMatchObject({
+    captureResponseHeaders: [
+      {
+        header: 'client-id',
+        secretName: 'BLINK_CLIENT_ID',
+      },
+    ],
+    suppressResponseBody: true,
+  });
+});
+
+test('Blink live read routes missing refresh token to account-login instead of asking for all credentials', async () => {
   const payload = request(['http-request', 'devices-list']);
   const result = await blink.executeLivePayload(payload, {
-    fetch: vi.fn(async () =>
-      new Response(
-        JSON.stringify({ error: 'Stored secret BLINK_TIER is not set.' }),
-        { status: 400 },
+    fetch: vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: 'Stored secret BLINK_TIER is not set.' }),
+          { status: 400 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: 'Stored secret BLINK_REFRESH_TOKEN is not set.',
+          }),
+          { status: 400 },
+        ),
       ),
-    ),
     gatewayUrl: 'http://127.0.0.1:9090',
   });
 
@@ -510,7 +801,7 @@ test('Blink live read routes missing session secrets to account-login instead of
     operation: 'devices-list',
     ok: false,
     reason: 'blink-login-required',
-    missingSecret: 'BLINK_TIER',
+    missingSecret: 'BLINK_REFRESH_TOKEN',
     nextCommand: 'node skills/blink/blink.cjs --format json run account-login',
   });
   expect(result.result).toContain('email/password can already be stored');
@@ -625,12 +916,12 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
     mode: 'metadata-only',
     maxItems: 25,
   });
-  expect(clips.httpRequest.headers).not.toHaveProperty('TOKEN_AUTH');
+  expect(clips.httpRequest.headers).not.toHaveProperty('Authorization');
   expect(clips.httpRequest.secretHeaders).toEqual([
     {
-      name: 'TOKEN_AUTH',
+      name: 'Authorization',
       secretName: 'BLINK_AUTH_TOKEN',
-      prefix: 'none',
+      prefix: 'Bearer',
     },
   ]);
   expect(download).toMatchObject({
@@ -708,12 +999,12 @@ test('Blink helper builds exact approval plans for privacy-sensitive operations'
   expect(plan.approvalText).toContain('Network: 111.');
   expect(plan.approvalText).toContain('Camera: 222.');
   expect(plan.approvedHelperCommandText).toContain('--operator-grant');
-  expect(plan.httpRequest.headers).not.toHaveProperty('TOKEN_AUTH');
+  expect(plan.httpRequest.headers).not.toHaveProperty('Authorization');
   expect(plan.httpRequest.secretHeaders).toEqual([
     {
-      name: 'TOKEN_AUTH',
+      name: 'Authorization',
       secretName: 'BLINK_AUTH_TOKEN',
-      prefix: 'none',
+      prefix: 'Bearer',
     },
   ]);
 });

@@ -10295,6 +10295,84 @@ describe('gateway HTTP server', () => {
     expect(readStoredRuntimeSecret('BLINK_CLIENT_ID')).toBe('5678');
   });
 
+  test('captures response headers without exposing response values', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-header-capture-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { readStoredRuntimeSecret, saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      BLINK_AUTH_TOKEN: 'blink-auth-token',
+      BLINK_AUTH_TOKEN_BOUND_DOMAIN: 'immedia-semi.com',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ tier: 'e003', account_id: 1234 }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'client-id': '5678',
+          },
+        }),
+      ),
+    );
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info',
+        secretHeaders: [
+          {
+            name: 'Authorization',
+            secretName: 'BLINK_AUTH_TOKEN',
+            prefix: 'Bearer',
+          },
+        ],
+        captureResponseFields: [
+          { jsonPath: 'tier', secretName: 'BLINK_TIER' },
+          { jsonPath: 'account_id', secretName: 'BLINK_ACCOUNT_ID' },
+        ],
+        captureResponseHeaders: [
+          { header: 'client-id', secretName: 'BLINK_CLIENT_ID' },
+        ],
+        suppressResponseBody: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        tier: 'BLINK_TIER',
+        account_id: 'BLINK_ACCOUNT_ID',
+        'headers.client-id': 'BLINK_CLIENT_ID',
+      },
+    });
+    expect(res.body).not.toContain('5678');
+    expect(readStoredRuntimeSecret('BLINK_TIER')).toBe('e003');
+    expect(readStoredRuntimeSecret('BLINK_ACCOUNT_ID')).toBe('1234');
+    expect(readStoredRuntimeSecret('BLINK_CLIENT_ID')).toBe('5678');
+  });
+
   test('suppresses outbound http_request response bodies for opaque results', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-suppress-body-');
     process.env.HOME = homeDir;
