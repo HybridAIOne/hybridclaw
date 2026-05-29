@@ -10892,6 +10892,7 @@ describe('gateway HTTP server', () => {
       artifact: {
         filename: 'backyard.jpg',
         mimeType: 'image/jpeg',
+        sha256: createHash('sha256').update(imageBody).digest('hex'),
       },
     });
     expect(body.artifact.path).toMatch(

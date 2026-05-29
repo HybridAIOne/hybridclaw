@@ -378,7 +378,12 @@ async function saveHttpResponseArtifact(params: {
   response: Response;
   options: ResponseArtifactOptions;
   agentId?: string;
-}): Promise<{ path: string; filename: string; mimeType: string }> {
+}): Promise<{
+  path: string;
+  filename: string;
+  mimeType: string;
+  sha256: string;
+}> {
   const workspaceDir = agentWorkspaceDir(params.agentId || DEFAULT_AGENT_ID);
   const artifactDir = path.join(workspaceDir, '.http-artifacts');
   await fs.promises.mkdir(artifactDir, { recursive: true, mode: 0o700 });
@@ -401,6 +406,7 @@ async function saveHttpResponseArtifact(params: {
     path: `/workspace/.http-artifacts/${storedFilename}`,
     filename,
     mimeType: responseMimeType,
+    sha256: sha256Hex(params.body),
   };
 }
 

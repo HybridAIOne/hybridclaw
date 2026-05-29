@@ -185,7 +185,7 @@ plan camera-live-view-start --network <network-id> --camera <camera-id> [--camer
 ```
 
 Blink clip listing uses the account-scoped `media/changed` API, so `clips-list` intentionally does not accept `--network`; use the returned clip metadata to choose a clip path for `clip-download`.
-For a current still image, run the approved `camera-thumbnail-refresh`, run `devices-list`, then pass the returned camera `thumbnail` path to `thumbnail-download`. Do not rewrite thumbnail paths onto `prod.immedia-semi.com`; the helper routes them through the authenticated `rest-<BLINK_TIER>.immedia-semi.com` host and stores the image as an artifact instead of exposing bytes in model context.
+For a current still image, run the approved `camera-thumbnail-refresh`, run `devices-list`, then pass the returned camera `thumbnail` path to `thumbnail-download`. Do not rewrite thumbnail paths onto `prod.immedia-semi.com`; the helper routes them through the authenticated `rest-<BLINK_TIER>.immedia-semi.com` host and stores the image as an artifact instead of exposing bytes in model context. Treat `updated_at`, `status: done`, and local file mtime as evidence that Blink accepted the refresh command, not as proof that the visual frame changed. Compare the returned artifact `sha256` with the prior camera thumbnail when one is available; if it is unchanged, say Blink refreshed the thumbnail command but returned the same image bytes instead of calling it a fresh screenshot.
 
 `plan` emits no live side effect. It returns `approvalText`,
 `approvedHelperCommandText`, the exact target host/path/method, and the
