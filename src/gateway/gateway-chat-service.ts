@@ -142,6 +142,10 @@ import {
 } from './gateway-utils.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import {
+  detectCliSecretSetCommand,
+  renderCliSecretSetCommandWarning,
+} from './secret-command-guard.js';
+import {
   normalizeSessionShowMode,
   sessionShowModeShowsTools,
 } from './show-mode.js';
@@ -656,6 +660,15 @@ async function handleGatewayMessageInner(
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
   });
+  const cliSecretSetCommand = detectCliSecretSetCommand(req.content);
+  if (cliSecretSetCommand) {
+    return attachSessionIdentity({
+      status: 'success',
+      result: renderCliSecretSetCommandWarning(cliSecretSetCommand),
+      toolsUsed: [],
+      commandResult: true,
+    });
+  }
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
     clearScheduledFullAutoContinuation(req.sessionId);

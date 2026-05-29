@@ -295,6 +295,10 @@ import {
   submitResponseRating,
 } from './response-ratings.js';
 import {
+  detectCliSecretSetCommand,
+  renderCliSecretSetCommandWarning,
+} from './secret-command-guard.js';
+import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
@@ -1807,6 +1811,29 @@ async function resolveApiChatSlashCommandResult(
   };
 }
 
+function resolveApiChatSecretCommandGuardResult(
+  chatRequest: GatewayChatRequest,
+): GatewayChatResult | null {
+  const command = detectCliSecretSetCommand(chatRequest.content);
+  if (!command) return null;
+  return {
+    status: 'success',
+    result: renderCliSecretSetCommandWarning(command),
+    toolsUsed: [],
+    commandResult: true,
+    sessionId: chatRequest.sessionId,
+  };
+}
+
+async function resolveApiChatLocalCommandResult(
+  chatRequest: GatewayChatRequest,
+): Promise<GatewayChatResult | null> {
+  return (
+    resolveApiChatSecretCommandGuardResult(chatRequest) ||
+    (await resolveApiChatSlashCommandResult(chatRequest))
+  );
+}
+
 function isMalformedCanonicalSessionId(value: string | undefined): boolean {
   return (
     classifySessionKeyShape(String(value || '').trim()) ===
@@ -2833,7 +2860,7 @@ async function handleApiChat(
   }
 
   const processedResult =
-    (await resolveApiChatSlashCommandResult(chatRequest)) ||
+    (await resolveApiChatLocalCommandResult(chatRequest)) ||
     normalizePendingApprovalReply(
       normalizePlaceholderToolReply(
         normalizeSilentMessageSendReply(
@@ -3059,11 +3086,12 @@ async function handleApiChatStream(
     Connection: 'keep-alive',
   });
 
-  const slashResult = await resolveApiChatSlashCommandResult(chatRequest);
-  if (slashResult) {
+  const localCommandResult =
+    await resolveApiChatLocalCommandResult(chatRequest);
+  if (localCommandResult) {
     const filteredResult = filterChatResultForSession(
-      slashResult.sessionId || chatRequest.sessionId,
-      slashResult,
+      localCommandResult.sessionId || chatRequest.sessionId,
+      localCommandResult,
     );
     sendEvent({
       type: 'result',
