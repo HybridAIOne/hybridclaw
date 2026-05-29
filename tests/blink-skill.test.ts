@@ -69,13 +69,16 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
     'Use the emitted `httpRequest` object with the gateway `http_request` tool',
   );
   expect(skill).toContain('generic `http_request` primitives');
-  expect(skill).toContain('clips` intentionally does not accept `--network`');
+  expect(skill).toContain('subject-verb names');
+  expect(skill).toContain('captureResponseFields');
+  expect(skill).toContain('app update is required');
+  expect(skill).toContain('clips-list` intentionally does not accept `--network`');
   expect(skill).toContain('Stop after the first 401');
   expect(skill).toContain('F14 PIN');
   expect(skill).toContain('approvedHelperCommandText');
-  expect(skill).toContain('arm-network');
-  expect(skill).toContain('delete-clip');
-  expect(skill).toContain('live-view');
+  expect(skill).toContain('network-arm');
+  expect(skill).toContain('clip-delete');
+  expect(skill).toContain('camera-live-view-start');
 });
 
 test('Blink helper --help exits cleanly and lists read and guarded commands', () => {
@@ -83,29 +86,35 @@ test('Blink helper --help exits cleanly and lists read and guarded commands', ()
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Blink skill helper');
-  expect(result.stdout).toContain('http-request login [--device-id');
+  expect(result.stdout).toContain('http-request account-login [--device-id');
+  expect(result.stdout).toContain('subject-verb');
   expect(result.stdout).toContain('BLINK_DEVICE_ID');
   expect(result.stdout).toContain('generated when unset');
-  expect(result.stdout).toContain('http-request verify-pin --pin <code>');
-  expect(result.stdout).toContain('http-request camera-config');
-  expect(result.stdout).toContain('http-request camera-signals');
-  expect(result.stdout).toContain('clips is account-scoped');
-  expect(result.stdout).toContain('plan camera-motion');
-  expect(result.stdout).toContain('plan live-view');
+  expect(result.stdout).toContain('BLINK_USER_AGENT');
+  expect(result.stdout).toContain('http-request pin-verify --pin <code>');
+  expect(result.stdout).toContain('http-request devices-list');
+  expect(result.stdout).toContain('http-request camera-config-read');
+  expect(result.stdout).toContain('http-request camera-signals-read');
+  expect(result.stdout).toContain('clips-list is account-scoped');
+  expect(result.stdout).toContain('plan camera-motion-set');
+  expect(result.stdout).toContain('plan camera-live-view-start');
 });
 
 test('Blink login request captures token and tier without emitting cleartext credentials', () => {
-  const payload = request(['http-request', 'login']);
+  const payload = request(['http-request', 'account-login']);
 
   expect(payload).toMatchObject({
     command: 'http-request',
-    operation: 'login',
+    operation: 'account-login',
     stakesTier: 'green',
     httpRequest: {
       url: 'https://rest-prod.immedia-semi.com/api/v5/account/login',
       method: 'POST',
       replaceSecretPlaceholders: true,
       skillName: 'blink',
+      headers: {
+        'User-Agent': expect.stringContaining('BlinkHomeSecurity/55.2'),
+      },
       json: {
         email: '<secret:BLINK_EMAIL>',
         password: '<secret:BLINK_PASSWORD>',
@@ -126,15 +135,21 @@ test('Blink login request captures token and tier without emitting cleartext cre
       route: 'f14',
     },
     responseHandling: {
-      authStopStatuses: [401, 412],
+      authStopStatuses: [401, 412, 426],
+      authStopSignals: expect.arrayContaining(['app update is required']),
       capturePersistsSecrets: [
         'BLINK_AUTH_TOKEN',
         'BLINK_TIER',
         'BLINK_ACCOUNT_ID',
         'BLINK_CLIENT_ID',
       ],
+      appUpdate: expect.stringContaining('do not guess alternate Blink endpoints'),
     },
   });
+  expect(payload.toolCallInstructions).toContain(
+    'Do not stringify nested fields',
+  );
+  expect(Array.isArray(payload.httpRequest.captureResponseFields)).toBe(true);
   expect(JSON.stringify(payload)).not.toContain('password123');
   expect(JSON.stringify(payload)).not.toContain('auth-token');
   expect(payload).not.toHaveProperty('failurePolicy');
@@ -143,15 +158,18 @@ test('Blink login request captures token and tier without emitting cleartext cre
 
 test('Blink login accepts non-secret device identity overrides', () => {
   const envResult = runHelper(
-    ['--format', 'json', 'http-request', 'login'],
+    ['--format', 'json', 'http-request', 'account-login'],
     {
       BLINK_DEVICE_ID: 'hybridclaw-env-device',
       BLINK_CLIENT_NAME: 'hybridclaw env',
+      BLINK_USER_AGENT: 'BlinkHomeSecurity/99.0 (iPhone; iOS 17.6; Scale/3.00)',
     },
   );
   const flagPayload = request([
+    '--user-agent',
+    'BlinkHomeSecurity/98.0 (iPhone; iOS 17.6; Scale/3.00)',
     'http-request',
-    'login',
+    'account-login',
     '--device-id',
     'hybridclaw-flag-device',
     '--client-name',
@@ -163,18 +181,44 @@ test('Blink login accepts non-secret device identity overrides', () => {
     unique_id: 'hybridclaw-env-device',
     client_name: 'hybridclaw env',
   });
+  expect(JSON.parse(envResult.stdout).httpRequest.headers['User-Agent']).toBe(
+    'BlinkHomeSecurity/99.0 (iPhone; iOS 17.6; Scale/3.00)',
+  );
   expect(flagPayload.httpRequest.json).toMatchObject({
     unique_id: 'hybridclaw-flag-device',
     client_name: 'hybridclaw flag',
   });
+  expect(flagPayload.httpRequest.headers['User-Agent']).toBe(
+    'BlinkHomeSecurity/98.0 (iPhone; iOS 17.6; Scale/3.00)',
+  );
+});
+
+test('Blink helper accepts legacy operation aliases but emits canonical subject-verb operations', () => {
+  const legacyLogin = request(['http-request', 'login']);
+  const legacyHomescreen = request(['http-request', 'homescreen']);
+  const legacyPlan = request([
+    'plan',
+    'camera-motion',
+    '--network',
+    '111',
+    '--camera',
+    '222',
+    '--enable',
+    'false',
+  ]);
+
+  expect(legacyLogin.operation).toBe('account-login');
+  expect(legacyHomescreen.operation).toBe('devices-list');
+  expect(legacyPlan.operation).toBe('camera-motion-set');
 });
 
 test('Blink helper builds PIN handover and tier-pinned read requests', () => {
-  const verifyPin = request(['http-request', 'verify-pin', '--pin', '123456']);
-  const cameras = request(['http-request', 'cameras', '--network', '111']);
+  const verifyPin = request(['http-request', 'pin-verify', '--pin', '123456']);
+  const devices = request(['http-request', 'devices-list']);
+  const cameras = request(['http-request', 'cameras-list', '--network', '111']);
   const cameraConfig = request([
     'http-request',
-    'camera-config',
+    'camera-config-read',
     '--network',
     '111',
     '--camera',
@@ -182,7 +226,7 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
   ]);
   const cameraSignals = request([
     'http-request',
-    'camera-signals',
+    'camera-signals-read',
     '--network',
     '111',
     '--camera',
@@ -190,7 +234,7 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
   ]);
   const clips = request([
     'http-request',
-    'clips',
+    'clips-list',
     '--since',
     '2026-05-26T00:00:00Z',
     '--page',
@@ -206,7 +250,7 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
   ]);
 
   expect(verifyPin).toMatchObject({
-    operation: 'verify-pin',
+    operation: 'pin-verify',
     stakesTier: 'amber',
     httpRequest: {
       url: 'https://rest-<secret:BLINK_TIER>.immedia-semi.com/api/v4/account/<secret:BLINK_ACCOUNT_ID>/client/<secret:BLINK_CLIENT_ID>/pin/verify',
@@ -214,6 +258,9 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
       json: { pin: '123456' },
     },
   });
+  expect(devices.httpRequest.url).toBe(
+    'https://rest-<secret:BLINK_TIER>.immedia-semi.com/api/v3/accounts/<secret:BLINK_ACCOUNT_ID>/homescreen',
+  );
   expect(cameras.httpRequest.url).toBe(
     'https://rest-<secret:BLINK_TIER>.immedia-semi.com/network/111/cameras',
   );
@@ -270,7 +317,7 @@ test('Blink helper rejects arbitrary endpoint passthrough and unsafe clip paths'
     '--format',
     'json',
     'http-request',
-    'clips',
+    'clips-list',
     '--network',
     '111',
   ]);
@@ -288,7 +335,7 @@ test('Blink helper rejects arbitrary endpoint passthrough and unsafe clip paths'
 test('Blink helper builds exact approval plans for privacy-sensitive operations', () => {
   const plan = request([
     'plan',
-    'camera-motion',
+    'camera-motion-set',
     '--network',
     '111',
     '--camera',
@@ -299,7 +346,7 @@ test('Blink helper builds exact approval plans for privacy-sensitive operations'
 
   expect(plan).toMatchObject({
     command: 'approval-plan',
-    operation: 'camera-motion',
+    operation: 'camera-motion-set',
     stakesTier: 'amber',
     approvalRequired: true,
     approvalRoute: 'f14',
@@ -328,7 +375,7 @@ test('Blink helper requires operator grant for mutating http-request commands', 
     '--format',
     'json',
     'http-request',
-    'arm-network',
+    'network-arm',
     '--network',
     '111',
   ]);
@@ -336,7 +383,7 @@ test('Blink helper requires operator grant for mutating http-request commands', 
     '--format',
     'json',
     'http-request',
-    'arm-network',
+    'network-arm',
     '--network',
     '111',
     '--operator-grant',
@@ -348,7 +395,7 @@ test('Blink helper requires operator grant for mutating http-request commands', 
   );
   expect(approved.status).toBe(0);
   expect(JSON.parse(approved.stdout)).toMatchObject({
-    operation: 'arm-network',
+    operation: 'network-arm',
     stakesTier: 'amber',
     httpRequest: {
       url: 'https://rest-e003.immedia-semi.com/api/v1/accounts/1234/networks/111/state/arm',
@@ -360,7 +407,7 @@ test('Blink helper requires operator grant for mutating http-request commands', 
 test('Blink helper shapes red live-view and delete plans', () => {
   const liveView = request([
     'plan',
-    'live-view',
+    'camera-live-view-start',
     '--network',
     '111',
     '--camera',
@@ -368,7 +415,7 @@ test('Blink helper shapes red live-view and delete plans', () => {
     '--camera-type',
     'doorbell',
   ]);
-  const deleteClip = request(['plan', 'delete-clip', '--clip', 'abc123']);
+  const deleteClip = request(['plan', 'clip-delete', '--clip', 'abc123']);
 
   expect(liveView).toMatchObject({
     stakesTier: 'red',
