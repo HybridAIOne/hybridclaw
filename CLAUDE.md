@@ -10,6 +10,9 @@ Claude-specific notes:
   `hybridclaw gateway status`, logs, runtime state, and the actual running
   process before diagnosing stale state; do not restart the gateway without
   explicit user approval.
+- Before creating, editing, or optimizing a skill, read
+  `docs/content/extensibility/skills.md` and follow its helper, command-surface,
+  approval, credential, gateway, and testing guidance.
 - For new, unreleased features, do not preserve compatibility with previous
   internal states. Remove provisional names, aliases, and workflows instead of
   carrying them forward.

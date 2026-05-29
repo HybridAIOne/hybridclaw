@@ -218,6 +218,9 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
   task requires wider movement.
 - Match the existing TypeScript + ESM patterns in the touched area.
 - Update tests and docs when behavior, commands, or repo workflows change.
+- Before creating, editing, or optimizing a skill, read
+  `docs/content/extensibility/skills.md` and follow its helper, command-surface,
+  approval, credential, gateway, and testing guidance.
 - When implementing a new feature, ask before keeping any compatibility shim,
   migration fallback, legacy alias, or feature flag solely for backward
   compatibility.
