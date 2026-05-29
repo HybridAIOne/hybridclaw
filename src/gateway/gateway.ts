@@ -297,6 +297,23 @@ function hasSignalConfigChanged(
   );
 }
 
+function hasWhatsAppConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['whatsapp'],
+  prev: ReturnType<typeof getConfigSnapshot>['whatsapp'],
+): boolean {
+  return (
+    next.dmPolicy !== prev.dmPolicy ||
+    next.groupPolicy !== prev.groupPolicy ||
+    !equalStringSets(next.allowFrom, prev.allowFrom) ||
+    !equalStringSets(next.groupAllowFrom, prev.groupAllowFrom) ||
+    next.debounceMs !== prev.debounceMs ||
+    next.ackReaction !== prev.ackReaction ||
+    next.textChunkLimit !== prev.textChunkLimit ||
+    next.mediaMaxMb !== prev.mediaMaxMb ||
+    next.sendReadReceipts !== prev.sendReadReceipts
+  );
+}
+
 function hasThreemaConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['threema'],
   prev: ReturnType<typeof getConfigSnapshot>['threema'],
@@ -2665,6 +2682,30 @@ async function refreshSignalIntegrationForConfigChange(
   await startSignalIntegration();
 }
 
+async function refreshWhatsAppIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasWhatsAppConfigChanged(next.whatsapp, prev.whatsapp)) return;
+
+  logger.info(
+    {
+      dmPolicy: next.whatsapp.dmPolicy,
+      groupPolicy: next.whatsapp.groupPolicy,
+      allowFromCount: next.whatsapp.allowFrom.length,
+      groupAllowFromCount: next.whatsapp.groupAllowFrom.length,
+    },
+    'Config changed, restarting WhatsApp integration',
+  );
+  await shutdownWhatsApp().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop WhatsApp runtime during config-change restart',
+    );
+  });
+  await startWhatsAppIntegration();
+}
+
 async function refreshThreemaIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
@@ -3516,6 +3557,14 @@ async function main(): Promise<void> {
         'Signal integration restart failed after config change',
       );
     });
+    void refreshWhatsAppIntegrationForConfigChange(next, prev).catch(
+      (error) => {
+        logger.warn(
+          { error },
+          'WhatsApp integration restart failed after config change',
+        );
+      },
+    );
     void refreshThreemaIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
         { error },
