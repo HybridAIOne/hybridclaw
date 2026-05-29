@@ -111,11 +111,11 @@ function printHelp() {
   console.log(`Blink skill helper
 
 Usage:
-  node skills/blink/blink.cjs [--format json|pretty] [--user-agent <ua>] http-request <operation> [flags]
-  node skills/blink/blink.cjs [--format json|pretty] [--user-agent <ua>] plan <operation> [flags]
+  node skills/blink/blink.cjs [--format json|pretty] http-request <operation> [flags]
+  node skills/blink/blink.cjs [--format json|pretty] plan <operation> [flags]
 
 Read/request commands:
-  http-request account-login [--device-id <stable-id>] [--client-name <name>]
+  http-request account-login
   http-request pin-verify --pin <code>
   http-request devices-list
   http-request networks-list
@@ -139,9 +139,9 @@ Guarded operation plans:
   plan camera-live-view-start --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
 
 Environment:
-  BLINK_DEVICE_ID     optional stable client id; generated when unset
-  BLINK_CLIENT_NAME   optional Blink app display name; default hybridclaw
-  BLINK_USER_AGENT    optional Blink app user-agent override
+  BLINK_DEVICE_ID     reserved for future OAuth v2 login support
+  BLINK_CLIENT_NAME   reserved for future OAuth v2 login support
+  BLINK_USER_AGENT    reserved for future OAuth v2 login support
   BLINK_TIER          optional resolved tier, for example e003
   BLINK_ACCOUNT_ID    optional numeric account id fallback
   BLINK_CLIENT_ID     optional numeric client id fallback
@@ -473,53 +473,35 @@ function buildPayload(
 }
 
 function buildAccountLogin(args) {
-  const deviceId = resolveDeviceId(args);
-  const clientName = resolveClientName(args);
   assertNoUnexpectedArgs(args);
-  return buildPayload('account-login', {
-    url: `${DEFAULT_REST_BASE}/api/v5/account/login`,
-    method: 'POST',
-    headers: blinkHeaders(),
-    json: {
-      email: `<secret:${SECRET_NAMES.email}>`,
-      password: `<secret:${SECRET_NAMES.password}>`,
-      unique_id: deviceId,
-      client_name: clientName,
-      reauth: 'true',
-    },
-    captureResponseFields: [
-      { jsonPath: 'auth.token', secretName: SECRET_NAMES.authToken },
-      { jsonPath: 'account.tier', secretName: SECRET_NAMES.tier },
-      { jsonPath: 'account.account_id', secretName: SECRET_NAMES.accountId },
-      { jsonPath: 'account.client_id', secretName: SECRET_NAMES.clientId },
+  return {
+    command: 'auth-required',
+    operation: 'account-login',
+    stakesTier: OPERATION_TIERS['account-login'],
+    hardStop: true,
+    reason: 'blink-oauth-v2-required',
+    result:
+      'Blink password login is no longer emitted because the legacy /api/v5/account/login endpoint returns 426 app-update responses and the OAuth password grant returns unsupported_grant_type. Existing stored tokens may still work for read operations; otherwise the Blink skill needs a cookie-safe OAuth v2 Authorization Code + PKCE implementation before it can log in.',
+    unsupportedRequests: [
+      'POST https://rest-prod.immedia-semi.com/api/v5/account/login',
+      'POST https://api.oauth.blink.com/oauth/token grant_type=password',
     ],
-    handover: {
-      route: 'f14',
-      trigger:
-        'If Blink responds with verification_required, client_verification_required, a 412 response, or an account/client verification challenge, ask the operator for the email/SMS PIN through durable F14 handover and then run pin-verify.',
-      resumeCommand:
-        'node skills/blink/blink.cjs --format json http-request pin-verify --pin <code>',
-    },
-    responseHandling: {
-      authStopStatuses: [401, 412, 426],
-      authStopSignals: [
-        'invalid credentials',
-        'verification_required',
-        'client_verification_required',
-        'needs verification',
-        'app update is required',
+    requiredFlow: {
+      type: 'oauth-v2-authorization-code-pkce',
+      hosts: ['api.oauth.blink.com', REST_PROD_HOST],
+      steps: [
+        'Generate PKCE verifier/challenge and hardware id.',
+        'Start /oauth/v2/authorize with client_id=ios and redirect_uri=immedia-blink://applinks.blink.com/signin/callback.',
+        'Fetch /oauth/v2/signin, preserve cookies outside model context, and extract the csrf-token from the oauth-args script.',
+        'Submit credentials with csrf-token; use F14 for the 2FA code if Blink returns a verification challenge.',
+        'Read the authorization code from the redirect and exchange it at /oauth/token with grant_type=authorization_code.',
+        'Capture access token, refresh token, tier, account id, and client id into the secret store without exposing them to the model.',
       ],
-      capturePersistsSecrets: [
-        SECRET_NAMES.authToken,
-        SECRET_NAMES.tier,
-        SECRET_NAMES.accountId,
-        SECRET_NAMES.clientId,
-      ],
-      appUpdate:
-        'A 426 app-update response means the helper app identity is stale. Stop; do not guess alternate Blink endpoints. Update BLINK_USER_AGENT or the helper default.',
     },
-    maxResponseBytes: 64_000,
-  });
+    toolCallInstructions:
+      'Stop. Do not call http_request for legacy Blink login, do not try alternate /api/v3-/api/v6 login paths, do not try OAuth grant_type=password, and do not web-search inside the user task. Report that OAuth v2 support is required unless existing BLINK_AUTH_TOKEN/BLINK_TIER/BLINK_ACCOUNT_ID secrets are already set.',
+    costMeasurement: COST_MEASUREMENT,
+  };
 }
 
 function buildPinVerify(args) {

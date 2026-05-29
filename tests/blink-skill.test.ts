@@ -86,10 +86,10 @@ test('Blink helper --help exits cleanly and lists read and guarded commands', ()
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Blink skill helper');
-  expect(result.stdout).toContain('http-request account-login [--device-id');
+  expect(result.stdout).toContain('http-request account-login');
   expect(result.stdout).toContain('subject-verb');
   expect(result.stdout).toContain('BLINK_DEVICE_ID');
-  expect(result.stdout).toContain('generated when unset');
+  expect(result.stdout).toContain('reserved for future OAuth v2 login support');
   expect(result.stdout).toContain('BLINK_USER_AGENT');
   expect(result.stdout).toContain('http-request pin-verify --pin <code>');
   expect(result.stdout).toContain('http-request devices-list');
@@ -100,63 +100,35 @@ test('Blink helper --help exits cleanly and lists read and guarded commands', ()
   expect(result.stdout).toContain('plan camera-live-view-start');
 });
 
-test('Blink login request captures token and tier without emitting cleartext credentials', () => {
+test('Blink login returns an OAuth v2 hard stop without emitting deprecated requests or credentials', () => {
   const payload = request(['http-request', 'account-login']);
 
   expect(payload).toMatchObject({
-    command: 'http-request',
+    command: 'auth-required',
     operation: 'account-login',
     stakesTier: 'green',
-    httpRequest: {
-      url: 'https://rest-prod.immedia-semi.com/api/v5/account/login',
-      method: 'POST',
-      replaceSecretPlaceholders: true,
-      skillName: 'blink',
-      headers: {
-        'User-Agent': expect.stringContaining('BlinkHomeSecurity/55.2'),
-      },
-      json: {
-        email: '<secret:BLINK_EMAIL>',
-        password: '<secret:BLINK_PASSWORD>',
-        unique_id: expect.stringMatching(
-          /^hybridclaw-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u,
-        ),
-        client_name: 'hybridclaw',
-        reauth: 'true',
-      },
-      captureResponseFields: [
-        { jsonPath: 'auth.token', secretName: 'BLINK_AUTH_TOKEN' },
-        { jsonPath: 'account.tier', secretName: 'BLINK_TIER' },
-        { jsonPath: 'account.account_id', secretName: 'BLINK_ACCOUNT_ID' },
-        { jsonPath: 'account.client_id', secretName: 'BLINK_CLIENT_ID' },
-      ],
-    },
-    handover: {
-      route: 'f14',
-    },
-    responseHandling: {
-      authStopStatuses: [401, 412, 426],
-      authStopSignals: expect.arrayContaining(['app update is required']),
-      capturePersistsSecrets: [
-        'BLINK_AUTH_TOKEN',
-        'BLINK_TIER',
-        'BLINK_ACCOUNT_ID',
-        'BLINK_CLIENT_ID',
-      ],
-      appUpdate: expect.stringContaining('do not guess alternate Blink endpoints'),
+    hardStop: true,
+    reason: 'blink-oauth-v2-required',
+    requiredFlow: {
+      type: 'oauth-v2-authorization-code-pkce',
+      hosts: ['api.oauth.blink.com', 'rest-prod.immedia-semi.com'],
     },
   });
+  expect(payload).not.toHaveProperty('httpRequest');
   expect(payload.toolCallInstructions).toContain(
-    'Do not stringify nested fields',
+    'Do not call http_request for legacy Blink login',
   );
-  expect(Array.isArray(payload.httpRequest.captureResponseFields)).toBe(true);
+  expect(payload.toolCallInstructions).toContain('grant_type=password');
+  expect(payload.result).toContain('Existing stored tokens may still work');
+  expect(JSON.stringify(payload)).not.toContain('<secret:BLINK_EMAIL>');
+  expect(JSON.stringify(payload)).not.toContain('<secret:BLINK_PASSWORD>');
   expect(JSON.stringify(payload)).not.toContain('password123');
   expect(JSON.stringify(payload)).not.toContain('auth-token');
   expect(payload).not.toHaveProperty('failurePolicy');
   expect(payload).not.toHaveProperty('secretRefPolicy');
 });
 
-test('Blink login accepts non-secret device identity overrides', () => {
+test('Blink login rejects stale identity flags instead of using the deprecated password path', () => {
   const envResult = runHelper(
     ['--format', 'json', 'http-request', 'account-login'],
     {
@@ -165,9 +137,9 @@ test('Blink login accepts non-secret device identity overrides', () => {
       BLINK_USER_AGENT: 'BlinkHomeSecurity/99.0 (iPhone; iOS 17.6; Scale/3.00)',
     },
   );
-  const flagPayload = request([
-    '--user-agent',
-    'BlinkHomeSecurity/98.0 (iPhone; iOS 17.6; Scale/3.00)',
+  const flagResult = runHelper([
+    '--format',
+    'json',
     'http-request',
     'account-login',
     '--device-id',
@@ -177,20 +149,13 @@ test('Blink login accepts non-secret device identity overrides', () => {
   ]);
 
   expect(envResult.status).toBe(0);
-  expect(JSON.parse(envResult.stdout).httpRequest.json).toMatchObject({
-    unique_id: 'hybridclaw-env-device',
-    client_name: 'hybridclaw env',
+  expect(JSON.parse(envResult.stdout)).toMatchObject({
+    command: 'auth-required',
+    reason: 'blink-oauth-v2-required',
   });
-  expect(JSON.parse(envResult.stdout).httpRequest.headers['User-Agent']).toBe(
-    'BlinkHomeSecurity/99.0 (iPhone; iOS 17.6; Scale/3.00)',
-  );
-  expect(flagPayload.httpRequest.json).toMatchObject({
-    unique_id: 'hybridclaw-flag-device',
-    client_name: 'hybridclaw flag',
-  });
-  expect(flagPayload.httpRequest.headers['User-Agent']).toBe(
-    'BlinkHomeSecurity/98.0 (iPhone; iOS 17.6; Scale/3.00)',
-  );
+  expect(flagResult.status).not.toBe(0);
+  expect(flagResult.stderr).toContain('Unexpected argument: --device-id');
+  expect(flagResult.stderr).not.toContain('hybridclaw-flag-device');
 });
 
 test('Blink helper accepts legacy operation aliases but emits canonical subject-verb operations', () => {
