@@ -96,6 +96,7 @@ best-effort and stop on the first authentication or verification failure.
 - Use `http-request` only as dry-run JSON for inspection or fallback direct `http_request` execution when helper live execution is unavailable. Pass emitted `httpRequest` fields as structured JSON; do not stringify nested fields such as `captureResponseFields` or `secretHeaders`.
 - Helper operations use subject-verb names (`devices-list`, `account-login`, `camera-motion-set`). Legacy aliases are accepted, but prefer the canonical names shown below.
 - Credentials and tokens must stay in the SecretRef-backed runtime secret store; never ask the operator to paste `BLINK_PASSWORD` or `BLINK_AUTH_TOKEN` into chat, and never include either value in prose.
+- Do not run `hybridclaw secret get`; it is not a supported command. Do not inspect host secrets from inside the agent sandbox. If the helper reports missing session secrets such as `BLINK_TIER`, run `run account-login`; email/password may already be stored.
 - `account-login` is implemented as OAuth v2 Authorization Code + PKCE in the helper. Run `node skills/blink/blink.cjs --format json run account-login`; do not call old password login endpoints and do not web-search or endpoint-probe inside the user task.
 - The Blink-specific implementation lives under `skills/blink/`; the gateway pieces this skill relies on are generic `http_request` primitives for nested response capture, explicit token bind-domain capture, secret-backed headers, manual redirect inspection, and response-body suppression.
 - The helper only emits allowlisted hosts: `rest-prod.immedia-semi.com`, `rest-<BLINK_TIER>.immedia-semi.com`, and `prod.immedia-semi.com` for selected media artifact paths; arbitrary host/path passthrough is not supported.
@@ -191,7 +192,7 @@ the approved helper command exactly.
 ## Read Workflow
 
 1. Use `devices-list` first for a compact account overview; it includes networks, sync modules, cameras, and doorbell-like devices on current Blink accounts.
-2. If `devices-list` fails because `BLINK_AUTH_TOKEN`, `BLINK_TIER`, or `BLINK_ACCOUNT_ID` is missing or stale, run `node skills/blink/blink.cjs --format json run account-login` once.
+2. If `devices-list` returns `blink-login-required` or fails because `BLINK_AUTH_TOKEN`, `BLINK_TIER`, or `BLINK_ACCOUNT_ID` is missing or stale, run `node skills/blink/blink.cjs --format json run account-login` once. Do not tell the operator all Blink credentials are missing just because token/tier/account session secrets are not set yet.
 3. If login returns `handover-required`, ask for the Blink PIN via F14 and run `node skills/blink/blink.cjs --format json run account-login --pin <code>`.
 4. If login reports invalid credentials, app update, unsupported grant, or verification failure, stop immediately; do not try guessed `/api/v3`, `/api/v4`, `/api/v6`, OAuth password-grant, or User-Agent variants.
 5. Use the narrower list commands when the operator asks for a specific network or device class; use `camera-config-read` for motion/video/illuminator settings and `camera-signals-read` for camera battery, Wi-Fi/sync signal, and temperature telemetry when the homescreen response is not enough.
