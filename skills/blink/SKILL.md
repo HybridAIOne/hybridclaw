@@ -12,7 +12,7 @@ credentials:
     secret_ref:
       source: store
       id: BLINK_EMAIL
-    scope: "Blink account email for future OAuth v2 login support"
+    scope: "Blink account email for OAuth v2 login"
     how_to_obtain: "In the TUI, use `/secret set BLINK_EMAIL \"<account email>\"`. From a shell, use `hybridclaw secret set BLINK_EMAIL \"<account email>\"`."
   - id: blink-password
     kind: api_key
@@ -20,7 +20,7 @@ credentials:
     secret_ref:
       source: store
       id: BLINK_PASSWORD
-    scope: "Blink account password for future OAuth v2 login support"
+    scope: "Blink account password for OAuth v2 login"
     how_to_obtain: "In the TUI, use `/secret set BLINK_PASSWORD \"<account password>\"`. From a shell, use `hybridclaw secret set BLINK_PASSWORD \"<account password>\"`."
   - id: blink-auth-token
     kind: bearer
@@ -29,7 +29,15 @@ credentials:
       source: store
       id: BLINK_AUTH_TOKEN
     scope: "Blink TOKEN_AUTH value captured after login"
-    how_to_obtain: "Captured by a future OAuth v2 login flow. Existing stored tokens may still work for read operations."
+    how_to_obtain: "Captured by `node skills/blink/blink.cjs --format json run account-login`."
+  - id: blink-refresh-token
+    kind: bearer
+    required: false
+    secret_ref:
+      source: store
+      id: BLINK_REFRESH_TOKEN
+    scope: "Blink OAuth refresh token captured after login"
+    how_to_obtain: "Captured by `node skills/blink/blink.cjs --format json run account-login`."
 metadata:
   hybridclaw:
     category: home-automation
@@ -43,6 +51,7 @@ metadata:
     stakes_tiers:
       green:
         - account-login
+        - account-refresh
         - devices-list
         - networks-list
         - network-status-read
@@ -82,18 +91,18 @@ best-effort and stop on the first authentication or verification failure.
 
 ## Core Contract
 
-- Build all Blink API calls with `skills/blink/blink.cjs`; do not handcraft Blink URLs, auth headers, or JSON bodies when the helper supports the operation.
-- Use the emitted `httpRequest` object with the gateway `http_request` tool; do not use shell `curl` for live Blink calls.
-- Pass the emitted `httpRequest` fields as structured JSON. Do not stringify nested fields such as `captureResponseFields` or `secretHeaders`.
+- Build and run all Blink API calls with `skills/blink/blink.cjs`; do not handcraft Blink URLs, auth headers, or JSON bodies when the helper supports the operation.
+- Use `run` for live Blink calls. The helper sends its own request objects through the gateway `/api/http/request` path, so the model does not reconstruct endpoint details.
+- Use `http-request` only as dry-run JSON for inspection or fallback direct `http_request` execution when helper live execution is unavailable. Pass emitted `httpRequest` fields as structured JSON; do not stringify nested fields such as `captureResponseFields` or `secretHeaders`.
 - Helper operations use subject-verb names (`devices-list`, `account-login`, `camera-motion-set`). Legacy aliases are accepted, but prefer the canonical names shown below.
 - Credentials and tokens must stay in the SecretRef-backed runtime secret store; never ask the operator to paste `BLINK_PASSWORD` or `BLINK_AUTH_TOKEN` into chat, and never include either value in prose.
-- `account-login` is currently a hard-stop auth contract, not an `httpRequest`, because Blink deprecated the old password login path. If it returns `blink-oauth-v2-required`, stop and report that OAuth v2 support is needed; do not web-search, endpoint-probe, or offer to implement it inside the user task.
-- The Blink-specific implementation lives under `skills/blink/`; the gateway pieces this skill relies on are generic `http_request` primitives for nested response capture, secret-backed headers, and response-body suppression.
+- `account-login` is implemented as OAuth v2 Authorization Code + PKCE in the helper. Run `node skills/blink/blink.cjs --format json run account-login`; do not call old password login endpoints and do not web-search or endpoint-probe inside the user task.
+- The Blink-specific implementation lives under `skills/blink/`; the gateway pieces this skill relies on are generic `http_request` primitives for nested response capture, explicit token bind-domain capture, secret-backed headers, manual redirect inspection, and response-body suppression.
 - The helper only emits allowlisted hosts: `rest-prod.immedia-semi.com`, `rest-<BLINK_TIER>.immedia-semi.com`, and `prod.immedia-semi.com` for selected media artifact paths; arbitrary host/path passthrough is not supported.
 - Clip downloads must go through the gateway artifact path; return artifact handles or metadata only, and rely on the helper-emitted `suppressResponseBody: true` so raw video bytes do not enter model context.
 - Live-view requests are red and operator-UI-only; the helper emits `suppressResponseBody: true`, and RTSP/HLS/session handles must not be copied into chat even after approval.
 - Stop after the first 401, invalid-credentials, or verification-required response; do not retry, poll, or fan out more Blink calls until credentials or the PIN handover are resolved.
-- Stop after a 426 `app update is required` response or OAuth `unsupported_grant_type`. Do not probe alternate Blink endpoints, try new User-Agents, or attempt OAuth `grant_type=password`; the required path is OAuth v2 Authorization Code + PKCE with cookie and redirect handling outside model context.
+- Stop after a 426 `app update is required` response or OAuth `unsupported_grant_type`. Do not probe alternate Blink endpoints, try new User-Agents, or attempt OAuth `grant_type=password`; use the helper's OAuth v2 Authorization Code + PKCE path with cookie and redirect handling outside model context.
 
 ## Setup
 
@@ -111,30 +120,28 @@ hybridclaw secret set BLINK_EMAIL "<account email>"
 hybridclaw secret set BLINK_PASSWORD "<account password>"
 ```
 
-`BLINK_DEVICE_ID` and `BLINK_CLIENT_NAME` are not secrets. They are reserved for a future OAuth v2 login implementation and are not needed for reads when `BLINK_AUTH_TOKEN`, `BLINK_TIER`, and `BLINK_ACCOUNT_ID` are already set.
+`BLINK_DEVICE_ID` and `BLINK_CLIENT_NAME` are not secrets. The helper generates a stable OAuth hardware id automatically; `BLINK_DEVICE_ID` is only an optional advanced override. `BLINK_CLIENT_NAME` is retained as a non-secret compatibility label and is not sent to Blink OAuth v2.
 
 ```bash
-node skills/blink/blink.cjs --format json http-request account-login
+node skills/blink/blink.cjs --format json run account-login
 ```
 
-This currently returns `command: "auth-required"` and `reason:
-"blink-oauth-v2-required"` instead of an `httpRequest`. A future successful
-OAuth v2 login flow should capture:
+Successful OAuth v2 login captures:
 
-`BLINK_AUTH_TOKEN`, `BLINK_TIER`, `BLINK_ACCOUNT_ID`, and `BLINK_CLIENT_ID`.
-Do not ask the operator to set these manually after login; the gateway should
-write them to the secret store automatically.
+`BLINK_AUTH_TOKEN`, `BLINK_REFRESH_TOKEN`, `BLINK_TIER`, `BLINK_ACCOUNT_ID`,
+and `BLINK_CLIENT_ID`. Do not ask the operator to set these manually after
+login; the gateway writes them to the secret store automatically.
 
 If Blink marks the client as unverified, it sends an email/SMS PIN. Use F14
 durable handover to receive that PIN from the operator, then run the
-`pin-verify` helper request with the PIN. The PIN can appear in the helper
-arguments because it is a short-lived operator handover code; the password and
-auth token must never appear there.
+login helper with the PIN:
 
-If Blink login is required, stop after the helper's `auth-required` result.
-Do not fetch community issues, try app-version User-Agent strings, call the old
-OAuth password grant, or ask the operator whether to implement OAuth in the
-same task.
+```bash
+node skills/blink/blink.cjs --format json run account-login --pin "<code>"
+```
+
+The PIN can appear in helper arguments because it is a short-lived operator
+handover code; the password and auth token must never appear there.
 
 ## Helper Commands
 
@@ -142,9 +149,15 @@ Use this command surface directly:
 
 ```text
 node skills/blink/blink.cjs [--format json|pretty] http-request <operation> [flags]
+node skills/blink/blink.cjs [--format json|pretty] run <operation> [flags]
 node skills/blink/blink.cjs [--format json|pretty] plan <operation> [flags]
 
+run account-login [--pin <code>]
+run account-refresh
+run devices-list
+
 http-request account-login
+http-request account-refresh
 http-request pin-verify --pin <code>
 http-request devices-list
 http-request networks-list
@@ -178,9 +191,9 @@ the approved helper command exactly.
 ## Read Workflow
 
 1. Use `devices-list` first for a compact account overview; it includes networks, sync modules, cameras, and doorbell-like devices on current Blink accounts.
-2. If `devices-list` fails because `BLINK_AUTH_TOKEN`, `BLINK_TIER`, or `BLINK_ACCOUNT_ID` is missing or stale, run `http-request account-login` once.
-3. If `account-login` returns `blink-oauth-v2-required`, stop and report that this skill needs OAuth v2 Authorization Code + PKCE support before it can log in. Do not try guessed `/api/v3`, `/api/v4`, `/api/v6`, OAuth password-grant, or User-Agent variants.
-4. If a future login flow reports `verification_required`, `client_verification_required`, or similar invalid-credential text, stop immediately; for verification challenges, ask for F14 PIN handover and run `http-request pin-verify --pin <code>`.
+2. If `devices-list` fails because `BLINK_AUTH_TOKEN`, `BLINK_TIER`, or `BLINK_ACCOUNT_ID` is missing or stale, run `node skills/blink/blink.cjs --format json run account-login` once.
+3. If login returns `handover-required`, ask for the Blink PIN via F14 and run `node skills/blink/blink.cjs --format json run account-login --pin <code>`.
+4. If login reports invalid credentials, app update, unsupported grant, or verification failure, stop immediately; do not try guessed `/api/v3`, `/api/v4`, `/api/v6`, OAuth password-grant, or User-Agent variants.
 5. Use the narrower list commands when the operator asks for a specific network or device class; use `camera-config-read` for motion/video/illuminator settings and `camera-signals-read` for camera battery, Wi-Fi/sync signal, and temperature telemetry when the homescreen response is not enough.
 6. For incident-card summaries, report concrete device ids/names, network ids, offline duration, low battery, poor signal, temperature, and motion bursts only from successful live Blink responses.
 

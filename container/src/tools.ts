@@ -4450,6 +4450,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'When true, the gateway forwards the request but omits the response body from the tool result. Use for binary artifacts, media, live-view handles, or other data that must not enter model context.',
           },
+          allowManualRedirect: {
+            type: 'boolean',
+            description:
+              'When true, return 3xx response headers such as Location without following the redirect. Use only when a helper must inspect an authorization redirect code; the gateway still never follows outbound redirects.',
+          },
           timeoutMs: {
             type: 'number',
             description: 'Optional timeout in milliseconds.',

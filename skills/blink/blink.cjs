@@ -1,16 +1,31 @@
 #!/usr/bin/env node
 'use strict';
 
-const { createHash } = require('node:crypto');
+const { createHash, randomBytes } = require('node:crypto');
 const os = require('node:os');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
+const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const SKILL_NAME = 'blink';
 const REST_PROD_HOST = 'rest-prod.immedia-semi.com';
 const PROD_HOST = 'prod.immedia-semi.com';
 const DEFAULT_REST_BASE = `https://${REST_PROD_HOST}`;
-const DEFAULT_BLINK_APP_VERSION = '55.2';
-const DEFAULT_USER_AGENT = `BlinkHomeSecurity/${DEFAULT_BLINK_APP_VERSION} (iPhone; iOS 17.6; Scale/3.00)`;
+const DEFAULT_USER_AGENT = '27.0ANDROID_28373244';
+const OAUTH_BASE_URL = 'https://api.oauth.blink.com';
+const OAUTH_AUTHORIZE_URL = `${OAUTH_BASE_URL}/oauth/v2/authorize`;
+const OAUTH_SIGNIN_URL = `${OAUTH_BASE_URL}/oauth/v2/signin`;
+const OAUTH_2FA_VERIFY_URL = `${OAUTH_BASE_URL}/oauth/v2/2fa/verify`;
+const OAUTH_TOKEN_URL = `${OAUTH_BASE_URL}/oauth/token`;
+const OAUTH_CLIENT_ID = 'ios';
+const OAUTH_REDIRECT_URI =
+  'immedia-blink://applinks.blink.com/signin/callback';
+const OAUTH_SCOPE = 'client';
+const OAUTH_APP_VERSION = '50.1';
+const OAUTH_BROWSER_USER_AGENT =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Mobile/15E148 Safari/604.1';
+const OAUTH_TOKEN_USER_AGENT =
+  'Blink/2511191620 CFNetwork/3860.200.71 Darwin/25.1.0';
 let userAgent = DEFAULT_USER_AGENT;
 const COST_MEASUREMENT = {
   system: 'UsageTotals',
@@ -21,6 +36,7 @@ const SECRET_NAMES = {
   email: 'BLINK_EMAIL',
   password: 'BLINK_PASSWORD',
   authToken: 'BLINK_AUTH_TOKEN',
+  refreshToken: 'BLINK_REFRESH_TOKEN',
   tier: 'BLINK_TIER',
   accountId: 'BLINK_ACCOUNT_ID',
   clientId: 'BLINK_CLIENT_ID',
@@ -33,6 +49,7 @@ const ENV_NAMES = {
 
 const OPERATION_TIERS = {
   'account-login': 'green',
+  'account-refresh': 'green',
   'pin-verify': 'amber',
   'devices-list': 'green',
   'networks-list': 'green',
@@ -56,6 +73,7 @@ const OPERATION_TIERS = {
 
 const HTTP_OPERATIONS = new Set([
   'account-login',
+  'account-refresh',
   'pin-verify',
   'devices-list',
   'networks-list',
@@ -82,6 +100,7 @@ const PLAN_OPERATIONS = new Set([
 
 const OPERATION_ALIASES = new Map([
   ['login', 'account-login'],
+  ['refresh', 'account-refresh'],
   ['verify-pin', 'pin-verify'],
   ['homescreen', 'devices-list'],
   ['networks', 'networks-list'],
@@ -111,11 +130,16 @@ function printHelp() {
   console.log(`Blink skill helper
 
 Usage:
+  node skills/blink/blink.cjs [--format json|pretty] run <operation> [flags]
   node skills/blink/blink.cjs [--format json|pretty] http-request <operation> [flags]
   node skills/blink/blink.cjs [--format json|pretty] plan <operation> [flags]
 
 Read/request commands:
+  run account-login [--pin <code>]
+  run account-refresh
+  run devices-list
   http-request account-login
+  http-request account-refresh
   http-request pin-verify --pin <code>
   http-request devices-list
   http-request networks-list
@@ -139,9 +163,11 @@ Guarded operation plans:
   plan camera-live-view-start --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
 
 Environment:
-  BLINK_DEVICE_ID     reserved for future OAuth v2 login support
-  BLINK_CLIENT_NAME   reserved for future OAuth v2 login support
-  BLINK_USER_AGENT    reserved for future OAuth v2 login support
+  HYBRIDCLAW_GATEWAY_URL   gateway base URL for live execution (default: http://127.0.0.1:9090)
+  HYBRIDCLAW_GATEWAY_TOKEN gateway bearer token for live execution
+  BLINK_DEVICE_ID     optional generated OAuth v2 hardware id override
+  BLINK_CLIENT_NAME   optional local display name, not sent to Blink OAuth v2
+  BLINK_USER_AGENT    optional Blink REST User-Agent override
   BLINK_TIER          optional resolved tier, for example e003
   BLINK_ACCOUNT_ID    optional numeric account id fallback
   BLINK_CLIENT_ID     optional numeric client id fallback
@@ -150,6 +176,7 @@ Notes:
   Operation names use subject-verb form. Legacy aliases such as login, homescreen,
   cameras, and clips are accepted but canonical output uses account-login,
   devices-list, cameras-list, and clips-list.
+  Use run for live gateway execution; use http-request for dry-run JSON.
   clips-list is account-scoped on Blink's media/changed API; --network is rejected.
 `);
 }
@@ -308,6 +335,25 @@ function generatedDeviceId() {
   return `hybridclaw-${uuid}`;
 }
 
+function generatedHardwareId() {
+  const raw = generatedDeviceId().replace(/^hybridclaw-/u, '');
+  return raw.toUpperCase();
+}
+
+function base64Url(buffer) {
+  return Buffer.from(buffer)
+    .toString('base64')
+    .replace(/\+/gu, '-')
+    .replace(/\//gu, '_')
+    .replace(/=+$/u, '');
+}
+
+function generatePkcePair() {
+  const verifier = base64Url(randomBytes(32));
+  const challenge = base64Url(createHash('sha256').update(verifier).digest());
+  return { verifier, challenge };
+}
+
 function canonicalOperation(operation) {
   const normalized = String(operation || '').trim();
   return OPERATION_ALIASES.get(normalized) || normalized;
@@ -420,12 +466,153 @@ function authSecretHeaders() {
   ];
 }
 
+function resolveGatewayUrl() {
+  return String(
+    process.env.HYBRIDCLAW_GATEWAY_URL ||
+      process.env.GATEWAY_BASE_URL ||
+      DEFAULT_GATEWAY_URL,
+  ).replace(/\/+$/u, '');
+}
+
+function resolveGatewayToken() {
+  return String(
+    process.env.HYBRIDCLAW_GATEWAY_TOKEN || process.env.GATEWAY_API_TOKEN || '',
+  ).trim();
+}
+
+function parseJsonMaybe(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGatewayResult(wrapper, fallbackStatus) {
+  const status = Number(wrapper.status || fallbackStatus || 0);
+  const body = typeof wrapper.body === 'string' ? wrapper.body : '';
+  return {
+    command: 'live-result',
+    ok: wrapper.ok !== false,
+    status,
+    statusText: wrapper.statusText || '',
+    headers: wrapper.headers || {},
+    body,
+    bodyJson:
+      wrapper.json && typeof wrapper.json === 'object'
+        ? wrapper.json
+        : parseJsonMaybe(body),
+    bodyTruncated: wrapper.bodyTruncated === true,
+    maxResponseBytes: wrapper.maxResponseBytes,
+    captured: wrapper.captured,
+  };
+}
+
+function gatewayErrorMessage(response, text) {
+  const parsed = parseJsonMaybe(text);
+  const errorText =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? String(parsed.error || parsed.text || text).trim()
+      : String(text || '').trim();
+  const prefix = `Gateway proxy returned HTTP ${response.status} for Blink request`;
+  if (
+    response.status === 400 &&
+    /not allowlisted by workspace network policy/u.test(errorText)
+  ) {
+    return `${prefix}: workspace network policy denied this helper-emitted target. ${errorText}`;
+  }
+  return errorText ? `${prefix}: ${errorText}` : prefix;
+}
+
+function formatTransportError(error) {
+  if (!error) return 'unknown error';
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = error.cause instanceof Error ? ` (${error.cause.message})` : '';
+  return `${message}${cause}`;
+}
+
+async function executeGatewayRequest(httpRequest, options = {}) {
+  const fetchImpl = options.fetch || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch is not available for Blink requests.');
+  }
+  const gatewayUrl = String(options.gatewayUrl || resolveGatewayUrl()).replace(
+    /\/+$/u,
+    '',
+  );
+  const gatewayToken = options.gatewayToken || resolveGatewayToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  let text = '';
+  try {
+    try {
+      response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(httpRequest),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw new Error(
+        `Gateway proxy request failed before Blink request was sent: ${formatTransportError(
+          error,
+        )}. Check that the HybridClaw gateway is running and reachable at ${gatewayUrl}.`,
+      );
+    }
+    text = await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(gatewayErrorMessage(response, text));
+  }
+  const parsed = parseJsonMaybe(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      command: 'live-result',
+      ok: true,
+      status: response.status,
+      statusText: response.statusText || '',
+      headers: {},
+      body: text,
+      bodyJson: null,
+    };
+  }
+  const normalized = normalizeGatewayResult(parsed, response.status);
+  if (normalized.bodyTruncated) {
+    throw new Error(
+      `Blink response was truncated by the gateway at ${normalized.maxResponseBytes || 'the configured'} bytes.`,
+    );
+  }
+  if (
+    !normalized.ok &&
+    (normalized.status < 300 || normalized.status > 399) &&
+    !new Set(options.allowedStatuses || []).has(normalized.status)
+  ) {
+    throw new Error(
+      `Blink returned HTTP ${normalized.status || 'error'}: ${
+        normalized.body || normalized.statusText
+      }`,
+    );
+  }
+  return normalized;
+}
+
 function buildPayload(
   operation,
   {
     url,
     method = 'GET',
     headers,
+    body,
     json,
     maxResponseBytes,
     captureResponseFields,
@@ -458,6 +645,7 @@ function buildPayload(
   if (usesStoredAuthToken) {
     payload.httpRequest.secretHeaders = authSecretHeaders();
   }
+  if (body !== undefined) payload.httpRequest.body = body;
   if (json !== undefined) payload.httpRequest.json = json;
   if (captureResponseFields !== undefined) {
     payload.httpRequest.captureResponseFields = captureResponseFields;
@@ -472,21 +660,158 @@ function buildPayload(
   return payload;
 }
 
+function oauthHeaders(extra = {}) {
+  return {
+    'User-Agent': OAUTH_BROWSER_USER_AGENT,
+    Accept:
+      'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    ...extra,
+  };
+}
+
+function oauthAuthorizeUrl(hardwareId, codeChallenge) {
+  const params = new URLSearchParams({
+    app_brand: 'blink',
+    app_version: OAUTH_APP_VERSION,
+    client_id: OAUTH_CLIENT_ID,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+    device_brand: 'Apple',
+    device_model: 'iPhone16,1',
+    device_os_version: '26.1',
+    hardware_id: hardwareId,
+    redirect_uri: OAUTH_REDIRECT_URI,
+    response_type: 'code',
+    scope: OAUTH_SCOPE,
+  });
+  return `${OAUTH_AUTHORIZE_URL}?${params.toString()}`;
+}
+
+function splitSetCookieHeader(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.flatMap(splitSetCookieHeader);
+  return String(value)
+    .split(/,(?=\s*[^;,=\s]+=[^;,]+)/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function mergeSetCookies(cookieJar, headers = {}) {
+  const setCookie =
+    headers['set-cookie'] ||
+    headers['Set-Cookie'] ||
+    headers['set-cookie'.toLowerCase()];
+  for (const cookie of splitSetCookieHeader(setCookie)) {
+    const pair = cookie.split(';', 1)[0]?.trim();
+    if (!pair || !pair.includes('=')) continue;
+    const name = pair.split('=', 1)[0];
+    cookieJar.set(name, pair);
+  }
+}
+
+function cookieHeader(cookieJar) {
+  return Array.from(cookieJar.values()).join('; ');
+}
+
+function withCookie(headers, cookieJar) {
+  const cookie = cookieHeader(cookieJar);
+  return cookie ? { ...headers, Cookie: cookie } : headers;
+}
+
+function formBody(entries) {
+  return entries
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    )
+    .join('&');
+}
+
+function secretFormBody(entries) {
+  return entries
+    .map(([key, value]) => {
+      const encodedValue =
+        typeof value === 'string' && value.startsWith('<secret:')
+          ? value
+          : encodeURIComponent(value);
+      return `${encodeURIComponent(key)}=${encodedValue}`;
+    })
+    .join('&');
+}
+
+function extractCsrfToken(html) {
+  const scriptMatch = String(html || '').match(
+    /<script[^>]*id=["']oauth-args["'][^>]*>([\s\S]*?)<\/script>/iu,
+  );
+  if (!scriptMatch) {
+    throw new Error('Blink OAuth sign-in page did not include oauth-args.');
+  }
+  const rawJson = scriptMatch[1].trim();
+  const parsed = JSON.parse(rawJson);
+  const csrf = parsed?.['csrf-token'];
+  if (typeof csrf !== 'string' || !csrf.trim()) {
+    throw new Error('Blink OAuth sign-in page did not include csrf-token.');
+  }
+  return csrf.trim();
+}
+
+function headerValue(headers, name) {
+  const lower = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (key.toLowerCase() === lower) return String(value);
+  }
+  return '';
+}
+
+function extractAuthorizationCode(location) {
+  const raw = String(location || '').trim();
+  if (!raw) throw new Error('Blink OAuth redirect did not include Location.');
+  const parsed = new URL(raw);
+  const code = parsed.searchParams.get('code');
+  if (!code) {
+    throw new Error(
+      'Blink OAuth redirect did not include an authorization code.',
+    );
+  }
+  return code;
+}
+
+function oauthGatewayRequest({ url, method = 'GET', headers, body }) {
+  return {
+    url,
+    method,
+    headers,
+    body,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxResponseBytes: 1_000_000,
+    replaceSecretPlaceholders: true,
+    allowManualRedirect: true,
+    skillName: SKILL_NAME,
+    stakesTier: OPERATION_TIERS['account-login'],
+  };
+}
+
 function buildAccountLogin(args) {
+  const pin = popFlag(args, '--pin');
+  if (pin !== undefined) parsePin(pin);
   assertNoUnexpectedArgs(args);
   return {
-    command: 'auth-required',
+    command: 'auth-plan',
     operation: 'account-login',
     stakesTier: OPERATION_TIERS['account-login'],
-    hardStop: true,
-    reason: 'blink-oauth-v2-required',
-    result:
-      'Blink password login is no longer emitted because the legacy /api/v5/account/login endpoint returns 426 app-update responses and the OAuth password grant returns unsupported_grant_type. Existing stored tokens may still work for read operations; otherwise the Blink skill needs a cookie-safe OAuth v2 Authorization Code + PKCE implementation before it can log in.',
-    unsupportedRequests: [
-      'POST https://rest-prod.immedia-semi.com/api/v5/account/login',
-      'POST https://api.oauth.blink.com/oauth/token grant_type=password',
+    liveHelperCommand: [
+      'node',
+      'skills/blink/blink.cjs',
+      '--format',
+      'json',
+      'run',
+      'account-login',
+      ...(pin === undefined ? [] : ['--pin', '<F14_PIN>']),
     ],
-    requiredFlow: {
+    result:
+      'Blink login is handled by the helper run command using OAuth v2 Authorization Code + PKCE through the HybridClaw gateway. Use the liveHelperCommand; do not call legacy password-login endpoints.',
+    flow: {
       type: 'oauth-v2-authorization-code-pkce',
       hosts: ['api.oauth.blink.com', REST_PROD_HOST],
       steps: [
@@ -499,9 +824,49 @@ function buildAccountLogin(args) {
       ],
     },
     toolCallInstructions:
-      'Stop. Do not call http_request for legacy Blink login, do not try alternate /api/v3-/api/v6 login paths, do not try OAuth grant_type=password, and do not web-search inside the user task. Report that OAuth v2 support is required unless existing BLINK_AUTH_TOKEN/BLINK_TIER/BLINK_ACCOUNT_ID secrets are already set.',
+      'Run the helper with `run account-login` for live auth. Do not call http_request for legacy Blink login, do not try alternate /api/v3-/api/v6 login paths, do not try OAuth grant_type=password, and do not web-search inside the user task.',
     costMeasurement: COST_MEASUREMENT,
   };
+}
+
+function buildAccountRefresh(args) {
+  const hardwareId = parseDeviceId(
+    popFlag(args, '--device-id') ||
+      process.env[ENV_NAMES.deviceId] ||
+      generatedHardwareId(),
+    '--device-id',
+  );
+  assertNoUnexpectedArgs(args);
+  return buildPayload('account-refresh', {
+    url: OAUTH_TOKEN_URL,
+    method: 'POST',
+    headers: {
+      'User-Agent': OAUTH_TOKEN_USER_AGENT,
+      Accept: '*/*',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: secretFormBody([
+      ['app_brand', 'blink'],
+      ['client_id', OAUTH_CLIENT_ID],
+      ['grant_type', 'refresh_token'],
+      ['hardware_id', hardwareId],
+      ['refresh_token', `<secret:${SECRET_NAMES.refreshToken}>`],
+      ['scope', OAUTH_SCOPE],
+    ]),
+    captureResponseFields: [
+      {
+        jsonPath: 'access_token',
+        secretName: SECRET_NAMES.authToken,
+        bindDomain: 'immedia-semi.com',
+      },
+      {
+        jsonPath: 'refresh_token',
+        secretName: SECRET_NAMES.refreshToken,
+        bindDomain: 'api.oauth.blink.com',
+      },
+    ],
+    maxResponseBytes: 256_000,
+  });
 }
 
 function buildPinVerify(args) {
@@ -527,6 +892,7 @@ function buildPinVerify(args) {
 
 function buildReadOperation(operation, args) {
   if (operation === 'account-login') return buildAccountLogin(args);
+  if (operation === 'account-refresh') return buildAccountRefresh(args);
   if (operation === 'pin-verify') return buildPinVerify(args);
 
   const accountId = resolveAccountId(args);
@@ -886,6 +1252,264 @@ function buildPlan(operation, args) {
   return plan;
 }
 
+function liveRequestSummary(httpRequest) {
+  return {
+    url: httpRequest.url,
+    method: httpRequest.method,
+  };
+}
+
+async function runAccountLogin(args, options = {}) {
+  const pin = popFlag(args, '--pin');
+  const parsedPin = pin === undefined ? undefined : parsePin(pin);
+  const hardwareId = parseDeviceId(
+    popFlag(args, '--device-id') ||
+      process.env[ENV_NAMES.deviceId] ||
+      generatedHardwareId(),
+    '--device-id',
+  );
+  assertNoUnexpectedArgs(args);
+
+  const { verifier, challenge } = generatePkcePair();
+  const authorizeUrl = oauthAuthorizeUrl(hardwareId, challenge);
+  const cookieJar = new Map();
+
+  let response = await executeGatewayRequest(
+    oauthGatewayRequest({
+      url: authorizeUrl,
+      headers: oauthHeaders(),
+    }),
+    options,
+  );
+  mergeSetCookies(cookieJar, response.headers);
+  if (
+    response.status !== 200 &&
+    (response.status < 300 || response.status > 399)
+  ) {
+    throw new Error(`Blink OAuth authorize returned HTTP ${response.status}.`);
+  }
+
+  response = await executeGatewayRequest(
+    oauthGatewayRequest({
+      url: OAUTH_SIGNIN_URL,
+      headers: withCookie(oauthHeaders(), cookieJar),
+    }),
+    options,
+  );
+  mergeSetCookies(cookieJar, response.headers);
+  if (response.status !== 200) {
+    throw new Error(`Blink OAuth sign-in page returned HTTP ${response.status}.`);
+  }
+  const csrfToken = extractCsrfToken(response.body);
+
+  response = await executeGatewayRequest(
+    oauthGatewayRequest({
+      url: OAUTH_SIGNIN_URL,
+      method: 'POST',
+      headers: withCookie(
+        oauthHeaders({
+          Accept: '*/*',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Origin: OAUTH_BASE_URL,
+          Referer: OAUTH_SIGNIN_URL,
+        }),
+        cookieJar,
+      ),
+      body: secretFormBody([
+        ['username', `<secret:${SECRET_NAMES.email}>`],
+        ['password', `<secret:${SECRET_NAMES.password}>`],
+        ['csrf-token', csrfToken],
+      ]),
+    }),
+    { ...options, allowedStatuses: [412] },
+  );
+  mergeSetCookies(cookieJar, response.headers);
+
+  if (response.status === 412) {
+    if (!parsedPin) {
+      return {
+        command: 'handover-required',
+        operation: 'account-login',
+        stakesTier: OPERATION_TIERS['account-login'],
+        route: 'f14',
+        reason: 'blink-2fa-required',
+        result:
+          'Blink requested an email/SMS verification PIN. Ask the operator for the PIN via F14, then run the resumeCommand.',
+        resumeCommand: [
+          'node',
+          'skills/blink/blink.cjs',
+          '--format',
+          'json',
+          'run',
+          'account-login',
+          '--pin',
+          '<code>',
+        ],
+        costMeasurement: COST_MEASUREMENT,
+      };
+    }
+
+    response = await executeGatewayRequest(
+      oauthGatewayRequest({
+        url: OAUTH_2FA_VERIFY_URL,
+        method: 'POST',
+        headers: withCookie(
+          oauthHeaders({
+            Accept: '*/*',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Origin: OAUTH_BASE_URL,
+            Referer: OAUTH_SIGNIN_URL,
+          }),
+          cookieJar,
+        ),
+        body: formBody([
+          ['2fa_code', parsedPin],
+          ['csrf-token', csrfToken],
+          ['remember_me', 'false'],
+        ]),
+      }),
+      options,
+    );
+    mergeSetCookies(cookieJar, response.headers);
+    if (
+      response.status !== 201 ||
+      response.bodyJson?.status !== 'auth-completed'
+    ) {
+      throw new Error(`Blink 2FA verification returned HTTP ${response.status}.`);
+    }
+  } else if (response.status < 300 || response.status > 399) {
+    throw new Error(`Blink OAuth sign-in returned HTTP ${response.status}.`);
+  }
+
+  response = await executeGatewayRequest(
+    oauthGatewayRequest({
+      url: authorizeUrl,
+      headers: withCookie(oauthHeaders(), cookieJar),
+    }),
+    options,
+  );
+  mergeSetCookies(cookieJar, response.headers);
+  if (response.status < 300 || response.status > 399) {
+    throw new Error(
+      `Blink OAuth authorization-code redirect returned HTTP ${response.status}.`,
+    );
+  }
+  const code = extractAuthorizationCode(headerValue(response.headers, 'location'));
+
+  const tokenRequest = {
+    url: OAUTH_TOKEN_URL,
+    method: 'POST',
+    headers: {
+      'User-Agent': OAUTH_TOKEN_USER_AGENT,
+      Accept: '*/*',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: formBody([
+      ['app_brand', 'blink'],
+      ['client_id', OAUTH_CLIENT_ID],
+      ['code', code],
+      ['code_verifier', verifier],
+      ['grant_type', 'authorization_code'],
+      ['hardware_id', hardwareId],
+      ['redirect_uri', OAUTH_REDIRECT_URI],
+      ['scope', OAUTH_SCOPE],
+    ]),
+    captureResponseFields: [
+      {
+        jsonPath: 'access_token',
+        secretName: SECRET_NAMES.authToken,
+        bindDomain: 'immedia-semi.com',
+      },
+      {
+        jsonPath: 'refresh_token',
+        secretName: SECRET_NAMES.refreshToken,
+        bindDomain: 'api.oauth.blink.com',
+      },
+    ],
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxResponseBytes: 256_000,
+    replaceSecretPlaceholders: true,
+    skillName: SKILL_NAME,
+    stakesTier: OPERATION_TIERS['account-login'],
+  };
+  const tokenResult = await executeGatewayRequest(tokenRequest, options);
+
+  const tierRequest = {
+    url: `${DEFAULT_REST_BASE}/api/v1/users/tier_info`,
+    method: 'GET',
+    headers: blinkHeaders(),
+    secretHeaders: authSecretHeaders(),
+    captureResponseFields: [
+      { jsonPath: 'tier', secretName: SECRET_NAMES.tier },
+      { jsonPath: 'account_id', secretName: SECRET_NAMES.accountId },
+      { jsonPath: 'client_id', secretName: SECRET_NAMES.clientId },
+    ],
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxResponseBytes: 256_000,
+    replaceSecretPlaceholders: true,
+    skillName: SKILL_NAME,
+    stakesTier: OPERATION_TIERS['account-login'],
+  };
+  const tierResult = await executeGatewayRequest(tierRequest, options);
+
+  return {
+    command: 'live-auth',
+    operation: 'account-login',
+    stakesTier: OPERATION_TIERS['account-login'],
+    request: {
+      auth: { url: OAUTH_AUTHORIZE_URL, method: 'GET/POST' },
+      token: liveRequestSummary(tokenRequest),
+      tier: liveRequestSummary(tierRequest),
+    },
+    result: {
+      ok: true,
+      tokenCaptured: tokenResult.captured || {},
+      tierCaptured: tierResult.captured || {},
+      nextCommand:
+        'node skills/blink/blink.cjs --format json run devices-list',
+    },
+    costMeasurement: COST_MEASUREMENT,
+  };
+}
+
+async function executeLivePayload(payload, options = {}) {
+  return {
+    command: 'live',
+    operation: payload.operation,
+    stakesTier: payload.stakesTier,
+    request: liveRequestSummary(payload.httpRequest),
+    result: await executeGatewayRequest(payload.httpRequest, options),
+    costMeasurement: payload.costMeasurement,
+  };
+}
+
+async function runLive(argv, options = {}) {
+  const args = [...argv];
+  const format = popFlag(args, '--format', 'pretty');
+  if (!['json', 'pretty'].includes(format))
+    die('--format must be json or pretty.');
+  configureUserAgent(args);
+  const command = args.shift();
+  if (command !== 'run') {
+    die(`Unsupported Blink live command: ${command || '(missing)'}`);
+  }
+  const operation = canonicalOperation(args.shift());
+  if (operation === 'account-login') {
+    return runAccountLogin(args, options);
+  }
+  if (!HTTP_OPERATIONS.has(operation) && !PLAN_OPERATIONS.has(operation)) {
+    die(`Unsupported Blink run operation: ${operation || '(missing)'}`);
+  }
+  const payload =
+    PLAN_OPERATIONS.has(operation)
+      ? buildMutationRequest(operation, args, { requireGrant: true }).payload
+      : buildReadOperation(operation, args);
+  if (!payload.httpRequest) {
+    die(`Blink operation ${operation} cannot be run live.`);
+  }
+  return executeLivePayload(payload, options);
+}
+
 function buildRequest(argv) {
   const args = [...argv];
   const format = popFlag(args, '--format', 'pretty');
@@ -911,30 +1535,43 @@ function buildRequest(argv) {
   die(`Unsupported Blink command: ${command || '(missing)'}`);
 }
 
-if (require.main === module) {
+async function main() {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) {
     printHelp();
-    process.exit(0);
+    return;
   }
   const format = args.includes('--format')
     ? args[args.indexOf('--format') + 1]
     : 'pretty';
-  try {
-    const payload = buildRequest(args);
-    process.stdout.write(
-      JSON.stringify(payload, null, format === 'pretty' ? 2 : 0),
-    );
-    process.stdout.write('\n');
-  } catch (error) {
+  const emitArgs = [...args];
+  popFlag(emitArgs, '--format', 'pretty');
+  const command = emitArgs[0];
+  const payload =
+    command === 'run' ? await runLive(args) : buildRequest(args);
+  process.stdout.write(
+    JSON.stringify(payload, null, format === 'pretty' ? 2 : 0),
+  );
+  process.stdout.write('\n');
+}
+
+if (require.main === module) {
+  main().catch((error) => {
     process.stderr.write(
       `${error instanceof Error ? error.message : String(error)}\n`,
     );
     process.exitCode = 1;
-  }
+  });
 }
 
 module.exports = {
   buildRequest,
+  executeGatewayRequest,
+  executeLivePayload,
+  extractAuthorizationCode,
+  extractCsrfToken,
+  generatePkcePair,
+  runAccountLogin,
+  runLive,
   SECRET_NAMES,
 };

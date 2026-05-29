@@ -10095,6 +10095,67 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('captures explicit token bindDomain for cross-host OAuth tokens', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-bind-domain-capture-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { readStoredRuntimeSecret } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'blink-oauth-token' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.oauth.blink.com/oauth/token',
+        method: 'POST',
+        captureResponseFields: [
+          {
+            jsonPath: 'access_token',
+            secretName: 'BLINK_AUTH_TOKEN',
+            bindDomain: 'immedia-semi.com',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        access_token: 'BLINK_AUTH_TOKEN',
+      },
+    });
+    expect(readStoredRuntimeSecret('BLINK_AUTH_TOKEN_BOUND_DOMAIN')).toBe(
+      'immedia-semi.com',
+    );
+  });
+
   test('captures nested response fields without exposing the response body', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-nested-capture-');
     process.env.HOME = homeDir;
@@ -10676,6 +10737,53 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Outbound HTTP redirects are blocked by the SSRF guard.',
+    });
+  });
+
+  test('returns manual redirects when explicitly requested without following them', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 302,
+          statusText: 'Found',
+          headers: {
+            location:
+              'immedia-blink://applinks.blink.com/signin/callback?code=abc123',
+          },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.oauth.blink.com/oauth/v2/authorize',
+        allowManualRedirect: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ redirect: 'manual' }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      ok: false,
+      status: 302,
+      headers: {
+        location:
+          'immedia-blink://applinks.blink.com/signin/callback?code=abc123',
+      },
     });
   });
 
