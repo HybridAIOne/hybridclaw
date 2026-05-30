@@ -642,6 +642,62 @@ describe('ensureContainerImageReady', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
+  test('surfaces the pull failure when the fallback local build also fails', async () => {
+    const cwd = createTempDir();
+    writeTrackedFiles(cwd);
+    vi.stubEnv(
+      'HYBRIDCLAW_CONTAINER_PULL_IMAGE',
+      'ghcr.io/hybridaione/hybridclaw-agent:latest',
+    );
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      const dockerAvailable = mockDockerAvailable(command, args);
+      if (dockerAvailable) return dockerAvailable;
+      if (
+        command === 'docker' &&
+        args[0] === 'image' &&
+        args[1] === 'inspect'
+      ) {
+        return makeSpawnResult({ code: 1, err: 'missing image' });
+      }
+      if (command === 'docker' && args[0] === 'pull') {
+        return makeSpawnResult({ code: 1, err: 'pull failed' });
+      }
+      if (
+        command === 'npm' &&
+        args[0] === 'run' &&
+        args[1] === 'build:container'
+      ) {
+        return makeSpawnResult({ code: 1, err: 'build failed' });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    // When both the published-image pull and the local build fail, the thrown
+    // error keeps both reasons instead of discarding the pull failure.
+    await expect(
+      containerSetup.ensureContainerImageReady({
+        commandName: 'hybridclaw gateway restart',
+        cwd,
+      }),
+    ).rejects.toThrow(
+      'build failed (after a published image pull also failed: pull failed)',
+    );
+  });
+
   test('refreshes stale packaged installs by pulling from Docker Hub before building locally', async () => {
     const cwd = createTempDir();
     const homeDir = createTempDir();

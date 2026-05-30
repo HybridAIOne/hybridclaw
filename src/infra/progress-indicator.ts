@@ -66,6 +66,11 @@ export function startProgressIndicator(
     timer = setInterval(render, FRAME_INTERVAL_MS);
     // Never let the spinner keep the process alive on its own.
     timer.unref?.();
+  } else {
+    // No animation (NO_SPINNER, non-TTY, or test runner): emit a single plain
+    // line so a long pull/build still leaves a breadcrumb instead of going
+    // completely silent until the result.
+    console.log(message);
   }
 
   const stop = () => {

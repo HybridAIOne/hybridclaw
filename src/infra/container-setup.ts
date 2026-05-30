@@ -604,6 +604,7 @@ async function buildAndValidateImage(params: {
   }
 
   try {
+    let lastPullError: string | null = null;
     if (
       acquisitionMode === 'pull-or-build' ||
       acquisitionMode === 'pull-only'
@@ -621,7 +622,6 @@ async function buildAndValidateImage(params: {
       const indicator = startProgressIndicator(
         `${progressLabel} — downloading image…`,
       );
-      let lastPullError: string | null = null;
       try {
         for (const pullImage of pullImages) {
           try {
@@ -653,6 +653,18 @@ async function buildAndValidateImage(params: {
       await buildContainerImage(cwd, imageName);
       recordImageState(cwd, imageName, fingerprint);
       indicator.succeed('Agent runtime ready.');
+    } catch (buildError) {
+      // If we only reached the local build because every published-image pull
+      // failed, surface that pull failure too — otherwise it is discarded and
+      // the user can't tell the pull was even attempted or why it failed.
+      if (lastPullError) {
+        const detail =
+          buildError instanceof Error ? buildError.message : String(buildError);
+        throw new Error(
+          `${detail} (after a published image pull also failed: ${lastPullError})`,
+        );
+      }
+      throw buildError;
     } finally {
       indicator.clear();
     }

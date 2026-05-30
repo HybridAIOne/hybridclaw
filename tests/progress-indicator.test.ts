@@ -23,16 +23,19 @@ describe('startProgressIndicator', () => {
     vi.restoreAllMocks();
   });
 
-  test('stays silent on a non-interactive stream and prints a plain result line', () => {
+  test('prints plain start and result lines on a non-interactive stream (no ANSI)', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const { stream, writes } = fakeStream(false);
 
     const indicator = startProgressIndicator('Setting up the agent runtime…', stream);
     indicator.succeed('Agent runtime ready.');
 
+    // No ANSI/animation is written to the stream...
     expect(writes).toEqual([]);
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(logSpy).toHaveBeenCalledWith('Agent runtime ready.');
+    // ...but a plain start breadcrumb and the result line are logged.
+    expect(logSpy).toHaveBeenNthCalledWith(1, 'Setting up the agent runtime…');
+    expect(logSpy).toHaveBeenNthCalledWith(2, 'Agent runtime ready.');
+    expect(logSpy).toHaveBeenCalledTimes(2);
   });
 
   test('animates a spinner and clears the line on an interactive stream', () => {
@@ -76,7 +79,9 @@ describe('startProgressIndicator', () => {
     indicator.fail('ignored');
     indicator.clear();
 
-    expect(logSpy).toHaveBeenCalledTimes(1);
+    // One start line + exactly one result line; later finish calls are no-ops.
+    expect(logSpy).toHaveBeenCalledTimes(2);
+    expect(logSpy).toHaveBeenLastCalledWith('Agent runtime ready.');
     expect(warnSpy).not.toHaveBeenCalled();
   });
 });
