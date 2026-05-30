@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { APP_VERSION, CONTAINER_IMAGE } from '../config/config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { startProgressIndicator } from './progress-indicator.js';
 
 export type ContainerRebuildPolicy = 'if-stale' | 'always' | 'never';
 export type ContainerImageAcquisitionMode =
@@ -570,6 +571,7 @@ async function buildAndValidateImage(params: {
   acquisitionMode: ContainerImageAcquisitionMode;
   reason: string;
   hint: string;
+  progressLabel: string;
   fingerprint: string | null;
   fallbackToExistingImage?: boolean;
 }): Promise<void> {
@@ -581,6 +583,7 @@ async function buildAndValidateImage(params: {
     acquisitionMode,
     reason,
     hint,
+    progressLabel,
     fingerprint,
     fallbackToExistingImage = false,
   } = params;
@@ -601,7 +604,6 @@ async function buildAndValidateImage(params: {
   }
 
   try {
-    let reasonLoggedBeforeBuild = false;
     if (
       acquisitionMode === 'pull-or-build' ||
       acquisitionMode === 'pull-only'
@@ -616,44 +618,44 @@ async function buildAndValidateImage(params: {
           ].join(' '),
         );
       }
-      console.log(`${commandName}: ${reason}`);
-      reasonLoggedBeforeBuild = true;
-      for (const pullImage of pullImages) {
-        console.log(
-          `${commandName}: Pulling container image '${pullImage}'...`,
-        );
-        try {
-          await pullContainerImage(pullImage);
-          await tagContainerImage(pullImage, imageName);
-          recordImageState(cwd, imageName, fingerprint);
-          if (pullImage === imageName) {
-            console.log(
-              `${commandName}: Pulled container image '${imageName}'.`,
-            );
-          } else {
-            console.log(
-              `${commandName}: Pulled container image '${pullImage}' and tagged it as '${imageName}'.`,
-            );
+      const indicator = startProgressIndicator(
+        `${progressLabel} — downloading image…`,
+      );
+      let lastPullError: string | null = null;
+      try {
+        for (const pullImage of pullImages) {
+          try {
+            await pullContainerImage(pullImage);
+            await tagContainerImage(pullImage, imageName);
+            recordImageState(cwd, imageName, fingerprint);
+            indicator.succeed('Agent runtime ready.');
+            return;
+          } catch (err) {
+            // Try the next candidate (e.g. version-specific tag, then latest)
+            // before surfacing anything; only the final failure matters.
+            lastPullError = err instanceof Error ? err.message : String(err);
           }
-          return;
-        } catch (err) {
-          const pullMessage = err instanceof Error ? err.message : String(err);
-          console.warn(`${commandName}: Unable to pull image '${pullImage}'.`);
-          console.warn(`Details: ${pullMessage}`);
         }
+      } finally {
+        indicator.clear();
       }
       if (acquisitionMode === 'pull-only') {
-        throw new Error('Published container image pull attempts failed.');
+        throw new Error(
+          lastPullError || 'Published container image pull attempts failed.',
+        );
       }
     }
 
-    const buildLogMessage = reasonLoggedBeforeBuild
-      ? `${commandName}: Building container image '${imageName}'...`
-      : `${commandName}: ${reason} Building container image '${imageName}'...`;
-    console.log(buildLogMessage);
-    await buildContainerImage(cwd, imageName);
-    recordImageState(cwd, imageName, fingerprint);
-    console.log(`${commandName}: Built container image '${imageName}'.`);
+    const indicator = startProgressIndicator(
+      `${progressLabel} — building image…`,
+    );
+    try {
+      await buildContainerImage(cwd, imageName);
+      recordImageState(cwd, imageName, fingerprint);
+      indicator.succeed('Agent runtime ready.');
+    } finally {
+      indicator.clear();
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (fallbackToExistingImage) {
@@ -743,6 +745,7 @@ export async function ensureContainerImageReady(
       acquisitionMode,
       reason: 'Container image not found.',
       hint: missingImageHint,
+      progressLabel: 'Setting up the agent runtime',
       fingerprint,
     });
     return;
@@ -764,6 +767,7 @@ export async function ensureContainerImageReady(
       acquisitionMode,
       reason: "Container refresh policy is 'always'.",
       hint: rebuildImageHint,
+      progressLabel: 'Refreshing the agent runtime',
       fingerprint,
     });
     return;
@@ -789,6 +793,7 @@ export async function ensureContainerImageReady(
     acquisitionMode,
     reason: staleImageReason,
     hint: refreshImageHint,
+    progressLabel: 'Updating the agent runtime',
     fingerprint,
     fallbackToExistingImage: true,
   });
