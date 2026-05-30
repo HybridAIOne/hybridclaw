@@ -144,6 +144,11 @@ function resolveCliVersion(): string {
   return cachedAppVersion;
 }
 
+async function promptStartupUpdate(): Promise<void> {
+  const { maybePromptStartupUpdate } = await import('./update.js');
+  await maybePromptStartupUpdate(resolveCliVersion());
+}
+
 async function ensureConfigApi(): Promise<ConfigApi> {
   return configApiState.ensure();
 }
@@ -648,6 +653,8 @@ async function launchTui(argv: string[]): Promise<void> {
     return;
   }
 
+  await promptStartupUpdate();
+
   const { ensureRuntimeCredentials } = await ensureOnboardingApi();
   const { resolveTuiRunOptions } = await import('./tui-session.js');
   const options = resolveTuiRunOptions({
@@ -1098,6 +1105,7 @@ async function runGatewayApiCommand(args: string[]): Promise<void> {
 async function handleGatewayCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0) {
+    await promptStartupUpdate();
     await startGatewayBackend('hybridclaw gateway');
     return;
   }
@@ -1127,6 +1135,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       printGatewayUsage();
       return;
     }
+    await promptStartupUpdate();
     if (flags.foreground) {
       await runGatewayForeground(
         'hybridclaw gateway start --foreground',
@@ -1872,6 +1881,11 @@ export async function main(
         './gateway/gateway-restart.js'
       );
       await runGatewayRestartHelperFromArg(payload);
+      break;
+    }
+    case '__refresh-version-cache': {
+      const { refreshVersionCache } = await import('./update.js');
+      refreshVersionCache();
       break;
     }
     case 'eval':

@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
+import { DEFAULT_RUNTIME_HOME_DIR } from './config/runtime-paths.js';
 
 const DEFAULT_PACKAGE_NAME = '@hybridaione/hybridclaw';
 
@@ -245,10 +246,13 @@ function compareSemver(a: string, b: string): number | null {
   return String(left.prerelease).localeCompare(String(right.prerelease));
 }
 
-function fetchLatestVersion(packageName: string): LatestVersionResult {
+function fetchLatestVersion(
+  packageName: string,
+  timeoutMs = 15_000,
+): LatestVersionResult {
   const result = spawnSync('npm', ['view', packageName, 'version'], {
     encoding: 'utf-8',
-    timeout: 15_000,
+    timeout: timeoutMs,
   });
 
   if (result.error) {
@@ -458,6 +462,145 @@ function runUpdateInstall(command: UpdateCommand): Promise<number> {
     child.on('error', (err) => reject(err));
     child.on('close', (code) => resolve(code ?? 1));
   });
+}
+
+const VERSION_CACHE_FILE = 'version-check.json';
+const VERSION_CACHE_TTL_MS = 20 * 60 * 60 * 1000;
+const VERSION_CACHE_FETCH_TIMEOUT_MS = 15_000;
+const REFRESH_VERSION_CACHE_COMMAND = '__refresh-version-cache';
+
+interface VersionCache {
+  latestVersion: string;
+  // ISO-8601 timestamp of the last successful registry check.
+  lastCheckedAt: string;
+}
+
+function versionCachePath(): string {
+  return path.join(DEFAULT_RUNTIME_HOME_DIR, VERSION_CACHE_FILE);
+}
+
+function readVersionCache(): VersionCache | null {
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(versionCachePath(), 'utf-8'),
+    ) as Partial<VersionCache>;
+    if (
+      typeof parsed.latestVersion === 'string' &&
+      parsed.latestVersion.trim() &&
+      typeof parsed.lastCheckedAt === 'string' &&
+      !Number.isNaN(Date.parse(parsed.lastCheckedAt))
+    ) {
+      return {
+        latestVersion: parsed.latestVersion.trim(),
+        lastCheckedAt: parsed.lastCheckedAt,
+      };
+    }
+  } catch {
+    // A missing or unreadable cache is expected on the first run.
+  }
+  return null;
+}
+
+function isVersionCacheFresh(cache: VersionCache): boolean {
+  const age = Date.now() - Date.parse(cache.lastCheckedAt);
+  return age >= 0 && age < VERSION_CACHE_TTL_MS;
+}
+
+function writeVersionCache(latestVersion: string): void {
+  const cache: VersionCache = {
+    latestVersion,
+    lastCheckedAt: new Date().toISOString(),
+  };
+  const filePath = versionCachePath();
+  const tempPath = `${filePath}.tmp-${process.pid}`;
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(tempPath, `${JSON.stringify(cache)}\n`, 'utf-8');
+    fs.renameSync(tempPath, filePath);
+  } catch {
+    fs.rmSync(tempPath, { force: true });
+  }
+}
+
+// Runs inside the detached `__refresh-version-cache` child process. It owns its
+// own process, so it may block on the registry call; the result lands in the
+// cache for the next interactive launch to read.
+export function refreshVersionCache(): void {
+  const packageName = resolvePackageName(process.argv[1]);
+  const latest = fetchLatestVersion(
+    packageName,
+    VERSION_CACHE_FETCH_TIMEOUT_MS,
+  );
+  if (latest.version) {
+    writeVersionCache(latest.version);
+  }
+}
+
+function spawnVersionCacheRefresh(): void {
+  const cliEntry = process.argv[1];
+  if (!cliEntry) return;
+  try {
+    const child = spawn(
+      process.execPath,
+      [...process.execArgv, cliEntry, REFRESH_VERSION_CACHE_COMMAND],
+      { detached: true, stdio: 'ignore' },
+    );
+    child.unref();
+  } catch {
+    // A failed background refresh must never affect startup.
+  }
+}
+
+export async function maybePromptStartupUpdate(
+  currentVersion: string,
+): Promise<void> {
+  // Only suggest updates in an interactive terminal. Non-TTY launches
+  // (CI, the detached gateway daemon, scripts) must never block on a prompt.
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+
+  const packageName = resolvePackageName(process.argv[1]);
+  const install = detectInstallContext(packageName, process.argv[1]);
+  // Only global package installs can be updated via the package manager.
+  // Source checkouts update via git; unknown installs are left untouched.
+  if (install.kind !== 'package') return;
+
+  // Cache-first, like Codex: decide using the previously cached latest version
+  // so startup never waits on the network. Refresh in a detached child when the
+  // cache is missing or stale; a newly learned version surfaces next launch.
+  const cache = readVersionCache();
+  if (!cache || !isVersionCacheFresh(cache)) {
+    spawnVersionCacheRefresh();
+  }
+  if (!cache) return;
+  if (compareSemver(currentVersion, cache.latestVersion) !== -1) return;
+
+  const manager = resolveAvailablePackageManager(install.packageManager);
+  if (!manager) return;
+  const updateCommand = buildUpdateCommand(manager, packageName);
+
+  console.log(`Update available: ${currentVersion} -> ${cache.latestVersion}`);
+  const confirmed = await askForConfirmation('Update HybridClaw now?');
+  if (!confirmed) {
+    console.log('Skipping update. Run `hybridclaw update` to update later.');
+    return;
+  }
+
+  console.log(`Update command: ${updateCommand.display}`);
+  const exitCode = await runUpdateInstall(updateCommand);
+  if (exitCode !== 0) {
+    console.log(
+      `Update failed with exit code ${exitCode}. Continuing with the current version.`,
+    );
+    return;
+  }
+
+  const updatedRoot =
+    resolveUpdatedPackageRoot(manager, packageName) || install.root;
+  rebuildReviewedNativeDependencies(updatedRoot);
+  runExplicitPostinstall(updatedRoot);
+
+  console.log('Update complete. Restart HybridClaw to use the new version.');
+  process.exit(0);
 }
 
 export function printUpdateUsage(): void {

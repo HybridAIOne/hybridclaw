@@ -16,6 +16,22 @@ vi.mock('../src/gateway/gateway-restart.js', () => ({
   requestExternalGatewayRestart: requestExternalGatewayRestartMock,
 }));
 
+const readlineState = vi.hoisted(() => ({ answer: 'n' }));
+vi.mock('node:readline/promises', () => {
+  const createInterface = () => ({
+    question: async () => readlineState.answer,
+    close: () => {},
+  });
+  return { default: { createInterface }, createInterface };
+});
+
+// The version cache lives under the runtime home dir, which is resolved from
+// HYBRIDCLAW_DATA_DIR at module load. Point it at a throwaway dir before any
+// dynamic import of update.js so cache reads/writes stay isolated.
+const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-data-'));
+process.env.HYBRIDCLAW_DATA_DIR = TEST_DATA_DIR;
+const CACHE_FILE = path.join(TEST_DATA_DIR, 'version-check.json');
+
 describe('runUpdateCommand', () => {
   const originalArgv = [...process.argv];
   const originalCwd = process.cwd();
@@ -373,5 +389,251 @@ describe('runUpdateCommand', () => {
       [path.join(updatedRoot, 'scripts', 'postinstall-container.mjs')],
       { stdio: 'inherit' },
     );
+  });
+});
+
+describe('maybePromptStartupUpdate', () => {
+  const originalArgv = [...process.argv];
+  const originalCwd = process.cwd();
+  const originalStdinIsTTY = process.stdin.isTTY;
+  const originalStdoutIsTTY = process.stdout.isTTY;
+  let tempDir = '';
+
+  beforeEach(() => {
+    spawnMock.mockReset();
+    spawnSyncMock.mockReset();
+    readlineState.answer = 'n';
+    fs.rmSync(CACHE_FILE, { force: true });
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-startup-'));
+  });
+
+  afterEach(() => {
+    process.argv = [...originalArgv];
+    process.chdir(originalCwd);
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: originalStdinIsTTY,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: originalStdoutIsTTY,
+      configurable: true,
+    });
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(CACHE_FILE, { force: true });
+    vi.restoreAllMocks();
+  });
+
+  function setTty(value: boolean) {
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value,
+      configurable: true,
+    });
+  }
+
+  function setupGlobalPackageInstall() {
+    const installRoot = path.join(
+      tempDir,
+      'node_modules',
+      '@hybridaione',
+      'hybridclaw',
+    );
+    fs.mkdirSync(path.join(installRoot, 'dist'), { recursive: true });
+    fs.writeFileSync(
+      path.join(installRoot, 'package.json'),
+      JSON.stringify({ name: '@hybridaione/hybridclaw', version: '0.9.8' }),
+    );
+    // chdir into tempDir (no package.json, no .git) so detectInstallContext
+    // classifies the entry as a global `package`, not the repo source checkout.
+    process.chdir(tempDir);
+    process.argv = [
+      originalArgv[0] || 'node',
+      path.join(installRoot, 'dist', 'cli.js'),
+    ];
+    return { installRoot };
+  }
+
+  function writeCache(latestVersion: string, ageMs = 0) {
+    fs.writeFileSync(
+      CACHE_FILE,
+      JSON.stringify({
+        latestVersion,
+        lastCheckedAt: new Date(Date.now() - ageMs).toISOString(),
+      }),
+    );
+  }
+
+  it('does nothing in a non-interactive terminal', async () => {
+    setTty(false);
+    setupGlobalPackageInstall();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    await maybePromptStartupUpdate('0.9.8');
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt or refresh from a source checkout', async () => {
+    setTty(true);
+    fs.mkdirSync(path.join(tempDir, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'dist'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, 'package.json'),
+      JSON.stringify({ name: '@hybridaione/hybridclaw', version: '0.9.8' }),
+    );
+    process.chdir(tempDir);
+    process.argv = [
+      originalArgv[0] || 'node',
+      path.join(tempDir, 'dist', 'cli.js'),
+    ];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    await maybePromptStartupUpdate('0.9.8');
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('spawns a detached background refresh when no cache exists, without prompting', async () => {
+    setTty(true);
+    setupGlobalPackageInstall();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    await maybePromptStartupUpdate('0.9.8');
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const [, args, opts] = spawnMock.mock.calls[0];
+    expect(args).toContain('__refresh-version-cache');
+    expect(opts).toMatchObject({ detached: true, stdio: 'ignore' });
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('spawns a refresh when the cache is stale', async () => {
+    setTty(true);
+    setupGlobalPackageInstall();
+    writeCache('0.9.8', 21 * 60 * 60 * 1000); // older than the 20h TTL
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    await maybePromptStartupUpdate('0.9.8');
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(spawnMock.mock.calls[0][1]).toContain('__refresh-version-cache');
+  });
+
+  it('does not refresh when the cache is fresh', async () => {
+    setTty(true);
+    setupGlobalPackageInstall();
+    writeCache('0.9.8', 60 * 1000); // 1 minute old
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    await maybePromptStartupUpdate('0.9.8');
+
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('stays silent when the cached latest matches the current version', async () => {
+    setTty(true);
+    setupGlobalPackageInstall();
+    writeCache('0.9.8', 60 * 1000);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    await maybePromptStartupUpdate('0.9.8');
+
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('prompts from a fresh cache with a newer version and skips when declined', async () => {
+    setTty(true);
+    setupGlobalPackageInstall();
+    writeCache('0.42.0', 60 * 1000);
+    readlineState.answer = 'n';
+    spawnSyncMock.mockImplementation((_command: string, args: string[]) => {
+      if (args[0] === '--version') {
+        return { status: 0, stdout: '10.0.0\n', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: '' };
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    await maybePromptStartupUpdate('0.9.8');
+
+    const messages = logSpy.mock.calls.map((call) => String(call[0]));
+    expect(messages).toContain('Update available: 0.9.8 -> 0.42.0');
+    expect(messages.some((m) => m.startsWith('Skipping update'))).toBe(true);
+    // Fresh cache means no refresh; declining means no install spawn.
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('refreshVersionCache', () => {
+  const originalArgv = [...process.argv];
+
+  beforeEach(() => {
+    spawnSyncMock.mockReset();
+    fs.rmSync(CACHE_FILE, { force: true });
+  });
+
+  afterEach(() => {
+    process.argv = [...originalArgv];
+    fs.rmSync(CACHE_FILE, { force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('writes the latest version to the cache file', async () => {
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      if (command === 'npm' && args[0] === 'view') {
+        return { status: 0, stdout: '0.42.0\n', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: '' };
+    });
+
+    const { refreshVersionCache } = await import('../src/update.js');
+    refreshVersionCache();
+
+    expect(fs.existsSync(CACHE_FILE)).toBe(true);
+    const parsed = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8')) as {
+      latestVersion: string;
+      lastCheckedAt: string;
+    };
+    expect(parsed.latestVersion).toBe('0.42.0');
+    expect(Number.isNaN(Date.parse(parsed.lastCheckedAt))).toBe(false);
+  });
+
+  it('does not write a cache when the registry check fails', async () => {
+    spawnSyncMock.mockImplementation(() => ({
+      status: 1,
+      stdout: '',
+      stderr: 'network error',
+    }));
+
+    const { refreshVersionCache } = await import('../src/update.js');
+    refreshVersionCache();
+
+    expect(fs.existsSync(CACHE_FILE)).toBe(false);
+  });
+});
+
+describe('printUpdateUsage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('prints usage with the documented options', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { printUpdateUsage } = await import('../src/update.js');
+    printUpdateUsage();
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(output).toContain('Usage: hybridclaw update');
+    expect(output).toContain('--check');
+    expect(output).toContain('--yes');
   });
 });
