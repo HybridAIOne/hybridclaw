@@ -222,7 +222,6 @@ function SecretRow(props: {
 }) {
   const { entry } = props;
   const isSet = entry.state === 'set';
-  const stateLabel = isSet ? 'Set' : 'Unset';
 
   return (
     <li className={`${styles.row} ${isSet ? '' : styles.rowUnset}`}>
@@ -261,11 +260,6 @@ function SecretRow(props: {
           )}
         </div>
       </div>
-      <span
-        className={`${styles.statePill} ${isSet ? styles.statePillSet : ''}`}
-      >
-        {stateLabel}
-      </span>
       <div className={styles.actions}>
         {props.canOverwrite ? (
           <Button
