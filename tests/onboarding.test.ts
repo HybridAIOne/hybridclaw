@@ -9,9 +9,8 @@ import type { RuntimeConfig } from '../src/config/runtime-config.js';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-// Provider credential variables that the onboarding tests delete (so onboarding
-// prompts for them) and must therefore restore in teardown — otherwise clearing
-// one here would leak into later tests in the same Vitest process.
+// Cleared by the tests (so onboarding prompts) and restored in afterEach so the
+// deletes don't leak into later tests in the same Vitest process.
 const PROVIDER_API_KEY_ENV_VARS = [
   'HYBRIDAI_API_KEY',
   'DEEPGRAM_API_KEY',
@@ -956,10 +955,8 @@ test.each(MASKED_PROVIDER_CASES)(
       configurable: true,
     });
 
-    // The plain readline interface only answers the non-secret prompts: keep the
-    // configured Anthropic auth method and decline the default-model switch. If a
-    // provider ever stopped masking its key prompt it would fall through to this
-    // mock instead of `promptForSecretInput`, and the assertions below would fail.
+    // Answers only the non-secret prompts; an unmasked key prompt would fall
+    // through to here instead of `promptForSecretInput` and fail the assertions.
     vi.doMock('node:readline/promises', () => ({
       default: {
         createInterface: () => ({
