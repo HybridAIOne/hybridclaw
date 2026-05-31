@@ -563,6 +563,18 @@ function ensureInteractiveAutoBuild(
   return false;
 }
 
+function buildErrorWithEarlierPullFailure(
+  buildError: unknown,
+  lastPullError: string | null,
+): unknown {
+  if (!lastPullError) return buildError;
+  const detail =
+    buildError instanceof Error ? buildError.message : String(buildError);
+  return new Error(
+    `${detail} (after a published image pull also failed: ${lastPullError})`,
+  );
+}
+
 async function buildAndValidateImage(params: {
   commandName: string;
   required: boolean;
@@ -631,8 +643,6 @@ async function buildAndValidateImage(params: {
             indicator.succeed('Agent runtime ready.');
             return;
           } catch (err) {
-            // Try the next candidate (e.g. version-specific tag, then latest)
-            // before surfacing anything; only the final failure matters.
             lastPullError = err instanceof Error ? err.message : String(err);
           }
         }
@@ -654,17 +664,7 @@ async function buildAndValidateImage(params: {
       recordImageState(cwd, imageName, fingerprint);
       indicator.succeed('Agent runtime ready.');
     } catch (buildError) {
-      // If we only reached the local build because every published-image pull
-      // failed, surface that pull failure too — otherwise it is discarded and
-      // the user can't tell the pull was even attempted or why it failed.
-      if (lastPullError) {
-        const detail =
-          buildError instanceof Error ? buildError.message : String(buildError);
-        throw new Error(
-          `${detail} (after a published image pull also failed: ${lastPullError})`,
-        );
-      }
-      throw buildError;
+      throw buildErrorWithEarlierPullFailure(buildError, lastPullError);
     } finally {
       indicator.clear();
     }

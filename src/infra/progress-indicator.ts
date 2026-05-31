@@ -9,27 +9,11 @@ const RESET = '\x1b[0m';
 const CLEAR_LINE = '\r\x1b[2K';
 
 export interface ProgressIndicator {
-  /**
-   * Stop the animation and print a success result line. On an animated stream
-   * the line is prefixed with a green check mark; on plain output the raw
-   * message is printed with no marker.
-   */
   succeed(message: string): void;
-  /**
-   * Stop the animation and print a failure result line. On an animated stream
-   * the line is prefixed with a red cross mark; on plain output the raw
-   * message is printed with no marker.
-   */
   fail(message: string): void;
-  /** Stop the animation and leave no result line behind. */
   clear(): void;
 }
 
-/**
- * Decide whether to draw the animated spinner. We only animate on a real TTY so
- * piped output, log files (e.g. the detached gateway backend), and the test
- * runner get plain, readable lines instead of ANSI escape noise.
- */
 function isAnimated(stream: NodeJS.WriteStream): boolean {
   if (process.env.HYBRIDCLAW_NO_SPINNER === '1') return false;
   if (process.env.VITEST) return false;
@@ -44,13 +28,6 @@ function formatElapsed(elapsedMs: number): string {
   return `${minutes}m${String(seconds).padStart(2, '0')}s`;
 }
 
-/**
- * Start a single-line progress indicator for a long-running step. On an
- * interactive terminal it animates a spinner with an elapsed-time counter; on
- * non-interactive streams it emits a single plain breadcrumb line up front (and
- * a plain result line at the end) instead of animating, so logs and test output
- * stay free of ANSI escape noise.
- */
 export function startProgressIndicator(
   message: string,
   stream: NodeJS.WriteStream = process.stdout,
@@ -73,12 +50,8 @@ export function startProgressIndicator(
   if (animated) {
     render();
     timer = setInterval(render, FRAME_INTERVAL_MS);
-    // Never let the spinner keep the process alive on its own.
     timer.unref?.();
   } else {
-    // No animation (NO_SPINNER, non-TTY, or test runner): emit a single plain
-    // line so a long pull/build still leaves a breadcrumb instead of going
-    // completely silent until the result.
     console.log(message);
   }
 
