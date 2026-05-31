@@ -9,8 +9,21 @@ import type { RuntimeConfig } from '../src/config/runtime-config.js';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
-const ORIGINAL_DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+// Provider credential variables that the onboarding tests delete (so onboarding
+// prompts for them) and must therefore restore in teardown — otherwise clearing
+// one here would leak into later tests in the same Vitest process.
+const PROVIDER_API_KEY_ENV_VARS = [
+  'HYBRIDAI_API_KEY',
+  'DEEPGRAM_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENROUTER_API_KEY',
+  'MISTRAL_API_KEY',
+  'HF_TOKEN',
+  'HUGGINGFACE_API_KEY',
+] as const;
+const ORIGINAL_PROVIDER_API_KEY_ENV = new Map<string, string | undefined>(
+  PROVIDER_API_KEY_ENV_VARS.map((name) => [name, process.env[name]]),
+);
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 const ORIGINAL_CWD = process.cwd();
@@ -157,15 +170,13 @@ afterEach(() => {
     process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER =
       ORIGINAL_DISABLE_CONFIG_WATCHER;
   }
-  if (ORIGINAL_HYBRIDAI_API_KEY === undefined) {
-    delete process.env.HYBRIDAI_API_KEY;
-  } else {
-    process.env.HYBRIDAI_API_KEY = ORIGINAL_HYBRIDAI_API_KEY;
-  }
-  if (ORIGINAL_DEEPGRAM_API_KEY === undefined) {
-    delete process.env.DEEPGRAM_API_KEY;
-  } else {
-    process.env.DEEPGRAM_API_KEY = ORIGINAL_DEEPGRAM_API_KEY;
+  for (const name of PROVIDER_API_KEY_ENV_VARS) {
+    const original = ORIGINAL_PROVIDER_API_KEY_ENV.get(name);
+    if (original === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = original;
+    }
   }
   Object.defineProperty(process.stdin, 'isTTY', {
     value: ORIGINAL_STDIN_IS_TTY,
