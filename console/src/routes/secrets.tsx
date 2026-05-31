@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useCallback, useId, useRef, useState } from 'react';
+import {
+  type FormEvent,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   fetchAdminSecrets,
   HttpResponseError,
@@ -19,6 +26,7 @@ import {
   DialogTitle,
 } from '../components/dialog';
 import { Field, FieldLabel } from '../components/field';
+import { Search, Secrets } from '../components/icons';
 import { Input } from '../components/input';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
@@ -41,6 +49,19 @@ function formatTimestamp(value: string | null): string {
   return formatRelativeTime(value);
 }
 
+/** Most recent rotation across the set secrets, for the vault summary. */
+function latestRotation(entries: AdminSecretEntry[]): string {
+  let newest = 0;
+  for (const entry of entries) {
+    if (!entry.last_rotated_at) continue;
+    const ms = new Date(entry.last_rotated_at).getTime();
+    if (Number.isFinite(ms) && ms > newest) newest = ms;
+  }
+  return newest === 0
+    ? 'never'
+    : formatRelativeTime(new Date(newest).toISOString());
+}
+
 export function SecretsPage() {
   const { token } = useAuth();
   const toast = useToast();
@@ -48,6 +69,7 @@ export function SecretsPage() {
 
   const [overwriteTarget, setOverwriteTarget] = useState<string | null>(null);
   const [unsetTarget, setUnsetTarget] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
 
   const query = useQuery<AdminSecretsResponse, Error>({
     queryKey: ['admin', 'secrets', token],
@@ -88,48 +110,116 @@ export function SecretsPage() {
     },
   });
 
+  const data = query.data;
+
+  const view = useMemo(() => {
+    if (!data) return null;
+    const needle = filter.trim().toLowerCase();
+    const setAll = data.secrets.filter((entry) => entry.state === 'set');
+    const unsetAll = data.secrets.filter((entry) => entry.state === 'unset');
+    const match = (entry: AdminSecretEntry) =>
+      needle === '' || entry.name.toLowerCase().includes(needle);
+    return {
+      setAll,
+      unsetAll,
+      setEntries: setAll.filter(match),
+      unsetEntries: unsetAll.filter(match),
+      lastRotation: latestRotation(setAll),
+    };
+  }, [data, filter]);
+
   if (query.isPending) {
     return (
       <div className={styles.page}>
-        <PageHeader description="Loading…" />
+        <PageHeader description="Loading the runtime secret store…" />
+        <div className={styles.empty}>Loading…</div>
       </div>
     );
   }
 
-  if (query.isError) {
+  if (query.isError || !view) {
     const forbidden =
       query.error instanceof HttpResponseError && query.error.status === 403;
     return (
       <div className={styles.page}>
-        <PageHeader description="Runtime secrets" />
-        <div className={styles.empty}>
-          {forbidden
-            ? 'You do not have permission to view secret metadata.'
-            : `Failed to load secrets: ${getErrorMessage(query.error)}`}
+        <PageHeader description="Runtime secret store" />
+        <div className={styles.errorState}>
+          <span className={styles.errorSeal} aria-hidden="true">
+            <Secrets />
+          </span>
+          <div>
+            <p className={styles.errorTitle}>
+              {forbidden ? 'Access restricted' : 'Could not load secrets'}
+            </p>
+            <p className={styles.errorBody}>
+              {forbidden
+                ? 'You do not have permission to view secret metadata.'
+                : `Failed to load secrets: ${getErrorMessage(query.error)}`}
+            </p>
+          </div>
         </div>
       </div>
     );
   }
 
-  const data = query.data;
-  const setEntries = data.secrets.filter((entry) => entry.state === 'set');
-  const unsetEntries = data.secrets.filter((entry) => entry.state === 'unset');
-  const canOverwrite = data.actions.includes('secret.overwrite');
-  const canUnset = data.actions.includes('secret.unset');
+  const canOverwrite = data?.actions.includes('secret.overwrite') ?? false;
+  const canUnset = data?.actions.includes('secret.unset') ?? false;
 
   return (
     <div className={styles.page}>
-      <PageHeader description="Rotate or remove runtime secrets. Values are never displayed." />
+      <PageHeader
+        description="Runtime credential store — write-only, never read back."
+        actions={
+          <div className={styles.search}>
+            <Search className={styles.searchIcon} aria-hidden="true" />
+            <input
+              className={styles.searchInput}
+              type="search"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Filter by name"
+              aria-label="Filter secrets by name"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+          </div>
+        }
+      />
 
-      <div className={styles.contractBanner}>
-        <strong>Write-only surface.</strong> Stored values are never returned to
-        the browser. Overwrite replaces the current value; the new value is sent
-        to the gateway and discarded from the page after submit.
-      </div>
+      <section className={styles.vault} aria-label="Write-only vault notice">
+        <span className={styles.vaultSeal} aria-hidden="true">
+          <Secrets />
+        </span>
+        <div className={styles.vaultBody}>
+          <h2 className={styles.vaultTitle}>Write-only vault</h2>
+          <p className={styles.vaultText}>
+            Values are sealed on the way in. The gateway returns only metadata —
+            a length and a fingerprint — never the secret itself. Rotation
+            overwrites the stored value; it never reveals it, not even to you.
+          </p>
+        </div>
+        <dl className={styles.vaultStats}>
+          <div className={styles.vaultStat}>
+            <dt>Sealed</dt>
+            <dd>{view.setAll.length}</dd>
+          </div>
+          <div className={styles.vaultStat}>
+            <dt>Declared</dt>
+            <dd>{view.unsetAll.length}</dd>
+          </div>
+          <div className={styles.vaultStat}>
+            <dt>Last rotation</dt>
+            <dd className={styles.vaultStatSmall}>{view.lastRotation}</dd>
+          </div>
+        </dl>
+      </section>
 
       <SecretsSection
         title="Set"
-        entries={setEntries}
+        caption="Value stored — shown only as a fingerprint."
+        entries={view.setEntries}
+        totalCount={view.setAll.length}
         emptyLabel="No secrets are currently set."
         canOverwrite={canOverwrite}
         canUnset={canUnset}
@@ -139,7 +229,9 @@ export function SecretsPage() {
 
       <SecretsSection
         title="Declared but unset"
-        entries={unsetEntries}
+        caption="Referenced by a skill, connector, or provider, with no value yet."
+        entries={view.unsetEntries}
+        totalCount={view.unsetAll.length}
         emptyLabel="No declared-but-unset secrets."
         canOverwrite={canOverwrite}
         canUnset={false}
@@ -149,13 +241,17 @@ export function SecretsPage() {
 
       <OverwriteDialog
         name={overwriteTarget}
+        wasSet={
+          overwriteTarget !== null &&
+          view.setAll.some((entry) => entry.name === overwriteTarget)
+        }
         onClose={() => setOverwriteTarget(null)}
         pending={overwriteMutation.isPending}
         onSubmit={(value) => {
           if (!overwriteTarget) return;
-          const wasSet =
-            data.secrets.find((entry) => entry.name === overwriteTarget)
-              ?.state === 'set';
+          const wasSet = view.setAll.some(
+            (entry) => entry.name === overwriteTarget,
+          );
           overwriteMutation.mutate({ name: overwriteTarget, value, wasSet });
         }}
       />
@@ -176,25 +272,33 @@ export function SecretsPage() {
 
 function SecretsSection(props: {
   title: string;
+  caption: string;
   entries: AdminSecretEntry[];
+  totalCount: number;
   emptyLabel: string;
   canOverwrite: boolean;
   canUnset: boolean;
   onOverwrite: (name: string) => void;
   onUnset: (name: string) => void;
 }) {
+  const hidden = props.totalCount - props.entries.length;
+
   return (
     <section className={styles.section} aria-label={props.title}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>{props.title}</h2>
-        <span className={styles.sectionCount}>
-          {props.entries.length}
-          {props.entries.length === 1 ? ' entry' : ' entries'}
-        </span>
+        <div className={styles.sectionHeading}>
+          <h2 className={styles.sectionTitle}>{props.title}</h2>
+          <span className={styles.sectionCount}>{props.totalCount}</span>
+        </div>
+        <p className={styles.sectionCaption}>{props.caption}</p>
       </div>
 
       {props.entries.length === 0 ? (
-        <div className={styles.empty}>{props.emptyLabel}</div>
+        <div className={styles.empty}>
+          {props.totalCount === 0
+            ? props.emptyLabel
+            : `No matches${hidden > 0 ? ` (${hidden} hidden)` : ''}.`}
+        </div>
       ) : (
         <ul className={styles.list}>
           {props.entries.map((entry) => (
@@ -224,42 +328,43 @@ function SecretRow(props: {
   const isSet = entry.state === 'set';
 
   return (
-    <li className={`${styles.row} ${isSet ? '' : styles.rowUnset}`}>
-      <div>
-        <div className={styles.name}>{entry.name}</div>
-        <div className={styles.meta}>
-          {isSet ? (
-            <>
-              <span>
-                <span className={styles.metaLabel}>Length</span>
-                <span className={styles.metaValue}>{formatLength(entry)}</span>
-              </span>
-              <span>
-                <span className={styles.metaLabel}>Fingerprint</span>
-                <span
-                  className={`${styles.metaValue} ${styles.fingerprint}`}
-                  title={
-                    entry.fingerprint ? formatFingerprint(entry) : undefined
-                  }
-                >
-                  {formatFingerprint(entry)}
-                </span>
-              </span>
-              <span>
-                <span className={styles.metaLabel}>Rotated</span>
-                <span
-                  className={styles.metaValue}
-                  title={entry.last_rotated_at ?? undefined}
-                >
-                  {formatTimestamp(entry.last_rotated_at)}
-                </span>
-              </span>
-            </>
-          ) : (
-            <span>Declared by a skill, connector, or provider.</span>
-          )}
-        </div>
+    <li className={`${styles.row} ${isSet ? styles.rowSet : styles.rowUnset}`}>
+      <span
+        className={styles.dot}
+        data-state={isSet ? 'sealed' : 'declared'}
+        aria-hidden="true"
+      />
+
+      <div className={styles.rowBody}>
+        <span className={styles.name}>{entry.name}</span>
+        {isSet ? (
+          <div className={styles.meta}>
+            <span
+              className={styles.seal}
+              title={
+                entry.fingerprint ? formatFingerprint(entry) : 'no fingerprint'
+              }
+            >
+              <Secrets className={styles.sealIcon} aria-hidden="true" />
+              <code className={styles.sealText}>
+                {formatFingerprint(entry)}
+              </code>
+            </span>
+            <span className={styles.metaItem}>{formatLength(entry)}</span>
+            <span
+              className={styles.metaItem}
+              title={entry.last_rotated_at ?? undefined}
+            >
+              rotated {formatTimestamp(entry.last_rotated_at)}
+            </span>
+          </div>
+        ) : (
+          <span className={styles.declaredNote}>
+            Declared by a skill, connector, or provider — awaiting a value.
+          </span>
+        )}
       </div>
+
       <div className={styles.actions}>
         {props.canOverwrite ? (
           <Button
@@ -288,6 +393,7 @@ function SecretRow(props: {
 
 function OverwriteDialog(props: {
   name: string | null;
+  wasSet: boolean;
   onClose: () => void;
   pending: boolean;
   onSubmit: (value: string) => void;
@@ -326,7 +432,10 @@ function OverwriteDialog(props: {
       >
         <DialogHeader>
           <DialogTitle>
-            Set value for <code>{props.name}</code>
+            <span className={styles.dialogSeal} aria-hidden="true">
+              <Secrets />
+            </span>
+            {props.wasSet ? 'Rotate' : 'Set'} <code>{props.name}</code>
           </DialogTitle>
           <DialogDescription>
             The new value is sent to the gateway and immediately discarded from
