@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
@@ -466,7 +467,6 @@ function runUpdateInstall(command: UpdateCommand): Promise<number> {
 
 const VERSION_CACHE_FILE = 'version-check.json';
 const VERSION_CACHE_TTL_MS = 20 * 60 * 60 * 1000;
-const VERSION_CACHE_FETCH_TIMEOUT_MS = 15_000;
 const REFRESH_VERSION_CACHE_COMMAND = '__refresh-version-cache';
 
 interface VersionCache {
@@ -511,13 +511,22 @@ function writeVersionCache(latestVersion: string): void {
     latestVersion,
     lastCheckedAt: new Date().toISOString(),
   };
+  // Overwriting temp+rename (writeFileAtomicExclusive can't be reused here: it
+  // hard-links with flag 'wx' and throws once the cache file already exists).
   const filePath = versionCachePath();
-  const tempPath = `${filePath}.tmp-${process.pid}`;
+  const tempPath = `${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
   try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(tempPath, `${JSON.stringify(cache)}\n`, 'utf-8');
+    // The cache shares the runtime home with secrets, so create the directory
+    // and file with the restrictive modes the rest of the runtime uses rather
+    // than leaving them at the umask default.
+    fs.mkdirSync(DEFAULT_RUNTIME_HOME_DIR, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(tempPath, `${JSON.stringify(cache)}\n`, {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
     fs.renameSync(tempPath, filePath);
   } catch {
+    // A failed cache write must never affect startup; the next launch retries.
     fs.rmSync(tempPath, { force: true });
   }
 }
@@ -527,10 +536,7 @@ function writeVersionCache(latestVersion: string): void {
 // cache for the next interactive launch to read.
 export function refreshVersionCache(): void {
   const packageName = resolvePackageName(process.argv[1]);
-  const latest = fetchLatestVersion(
-    packageName,
-    VERSION_CACHE_FETCH_TIMEOUT_MS,
-  );
+  const latest = fetchLatestVersion(packageName);
   if (latest.version) {
     writeVersionCache(latest.version);
   }
@@ -540,9 +546,12 @@ function spawnVersionCacheRefresh(): void {
   const cliEntry = process.argv[1];
   if (!cliEntry) return;
   try {
+    // Do not forward process.execArgv: an inherited exclusive flag such as
+    // --inspect would make the child fail to bind its debug port and exit
+    // before it can refresh the cache.
     const child = spawn(
       process.execPath,
-      [...process.execArgv, cliEntry, REFRESH_VERSION_CACHE_COMMAND],
+      [cliEntry, REFRESH_VERSION_CACHE_COMMAND],
       { detached: true, stdio: 'ignore' },
     );
     child.unref();
@@ -574,32 +583,24 @@ export async function maybePromptStartupUpdate(
   if (!cache) return;
   if (compareSemver(currentVersion, cache.latestVersion) !== -1) return;
 
-  const manager = resolveAvailablePackageManager(install.packageManager);
-  if (!manager) return;
-  const updateCommand = buildUpdateCommand(manager, packageName);
-
   console.log(`Update available: ${currentVersion} -> ${cache.latestVersion}`);
-  const confirmed = await askForConfirmation('Update HybridClaw now?');
+  let confirmed = false;
+  try {
+    confirmed = await askForConfirmation('Update HybridClaw now?');
+  } catch {
+    // An aborted prompt (e.g. Ctrl-C) is a decline, not a crash.
+    confirmed = false;
+  }
   if (!confirmed) {
     console.log('Skipping update. Run `hybridclaw update` to update later.');
     return;
   }
 
-  console.log(`Update command: ${updateCommand.display}`);
-  const exitCode = await runUpdateInstall(updateCommand);
-  if (exitCode !== 0) {
-    console.log(
-      `Update failed with exit code ${exitCode}. Continuing with the current version.`,
-    );
-    return;
-  }
-
-  const updatedRoot =
-    resolveUpdatedPackageRoot(manager, packageName) || install.root;
-  rebuildReviewedNativeDependencies(updatedRoot);
-  runExplicitPostinstall(updatedRoot);
-
-  console.log('Update complete. Restart HybridClaw to use the new version.');
+  // Delegate to the full update command so the install, native rebuild,
+  // postinstall, and restart of any running gateway all match `hybridclaw
+  // update`. Exit afterward: this process is still running the old code and
+  // must not continue into the TUI or gateway.
+  await runUpdateCommand(['--yes'], currentVersion);
   process.exit(0);
 }
 
