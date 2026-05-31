@@ -9,9 +9,17 @@ const RESET = '\x1b[0m';
 const CLEAR_LINE = '\r\x1b[2K';
 
 export interface ProgressIndicator {
-  /** Stop the animation and print a success line with a check mark. */
+  /**
+   * Stop the animation and print a success result line. On an animated stream
+   * the line is prefixed with a green check mark; on plain output the raw
+   * message is printed with no marker.
+   */
   succeed(message: string): void;
-  /** Stop the animation and print a failure line with a cross mark. */
+  /**
+   * Stop the animation and print a failure result line. On an animated stream
+   * the line is prefixed with a red cross mark; on plain output the raw
+   * message is printed with no marker.
+   */
   fail(message: string): void;
   /** Stop the animation and leave no result line behind. */
   clear(): void;
@@ -39,8 +47,9 @@ function formatElapsed(elapsedMs: number): string {
 /**
  * Start a single-line progress indicator for a long-running step. On an
  * interactive terminal it animates a spinner with an elapsed-time counter; on
- * non-interactive streams it stays silent until a result line is printed, so
- * logs and test output stay clean.
+ * non-interactive streams it emits a single plain breadcrumb line up front (and
+ * a plain result line at the end) instead of animating, so logs and test output
+ * stay free of ANSI escape noise.
  */
 export function startProgressIndicator(
   message: string,

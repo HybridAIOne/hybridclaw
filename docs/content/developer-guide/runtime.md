@@ -33,6 +33,8 @@ Maintainer overrides:
 - `HYBRIDCLAW_CONTAINER_REBUILD=if-stale|always|never` adjusts rebuild policy
 - `HYBRIDCLAW_CONTAINER_IMAGE=<name[:tag]> npm run build:container` builds and
   tags a custom image
+- `HYBRIDCLAW_NO_SPINNER=1` forces the plain (non-animated) image-setup output
+  even on an interactive terminal
 
 Build context hygiene is enforced by `container/.dockerignore` to avoid shipping
 local secrets or artifacts into published images.
