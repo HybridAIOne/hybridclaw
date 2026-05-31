@@ -70,7 +70,11 @@ function readPackageInfo(packageJsonPath: string): PackageInfo {
         ? parsed.version.trim()
         : null;
     return { name, version };
-  } catch {
+  } catch (error) {
+    logger.debug(
+      { packageJsonPath, err: error },
+      'Could not read package manifest',
+    );
     return { name: null, version: null };
   }
 }
@@ -102,12 +106,16 @@ function findNearestPackageRoot(startPath: string | undefined): string | null {
 
   let current: string;
   try {
-    const resolved = resolveEntryPathThroughBinSymlink(path.resolve(startPath));
+    const resolved = realpathOrSelf(startPath);
     current =
       fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
         ? resolved
         : path.dirname(resolved);
-  } catch {
+  } catch (error) {
+    logger.debug(
+      { startPath, err: error },
+      'Could not determine the package root for the CLI entry path',
+    );
     return null;
   }
 
@@ -118,18 +126,6 @@ function findNearestPackageRoot(startPath: string | undefined): string | null {
     const parent = path.dirname(current);
     if (parent === current) return null;
     current = parent;
-  }
-}
-
-function resolveEntryPathThroughBinSymlink(entryPath: string): string {
-  try {
-    return fs.realpathSync(entryPath);
-  } catch (error) {
-    logger.debug(
-      { entryPath, err: error },
-      'Startup update check could not resolve the CLI entry symlink; using the literal path',
-    );
-    return entryPath;
   }
 }
 
@@ -388,7 +384,11 @@ function resolveUpdatedPackageRoot(
 function realpathOrSelf(target: string): string {
   try {
     return fs.realpathSync(target);
-  } catch {
+  } catch (error) {
+    logger.debug(
+      { target, err: error },
+      'Could not resolve the real path; using the literal path',
+    );
     return path.resolve(target);
   }
 }
@@ -532,8 +532,11 @@ function readVersionCache(): VersionCache | null {
         lastCheckedAt: parsed.lastCheckedAt,
       };
     }
-  } catch {
-    // A missing or unreadable cache is expected on the first run.
+  } catch (error) {
+    logger.debug(
+      { err: error },
+      'Could not read the version cache; treating it as absent',
+    );
   }
   return null;
 }
@@ -640,8 +643,11 @@ export async function maybePromptStartupUpdate(
   let confirmed = false;
   try {
     confirmed = await askForConfirmation('Update HybridClaw now?');
-  } catch {
-    // An aborted prompt (e.g. Ctrl-C) is a decline, not a crash.
+  } catch (error) {
+    logger.debug(
+      { err: error },
+      'Update confirmation prompt aborted (e.g. Ctrl-C); treating as a decline',
+    );
     confirmed = false;
   }
   if (!confirmed) {
