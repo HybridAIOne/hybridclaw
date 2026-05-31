@@ -564,13 +564,56 @@ describe('maybePromptStartupUpdate', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     const { maybePromptStartupUpdate } = await import('../src/update.js');
-    await maybePromptStartupUpdate('0.9.8');
+    const updated = await maybePromptStartupUpdate('0.9.8');
 
+    expect(updated).toBe(false);
     const messages = logSpy.mock.calls.map((call) => String(call[0]));
     expect(messages).toContain('Update available: 0.9.8 -> 0.42.0');
     expect(messages.some((m) => m.startsWith('Skipping update'))).toBe(true);
     // Fresh cache means no refresh; declining means no install spawn.
     expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('installs and reports updated=true when the user accepts', async () => {
+    setTty(true);
+    const { installRoot } = setupGlobalPackageInstall();
+    writeCache('0.42.0', 60 * 1000);
+    readlineState.answer = 'y';
+    requestExternalGatewayRestartMock.mockReturnValue({
+      status: 'not-running',
+      pid: null,
+      reason: null,
+    });
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      if (command === 'npm' && args[0] === 'view') {
+        return { status: 0, stdout: '0.42.0\n', stderr: '' };
+      }
+      if (command === 'npm' && args[0] === '--version') {
+        return { status: 0, stdout: '10.0.0\n', stderr: '' };
+      }
+      if (command === 'npm' && args[0] === 'rebuild') {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: '' };
+    });
+    spawnMock.mockImplementation(() => ({
+      on(event: string, handler: (value?: number) => void) {
+        if (event === 'close') handler(0);
+      },
+    }));
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    const updated = await maybePromptStartupUpdate('0.9.8');
+
+    expect(updated).toBe(true);
+    // Delegates to the full update command, which runs the global install.
+    expect(spawnMock).toHaveBeenCalledWith(
+      'npm',
+      ['install', '-g', '--ignore-scripts', '@hybridaione/hybridclaw@latest'],
+      { stdio: 'inherit' },
+    );
+    expect(installRoot).toContain('@hybridaione');
   });
 });
 

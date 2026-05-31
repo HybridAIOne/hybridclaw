@@ -247,13 +247,10 @@ function compareSemver(a: string, b: string): number | null {
   return String(left.prerelease).localeCompare(String(right.prerelease));
 }
 
-function fetchLatestVersion(
-  packageName: string,
-  timeoutMs = 15_000,
-): LatestVersionResult {
+function fetchLatestVersion(packageName: string): LatestVersionResult {
   const result = spawnSync('npm', ['view', packageName, 'version'], {
     encoding: 'utf-8',
-    timeout: timeoutMs,
+    timeout: 15_000,
   });
 
   if (result.error) {
@@ -560,18 +557,20 @@ function spawnVersionCacheRefresh(): void {
   }
 }
 
+// Returns true when an update was installed and the caller should stop (this
+// process is still running the old code). Returns false to continue launching.
 export async function maybePromptStartupUpdate(
   currentVersion: string,
-): Promise<void> {
+): Promise<boolean> {
   // Only suggest updates in an interactive terminal. Non-TTY launches
   // (CI, the detached gateway daemon, scripts) must never block on a prompt.
-  if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
 
   const packageName = resolvePackageName(process.argv[1]);
   const install = detectInstallContext(packageName, process.argv[1]);
   // Only global package installs can be updated via the package manager.
   // Source checkouts update via git; unknown installs are left untouched.
-  if (install.kind !== 'package') return;
+  if (install.kind !== 'package') return false;
 
   // Cache-first, like Codex: decide using the previously cached latest version
   // so startup never waits on the network. Refresh in a detached child when the
@@ -580,8 +579,8 @@ export async function maybePromptStartupUpdate(
   if (!cache || !isVersionCacheFresh(cache)) {
     spawnVersionCacheRefresh();
   }
-  if (!cache) return;
-  if (compareSemver(currentVersion, cache.latestVersion) !== -1) return;
+  if (!cache) return false;
+  if (compareSemver(currentVersion, cache.latestVersion) !== -1) return false;
 
   console.log(`Update available: ${currentVersion} -> ${cache.latestVersion}`);
   let confirmed = false;
@@ -593,15 +592,15 @@ export async function maybePromptStartupUpdate(
   }
   if (!confirmed) {
     console.log('Skipping update. Run `hybridclaw update` to update later.');
-    return;
+    return false;
   }
 
   // Delegate to the full update command so the install, native rebuild,
   // postinstall, and restart of any running gateway all match `hybridclaw
-  // update`. Exit afterward: this process is still running the old code and
-  // must not continue into the TUI or gateway.
+  // update`. The caller exits afterward so we never continue into the TUI or
+  // gateway on the old code.
   await runUpdateCommand(['--yes'], currentVersion);
-  process.exit(0);
+  return true;
 }
 
 export function printUpdateUsage(): void {

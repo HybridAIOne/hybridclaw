@@ -146,7 +146,10 @@ function resolveCliVersion(): string {
 
 async function promptStartupUpdate(): Promise<void> {
   const { maybePromptStartupUpdate } = await import('./update.js');
-  await maybePromptStartupUpdate(resolveCliVersion());
+  const updated = await maybePromptStartupUpdate(resolveCliVersion());
+  // After a successful self-update this process is still running the old code,
+  // so stop here rather than launch the TUI or gateway with stale modules.
+  if (updated) process.exit(0);
 }
 
 async function ensureConfigApi(): Promise<ConfigApi> {
