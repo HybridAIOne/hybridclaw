@@ -893,3 +893,113 @@ test('ensureRuntimeCredentials backfills the default HybridAI bot from account f
     'user-42',
   );
 });
+
+const MASKED_PROVIDER_CASES = [
+  {
+    name: 'Anthropic',
+    preferredAuth: 'anthropic' as const,
+    secretName: 'ANTHROPIC_API_KEY',
+    maskedValue: 'anthropic-masked-secret-key',
+  },
+  {
+    name: 'OpenRouter',
+    preferredAuth: 'openrouter' as const,
+    secretName: 'OPENROUTER_API_KEY',
+    maskedValue: 'or-masked-secret-key',
+  },
+  {
+    name: 'Mistral',
+    preferredAuth: 'mistral' as const,
+    secretName: 'MISTRAL_API_KEY',
+    maskedValue: 'mistral-masked-secret-key',
+  },
+  {
+    name: 'Hugging Face',
+    preferredAuth: 'huggingface' as const,
+    secretName: 'HF_TOKEN',
+    maskedValue: 'hf-masked-secret-token',
+  },
+];
+
+test.each(MASKED_PROVIDER_CASES)(
+  'interactive onboarding reads the $name credential through the hidden secret prompt',
+  async ({ preferredAuth, secretName, maskedValue }) => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+
+    process.env.HOME = homeDir;
+    process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+    delete process.env.HYBRIDAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.MISTRAL_API_KEY;
+    delete process.env.HF_TOKEN;
+    delete process.env.HUGGINGFACE_API_KEY;
+    process.chdir(homeDir);
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    // The plain readline interface only answers the non-secret prompts: keep the
+    // configured Anthropic auth method and decline the default-model switch. If a
+    // provider ever stopped masking its key prompt it would fall through to this
+    // mock instead of `promptForSecretInput`, and the assertions below would fail.
+    vi.doMock('node:readline/promises', () => ({
+      default: {
+        createInterface: () => ({
+          question: vi.fn(async (prompt: string) =>
+            /auth method/i.test(prompt) ? '' : 'n',
+          ),
+          close: vi.fn(),
+        }),
+      },
+    }));
+    vi.doMock('../src/utils/secret-prompt.js', () => ({
+      promptForSecretInput: vi.fn(async () => maskedValue),
+    }));
+    vi.doMock('../src/security/runtime-secrets.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/security/runtime-secrets.ts')
+      >('../src/security/runtime-secrets.ts');
+      return {
+        ...actual,
+        loadRuntimeSecrets: (targetHomeDir?: string) =>
+          actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+      };
+    });
+    vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/security/runtime-secrets-bootstrap.ts')
+      >('../src/security/runtime-secrets-bootstrap.ts');
+      return {
+        ...actual,
+        bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+          actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
+      };
+    });
+    vi.resetModules();
+
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    runtimeConfig.acceptSecurityTrustModel({
+      acceptedAt: '2026-03-10T10:00:00.000Z',
+      acceptedBy: 'test',
+    });
+
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const onboarding = await import('../src/onboarding.ts');
+    await onboarding.ensureRuntimeCredentials({
+      commandName: 'hybridclaw onboarding',
+      preferredAuth,
+    });
+
+    const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+    const secretPrompt = await import('../src/utils/secret-prompt.js');
+    expect(secretPrompt.promptForSecretInput).toHaveBeenCalled();
+    expect(runtimeSecrets.readStoredRuntimeSecret(secretName)).toBe(maskedValue);
+  },
+);
