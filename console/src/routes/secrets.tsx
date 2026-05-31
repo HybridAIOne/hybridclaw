@@ -6,11 +6,7 @@ import {
   overwriteAdminSecret,
   unsetAdminSecret,
 } from '../api/client';
-import type {
-  AdminSecretAction,
-  AdminSecretEntry,
-  AdminSecretsResponse,
-} from '../api/types';
+import type { AdminSecretEntry, AdminSecretsResponse } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
@@ -29,15 +25,6 @@ import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 import styles from './secrets.module.css';
-
-type SecretsQueryData = AdminSecretsResponse;
-
-function hasAction(
-  actions: ReadonlyArray<AdminSecretAction>,
-  action: AdminSecretAction,
-): boolean {
-  return actions.includes(action);
-}
 
 function formatLength(entry: AdminSecretEntry): string {
   return entry.length === null ? '—' : `${entry.length} bytes`;
@@ -62,8 +49,8 @@ export function SecretsPage() {
   const [overwriteTarget, setOverwriteTarget] = useState<string | null>(null);
   const [unsetTarget, setUnsetTarget] = useState<string | null>(null);
 
-  const query = useQuery<SecretsQueryData, Error>({
-    queryKey: ['admin', 'secrets'],
+  const query = useQuery<AdminSecretsResponse, Error>({
+    queryKey: ['admin', 'secrets', token],
     queryFn: () => fetchAdminSecrets(token),
     retry: false,
   });
@@ -73,10 +60,14 @@ export function SecretsPage() {
   }, [queryClient]);
 
   const overwriteMutation = useMutation({
-    mutationFn: (variables: { name: string; value: string }) =>
+    mutationFn: (variables: { name: string; value: string; wasSet: boolean }) =>
       overwriteAdminSecret(token, variables.name, variables.value),
     onSuccess: async (_, variables) => {
-      toast.success(`Rotated ${variables.name}.`);
+      toast.success(
+        variables.wasSet
+          ? `Rotated ${variables.name}.`
+          : `Set ${variables.name}.`,
+      );
       setOverwriteTarget(null);
       await invalidate();
     },
@@ -123,8 +114,8 @@ export function SecretsPage() {
   const data = query.data;
   const setEntries = data.secrets.filter((entry) => entry.state === 'set');
   const unsetEntries = data.secrets.filter((entry) => entry.state === 'unset');
-  const canOverwrite = hasAction(data.actions, 'secret.overwrite');
-  const canUnset = hasAction(data.actions, 'secret.unset');
+  const canOverwrite = data.actions.includes('secret.overwrite');
+  const canUnset = data.actions.includes('secret.unset');
 
   return (
     <div className={styles.page}>
@@ -161,9 +152,11 @@ export function SecretsPage() {
         onClose={() => setOverwriteTarget(null)}
         pending={overwriteMutation.isPending}
         onSubmit={(value) => {
-          if (overwriteTarget) {
-            overwriteMutation.mutate({ name: overwriteTarget, value });
-          }
+          if (!overwriteTarget) return;
+          const wasSet =
+            data.secrets.find((entry) => entry.name === overwriteTarget)
+              ?.state === 'set';
+          overwriteMutation.mutate({ name: overwriteTarget, value, wasSet });
         }}
       />
 
@@ -247,9 +240,7 @@ function SecretRow(props: {
                 <span
                   className={`${styles.metaValue} ${styles.fingerprint}`}
                   title={
-                    entry.fingerprint
-                      ? `sha256:${entry.fingerprint.sha256_prefix}`
-                      : undefined
+                    entry.fingerprint ? formatFingerprint(entry) : undefined
                   }
                 >
                   {formatFingerprint(entry)}
@@ -318,7 +309,9 @@ function OverwriteDialog(props: {
     if (!input) return;
     const value = input.value;
     if (!value.trim()) return;
-    input.value = '';
+    // Keep the value in the (masked) field until the mutation resolves: on
+    // success the dialog unmounts and disposes it, on close onOpenChange clears
+    // it, and on error it survives so the operator can retry without retyping.
     props.onSubmit(value);
   };
 
@@ -332,7 +325,11 @@ function OverwriteDialog(props: {
         }
       }}
     >
-      <DialogContent role="dialog" size="default">
+      <DialogContent
+        role="dialog"
+        size="default"
+        preventCloseOnOutsideClick={props.pending}
+      >
         <DialogHeader>
           <DialogTitle>
             Set value for <code>{props.name}</code>
@@ -391,7 +388,11 @@ function UnsetDialog(props: {
         if (!next) props.onClose();
       }}
     >
-      <DialogContent role="alertdialog" size="default">
+      <DialogContent
+        role="alertdialog"
+        size="default"
+        preventCloseOnOutsideClick={props.pending}
+      >
         <DialogHeader>
           <DialogTitle>
             Unset <code>{props.name}</code>?

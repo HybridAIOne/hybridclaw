@@ -2,6 +2,7 @@ import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
+  ADMIN_RBAC_ACTIONS,
   type AdminRbacAction,
   isAdminActionAllowed,
 } from '../security/admin-rbac.js';
@@ -34,16 +35,10 @@ export interface AdminSecretAuditContext {
   sourceIp?: string | null;
 }
 
-const ADMIN_SECRET_ACTIONS: ReadonlyArray<AdminRbacAction> = [
-  'secret.list_metadata',
-  'secret.overwrite',
-  'secret.unset',
-];
-
 function resolveAllowedAdminSecretActions(
   sessionPayload: Record<string, unknown> | null,
 ): AdminRbacAction[] {
-  return ADMIN_SECRET_ACTIONS.filter((action) =>
+  return ADMIN_RBAC_ACTIONS.filter((action) =>
     isAdminActionAllowed(sessionPayload, action),
   );
 }

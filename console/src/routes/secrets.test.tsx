@@ -133,7 +133,7 @@ describe('SecretsPage', () => {
       },
     });
 
-    const { container } = renderWithProviders(<SecretsPage />);
+    renderWithProviders(<SecretsPage />);
 
     fireEvent.click(await screen.findByRole('button', { name: /^Rotate$/i }));
 
@@ -154,9 +154,12 @@ describe('SecretsPage', () => {
       'rotated-super-secret',
     );
 
+    // The dialog portals to document.body (outside the render container), so
+    // assert against the whole document and wait for it to unmount on success.
     await waitFor(() => {
-      expect(container.textContent ?? '').not.toMatch(/rotated-super-secret/);
+      expect(screen.queryByLabelText('New value')).toBeNull();
     });
+    expect(document.body.textContent ?? '').not.toMatch(/rotated-super-secret/);
   });
 
   it('unsets a secret only after explicit confirmation', async () => {
