@@ -598,6 +598,61 @@ describe('useChatStream', () => {
     });
   });
 
+  it('masks the secret in the echoed /secret set message but sends the real value', async () => {
+    const harness = makeHarness();
+    let sentBody: { content?: string } | undefined;
+
+    requestChatStreamMock.mockImplementation(
+      async (
+        _url: string,
+        params: { body: { content?: string } },
+      ): Promise<ChatStreamResult> => {
+        sentBody = params.body;
+        return {
+          status: 'success',
+          sessionId: SESSION_ID,
+          userMessageId: 'server-user-1',
+          assistantMessageId: null,
+          result: 'Stored encrypted secret `TS_AUTHKEY`.',
+          commandResult: true,
+          toolsUsed: [],
+        };
+      },
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage(
+        '/secret set TS_AUTHKEY tskey-abc123',
+        [],
+      );
+    });
+
+    // The gateway still receives the real value so the secret is actually stored.
+    expect(sentBody?.content).toBe('/secret set TS_AUTHKEY tskey-abc123');
+
+    // The echoed bubble (and every copy derived from it) hides the value.
+    const userMsg = harness.messages.find((msg) => msg.role === 'user');
+    expect(userMsg?.content).toBe('/secret set TS_AUTHKEY ••••••');
+    expect(userMsg?.rawContent).toBe('/secret set TS_AUTHKEY ••••••');
+    expect(userMsg?.replayRequest?.content).toBe(
+      '/secret set TS_AUTHKEY ••••••',
+    );
+    expect(JSON.stringify(harness.messages)).not.toContain('tskey-abc123');
+  });
+
   it('invokes onSessionIdCorrection when the server returns a different sessionId', async () => {
     const harness = makeHarness();
 

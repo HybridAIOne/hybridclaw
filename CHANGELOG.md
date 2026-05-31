@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Censor `/secret set` in the web chat**: The value of a `/secret set <name>
+  <value>` command is now masked in the echoed message bubble and in reloaded
+  chat history, so the plaintext secret no longer lingers on the chat page. The
+  real value is still sent to the gateway so the secret is stored as before.
+
 ## [0.21.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.0) - 2026-05-29
 
 ### Added

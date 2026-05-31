@@ -5,6 +5,7 @@ import type {
   ChatMessage,
 } from '../../api/chat-types';
 import { nextMsgId } from '../../lib/chat-helpers';
+import { redactSecretCommand } from '../../lib/redact-secret-command';
 import type { ChatUiMessage } from './chat-ui-message';
 
 export interface ChatHistoryUiData {
@@ -40,18 +41,21 @@ export function buildChatHistoryUiData(
   const history = raw.history ?? [];
   let lastUserContent: string | null = null;
   const messages: ChatMessage[] = history.map((msg) => {
-    if (msg.role === 'user') lastUserContent = msg.content;
+    // Mask `/secret set ...` values so a secret that reached persisted history
+    // is never re-exposed when the chat page reloads.
+    const content = redactSecretCommand(msg.content);
+    if (msg.role === 'user') lastUserContent = content;
     const replayContent =
       msg.role === 'user'
-        ? msg.content
+        ? content
         : msg.role === 'assistant'
           ? lastUserContent
           : null;
     return {
       id: nextMsgId(),
       role: msg.role,
-      content: msg.content,
-      rawContent: msg.content,
+      content,
+      rawContent: content,
       sessionId: resolvedSessionId,
       messageId: msg.id ?? null,
       media: [],

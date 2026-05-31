@@ -10,6 +10,7 @@ import type {
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
 import { requestChatStream } from '../../lib/chat-stream';
 import { getErrorMessage } from '../../lib/error-message';
+import { redactSecretCommand } from '../../lib/redact-secret-command';
 import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
@@ -112,16 +113,21 @@ export function useChatStream(
       const userMsgId = !opts?.hideUser ? nextMsgId() : null;
       setError('');
 
+      // The gateway needs the real `content` to actually store the secret, but
+      // the chat page must never show it. Mask the value in `/secret set ...`
+      // for every copy that is rendered, copied, or replayed.
+      const displayContent = redactSecretCommand(content);
+
       if (userMsgId) {
         const userMsg: ChatMessage = {
           id: userMsgId,
           role: 'user',
-          content,
-          rawContent: content,
+          content: displayContent,
+          rawContent: displayContent,
           sessionId: targetSessionId,
           media,
           artifacts: [],
-          replayRequest: { content, media },
+          replayRequest: { content: displayContent, media },
         };
         setMessages((prev) => [...prev, userMsg]);
       }
@@ -278,7 +284,7 @@ export function useChatStream(
           assistantPresentation: result.assistantPresentation ?? null,
           pendingApproval: finalApproval,
           responseRating: null,
-          replayRequest: { content, media },
+          replayRequest: { content: displayContent, media },
         });
 
         setMessages((prev) => {
