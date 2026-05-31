@@ -435,9 +435,9 @@ describe('maybePromptStartupUpdate', () => {
   }
 
   function setupGlobalPackageInstall() {
+    const globalNodeModules = path.join(tempDir, 'node_modules');
     const installRoot = path.join(
-      tempDir,
-      'node_modules',
+      globalNodeModules,
       '@hybridaione',
       'hybridclaw',
     );
@@ -453,7 +453,22 @@ describe('maybePromptStartupUpdate', () => {
       originalArgv[0] || 'node',
       path.join(installRoot, 'dist', 'cli.js'),
     ];
-    return { installRoot };
+    return { installRoot, globalNodeModules };
+  }
+
+  // The prompt confirms the entry point is the *global* install via `npm root
+  // -g` before prompting. Point that lookup at the global node_modules holding
+  // the install (matches) unless a test overrides it (project-local install).
+  function mockNpmGlobalRoot(globalNodeModules: string) {
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      if (command === 'npm' && args[0] === 'root' && args[1] === '-g') {
+        return { status: 0, stdout: `${globalNodeModules}\n`, stderr: '' };
+      }
+      if (args[0] === '--version') {
+        return { status: 0, stdout: '10.0.0\n', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: '' };
+    });
   }
 
   function writeCache(latestVersion: string, ageMs = 0) {
@@ -552,15 +567,10 @@ describe('maybePromptStartupUpdate', () => {
 
   it('prompts from a fresh cache with a newer version and skips when declined', async () => {
     setTty(true);
-    setupGlobalPackageInstall();
+    const { globalNodeModules } = setupGlobalPackageInstall();
     writeCache('0.42.0', 60 * 1000);
     readlineState.answer = 'n';
-    spawnSyncMock.mockImplementation((_command: string, args: string[]) => {
-      if (args[0] === '--version') {
-        return { status: 0, stdout: '10.0.0\n', stderr: '' };
-      }
-      return { status: 1, stdout: '', stderr: '' };
-    });
+    mockNpmGlobalRoot(globalNodeModules);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     const { maybePromptStartupUpdate } = await import('../src/update.js');
@@ -576,7 +586,7 @@ describe('maybePromptStartupUpdate', () => {
 
   it('installs and reports updated=true when the user accepts', async () => {
     setTty(true);
-    const { installRoot } = setupGlobalPackageInstall();
+    const { installRoot, globalNodeModules } = setupGlobalPackageInstall();
     writeCache('0.42.0', 60 * 1000);
     readlineState.answer = 'y';
     requestExternalGatewayRestartMock.mockReturnValue({
@@ -590,6 +600,9 @@ describe('maybePromptStartupUpdate', () => {
       }
       if (command === 'npm' && args[0] === '--version') {
         return { status: 0, stdout: '10.0.0\n', stderr: '' };
+      }
+      if (command === 'npm' && args[0] === 'root' && args[1] === '-g') {
+        return { status: 0, stdout: `${globalNodeModules}\n`, stderr: '' };
       }
       if (command === 'npm' && args[0] === 'rebuild') {
         return { status: 0, stdout: '', stderr: '' };
@@ -614,6 +627,73 @@ describe('maybePromptStartupUpdate', () => {
       { stdio: 'inherit' },
     );
     expect(installRoot).toContain('@hybridaione');
+  });
+
+  it('resolves a global bin symlink to the real package before prompting', async () => {
+    setTty(true);
+    const { installRoot, globalNodeModules } = setupGlobalPackageInstall();
+    // A global npm install exposes the CLI as a bin shim on PATH that symlinks
+    // to the real dist entry. process.argv[1] is that shim, not the package
+    // path, so detection must follow the link to find the package root.
+    const realEntry = path.join(installRoot, 'dist', 'cli.js');
+    fs.writeFileSync(realEntry, '');
+    const binDir = path.join(tempDir, 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    const binShim = path.join(binDir, 'hybridclaw');
+    fs.symlinkSync(realEntry, binShim);
+    process.argv = [originalArgv[0] || 'node', binShim];
+    writeCache('0.42.0', 60 * 1000);
+    readlineState.answer = 'n';
+    mockNpmGlobalRoot(globalNodeModules);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    const updated = await maybePromptStartupUpdate('0.9.8');
+
+    expect(updated).toBe(false);
+    const messages = logSpy.mock.calls.map((call) => String(call[0]));
+    expect(messages).toContain('Update available: 0.9.8 -> 0.42.0');
+  });
+
+  it('does not prompt for a project-local install whose global root differs', async () => {
+    setTty(true);
+    const { installRoot } = setupGlobalPackageInstall();
+    writeCache('0.42.0', 60 * 1000);
+    // The package manager's global root holds a *different* copy, so the
+    // running entry point is a project-local dependency we must not upgrade
+    // with a global install.
+    const otherGlobalPkg = path.join(
+      tempDir,
+      'global',
+      'node_modules',
+      '@hybridaione',
+      'hybridclaw',
+    );
+    fs.mkdirSync(otherGlobalPkg, { recursive: true });
+    fs.writeFileSync(
+      path.join(otherGlobalPkg, 'package.json'),
+      JSON.stringify({ name: '@hybridaione/hybridclaw', version: '0.42.0' }),
+    );
+    expect(installRoot).not.toBe(otherGlobalPkg);
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      if (command === 'npm' && args[0] === 'root' && args[1] === '-g') {
+        return {
+          status: 0,
+          stdout: `${path.dirname(path.dirname(otherGlobalPkg))}\n`,
+          stderr: '',
+        };
+      }
+      return { status: 1, stdout: '', stderr: '' };
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { maybePromptStartupUpdate } = await import('../src/update.js');
+    const updated = await maybePromptStartupUpdate('0.9.8');
+
+    expect(updated).toBe(false);
+    // No prompt, no install: a local copy never triggers a global update.
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 });
 

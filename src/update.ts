@@ -101,7 +101,16 @@ function findNearestPackageRoot(startPath: string | undefined): string | null {
 
   let current: string;
   try {
-    const resolved = path.resolve(startPath);
+    // Resolve symlinks first: a global install puts a bin shim at
+    // `process.argv[1]` (e.g. /usr/local/bin/hybridclaw) whose directory has no
+    // package.json above it. Following the link lands on the real
+    // node_modules/.../dist entry so the package root is actually found.
+    let resolved = path.resolve(startPath);
+    try {
+      resolved = fs.realpathSync(resolved);
+    } catch {
+      // The path may not exist yet (or in tests); fall back to the literal path.
+    }
     current =
       fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
         ? resolved
@@ -372,6 +381,33 @@ function resolveUpdatedPackageRoot(
   return packagePathFromNodeModulesRoot(nodeModulesRoot, packageName);
 }
 
+function realpathOrSelf(target: string): string {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+// True only when the running entry point is the package manager's *global*
+// install of HybridClaw. A project-local dependency or npx cache resolves to
+// the same package name and a node_modules path, but it lives outside the
+// global root; updating it would run `npm install -g` and mutate the user's
+// global environment from a local invocation, so callers must not prompt for
+// or auto-update it.
+function isGlobalPackageInstall(
+  install: InstallContext,
+  packageName: string,
+): boolean {
+  if (install.kind !== 'package' || !install.root) return false;
+  const globalRoot = resolveUpdatedPackageRoot(
+    install.packageManager,
+    packageName,
+  );
+  if (!globalRoot) return false;
+  return realpathOrSelf(globalRoot) === realpathOrSelf(install.root);
+}
+
 function runExplicitPostinstall(installRoot: string | null): void {
   if (!installRoot) return;
   const scriptPath = path.join(
@@ -568,8 +604,9 @@ export async function maybePromptStartupUpdate(
 
   const packageName = resolvePackageName(process.argv[1]);
   const install = detectInstallContext(packageName, process.argv[1]);
-  // Only global package installs can be updated via the package manager.
-  // Source checkouts update via git; unknown installs are left untouched.
+  // A package-manager install is the only kind we can upgrade in place. Source
+  // checkouts update via git; unknown installs are left untouched. (Whether a
+  // `package` install is the *global* one is confirmed lazily below.)
   if (install.kind !== 'package') return false;
 
   // Cache-first, like Codex: decide using the previously cached latest version
@@ -581,6 +618,13 @@ export async function maybePromptStartupUpdate(
   }
   if (!cache) return false;
   if (compareSemver(currentVersion, cache.latestVersion) !== -1) return false;
+
+  // Confirm this is the global install before prompting. A project-local or npx
+  // copy matches the package name but auto-updating it would run a global
+  // install and mutate the user's environment. This `npm root -g` lookup is
+  // done here — after we know an update exists — so it stays off the common
+  // startup path where nothing is out of date.
+  if (!isGlobalPackageInstall(install, packageName)) return false;
 
   console.log(`Update available: ${currentVersion} -> ${cache.latestVersion}`);
   let confirmed = false;
