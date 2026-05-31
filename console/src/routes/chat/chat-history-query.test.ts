@@ -31,6 +31,29 @@ describe('buildChatHistoryUiData', () => {
     expect(byRole('user', 'first question')?.sessionId).toBe('session-a');
   });
 
+  it('masks a /secret set value from history and suppresses its replay', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        { id: 1, role: 'user', content: '/secret set TS_AUTHKEY tskey-abc123' },
+        { id: 2, role: 'assistant', content: 'Stored encrypted secret.' },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    const userMsg = ui.messages.find((m) => m.role === 'user');
+    const assistantMsg = ui.messages.find((m) => m.role === 'assistant');
+
+    // The persisted plaintext value is masked on reload...
+    expect(userMsg?.content).toBe('/secret set TS_AUTHKEY ••••••');
+    expect(JSON.stringify(ui.messages)).not.toContain('tskey-abc123');
+    // ...and neither the redacted command nor the assistant turn it produced is
+    // replayable, so regenerate can't resend the mask and overwrite the secret.
+    expect(userMsg?.replayRequest).toBeNull();
+    expect(assistantMsg?.replayRequest).toBeNull();
+  });
+
   it('resolves branchKey only for messages whose id belongs to a variant in the current session', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-a',

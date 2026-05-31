@@ -44,10 +44,16 @@ export function buildChatHistoryUiData(
     // Mask `/secret set ...` values so a secret that reached persisted history
     // is never re-exposed when the chat page reloads.
     const content = redactSecretCommand(msg.content);
-    if (msg.role === 'user') lastUserContent = content;
+    // A redacted message must not be replayable: regenerating it (directly, or
+    // via the following assistant turn) would resend the mask and overwrite the
+    // stored secret. Drop it as a replay source.
+    const redacted = content !== msg.content;
+    if (msg.role === 'user') lastUserContent = redacted ? null : content;
     const replayContent =
       msg.role === 'user'
-        ? content
+        ? redacted
+          ? null
+          : content
         : msg.role === 'assistant'
           ? lastUserContent
           : null;

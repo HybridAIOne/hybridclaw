@@ -117,6 +117,11 @@ export function useChatStream(
       // the chat page must never show it. Mask the value in `/secret set ...`
       // for every copy that is rendered, copied, or replayed.
       const displayContent = redactSecretCommand(content);
+      // A redacted message must not be replayable: regenerating it would resend
+      // the mask (`••••••`) to the gateway and overwrite the stored secret. Only
+      // offer replay when nothing was masked.
+      const replayRequest =
+        displayContent === content ? { content, media } : null;
 
       if (userMsgId) {
         const userMsg: ChatMessage = {
@@ -127,7 +132,7 @@ export function useChatStream(
           sessionId: targetSessionId,
           media,
           artifacts: [],
-          replayRequest: { content: displayContent, media },
+          replayRequest,
         };
         setMessages((prev) => [...prev, userMsg]);
       }
@@ -284,7 +289,7 @@ export function useChatStream(
           assistantPresentation: result.assistantPresentation ?? null,
           pendingApproval: finalApproval,
           responseRating: null,
-          replayRequest: { content: displayContent, media },
+          replayRequest,
         });
 
         setMessages((prev) => {

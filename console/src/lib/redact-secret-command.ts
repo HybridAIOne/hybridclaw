@@ -9,16 +9,19 @@
 
 const SECRET_MASK = '••••••';
 
-// Matches an optionally-slash-prefixed `secret set <NAME> <VALUE>` line. The
-// `m` flag anchors `^`/`$` per line so only the secret line of a multi-line
-// message is touched, and the value (`\S.*`) stops at the newline. Group 1 is
-// preserved; the value after it is replaced wholesale (it may contain spaces or
-// quotes). Used only with `String.replace`, which is safe with a global regex.
-const SECRET_SET_LINE = /^(\s*\/?secret\s+set\s+\S+\s+)\S.*$/gim;
+// Matches a message that *starts* with an optionally-slash-prefixed
+// `secret set <NAME> <VALUE>`. Only a message beginning with the command is a
+// secret-set command: the gateway tokenizes on all whitespace (newlines
+// included) and treats everything after `<NAME>` as the value, so a value can
+// span multiple lines when the composer sends Shift+Enter input. `[\s\S]*$`
+// therefore masks the whole value through the end of the message — not just its
+// first line. Group 1 (command + name) is preserved; the value is replaced
+// wholesale (it may contain spaces, quotes, or newlines).
+const SECRET_SET_VALUE = /^(\s*\/?secret\s+set\s+\S+\s+)\S[\s\S]*$/i;
 
 export function redactSecretCommand(text: string): string {
   return text.replace(
-    SECRET_SET_LINE,
+    SECRET_SET_VALUE,
     (_match, prefix) => `${prefix}${SECRET_MASK}`,
   );
 }

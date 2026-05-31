@@ -37,10 +37,23 @@ describe('redactSecretCommand', () => {
     );
   });
 
-  it('only masks the secret-set line in a multi-line message', () => {
-    expect(redactSecretCommand('before\n/secret set NAME value\nafter')).toBe(
-      `before\n/secret set NAME ${MASK}\nafter`,
+  it('masks a multi-line secret value through the end of the message', () => {
+    // The gateway joins everything after <NAME> (newlines included) into the
+    // stored value, so continuation lines must be masked too — not just the
+    // first line.
+    expect(redactSecretCommand('/secret set NAME line1\nline2')).toBe(
+      `/secret set NAME ${MASK}`,
     );
+    expect(redactSecretCommand('/secret set NAME\nvalue')).toBe(
+      `/secret set NAME\n${MASK}`,
+    );
+  });
+
+  it('leaves a secret-set that is not at the start of the message unchanged', () => {
+    // Only a message beginning with the command is parsed as a secret command,
+    // so mid-message text is not a stored secret and is left exactly as typed.
+    const text = 'before\n/secret set NAME value\nafter';
+    expect(redactSecretCommand(text)).toBe(text);
   });
 
   it('leaves non-value secret subcommands unchanged', () => {

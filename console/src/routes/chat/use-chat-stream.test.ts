@@ -647,9 +647,9 @@ describe('useChatStream', () => {
     const userMsg = harness.messages.find((msg) => msg.role === 'user');
     expect(userMsg?.content).toBe('/secret set TS_AUTHKEY ••••••');
     expect(userMsg?.rawContent).toBe('/secret set TS_AUTHKEY ••••••');
-    expect(userMsg?.replayRequest?.content).toBe(
-      '/secret set TS_AUTHKEY ••••••',
-    );
+    // Replay/regenerate is suppressed for redacted commands so the mask can
+    // never be resent to the gateway and overwrite the stored secret.
+    expect(userMsg?.replayRequest).toBeNull();
     expect(JSON.stringify(harness.messages)).not.toContain('tskey-abc123');
   });
 
