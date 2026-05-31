@@ -1,7 +1,10 @@
-export type AdminRbacAction =
-  | 'secret.list_metadata'
-  | 'secret.overwrite'
-  | 'secret.unset';
+export const ADMIN_RBAC_ACTIONS = [
+  'secret.list_metadata',
+  'secret.overwrite',
+  'secret.unset',
+] as const;
+
+export type AdminRbacAction = (typeof ADMIN_RBAC_ACTIONS)[number];
 
 function readClaimValue(
   payload: Record<string, unknown>,
