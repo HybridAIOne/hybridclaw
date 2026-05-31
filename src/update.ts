@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { DEFAULT_RUNTIME_HOME_DIR } from './config/runtime-paths.js';
+import { logger } from './logger.js';
 
 const DEFAULT_PACKAGE_NAME = '@hybridaione/hybridclaw';
 
@@ -101,16 +102,7 @@ function findNearestPackageRoot(startPath: string | undefined): string | null {
 
   let current: string;
   try {
-    // Resolve symlinks first: a global install puts a bin shim at
-    // `process.argv[1]` (e.g. /usr/local/bin/hybridclaw) whose directory has no
-    // package.json above it. Following the link lands on the real
-    // node_modules/.../dist entry so the package root is actually found.
-    let resolved = path.resolve(startPath);
-    try {
-      resolved = fs.realpathSync(resolved);
-    } catch {
-      // The path may not exist yet (or in tests); fall back to the literal path.
-    }
+    const resolved = resolveEntryPathThroughBinSymlink(path.resolve(startPath));
     current =
       fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
         ? resolved
@@ -126,6 +118,18 @@ function findNearestPackageRoot(startPath: string | undefined): string | null {
     const parent = path.dirname(current);
     if (parent === current) return null;
     current = parent;
+  }
+}
+
+function resolveEntryPathThroughBinSymlink(entryPath: string): string {
+  try {
+    return fs.realpathSync(entryPath);
+  } catch (error) {
+    logger.debug(
+      { entryPath, err: error },
+      'Startup update check could not resolve the CLI entry symlink; using the literal path',
+    );
+    return entryPath;
   }
 }
 
@@ -558,8 +562,11 @@ function writeVersionCache(latestVersion: string): void {
       mode: 0o600,
     });
     fs.renameSync(tempPath, filePath);
-  } catch {
-    // A failed cache write must never affect startup; the next launch retries.
+  } catch (error) {
+    logger.debug(
+      { err: error, filePath },
+      'Failed to write the version cache; the next launch retries',
+    );
     fs.rmSync(tempPath, { force: true });
   }
 }
@@ -588,8 +595,11 @@ function spawnVersionCacheRefresh(): void {
       { detached: true, stdio: 'ignore' },
     );
     child.unref();
-  } catch {
-    // A failed background refresh must never affect startup.
+  } catch (error) {
+    logger.debug(
+      { err: error },
+      'Failed to spawn the background version-cache refresh; the next launch retries',
+    );
   }
 }
 
