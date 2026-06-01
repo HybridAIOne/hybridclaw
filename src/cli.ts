@@ -357,8 +357,6 @@ async function continueInHostModeForThisRun(
   commandName: string,
   required: boolean,
 ): Promise<void> {
-  const { setSandboxModeOverride } = await ensureConfigApi();
-  setSandboxModeOverride('host');
   const { ensureHostRuntimeReady } = await import(
     './infra/host-runtime-setup.js'
   );
@@ -367,6 +365,8 @@ async function continueInHostModeForThisRun(
     required,
     installRoot: resolveInstallRoot(),
   });
+  const { setSandboxModeOverride } = await ensureConfigApi();
+  setSandboxModeOverride('host');
   console.log(
     `${commandName}: Continuing in host mode for this run only — no container sandbox. Runtime config is unchanged.`,
   );
@@ -406,7 +406,7 @@ async function recoverFromDockerDaemonDown(
   );
   const answer = (
     await rl.question(
-      'Press Enter to retry once Docker is running, or type "skip" to continue without it: ',
+      'Press Enter to retry once Docker is running, or type "skip" to stop retrying: ',
     )
   )
     .trim()
