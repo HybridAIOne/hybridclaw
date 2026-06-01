@@ -262,6 +262,7 @@ async function importFreshCli(options?: {
   };
   ensureContainerImageReadyError?: Error | null;
   ensureContainerImageReadyErrorOnce?: boolean;
+  ensureContainerImageReadyImpl?: () => Promise<void>;
   dockerProbeResults?: Array<{
     ready: boolean;
     kind: 'ready' | 'missing' | 'permission-denied' | 'daemon-unavailable';
@@ -601,16 +602,18 @@ async function importFreshCli(options?: {
     },
   );
   let ensureContainerImageReadyCalls = 0;
-  const ensureContainerImageReady = vi.fn(async () => {
-    ensureContainerImageReadyCalls += 1;
-    if (
-      options?.ensureContainerImageReadyError &&
-      (!options.ensureContainerImageReadyErrorOnce ||
-        ensureContainerImageReadyCalls === 1)
-    ) {
-      throw options.ensureContainerImageReadyError;
-    }
-  });
+  const ensureContainerImageReady = options?.ensureContainerImageReadyImpl
+    ? vi.fn(options.ensureContainerImageReadyImpl)
+    : vi.fn(async () => {
+        ensureContainerImageReadyCalls += 1;
+        if (
+          options?.ensureContainerImageReadyError &&
+          (!options.ensureContainerImageReadyErrorOnce ||
+            ensureContainerImageReadyCalls === 1)
+        ) {
+          throw options.ensureContainerImageReadyError;
+        }
+      });
   const dockerProbeResults = [...(options?.dockerProbeResults || [])];
   const probeDockerAccess = vi.fn(
     async () =>
@@ -5039,6 +5042,101 @@ describe('CLI hybridai commands', () => {
     expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
     expect(updateRuntimeConfig).not.toHaveBeenCalled();
     expect(gatewayModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to host mode when the retry probe is ready but image setup still reports Docker is down', async () => {
+    const dockerAccessError = Object.assign(
+      new Error(
+        'hybridclaw gateway start --foreground: Docker daemon not ready.',
+      ),
+      {
+        name: 'DockerAccessError',
+        kind: 'daemon-unavailable',
+        detail: 'daemon still starting',
+      },
+    );
+    const {
+      cli,
+      gatewayModuleLoaded,
+      ensureContainerImageReady,
+      probeDockerAccess,
+      setSandboxModeOverride,
+      ensureHostRuntimeReady,
+      updateRuntimeConfig,
+    } = await importFreshCli({
+      gatewayFlags: {
+        foreground: true,
+      },
+      sandboxMode: 'container',
+      sandboxModeExplicit: false,
+      ensureContainerImageReadyError: dockerAccessError,
+      dockerProbeResults: [{ ready: true, kind: 'ready', detail: '' }],
+      promptResponses: ['', 'y'],
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(
+      ((_: string | symbol, __: (...args: unknown[]) => void) =>
+        process) as never,
+    );
+
+    await cli.main(['gateway', 'start', '--foreground']);
+
+    expect(probeDockerAccess).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(2);
+    expect(setSandboxModeOverride).toHaveBeenCalledWith('host');
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
+    expect(gatewayModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows a non-Docker error from the retry image setup instead of offering host mode', async () => {
+    const dockerAccessError = Object.assign(
+      new Error(
+        'hybridclaw gateway start --foreground: Docker daemon not ready.',
+      ),
+      {
+        name: 'DockerAccessError',
+        kind: 'daemon-unavailable',
+      },
+    );
+    let calls = 0;
+    const ensureContainerImageReadyMock = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw dockerAccessError;
+      throw new Error('image pull failed for an unrelated reason');
+    });
+    const {
+      cli,
+      gatewayModuleLoaded,
+      probeDockerAccess,
+      setSandboxModeOverride,
+      ensureHostRuntimeReady,
+    } = await importFreshCli({
+      gatewayFlags: {
+        foreground: true,
+      },
+      sandboxMode: 'container',
+      sandboxModeExplicit: false,
+      ensureContainerImageReadyImpl: ensureContainerImageReadyMock,
+      dockerProbeResults: [{ ready: true, kind: 'ready', detail: '' }],
+      promptResponses: [''],
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(
+      ((_: string | symbol, __: (...args: unknown[]) => void) =>
+        process) as never,
+    );
+
+    await expect(
+      cli.main(['gateway', 'start', '--foreground']),
+    ).rejects.toThrow('image pull failed for an unrelated reason');
+
+    expect(probeDockerAccess).toHaveBeenCalledTimes(1);
+    expect(setSandboxModeOverride).not.toHaveBeenCalled();
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(gatewayModuleLoaded).not.toHaveBeenCalled();
   });
 
   it('throws without switching to host mode when the user declines and Docker is not installed', async () => {
