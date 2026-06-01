@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import { stripTypeScriptTypes } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -715,6 +714,11 @@ function cleanupPluginImportSnapshot(rootDir: string): void {
   }
 }
 
+async function stripPluginTypeScript(source: string): Promise<string> {
+  const { transformSync } = await import('amaro');
+  return transformSync(source, { mode: 'strip-only' }).code;
+}
+
 async function importPluginModule(
   entrypoint: string,
   pluginDir: string,
@@ -728,7 +732,7 @@ async function importPluginModule(
   try {
     if (entrypoint.endsWith('.ts')) {
       const source = fs.readFileSync(snapshotEntrypoint, 'utf-8');
-      const stripped = stripTypeScriptTypes(source, { mode: 'strip' });
+      const stripped = await stripPluginTypeScript(source);
       const compiledPath = path.join(
         path.dirname(snapshotEntrypoint),
         `.${path.basename(snapshotEntrypoint, '.ts')}.hybridclaw.mjs`,
