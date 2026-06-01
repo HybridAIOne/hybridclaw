@@ -261,6 +261,12 @@ async function importFreshCli(options?: {
     passthrough?: string[];
   };
   ensureContainerImageReadyError?: Error | null;
+  ensureContainerImageReadyErrorOnce?: boolean;
+  dockerProbeResults?: Array<{
+    ready: boolean;
+    kind: 'ready' | 'missing' | 'permission-denied' | 'daemon-unavailable';
+    detail: string;
+  }>;
   ensureHostRuntimeReadyError?: Error | null;
   gatewayModuleError?: Error | null;
   pluginInstallError?: Error | null;
@@ -594,11 +600,27 @@ async function importFreshCli(options?: {
       if (options?.agentMigrationError) throw options.agentMigrationError;
     },
   );
+  let ensureContainerImageReadyCalls = 0;
   const ensureContainerImageReady = vi.fn(async () => {
-    if (options?.ensureContainerImageReadyError) {
+    ensureContainerImageReadyCalls += 1;
+    if (
+      options?.ensureContainerImageReadyError &&
+      (!options.ensureContainerImageReadyErrorOnce ||
+        ensureContainerImageReadyCalls === 1)
+    ) {
       throw options.ensureContainerImageReadyError;
     }
   });
+  const dockerProbeResults = [...(options?.dockerProbeResults || [])];
+  const probeDockerAccess = vi.fn(
+    async () =>
+      dockerProbeResults.shift() ?? {
+        ready: true,
+        kind: 'ready' as const,
+        detail: '',
+      },
+  );
+  const setSandboxModeOverride = vi.fn();
   const ensureHostRuntimeReady = vi.fn(() => {
     if (options?.ensureHostRuntimeReadyError) {
       throw options.ensureHostRuntimeReadyError;
@@ -1231,7 +1253,7 @@ async function importFreshCli(options?: {
       MissingRequiredEnvVarError,
       ensureGatewayApiTokenPersisted: vi.fn(() => 'gateway-token'),
       getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
-      setSandboxModeOverride: vi.fn(),
+      setSandboxModeOverride,
     };
   });
   vi.doMock('../src/config/runtime-config.ts', async () => ({
@@ -1276,6 +1298,7 @@ async function importFreshCli(options?: {
   });
   vi.doMock('../src/infra/container-setup.ts', () => ({
     ensureContainerImageReady,
+    probeDockerAccess,
   }));
   vi.doMock('../src/infra/host-runtime-setup.js', () => ({
     ensureHostRuntimeReady,
@@ -1418,6 +1441,8 @@ async function importFreshCli(options?: {
     ensureRuntimeCredentials,
     handleAgentMigrationCommand,
     ensureContainerImageReady,
+    probeDockerAccess,
+    setSandboxModeOverride,
     ensureHostRuntimeReady,
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
@@ -4891,17 +4916,23 @@ describe('CLI hybridai commands', () => {
         kind: 'permission-denied',
       },
     );
-    const { cli, gatewayModuleLoaded, updateRuntimeConfig } =
-      await importFreshCli({
-        gatewayFlags: {
-          foreground: true,
-        },
-        sandboxMode: 'container',
-        sandboxModeExplicit: false,
-        ensureContainerImageReadyError: dockerAccessError,
-        promptResponses: ['y'],
-      });
+    const {
+      cli,
+      gatewayModuleLoaded,
+      setSandboxModeOverride,
+      ensureHostRuntimeReady,
+      updateRuntimeConfig,
+    } = await importFreshCli({
+      gatewayFlags: {
+        foreground: true,
+      },
+      sandboxMode: 'container',
+      sandboxModeExplicit: false,
+      ensureContainerImageReadyError: dockerAccessError,
+      promptResponses: ['y'],
+    });
     vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(process, 'on').mockImplementation(
       ((_: string | symbol, __: (...args: unknown[]) => void) =>
         process) as never,
@@ -4909,8 +4940,145 @@ describe('CLI hybridai commands', () => {
 
     await cli.main(['gateway', 'start', '--foreground']);
 
-    expect(updateRuntimeConfig).toHaveBeenCalledTimes(1);
+    expect(setSandboxModeOverride).toHaveBeenCalledWith('host');
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
     expect(gatewayModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries container startup after Docker is started when the daemon was down', async () => {
+    const dockerAccessError = Object.assign(
+      new Error(
+        'hybridclaw gateway start --foreground: Docker daemon not ready.',
+      ),
+      {
+        name: 'DockerAccessError',
+        kind: 'daemon-unavailable',
+      },
+    );
+    const {
+      cli,
+      gatewayModuleLoaded,
+      ensureContainerImageReady,
+      probeDockerAccess,
+      setSandboxModeOverride,
+      ensureHostRuntimeReady,
+    } = await importFreshCli({
+      gatewayFlags: {
+        foreground: true,
+      },
+      sandboxMode: 'container',
+      sandboxModeExplicit: false,
+      ensureContainerImageReadyError: dockerAccessError,
+      ensureContainerImageReadyErrorOnce: true,
+      dockerProbeResults: [{ ready: true, kind: 'ready', detail: '' }],
+      promptResponses: [''],
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(
+      ((_: string | symbol, __: (...args: unknown[]) => void) =>
+        process) as never,
+    );
+
+    await cli.main(['gateway', 'start', '--foreground']);
+
+    expect(probeDockerAccess).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(2);
+    expect(setSandboxModeOverride).not.toHaveBeenCalled();
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(gatewayModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to a host-mode offer when Docker is still down after retrying', async () => {
+    const dockerAccessError = Object.assign(
+      new Error(
+        'hybridclaw gateway start --foreground: Docker daemon not ready.',
+      ),
+      {
+        name: 'DockerAccessError',
+        kind: 'daemon-unavailable',
+      },
+    );
+    const {
+      cli,
+      gatewayModuleLoaded,
+      ensureContainerImageReady,
+      probeDockerAccess,
+      setSandboxModeOverride,
+      ensureHostRuntimeReady,
+      updateRuntimeConfig,
+    } = await importFreshCli({
+      gatewayFlags: {
+        foreground: true,
+      },
+      sandboxMode: 'container',
+      sandboxModeExplicit: false,
+      ensureContainerImageReadyError: dockerAccessError,
+      dockerProbeResults: [
+        {
+          ready: false,
+          kind: 'daemon-unavailable',
+          detail: 'daemon not ready',
+        },
+      ],
+      promptResponses: ['', 'y'],
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(
+      ((_: string | symbol, __: (...args: unknown[]) => void) =>
+        process) as never,
+    );
+
+    await cli.main(['gateway', 'start', '--foreground']);
+
+    expect(probeDockerAccess).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(setSandboxModeOverride).toHaveBeenCalledWith('host');
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
+    expect(gatewayModuleLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws without switching to host mode when the user declines and Docker is not installed', async () => {
+    const dockerAccessError = Object.assign(
+      new Error(
+        'hybridclaw gateway start --foreground: Install docker to use sandbox. Or start with --sandbox host.',
+      ),
+      {
+        name: 'DockerAccessError',
+        kind: 'missing',
+      },
+    );
+    const {
+      cli,
+      gatewayModuleLoaded,
+      setSandboxModeOverride,
+      ensureHostRuntimeReady,
+    } = await importFreshCli({
+      gatewayFlags: {
+        foreground: true,
+      },
+      sandboxMode: 'container',
+      sandboxModeExplicit: false,
+      ensureContainerImageReadyError: dockerAccessError,
+      promptResponses: [''],
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(process, 'on').mockImplementation(
+      ((_: string | symbol, __: (...args: unknown[]) => void) =>
+        process) as never,
+    );
+
+    await expect(
+      cli.main(['gateway', 'start', '--foreground']),
+    ).rejects.toThrow('Install docker to use sandbox');
+
+    expect(setSandboxModeOverride).not.toHaveBeenCalled();
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(gatewayModuleLoaded).not.toHaveBeenCalled();
   });
 
   it('runs tui preflight before reusing a reachable gateway', async () => {
@@ -5065,6 +5233,7 @@ describe('CLI hybridai commands', () => {
       ensureRuntimeCredentials,
       ensureContainerImageReady,
       ensureHostRuntimeReady,
+      setSandboxModeOverride,
       updateRuntimeConfig,
       runTui,
     } = await importFreshCli({
@@ -5074,6 +5243,7 @@ describe('CLI hybridai commands', () => {
       ensureContainerImageReadyError: startupError,
       promptResponses: ['y'],
     });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await cli.main(['tui']);
 
@@ -5082,8 +5252,9 @@ describe('CLI hybridai commands', () => {
       requireCredentials: false,
     });
     expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
-    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
-    expect(updateRuntimeConfig).toHaveBeenCalledTimes(1);
+    expect(setSandboxModeOverride).toHaveBeenCalledWith('host');
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
     expect(runTui).toHaveBeenCalledTimes(1);
   });
 
