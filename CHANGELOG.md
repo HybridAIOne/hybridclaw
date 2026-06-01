@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- **Gateway Docker startup recovery**: When `gateway start` (or any
+  container-sandbox preflight) finds Docker installed but the daemon not
+  running, the CLI now explains how to start Docker and offers to retry once
+  it is up. When Docker is not installed (or the daemon is unreachable) on an
+  interactive terminal, it offers to continue without a sandbox in host mode
+  for that run only — with a no-isolation warning — instead of editing the
+  runtime config.
+
 ## [0.21.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.0) - 2026-05-29
 
 ### Added
