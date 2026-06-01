@@ -5011,6 +5011,7 @@ describe('CLI hybridai commands', () => {
       setSandboxModeOverride,
       ensureHostRuntimeReady,
       updateRuntimeConfig,
+      readlineQuestion,
     } = await importFreshCli({
       gatewayFlags: {
         foreground: true,
@@ -5042,6 +5043,9 @@ describe('CLI hybridai commands', () => {
     expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
     expect(updateRuntimeConfig).not.toHaveBeenCalled();
     expect(gatewayModuleLoaded).toHaveBeenCalledTimes(1);
+    const prompts = readlineQuestion.mock.calls.map(([p]) => String(p));
+    expect(prompts[0]).toContain('Press Enter to retry');
+    expect(prompts[1]).toContain('Continue without a sandbox');
   });
 
   it('falls back to host mode when the retry probe is ready but image setup still reports Docker is down', async () => {
