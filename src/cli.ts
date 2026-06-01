@@ -411,22 +411,32 @@ async function recoverFromDockerDaemonDown(
   )
     .trim()
     .toLowerCase();
-  if (answer !== 'skip' && answer !== 's') {
+  if (answer !== 'skip') {
     const { probeDockerAccess, ensureContainerImageReady } = await import(
       './infra/container-setup.js'
     );
     const probe = await probeDockerAccess();
     if (probe.ready) {
-      await ensureContainerImageReady({
-        commandName,
-        required,
-        cwd: resolveInstallRoot(),
-      });
-      return true;
+      try {
+        await ensureContainerImageReady({
+          commandName,
+          required,
+          cwd: resolveInstallRoot(),
+        });
+        return true;
+      } catch (error) {
+        if (!(error instanceof Error) || error.name !== 'DockerAccessError') {
+          throw error;
+        }
+        console.warn(
+          `${commandName}: Docker still isn't ready (${(error as Error & { detail?: string }).detail || error.message}).`,
+        );
+      }
+    } else {
+      console.warn(
+        `${commandName}: Docker still isn't ready (${probe.detail || probe.kind}).`,
+      );
     }
-    console.warn(
-      `${commandName}: Docker still isn't ready (${probe.detail || probe.kind}).`,
-    );
   }
   return promptForHostModeFallback(
     rl,
