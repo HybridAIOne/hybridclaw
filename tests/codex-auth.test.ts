@@ -162,7 +162,7 @@ describe('codex auth JWT helpers', () => {
     expect(
       authUrl.searchParams.get(codexAuth.CODEX_SIMPLIFIED_FLOW_PARAM),
     ).toBe('true');
-    expect(authUrl.searchParams.get('originator')).toBe('hybridclaw');
+    expect(authUrl.searchParams.get('originator')).toBe('codex_cli_rs');
   });
 
   it('throws typed errors for malformed JWT payloads and missing required claims', async () => {
@@ -264,7 +264,7 @@ describe('codex auth store I/O', () => {
       Authorization: `Bearer ${accessToken}`,
       'Chatgpt-Account-Id': 'acct_headers',
       'OpenAI-Beta': 'responses=experimental',
-      originator: 'hybridclaw',
+      originator: 'codex_cli_rs',
     });
   });
 });
