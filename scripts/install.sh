@@ -78,7 +78,10 @@ warn()  { printf '%s warn:%s %s\n' "$C_WARN" "$C_RESET" "$*" >&2; }
 err()   { printf '%serror:%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2; }
 die()   { err "$@"; exit 1; }
 
-is_dry() { [ "$DRY_RUN" -eq 1 ]; }
+# Truthy for env-derived flags: 1/true/yes/on (any case). Avoids the arithmetic
+# `-eq` test, which errors (and is then treated as false) on values like "true".
+is_truthy() { case "${1:-}" in [Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]|1) return 0 ;; *) return 1 ;; esac; }
+is_dry() { is_truthy "$DRY_RUN"; }
 have()   { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
@@ -159,6 +162,10 @@ detect_platform() {
 
 # --- Node.js + npm -----------------------------------------------------------
 
+# Hardened HTTPS fetch: the TLS/transfer flags every nodejs.org request shares,
+# in one place. Callers append --max-time/--retry/-o and the URL.
+fetch() { curl -fsSL --proto '=https' --tlsv1.2 "$@"; }
+
 version_ge() {
   # version_ge A B  -> true when A >= B (dotted numeric compare)
   [ "$1" = "$2" ] && return 0
@@ -168,9 +175,10 @@ version_ge() {
 }
 
 resolve_node_version() {
-  local v
-  v="$(curl -fsSL --proto '=https' --tlsv1.2 --max-time 15 https://nodejs.org/dist/index.json 2>/dev/null \
-        | grep -o '"version":"v22[^"]*"' | head -1 | sed 's/.*"v\(22[^"]*\)".*/\1/')" || true
+  local v major="$REQUIRED_NODE_MAJOR"
+  v="$(fetch --max-time 15 https://nodejs.org/dist/index.json 2>/dev/null \
+        | grep -o "\"version\":\"v${major}[^\"]*\"" | head -1 \
+        | sed "s/.*\"v\(${major}[^\"]*\)\".*/\1/")" || true
   if [ -n "$v" ]; then
     printf '%s' "$v"
   else
@@ -191,9 +199,11 @@ sha256_of() {
 # Verify a downloaded Node tarball against nodejs.org's per-release SHASUMS256.
 verify_node_checksum() {
   local file="$1" version="$2" filename="$3" expected actual
-  expected="$(curl -fsSL --proto '=https' --tlsv1.2 --max-time 30 \
+  # `|| true`: under `set -o pipefail` a failed fetch (offline/404/proxy) would
+  # otherwise abort the whole installer here instead of the graceful skip below.
+  expected="$(fetch --max-time 30 \
       "https://nodejs.org/dist/v${version}/SHASUMS256.txt" 2>/dev/null \
-      | awk -v f="$filename" '$2 == f {print $1}')"
+      | awk -v f="$filename" '$2 == f {print $1}')" || true
   if [ -z "$expected" ]; then
     warn "Could not fetch published checksum for ${filename}; skipping verification."
     return 0
@@ -237,7 +247,7 @@ Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --
   # No .tar.xz suffix: BusyBox mktemp requires the XXXXXX to be the final chars.
   tarball="$(mktemp "${TMPDIR:-/tmp}/hybridclaw-node.XXXXXX")"
   trap 'rm -f "$tarball"' EXIT
-  curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 -o "$tarball" "$url" \
+  fetch --retry 3 --retry-delay 2 -o "$tarball" "$url" \
     || die "failed to download Node.js from $url"
   verify_node_checksum "$tarball" "$version" "$filename"
   tar -xJf "$tarball" -C "$dir" --strip-components=1
@@ -306,7 +316,8 @@ persist_path() {
   local rc
   for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     [ -e "$rc" ] || continue
-    grep -qsF "$dir $marker" "$rc" 2>/dev/null && continue
+    # Match the exact line we write so re-runs don't append duplicates.
+    grep -qsF "$line" "$rc" 2>/dev/null && continue
     printf '\n%s\n' "$line" >> "$rc"
   done
 }
@@ -321,18 +332,32 @@ npm_global_bin() {
 
 check_docker() {
   [ "$CHECK_DOCKER" -eq 1 ] || return 0
+  if is_dry; then
+    info "[dry-run] would check for Docker (recommended for the default sandbox)"
+    return 0
+  fi
   if ! have docker; then
     warn "Docker not found. The default container sandbox will be unavailable."
-    warn "Install Docker (https://docs.docker.com/get-docker/) or run with --sandbox=host."
+    warn "Install Docker (https://docs.docker.com/get-docker/) or run 'hybridclaw gateway start --sandbox=host'."
   elif docker info >/dev/null 2>&1; then
     ok "Docker is available (default container sandbox supported)"
   else
     warn "Docker is installed but its daemon is not reachable."
-    warn "Start Docker, or run the gateway with --sandbox=host."
+    warn "Start Docker, or run 'hybridclaw gateway start --sandbox=host'."
   fi
 }
 
 # --- Install -----------------------------------------------------------------
+
+# Per-distro commands to install the native-module build toolchain, printed via
+# the given printer ($1 = warn or err) so the pre-flight warning and the
+# install-failure error stay in sync.
+build_tool_hint() {
+  "$1" "    Debian/Ubuntu: sudo apt-get install -y python3 make g++"
+  "$1" "    Fedora/RHEL:   sudo dnf install -y python3 make gcc-c++"
+  "$1" "    Alpine:        sudo apk add python3 make g++"
+  "$1" "    macOS:         xcode-select --install"
+}
 
 # The npm package builds native modules (better-sqlite3, node-pty) from source
 # whenever no prebuilt binary matches the platform, and node-gyp then needs a
@@ -349,10 +374,7 @@ check_build_prereqs() {
   [ -z "$missing" ] && return 0
   warn "Build tools may be missing: ${missing}."
   warn "npm needs them to compile native modules when no prebuilt binary exists:"
-  warn "    Debian/Ubuntu: sudo apt-get install -y python3 make g++"
-  warn "    Fedora/RHEL:   sudo dnf install -y python3 make gcc-c++"
-  warn "    Alpine:        sudo apk add python3 make g++"
-  warn "    macOS:         xcode-select --install"
+  build_tool_hint warn
 }
 
 install_cli() {
@@ -367,9 +389,7 @@ install_cli() {
     err "Global npm install failed. Two common causes:"
     err "  1) Missing build tools for native modules (node-gyp needs python3,"
     err "     make, and a C/C++ compiler). Install them, e.g.:"
-    err "       Debian/Ubuntu: sudo apt-get install -y python3 make g++"
-    err "       Fedora/RHEL:   sudo dnf install -y python3 make gcc-c++"
-    err "       Alpine:        sudo apk add python3 make g++"
+    build_tool_hint err
     err "  2) A non-writable npm global prefix. Use a user-writable one:"
     err "       npm config set prefix \"$HYBRIDCLAW_HOME/npm-global\""
     err "       export PATH=\"$HYBRIDCLAW_HOME/npm-global/bin:\$PATH\""
@@ -388,6 +408,9 @@ install_cli() {
 
 # --- Onboarding + next steps -------------------------------------------------
 
+# Last line of `hybridclaw --version` (the CLI may print a banner first).
+hc_version() { hybridclaw --version 2>/dev/null | tail -1; }
+
 maybe_onboard() {
   if is_dry; then
     info "[dry-run] would verify hybridclaw is on PATH and (unless --no-prompt) run onboarding"
@@ -397,7 +420,7 @@ maybe_onboard() {
   have hybridclaw \
     || die "hybridclaw was installed but is not on PATH yet. Open a new shell and run: hybridclaw onboarding"
 
-  ok "Installed $(hybridclaw --version 2>/dev/null | tail -1 || echo "$PKG_NAME")"
+  ok "Installed $(hc_version || echo "$PKG_NAME")"
 
   if [ "$RUN_ONBOARDING" -ne 1 ] || [ "$NO_PROMPT" -eq 1 ]; then
     info "Skipping interactive onboarding: run 'hybridclaw onboarding' when ready."
@@ -412,15 +435,14 @@ maybe_onboard() {
   fi
 
   info "Starting onboarding (Ctrl-C to skip and run it later)"
-  if [ -t 0 ]; then
-    hybridclaw onboarding || warn "onboarding did not complete; run 'hybridclaw onboarding' later"
-  else
-    hybridclaw onboarding </dev/tty || warn "onboarding did not complete; run 'hybridclaw onboarding' later"
-  fi
+  local onboard_in=/dev/stdin
+  [ -t 0 ] || onboard_in=/dev/tty
+  hybridclaw onboarding <"$onboard_in" \
+    || warn "onboarding did not complete; run 'hybridclaw onboarding' later"
 }
 
 run_verify() {
-  [ "$VERIFY" -eq 1 ] || return 0
+  is_truthy "$VERIFY" || return 0
   if is_dry; then
     info "[dry-run] would run: hybridclaw --version && hybridclaw doctor --json"
     return 0
@@ -429,7 +451,7 @@ run_verify() {
   info "Verifying installation"
   have hybridclaw || die "verification failed: 'hybridclaw' is not on PATH."
   local version_output
-  version_output="$(hybridclaw --version 2>/dev/null | tail -1)" \
+  version_output="$(hc_version)" \
     || die "verification failed: 'hybridclaw --version' did not run successfully."
   ok "hybridclaw --version -> $version_output"
 

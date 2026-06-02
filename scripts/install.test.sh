@@ -8,6 +8,12 @@
 # a library (HYBRIDCLAW_INSTALL_LIB=1 skips main), and external commands such as
 # uname/curl/ls/have are stubbed to drive each code path. The full end-to-end
 # matrix (alpine/debian/node:22 in Docker) is documented in the PR.
+#
+# The stub functions below override commands the sourced install.sh functions
+# call indirectly, which shellcheck's reachability pass can't see (SC2317); it
+# also can't follow the runtime source of install.sh (SC1091). Silence both
+# false positives file-wide so `shellcheck install.test.sh` stays clean.
+# shellcheck disable=SC2317,SC1091
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
