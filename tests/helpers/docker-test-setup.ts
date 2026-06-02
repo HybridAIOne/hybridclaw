@@ -11,6 +11,23 @@ import net from 'node:net';
 export const CONTAINER_PREFIX = 'hc-e2e';
 
 /**
+ * Self-selecting gate for a Docker e2e suite. The suite is enabled only when
+ * HYBRIDCLAW_RUN_DOCKER_E2E=1 *and* its own image var is set, so
+ * `vitest run --project e2e` is safe to invoke in any CI matrix leg without one
+ * suite running against an image another leg built.
+ */
+export function dockerE2eGate(imageEnvVar: string): {
+  image: string;
+  enabled: boolean;
+} {
+  const image = process.env[imageEnvVar] ?? '';
+  return {
+    image,
+    enabled: process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1' && image !== '',
+  };
+}
+
+/**
  * Remove any stale containers from previous test runs that match the
  * given suite prefix (e.g. 'gw', 'agent').
  */

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   cleanupStaleContainers,
+  dockerE2eGate,
   removeContainer,
   startContainer,
 } from './helpers/docker-test-setup.js';
@@ -10,12 +11,9 @@ import {
  * separate containers per test (~22s -> ~3s).
  */
 
-// Self-selecting gate: this suite runs only when its own image var is set, so
-// `vitest run --project e2e` is safe to invoke in any matrix leg without the
-// gateway leg accidentally running agent tests against an unbuilt image.
-const IMAGE = process.env.HYBRIDCLAW_E2E_AGENT_IMAGE ?? '';
-const DOCKER_E2E =
-  process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1' && IMAGE !== '';
+const { image: IMAGE, enabled: DOCKER_E2E } = dockerE2eGate(
+  'HYBRIDCLAW_E2E_AGENT_IMAGE',
+);
 
 const CONTAINER_NAME = `hc-e2e-agent-${process.pid}`;
 

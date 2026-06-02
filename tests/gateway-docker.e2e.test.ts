@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   cleanupStaleContainers,
+  dockerE2eGate,
   getAvailablePort,
   removeContainer,
   startContainer,
@@ -14,12 +15,8 @@ import {
  * a dummy key lets the gateway start for static-content and endpoint tests.
  */
 
-// Self-selecting gate: this suite runs only when its own image var is set, so
-// `vitest run --project e2e` is safe to invoke in any matrix leg without the
-// agent leg accidentally running gateway tests against an unbuilt image.
-const IMAGE = process.env.HYBRIDCLAW_E2E_IMAGE ?? '';
-const DOCKER_E2E =
-  process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1' && IMAGE !== '';
+const { image: IMAGE, enabled: DOCKER_E2E } =
+  dockerE2eGate('HYBRIDCLAW_E2E_IMAGE');
 const CI_FALLBACK_KEY = 'hai-ci-placeholder-not-a-real-key';
 const API_KEY = process.env.HYBRIDAI_API_KEY || CI_FALLBACK_KEY;
 const HAS_REAL_KEY = !!process.env.HYBRIDAI_API_KEY;
