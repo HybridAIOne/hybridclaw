@@ -64,6 +64,7 @@ err()   { printf '%serror:%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2; }
 die()   { err "$@"; exit 1; }
 
 is_dry() { [ "$DRY_RUN" -eq 1 ]; }
+have()   { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
   cat <<'EOF'
@@ -140,8 +141,6 @@ version_ge() {
   [ "$lower" = "$2" ]
 }
 
-node_major() { "$1" --version 2>/dev/null | sed 's/^v//; s/\..*//'; }
-
 resolve_node_version() {
   local v
   v="$(curl -fsSL --max-time 15 https://nodejs.org/dist/index.json 2>/dev/null \
@@ -182,24 +181,23 @@ install_managed_node() {
 }
 
 ensure_node() {
-  local node_path major
-  node_path="$(command -v node || true)"
-
-  if [ -n "$node_path" ]; then
-    major="$(node_major "$node_path")"
+  local node_version major
+  if have node; then
+    node_version="$(node --version 2>/dev/null)"
+    major="${node_version#v}"; major="${major%%.*}"
     if [ "$major" = "$REQUIRED_NODE_MAJOR" ]; then
-      ok "Node.js $(node --version) detected"
+      ok "Node.js $node_version detected"
       return
     fi
     if [ "$MANAGE_NODE" -eq 0 ]; then
-      die "Node.js ${REQUIRED_NODE_MAJOR}.x is required, found $(node --version). Switch versions (nvm/fnm) and retry."
+      die "Node.js ${REQUIRED_NODE_MAJOR}.x is required, found $node_version. Switch versions (nvm/fnm) and retry."
     fi
-    warn "Node.js $(node --version) found, but HybridClaw needs ${REQUIRED_NODE_MAJOR}.x"
+    warn "Node.js $node_version found, but HybridClaw needs ${REQUIRED_NODE_MAJOR}.x"
   elif [ "$MANAGE_NODE" -eq 0 ]; then
     die "Node.js not found on PATH and --skip-node was set."
   fi
 
-  if command -v fnm >/dev/null 2>&1 || command -v nvm >/dev/null 2>&1; then
+  if have fnm || have nvm; then
     warn "A Node version manager (fnm/nvm) is installed. You may prefer:"
     warn "    fnm install 22 && fnm use 22    # or: nvm install 22 && nvm use 22"
     warn "Continuing with a HybridClaw-managed Node 22 in ${HYBRIDCLAW_HOME}/node."
@@ -213,7 +211,7 @@ ensure_npm() {
     info "[dry-run] would ensure npm >= ${REQUIRED_NPM} (upgrading via 'npm install -g npm@^11' if needed)"
     return 0
   fi
-  command -v npm >/dev/null 2>&1 || die "npm not found alongside Node.js; reinstall Node 22."
+  have npm || die "npm not found alongside Node.js; reinstall Node 22."
   npm_version="$(npm --version)"
   if version_ge "$npm_version" "$REQUIRED_NPM"; then
     ok "npm ${npm_version} detected"
@@ -246,23 +244,21 @@ persist_path() {
 npm_global_bin() {
   local prefix
   prefix="$(npm prefix -g 2>/dev/null)" || return 1
-  if [ "$PLATFORM_OS" = "darwin" ] || [ "$PLATFORM_OS" = "linux" ]; then
-    printf '%s/bin' "$prefix"
-  fi
+  printf '%s/bin' "$prefix"
 }
 
 # --- Docker ------------------------------------------------------------------
 
 check_docker() {
   [ "$CHECK_DOCKER" -eq 1 ] || return 0
-  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    ok "Docker is available (default container sandbox supported)"
-  elif command -v docker >/dev/null 2>&1; then
-    warn "Docker is installed but its daemon is not reachable."
-    warn "Start Docker, or run the gateway with --sandbox=host."
-  else
+  if ! have docker; then
     warn "Docker not found. The default container sandbox will be unavailable."
     warn "Install Docker (https://docs.docker.com/get-docker/) or run with --sandbox=host."
+  elif docker info >/dev/null 2>&1; then
+    ok "Docker is available (default container sandbox supported)"
+  else
+    warn "Docker is installed but its daemon is not reachable."
+    warn "Start Docker, or run the gateway with --sandbox=host."
   fi
 }
 
@@ -287,7 +283,7 @@ install_cli() {
 
   local bin_dir
   bin_dir="$(npm_global_bin || true)"
-  if [ -n "$bin_dir" ] && ! command -v hybridclaw >/dev/null 2>&1; then
+  if [ -n "$bin_dir" ] && ! have hybridclaw; then
     export PATH="$bin_dir:$PATH"
     persist_path "$bin_dir"
     warn "Added npm global bin (${bin_dir}) to your PATH. Open a new shell if needed."
@@ -302,7 +298,7 @@ maybe_onboard() {
     return 0
   fi
 
-  command -v hybridclaw >/dev/null 2>&1 \
+  have hybridclaw \
     || die "hybridclaw was installed but is not on PATH yet. Open a new shell and run: hybridclaw onboarding"
 
   ok "Installed $(hybridclaw --version 2>/dev/null || echo "$PKG_NAME")"
@@ -314,14 +310,16 @@ maybe_onboard() {
 
   # When piped through `curl | bash`, stdin is the script, so read the wizard
   # from the controlling terminal if one is available.
-  if [ -t 0 ]; then
-    info "Starting onboarding (Ctrl-C to skip and run it later)"
-    hybridclaw onboarding || warn "onboarding did not complete; run 'hybridclaw onboarding' later"
-  elif [ -r /dev/tty ]; then
-    info "Starting onboarding (Ctrl-C to skip and run it later)"
-    hybridclaw onboarding </dev/tty || warn "onboarding did not complete; run 'hybridclaw onboarding' later"
-  else
+  if [ ! -t 0 ] && [ ! -r /dev/tty ]; then
     info "Non-interactive shell: run 'hybridclaw onboarding' when ready."
+    return
+  fi
+
+  info "Starting onboarding (Ctrl-C to skip and run it later)"
+  if [ -t 0 ]; then
+    hybridclaw onboarding || warn "onboarding did not complete; run 'hybridclaw onboarding' later"
+  else
+    hybridclaw onboarding </dev/tty || warn "onboarding did not complete; run 'hybridclaw onboarding' later"
   fi
 }
 
@@ -333,11 +331,11 @@ run_verify() {
   fi
 
   info "Verifying installation"
-  command -v hybridclaw >/dev/null 2>&1 \
-    || die "verification failed: 'hybridclaw' is not on PATH."
-  hybridclaw --version >/dev/null 2>&1 \
+  have hybridclaw || die "verification failed: 'hybridclaw' is not on PATH."
+  local version_output
+  version_output="$(hybridclaw --version 2>/dev/null)" \
     || die "verification failed: 'hybridclaw --version' did not run successfully."
-  ok "hybridclaw --version -> $(hybridclaw --version 2>/dev/null)"
+  ok "hybridclaw --version -> $version_output"
 
   # doctor reflects environment health (e.g. Docker availability), so a non-zero
   # exit here is a warning about the host, not a broken install.
@@ -372,8 +370,8 @@ EOF
 main() {
   printf '%sHybridClaw installer%s\n\n' "$C_BOLD" "$C_RESET"
   is_dry && warn "Dry run: no changes will be made."
-  command -v curl >/dev/null 2>&1 || die "curl is required but was not found."
-  command -v tar  >/dev/null 2>&1 || die "tar is required but was not found."
+  have curl || die "curl is required but was not found."
+  have tar  || die "tar is required but was not found."
 
   detect_platform
   ok "Platform: ${PLATFORM_OS}/${PLATFORM_ARCH}"
