@@ -15,6 +15,7 @@ export const CODEX_AUTH_ISSUER = 'https://auth.openai.com';
 export const CODEX_AUTH_SCOPE = 'openid profile email offline_access';
 export const CODEX_AUTH_PROVIDER = 'openai-codex';
 export const CODEX_AUTH_METHOD = 'oauth';
+export const CODEX_AUTH_ORIGINATOR = 'codex_cli_rs';
 export const CODEX_DEFAULT_CALLBACK_HOST = '127.0.0.1';
 export const CODEX_DEFAULT_CALLBACK_PORT = 1455;
 export const CODEX_DEFAULT_CALLBACK_REDIRECT_HOST = 'localhost';
@@ -441,7 +442,7 @@ function buildHeaders(
     Authorization: `Bearer ${accessToken}`,
     'Chatgpt-Account-Id': accountId,
     'OpenAI-Beta': CODEX_OPENAI_BETA_HEADER,
-    originator: 'hybridclaw',
+    originator: CODEX_AUTH_ORIGINATOR,
   };
 }
 
@@ -467,7 +468,7 @@ export function buildAuthUrl(params: {
     id_token_add_organizations: 'true',
     [CODEX_SIMPLIFIED_FLOW_PARAM]: 'true',
     state: params.state,
-    originator: 'hybridclaw',
+    originator: CODEX_AUTH_ORIGINATOR,
   });
   return `${CODEX_AUTH_ISSUER}/oauth/authorize?${query.toString()}`;
 }
