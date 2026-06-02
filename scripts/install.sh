@@ -146,10 +146,14 @@ detect_platform() {
   esac
 
   # nodejs.org publishes glibc builds only; detect musl (e.g. Alpine) so the
-  # managed-Node path can refuse to download an incompatible tarball.
+  # managed-Node path can refuse to download an incompatible tarball. Probe the
+  # musl loader directly first — `ldd --version` exits non-zero on musl, which
+  # `set -o pipefail` would otherwise turn into a false negative.
   PLATFORM_LIBC="glibc"
-  if [ "$PLATFORM_OS" = "linux" ] && ldd --version 2>&1 | grep -qi musl; then
-    PLATFORM_LIBC="musl"
+  if [ "$PLATFORM_OS" = "linux" ]; then
+    if ls /lib/ld-musl-* >/dev/null 2>&1 || { ldd --version 2>&1 || true; } | grep -qi musl; then
+      PLATFORM_LIBC="musl"
+    fi
   fi
 }
 
@@ -230,7 +234,8 @@ Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --
 
   info "Installing Node.js v${version} into ${dir} (no system changes)"
   mkdir -p "$dir"
-  tarball="$(mktemp "${TMPDIR:-/tmp}/hybridclaw-node.XXXXXX.tar.xz")"
+  # No .tar.xz suffix: BusyBox mktemp requires the XXXXXX to be the final chars.
+  tarball="$(mktemp "${TMPDIR:-/tmp}/hybridclaw-node.XXXXXX")"
   trap 'rm -f "$tarball"' EXIT
   curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 -o "$tarball" "$url" \
     || die "failed to download Node.js from $url"
@@ -329,6 +334,27 @@ check_docker() {
 
 # --- Install -----------------------------------------------------------------
 
+# The npm package builds native modules (better-sqlite3, node-pty) from source
+# whenever no prebuilt binary matches the platform, and node-gyp then needs a
+# toolchain. Warn early rather than failing deep inside an npm log.
+check_build_prereqs() {
+  local missing=""
+  have make || missing="make"
+  if ! have g++ && ! have clang++ && ! have c++; then
+    missing="${missing:+$missing, }a C/C++ compiler (g++)"
+  fi
+  if ! have python3 && ! have python; then
+    missing="${missing:+$missing, }python3"
+  fi
+  [ -z "$missing" ] && return 0
+  warn "Build tools may be missing: ${missing}."
+  warn "npm needs them to compile native modules when no prebuilt binary exists:"
+  warn "    Debian/Ubuntu: sudo apt-get install -y python3 make g++"
+  warn "    Fedora/RHEL:   sudo dnf install -y python3 make gcc-c++"
+  warn "    Alpine:        sudo apk add python3 make g++"
+  warn "    macOS:         xcode-select --install"
+}
+
 install_cli() {
   local spec="$PKG_NAME"
   [ "$INSTALL_VERSION" != "latest" ] && spec="${PKG_NAME}@${INSTALL_VERSION}"
@@ -338,10 +364,15 @@ install_cli() {
     return 0
   fi
   if ! npm install -g "$spec"; then
-    err "Global npm install failed."
-    err "If this was a permissions error, set a user-writable npm prefix:"
-    err "    npm config set prefix \"$HYBRIDCLAW_HOME/npm-global\""
-    err "    export PATH=\"$HYBRIDCLAW_HOME/npm-global/bin:\$PATH\""
+    err "Global npm install failed. Two common causes:"
+    err "  1) Missing build tools for native modules (node-gyp needs python3,"
+    err "     make, and a C/C++ compiler). Install them, e.g.:"
+    err "       Debian/Ubuntu: sudo apt-get install -y python3 make g++"
+    err "       Fedora/RHEL:   sudo dnf install -y python3 make gcc-c++"
+    err "       Alpine:        sudo apk add python3 make g++"
+    err "  2) A non-writable npm global prefix. Use a user-writable one:"
+    err "       npm config set prefix \"$HYBRIDCLAW_HOME/npm-global\""
+    err "       export PATH=\"$HYBRIDCLAW_HOME/npm-global/bin:\$PATH\""
     err "Then re-run this installer. (HybridClaw never needs sudo.)"
     exit 1
   fi
@@ -366,7 +397,7 @@ maybe_onboard() {
   have hybridclaw \
     || die "hybridclaw was installed but is not on PATH yet. Open a new shell and run: hybridclaw onboarding"
 
-  ok "Installed $(hybridclaw --version 2>/dev/null || echo "$PKG_NAME")"
+  ok "Installed $(hybridclaw --version 2>/dev/null | tail -1 || echo "$PKG_NAME")"
 
   if [ "$RUN_ONBOARDING" -ne 1 ] || [ "$NO_PROMPT" -eq 1 ]; then
     info "Skipping interactive onboarding: run 'hybridclaw onboarding' when ready."
@@ -398,7 +429,7 @@ run_verify() {
   info "Verifying installation"
   have hybridclaw || die "verification failed: 'hybridclaw' is not on PATH."
   local version_output
-  version_output="$(hybridclaw --version 2>/dev/null)" \
+  version_output="$(hybridclaw --version 2>/dev/null | tail -1)" \
     || die "verification failed: 'hybridclaw --version' did not run successfully."
   ok "hybridclaw --version -> $version_output"
 
@@ -444,6 +475,7 @@ main() {
   ensure_node
   ensure_npm
   check_docker
+  check_build_prereqs
   install_cli
   maybe_onboard
   run_verify
