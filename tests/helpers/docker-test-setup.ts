@@ -11,20 +11,39 @@ import net from 'node:net';
 export const CONTAINER_PREFIX = 'hc-e2e';
 
 /**
+ * Conservative Docker image-reference characters: lowercase/uppercase letters,
+ * digits, and the punctuation valid in a `name[:tag][@digest]` reference.
+ * Anything outside this set (notably whitespace and shell metacharacters)
+ * would be unsafe to splice into the `docker ...` commands built via execSync.
+ */
+const SAFE_IMAGE_REF = /^[A-Za-z0-9._/:@-]+$/;
+
+/**
  * Self-selecting gate for a Docker e2e suite. The suite is enabled only when
- * HYBRIDCLAW_RUN_DOCKER_E2E=1 *and* its own image var is set, so
- * `vitest run --project e2e` is safe to invoke in any CI matrix leg without one
- * suite running against an image another leg built.
+ * HYBRIDCLAW_RUN_DOCKER_E2E=1 *and* its own image var is set to a syntactically
+ * valid image reference, so `vitest run --project e2e` is safe to invoke in any
+ * CI matrix leg without one suite running against an image another leg built.
+ *
+ * The image value is trimmed and validated before the suite is enabled. An
+ * env var that is whitespace-only or contains characters illegal in a Docker
+ * reference disables the suite (with a warning) rather than letting an unsafe
+ * value reach the `docker ... ${image}` commands.
  */
 export function dockerE2eGate(imageEnvVar: string): {
   image: string;
   enabled: boolean;
 } {
-  const image = process.env[imageEnvVar] ?? '';
-  return {
-    image,
-    enabled: process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1' && image !== '',
-  };
+  const image = (process.env[imageEnvVar] ?? '').trim();
+  if (process.env.HYBRIDCLAW_RUN_DOCKER_E2E !== '1' || image === '') {
+    return { image, enabled: false };
+  }
+  if (!SAFE_IMAGE_REF.test(image)) {
+    console.warn(
+      `[gate] ${imageEnvVar} is set to an invalid image reference; suite disabled.`,
+    );
+    return { image, enabled: false };
+  }
+  return { image, enabled: true };
 }
 
 /**
