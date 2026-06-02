@@ -483,6 +483,11 @@ main() {
   print_next_steps
 }
 
-main "$@"
+# Run the installer — unless sourced with HYBRIDCLAW_INSTALL_LIB=1, which the
+# test suite (scripts/install.test.sh) uses to load these functions without
+# executing. Real invocations (executed or piped) never set it, so they run.
+if [ -z "${HYBRIDCLAW_INSTALL_LIB:-}" ]; then
+  main "$@"
+fi
 
 } # end download guard — keep this brace as the final line of the file

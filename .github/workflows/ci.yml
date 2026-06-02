@@ -154,6 +154,12 @@ jobs:
       - name: TypeScript lint (console)
         run: npm --prefix console run typecheck
 
+      - name: Shellcheck install scripts
+        run: shellcheck scripts/install.sh scripts/install.test.sh
+
+      - name: Installer unit tests
+        run: bash scripts/install.test.sh
+
   test:
     runs-on: ubuntu-latest
     permissions:
