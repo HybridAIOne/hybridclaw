@@ -24,6 +24,18 @@ curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts
   | bash -s -- --version 0.21.0 --no-onboarding
 ```
 
+For automation, preview the plan with `--dry-run` (changes nothing), run
+headless with `--no-prompt`, and smoke-test the result with `--verify`
+(`hybridclaw --version` plus `hybridclaw doctor`). Each flag also has an
+environment-variable form (`HYBRIDCLAW_DRY_RUN=1`, `HYBRIDCLAW_NO_PROMPT=1`,
+`HYBRIDCLAW_VERIFY_INSTALL=1`) for CI runners that cannot pass arguments
+through the pipe:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh \
+  | bash -s -- --no-prompt --verify
+```
+
 The script never uses `sudo`: when no Node.js 22 is present it installs a
 user-local copy under `~/.hybridclaw/node`, and it falls back to a
 user-writable npm prefix if the global one is not writable. Windows users

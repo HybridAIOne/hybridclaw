@@ -16,6 +16,9 @@
 #   4. Checks for Docker (recommended for the default container sandbox).
 #   5. Runs `hybridclaw onboarding` when attached to a terminal.
 #
+# For CI/headless use, pass --no-prompt; preview the plan with --dry-run; run a
+# post-install smoke test with --verify.
+#
 # The HybridClaw runtime itself never needs root. The installer only touches
 # your home directory and the npm global prefix; it never calls sudo.
 
@@ -31,11 +34,19 @@ REQUIRED_NPM="11.10.0"
 # Fallback used only when nodejs.org is unreachable for version discovery.
 NODE_VERSION_FALLBACK="${HYBRIDCLAW_NODE_VERSION:-22.20.0}"
 
-# --- Flags -------------------------------------------------------------------
+# --- Flags (env vars provide defaults; CLI flags override below) -------------
 
 RUN_ONBOARDING=1
 CHECK_DOCKER=1
 MANAGE_NODE=1
+DRY_RUN="${HYBRIDCLAW_DRY_RUN:-0}"
+VERIFY="${HYBRIDCLAW_VERIFY_INSTALL:-0}"
+# Honor both HYBRIDCLAW_NO_PROMPT and the conventional NO_PROMPT.
+if [ -n "${HYBRIDCLAW_NO_PROMPT:-}" ] || [ -n "${NO_PROMPT:-}" ]; then
+  NO_PROMPT=1
+else
+  NO_PROMPT=0
+fi
 
 # --- Output helpers ----------------------------------------------------------
 
@@ -52,6 +63,8 @@ warn()  { printf '%s warn:%s %s\n' "$C_WARN" "$C_RESET" "$*" >&2; }
 err()   { printf '%serror:%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2; }
 die()   { err "$@"; exit 1; }
 
+is_dry() { [ "$DRY_RUN" -eq 1 ]; }
+
 usage() {
   cat <<'EOF'
 HybridClaw installer
@@ -59,15 +72,21 @@ HybridClaw installer
 Options:
   --version <ver>       Install a specific version (default: latest)
   --no-onboarding       Skip the interactive `hybridclaw onboarding` step
+  --no-prompt           Headless/CI mode: never prompt, skip onboarding
+  --dry-run             Print the steps without changing anything
+  --verify              Run a post-install smoke test (version + doctor)
   --skip-docker-check   Do not warn when Docker is missing
   --skip-node           Use the Node.js already on PATH; never download Node
   -h, --help            Show this help
 
 Environment:
-  HYBRIDCLAW_HOME           Install root for managed Node (default: ~/.hybridclaw)
+  HYBRIDCLAW_HOME             Install root for managed Node (default: ~/.hybridclaw)
   HYBRIDCLAW_INSTALL_VERSION  Version to install (default: latest)
-  HYBRIDCLAW_NODE_VERSION   Node version to fetch if one must be installed
-  NO_COLOR                  Disable colored output
+  HYBRIDCLAW_NODE_VERSION     Node version to fetch if one must be installed
+  HYBRIDCLAW_NO_PROMPT=1      Same as --no-prompt (also honors NO_PROMPT)
+  HYBRIDCLAW_DRY_RUN=1        Same as --dry-run
+  HYBRIDCLAW_VERIFY_INSTALL=1 Same as --verify
+  NO_COLOR                    Disable colored output
 EOF
 }
 
@@ -78,6 +97,9 @@ while [ "$#" -gt 0 ]; do
     --version)        INSTALL_VERSION="${2:?--version requires a value}"; shift 2 ;;
     --version=*)      INSTALL_VERSION="${1#*=}"; shift ;;
     --no-onboarding)  RUN_ONBOARDING=0; shift ;;
+    --no-prompt)      NO_PROMPT=1; shift ;;
+    --dry-run)        DRY_RUN=1; shift ;;
+    --verify)         VERIFY=1; shift ;;
     --skip-docker-check) CHECK_DOCKER=0; shift ;;
     --skip-node)      MANAGE_NODE=0; shift ;;
     -h|--help)        usage; exit 0 ;;
@@ -137,6 +159,12 @@ install_managed_node() {
   dir="$HYBRIDCLAW_HOME/node"
   url="https://nodejs.org/dist/v${version}/node-v${version}-${PLATFORM_OS}-${PLATFORM_ARCH}.tar.xz"
 
+  if is_dry; then
+    info "[dry-run] would download ${url}"
+    info "[dry-run] would extract Node.js v${version} into ${dir} and add ${dir}/bin to PATH"
+    return 0
+  fi
+
   info "Installing Node.js v${version} into ${dir} (no system changes)"
   mkdir -p "$dir"
   tarball="$(mktemp "${TMPDIR:-/tmp}/hybridclaw-node.XXXXXX.tar.xz")"
@@ -181,6 +209,10 @@ ensure_node() {
 
 ensure_npm() {
   local npm_version
+  if is_dry; then
+    info "[dry-run] would ensure npm >= ${REQUIRED_NPM} (upgrading via 'npm install -g npm@^11' if needed)"
+    return 0
+  fi
   command -v npm >/dev/null 2>&1 || die "npm not found alongside Node.js; reinstall Node 22."
   npm_version="$(npm --version)"
   if version_ge "$npm_version" "$REQUIRED_NPM"; then
@@ -195,8 +227,13 @@ ensure_npm() {
 # --- PATH persistence --------------------------------------------------------
 
 persist_path() {
+  local dir="$1"
+  if is_dry; then
+    info "[dry-run] would add ${dir} to PATH in your shell rc files"
+    return 0
+  fi
   # Append an idempotent PATH export to the user's shell rc files.
-  local dir="$1" marker="# added by HybridClaw installer"
+  local marker="# added by HybridClaw installer"
   local line="export PATH=\"$dir:\$PATH\" $marker"
   local rc
   for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
@@ -235,6 +272,10 @@ install_cli() {
   local spec="$PKG_NAME"
   [ "$INSTALL_VERSION" != "latest" ] && spec="${PKG_NAME}@${INSTALL_VERSION}"
   info "Installing ${spec} globally via npm"
+  if is_dry; then
+    info "[dry-run] would run: npm install -g ${spec}"
+    return 0
+  fi
   if ! npm install -g "$spec"; then
     err "Global npm install failed."
     err "If this was a permissions error, set a user-writable npm prefix:"
@@ -256,12 +297,18 @@ install_cli() {
 # --- Onboarding + next steps -------------------------------------------------
 
 maybe_onboard() {
+  if is_dry; then
+    info "[dry-run] would verify hybridclaw is on PATH and (unless --no-prompt) run onboarding"
+    return 0
+  fi
+
   command -v hybridclaw >/dev/null 2>&1 \
     || die "hybridclaw was installed but is not on PATH yet. Open a new shell and run: hybridclaw onboarding"
 
   ok "Installed $(hybridclaw --version 2>/dev/null || echo "$PKG_NAME")"
 
-  if [ "$RUN_ONBOARDING" -ne 1 ]; then
+  if [ "$RUN_ONBOARDING" -ne 1 ] || [ "$NO_PROMPT" -eq 1 ]; then
+    info "Skipping interactive onboarding: run 'hybridclaw onboarding' when ready."
     return
   fi
 
@@ -275,6 +322,30 @@ maybe_onboard() {
     hybridclaw onboarding </dev/tty || warn "onboarding did not complete; run 'hybridclaw onboarding' later"
   else
     info "Non-interactive shell: run 'hybridclaw onboarding' when ready."
+  fi
+}
+
+run_verify() {
+  [ "$VERIFY" -eq 1 ] || return 0
+  if is_dry; then
+    info "[dry-run] would run: hybridclaw --version && hybridclaw doctor --json"
+    return 0
+  fi
+
+  info "Verifying installation"
+  command -v hybridclaw >/dev/null 2>&1 \
+    || die "verification failed: 'hybridclaw' is not on PATH."
+  hybridclaw --version >/dev/null 2>&1 \
+    || die "verification failed: 'hybridclaw --version' did not run successfully."
+  ok "hybridclaw --version -> $(hybridclaw --version 2>/dev/null)"
+
+  # doctor reflects environment health (e.g. Docker availability), so a non-zero
+  # exit here is a warning about the host, not a broken install.
+  if hybridclaw doctor --json >/dev/null 2>&1; then
+    ok "hybridclaw doctor passed"
+  else
+    warn "hybridclaw doctor reported issues (often Docker/runtime env)."
+    warn "Run 'hybridclaw doctor' for the full report."
   fi
 }
 
@@ -300,6 +371,7 @@ EOF
 
 main() {
   printf '%sHybridClaw installer%s\n\n' "$C_BOLD" "$C_RESET"
+  is_dry && warn "Dry run: no changes will be made."
   command -v curl >/dev/null 2>&1 || die "curl is required but was not found."
   command -v tar  >/dev/null 2>&1 || die "tar is required but was not found."
 
@@ -311,6 +383,8 @@ main() {
   check_docker
   install_cli
   maybe_onboard
+  run_verify
+  is_dry && { info "Dry run complete; no changes were made."; return 0; }
   print_next_steps
 }
 
