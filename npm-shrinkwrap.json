@@ -26,6 +26,7 @@
         "@slack/bolt": "4.7.0",
         "@whiskeysockets/baileys": "7.0.0-rc11",
         "ajv": "8.18.0",
+        "amaro": "1.1.9",
         "better-sqlite3": "12.8.0",
         "botbuilder": "4.23.3",
         "camoufox-js": "0.10.2",
@@ -6748,6 +6749,15 @@
         "ajv": {
           "optional": true
         }
+      }
+    },
+    "node_modules/amaro": {
+      "version": "1.1.9",
+      "resolved": "https://registry.npmjs.org/amaro/-/amaro-1.1.9.tgz",
+      "integrity": "sha512-Qx5+iHi3mKWz95XNx/WPFl8yRMZEGNoRZDaOkoej72kxAo20FbDVx7jALcvyOn/N3+h+GboKip49yba7xqLlKA==",
+      "license": "MIT",
+      "engines": {
+        "node": ">=22"
       }
     },
     "node_modules/ansi-regex": {
