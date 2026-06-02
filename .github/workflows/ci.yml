@@ -108,42 +108,8 @@ jobs:
           BASE_SHA="${BASE_SHA:-${{ github.event.pull_request.base.sha }}}"
           node ./scripts/check-dependency-policy.mjs --base "${BASE_SHA}"
 
-      - name: Biome check (changed files)
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            PARENTS="$(git show -s --format=%P HEAD)"
-            BASE_SHA="${PARENTS%% *}"
-            BASE_SHA="${BASE_SHA:-${{ github.event.pull_request.base.sha }}}"
-          else
-            BASE_SHA="${{ github.event.before }}"
-          fi
-          HEAD_SHA="${{ github.sha }}"
-
-          FILES=()
-          if [[ -z "${BASE_SHA}" || "${BASE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
-            while IFS= read -r file; do
-              [[ -n "${file}" ]] && FILES+=("${file}")
-            done < <(git ls-files src | grep -E '^src/.*\.(ts|tsx|js|jsx)$' || true)
-          else
-            while IFS= read -r file; do
-              [[ -n "${file}" ]] && FILES+=("${file}")
-            done < <(
-              git diff --name-only --diff-filter=ACMRT "${BASE_SHA}" "${HEAD_SHA}" \
-                | grep -E '^src/.*\.(ts|tsx|js|jsx)$' || true
-            )
-          fi
-
-          if [[ "${#FILES[@]}" -eq 0 ]]; then
-            echo "No changed source files for Biome check."
-            exit 0
-          fi
-
-          echo "Running Biome on changed files:"
-          printf ' - %s\n' "${FILES[@]}"
-          npx biome check "${FILES[@]}"
+      - name: Biome check (whole repo)
+        run: npm run check
 
       - name: TypeScript lint (root)
         run: npm run lint
@@ -200,6 +166,14 @@ jobs:
 
       - name: Frontend unit tests (console)
         run: npm run test:console
+
+      - name: Desktop unit tests
+        run: npm --workspace desktop run test
+
+      - name: CLI binary e2e
+        env:
+          HYBRIDCLAW_RUN_CLI_E2E: '1'
+        run: npx vitest run --project e2e
 
       - name: Generate coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
