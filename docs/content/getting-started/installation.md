@@ -37,10 +37,13 @@ curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts
 ```
 
 The script never uses `sudo`: when no Node.js 22 is present it installs a
-user-local copy under `~/.hybridclaw/node`, and it falls back to a
-user-writable npm prefix if the global one is not writable. Windows users
-should run it inside WSL2. Review `scripts/install.sh` before piping it to a
-shell if you prefer; the steps below cover each install method manually.
+user-local copy under `~/.hybridclaw/node` (verified against nodejs.org's
+published SHA-256 checksum), and it falls back to a user-writable npm prefix if
+the global one is not writable. Windows users should run it inside WSL2. On
+Alpine or other musl-based distros, install Node 22 with your package manager
+(`apk add nodejs npm`) and pass `--skip-node`, since nodejs.org ships glibc
+builds only. Review `scripts/install.sh` before piping it to a shell if you
+prefer; the steps below cover each install method manually.
 
 ## Install From npm
 

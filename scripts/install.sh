@@ -12,6 +12,9 @@
 #   1. Detects your OS/arch (Linux + macOS; Windows users are pointed at WSL2).
 #   2. Ensures Node.js 22 and npm >= 11.10.0 are available, installing a
 #      user-local Node 22 into ~/.hybridclaw/node when no compatible one exists.
+#      Downloaded Node tarballs are verified against nodejs.org's published
+#      SHA-256 checksum. Alpine/musl needs a system Node (apk add nodejs npm)
+#      plus --skip-node, since nodejs.org ships glibc builds only.
 #   3. Installs the `hybridclaw` CLI globally from npm.
 #   4. Checks for Docker (recommended for the default container sandbox).
 #   5. Runs `hybridclaw onboarding` when attached to a terminal.
@@ -21,6 +24,18 @@
 #
 # The HybridClaw runtime itself never needs root. The installer only touches
 # your home directory and the npm global prefix; it never calls sudo.
+
+# Require bash before any bash-only syntax below is parsed.
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo "This installer needs bash. Re-run with:" >&2
+  echo "  curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash" >&2
+  exit 1
+fi
+
+# Download guard: bash parses to the matching closing brace at the end of the
+# file before executing anything, so a `curl | bash` that is truncated
+# mid-transfer fails to parse and runs nothing instead of executing a fragment.
+{
 
 set -euo pipefail
 
@@ -41,8 +56,8 @@ CHECK_DOCKER=1
 MANAGE_NODE=1
 DRY_RUN="${HYBRIDCLAW_DRY_RUN:-0}"
 VERIFY="${HYBRIDCLAW_VERIFY_INSTALL:-0}"
-# Honor both HYBRIDCLAW_NO_PROMPT and the conventional NO_PROMPT.
-if [ -n "${HYBRIDCLAW_NO_PROMPT:-}" ] || [ -n "${NO_PROMPT:-}" ]; then
+# Headless when HYBRIDCLAW_NO_PROMPT, the conventional NO_PROMPT, or CI is set.
+if [ -n "${HYBRIDCLAW_NO_PROMPT:-}" ] || [ -n "${NO_PROMPT:-}" ] || [ -n "${CI:-}" ]; then
   NO_PROMPT=1
 else
   NO_PROMPT=0
@@ -84,7 +99,7 @@ Environment:
   HYBRIDCLAW_HOME             Install root for managed Node (default: ~/.hybridclaw)
   HYBRIDCLAW_INSTALL_VERSION  Version to install (default: latest)
   HYBRIDCLAW_NODE_VERSION     Node version to fetch if one must be installed
-  HYBRIDCLAW_NO_PROMPT=1      Same as --no-prompt (also honors NO_PROMPT)
+  HYBRIDCLAW_NO_PROMPT=1      Same as --no-prompt (also honors NO_PROMPT / CI)
   HYBRIDCLAW_DRY_RUN=1        Same as --dry-run
   HYBRIDCLAW_VERIFY_INSTALL=1 Same as --verify
   NO_COLOR                    Disable colored output
@@ -129,6 +144,13 @@ detect_platform() {
     armv7l) PLATFORM_ARCH="armv7l" ;;
     *) die "unsupported architecture: $arch" ;;
   esac
+
+  # nodejs.org publishes glibc builds only; detect musl (e.g. Alpine) so the
+  # managed-Node path can refuse to download an incompatible tarball.
+  PLATFORM_LIBC="glibc"
+  if [ "$PLATFORM_OS" = "linux" ] && ldd --version 2>&1 | grep -qi musl; then
+    PLATFORM_LIBC="musl"
+  fi
 }
 
 # --- Node.js + npm -----------------------------------------------------------
@@ -143,7 +165,7 @@ version_ge() {
 
 resolve_node_version() {
   local v
-  v="$(curl -fsSL --max-time 15 https://nodejs.org/dist/index.json 2>/dev/null \
+  v="$(curl -fsSL --proto '=https' --tlsv1.2 --max-time 15 https://nodejs.org/dist/index.json 2>/dev/null \
         | grep -o '"version":"v22[^"]*"' | head -1 | sed 's/.*"v\(22[^"]*\)".*/\1/')" || true
   if [ -n "$v" ]; then
     printf '%s' "$v"
@@ -152,14 +174,56 @@ resolve_node_version() {
   fi
 }
 
+sha256_of() {
+  if have sha256sum; then
+    sha256sum "$1" | awk '{print $1}'
+  elif have shasum; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+# Verify a downloaded Node tarball against nodejs.org's per-release SHASUMS256.
+verify_node_checksum() {
+  local file="$1" version="$2" filename="$3" expected actual
+  expected="$(curl -fsSL --proto '=https' --tlsv1.2 --max-time 30 \
+      "https://nodejs.org/dist/v${version}/SHASUMS256.txt" 2>/dev/null \
+      | awk -v f="$filename" '$2 == f {print $1}')"
+  if [ -z "$expected" ]; then
+    warn "Could not fetch published checksum for ${filename}; skipping verification."
+    return 0
+  fi
+  actual="$(sha256_of "$file")" || {
+    warn "No sha256 tool (sha256sum/shasum) found; skipping checksum verification."
+    return 0
+  }
+  if [ "$actual" != "$expected" ]; then
+    die "Checksum mismatch for ${filename}
+  expected ${expected}
+  got      ${actual}
+Refusing to install a corrupt or tampered Node.js download."
+  fi
+  ok "Verified Node.js download (sha256)"
+}
+
 install_managed_node() {
-  local version url tarball dir
+  local version dir filename url tarball
+  if [ "${PLATFORM_LIBC:-glibc}" = "musl" ]; then
+    die "Detected musl libc (e.g. Alpine). nodejs.org publishes glibc builds only.
+Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --skip-node:
+    apk add --no-cache nodejs npm
+    curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash -s -- --skip-node"
+  fi
+
   version="$(resolve_node_version)"
   dir="$HYBRIDCLAW_HOME/node"
-  url="https://nodejs.org/dist/v${version}/node-v${version}-${PLATFORM_OS}-${PLATFORM_ARCH}.tar.xz"
+  filename="node-v${version}-${PLATFORM_OS}-${PLATFORM_ARCH}.tar.xz"
+  url="https://nodejs.org/dist/v${version}/${filename}"
 
   if is_dry; then
     info "[dry-run] would download ${url}"
+    info "[dry-run] would verify its sha256 against nodejs.org/dist/v${version}/SHASUMS256.txt"
     info "[dry-run] would extract Node.js v${version} into ${dir} and add ${dir}/bin to PATH"
     return 0
   fi
@@ -168,8 +232,9 @@ install_managed_node() {
   mkdir -p "$dir"
   tarball="$(mktemp "${TMPDIR:-/tmp}/hybridclaw-node.XXXXXX.tar.xz")"
   trap 'rm -f "$tarball"' EXIT
-  curl -fsSL --retry 3 --retry-delay 2 -o "$tarball" "$url" \
+  curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 -o "$tarball" "$url" \
     || die "failed to download Node.js from $url"
+  verify_node_checksum "$tarball" "$version" "$filename"
   tar -xJf "$tarball" -C "$dir" --strip-components=1
   rm -f "$tarball"
   trap - EXIT
@@ -374,7 +439,7 @@ main() {
   have tar  || die "tar is required but was not found."
 
   detect_platform
-  ok "Platform: ${PLATFORM_OS}/${PLATFORM_ARCH}"
+  ok "Platform: ${PLATFORM_OS}/${PLATFORM_ARCH} (${PLATFORM_LIBC})"
 
   ensure_node
   ensure_npm
@@ -387,3 +452,5 @@ main() {
 }
 
 main "$@"
+
+} # end download guard — keep this brace as the final line of the file
