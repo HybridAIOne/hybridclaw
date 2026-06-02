@@ -6,6 +6,30 @@ sidebar_position: 2
 
 # Installation
 
+## Install With the One-Line Script
+
+The quickest path on Linux and macOS is the bootstrap installer. It ensures a
+compatible Node.js 22 and npm, installs the `hybridclaw` CLI from npm, checks
+for Docker, and offers to run onboarding:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash
+```
+
+Pass options through the pipe with `-s --`, for example to pin a version and
+skip the interactive onboarding step:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh \
+  | bash -s -- --version 0.21.0 --no-onboarding
+```
+
+The script never uses `sudo`: when no Node.js 22 is present it installs a
+user-local copy under `~/.hybridclaw/node`, and it falls back to a
+user-writable npm prefix if the global one is not writable. Windows users
+should run it inside WSL2. Review `scripts/install.sh` before piping it to a
+shell if you prefer; the steps below cover each install method manually.
+
 ## Install From npm
 
 ```bash
