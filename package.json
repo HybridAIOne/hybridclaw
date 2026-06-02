@@ -112,6 +112,7 @@
     "@slack/bolt": "4.7.0",
     "@whiskeysockets/baileys": "7.0.0-rc11",
     "ajv": "8.18.0",
+    "amaro": "1.1.9",
     "better-sqlite3": "12.8.0",
     "botbuilder": "4.23.3",
     "camoufox-js": "0.10.2",

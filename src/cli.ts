@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import './node-version-guard.js';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -71,6 +72,7 @@ import {
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
 import type { GatewayStatus } from './gateway/gateway-types.js';
+import type { DockerAccessIssueKind } from './infra/container-setup.js';
 import { logger } from './logger.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
@@ -337,41 +339,148 @@ async function ensureRuntimeContainer(
       cwd: resolveInstallRoot(),
     });
   } catch (error) {
-    if (
-      sandboxMode == null &&
-      !isContainerSandboxModeExplicit() &&
-      process.stdin.isTTY &&
-      process.stdout.isTTY &&
-      error instanceof Error &&
-      error.name === 'DockerAccessError' &&
-      ((error as Error & { kind?: string }).kind === 'missing' ||
-        (error as Error & { kind?: string }).kind === 'permission-denied')
-    ) {
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-      try {
-        const prompt =
-          (error as Error & { kind?: string }).kind === 'missing'
-            ? 'Docker is not available, and this install is still using the default container sandbox. Switch HybridClaw to host mode in the runtime config and continue? [Y/n] '
-            : 'Docker is installed, but this user cannot access the Docker daemon. Switch HybridClaw to host mode in the runtime config and continue? [Y/n] ';
-        const answer = (await rl.question(prompt)).trim().toLowerCase();
-        const shouldSwitch = !answer || answer === 'y' || answer === 'yes';
-        if (shouldSwitch) {
-          updateRuntimeConfig((draft) => {
-            draft.container.sandboxMode = 'host';
-          });
-          console.log(
-            `${commandName}: Updated runtime config at ${runtimeConfigPath()}. Continuing in host mode.`,
-          );
-          return;
-        }
-      } finally {
-        rl.close();
-      }
-    }
+    const recovered = await recoverFromDockerAccessError(
+      error,
+      commandName,
+      required,
+      sandboxMode,
+    );
+    if (recovered) return;
     throw error;
+  }
+}
+
+function isInteractiveSession(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+async function continueInHostModeForThisRun(
+  commandName: string,
+  required: boolean,
+): Promise<void> {
+  const { ensureHostRuntimeReady } = await import(
+    './infra/host-runtime-setup.js'
+  );
+  ensureHostRuntimeReady({
+    commandName,
+    required,
+    installRoot: resolveInstallRoot(),
+  });
+  const { setSandboxModeOverride } = await ensureConfigApi();
+  setSandboxModeOverride('host');
+  console.log(
+    `${commandName}: Continuing in host mode for this run only — no container sandbox. Runtime config is unchanged.`,
+  );
+}
+
+async function promptForHostModeFallback(
+  rl: readline.Interface,
+  commandName: string,
+  required: boolean,
+  reason: string,
+): Promise<boolean> {
+  console.warn(
+    `${commandName}: ${reason} Host mode runs agent commands directly on this machine with no container isolation.`,
+  );
+  const answer = (
+    await rl.question(
+      'Continue without a sandbox (host mode) for this run? [y/N] ',
+    )
+  )
+    .trim()
+    .toLowerCase();
+  if (answer !== 'y' && answer !== 'yes') return false;
+  await continueInHostModeForThisRun(commandName, required);
+  return true;
+}
+
+async function recoverFromDockerDaemonDown(
+  rl: readline.Interface,
+  commandName: string,
+  required: boolean,
+): Promise<boolean> {
+  console.log(
+    `${commandName}: Docker is installed but the daemon isn't running.`,
+  );
+  console.log(
+    'Start Docker (open Docker Desktop, or run `sudo systemctl start docker` on Linux), then retry.',
+  );
+  const answer = (
+    await rl.question(
+      'Press Enter to retry once Docker is running, or type "skip" to stop retrying: ',
+    )
+  )
+    .trim()
+    .toLowerCase();
+  if (answer !== 'skip') {
+    const { probeDockerAccess, ensureContainerImageReady } = await import(
+      './infra/container-setup.js'
+    );
+    const probe = await probeDockerAccess();
+    if (probe.ready) {
+      try {
+        await ensureContainerImageReady({
+          commandName,
+          required,
+          cwd: resolveInstallRoot(),
+        });
+        return true;
+      } catch (error) {
+        if (!(error instanceof Error) || error.name !== 'DockerAccessError') {
+          throw error;
+        }
+        console.warn(
+          `${commandName}: Docker still isn't ready (${(error as Error & { detail?: string }).detail || error.message}).`,
+        );
+      }
+    } else {
+      console.warn(
+        `${commandName}: Docker still isn't ready (${probe.detail || probe.kind}).`,
+      );
+    }
+  }
+  return promptForHostModeFallback(
+    rl,
+    commandName,
+    required,
+    'Docker is still unavailable.',
+  );
+}
+
+async function recoverFromDockerAccessError(
+  error: unknown,
+  commandName: string,
+  required: boolean,
+  sandboxMode: SandboxModeOverride | null,
+): Promise<boolean> {
+  if (
+    sandboxMode != null ||
+    isContainerSandboxModeExplicit() ||
+    !isInteractiveSession() ||
+    !(error instanceof Error) ||
+    error.name !== 'DockerAccessError'
+  ) {
+    return false;
+  }
+  const kind = (error as Error & { kind?: DockerAccessIssueKind }).kind;
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    if (kind === 'daemon-unavailable') {
+      return await recoverFromDockerDaemonDown(rl, commandName, required);
+    }
+    if (kind === 'missing' || kind === 'permission-denied') {
+      const reason =
+        kind === 'missing'
+          ? 'Docker is not installed.'
+          : 'Docker is installed but this user cannot access the Docker daemon.';
+      return await promptForHostModeFallback(rl, commandName, required, reason);
+    }
+    return false;
+  } finally {
+    rl.close();
   }
 }
 
