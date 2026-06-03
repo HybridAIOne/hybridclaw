@@ -2,13 +2,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- **Mask all provider keys during onboarding**: The Anthropic, OpenRouter,
-  Mistral, and Hugging Face credential prompts now read through the hidden
-  secret prompt like the HybridAI and speech-to-text prompts, so keys are no
-  longer echoed to the terminal during `hybridclaw onboarding`.
-
 ## [0.21.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.0) - 2026-05-29
 
 ### Added
