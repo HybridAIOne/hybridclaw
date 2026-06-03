@@ -115,18 +115,22 @@ expect_contains "absent checksum warns" "skipping verification" "$out"
 rm -f "$tmp"
 
 echo "== dir_writable =="
-dir_writable "$HOME"
+writable_dir="$(mktemp -d)"
+dir_writable "$writable_dir"
 expect_rc "writable existing dir" 0 "$?"
 # A path under a writable parent that does not exist yet is still creatable.
-dir_writable "$HOME/.hybridclaw-test-$$/lib/node_modules"
+dir_writable "$writable_dir/lib/node_modules"
 expect_rc "creatable under writable parent" 0 "$?"
-# A root-owned prefix (e.g. /usr) is not user-writable, so npm would EACCES.
-if [ ! -w /usr/lib ]; then
-  dir_writable /usr/lib/node_modules
-  expect_rc "root-owned prefix not writable" 1 "$?"
+# A read-only directory's children are not creatable. Root bypasses permission
+# bits, so this case is only meaningful (and only run) for an unprivileged user.
+ro_dir="$writable_dir/ro"; mkdir -p "$ro_dir"; chmod a-w "$ro_dir"
+if [ "$(id -u)" != 0 ] && [ ! -w "$ro_dir" ]; then
+  dir_writable "$ro_dir/node_modules"
+  expect_rc "non-writable parent rejected" 1 "$?"
 else
-  ok "root-owned prefix not writable (skipped: /usr/lib is writable here)"
+  ok "non-writable parent rejected (skipped: running as root bypasses perms)"
 fi
+chmod u+w "$ro_dir" 2>/dev/null; rm -rf "$writable_dir"
 
 echo "== check_build_prereqs =="
 out="$( ( have() { return 0; } # all tools present

@@ -42,6 +42,8 @@ set -euo pipefail
 # --- Configuration (override via environment) --------------------------------
 
 HYBRIDCLAW_HOME="${HYBRIDCLAW_HOME:-$HOME/.hybridclaw}"
+# User-writable npm prefix we fall back to when the global one needs root.
+NPM_USER_PREFIX="$HYBRIDCLAW_HOME/npm-global"
 PKG_NAME="@hybridaione/hybridclaw"
 INSTALL_VERSION="${HYBRIDCLAW_INSTALL_VERSION:-latest}"
 REQUIRED_NODE_MAJOR=22
@@ -304,13 +306,12 @@ ensure_writable_npm_prefix() {
   if dir_writable "$prefix/lib/node_modules" && dir_writable "$prefix/bin"; then
     return 0
   fi
-  local user_prefix="$HYBRIDCLAW_HOME/npm-global"
-  warn "npm global prefix ${prefix} is not writable; using ${user_prefix} instead (no sudo)."
-  mkdir -p "$user_prefix/bin"
-  npm config set prefix "$user_prefix" >/dev/null 2>&1 \
-    || die "could not point npm at a user-writable prefix (${user_prefix})."
-  export PATH="$user_prefix/bin:$PATH"
-  persist_path "$user_prefix/bin"
+  warn "npm global prefix ${prefix} is not writable; using ${NPM_USER_PREFIX} instead (no sudo)."
+  mkdir -p "$NPM_USER_PREFIX/bin"
+  npm config set prefix "$NPM_USER_PREFIX" >/dev/null 2>&1 \
+    || die "could not point npm at a user-writable prefix (${NPM_USER_PREFIX})."
+  export PATH="$NPM_USER_PREFIX/bin:$PATH"
+  persist_path "$NPM_USER_PREFIX/bin"
 }
 
 ensure_npm() {
@@ -348,26 +349,29 @@ persist_path() {
   # Append an idempotent PATH export to the user's shell rc files.
   local marker="# added by HybridClaw installer"
   local line="export PATH=\"$dir:\$PATH\" $marker"
-  local rc wrote=0
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-    [ -e "$rc" ] || continue
-    # Match the exact line we write so re-runs don't append duplicates.
-    if grep -qsF "$line" "$rc" 2>/dev/null; then wrote=1; continue; fi
-    printf '\n%s\n' "$line" >> "$rc" && wrote=1
-  done
 
-  # Fresh system (common on macOS, where ~/.zshrc may not exist yet): none of
-  # the candidate rc files were present, so nothing above persisted the PATH.
-  # Create one matching the login shell, plus ~/.profile as a portable fallback.
-  if [ "$wrote" -eq 0 ]; then
-    case "${SHELL:-}" in
-      *zsh)  rc="$HOME/.zshrc" ;;
-      *bash) rc="$HOME/.bashrc" ;;
-      *)     rc="$HOME/.profile" ;;
-    esac
-    printf '\n%s\n' "$line" >> "$rc"
-    [ "$rc" = "$HOME/.profile" ] || printf '\n%s\n' "$line" >> "$HOME/.profile"
-  fi
+  # The rc file the login shell actually sources. We always (re)ensure this one,
+  # creating it if absent — otherwise a zsh user whose only existing rc is
+  # ~/.bashrc (which zsh never reads), or a fresh macOS box with no ~/.zshrc,
+  # would get no usable PATH persistence.
+  local login_rc
+  case "${SHELL:-}" in
+    *zsh)  login_rc="${ZDOTDIR:-$HOME}/.zshrc" ;;
+    *bash) login_rc="$HOME/.bashrc" ;;
+    *)     login_rc="$HOME/.profile" ;;
+  esac
+
+  local rc
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile" "$login_rc"; do
+    # Touch existing rc files; the login shell's rc is created even if absent.
+    [ -e "$rc" ] || [ "$rc" = "$login_rc" ] || continue
+    # Match the exact line so re-runs (and revisiting login_rc) don't duplicate.
+    grep -qsF "$line" "$rc" 2>/dev/null && continue
+    # A read-only rc (or a missing $ZDOTDIR) must not abort the install under
+    # `set -e`; PATH was already exported for this process, so warn and move on.
+    printf '\n%s\n' "$line" >> "$rc" \
+      || warn "could not update ${rc}; add '${dir}' to your PATH manually."
+  done
 }
 
 npm_global_bin() {
@@ -439,9 +443,9 @@ install_cli() {
     err "  1) Missing build tools for native modules (node-gyp needs python3,"
     err "     make, and a C/C++ compiler). Install them, e.g.:"
     build_tool_hint err
-    err "  2) A non-writable npm global prefix. Use a user-writable one:"
-    err "       npm config set prefix \"$HYBRIDCLAW_HOME/npm-global\""
-    err "       export PATH=\"$HYBRIDCLAW_HOME/npm-global/bin:\$PATH\""
+    err "  2) A non-writable npm global prefix that the automatic fallback to"
+    err "     ${NPM_USER_PREFIX} did not catch. Check 'npm config get prefix'"
+    err "     and ensure that directory is writable (no sudo needed)."
     err "Then re-run this installer. (HybridClaw never needs sudo.)"
     exit 1
   fi
