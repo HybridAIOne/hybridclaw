@@ -285,13 +285,44 @@ ensure_node() {
   install_managed_node
 }
 
+# Writable if the directory exists and is writable, or its nearest existing
+# ancestor is (so npm can create it). Used to decide whether a global install
+# would hit EACCES before we attempt one.
+dir_writable() {
+  local d="$1"
+  while [ -n "$d" ] && [ "$d" != "/" ] && [ ! -e "$d" ]; do d="$(dirname "$d")"; done
+  [ -w "$d" ]
+}
+
+# A global `npm install -g` writes into <prefix>/lib/node_modules and
+# <prefix>/bin. A system Node using a root-owned prefix (e.g. /usr/local) is not
+# user-writable, so the advertised one-liner would fail with EACCES. Detect that
+# up front and point npm at a user-local prefix — no sudo, no manual rerun.
+ensure_writable_npm_prefix() {
+  local prefix
+  prefix="$(npm prefix -g 2>/dev/null)" || return 0
+  if dir_writable "$prefix/lib/node_modules" && dir_writable "$prefix/bin"; then
+    return 0
+  fi
+  local user_prefix="$HYBRIDCLAW_HOME/npm-global"
+  warn "npm global prefix ${prefix} is not writable; using ${user_prefix} instead (no sudo)."
+  mkdir -p "$user_prefix/bin"
+  npm config set prefix "$user_prefix" >/dev/null 2>&1 \
+    || die "could not point npm at a user-writable prefix (${user_prefix})."
+  export PATH="$user_prefix/bin:$PATH"
+  persist_path "$user_prefix/bin"
+}
+
 ensure_npm() {
   local npm_version
   if is_dry; then
-    info "[dry-run] would ensure npm >= ${REQUIRED_NPM} (upgrading via 'npm install -g npm@^11' if needed)"
+    info "[dry-run] would ensure a user-writable npm prefix, then npm >= ${REQUIRED_NPM} (upgrading via 'npm install -g npm@^11' if needed)"
     return 0
   fi
   have npm || die "npm not found alongside Node.js; reinstall Node 22."
+  # Make the prefix writable before any global install (the npm upgrade below
+  # and the later CLI install both write there).
+  ensure_writable_npm_prefix
   npm_version="$(npm --version)"
   if version_ge "$npm_version" "$REQUIRED_NPM"; then
     ok "npm ${npm_version} detected"
@@ -299,7 +330,11 @@ ensure_npm() {
   fi
   info "Upgrading npm ${npm_version} -> >=${REQUIRED_NPM}"
   npm install -g "npm@^11" >/dev/null 2>&1 \
-    || warn "could not upgrade npm automatically; continuing with ${npm_version}"
+    || die "could not upgrade npm to >= ${REQUIRED_NPM} (have ${npm_version}). Upgrade it manually ('npm install -g npm@^11') and re-run."
+  npm_version="$(npm --version)"
+  version_ge "$npm_version" "$REQUIRED_NPM" \
+    || die "npm is still ${npm_version} after the upgrade; HybridClaw requires >= ${REQUIRED_NPM}."
+  ok "npm ${npm_version} ready"
 }
 
 # --- PATH persistence --------------------------------------------------------
@@ -313,13 +348,26 @@ persist_path() {
   # Append an idempotent PATH export to the user's shell rc files.
   local marker="# added by HybridClaw installer"
   local line="export PATH=\"$dir:\$PATH\" $marker"
-  local rc
+  local rc wrote=0
   for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     [ -e "$rc" ] || continue
     # Match the exact line we write so re-runs don't append duplicates.
-    grep -qsF "$line" "$rc" 2>/dev/null && continue
-    printf '\n%s\n' "$line" >> "$rc"
+    if grep -qsF "$line" "$rc" 2>/dev/null; then wrote=1; continue; fi
+    printf '\n%s\n' "$line" >> "$rc" && wrote=1
   done
+
+  # Fresh system (common on macOS, where ~/.zshrc may not exist yet): none of
+  # the candidate rc files were present, so nothing above persisted the PATH.
+  # Create one matching the login shell, plus ~/.profile as a portable fallback.
+  if [ "$wrote" -eq 0 ]; then
+    case "${SHELL:-}" in
+      *zsh)  rc="$HOME/.zshrc" ;;
+      *bash) rc="$HOME/.bashrc" ;;
+      *)     rc="$HOME/.profile" ;;
+    esac
+    printf '\n%s\n' "$line" >> "$rc"
+    [ "$rc" = "$HOME/.profile" ] || printf '\n%s\n' "$line" >> "$HOME/.profile"
+  fi
 }
 
 npm_global_bin() {
@@ -353,10 +401,11 @@ check_docker() {
 # the given printer ($1 = warn or err) so the pre-flight warning and the
 # install-failure error stay in sync.
 build_tool_hint() {
-  "$1" "    Debian/Ubuntu: sudo apt-get install -y python3 make g++"
-  "$1" "    Fedora/RHEL:   sudo dnf install -y python3 make gcc-c++"
-  "$1" "    Alpine:        sudo apk add python3 make g++"
+  "$1" "    Debian/Ubuntu: apt-get install -y python3 make g++"
+  "$1" "    Fedora/RHEL:   dnf install -y python3 make gcc-c++"
+  "$1" "    Alpine:        apk add python3 make g++"
   "$1" "    macOS:         xcode-select --install"
+  "$1" "  (run the package-manager command as root, or via sudo, if needed)"
 }
 
 # The npm package builds native modules (better-sqlite3, node-pty) from source

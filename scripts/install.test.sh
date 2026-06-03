@@ -114,6 +114,20 @@ expect_rc "absent checksum is non-fatal" 0 "$?"
 expect_contains "absent checksum warns" "skipping verification" "$out"
 rm -f "$tmp"
 
+echo "== dir_writable =="
+dir_writable "$HOME"
+expect_rc "writable existing dir" 0 "$?"
+# A path under a writable parent that does not exist yet is still creatable.
+dir_writable "$HOME/.hybridclaw-test-$$/lib/node_modules"
+expect_rc "creatable under writable parent" 0 "$?"
+# A root-owned prefix (e.g. /usr) is not user-writable, so npm would EACCES.
+if [ ! -w /usr/lib ]; then
+  dir_writable /usr/lib/node_modules
+  expect_rc "root-owned prefix not writable" 1 "$?"
+else
+  ok "root-owned prefix not writable (skipped: /usr/lib is writable here)"
+fi
+
 echo "== check_build_prereqs =="
 out="$( ( have() { return 0; } # all tools present
           check_build_prereqs ) 2>&1 )"
