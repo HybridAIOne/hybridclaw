@@ -218,7 +218,7 @@ verify_node_checksum() {
     die "Checksum mismatch for ${filename}
   expected ${expected}
   got      ${actual}
-Refusing to install a corrupt or tampered Node.js download."
+Refusing to install a corrupt or truncated Node.js download."
   fi
   ok "Verified Node.js download (sha256)"
 }
@@ -265,7 +265,9 @@ Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --
 ensure_node() {
   local node_version major
   if have node; then
-    node_version="$(node --version 2>/dev/null)"
+    # `|| node_version=""`: a broken node that fails `--version` must not abort
+    # the installer under `set -e` — fall through to the managed-Node install.
+    node_version="$(node --version 2>/dev/null)" || node_version=""
     major="${node_version#v}"; major="${major%%.*}"
     if [ "$major" = "$REQUIRED_NODE_MAJOR" ]; then
       ok "Node.js $node_version detected"
@@ -324,7 +326,8 @@ ensure_npm() {
   # Make the prefix writable before any global install (the npm upgrade below
   # and the later CLI install both write there).
   ensure_writable_npm_prefix
-  npm_version="$(npm --version)"
+  npm_version="$(npm --version 2>/dev/null)" \
+    || die "'npm --version' failed; your npm install looks broken — reinstall Node ${REQUIRED_NODE_MAJOR}."
   if version_ge "$npm_version" "$REQUIRED_NPM"; then
     ok "npm ${npm_version} detected"
     return
@@ -416,6 +419,10 @@ build_tool_hint() {
 # whenever no prebuilt binary matches the platform, and node-gyp then needs a
 # toolchain. Warn early rather than failing deep inside an npm log.
 check_build_prereqs() {
+  if is_dry; then
+    info "[dry-run] would check for native-module build tools (make, C/C++ compiler, python3)"
+    return 0
+  fi
   local missing=""
   have make || missing="make"
   if ! have g++ && ! have clang++ && ! have c++; then
