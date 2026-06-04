@@ -68,6 +68,15 @@ HybridAI adds:
 
 ## Get running in 2 minutes
 
+One-line install on Linux/macOS (ensures Node 22, installs the CLI, runs
+onboarding):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash
+```
+
+Or do it by hand with npm:
+
 ```bash
 npm install -g @hybridaione/hybridclaw
 hybridclaw onboarding
