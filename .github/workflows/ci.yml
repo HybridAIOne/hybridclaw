@@ -117,6 +117,12 @@ jobs:
       - name: TypeScript lint (container)
         run: npm --prefix container run lint
 
+      - name: Shellcheck install scripts
+        run: shellcheck scripts/install.sh scripts/install.test.sh
+
+      - name: Installer unit tests
+        run: bash scripts/install.test.sh
+
   test:
     runs-on: ubuntu-latest
     permissions:
