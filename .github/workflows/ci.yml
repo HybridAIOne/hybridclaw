@@ -213,4 +213,9 @@ jobs:
       - name: npm install journey e2e
         env:
           HYBRIDCLAW_RUN_NPM_E2E: '1'
+          # The global install triggers onnxruntime-node's postinstall, which
+          # otherwise downloads the large CUDA EP build from GitHub releases —
+          # flaky (502s) and unused in CI. Skip it; the bundled CPU runtime is
+          # enough for the gateway and these tests.
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: npx vitest run --project e2e
