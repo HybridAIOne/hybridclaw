@@ -160,7 +160,14 @@ describe('runUpdateCommand', () => {
     expect(requestExternalGatewayRestartMock).toHaveBeenCalledTimes(1);
     expect(spawnMock).toHaveBeenCalledWith(
       'npm',
-      ['install', '-g', '--ignore-scripts', '@hybridaione/hybridclaw@latest'],
+      [
+        'install',
+        '-g',
+        '--ignore-scripts',
+        '--no-fund',
+        '--no-audit',
+        '@hybridaione/hybridclaw@latest',
+      ],
       { stdio: 'inherit' },
     );
     const messages = logSpy.mock.calls.map((call) => call[0]);
@@ -623,7 +630,14 @@ describe('maybePromptStartupUpdate', () => {
     // Delegates to the full update command, which runs the global install.
     expect(spawnMock).toHaveBeenCalledWith(
       'npm',
-      ['install', '-g', '--ignore-scripts', '@hybridaione/hybridclaw@latest'],
+      [
+        'install',
+        '-g',
+        '--ignore-scripts',
+        '--no-fund',
+        '--no-audit',
+        '@hybridaione/hybridclaw@latest',
+      ],
       { stdio: 'inherit' },
     );
     expect(installRoot).toContain('@hybridaione');

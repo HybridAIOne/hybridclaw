@@ -18,8 +18,7 @@
     "container"
   ],
   "engines": {
-    "node": "22.x",
-    "npm": ">=11.10.0 <12"
+    "node": "22.x"
   },
   "publishConfig": {
     "access": "public"

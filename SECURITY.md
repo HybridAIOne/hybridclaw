@@ -153,10 +153,16 @@ hybridclaw audit verify <sessionId>
 HybridClaw treats npm lockfiles and package-manager configuration as security
 controls:
 
-- `.npmrc` enforces exact saves, strict engines, and a seven-day minimum release
-  age.
-- `package.json` requires npm 11.10+ because older npm versions do not enforce
-  the release-age policy.
+- `.npmrc` enforces exact saves, a strict Node engine, and a seven-day minimum
+  release age.
+- The development and build toolchain pins npm 11.10+ through the
+  `packageManager` field (Corepack), CI, and Docker, because older npm versions
+  do not enforce the release-age policy. This requirement is intentionally
+  **not** expressed as a consumer-facing `engines.npm` constraint: the published
+  package ships a fully pinned `npm-shrinkwrap.json`, so install-time
+  release-age gating is moot for end users, and an `engines.npm` bound would
+  only emit spurious `EBADENGINE` warnings for anyone installing the CLI on the
+  npm that ships with Node 22.
 - CI upgrades to the pinned npm version before running `npm ci`, so pull
   requests and release publishes use the same install policy as local
   development.

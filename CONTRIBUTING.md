@@ -39,7 +39,9 @@ they are required to land a concrete fix.
 ## Prerequisites
 
 - Node.js 22
-- npm
+- npm 11.10+ — run `corepack enable` to pick up the repo's `packageManager`
+  pin (`npm@11.10.0`), which keeps npm's `min-release-age` supply-chain gate
+  active during dependency updates
 - Docker if you need to build or debug the container runtime
 - Optional credentials for live flows such as HybridAI auth or Discord
 

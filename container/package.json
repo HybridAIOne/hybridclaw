@@ -5,8 +5,7 @@
   "main": "dist/index.js",
   "packageManager": "npm@11.10.0",
   "engines": {
-    "node": "22.x",
-    "npm": ">=11.10.0 <12"
+    "node": "22.x"
   },
   "files": [
     "dist/",
