@@ -25,24 +25,20 @@ import { describe, expect, test } from 'vitest';
  *      than downloading an incompatible glibc Node.
  *
  * Heavy: each "real install" case downloads Node and runs a full global
- * `npm install` of the published CLI (~6-7 min total). Opt-in via
- * HYBRIDCLAW_RUN_INSTALL_E2E=1 *and* a reachable Docker daemon. The explicit
- * flag matters: CI invokes `vitest run --project e2e` from several jobs
- * (gateway/agent/CLI/npm), all on Ubuntu runners that have Docker — without the
- * flag this matrix would piggyback on every one of them. Override the installed
- * version (default: latest) with HYBRIDCLAW_E2E_INSTALL_VERSION.
+ * `npm install` of the published CLI (~6-7 min total). This file lives in its
+ * own `install-e2e` vitest project (see vitest.config.ts), so the several CI
+ * jobs that run `vitest run --project e2e` never pull it in — no opt-in env var
+ * needed. Run it with `npm run test:install-e2e` (or `--project install-e2e`).
+ * It self-selects on a reachable Docker daemon and skips otherwise. Override the
+ * installed version (default: latest) with HYBRIDCLAW_E2E_INSTALL_VERSION.
  */
-
-const RUN = process.env.HYBRIDCLAW_RUN_INSTALL_E2E === '1';
 
 function dockerAvailable(): boolean {
   const r = spawnSync('docker', ['info'], { stdio: 'ignore', timeout: 15_000 });
   return r.status === 0;
 }
 
-// Flag gates *whether* the suite is meant to run here; the Docker probe lets an
-// opted-in box without a daemon skip gracefully instead of erroring.
-const ENABLED = RUN && dockerAvailable();
+const ENABLED = dockerAvailable();
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SCRIPT = path.join(REPO, 'scripts', 'install.sh');
