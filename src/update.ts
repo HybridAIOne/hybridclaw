@@ -1,7 +1,10 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
+import { DEFAULT_RUNTIME_HOME_DIR } from './config/runtime-paths.js';
+import { logger } from './logger.js';
 
 const DEFAULT_PACKAGE_NAME = '@hybridaione/hybridclaw';
 
@@ -67,7 +70,11 @@ function readPackageInfo(packageJsonPath: string): PackageInfo {
         ? parsed.version.trim()
         : null;
     return { name, version };
-  } catch {
+  } catch (error) {
+    logger.debug(
+      { packageJsonPath, err: error },
+      'Could not read package manifest',
+    );
     return { name: null, version: null };
   }
 }
@@ -99,12 +106,16 @@ function findNearestPackageRoot(startPath: string | undefined): string | null {
 
   let current: string;
   try {
-    const resolved = path.resolve(startPath);
+    const resolved = realpathOrSelf(startPath);
     current =
       fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
         ? resolved
         : path.dirname(resolved);
-  } catch {
+  } catch (error) {
+    logger.debug(
+      { startPath, err: error },
+      'Could not determine the package root for the CLI entry path',
+    );
     return null;
   }
 
@@ -370,6 +381,37 @@ function resolveUpdatedPackageRoot(
   return packagePathFromNodeModulesRoot(nodeModulesRoot, packageName);
 }
 
+function realpathOrSelf(target: string): string {
+  try {
+    return fs.realpathSync(target);
+  } catch (error) {
+    logger.debug(
+      { target, err: error },
+      'Could not resolve the real path; using the literal path',
+    );
+    return path.resolve(target);
+  }
+}
+
+// True only when the running entry point is the package manager's *global*
+// install of HybridClaw. A project-local dependency or npx cache resolves to
+// the same package name and a node_modules path, but it lives outside the
+// global root; updating it would run `npm install -g` and mutate the user's
+// global environment from a local invocation, so callers must not prompt for
+// or auto-update it.
+function isGlobalPackageInstall(
+  install: InstallContext,
+  packageName: string,
+): boolean {
+  if (install.kind !== 'package' || !install.root) return false;
+  const globalRoot = resolveUpdatedPackageRoot(
+    install.packageManager,
+    packageName,
+  );
+  if (!globalRoot) return false;
+  return realpathOrSelf(globalRoot) === realpathOrSelf(install.root);
+}
+
 function runExplicitPostinstall(installRoot: string | null): void {
   if (!installRoot) return;
   const scriptPath = path.join(
@@ -458,6 +500,167 @@ function runUpdateInstall(command: UpdateCommand): Promise<number> {
     child.on('error', (err) => reject(err));
     child.on('close', (code) => resolve(code ?? 1));
   });
+}
+
+const VERSION_CACHE_FILE = 'version-check.json';
+const VERSION_CACHE_TTL_MS = 20 * 60 * 60 * 1000;
+const REFRESH_VERSION_CACHE_COMMAND = '__refresh-version-cache';
+
+interface VersionCache {
+  latestVersion: string;
+  // ISO-8601 timestamp of the last successful registry check.
+  lastCheckedAt: string;
+}
+
+function versionCachePath(): string {
+  return path.join(DEFAULT_RUNTIME_HOME_DIR, VERSION_CACHE_FILE);
+}
+
+function readVersionCache(): VersionCache | null {
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(versionCachePath(), 'utf-8'),
+    ) as Partial<VersionCache>;
+    if (
+      typeof parsed.latestVersion === 'string' &&
+      parsed.latestVersion.trim() &&
+      typeof parsed.lastCheckedAt === 'string' &&
+      !Number.isNaN(Date.parse(parsed.lastCheckedAt))
+    ) {
+      return {
+        latestVersion: parsed.latestVersion.trim(),
+        lastCheckedAt: parsed.lastCheckedAt,
+      };
+    }
+  } catch (error) {
+    logger.debug(
+      { err: error },
+      'Could not read the version cache; treating it as absent',
+    );
+  }
+  return null;
+}
+
+function isVersionCacheFresh(cache: VersionCache): boolean {
+  const age = Date.now() - Date.parse(cache.lastCheckedAt);
+  return age >= 0 && age < VERSION_CACHE_TTL_MS;
+}
+
+function writeVersionCache(latestVersion: string): void {
+  const cache: VersionCache = {
+    latestVersion,
+    lastCheckedAt: new Date().toISOString(),
+  };
+  // Overwriting temp+rename (writeFileAtomicExclusive can't be reused here: it
+  // hard-links with flag 'wx' and throws once the cache file already exists).
+  const filePath = versionCachePath();
+  const tempPath = `${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
+  try {
+    // The cache shares the runtime home with secrets, so create the directory
+    // and file with the restrictive modes the rest of the runtime uses rather
+    // than leaving them at the umask default.
+    fs.mkdirSync(DEFAULT_RUNTIME_HOME_DIR, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(tempPath, `${JSON.stringify(cache)}\n`, {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    logger.debug(
+      { err: error, filePath },
+      'Failed to write the version cache; the next launch retries',
+    );
+    fs.rmSync(tempPath, { force: true });
+  }
+}
+
+// Runs inside the detached `__refresh-version-cache` child process. It owns its
+// own process, so it may block on the registry call; the result lands in the
+// cache for the next interactive launch to read.
+export function refreshVersionCache(): void {
+  const packageName = resolvePackageName(process.argv[1]);
+  const latest = fetchLatestVersion(packageName);
+  if (latest.version) {
+    writeVersionCache(latest.version);
+  }
+}
+
+function spawnVersionCacheRefresh(): void {
+  const cliEntry = process.argv[1];
+  if (!cliEntry) return;
+  try {
+    // Do not forward process.execArgv: an inherited exclusive flag such as
+    // --inspect would make the child fail to bind its debug port and exit
+    // before it can refresh the cache.
+    const child = spawn(
+      process.execPath,
+      [cliEntry, REFRESH_VERSION_CACHE_COMMAND],
+      { detached: true, stdio: 'ignore' },
+    );
+    child.unref();
+  } catch (error) {
+    logger.debug(
+      { err: error },
+      'Failed to spawn the background version-cache refresh; the next launch retries',
+    );
+  }
+}
+
+// Returns true when an update was installed and the caller should stop (this
+// process is still running the old code). Returns false to continue launching.
+export async function maybePromptStartupUpdate(
+  currentVersion: string,
+): Promise<boolean> {
+  // Only suggest updates in an interactive terminal. Non-TTY launches
+  // (CI, the detached gateway daemon, scripts) must never block on a prompt.
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+
+  const packageName = resolvePackageName(process.argv[1]);
+  const install = detectInstallContext(packageName, process.argv[1]);
+  // A package-manager install is the only kind we can upgrade in place. Source
+  // checkouts update via git; unknown installs are left untouched. (Whether a
+  // `package` install is the *global* one is confirmed lazily below.)
+  if (install.kind !== 'package') return false;
+
+  // Cache-first, like Codex: decide using the previously cached latest version
+  // so startup never waits on the network. Refresh in a detached child when the
+  // cache is missing or stale; a newly learned version surfaces next launch.
+  const cache = readVersionCache();
+  if (!cache || !isVersionCacheFresh(cache)) {
+    spawnVersionCacheRefresh();
+  }
+  if (!cache) return false;
+  if (compareSemver(currentVersion, cache.latestVersion) !== -1) return false;
+
+  // Confirm this is the global install before prompting. A project-local or npx
+  // copy matches the package name but auto-updating it would run a global
+  // install and mutate the user's environment. This `npm root -g` lookup is
+  // done here — after we know an update exists — so it stays off the common
+  // startup path where nothing is out of date.
+  if (!isGlobalPackageInstall(install, packageName)) return false;
+
+  console.log(`Update available: ${currentVersion} -> ${cache.latestVersion}`);
+  let confirmed = false;
+  try {
+    confirmed = await askForConfirmation('Update HybridClaw now?');
+  } catch (error) {
+    logger.debug(
+      { err: error },
+      'Update confirmation prompt aborted (e.g. Ctrl-C); treating as a decline',
+    );
+    confirmed = false;
+  }
+  if (!confirmed) {
+    console.log('Skipping update. Run `hybridclaw update` to update later.');
+    return false;
+  }
+
+  // Delegate to the full update command so the install, native rebuild,
+  // postinstall, and restart of any running gateway all match `hybridclaw
+  // update`. The caller exits afterward so we never continue into the TUI or
+  // gateway on the old code.
+  await runUpdateCommand(['--yes'], currentVersion);
+  return true;
 }
 
 export function printUpdateUsage(): void {

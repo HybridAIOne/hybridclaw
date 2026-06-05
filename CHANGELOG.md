@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **Interactive startup update prompt**: Starting HybridClaw on a terminal
+  (`hybridclaw tui`, `hybridclaw gateway`, or `hybridclaw gateway start`) now
+  checks for a newer published release and offers a yes/no prompt to update
+  before continuing. Skipped for non-interactive shells and source checkouts.
+
 ## [0.21.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.0) - 2026-05-29
 
 ### Added
