@@ -234,8 +234,8 @@ Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --
 
   version="$(resolve_node_version)"
   dir="$HYBRIDCLAW_HOME/node"
-  # Use the gzip tarball, not .tar.xz: `tar -xz` only needs gzip (universally
-  # present), whereas `tar -xJ` shells out to an `xz` binary that minimal
+  # Use the gzip tarball, not .tar.xz: `tar -xzf` only needs gzip (universally
+  # present), whereas `tar -xJf` shells out to an `xz` binary that minimal
   # Debian/Ubuntu and many container/CI bases don't ship.
   filename="node-v${version}-${PLATFORM_OS}-${PLATFORM_ARCH}.tar.gz"
   url="https://nodejs.org/dist/v${version}/${filename}"

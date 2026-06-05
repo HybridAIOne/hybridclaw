@@ -15,8 +15,8 @@ import { describe, expect, test } from 'vitest';
  * that have regressed before:
  *
  *   1. Managed-Node path needs no `xz`: nodejs.org's tarball is fetched as
- *      .tar.gz and extracted with `tar -xz`, so a minimal Debian/Ubuntu box
- *      (no xz-utils) installs cleanly instead of dying in `tar -xJ`.
+ *      .tar.gz and extracted with `tar -xzf`, so a minimal Debian/Ubuntu box
+ *      (no xz-utils) installs cleanly instead of dying in `tar -xJf`.
  *   2. System-Node + root-owned global prefix installs with no sudo: the
  *      EACCES fallback repoints npm at ~/.hybridclaw/npm-global, and the npm
  *      self-upgrade there actually takes effect (the shell's command-hash must
@@ -25,19 +25,24 @@ import { describe, expect, test } from 'vitest';
  *      than downloading an incompatible glibc Node.
  *
  * Heavy: each "real install" case downloads Node and runs a full global
- * `npm install` of the published CLI. Self-selecting — the suite runs only when
- * a Docker daemon is reachable and skips otherwise, so `vitest --project e2e`
- * stays safe to invoke on a box without Docker (no opt-in env var to remember).
- * Override the installed version (default: latest) with
- * HYBRIDCLAW_E2E_INSTALL_VERSION.
+ * `npm install` of the published CLI (~6-7 min total). Opt-in via
+ * HYBRIDCLAW_RUN_INSTALL_E2E=1 *and* a reachable Docker daemon. The explicit
+ * flag matters: CI invokes `vitest run --project e2e` from several jobs
+ * (gateway/agent/CLI/npm), all on Ubuntu runners that have Docker — without the
+ * flag this matrix would piggyback on every one of them. Override the installed
+ * version (default: latest) with HYBRIDCLAW_E2E_INSTALL_VERSION.
  */
+
+const RUN = process.env.HYBRIDCLAW_RUN_INSTALL_E2E === '1';
 
 function dockerAvailable(): boolean {
   const r = spawnSync('docker', ['info'], { stdio: 'ignore', timeout: 15_000 });
   return r.status === 0;
 }
 
-const ENABLED = dockerAvailable();
+// Flag gates *whether* the suite is meant to run here; the Docker probe lets an
+// opted-in box without a daemon skip gracefully instead of erroring.
+const ENABLED = RUN && dockerAvailable();
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SCRIPT = path.join(REPO, 'scripts', 'install.sh');

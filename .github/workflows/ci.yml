@@ -225,3 +225,11 @@ jobs:
           # enough for the gateway and these tests.
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: npx vitest run --project e2e
+
+      # install.sh bootstrap matrix (clean Ubuntu/Alpine + no-sudo node:22).
+      # Its own opt-in flag keeps it out of the gateway/agent/CLI e2e jobs; this
+      # is the single job meant to pay its ~6-7 min Docker/network cost.
+      - name: Installer bootstrap e2e (Docker)
+        env:
+          HYBRIDCLAW_RUN_INSTALL_E2E: '1'
+        run: npx vitest run --project e2e
