@@ -166,6 +166,13 @@ function createGatewayMainTestState(options?: {
       whatsapp: {
         dmPolicy: options?.whatsappEnabled === false ? 'disabled' : 'pairing',
         groupPolicy: 'disabled',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        debounceMs: 1_000,
+        ackReaction: '👀',
+        textChunkLimit: 4_000,
+        mediaMaxMb: 20,
+        sendReadReceipts: false,
       },
       local: { enabled: false },
       container: {
@@ -1103,6 +1110,41 @@ describe('gateway bootstrap', () => {
       'Gateway channels',
       expect.objectContaining({
         whatsapp: false,
+      }),
+    );
+  });
+
+  test('starts WhatsApp pairing runtime when admin config enables the transport', async () => {
+    const state = await importFreshGatewayMain({
+      whatsappEnabled: false,
+      whatsappLinked: false,
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      whatsapp: {
+        ...state.currentConfig.whatsapp,
+        dmPolicy: 'pairing',
+      },
+    };
+
+    expect(state.initWhatsApp).not.toHaveBeenCalled();
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.whatsappMessageHandler).not.toBeNull();
+    expectInfoLog(
+      state,
+      'Config changed, restarting WhatsApp integration',
+      expect.objectContaining({
+        dmPolicy: 'pairing',
+        groupPolicy: 'disabled',
+        allowFromCount: 0,
+        groupAllowFromCount: 0,
       }),
     );
   });
