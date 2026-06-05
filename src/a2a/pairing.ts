@@ -211,9 +211,13 @@ function parseStoredPairingRequest(
     if (!key || key.publicKeyFingerprint !== parsed.publicKeyFingerprint) {
       return null;
     }
+    const requestId = String(parsed.requestId || '').trim();
+    if (requestId !== requestIdFor(key)) {
+      return null;
+    }
     return {
       schemaVersion: A2A_PAIRING_REQUEST_SCHEMA_VERSION,
-      requestId: String(parsed.requestId || '').trim(),
+      requestId,
       status: parsed.status,
       pairingId:
         typeof parsed.pairingId === 'string' && parsed.pairingId.trim()

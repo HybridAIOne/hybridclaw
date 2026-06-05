@@ -76,6 +76,15 @@ const PEER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const EPOCH_ISO = new Date(0).toISOString();
 const TOFU_AUDIT_SESSION_ID = 'a2a:trust-ledger';
 
+export class A2APeerUntrustedError extends Error {
+  readonly code = 'peer-untrusted';
+
+  constructor(peerId: string) {
+    super(`peer-untrusted: A2A peer trust has been revoked for ${peerId}`);
+    this.name = 'A2APeerUntrustedError';
+  }
+}
+
 let trustedA2APeersBySenderCache: Map<string, A2ATrustedA2APeer> | null = null;
 let trustedA2APeersByPublicKeyCache: Map<string, A2ATrustedA2APeer> | null =
   null;
@@ -925,9 +934,7 @@ export function assertA2APeerPublicKeyTrust(params: {
   }
 
   if (existing.status === 'revoked') {
-    throw new Error(
-      `peer-untrusted: A2A peer trust has been revoked for ${existing.peerId}`,
-    );
+    throw new A2APeerUntrustedError(existing.peerId);
   }
 
   if (existing.publicKeyFingerprint !== params.key.publicKeyFingerprint) {

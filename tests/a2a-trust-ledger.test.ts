@@ -227,7 +227,7 @@ describe('A2A public-key trust ledger', () => {
         key: firstKey,
         now: new Date('2030-01-01T00:01:30.000Z'),
       }),
-    ).toThrow('peer-untrusted');
+    ).toThrow(trust.A2APeerUntrustedError);
     expect(() =>
       trust.assertA2APeerPublicKeyTrust({
         agentCardUrl: 'https://rotate.example.com/.well-known/agent.json',
@@ -235,7 +235,7 @@ describe('A2A public-key trust ledger', () => {
         key: secondKey,
         now: new Date('2030-01-01T00:02:00.000Z'),
       }),
-    ).toThrow('peer-untrusted');
+    ).toThrow(trust.A2APeerUntrustedError);
 
     const trusted = trust.upsertA2ATrustedPublicKeyPeer(
       {

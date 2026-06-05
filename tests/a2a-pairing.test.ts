@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
+import path from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 
 import { setupA2AWebhookTestEnv } from './helpers/a2a-webhook-fixtures.ts';
@@ -112,6 +113,58 @@ describe('A2A operator pairing', () => {
       status: 'trusted',
       publicKeyFingerprint,
     });
+  });
+
+  test('rejects stored pairing requests with mismatched deterministic request ids', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const { DEFAULT_RUNTIME_HOME_DIR } = await import(
+      '../src/config/runtime-paths.ts'
+    );
+    const { syncRuntimeAssetRevisionState } = await import(
+      '../src/config/runtime-config-revisions.ts'
+    );
+    const pairing = await import('../src/a2a/pairing.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
+
+    initDatabase({ quiet: true });
+    const publicKeyJwk = peerPublicKeyJwk();
+    const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const request = pairing.createIncomingA2APairingRequest(
+      {
+        peerId: 'tampered-prod',
+        agentCardUrl: 'https://tampered.example.com/.well-known/agent.json',
+        deliveryUrl: 'https://tampered.example.com/a2a',
+        publicKeyJwk,
+        publicKeyFingerprint,
+      },
+      new Date('2030-01-01T00:00:00.000Z'),
+    );
+    const assetPath = path.join(
+      DEFAULT_RUNTIME_HOME_DIR,
+      'a2a',
+      'pairing',
+      'requests',
+      `${encodeURIComponent(request.requestId)}.json`,
+    );
+    syncRuntimeAssetRevisionState(
+      'a2a',
+      assetPath,
+      {
+        route: `a2a.pairing.request#${request.requestId}`,
+        source: 'a2a-pairing',
+      },
+      {
+        exists: true,
+        content: JSON.stringify({ ...request, requestId: 'tampered' }),
+      },
+    );
+
+    expect(() =>
+      pairing.approveIncomingA2APairingRequest({
+        requestId: request.requestId,
+        actor: 'local-admin',
+      }),
+    ).toThrow('A2A pairing request not found.');
   });
 
   test('previews pairing by canonical instance id from trusted resolver data', async () => {
