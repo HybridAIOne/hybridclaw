@@ -1416,6 +1416,8 @@ async function importFreshCli(options?: {
   vi.doMock('../src/update.ts', () => ({
     printUpdateUsage,
     runUpdateCommand,
+    maybePromptStartupUpdate: vi.fn(),
+    refreshVersionCache: vi.fn(),
   }));
   vi.doMock('../src/doctor.ts', () => ({
     runDoctorCli,
