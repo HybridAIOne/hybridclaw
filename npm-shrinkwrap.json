@@ -7,7 +7,6 @@
     "": {
       "name": "@hybridaione/hybridclaw",
       "version": "0.22.0",
-      "packageManager": "npm@11.10.0",
       "hasInstallScript": true,
       "workspaces": [
         "desktop",
@@ -75,8 +74,7 @@
         "vitest": "4.1.7"
       },
       "engines": {
-        "node": "22.x",
-        "npm": ">=11.10.0 <12"
+        "node": "22.x"
       },
       "optionalDependencies": {
         "appdmg": "0.6.6"
@@ -89,11 +87,11 @@
         "@tanstack/react-query": "5.90.21",
         "@tanstack/react-router": "1.167.4",
         "@xterm/addon-fit": "0.11.0",
+        "@xterm/xterm": "5.5.0",
         "marked": "17.0.4",
         "react": "19.2.4",
         "react-dom": "19.2.4",
-        "sanitize-html": "2.17.1",
-        "xterm": "5.3.0"
+        "sanitize-html": "2.17.1"
       },
       "devDependencies": {
         "@testing-library/react": "16.3.2",
@@ -127,8 +125,7 @@
         "typescript": "5.9.3"
       },
       "engines": {
-        "node": "22.x",
-        "npm": ">=11.10.0 <12"
+        "node": "22.x"
       },
       "optionalDependencies": {
         "@napi-rs/canvas": "0.1.96"
@@ -6755,6 +6752,12 @@
       "version": "0.11.0",
       "resolved": "https://registry.npmjs.org/@xterm/addon-fit/-/addon-fit-0.11.0.tgz",
       "integrity": "sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==",
+      "license": "MIT"
+    },
+    "node_modules/@xterm/xterm": {
+      "version": "5.5.0",
+      "resolved": "https://registry.npmjs.org/@xterm/xterm/-/xterm-5.5.0.tgz",
+      "integrity": "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A==",
       "license": "MIT"
     },
     "node_modules/@zip.js/zip.js": {
@@ -18345,13 +18348,6 @@
       "engines": {
         "node": ">=0.4"
       }
-    },
-    "node_modules/xterm": {
-      "version": "5.3.0",
-      "resolved": "https://registry.npmjs.org/xterm/-/xterm-5.3.0.tgz",
-      "integrity": "sha512-8QqjlekLUFTrU6x7xck1MsPzPA571K5zNqWm0M0oroYEWVOptZ0+ubQSkQ3uxIEhcIHRujJy6emDWX4A7qyFzg==",
-      "deprecated": "This package is now deprecated. Move to @xterm/xterm instead.",
-      "license": "MIT"
     },
     "node_modules/y18n": {
       "version": "5.0.8",

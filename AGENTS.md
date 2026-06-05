@@ -171,8 +171,11 @@ should verify no broken references.
 
 ### Prerequisites
 
-- Node.js 22 (matches CI and `engines` field)
-- npm
+- Node.js 22 (matches CI and the `engines` field)
+- npm 11.10+ — run `corepack enable` so repo commands use the `packageManager`
+  pin (`npm@11.10.0`). Contributors need this version because npm's
+  `min-release-age` supply-chain gate (see `SECURITY.md`) only takes effect on
+  npm 11.10+; it is deliberately not enforced on end users via `engines.npm`.
 - Docker when working on container-mode behavior or image builds
 
 ### Common Commands
