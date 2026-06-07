@@ -95,6 +95,7 @@ best-effort and stop on the first authentication or verification failure.
 - Build and run all Blink API calls with `skills/blink/blink.cjs`; do not handcraft Blink URLs, auth headers, or JSON bodies when the helper supports the operation.
 - Use `run` for live Blink calls. The helper sends its own request objects through the gateway `/api/http/request` path, so the model does not reconstruct endpoint details.
 - Use `http-request` only as dry-run JSON for inspection or fallback direct `http_request` execution when helper live execution is unavailable. Pass emitted `httpRequest` fields as structured JSON; do not stringify nested fields such as `captureResponseFields` or `secretHeaders`.
+- Never call `http_request` against guessed Blink hosts or paths such as `blinkapi.com`, `rest-dev.blinkapi.com`, `prod.immedia-semi.com`, `/owls/...`, or `/cameras/...` unless the exact structured request came from the helper in this turn. If the helper lacks an operation, say the skill does not support that operation instead of probing.
 - For ordinary operator requests, do not read or grep `skills/blink/blink.cjs` to debug the helper. Trust the helper output. Source inspection is for maintainers changing this skill, not for listing devices.
 - Helper operations use subject-verb names (`devices-list`, `account-login`, `camera-motion-set`). Legacy aliases are accepted, but prefer the canonical names shown below.
 - Credentials and tokens must stay in the SecretRef-backed runtime secret store; never ask the operator to paste `BLINK_PASSWORD` or `BLINK_AUTH_TOKEN` into chat, and never include either value in prose.
@@ -210,6 +211,10 @@ Network arm/disarm, per-camera motion detection, thumbnail snapshots,
 clip-state changes, deletion, and live view all affect privacy or retention.
 They are amber/red and require exact F8/F14 approval with the target network,
 camera, clip, and action in the approval text.
+
+The bounded Blink API surface used by this skill does not expose camera or sync
+module reboot/restart commands. Do not claim a remote reboot is available and do
+not probe for reboot, restart, reset, firmware, or maintenance endpoints.
 
 Do not perform destructive maintenance, account changes, password changes,
 notification setting changes, or firmware actions through this skill.
