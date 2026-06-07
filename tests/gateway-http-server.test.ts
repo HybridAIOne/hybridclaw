@@ -10373,6 +10373,57 @@ describe('gateway HTTP server', () => {
     expect(readStoredRuntimeSecret('BLINK_CLIENT_ID')).toBe('5678');
   });
 
+  test('blocks secret header injection when the stored token binding does not match the target host', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-secret-header-binding-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      BLINK_AUTH_TOKEN: 'blink-auth-token',
+      BLINK_AUTH_TOKEN_BOUND_DOMAIN: 'api.oauth.blink.com',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info',
+        secretHeaders: [
+          {
+            name: 'Authorization',
+            secretName: 'BLINK_AUTH_TOKEN',
+            prefix: 'Bearer',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: expect.stringContaining('BLINK_AUTH_TOKEN is bound to'),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('suppresses outbound http_request response bodies for opaque results', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-suppress-body-');
     process.env.HOME = homeDir;
