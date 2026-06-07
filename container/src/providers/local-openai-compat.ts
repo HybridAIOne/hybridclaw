@@ -133,6 +133,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function replaceUnpairedSurrogates(value: string): string {
+  let output = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        output += value[index] + value[index + 1];
+        index += 1;
+      } else {
+        output += '\ufffd';
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      output += '\ufffd';
+      continue;
+    }
+    output += value[index];
+  }
+  return output;
+}
+
 function usesQwenCompat(args: {
   provider: string | undefined;
   model: string;
@@ -175,7 +198,30 @@ function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
 function normalizeMessageContent(
   content: ChatMessage['content'],
 ): ChatMessage['content'] {
-  return content;
+  if (typeof content === 'string') return replaceUnpairedSurrogates(content);
+  if (!Array.isArray(content)) return content;
+  return content.map((part) => {
+    if (part.type === 'text') {
+      return { ...part, text: replaceUnpairedSurrogates(part.text) };
+    }
+    if (part.type === 'image_url') {
+      return {
+        ...part,
+        image_url: {
+          url: replaceUnpairedSurrogates(part.image_url.url),
+        },
+      };
+    }
+    if (part.type === 'audio_url') {
+      return {
+        ...part,
+        audio_url: {
+          url: replaceUnpairedSurrogates(part.audio_url.url),
+        },
+      };
+    }
+    return part;
+  });
 }
 
 function buildQwenRequestMessages(
