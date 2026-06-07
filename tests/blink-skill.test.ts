@@ -1137,7 +1137,7 @@ test('Blink thumbnail refresh plan delegates the full snapshot workflow to run',
 
 test('Blink live thumbnail refresh reports stale freshness when Blink returns the same thumbnail path', async () => {
   const thumbnailPath =
-    '/api/v3/media/accounts/1234/networks/111/xt2/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=';
+    '/api/v3/media/accounts/1234/networks/111/owl/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=';
   const requests: Array<{ url: string; method: string }> = [];
   let commandPolls = 0;
   const fetch = vi.fn(async (_url: string, init: RequestInit) => {
@@ -1529,6 +1529,110 @@ test('Blink live thumbnail refresh does not download when Blink command never co
     'POST',
     'GET',
   ]);
+});
+
+test('Blink live thumbnail refresh reports busy trigger without inferred cause', async () => {
+  const thumbnailPath =
+    '/api/v3/media/accounts/1234/networks/111/xt2/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=';
+  const requests: Array<{ url: string; method: string }> = [];
+  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    requests.push({
+      url: requestBody.url,
+      method: requestBody.method,
+    });
+    if (requestBody.url.includes('/homescreen')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: {
+            cameras: [
+              {
+                id: 222,
+                name: 'Door',
+                network_id: 111,
+                type: 'owl',
+                status: 'online',
+                thumbnail: thumbnailPath,
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/owls/222/thumbnail')) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          status: 409,
+          statusText: 'Conflict',
+          body: '{"message":"System is busy, please wait","code":307}',
+          json: { message: 'System is busy, please wait', code: 307 },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/command/')) {
+      throw new Error('busy trigger should not poll command status');
+    }
+    if (requestBody.url.includes('/thumbnail/thumbnail.jpg')) {
+      throw new Error('busy trigger should not download thumbnail');
+    }
+    throw new Error(`Unexpected request ${requestBody.method} ${requestBody.url}`);
+  });
+
+  const result = await blink.runLive(
+    [
+      '--format',
+      'json',
+      'run',
+      'camera-thumbnail-refresh',
+      '--network',
+      '111',
+      '--camera',
+      '222',
+      '--operator-grant',
+      '--poll-interval-ms',
+      '1',
+    ],
+    { fetch },
+  );
+
+  expect(result.result.ok).toBe(false);
+  expect(result.result.freshness).toMatchObject({
+    ok: false,
+    reason: 'system-busy',
+    commandAccepted: false,
+    commandCompleted: false,
+    previousThumbnailPath: thumbnailPath,
+    httpStatus: 409,
+    blinkCode: 307,
+    message: 'System is busy, please wait',
+    warning:
+      'Blink returned a busy response before accepting the thumbnail command. Do not describe this as a camera failure or a fresh image.',
+  });
+  expect(result.result.freshness.cause).toContain('unknown');
+  expect(result.result.display).toMatchObject({
+    shouldDisplayArtifact: false,
+    reason: 'refresh-system-busy',
+  });
+  expect(result.result.failureReportContract).toMatchObject({
+    summary:
+      'Report Blink returned a busy response and that no thumbnail command was accepted or verified.',
+  });
+  expect(result.result.failureReportContract.forbiddenClaims).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining('servers are overloaded'),
+      expect.stringContaining('throttling'),
+      expect.stringContaining('camera problem'),
+    ]),
+  );
+  expect(result.artifact).toMatchObject({
+    mode: 'no-artifact-system-busy',
+  });
+  expect(requests.map((item) => item.method)).toEqual(['GET', 'POST']);
 });
 
 test('Blink live thumbnail refresh does not download when Blink command completes with an error', async () => {
