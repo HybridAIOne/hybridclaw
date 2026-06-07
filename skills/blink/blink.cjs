@@ -8,6 +8,8 @@ const path = require('node:path');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
+const DEFAULT_COMMAND_POLL_INTERVAL_MS = 1_000;
+const DEFAULT_THUMBNAIL_WAIT_MS = 45_000;
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const SKILL_NAME = 'blink';
 const REST_PROD_HOST = 'rest-prod.immedia-semi.com';
@@ -163,7 +165,7 @@ Guarded operation plans:
   plan network-arm --network <network-id>
   plan network-disarm --network <network-id>
   plan camera-motion-set --network <network-id> --camera <camera-id> --enable true
-  plan camera-thumbnail-refresh --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
+  plan camera-thumbnail-refresh --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell] [--filename camera.jpg]
   plan clip-watched-mark --clip <clip-id>
   plan clip-delete --clip <clip-id>
   plan camera-live-view-start --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
@@ -186,6 +188,9 @@ Notes:
   clips-list accepts optional --network for issue-contract compatibility, but Blink's media/changed API is account-scoped; use returned clip metadata to filter by network.
   thumbnail-download is for thumbnail paths returned by devices-list; do not rewrite
   those paths onto prod.immedia-semi.com.
+  run camera-thumbnail-refresh performs the full approved snapshot workflow:
+  trigger the Blink command, poll command status, re-read homescreen, download
+  the returned thumbnail as an artifact, and report freshness evidence.
 `);
 }
 
@@ -203,6 +208,16 @@ function popFlag(args, name, defaultValue = undefined) {
     die(`${name} requires a value.`);
   }
   args.splice(index, 2);
+  return value;
+}
+
+function peekFlag(args, name, defaultValue = undefined) {
+  const index = args.indexOf(name);
+  if (index === -1) return defaultValue;
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    die(`${name} requires a value.`);
+  }
   return value;
 }
 
@@ -259,6 +274,14 @@ function parsePositiveInteger(value, label) {
   const parsed = parseNonNegativeInteger(value, label);
   if (parsed < 1) die(`${label} must be greater than zero.`);
   return parsed;
+}
+
+function parseSha256(value, label) {
+  const normalized = requireText(value, label).toLowerCase();
+  if (!/^[a-f0-9]{64}$/u.test(normalized)) {
+    die(`${label} must be a lowercase or uppercase SHA-256 hex digest.`);
+  }
+  return normalized;
 }
 
 function parseIsoTime(value, label) {
@@ -1415,6 +1438,10 @@ function buildMutationRequest(operation, args, options = {}) {
     operation === 'camera-thumbnail-refresh' ||
     operation === 'camera-live-view-start'
   ) {
+    const filename =
+      operation === 'camera-thumbnail-refresh'
+        ? popFlag(args, '--filename')
+        : undefined;
     const network = parseIdentifier(popFlag(args, '--network'), '--network');
     const camera = parseIdentifier(popFlag(args, '--camera'), '--camera');
     const cameraType = parseCameraType(
@@ -1438,6 +1465,7 @@ function buildMutationRequest(operation, args, options = {}) {
       network,
       camera,
       cameraType,
+      filename,
     };
   } else if (operation === 'clip-watched-mark') {
     const clip = parseIdentifier(popFlag(args, '--clip'), '--clip');
@@ -1497,7 +1525,7 @@ function buildPlan(operation, args) {
     'skills/blink/blink.cjs',
     '--format',
     'json',
-    'http-request',
+    operation === 'camera-thumbnail-refresh' ? 'run' : 'http-request',
     operation,
     ...originalArgs,
     '--operator-grant',
@@ -1913,6 +1941,295 @@ async function executeLivePayload(payload, options = {}, didRecoverAuth = false)
   }
 }
 
+function parseThumbnailRefreshRunOptions(args) {
+  return {
+    network: parseIdentifier(peekFlag(args, '--network'), '--network'),
+    camera: parseIdentifier(peekFlag(args, '--camera'), '--camera'),
+    cameraType: parseCameraType(peekFlag(args, '--camera-type', 'default')),
+    filename: popFlag(args, '--filename'),
+    previousSha256:
+      args.includes('--previous-sha256')
+        ? parseSha256(popFlag(args, '--previous-sha256'), '--previous-sha256')
+        : undefined,
+    maxWaitMs: parsePositiveInteger(
+      popFlag(args, '--max-wait-ms', String(DEFAULT_THUMBNAIL_WAIT_MS)),
+      '--max-wait-ms',
+    ),
+    pollIntervalMs: parsePositiveInteger(
+      popFlag(
+        args,
+        '--poll-interval-ms',
+        String(DEFAULT_COMMAND_POLL_INTERVAL_MS),
+      ),
+      '--poll-interval-ms',
+    ),
+  };
+}
+
+function extractBlinkCommand(response) {
+  const body = response?.bodyJson;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const commandId = body.id ?? body.command_id ?? body.commandId;
+  const networkId = body.network_id ?? body.networkId;
+  if (commandId === undefined || commandId === null) return null;
+  return {
+    id: parseIdentifier(String(commandId), 'command id'),
+    network:
+      networkId === undefined || networkId === null
+        ? ''
+        : parseIdentifier(String(networkId), 'command network id'),
+  };
+}
+
+function buildCommandStatusRequest(operation, network, commandId, args = []) {
+  return buildPayload(operation, {
+    url: tierRequestUrl(args, `/network/${network}/command/${commandId}`),
+    method: 'GET',
+    maxResponseBytes: 256_000,
+  }).httpRequest;
+}
+
+function isCommandComplete(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  if (body.complete === true) return true;
+  if (String(body.status || '').toLowerCase() === 'done') return true;
+  const statusCode = Number(body.status_code ?? body.statusCode ?? 0);
+  return statusCode === 908;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollBlinkCommand(
+  operation,
+  network,
+  commandId,
+  { maxWaitMs, pollIntervalMs },
+  options,
+) {
+  const startedAt = Date.now();
+  let attempts = 0;
+  let lastResult = null;
+  while (Date.now() - startedAt <= maxWaitMs) {
+    attempts += 1;
+    lastResult = await executeGatewayRequest(
+      buildCommandStatusRequest(operation, network, commandId),
+      options,
+    );
+    if (isCommandComplete(lastResult.bodyJson)) {
+      return {
+        ok: true,
+        attempts,
+        elapsedMs: Date.now() - startedAt,
+        result: lastResult,
+      };
+    }
+    await sleep(pollIntervalMs);
+  }
+  return {
+    ok: false,
+    attempts,
+    elapsedMs: Date.now() - startedAt,
+    result: lastResult,
+  };
+}
+
+function cameraMatches(candidate, { network, camera, cameraType }) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return false;
+  }
+  const id = candidate.id ?? candidate.camera_id ?? candidate.cameraId;
+  const networkId = candidate.network_id ?? candidate.networkId;
+  if (String(id ?? '') !== String(camera)) return false;
+  if (networkId !== undefined && String(networkId) !== String(network)) {
+    return false;
+  }
+  if (cameraType !== 'default' && candidate.type !== undefined) {
+    const candidateType = String(candidate.type);
+    const acceptedTypes =
+      cameraType === 'mini' ? new Set(['mini', 'owl']) : new Set([cameraType]);
+    if (!acceptedTypes.has(candidateType)) return false;
+  }
+  return true;
+}
+
+function findCameraWithThumbnail(value, target) {
+  const queue = [value];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+    if (cameraMatches(current, target) && typeof current.thumbnail === 'string') {
+      return current;
+    }
+    if (Array.isArray(current)) {
+      queue.push(...current);
+    } else {
+      queue.push(...Object.values(current));
+    }
+  }
+  return null;
+}
+
+function thumbnailTimestamp(thumbnailPath) {
+  try {
+    const parsed = new URL(`https://blink.local${thumbnailPath}`);
+    const raw = parsed.searchParams.get('ts');
+    return raw && /^\d+$/u.test(raw) ? Number(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function freshnessEvidence({
+  commandPoll,
+  previousThumbnailPath,
+  camera,
+  thumbnailPath,
+  downloadResult,
+  previousSha256,
+}) {
+  const artifactSha = String(downloadResult?.artifact?.sha256 || '').toLowerCase();
+  const timestamp = thumbnailTimestamp(thumbnailPath);
+  const updatedAt = String(camera?.updated_at || camera?.updatedAt || '');
+  const sameAsPrevious =
+    previousSha256 !== undefined && artifactSha === previousSha256;
+  const thumbnailPathChanged =
+    previousThumbnailPath === undefined || previousThumbnailPath !== thumbnailPath;
+  return {
+    ok: commandPoll.ok && thumbnailPathChanged && !sameAsPrevious,
+    commandCompleted: commandPoll.ok,
+    commandPollAttempts: commandPoll.attempts,
+    cameraStatus: camera?.status,
+    cameraUpdatedAt: updatedAt || undefined,
+    previousThumbnailPath,
+    thumbnailPath,
+    thumbnailPathChanged,
+    thumbnailTs: timestamp ?? undefined,
+    artifactSha256: artifactSha || undefined,
+    previousSha256,
+    sameAsPrevious,
+    warning:
+      sameAsPrevious || !thumbnailPathChanged
+        ? 'Blink accepted the snapshot command, but the returned thumbnail did not change. Do not describe this as a fresh image.'
+        : undefined,
+  };
+}
+
+async function runCameraThumbnailRefresh(args, options = {}) {
+  const runOptions = parseThumbnailRefreshRunOptions(args);
+  const beforeDevicesPayload = buildReadOperation('devices-list', []);
+  const beforeDevicesResult = await executeGatewayRequest(
+    beforeDevicesPayload.httpRequest,
+    options,
+  );
+  const beforeCamera = findCameraWithThumbnail(
+    beforeDevicesResult.bodyJson,
+    runOptions,
+  );
+  const previousThumbnailPath =
+    typeof beforeCamera?.thumbnail === 'string'
+      ? parseThumbnailPath(beforeCamera.thumbnail)
+      : undefined;
+  const mutationPayload = buildMutationRequest('camera-thumbnail-refresh', args, {
+    requireGrant: true,
+  }).payload;
+  const triggerResult = await executeGatewayRequest(
+    mutationPayload.httpRequest,
+    options,
+  );
+  const command = extractBlinkCommand(triggerResult);
+  const commandPoll = command
+    ? await pollBlinkCommand(
+        'camera-thumbnail-refresh',
+        command.network || runOptions.network,
+        command.id,
+        runOptions,
+        options,
+      )
+    : {
+        ok: false,
+        attempts: 0,
+        elapsedMs: 0,
+        result: null,
+      };
+  const devicesPayload = buildReadOperation('devices-list', []);
+  const devicesResult = await executeGatewayRequest(
+    devicesPayload.httpRequest,
+    options,
+  );
+  const camera = findCameraWithThumbnail(devicesResult.bodyJson, runOptions);
+  if (!camera) {
+    throw new Error(
+      `Blink homescreen did not include camera ${runOptions.camera} with a thumbnail after refresh.`,
+    );
+  }
+  const thumbnailPath = parseThumbnailPath(camera.thumbnail);
+  const downloadPayload = buildReadOperation('thumbnail-download', [
+    '--path',
+    thumbnailPath,
+    ...(runOptions.filename ? ['--filename', runOptions.filename] : []),
+  ]);
+  const downloadResult = await executeGatewayRequest(
+    downloadPayload.httpRequest,
+    options,
+  );
+  const evidence = freshnessEvidence({
+    commandPoll,
+    camera,
+    thumbnailPath,
+    downloadResult,
+    previousSha256: runOptions.previousSha256,
+    previousThumbnailPath,
+  });
+  return {
+    command: 'live',
+    operation: 'camera-thumbnail-refresh',
+    stakesTier: OPERATION_TIERS['camera-thumbnail-refresh'],
+    request: {
+      beforeDevices: liveRequestSummary(beforeDevicesPayload.httpRequest),
+      trigger: liveRequestSummary(mutationPayload.httpRequest),
+      commandStatus: command
+        ? liveRequestSummary(
+            buildCommandStatusRequest(
+              'camera-thumbnail-refresh',
+              command.network || runOptions.network,
+              command.id,
+            ),
+          )
+        : undefined,
+      devices: liveRequestSummary(devicesPayload.httpRequest),
+      thumbnail: liveRequestSummary(downloadPayload.httpRequest),
+    },
+    result: {
+      ok: downloadResult.status >= 200 && downloadResult.status < 300,
+      trigger: triggerResult.bodyJson || {
+        status: triggerResult.status,
+        statusText: triggerResult.statusText,
+      },
+      commandPoll,
+      camera: {
+        id: camera.id ?? camera.camera_id ?? camera.cameraId,
+        name: camera.name,
+        networkId: camera.network_id ?? camera.networkId,
+        type: camera.type,
+        status: camera.status,
+        updatedAt: camera.updated_at ?? camera.updatedAt,
+      },
+      freshness: evidence,
+      artifact: downloadResult.artifact,
+      artifacts: downloadResult.artifacts,
+    },
+    artifact: {
+      mode: 'gateway-artifact',
+      maxInlineBytes: 0,
+      handling:
+        'Return the artifact handle and freshness evidence. If freshness.sameAsPrevious is true, do not call the image fresh.',
+    },
+    costMeasurement: COST_MEASUREMENT,
+  };
+}
+
 async function runLive(argv, options = {}) {
   const args = [...argv];
   const format = popFlag(args, '--format', 'pretty');
@@ -1929,6 +2246,9 @@ async function runLive(argv, options = {}) {
   }
   if (operation === 'account-refresh') {
     return runAccountRefresh(args, options);
+  }
+  if (operation === 'camera-thumbnail-refresh') {
+    return runCameraThumbnailRefresh(args, options);
   }
   if (!HTTP_OPERATIONS.has(operation) && !PLAN_OPERATIONS.has(operation)) {
     die(`Unsupported Blink run operation: ${operation || '(missing)'}`);
