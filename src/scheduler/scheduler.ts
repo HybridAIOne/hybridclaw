@@ -154,8 +154,7 @@ function isHeartbeatStyleSchedulerJob(job: RuntimeSchedulerJob): boolean {
     .toLowerCase();
   if (HEARTBEAT_STYLE_SCHEDULER_MESSAGES.has(normalized)) return true;
   return (
-    normalized.includes('heartbeat.md') &&
-    normalized.includes('periodic task')
+    normalized.includes('heartbeat.md') && normalized.includes('periodic task')
   );
 }
 
