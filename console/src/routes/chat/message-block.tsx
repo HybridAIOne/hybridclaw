@@ -11,6 +11,7 @@ import { fetchAgentAvatarBlob, fetchArtifactBlob } from '../../api/chat';
 import type {
   ChatArtifact,
   ChatMessage,
+  ChatStreamApproval,
   ResponseRatingValue,
 } from '../../api/chat-types';
 import { Button } from '../../components/button';
@@ -21,17 +22,217 @@ import { renderMarkdown } from '../../lib/markdown';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
 
-const APPROVAL_BUTTONS: ReadonlyArray<{
+const TRUST_APPROVAL_BUTTONS: ReadonlyArray<{
   label: string;
   action: ApprovalAction;
+  isAvailable: (approval: ChatStreamApproval) => boolean;
 }> = [
-  { label: 'Allow once', action: 'once' },
-  { label: 'Allow always', action: 'all' },
-  { label: 'Allow session', action: 'session' },
-  { label: 'Allow agent', action: 'agent' },
+  {
+    label: 'Trust session',
+    action: 'session',
+    isAvailable: (approval) => approval.allowSession === true,
+  },
+  {
+    label: 'Trust agent',
+    action: 'agent',
+    isAvailable: (approval) => approval.allowAgent === true,
+  },
+  {
+    label: 'Always allow',
+    action: 'all',
+    isAvailable: (approval) => approval.allowAll === true,
+  },
 ];
 
 const STREAM_MARKDOWN_RENDER_INTERVAL_MS = 120;
+
+interface ApprovalDetailRow {
+  label: string;
+  value: string;
+}
+
+const PROMPT_FIELD_RE = /^([^:\n]{2,44}):\s+(.+)$/;
+const HTTP_METHOD_RE = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+/i;
+
+function prettifyApprovalTier(
+  tier: ChatStreamApproval['approvalTier'] | undefined,
+): string {
+  if (tier === 'yellow') return 'Amber';
+  if (tier === 'red') return 'Red';
+  if (tier === 'green') return 'Green';
+  return 'Amber';
+}
+
+function isPromptInstructionLine(line: string): boolean {
+  return (
+    /^reply\b/i.test(line) ||
+    /^approval expires\b/i.test(line) ||
+    /^approval id\b/i.test(line)
+  );
+}
+
+function normalizePromptLabel(label: string): string {
+  const trimmed = label.trim();
+  if (/^proposed action$/i.test(trimmed)) return 'Request';
+  if (/^why$/i.test(trimmed)) return 'Reason';
+  return trimmed;
+}
+
+function buildApprovalRows(approval: ChatStreamApproval): ApprovalDetailRow[] {
+  const rows: ApprovalDetailRow[] = [];
+  const seen = new Set<string>();
+  const addRow = (label: string, value: unknown): void => {
+    const normalizedLabel = label.trim();
+    const normalizedValue = String(value ?? '').trim();
+    if (!normalizedLabel || !normalizedValue) return;
+    const key = `${normalizedLabel.toLowerCase()}:${normalizedValue}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({ label: normalizedLabel, value: normalizedValue });
+  };
+
+  if (approval.intent) addRow('Action', approval.intent);
+  if (approval.commandPreview) {
+    addRow(
+      HTTP_METHOD_RE.test(approval.commandPreview) ? 'Request' : 'Preview',
+      approval.commandPreview,
+    );
+  }
+  if (approval.toolName) addRow('Tool', approval.toolName);
+
+  const promptLines = approval.prompt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of promptLines) {
+    if (isPromptInstructionLine(line)) continue;
+    if (/^classifier reasoning$/i.test(line)) continue;
+    if (/^if you skip this/i.test(line)) continue;
+    const match = line.match(PROMPT_FIELD_RE);
+    if (!match) continue;
+    const label = normalizePromptLabel(match[1] ?? '');
+    if (/^classifier reasoning$/i.test(label)) continue;
+    addRow(label, match[2]);
+  }
+
+  addRow('Approval ID', approval.approvalId);
+  if (approval.expiresAt && Number.isFinite(approval.expiresAt)) {
+    const expiresAt = new Date(approval.expiresAt);
+    if (!Number.isNaN(expiresAt.getTime())) {
+      addRow('Expires', expiresAt.toLocaleTimeString());
+    }
+  }
+
+  return rows;
+}
+
+function buildApprovalIntro(approval: ChatStreamApproval): string {
+  const promptLines = approval.prompt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const introLine = promptLines.find((line) => {
+    if (isPromptInstructionLine(line)) return false;
+    if (PROMPT_FIELD_RE.test(line)) return false;
+    return true;
+  });
+  if (introLine) return introLine;
+  if (approval.summary) return approval.summary.split(/\r?\n/)[0] ?? '';
+  if (approval.intent) return `Confirmation required for ${approval.intent}.`;
+  return 'Confirmation required before this action can continue.';
+}
+
+function buildConfirmLabel(approval: ChatStreamApproval): string {
+  const source = [approval.intent, approval.commandPreview, approval.prompt]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (/\b(snapshot|thumbnail)\b/.test(source)) return 'Confirm snapshot';
+  if (/\binstall\b/.test(source)) return 'Confirm install';
+  if (/\b(delete|remove)\b/.test(source)) return 'Confirm delete';
+  if (/\b(update|modify|write|change|set)\b/.test(source)) {
+    return 'Confirm change';
+  }
+  if (/\b(access|contact)\b/.test(source)) return 'Confirm access';
+  return 'Confirm action';
+}
+
+function ApprovalCard(props: {
+  approval: ChatStreamApproval;
+  busy: boolean;
+  onAction: (action: ApprovalAction, approvalId: string) => void;
+}) {
+  const { approval } = props;
+  const rows = useMemo(() => buildApprovalRows(approval), [approval]);
+  const intro = useMemo(() => buildApprovalIntro(approval), [approval]);
+  const confirmLabel = useMemo(() => buildConfirmLabel(approval), [approval]);
+  const availableTrustButtons = TRUST_APPROVAL_BUTTONS.filter((btn) =>
+    btn.isAvailable(approval),
+  );
+  const tierLabel = prettifyApprovalTier(approval.approvalTier);
+
+  const handleAction = (action: ApprovalAction) => {
+    props.onAction(action, approval.approvalId);
+  };
+
+  return (
+    <div className={css.approvalCard}>
+      <div className={css.approvalHeader}>
+        <span className={css.approvalTier}>{tierLabel}</span>
+        <span className={css.approvalTitle}>Confirmation required</span>
+      </div>
+      <p className={css.approvalIntro}>{intro}</p>
+      {rows.length > 0 ? (
+        <dl className={css.approvalDetails}>
+          {rows.map((row) => (
+            <div
+              className={css.approvalDetailRow}
+              key={`${row.label}:${row.value}`}
+            >
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      <div className={css.approvalPrimaryActions}>
+        <Button
+          size="sm"
+          disabled={props.busy}
+          onClick={() => handleAction('once')}
+        >
+          {confirmLabel}
+        </Button>
+        <Button
+          variant="danger"
+          size="sm"
+          disabled={props.busy}
+          onClick={() => handleAction('deny')}
+        >
+          Cancel
+        </Button>
+      </div>
+      {availableTrustButtons.length > 0 ? (
+        <div className={css.approvalTrustActions}>
+          {availableTrustButtons.map((btn) => (
+            <Button
+              key={btn.action}
+              variant="outline"
+              size="sm"
+              className={css.approvalAllow}
+              disabled={props.busy}
+              onClick={() => handleAction(btn.action)}
+            >
+              {btn.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function useRenderedMarkdown(
   content: string,
@@ -418,11 +619,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
     });
   }, [msg.artifacts]);
 
+  const isApproval = msg.role === 'approval' || Boolean(msg.pendingApproval);
+  const shouldRenderApprovalCard = isApproval && Boolean(msg.pendingApproval);
   const isMarkdownMessage =
     msg.role === 'assistant' ||
-    msg.role === 'approval' ||
     msg.role === 'command' ||
-    Boolean(msg.pendingApproval);
+    (isApproval && !shouldRenderApprovalCard);
   const renderedHtml = useRenderedMarkdown(
     msg.content,
     isMarkdownMessage,
@@ -448,7 +650,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   const isUser = msg.role === 'user';
   const isAssistant = msg.role === 'assistant';
-  const isApproval = msg.role === 'approval' || Boolean(msg.pendingApproval);
   const shouldRenderBubble =
     isUser ||
     msg.content.trim().length > 0 ||
@@ -469,6 +670,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
     css.bubble,
     isUser && css.bubbleUser,
     (isAssistant || isApproval) && css.bubbleAssistant,
+    isApproval && css.bubbleApproval,
     msg.role === 'system' && css.bubbleSystem,
     msg.role === 'command' && css.bubbleCommand,
   );
@@ -490,7 +692,13 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {shouldRenderBubble ? (
         <div className={bubbleClass}>
-          {isMarkdownMessage ? (
+          {shouldRenderApprovalCard && msg.pendingApproval ? (
+            <ApprovalCard
+              approval={msg.pendingApproval}
+              busy={props.approvalBusy}
+              onAction={props.onApprovalAction}
+            />
+          ) : isMarkdownMessage ? (
             <div
               ref={markdownRef}
               className={css.markdownContent}
@@ -500,41 +708,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
           ) : (
             msg.content
           )}
-
-          {isApproval && msg.pendingApproval ? (
-            <div className={css.approvalActions}>
-              {APPROVAL_BUTTONS.map((btn) => (
-                <Button
-                  key={btn.action}
-                  variant="outline"
-                  size="sm"
-                  className={css.approvalAllow}
-                  disabled={props.approvalBusy}
-                  onClick={() =>
-                    props.onApprovalAction(
-                      btn.action,
-                      msg.pendingApproval?.approvalId ?? '',
-                    )
-                  }
-                >
-                  {btn.label}
-                </Button>
-              ))}
-              <Button
-                variant="danger"
-                size="sm"
-                disabled={props.approvalBusy}
-                onClick={() =>
-                  props.onApprovalAction(
-                    'deny',
-                    msg.pendingApproval?.approvalId ?? '',
-                  )
-                }
-              >
-                Deny
-              </Button>
-            </div>
-          ) : null}
         </div>
       ) : null}
 

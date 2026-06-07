@@ -405,6 +405,35 @@ function emitApprovalProgress(approval: PendingApproval): void {
   console.error(`[approval] ${payload}`);
 }
 
+function buildPendingApproval(
+  approval: ToolApprovalEvaluation,
+  prompt: string,
+  toolName: string,
+): PendingApproval | undefined {
+  if (!approval.requestId) return undefined;
+  return {
+    approvalId: approval.requestId,
+    prompt,
+    intent: approval.intent,
+    reason: approval.reason,
+    approvalTier: approval.tier,
+    approvalBaseTier: approval.baseTier,
+    toolName,
+    commandPreview: approval.commandPreview,
+    allowSession: !approval.pinned,
+    allowAgent: !approval.pinned,
+    allowAll: !approval.pinned,
+    expiresAt:
+      typeof approval.expiresAtMs === 'number' &&
+      Number.isFinite(approval.expiresAtMs)
+        ? approval.expiresAtMs
+        : null,
+    ...(approval.escalationTarget
+      ? { escalationTarget: approval.escalationTarget }
+      : {}),
+  };
+}
+
 function latestUserPrompt(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
@@ -1195,25 +1224,11 @@ async function processRequest(
             approvalExpiresAt: approval.expiresAtMs,
           },
         ],
-        pendingApproval: approval.requestId
-          ? {
-              approvalId: approval.requestId,
-              prompt,
-              intent: approval.intent,
-              reason: approval.reason,
-              allowSession: !approval.pinned,
-              allowAgent: !approval.pinned,
-              allowAll: !approval.pinned,
-              expiresAt:
-                typeof approval.expiresAtMs === 'number' &&
-                Number.isFinite(approval.expiresAtMs)
-                  ? approval.expiresAtMs
-                  : null,
-              ...(approval.escalationTarget
-                ? { escalationTarget: approval.escalationTarget }
-                : {}),
-            }
-          : undefined,
+        pendingApproval: buildPendingApproval(
+          approval,
+          prompt,
+          approvedToolCall.toolName,
+        ),
         tokenUsage: finalizeTokenUsage(tokenUsage),
         effectiveUserPrompt,
       };
@@ -1759,23 +1774,16 @@ async function processRequest(
           );
         }
         const prompt = approvalRuntime.formatApprovalRequest(approval);
-        const pendingApproval: PendingApproval = {
-          approvalId: approval.requestId,
+        const pendingApproval = buildPendingApproval(
+          approval,
           prompt,
-          intent: approval.intent,
-          reason: approval.reason,
-          allowSession: !approval.pinned,
-          allowAgent: !approval.pinned,
-          allowAll: !approval.pinned,
-          expiresAt:
-            typeof approval.expiresAtMs === 'number' &&
-            Number.isFinite(approval.expiresAtMs)
-              ? approval.expiresAtMs
-              : null,
-          ...(approval.escalationTarget
-            ? { escalationTarget: approval.escalationTarget }
-            : {}),
-        };
+          toolName,
+        );
+        if (!pendingApproval) {
+          throw new Error(
+            'Approval-required tool call is missing a request id.',
+          );
+        }
         emitApprovalProgress(pendingApproval);
         toolExecutions.push({
           name: toolName,

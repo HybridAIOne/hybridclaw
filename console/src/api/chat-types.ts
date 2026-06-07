@@ -109,7 +109,10 @@ export interface ChatStreamApproval {
   summary?: string;
   intent?: string;
   reason?: string;
+  approvalTier?: 'green' | 'yellow' | 'red';
+  approvalBaseTier?: 'green' | 'yellow' | 'red';
   toolName?: string;
+  commandPreview?: string;
   args?: unknown;
   allowSession?: boolean;
   allowAgent?: boolean;

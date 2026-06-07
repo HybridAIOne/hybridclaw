@@ -608,6 +608,15 @@ aside[data-state="collapsed"] .chatSidebarContent {
   box-shadow: var(--shadow-card);
 }
 
+.bubbleApproval {
+  width: min(640px, 100%);
+  max-width: 92%;
+  padding: 0;
+  overflow: hidden;
+  border-color: color-mix(in srgb, #d97706 44%, var(--line));
+  background: color-mix(in srgb, #f59e0b 8%, var(--card));
+}
+
 /* System notices (e.g. error messages): a centered, low-emphasis pill. */
 .bubbleSystem {
   background: var(--accent-soft);
@@ -988,11 +997,94 @@ aside[data-state="collapsed"] .chatSidebarContent {
   cursor: default;
 }
 
-.approvalActions {
+.approvalCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.approvalHeader {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.approvalTier {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, #d97706 55%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, #f59e0b 16%, var(--card));
+  color: #92400e;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+:global(html[data-theme="dark"]) .approvalTier {
+  color: #fbbf24;
+}
+
+.approvalTitle {
+  color: var(--foreground);
+  font-size: 0.94rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.approvalIntro {
+  margin: 0;
+  color: var(--foreground);
+  line-height: 1.45;
+}
+
+.approvalDetails {
+  display: grid;
   gap: 6px;
-  margin-top: 8px;
+  margin: 0;
+}
+
+.approvalDetailRow {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.28fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.approvalDetailRow dt {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.approvalDetailRow dd {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 0.84rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.approvalPrimaryActions,
+.approvalTrustActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.approvalPrimaryActions {
+  padding-top: 2px;
+}
+
+.approvalTrustActions {
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
 }
 
 .approvalAllow {
@@ -1477,6 +1569,11 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 @media (max-width: 768px) {
+  .approvalDetailRow {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
   .suggestionItem {
     min-height: 48px;
     padding: 12px 14px;

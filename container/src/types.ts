@@ -355,6 +355,10 @@ export interface PendingApproval {
   prompt: string;
   intent: string;
   reason: string;
+  approvalTier?: 'green' | 'yellow' | 'red';
+  approvalBaseTier?: 'green' | 'yellow' | 'red';
+  toolName?: string;
+  commandPreview?: string;
   allowSession: boolean;
   allowAgent: boolean;
   allowAll: boolean;
