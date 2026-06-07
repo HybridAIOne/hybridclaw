@@ -71,7 +71,8 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
     skill.indexOf('hybridclaw secret set BLINK_EMAIL'),
   );
   expect(skill).toContain('Do not ask the operator to set these manually after');
-  expect(skill).toContain('rest-<BLINK_TIER>.immedia-semi.com');
+  expect(skill).toContain('helper owns all Blink host and path selection');
+  expect(skill).not.toContain('rest-<BLINK_TIER>.immedia-semi.com');
   expect(skill).toContain('Use `run` for live Blink calls');
   expect(skill).toContain('generic `http_request` primitives');
   expect(skill).toContain('subject-verb names');
@@ -1280,6 +1281,18 @@ test('Blink live thumbnail refresh reports stale freshness when Blink returns th
     downloadedArtifactSha256:
       'd4865fbd3974ca96bce92a32743892de928af1803ec722dbac4a2a73b2f2ed28',
   });
+  expect(result.result.failureReportContract).toMatchObject({
+    summary:
+      'Report only the helper freshness result, Blink command status fields, and artifact/display guidance.',
+  });
+  expect(result.result.failureReportContract.forbiddenClaims).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining('camera is offline'),
+      expect.stringContaining('code 105'),
+      expect.stringContaining('status "done"'),
+      expect.stringContaining('firmware'),
+    ]),
+  );
   expect(result.artifact).toMatchObject({
     mode: 'withheld-stale-thumbnail',
     handling:
@@ -1498,6 +1511,13 @@ test('Blink live thumbnail refresh does not download when Blink command never co
     shouldDisplayArtifact: false,
     reason: 'refresh-command-not-completed',
   });
+  expect(result.result.failureReportContract.forbiddenClaims).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining('camera is offline'),
+      expect.stringContaining('HTTP 426'),
+      expect.stringContaining('updated_at'),
+    ]),
+  );
   expect(result.artifact).toMatchObject({
     mode: 'no-artifact-command-incomplete',
   });
@@ -1636,6 +1656,14 @@ test('Blink live thumbnail refresh does not download when Blink command complete
     shouldDisplayArtifact: false,
     reason: 'refresh-command-failed',
   });
+  expect(result.result.failureReportContract.forbiddenClaims).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining('camera is offline'),
+      expect.stringContaining('code 105'),
+      expect.stringContaining('status "done"'),
+      expect.stringContaining('reboot'),
+    ]),
+  );
   expect(result.artifact).toMatchObject({
     mode: 'no-artifact-command-failed',
   });

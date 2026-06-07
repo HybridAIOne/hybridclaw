@@ -35,6 +35,22 @@ const COST_MEASUREMENT = {
   system: 'UsageTotals',
   subLimitKey: 'blink',
 };
+const THUMBNAIL_FAILURE_REPORTING_CONTRACT = Object.freeze({
+  summary:
+    'Report only the helper freshness result, Blink command status fields, and artifact/display guidance.',
+  allowedClaims: [
+    'Blink accepted the thumbnail command.',
+    'The helper did not verify a fresh thumbnail.',
+    'No thumbnail artifact should be displayed unless result.display.shouldDisplayArtifact is true.',
+  ],
+  forbiddenClaims: [
+    'Do not say the camera is offline unless the same successful live Blink response marks that exact camera offline.',
+    'Do not cite Blink app update code 105, app update requirements, or API restrictions as the thumbnail failure cause unless the refresh or live-view request itself returned HTTP 426.',
+    'Do not claim camera status "done" or camera updated_at means the camera has not responded since that time.',
+    'Do not infer Wi-Fi, camera hardware, firmware, reachability, or Blink service state from a stale thumbnail path or failed thumbnail command.',
+    'Do not recommend firmware updates, app updates, reboot, restart, or reset as proven fixes; at most say the operator can check the Blink app or physically power-cycle outside this API if they want to troubleshoot the device.',
+  ],
+});
 
 const SECRET_NAMES = {
   email: 'BLINK_EMAIL',
@@ -2316,6 +2332,7 @@ function incompleteCommandRefreshResult({
         guidance:
           'Do not download, display, or link a thumbnail artifact because Blink did not report command completion.',
       },
+      failureReportContract: THUMBNAIL_FAILURE_REPORTING_CONTRACT,
     },
     artifact: {
       mode: 'no-artifact-command-incomplete',
@@ -2388,6 +2405,7 @@ function failedCommandRefreshResult({
         guidance:
           'Do not download, display, or link a thumbnail artifact because Blink reported the refresh command failed.',
       },
+      failureReportContract: THUMBNAIL_FAILURE_REPORTING_CONTRACT,
     },
     artifact: {
       mode: 'no-artifact-command-failed',
@@ -2545,6 +2563,9 @@ async function runCameraThumbnailRefresh(args, options = {}) {
       camera: cameraSummary(camera),
       freshness: evidence,
       display,
+      failureReportContract: evidence.ok
+        ? undefined
+        : THUMBNAIL_FAILURE_REPORTING_CONTRACT,
     },
     artifact: {
       mode: evidence.ok ? 'gateway-artifact' : 'withheld-stale-thumbnail',
