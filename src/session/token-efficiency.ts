@@ -11,6 +11,40 @@ export const DEFAULT_BOOTSTRAP_TAIL_RATIO = 0.2;
 const MESSAGE_TRUNCATED_MARKER = '\n...[truncated]';
 const HEAD_TAIL_TRUNCATED_MARKER = '\n\n...[truncated]...\n\n';
 
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+function sliceHeadAtCodePointBoundary(text: string, maxChars: number): string {
+  let end = Math.max(0, Math.min(Math.floor(maxChars), text.length));
+  if (
+    end > 0 &&
+    end < text.length &&
+    isHighSurrogate(text.charCodeAt(end - 1)) &&
+    isLowSurrogate(text.charCodeAt(end))
+  ) {
+    end -= 1;
+  }
+  return text.slice(0, end);
+}
+
+function sliceTailAtCodePointBoundary(text: string, maxChars: number): string {
+  let start = Math.max(0, text.length - Math.max(0, Math.floor(maxChars)));
+  if (
+    start > 0 &&
+    start < text.length &&
+    isHighSurrogate(text.charCodeAt(start - 1)) &&
+    isLowSurrogate(text.charCodeAt(start))
+  ) {
+    start += 1;
+  }
+  return text.slice(start);
+}
+
 interface PromptHistoryMessage {
   role: ChatMessage['role'];
   content: string;
@@ -125,9 +159,9 @@ export function truncateMessageContent(
     Math.floor(maxChars) - MESSAGE_TRUNCATED_MARKER.length,
   );
   if (bodyMax <= 0) {
-    return content.slice(0, Math.floor(maxChars));
+    return sliceHeadAtCodePointBoundary(content, Math.floor(maxChars));
   }
-  return `${content.slice(0, bodyMax)}${MESSAGE_TRUNCATED_MARKER}`;
+  return `${sliceHeadAtCodePointBoundary(content, bodyMax)}${MESSAGE_TRUNCATED_MARKER}`;
 }
 
 export function truncateHeadTailText(
@@ -142,7 +176,7 @@ export function truncateHeadTailText(
 
   const marker = HEAD_TAIL_TRUNCATED_MARKER;
   const available = budget - marker.length;
-  if (available <= 0) return content.slice(0, budget);
+  if (available <= 0) return sliceHeadAtCodePointBoundary(content, budget);
 
   const clampedHeadRatio = Math.max(0, Math.min(1, headRatio));
   const clampedTailRatio = Math.max(0, Math.min(1, tailRatio));
@@ -162,8 +196,9 @@ export function truncateHeadTailText(
 
   const safeHead = Math.max(0, Math.min(headChars, content.length));
   const safeTail = Math.max(0, Math.min(tailChars, content.length - safeHead));
-  if (safeTail === 0) return `${content.slice(0, safeHead)}${marker}`;
-  return `${content.slice(0, safeHead)}${marker}${content.slice(content.length - safeTail)}`;
+  const head = sliceHeadAtCodePointBoundary(content, safeHead);
+  if (safeTail === 0) return `${head}${marker}`;
+  return `${head}${marker}${sliceTailAtCodePointBoundary(content, safeTail)}`;
 }
 
 export function optimizeHistoryMessagesForPrompt(
