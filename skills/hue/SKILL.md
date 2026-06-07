@@ -5,15 +5,13 @@ user-invocable: true
 requires:
   bins:
     - node
-credentials:
+config_variables:
   - id: hue-bridge-host
-    kind: header
+    env: HUE_BRIDGE_HOST
     required: true
-    secret_ref:
-      source: store
-      id: HUE_BRIDGE_HOST
-    scope: "Local Hue Bridge HTTPS base URL used by gateway http_request"
-    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `hybridclaw secret set HUE_BRIDGE_HOST \"https://192.168.1.30\"`."
+    scope: "Local Hue Bridge HTTPS base URL used in gateway http_request URLs"
+    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `hybridclaw env set HUE_BRIDGE_HOST \"https://192.168.1.30\"`."
+credentials:
   - id: hue-application-key
     kind: api_key
     required: true
@@ -215,10 +213,11 @@ node skills/hue/hue.cjs --format json --request http-request remote-rooms --brid
 
 ## Setup
 
-Store the local bridge URL and application key in the runtime secret store:
+Store the local bridge URL in the env store, then store the TLS pin and
+application key in the secret store:
 
 ```bash
-hybridclaw secret set HUE_BRIDGE_HOST "https://192.168.1.30"
+hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"
 hybridclaw secret set HUE_BRIDGE_TLS_SHA256 "<sha256-fingerprint>"
 node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --tls-sha256-secret HUE_BRIDGE_TLS_SHA256 --app-name hybridclaw --instance-name lab
 ```

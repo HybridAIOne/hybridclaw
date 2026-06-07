@@ -6,7 +6,7 @@ const { pathToFileURL } = require('node:url');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
-const LOCAL_HOST_SECRET = 'HUE_BRIDGE_HOST';
+const LOCAL_HOST_ENV = 'HUE_BRIDGE_HOST';
 const LOCAL_KEY_SECRET = 'HUE_APPLICATION_KEY';
 const LOCAL_TLS_SECRET = 'HUE_BRIDGE_TLS_SHA256';
 const REMOTE_CLIENT_ID_SECRET = 'HUE_REMOTE_CLIENT_ID';
@@ -63,6 +63,7 @@ const READ_ALIASES = new Set([
 ]);
 const SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const SECRET_TEMPLATE_RE = /^<secret:([A-Z][A-Z0-9_]{0,127})>$/u;
+const ENV_TEMPLATE_RE = /^<env:([A-Z][A-Z0-9_]{0,127})>$/u;
 const LOCAL_SECRET_REF_POLICY =
   'The Hue application key is emitted only as a secretHeaders reference. Never paste the application key into chat or helper arguments.';
 const LOCAL_MUTATION_SECRET_REF_POLICY =
@@ -117,7 +118,7 @@ Write plans:
 Environment:
   HYBRIDCLAW_GATEWAY_URL   gateway base URL for live execution (default: http://127.0.0.1:9090)
   HYBRIDCLAW_GATEWAY_TOKEN gateway bearer token for live execution
-  HUE_BRIDGE_HOST          stored bridge URL used through <secret:HUE_BRIDGE_HOST>
+  HUE_BRIDGE_HOST          env store bridge URL used through <env:HUE_BRIDGE_HOST>
   HUE_APPLICATION_KEY      stored CLIP v2 application key, emitted only as a secretHeaders ref
   HUE_BRIDGE_TLS_SHA256    required local bridge TLS certificate SHA-256 pin
 `);
@@ -324,6 +325,10 @@ function isSecretTemplate(value) {
   return SECRET_TEMPLATE_RE.test(value);
 }
 
+function isEnvTemplate(value) {
+  return ENV_TEMPLATE_RE.test(value);
+}
+
 function validateSecretName(value, label) {
   if (!SECRET_NAME_RE.test(value)) {
     die(`${label} must be an uppercase runtime secret name.`);
@@ -334,8 +339,13 @@ function validateSecretName(value, label) {
 function normalizeBaseUrl(value, label, options = {}) {
   const raw = requireText(value, label);
   if (raw.includes('<secret:')) {
+    die(`${label} URL placeholder must use <env:NAME>.`);
+  }
+  if (raw.includes('<env:')) {
     const normalized = raw.replace(/\/+$/u, '');
-    parseSecretTemplate(normalized, label);
+    if (!ENV_TEMPLATE_RE.test(normalized)) {
+      die(`${label} env placeholder must be exactly <env:NAME>.`);
+    }
     return normalized;
   }
   let parsed;
@@ -359,16 +369,14 @@ function normalizeBaseUrl(value, label, options = {}) {
 
 function resolveBridgeBase(args) {
   return normalizeBaseUrl(
-    popFlag(args, '--host') ||
-      process.env.HUE_BRIDGE_HOST ||
-      `<secret:${LOCAL_HOST_SECRET}>`,
+    popFlag(args, '--host') || `<env:${LOCAL_HOST_ENV}>`,
     '--host',
     { requireHttps: true },
   );
 }
 
 function appendPath(base, path) {
-  if (isSecretTemplate(base)) return `${base}${path}`;
+  if (isEnvTemplate(base)) return `${base}${path}`;
   const parsed = new URL(base);
   parsed.pathname = `${parsed.pathname}${path}`.replace(/\/{2,}/gu, '/');
   return parsed.toString();

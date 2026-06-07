@@ -9283,6 +9283,91 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('dispatches gateway-owned http requests with env store placeholders', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-env-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.ts'
+    );
+    saveNamedRuntimeEnv({
+      HUE_BRIDGE_HOST: 'https://bridge.example.com',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://bridge.example.com/clip/v2/resource/light',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      arrayBuffer: async () =>
+        Buffer.from(JSON.stringify({ data: [{ id: 'light-1' }] })),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/light',
+        method: 'GET',
+        headers: {
+          'X-Bridge-Origin': '<env:HUE_BRIDGE_HOST>',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          'X-Bridge-Origin': 'https://bridge.example.com',
+        }),
+      }),
+    );
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'https://bridge.example.com/clip/v2/resource/light',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).json).toEqual({
+      data: [{ id: 'light-1' }],
+    });
+
+    const missingReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: '<env:MISSING_BRIDGE_HOST>/clip/v2/resource/light',
+        method: 'GET',
+      },
+    });
+    const missingRes = makeResponse();
+
+    state.handler(missingReq as never, missingRes as never);
+    await settle();
+
+    expect(missingRes.statusCode).toBe(400);
+    expect(JSON.parse(missingRes.body)).toEqual({
+      error: 'Env store value MISSING_BRIDGE_HOST is not configured.',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test('allows Google OAuth runtime token placeholders for googleapis http requests', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-');
     process.env.HOME = homeDir;
