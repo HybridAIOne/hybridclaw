@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { replaceUnpairedSurrogates } from '../../shared/unicode-utils.js';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
@@ -131,29 +132,6 @@ function isMistralCompatModel(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function replaceUnpairedSurrogates(value: string): string {
-  let output = '';
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        output += value[index] + value[index + 1];
-        index += 1;
-      } else {
-        output += '\ufffd';
-      }
-      continue;
-    }
-    if (code >= 0xdc00 && code <= 0xdfff) {
-      output += '\ufffd';
-      continue;
-    }
-    output += value[index];
-  }
-  return output;
 }
 
 function usesQwenCompat(args: {

@@ -1993,8 +1993,14 @@ function isCommandComplete(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
   if (body.complete === true) return true;
   if (String(body.status || '').toLowerCase() === 'done') return true;
-  const statusCode = Number(body.status_code ?? body.statusCode ?? 0);
-  return statusCode === 908;
+  const commandStates = Array.isArray(body.commands)
+    ? body.commands
+        .map((command) =>
+          String(command?.state_condition || command?.stateCondition || ''),
+        )
+        .map((state) => state.toLowerCase())
+    : [];
+  return commandStates.some((state) => state === 'done' || state === 'complete');
 }
 
 function sleep(ms) {
@@ -2098,6 +2104,10 @@ function freshnessEvidence({
     previousThumbnailPath === undefined || previousThumbnailPath !== thumbnailPath;
   return {
     ok: commandPoll.ok && thumbnailPathChanged && !sameAsPrevious,
+    reason:
+      commandPoll.ok && thumbnailPathChanged && !sameAsPrevious
+        ? 'fresh-thumbnail'
+        : 'thumbnail-unchanged',
     commandCompleted: commandPoll.ok,
     commandPollAttempts: commandPoll.attempts,
     cameraStatus: camera?.status,
@@ -2107,12 +2117,51 @@ function freshnessEvidence({
     thumbnailPathChanged,
     thumbnailTs: timestamp ?? undefined,
     artifactSha256: artifactSha || undefined,
+    downloadStatus: downloadResult?.status,
     previousSha256,
     sameAsPrevious,
     warning:
       sameAsPrevious || !thumbnailPathChanged
         ? 'Blink accepted the snapshot command, but the returned thumbnail did not change. Do not describe this as a fresh image.'
         : undefined,
+    cause:
+      sameAsPrevious || !thumbnailPathChanged
+        ? 'unknown; do not infer Wi-Fi, camera reachability, or Blink service state from unchanged thumbnail evidence alone'
+        : undefined,
+  };
+}
+
+function thumbnailRefreshDisplay(evidence, downloadResult) {
+  if (!evidence.ok) {
+    return {
+      shouldDisplayArtifact: false,
+      reason: 'stale-thumbnail-withheld',
+      guidance:
+        'Do not display or link the downloaded thumbnail artifact because Blink returned the same thumbnail after refresh. Report only the freshness failure and the unknown cause.',
+      downloadedArtifactSha256:
+        typeof downloadResult?.artifact?.sha256 === 'string'
+          ? downloadResult.artifact.sha256
+          : undefined,
+    };
+  }
+  return {
+    shouldDisplayArtifact: true,
+    artifact: downloadResult.artifact,
+    artifacts: downloadResult.artifacts,
+    guidance:
+      'Display the artifact only because the helper verified a changed thumbnail after the approved refresh command.',
+  };
+}
+
+function cameraSummary(camera) {
+  if (!camera || typeof camera !== 'object') return undefined;
+  return {
+    id: camera.id ?? camera.camera_id ?? camera.cameraId,
+    name: camera.name,
+    networkId: camera.network_id ?? camera.networkId,
+    type: camera.type,
+    status: camera.status,
+    updatedAt: camera.updated_at ?? camera.updatedAt,
   };
 }
 
@@ -2154,6 +2203,59 @@ async function runCameraThumbnailRefresh(args, options = {}) {
         result: null,
       };
   const devicesPayload = buildReadOperation('devices-list', []);
+  if (!commandPoll.ok) {
+    return {
+      command: 'live',
+      operation: 'camera-thumbnail-refresh',
+      stakesTier: OPERATION_TIERS['camera-thumbnail-refresh'],
+      request: {
+        beforeDevices: liveRequestSummary(beforeDevicesPayload.httpRequest),
+        trigger: liveRequestSummary(mutationPayload.httpRequest),
+        commandStatus: command
+          ? liveRequestSummary(
+              buildCommandStatusRequest(
+                'camera-thumbnail-refresh',
+                command.network || runOptions.network,
+                command.id,
+              ),
+            )
+          : undefined,
+      },
+      result: {
+        ok: false,
+        trigger: triggerResult.bodyJson || {
+          status: triggerResult.status,
+          statusText: triggerResult.statusText,
+        },
+        commandPoll,
+        camera: cameraSummary(beforeCamera),
+        freshness: {
+          ok: false,
+          reason: 'command-not-completed',
+          commandCompleted: false,
+          commandPollAttempts: commandPoll.attempts,
+          previousThumbnailPath,
+          warning:
+            'Blink accepted the snapshot command, but command status did not report completion before the wait timeout. Do not download or display the previous thumbnail.',
+          cause:
+            'unknown; command status never reached complete:true, so do not infer Wi-Fi, camera reachability, or Blink service state from this evidence alone',
+        },
+        display: {
+          shouldDisplayArtifact: false,
+          reason: 'refresh-command-not-completed',
+          guidance:
+            'Do not download, display, or link a thumbnail artifact because Blink did not report command completion.',
+        },
+      },
+      artifact: {
+        mode: 'no-artifact-command-incomplete',
+        maxInlineBytes: 0,
+        handling:
+          'Do not return or display a thumbnail artifact because the refresh command did not complete.',
+      },
+      costMeasurement: COST_MEASUREMENT,
+    };
+  }
   const devicesResult = await executeGatewayRequest(
     devicesPayload.httpRequest,
     options,
@@ -2182,6 +2284,7 @@ async function runCameraThumbnailRefresh(args, options = {}) {
     previousSha256: runOptions.previousSha256,
     previousThumbnailPath,
   });
+  const display = thumbnailRefreshDisplay(evidence, downloadResult);
   return {
     command: 'live',
     operation: 'camera-thumbnail-refresh',
@@ -2202,29 +2305,23 @@ async function runCameraThumbnailRefresh(args, options = {}) {
       thumbnail: liveRequestSummary(downloadPayload.httpRequest),
     },
     result: {
-      ok: downloadResult.status >= 200 && downloadResult.status < 300,
+      ok: evidence.ok,
       trigger: triggerResult.bodyJson || {
         status: triggerResult.status,
         statusText: triggerResult.statusText,
       },
       commandPoll,
-      camera: {
-        id: camera.id ?? camera.camera_id ?? camera.cameraId,
-        name: camera.name,
-        networkId: camera.network_id ?? camera.networkId,
-        type: camera.type,
-        status: camera.status,
-        updatedAt: camera.updated_at ?? camera.updatedAt,
-      },
+      camera: cameraSummary(camera),
       freshness: evidence,
-      artifact: downloadResult.artifact,
-      artifacts: downloadResult.artifacts,
+      display,
     },
     artifact: {
-      mode: 'gateway-artifact',
+      mode: evidence.ok ? 'gateway-artifact' : 'withheld-stale-thumbnail',
       maxInlineBytes: 0,
       handling:
-        'Return the artifact handle and freshness evidence. If freshness.sameAsPrevious is true, do not call the image fresh.',
+        evidence.ok
+          ? 'Return and display the artifact handle because freshness.ok is true.'
+          : 'Do not return or display the stale artifact handle because freshness.ok is false.',
     },
     costMeasurement: COST_MEASUREMENT,
   };
