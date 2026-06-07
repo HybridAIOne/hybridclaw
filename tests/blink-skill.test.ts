@@ -296,6 +296,7 @@ test('Blink helper runs OAuth v2 login through gateway and captures secrets', as
     skillName: 'blink',
   });
   expect(String(seenRequests[0].url)).toContain('/oauth/v2/authorize');
+  expect(String(seenRequests[0].url)).toContain('app_version=56.1');
   expect(String(seenRequests[0].url)).toContain('code_challenge_method=S256');
   expect(seenRequests[2]).toMatchObject({
     method: 'POST',
@@ -422,6 +423,63 @@ test('Blink helper stops OAuth login for F14 PIN handover when 2FA is required',
   expect(fs.existsSync(handoverPath)).toBe(true);
   expect(fs.readFileSync(handoverPath, 'utf8')).not.toContain('BLINK_PASSWORD');
   expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+test('Blink helper treats OAuth HTTP 202 sign-in as F14 PIN handover', async () => {
+  const handoverPath = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'blink-oauth-202-handover-')),
+    'handover.json',
+  );
+  const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    const targetUrl = String(requestBody.url);
+    if (targetUrl.includes('/oauth/v2/authorize')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          headers: { 'set-cookie': 'oauth=one; Path=/; Secure' },
+          body: '',
+        }),
+      );
+    }
+    if (targetUrl === 'https://api.oauth.blink.com/oauth/v2/signin') {
+      if (requestBody.method === 'GET') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 200,
+            headers: {},
+            body: '<script id="oauth-args" type="application/json">{"csrf-token":"csrf-123"}</script>',
+          }),
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 202,
+          statusText: 'Accepted',
+          headers: {},
+          body: JSON.stringify({ valid_seconds: 120 }),
+        }),
+      );
+    }
+    throw new Error(`unexpected request to ${targetUrl}`);
+  });
+
+  const result = await blink.runAccountLogin([], {
+    fetch: fetchMock,
+    gatewayUrl: 'http://127.0.0.1:9090',
+    handoverPath,
+  });
+
+  expect(result).toMatchObject({
+    command: 'handover-required',
+    route: 'f14',
+    reason: 'blink-2fa-required',
+    expiresInSeconds: 120,
+  });
+  expect(fs.existsSync(handoverPath)).toBe(true);
 });
 
 test('Blink helper resumes OAuth 2FA handover without re-submitting credentials', async () => {
