@@ -171,7 +171,7 @@ http-request camera-config-read --network <network-id> --camera <camera-id>
 http-request camera-signals-read --network <network-id> --camera <camera-id>
 http-request doorbells-list --network <network-id>
 http-request motion-events-list --network <network-id> --since 2026-05-26T00:00:00Z
-http-request clips-list --since 2026-05-26T00:00:00Z --page 0 --max 50
+http-request clips-list [--network <network-id>] --since 2026-05-26T00:00:00Z --page 0 --max 50
 http-request clip-download --path /api/v2/accounts/<account-id>/media/clip/<file.mp4> [--filename clip.mp4]
 http-request thumbnail-download --path /api/v3/media/accounts/<account-id>/networks/<network-id>/<camera-type>/<camera-id>/thumbnail/thumbnail.jpg?ts=<ts>&ext= [--filename camera.jpg]
 
@@ -184,7 +184,7 @@ plan clip-delete --clip <clip-id>
 plan camera-live-view-start --network <network-id> --camera <camera-id> [--camera-type default|mini|doorbell]
 ```
 
-Blink clip listing uses the account-scoped `media/changed` API, so `clips-list` intentionally does not accept `--network`; use the returned clip metadata to choose a clip path for `clip-download`.
+Blink clip listing uses the account-scoped `media/changed` API. `clips-list --network <id>` is accepted for the issue-contract command shape, but the helper still calls the account-scoped endpoint and marks the requested network in metadata; filter returned clip metadata by that network before summarizing or choosing a clip path for `clip-download`.
 For a current still image, run the approved `camera-thumbnail-refresh`, run `devices-list`, then pass the returned camera `thumbnail` path to `thumbnail-download`. Do not rewrite thumbnail paths onto `prod.immedia-semi.com`; the helper routes them through the authenticated `rest-<BLINK_TIER>.immedia-semi.com` host and stores the image as an artifact instead of exposing bytes in model context. Treat `updated_at`, `status: done`, and local file mtime as evidence that Blink accepted the refresh command, not as proof that the visual frame changed. Compare the returned artifact `sha256` with the prior camera thumbnail when one is available; if it is unchanged, say Blink refreshed the thumbnail command but returned the same image bytes instead of calling it a fresh screenshot.
 
 `plan` emits no live side effect. It returns `approvalText`,

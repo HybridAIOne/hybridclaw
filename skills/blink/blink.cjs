@@ -155,7 +155,7 @@ Read/request commands:
   http-request camera-signals-read --network <network-id> --camera <camera-id>
   http-request doorbells-list --network <network-id>
   http-request motion-events-list --network <network-id> [--since 2026-05-26T00:00:00Z]
-  http-request clips-list [--since 2026-05-26T00:00:00Z] [--page 0] [--max 50]
+  http-request clips-list [--network <network-id>] [--since 2026-05-26T00:00:00Z] [--page 0] [--max 50]
   http-request clip-download --path /api/v2/accounts/<account-id>/media/clip/<file.mp4> [--filename clip.mp4]
   http-request thumbnail-download --path /api/v3/media/accounts/<account-id>/networks/<network-id>/<camera-type>/<camera-id>/thumbnail/thumbnail.jpg?ts=<ts>&ext= [--filename camera.jpg]
 
@@ -183,7 +183,7 @@ Notes:
   cameras, and clips are accepted but canonical output uses account-login,
   devices-list, cameras-list, and clips-list.
   Use run for live gateway execution; use http-request for dry-run JSON.
-  clips-list is account-scoped on Blink's media/changed API; --network is rejected.
+  clips-list accepts optional --network for issue-contract compatibility, but Blink's media/changed API is account-scoped; use returned clip metadata to filter by network.
   thumbnail-download is for thumbnail paths returned by devices-list; do not rewrite
   those paths onto prod.immedia-semi.com.
 `);
@@ -1166,6 +1166,10 @@ function buildReadOperation(operation, args) {
       since === undefined ? {} : { since: parseIsoTime(since, '--since') },
     );
   } else if (operation === 'clips-list') {
+    const network = popFlag(args, '--network');
+    const networkFilter = network
+      ? parseIdentifier(network, '--network')
+      : undefined;
     const since = parseIsoTime(
       popFlag(args, '--since', '1970-01-01T00:00:00Z'),
       '--since',
@@ -1184,6 +1188,14 @@ function buildReadOperation(operation, args) {
       clipDownload:
         'Use http-request clip-download for a selected clip path and route the response through the gateway artifact path; never inline raw video bytes.',
       maxItems: max,
+      scope: 'account',
+      ...(networkFilter
+        ? {
+            requestedNetwork: networkFilter,
+            networkFilter:
+              'Blink media/changed is account-scoped; filter returned clip metadata by this network id before summarizing.',
+          }
+        : {}),
     };
   } else if (operation === 'clip-download') {
     const clipPath = parseClipPath(popFlag(args, '--path'));

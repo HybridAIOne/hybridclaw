@@ -79,7 +79,7 @@ test('Blink skill manifest declares SecretRef credentials and guarded operations
   expect(skill).toContain('OAuth v2 Authorization Code + PKCE');
   expect(skill).toContain('Do not run `hybridclaw secret get`');
   expect(skill).toContain('Do not tell the operator all Blink credentials are missing');
-  expect(skill).toContain('clips-list` intentionally does not accept `--network`');
+  expect(skill).toContain('clips-list --network <id>` is accepted');
   expect(skill).toContain('Stop after the first 401');
   expect(skill).toContain('PIN via F14');
   expect(skill).toContain('approvedHelperCommandText');
@@ -103,7 +103,7 @@ test('Blink helper --help exits cleanly and lists read and guarded commands', ()
   expect(result.stdout).toContain('http-request devices-list');
   expect(result.stdout).toContain('http-request camera-config-read');
   expect(result.stdout).toContain('http-request camera-signals-read');
-  expect(result.stdout).toContain('clips-list is account-scoped');
+  expect(result.stdout).toContain('clips-list accepts optional --network');
   expect(result.stdout).toContain('plan camera-motion-set');
   expect(result.stdout).toContain('plan camera-live-view-start');
 });
@@ -874,6 +874,8 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
   const clips = request([
     'http-request',
     'clips-list',
+    '--network',
+    '111',
     '--since',
     '2026-05-26T00:00:00Z',
     '--page',
@@ -925,6 +927,10 @@ test('Blink helper builds PIN handover and tier-pinned read requests', () => {
   expect(clips.artifact).toMatchObject({
     mode: 'metadata-only',
     maxItems: 25,
+    scope: 'account',
+    requestedNetwork: '111',
+    networkFilter:
+      'Blink media/changed is account-scoped; filter returned clip metadata by this network id before summarizing.',
   });
   expect(clips.httpRequest.headers).not.toHaveProperty('Authorization');
   expect(clips.httpRequest.secretHeaders).toEqual([
@@ -979,14 +985,6 @@ test('Blink helper rejects arbitrary endpoint passthrough and unsafe clip paths'
     '--path',
     '/api/v2/accounts/1234/media/clip/../../secret.mp4',
   ]);
-  const ignoredNetwork = runHelper([
-    '--format',
-    'json',
-    'http-request',
-    'clips-list',
-    '--network',
-    '111',
-  ]);
   const unsafeThumbnail = runHelper([
     '--format',
     'json',
@@ -1002,8 +1000,6 @@ test('Blink helper rejects arbitrary endpoint passthrough and unsafe clip paths'
   );
   expect(traversal.status).not.toBe(0);
   expect(traversal.stderr).toContain('--path must be a Blink media path');
-  expect(ignoredNetwork.status).not.toBe(0);
-  expect(ignoredNetwork.stderr).toContain('Unexpected argument: --network');
   expect(unsafeThumbnail.status).not.toBe(0);
   expect(unsafeThumbnail.stderr).toContain(
     '--path thumbnail query may only include ts and ext.',
