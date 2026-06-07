@@ -1044,6 +1044,149 @@ test('Blink helper builds exact approval plans for privacy-sensitive operations'
   ]);
 });
 
+test('Blink thumbnail refresh plan delegates the full snapshot workflow to run', () => {
+  const plan = request([
+    'plan',
+    'camera-thumbnail-refresh',
+    '--network',
+    '111',
+    '--camera',
+    '222',
+    '--filename',
+    'yard.jpg',
+  ]);
+
+  expect(plan.approvedHelperCommand).toEqual([
+    'node',
+    'skills/blink/blink.cjs',
+    '--format',
+    'json',
+    'run',
+    'camera-thumbnail-refresh',
+    '--network',
+    '111',
+    '--camera',
+    '222',
+    '--filename',
+    'yard.jpg',
+    '--operator-grant',
+  ]);
+  expect(plan.approvedHelperCommandText).toContain(
+    'run camera-thumbnail-refresh',
+  );
+});
+
+test('Blink live thumbnail refresh reports stale freshness when Blink returns the same thumbnail path', async () => {
+  const thumbnailPath =
+    '/api/v3/media/accounts/1234/networks/111/xt2/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=';
+  const requests: Array<{ url: string; method: string }> = [];
+  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    requests.push({
+      url: requestBody.url,
+      method: requestBody.method,
+    });
+    if (requestBody.url.includes('/homescreen')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: {
+            cameras: [
+              {
+                id: 222,
+                name: 'Backyard',
+                network_id: 111,
+                type: 'xt2',
+                status: 'done',
+                updated_at: '2026-06-07T10:31:47+00:00',
+                thumbnail: thumbnailPath,
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/thumbnail') && requestBody.method === 'POST') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: { id: 999, network_id: 111 },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/command/999')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: { complete: true, status_code: 908 },
+        }),
+        { status: 200 },
+      );
+    }
+    if (
+      requestBody.url.includes('/thumbnail/thumbnail.jpg') &&
+      requestBody.method === 'GET'
+    ) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          bodySuppressed: true,
+          artifact: {
+            filename: 'yard.jpg',
+            sha256:
+              'd4865fbd3974ca96bce92a32743892de928af1803ec722dbac4a2a73b2f2ed28',
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    throw new Error(`Unexpected request ${requestBody.method} ${requestBody.url}`);
+  });
+
+  const result = await blink.runLive(
+    [
+      '--format',
+      'json',
+      'run',
+      'camera-thumbnail-refresh',
+      '--network',
+      '111',
+      '--camera',
+      '222',
+      '--filename',
+      'yard.jpg',
+      '--operator-grant',
+    ],
+    { fetch },
+  );
+
+  expect(result.result.freshness).toMatchObject({
+    ok: false,
+    commandCompleted: true,
+    previousThumbnailPath: thumbnailPath,
+    thumbnailPath,
+    thumbnailPathChanged: false,
+    warning:
+      'Blink accepted the snapshot command, but the returned thumbnail did not change. Do not describe this as a fresh image.',
+  });
+  expect(result.result.artifact).toMatchObject({
+    filename: 'yard.jpg',
+  });
+  expect(requests.map((item) => item.method)).toEqual([
+    'GET',
+    'POST',
+    'GET',
+    'GET',
+    'GET',
+  ]);
+});
+
 test('Blink helper requires operator grant for mutating http-request commands', () => {
   const rejected = runHelper([
     '--format',
