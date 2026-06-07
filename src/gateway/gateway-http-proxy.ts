@@ -13,8 +13,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import {
-  Agent as UndiciAgent,
   buildConnector as buildUndiciConnector,
+  Agent as UndiciAgent,
 } from 'undici';
 
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
@@ -31,6 +31,7 @@ import {
   getRuntimeConfig,
   isGoogleOAuthSecretRef,
 } from '../config/runtime-config.js';
+import { readStoredRuntimeEnvValue } from '../config/runtime-env.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -73,7 +74,7 @@ import {
 
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const HTTP_REQUEST_MAX_RESPONSE_BYTES = 1_000_000;
-const HTTP_REQUEST_SECRET_PLACEHOLDER_RE = /<secret:([A-Z][A-Z0-9_]{0,127})>/g;
+const HTTP_REQUEST_PLACEHOLDER_RE = /<(secret|env):([A-Z][A-Z0-9_]{0,127})>/g;
 const REDIRECT_RESPONSE_STATUS_MIN = 300;
 const REDIRECT_RESPONSE_STATUS_MAX = 399;
 const GOOGLE_WORKSPACE_CLI_TOKEN_SECRET = 'GOOGLE_WORKSPACE_CLI_TOKEN';
@@ -889,35 +890,48 @@ async function acquireGoogleServiceAccountAccessToken(
   return accessToken;
 }
 
-async function replaceSecretPlaceholdersInString(
+async function replaceHttpPlaceholdersInString(
   value: string,
   context: SecretResolveContext,
 ): Promise<string> {
   let next = '';
   let lastIndex = 0;
-  for (const match of value.matchAll(HTTP_REQUEST_SECRET_PLACEHOLDER_RE)) {
+  for (const match of value.matchAll(HTTP_REQUEST_PLACEHOLDER_RE)) {
     const matchIndex = match.index ?? 0;
     next += value.slice(lastIndex, matchIndex);
-    next += await resolveHttpSecretOrThrow(match[1] || '', {
-      ...context,
-      selector: context.selector || '<secret-placeholder>',
-    });
+    const kind = match[1] || '';
+    const name = match[2] || '';
+    if (kind === 'secret') {
+      next += await resolveHttpSecretOrThrow(name, {
+        ...context,
+        selector: context.selector || '<secret-placeholder>',
+      });
+    } else {
+      const envValue = readStoredRuntimeEnvValue(name);
+      if (!envValue) {
+        throw new GatewayRequestError(
+          400,
+          `Env store value ${name} is not configured.`,
+        );
+      }
+      next += envValue;
+    }
     lastIndex = matchIndex + match[0].length;
   }
   next += value.slice(lastIndex);
   return next;
 }
 
-async function replaceSecretPlaceholders(
+async function replaceHttpPlaceholders(
   value: unknown,
   context: SecretResolveContext,
 ): Promise<unknown> {
   if (typeof value === 'string') {
-    return await replaceSecretPlaceholdersInString(value, context);
+    return await replaceHttpPlaceholdersInString(value, context);
   }
   if (Array.isArray(value)) {
     return await Promise.all(
-      value.map((entry) => replaceSecretPlaceholders(entry, context)),
+      value.map((entry) => replaceHttpPlaceholders(entry, context)),
     );
   }
   if (value && typeof value === 'object') {
@@ -925,7 +939,7 @@ async function replaceSecretPlaceholders(
       await Promise.all(
         Object.entries(value).map(async ([key, entry]) => [
           key,
-          await replaceSecretPlaceholders(entry, {
+          await replaceHttpPlaceholders(entry, {
             ...context,
             selector: context.selector || `json.${key}`,
           }),
@@ -1113,7 +1127,7 @@ async function buildHttpRequestFormBody(
   const params = new URLSearchParams();
   for (const [name, rawValue] of normalizeHttpRequestForm(value)) {
     const resolvedValue = replacePlaceholders
-      ? await replaceSecretPlaceholdersInString(rawValue, {
+      ? await replaceHttpPlaceholdersInString(rawValue, {
           ...context,
           selector: `form.${name}`,
         })
@@ -1841,7 +1855,7 @@ export async function handleApiHttpRequest(
     body.captureResponseHeaders,
   );
   const rawUrl = replacePlaceholders
-    ? await replaceSecretPlaceholdersInString(String(body.url || ''), {
+    ? await replaceHttpPlaceholdersInString(String(body.url || ''), {
         ...baseSecretContext,
         selector: 'url',
       })
@@ -1975,7 +1989,7 @@ export async function handleApiHttpRequest(
 
   if (replacePlaceholders) {
     for (const [key, value] of Object.entries(headers)) {
-      headers[key] = await replaceSecretPlaceholdersInString(value, {
+      headers[key] = await replaceHttpPlaceholdersInString(value, {
         ...secretContext,
         selector: key,
       });
@@ -1998,7 +2012,7 @@ export async function handleApiHttpRequest(
   let payloadBody: BodyInit | undefined;
   if (body.json !== undefined) {
     const jsonValue = replacePlaceholders
-      ? await replaceSecretPlaceholders(body.json, {
+      ? await replaceHttpPlaceholders(body.json, {
           ...secretContext,
           selector: 'json',
         })
@@ -2011,7 +2025,7 @@ export async function handleApiHttpRequest(
     }
   } else if (typeof body.body === 'string') {
     payloadBody = replacePlaceholders
-      ? await replaceSecretPlaceholdersInString(body.body, {
+      ? await replaceHttpPlaceholdersInString(body.body, {
           ...secretContext,
           selector: 'body',
         })

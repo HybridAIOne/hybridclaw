@@ -29,18 +29,6 @@ test('Hue skill manifest declares SecretRefs and guarded stakes', () => {
 
   expect(manifest.credentials).toEqual([
     {
-      id: 'hue-bridge-host',
-      kind: 'header',
-      required: true,
-      secretRef: {
-        source: 'store',
-        id: 'HUE_BRIDGE_HOST',
-      },
-      scope: 'Local Hue Bridge HTTPS base URL used by gateway http_request',
-      howToObtain:
-        'Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `hybridclaw secret set HUE_BRIDGE_HOST "https://192.168.1.30"`.',
-    },
-    {
       id: 'hue-application-key',
       kind: 'api_key',
       required: true,
@@ -89,6 +77,16 @@ test('Hue skill manifest declares SecretRefs and guarded stakes', () => {
         'Hue Remote API short-lived access token used as Authorization bearer',
       howToObtain:
         'Run `node skills/hue/hue.cjs --format json http-request remote-oauth-token` after configuring the Remote API client id, client secret, and refresh token; the gateway captures the access token into `HUE_REMOTE_ACCESS_TOKEN`.',
+    },
+  ]);
+  expect(manifest.configVariables).toEqual([
+    {
+      id: 'hue-bridge-host',
+      env: 'HUE_BRIDGE_HOST',
+      required: true,
+      scope: 'Local Hue Bridge HTTPS base URL used in gateway http_request URLs',
+      howToObtain:
+        'Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"`.',
     },
   ]);
   expect(skill).toContain('category: home-automation');
@@ -140,7 +138,7 @@ test('Hue helper builds local CLIP v2 resource-list requests without exposing se
     operation: 'local-bridge-list',
     stakesTier: 'green',
     httpRequest: {
-      url: '<secret:HUE_BRIDGE_HOST>/clip/v2/resource/bridge',
+      url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/bridge',
       method: 'GET',
       secretHeaders: [
         {
@@ -187,7 +185,7 @@ test('Hue helper builds eventstream reads as bounded requests', () => {
   ]);
 
   expect(eventstream.httpRequest).toMatchObject({
-    url: '<secret:HUE_BRIDGE_HOST>/eventstream/clip/v2',
+    url: '<env:HUE_BRIDGE_HOST>/eventstream/clip/v2',
     method: 'GET',
     timeoutMs: 30_000,
     headers: {
@@ -221,7 +219,7 @@ test('Hue helper emits approval plans before light and scene mutations', () => {
     },
     requestPreview: {
       method: 'PUT',
-      url: '<secret:HUE_BRIDGE_HOST>/clip/v2/resource/light/light-1',
+      url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/light/light-1',
       json: {
         dimming: {
           brightness: 60,
@@ -272,7 +270,7 @@ test('Hue helper builds allowed CLIP v2 scene and behavior create requests', () 
     stakesTier: 'amber',
     httpRequest: {
       method: 'POST',
-      url: '<secret:HUE_BRIDGE_HOST>/clip/v2/resource/scene',
+      url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/scene',
       json: {
         type: 'scene',
         metadata: {
@@ -305,7 +303,7 @@ test('Hue helper builds allowed CLIP v2 scene and behavior create requests', () 
     operation: 'local-behavior-create',
     httpRequest: {
       method: 'POST',
-      url: '<secret:HUE_BRIDGE_HOST>/clip/v2/resource/behavior_instance',
+      url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/behavior_instance',
       json: {
         type: 'behavior_instance',
         metadata: {
@@ -408,7 +406,7 @@ test('Hue helper emits granted mutation requests with allowlisted shapes only', 
     requiredGrant: 'approve-hue-write',
     httpRequest: {
       method: 'PUT',
-      url: '<secret:HUE_BRIDGE_HOST>/clip/v2/resource/light/light-1',
+      url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/light/light-1',
       json: {
         color: {
           xy: {
@@ -423,7 +421,7 @@ test('Hue helper emits granted mutation requests with allowlisted shapes only', 
     stakesTier: 'red',
     requiredGrant: 'approve-hue-bridge-config',
     httpRequest: {
-      url: '<secret:HUE_BRIDGE_HOST>/clip/v2/resource/bridge/bridge-1',
+      url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/bridge/bridge-1',
       json: {
         time_zone: {
           time_zone: 'Europe/Berlin',
@@ -520,7 +518,7 @@ test('Hue helper builds link and remote requests without secret output', () => {
   expect(JSON.stringify(remoteOauth)).not.toContain('client-secret');
 });
 
-test('Hue helper rejects loose booleans and invalid secret templates early', () => {
+test('Hue helper rejects loose booleans and invalid host placeholders early', () => {
   const booleanResult = runHelper([
     '--format',
     'json',
@@ -540,14 +538,27 @@ test('Hue helper rejects loose booleans and invalid secret templates early', () 
     'http-request',
     'lights',
     '--host',
-    '<secret:hue-bridge-host>',
+    '<secret:HUE_BRIDGE_HOST>',
+  ]);
+  const envTemplateResult = runHelper([
+    '--format',
+    'json',
+    '--request',
+    'http-request',
+    'lights',
+    '--host',
+    '<env:hue-bridge-host>',
   ]);
 
   expect(booleanResult.status).not.toBe(0);
   expect(booleanResult.stderr).toContain('--enabled must be true or false');
   expect(secretTemplateResult.status).not.toBe(0);
   expect(secretTemplateResult.stderr).toContain(
-    '--host secret template must be exactly <secret:NAME>',
+    '--host URL placeholder must use <env:NAME>',
+  );
+  expect(envTemplateResult.status).not.toBe(0);
+  expect(envTemplateResult.stderr).toContain(
+    '--host env placeholder must be exactly <env:NAME>',
   );
 });
 
