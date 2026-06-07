@@ -1080,6 +1080,157 @@ test('Blink live thumbnail refresh reports stale freshness when Blink returns th
   const thumbnailPath =
     '/api/v3/media/accounts/1234/networks/111/xt2/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=';
   const requests: Array<{ url: string; method: string }> = [];
+  let commandPolls = 0;
+  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    requests.push({
+      url: requestBody.url,
+      method: requestBody.method,
+    });
+    if (requestBody.url.includes('/homescreen')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: {
+            cameras: [
+              {
+                id: 222,
+                name: 'Backyard',
+                network_id: 111,
+                type: 'xt2',
+                status: 'done',
+                updated_at: '2026-06-07T10:31:47+00:00',
+                thumbnail: thumbnailPath,
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/thumbnail') && requestBody.method === 'POST') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: { id: 999, network_id: 111 },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/command/999')) {
+      commandPolls += 1;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json:
+            commandPolls === 1
+              ? {
+                  complete: false,
+                  status: 0,
+                  status_msg: 'Command succeeded',
+                  status_code: 908,
+                  commands: [
+                    {
+                      id: 999,
+                      command: 'thumbnail',
+                      state_stage: 'cs_sent',
+                      state_condition: 'running',
+                      stage_sm: null,
+                      stage_dev: null,
+                    },
+                  ],
+                }
+              : { complete: true, status_code: 908 },
+        }),
+        { status: 200 },
+      );
+    }
+    if (
+      requestBody.url.includes('/thumbnail/thumbnail.jpg') &&
+      requestBody.method === 'GET'
+    ) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          bodySuppressed: true,
+          artifact: {
+            filename: 'yard.jpg',
+            sha256:
+              'd4865fbd3974ca96bce92a32743892de928af1803ec722dbac4a2a73b2f2ed28',
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    throw new Error(`Unexpected request ${requestBody.method} ${requestBody.url}`);
+  });
+
+  const result = await blink.runLive(
+    [
+      '--format',
+      'json',
+      'run',
+      'camera-thumbnail-refresh',
+      '--network',
+      '111',
+      '--camera',
+      '222',
+      '--filename',
+      'yard.jpg',
+      '--operator-grant',
+      '--poll-interval-ms',
+      '1',
+    ],
+    { fetch },
+  );
+
+  expect(result.result.ok).toBe(false);
+  expect(result.result.freshness).toMatchObject({
+    ok: false,
+    reason: 'thumbnail-unchanged',
+    commandCompleted: true,
+    commandPollAttempts: 2,
+    previousThumbnailPath: thumbnailPath,
+    thumbnailPath,
+    thumbnailPathChanged: false,
+    warning:
+      'Blink accepted the snapshot command, but the returned thumbnail did not change. Do not describe this as a fresh image.',
+    cause:
+      'unknown; do not infer Wi-Fi, camera reachability, or Blink service state from unchanged thumbnail evidence alone',
+  });
+  expect(result.result).not.toHaveProperty('artifact');
+  expect(result.result).not.toHaveProperty('artifacts');
+  expect(result.result.display).toMatchObject({
+    shouldDisplayArtifact: false,
+    reason: 'stale-thumbnail-withheld',
+    guidance:
+      'Do not display or link the downloaded thumbnail artifact because Blink returned the same thumbnail after refresh. Report only the freshness failure and the unknown cause.',
+    downloadedArtifactSha256:
+      'd4865fbd3974ca96bce92a32743892de928af1803ec722dbac4a2a73b2f2ed28',
+  });
+  expect(result.artifact).toMatchObject({
+    mode: 'withheld-stale-thumbnail',
+    handling:
+      'Do not return or display the stale artifact handle because freshness.ok is false.',
+  });
+  expect(requests.map((item) => item.method)).toEqual([
+    'GET',
+    'POST',
+    'GET',
+    'GET',
+    'GET',
+    'GET',
+  ]);
+});
+
+test('Blink live thumbnail refresh does not download when Blink command never completes', async () => {
+  const thumbnailPath =
+    '/api/v3/media/accounts/1234/networks/111/xt2/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=';
+  const requests: Array<{ url: string; method: string }> = [];
   const fetch = vi.fn(async (_url: string, init: RequestInit) => {
     const requestBody = JSON.parse(String(init.body));
     requests.push({
@@ -1123,7 +1274,22 @@ test('Blink live thumbnail refresh reports stale freshness when Blink returns th
         JSON.stringify({
           ok: true,
           status: 200,
-          json: { complete: true, status_code: 908 },
+          json: {
+            complete: false,
+            status: 0,
+            status_msg: 'Command succeeded',
+            status_code: 908,
+            commands: [
+              {
+                id: 999,
+                command: 'thumbnail',
+                state_stage: 'cs_sent',
+                state_condition: 'running',
+                stage_sm: null,
+                stage_dev: null,
+              },
+            ],
+          },
         }),
         { status: 200 },
       );
@@ -1132,19 +1298,7 @@ test('Blink live thumbnail refresh reports stale freshness when Blink returns th
       requestBody.url.includes('/thumbnail/thumbnail.jpg') &&
       requestBody.method === 'GET'
     ) {
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          status: 200,
-          bodySuppressed: true,
-          artifact: {
-            filename: 'yard.jpg',
-            sha256:
-              'd4865fbd3974ca96bce92a32743892de928af1803ec722dbac4a2a73b2f2ed28',
-          },
-        }),
-        { status: 200 },
-      );
+      throw new Error('stale thumbnail should not be downloaded');
     }
     throw new Error(`Unexpected request ${requestBody.method} ${requestBody.url}`);
   });
@@ -1159,30 +1313,37 @@ test('Blink live thumbnail refresh reports stale freshness when Blink returns th
       '111',
       '--camera',
       '222',
-      '--filename',
-      'yard.jpg',
       '--operator-grant',
+      '--max-wait-ms',
+      '1',
+      '--poll-interval-ms',
+      '1',
     ],
     { fetch },
   );
 
+  expect(result.result.ok).toBe(false);
   expect(result.result.freshness).toMatchObject({
     ok: false,
-    commandCompleted: true,
+    reason: 'command-not-completed',
+    commandCompleted: false,
     previousThumbnailPath: thumbnailPath,
-    thumbnailPath,
-    thumbnailPathChanged: false,
     warning:
-      'Blink accepted the snapshot command, but the returned thumbnail did not change. Do not describe this as a fresh image.',
+      'Blink accepted the snapshot command, but command status did not report completion before the wait timeout. Do not download or display the previous thumbnail.',
   });
-  expect(result.result.artifact).toMatchObject({
-    filename: 'yard.jpg',
+  expect(result.result.display).toMatchObject({
+    shouldDisplayArtifact: false,
+    reason: 'refresh-command-not-completed',
   });
-  expect(requests.map((item) => item.method)).toEqual([
+  expect(result.artifact).toMatchObject({
+    mode: 'no-artifact-command-incomplete',
+  });
+  expect(
+    requests.some((item) => item.url.includes('/thumbnail/thumbnail.jpg')),
+  ).toBe(false);
+  expect(requests.map((item) => item.method).slice(0, 3)).toEqual([
     'GET',
     'POST',
-    'GET',
-    'GET',
     'GET',
   ]);
 });
