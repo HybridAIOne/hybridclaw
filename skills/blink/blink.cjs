@@ -2003,6 +2003,56 @@ function isCommandComplete(body) {
   return commandStates.some((state) => state === 'done' || state === 'complete');
 }
 
+function blinkCommandStatus(body) {
+  const command = Array.isArray(body?.commands) ? body.commands[0] : undefined;
+  const status = Number(body?.status ?? 0);
+  const statusCode = Number(body?.status_code ?? body?.statusCode ?? 0);
+  const statusMsg =
+    typeof body?.status_msg === 'string'
+      ? body.status_msg
+      : typeof body?.statusMsg === 'string'
+        ? body.statusMsg
+        : undefined;
+  const stateCondition =
+    typeof command?.state_condition === 'string'
+      ? command.state_condition
+      : typeof command?.stateCondition === 'string'
+        ? command.stateCondition
+        : undefined;
+  const stateStage =
+    typeof command?.state_stage === 'string'
+      ? command.state_stage
+      : typeof command?.stateStage === 'string'
+        ? command.stateStage
+        : undefined;
+  return {
+    complete: body?.complete === true,
+    status,
+    statusCode,
+    statusMsg,
+    stateStage,
+    stateCondition,
+    stageSm: command?.stage_sm ?? command?.stageSm,
+    stageDev: command?.stage_dev ?? command?.stageDev,
+    smAck: command?.sm_ack ?? command?.smAck,
+    lfrAck: command?.lfr_ack ?? command?.lfrAck,
+    debug: typeof command?.debug === 'string' ? command.debug : undefined,
+  };
+}
+
+function isCommandSuccess(body) {
+  const status = blinkCommandStatus(body);
+  const normalizedCondition = String(status.stateCondition || '').toLowerCase();
+  if (
+    normalizedCondition === 'error' ||
+    normalizedCondition === 'failed' ||
+    normalizedCondition === 'failure'
+  ) {
+    return false;
+  }
+  return status.status === 0 && status.statusCode === 908;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -2165,6 +2215,135 @@ function cameraSummary(camera) {
   };
 }
 
+function incompleteCommandRefreshResult({
+  beforeDevicesPayload,
+  mutationPayload,
+  command,
+  runOptions,
+  triggerResult,
+  commandPoll,
+  beforeCamera,
+  previousThumbnailPath,
+}) {
+  return {
+    command: 'live',
+    operation: 'camera-thumbnail-refresh',
+    stakesTier: OPERATION_TIERS['camera-thumbnail-refresh'],
+    request: {
+      beforeDevices: liveRequestSummary(beforeDevicesPayload.httpRequest),
+      trigger: liveRequestSummary(mutationPayload.httpRequest),
+      commandStatus: command
+        ? liveRequestSummary(
+            buildCommandStatusRequest(
+              'camera-thumbnail-refresh',
+              command.network || runOptions.network,
+              command.id,
+            ),
+          )
+        : undefined,
+    },
+    result: {
+      ok: false,
+      trigger: triggerResult.bodyJson || {
+        status: triggerResult.status,
+        statusText: triggerResult.statusText,
+      },
+      commandPoll,
+      camera: cameraSummary(beforeCamera),
+      freshness: {
+        ok: false,
+        reason: 'command-not-completed',
+        commandCompleted: false,
+        commandPollAttempts: commandPoll.attempts,
+        previousThumbnailPath,
+        warning:
+          'Blink accepted the snapshot command, but command status did not report completion before the wait timeout. Do not download or display the previous thumbnail.',
+        cause:
+          'unknown; command status never reached complete:true, so do not infer Wi-Fi, camera reachability, or Blink service state from this evidence alone',
+      },
+      display: {
+        shouldDisplayArtifact: false,
+        reason: 'refresh-command-not-completed',
+        guidance:
+          'Do not download, display, or link a thumbnail artifact because Blink did not report command completion.',
+      },
+    },
+    artifact: {
+      mode: 'no-artifact-command-incomplete',
+      maxInlineBytes: 0,
+      handling:
+        'Do not return or display a thumbnail artifact because the refresh command did not complete.',
+    },
+    costMeasurement: COST_MEASUREMENT,
+  };
+}
+
+function failedCommandRefreshResult({
+  beforeDevicesPayload,
+  mutationPayload,
+  command,
+  runOptions,
+  triggerResult,
+  commandPoll,
+  beforeCamera,
+  previousThumbnailPath,
+}) {
+  const status = blinkCommandStatus(commandPoll.result?.bodyJson);
+  return {
+    command: 'live',
+    operation: 'camera-thumbnail-refresh',
+    stakesTier: OPERATION_TIERS['camera-thumbnail-refresh'],
+    request: {
+      beforeDevices: liveRequestSummary(beforeDevicesPayload.httpRequest),
+      trigger: liveRequestSummary(mutationPayload.httpRequest),
+      commandStatus: command
+        ? liveRequestSummary(
+            buildCommandStatusRequest(
+              'camera-thumbnail-refresh',
+              command.network || runOptions.network,
+              command.id,
+            ),
+          )
+        : undefined,
+    },
+    result: {
+      ok: false,
+      trigger: triggerResult.bodyJson || {
+        status: triggerResult.status,
+        statusText: triggerResult.statusText,
+      },
+      commandPoll,
+      camera: cameraSummary(beforeCamera),
+      freshness: {
+        ok: false,
+        reason: 'command-failed',
+        commandCompleted: true,
+        commandSucceeded: false,
+        commandPollAttempts: commandPoll.attempts,
+        previousThumbnailPath,
+        commandStatus: status,
+        warning:
+          'Blink completed the snapshot command with an error status. Do not download or display the previous thumbnail.',
+        cause:
+          'unknown; report Blink command status fields only and do not infer Wi-Fi, camera hardware, firmware, or service root cause from this evidence alone',
+      },
+      display: {
+        shouldDisplayArtifact: false,
+        reason: 'refresh-command-failed',
+        guidance:
+          'Do not download, display, or link a thumbnail artifact because Blink reported the refresh command failed.',
+      },
+    },
+    artifact: {
+      mode: 'no-artifact-command-failed',
+      maxInlineBytes: 0,
+      handling:
+        'Do not return or display a thumbnail artifact because the refresh command failed.',
+    },
+    costMeasurement: COST_MEASUREMENT,
+  };
+}
+
 async function runCameraThumbnailRefresh(args, options = {}) {
   const runOptions = parseThumbnailRefreshRunOptions(args);
   const beforeDevicesPayload = buildReadOperation('devices-list', []);
@@ -2204,57 +2383,28 @@ async function runCameraThumbnailRefresh(args, options = {}) {
       };
   const devicesPayload = buildReadOperation('devices-list', []);
   if (!commandPoll.ok) {
-    return {
-      command: 'live',
-      operation: 'camera-thumbnail-refresh',
-      stakesTier: OPERATION_TIERS['camera-thumbnail-refresh'],
-      request: {
-        beforeDevices: liveRequestSummary(beforeDevicesPayload.httpRequest),
-        trigger: liveRequestSummary(mutationPayload.httpRequest),
-        commandStatus: command
-          ? liveRequestSummary(
-              buildCommandStatusRequest(
-                'camera-thumbnail-refresh',
-                command.network || runOptions.network,
-                command.id,
-              ),
-            )
-          : undefined,
-      },
-      result: {
-        ok: false,
-        trigger: triggerResult.bodyJson || {
-          status: triggerResult.status,
-          statusText: triggerResult.statusText,
-        },
-        commandPoll,
-        camera: cameraSummary(beforeCamera),
-        freshness: {
-          ok: false,
-          reason: 'command-not-completed',
-          commandCompleted: false,
-          commandPollAttempts: commandPoll.attempts,
-          previousThumbnailPath,
-          warning:
-            'Blink accepted the snapshot command, but command status did not report completion before the wait timeout. Do not download or display the previous thumbnail.',
-          cause:
-            'unknown; command status never reached complete:true, so do not infer Wi-Fi, camera reachability, or Blink service state from this evidence alone',
-        },
-        display: {
-          shouldDisplayArtifact: false,
-          reason: 'refresh-command-not-completed',
-          guidance:
-            'Do not download, display, or link a thumbnail artifact because Blink did not report command completion.',
-        },
-      },
-      artifact: {
-        mode: 'no-artifact-command-incomplete',
-        maxInlineBytes: 0,
-        handling:
-          'Do not return or display a thumbnail artifact because the refresh command did not complete.',
-      },
-      costMeasurement: COST_MEASUREMENT,
-    };
+    return incompleteCommandRefreshResult({
+      beforeDevicesPayload,
+      mutationPayload,
+      command,
+      runOptions,
+      triggerResult,
+      commandPoll,
+      beforeCamera,
+      previousThumbnailPath,
+    });
+  }
+  if (!isCommandSuccess(commandPoll.result?.bodyJson)) {
+    return failedCommandRefreshResult({
+      beforeDevicesPayload,
+      mutationPayload,
+      command,
+      runOptions,
+      triggerResult,
+      commandPoll,
+      beforeCamera,
+      previousThumbnailPath,
+    });
   }
   const devicesResult = await executeGatewayRequest(
     devicesPayload.httpRequest,
