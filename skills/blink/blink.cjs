@@ -24,7 +24,7 @@ const OAUTH_CLIENT_ID = 'ios';
 const OAUTH_REDIRECT_URI =
   'immedia-blink://applinks.blink.com/signin/callback';
 const OAUTH_SCOPE = 'client';
-const OAUTH_APP_VERSION = '50.1';
+const DEFAULT_OAUTH_APP_VERSION = '56.1';
 const OAUTH_BROWSER_USER_AGENT =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Mobile/15E148 Safari/604.1';
 const OAUTH_TOKEN_USER_AGENT =
@@ -176,6 +176,7 @@ Environment:
   BLINK_DEVICE_ID     optional generated OAuth v2 hardware id override
   BLINK_CLIENT_NAME   optional local display name, not sent to Blink OAuth v2
   BLINK_USER_AGENT    optional Blink REST User-Agent override
+  BLINK_OAUTH_APP_VERSION optional OAuth app version override, defaults to 56.1
   BLINK_TIER          optional resolved tier, for example e003
   BLINK_ACCOUNT_ID    optional numeric account id fallback
   BLINK_CLIENT_ID     optional numeric client id fallback
@@ -335,11 +336,26 @@ function parseUserAgent(value) {
   return normalized;
 }
 
+function parseAppVersion(value, label) {
+  const normalized = requireText(value, label);
+  if (normalized.includes('<secret:') || !/^\d{1,3}\.\d{1,3}$/u.test(normalized)) {
+    die(`${label} must look like 56.1 and must not contain SecretRefs.`);
+  }
+  return normalized;
+}
+
 function configureUserAgent(args) {
   userAgent = parseUserAgent(
     popFlag(args, '--user-agent') ||
       process.env.BLINK_USER_AGENT ||
       DEFAULT_USER_AGENT,
+  );
+}
+
+function resolveOAuthAppVersion() {
+  return parseAppVersion(
+    process.env.BLINK_OAUTH_APP_VERSION || DEFAULT_OAUTH_APP_VERSION,
+    'BLINK_OAUTH_APP_VERSION',
   );
 }
 
@@ -837,7 +853,7 @@ function oauthHeaders(extra = {}) {
 function oauthAuthorizeUrl(hardwareId, codeChallenge) {
   const params = new URLSearchParams({
     app_brand: 'blink',
-    app_version: OAUTH_APP_VERSION,
+    app_version: resolveOAuthAppVersion(),
     client_id: OAUTH_CLIENT_ID,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
@@ -1682,7 +1698,7 @@ async function runAccountLoginFlow(args, options = {}) {
         ['csrf-token', csrfToken],
       ]),
     }),
-    { ...options, allowedStatuses: [401, 412, 429] },
+    { ...options, allowedStatuses: [202, 401, 412, 429] },
   );
   mergeSetCookies(cookieJar, response.headers);
   const authStop = blinkOAuthAuthStopResult('account-login', response);
@@ -1691,7 +1707,7 @@ async function runAccountLoginFlow(args, options = {}) {
     return authStop;
   }
 
-  if (response.status === 412) {
+  if (response.status === 202 || response.status === 412) {
     if (!parsedPin) {
       const seconds = verificationSeconds(response);
       saveOAuthHandover(
