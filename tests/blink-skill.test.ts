@@ -1189,6 +1189,16 @@ test('Blink live thumbnail refresh reports stale freshness when Blink returns th
   );
 
   expect(result.result.ok).toBe(false);
+  expect(result.request.trigger).toMatchObject({
+    url: 'https://rest-<secret:BLINK_TIER>.immedia-semi.com/network/111/camera/222/thumbnail',
+    method: 'POST',
+  });
+  expect(result.result.cameraType).toMatchObject({
+    requested: 'default',
+    resolved: 'default',
+    inferredFromHomescreen: true,
+    homescreenType: 'xt2',
+  });
   expect(result.result.freshness).toMatchObject({
     ok: false,
     reason: 'thumbnail-unchanged',
@@ -1223,6 +1233,101 @@ test('Blink live thumbnail refresh reports stale freshness when Blink returns th
     'GET',
     'GET',
     'GET',
+    'GET',
+  ]);
+});
+
+test('Blink live thumbnail refresh infers Mini owl route from homescreen type', async () => {
+  const thumbnailPath =
+    '/api/v3/media/accounts/1234/networks/111/owl/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=';
+  const requests: Array<{ url: string; method: string }> = [];
+  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    requests.push({
+      url: requestBody.url,
+      method: requestBody.method,
+    });
+    if (requestBody.url.includes('/homescreen')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: {
+            cameras: [
+              {
+                id: 222,
+                name: 'Kitchen',
+                network_id: 111,
+                type: 'owl',
+                status: 'done',
+                thumbnail: thumbnailPath,
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/owls/222/thumbnail')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: { id: 999, network_id: 111 },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/command/999')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: {
+            complete: false,
+            status: 0,
+            status_msg: 'Command succeeded',
+            status_code: 908,
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    throw new Error(`Unexpected request ${requestBody.method} ${requestBody.url}`);
+  });
+
+  const result = await blink.runLive(
+    [
+      '--format',
+      'json',
+      'run',
+      'camera-thumbnail-refresh',
+      '--network',
+      '111',
+      '--camera',
+      '222',
+      '--operator-grant',
+      '--max-wait-ms',
+      '1',
+      '--poll-interval-ms',
+      '1',
+    ],
+    { fetch },
+  );
+
+  expect(result.request.trigger).toMatchObject({
+    url: 'https://rest-<secret:BLINK_TIER>.immedia-semi.com/api/v1/accounts/<secret:BLINK_ACCOUNT_ID>/networks/111/owls/222/thumbnail',
+    method: 'POST',
+  });
+  expect(result.result.cameraType).toMatchObject({
+    requested: 'default',
+    resolved: 'mini',
+    inferredFromHomescreen: true,
+    homescreenType: 'owl',
+  });
+  expect(requests.map((item) => item.method).slice(0, 3)).toEqual([
+    'GET',
+    'POST',
     'GET',
   ]);
 });

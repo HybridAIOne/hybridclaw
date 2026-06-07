@@ -418,6 +418,21 @@ function parseCameraType(value) {
   return normalized;
 }
 
+function blinkCameraActionFamily(camera) {
+  const type = String(camera?.type || camera?.camera_type || '')
+    .trim()
+    .toLowerCase();
+  if (type === 'mini' || type === 'owl') return 'mini';
+  if (
+    type === 'doorbell' ||
+    type === 'video_doorbell' ||
+    type === 'doorbell_button'
+  ) {
+    return 'doorbell';
+  }
+  return 'default';
+}
+
 function resolveTier(args) {
   const tier =
     popFlag(args, '--tier') ||
@@ -1942,10 +1957,12 @@ async function executeLivePayload(payload, options = {}, didRecoverAuth = false)
 }
 
 function parseThumbnailRefreshRunOptions(args) {
+  const cameraTypeProvided = args.includes('--camera-type');
   return {
     network: parseIdentifier(peekFlag(args, '--network'), '--network'),
     camera: parseIdentifier(peekFlag(args, '--camera'), '--camera'),
     cameraType: parseCameraType(peekFlag(args, '--camera-type', 'default')),
+    cameraTypeProvided,
     filename: popFlag(args, '--filename'),
     previousSha256:
       args.includes('--previous-sha256')
@@ -2215,6 +2232,16 @@ function cameraSummary(camera) {
   };
 }
 
+function cameraTypeSummary(runOptions, camera, resolvedCameraType) {
+  return {
+    requested: runOptions.cameraType,
+    resolved: resolvedCameraType,
+    inferredFromHomescreen:
+      !runOptions.cameraTypeProvided && Boolean(camera),
+    homescreenType: camera?.type,
+  };
+}
+
 function incompleteCommandRefreshResult({
   beforeDevicesPayload,
   mutationPayload,
@@ -2224,6 +2251,7 @@ function incompleteCommandRefreshResult({
   commandPoll,
   beforeCamera,
   previousThumbnailPath,
+  resolvedCameraType,
 }) {
   return {
     command: 'live',
@@ -2250,6 +2278,11 @@ function incompleteCommandRefreshResult({
       },
       commandPoll,
       camera: cameraSummary(beforeCamera),
+      cameraType: cameraTypeSummary(
+        runOptions,
+        beforeCamera,
+        resolvedCameraType,
+      ),
       freshness: {
         ok: false,
         reason: 'command-not-completed',
@@ -2287,6 +2320,7 @@ function failedCommandRefreshResult({
   commandPoll,
   beforeCamera,
   previousThumbnailPath,
+  resolvedCameraType,
 }) {
   const status = blinkCommandStatus(commandPoll.result?.bodyJson);
   return {
@@ -2314,6 +2348,11 @@ function failedCommandRefreshResult({
       },
       commandPoll,
       camera: cameraSummary(beforeCamera),
+      cameraType: cameraTypeSummary(
+        runOptions,
+        beforeCamera,
+        resolvedCameraType,
+      ),
       freshness: {
         ok: false,
         reason: 'command-failed',
@@ -2355,13 +2394,33 @@ async function runCameraThumbnailRefresh(args, options = {}) {
     beforeDevicesResult.bodyJson,
     runOptions,
   );
+  const resolvedCameraType =
+    runOptions.cameraTypeProvided || !beforeCamera
+      ? runOptions.cameraType
+      : blinkCameraActionFamily(beforeCamera);
+  const resolvedRunOptions = {
+    ...runOptions,
+    cameraType: resolvedCameraType,
+  };
+  const mutationArgs = [
+    ...args.filter((arg, index) => {
+      if (arg === '--camera-type') return false;
+      return args[index - 1] !== '--camera-type';
+    }),
+    '--camera-type',
+    resolvedCameraType,
+  ];
   const previousThumbnailPath =
     typeof beforeCamera?.thumbnail === 'string'
       ? parseThumbnailPath(beforeCamera.thumbnail)
       : undefined;
-  const mutationPayload = buildMutationRequest('camera-thumbnail-refresh', args, {
-    requireGrant: true,
-  }).payload;
+  const mutationPayload = buildMutationRequest(
+    'camera-thumbnail-refresh',
+    mutationArgs,
+    {
+      requireGrant: true,
+    },
+  ).payload;
   const triggerResult = await executeGatewayRequest(
     mutationPayload.httpRequest,
     options,
@@ -2370,9 +2429,9 @@ async function runCameraThumbnailRefresh(args, options = {}) {
   const commandPoll = command
     ? await pollBlinkCommand(
         'camera-thumbnail-refresh',
-        command.network || runOptions.network,
+        command.network || resolvedRunOptions.network,
         command.id,
-        runOptions,
+        resolvedRunOptions,
         options,
       )
     : {
@@ -2392,6 +2451,7 @@ async function runCameraThumbnailRefresh(args, options = {}) {
       commandPoll,
       beforeCamera,
       previousThumbnailPath,
+      resolvedCameraType,
     });
   }
   if (!isCommandSuccess(commandPoll.result?.bodyJson)) {
@@ -2404,16 +2464,20 @@ async function runCameraThumbnailRefresh(args, options = {}) {
       commandPoll,
       beforeCamera,
       previousThumbnailPath,
+      resolvedCameraType,
     });
   }
   const devicesResult = await executeGatewayRequest(
     devicesPayload.httpRequest,
     options,
   );
-  const camera = findCameraWithThumbnail(devicesResult.bodyJson, runOptions);
+  const camera = findCameraWithThumbnail(
+    devicesResult.bodyJson,
+    resolvedRunOptions,
+  );
   if (!camera) {
     throw new Error(
-      `Blink homescreen did not include camera ${runOptions.camera} with a thumbnail after refresh.`,
+      `Blink homescreen did not include camera ${resolvedRunOptions.camera} with a thumbnail after refresh.`,
     );
   }
   const thumbnailPath = parseThumbnailPath(camera.thumbnail);
@@ -2460,6 +2524,7 @@ async function runCameraThumbnailRefresh(args, options = {}) {
         status: triggerResult.status,
         statusText: triggerResult.statusText,
       },
+      cameraType: cameraTypeSummary(runOptions, beforeCamera, resolvedCameraType),
       commandPoll,
       camera: cameraSummary(camera),
       freshness: evidence,
