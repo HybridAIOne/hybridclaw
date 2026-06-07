@@ -51,6 +51,21 @@ const THUMBNAIL_FAILURE_REPORTING_CONTRACT = Object.freeze({
     'Do not recommend firmware updates, app updates, reboot, restart, or reset as proven fixes; at most say the operator can check the Blink app or physically power-cycle outside this API if they want to troubleshoot the device.',
   ],
 });
+const THUMBNAIL_BUSY_REPORTING_CONTRACT = Object.freeze({
+  summary:
+    'Report Blink returned a busy response and that no thumbnail command was accepted or verified.',
+  allowedClaims: [
+    'Blink returned a busy response for the thumbnail trigger request.',
+    'The helper did not verify a fresh thumbnail.',
+    'Retry later after the system is no longer busy.',
+  ],
+  forbiddenClaims: [
+    'Do not say Blink servers are overloaded.',
+    'Do not say Blink is throttling because of prior snapshot attempts unless Blink explicitly says so in the same response.',
+    'Do not say this proves or disproves a camera problem.',
+    'Do not infer Wi-Fi, camera hardware, firmware, reachability, or Blink service state from a busy response.',
+  ],
+});
 
 const SECRET_NAMES = {
   email: 'BLINK_EMAIL',
@@ -2417,6 +2432,68 @@ function failedCommandRefreshResult({
   };
 }
 
+function busyCommandRefreshResult({
+  beforeDevicesPayload,
+  mutationPayload,
+  triggerResult,
+  beforeCamera,
+  previousThumbnailPath,
+  runOptions,
+  resolvedCameraType,
+}) {
+  const body = triggerResult.bodyJson || {};
+  return {
+    command: 'live',
+    operation: 'camera-thumbnail-refresh',
+    stakesTier: OPERATION_TIERS['camera-thumbnail-refresh'],
+    request: {
+      beforeDevices: liveRequestSummary(beforeDevicesPayload.httpRequest),
+      trigger: liveRequestSummary(mutationPayload.httpRequest),
+    },
+    result: {
+      ok: false,
+      trigger: body || {
+        status: triggerResult.status,
+        statusText: triggerResult.statusText,
+      },
+      camera: cameraSummary(beforeCamera),
+      cameraType: cameraTypeSummary(
+        runOptions,
+        beforeCamera,
+        resolvedCameraType,
+      ),
+      freshness: {
+        ok: false,
+        reason: 'system-busy',
+        commandAccepted: false,
+        commandCompleted: false,
+        previousThumbnailPath,
+        httpStatus: triggerResult.status,
+        blinkCode: body.code,
+        message: body.message,
+        warning:
+          'Blink returned a busy response before accepting the thumbnail command. Do not describe this as a camera failure or a fresh image.',
+        cause:
+          'unknown; report the busy response only and do not infer server overload, throttling, Wi-Fi, camera hardware, firmware, reachability, or Blink service root cause from this evidence alone',
+      },
+      display: {
+        shouldDisplayArtifact: false,
+        reason: 'refresh-system-busy',
+        guidance:
+          'Do not download, display, or link a thumbnail artifact because Blink did not accept the refresh command while the system was busy.',
+      },
+      failureReportContract: THUMBNAIL_BUSY_REPORTING_CONTRACT,
+    },
+    artifact: {
+      mode: 'no-artifact-system-busy',
+      maxInlineBytes: 0,
+      handling:
+        'Do not return or display a thumbnail artifact because Blink did not accept the refresh command.',
+    },
+    costMeasurement: COST_MEASUREMENT,
+  };
+}
+
 async function runCameraThumbnailRefresh(args, options = {}) {
   const runOptions = parseThumbnailRefreshRunOptions(args);
   const beforeDevicesPayload = buildReadOperation('devices-list', []);
@@ -2455,10 +2532,21 @@ async function runCameraThumbnailRefresh(args, options = {}) {
       requireGrant: true,
     },
   ).payload;
-  const triggerResult = await executeGatewayRequest(
-    mutationPayload.httpRequest,
-    options,
-  );
+  const triggerResult = await executeGatewayRequest(mutationPayload.httpRequest, {
+    ...options,
+    allowedStatuses: [...new Set([...(options.allowedStatuses || []), 409])],
+  });
+  if (triggerResult.status === 409) {
+    return busyCommandRefreshResult({
+      beforeDevicesPayload,
+      mutationPayload,
+      triggerResult,
+      beforeCamera,
+      previousThumbnailPath,
+      runOptions,
+      resolvedCameraType,
+    });
+  }
   const command = extractBlinkCommand(triggerResult);
   const commandPoll = command
     ? await pollBlinkCommand(

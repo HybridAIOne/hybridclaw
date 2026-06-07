@@ -200,6 +200,12 @@ time. A failed thumbnail report should be limited to: camera name/id if known,
 command id if known, command status fields, freshness/display guidance, and the
 fact that no fresh image was verified.
 
+If `camera-thumbnail-refresh` returns `result.freshness.reason:
+"system-busy"`, say Blink returned a busy response before accepting the
+thumbnail command and suggest retrying later. Do not describe this as Blink
+server overload, rate limiting, repeated-snapshot throttling, or proof for or
+against a camera problem unless the same response explicitly says so.
+
 `plan` emits no live side effect. It returns `approvalText`,
 `approvedHelperCommandText`, the exact target host/path/method, and the
 bounded `httpRequest` shape. Stop after producing the plan. Only after the
