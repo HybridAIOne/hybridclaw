@@ -105,6 +105,7 @@ export interface ToolSchemaProperty {
   description?: string;
   items?: ToolSchemaProperty;
   properties?: Record<string, ToolSchemaProperty>;
+  additionalProperties?: boolean | ToolSchemaProperty;
   required?: string[];
   enum?: string[];
   minItems?: number;

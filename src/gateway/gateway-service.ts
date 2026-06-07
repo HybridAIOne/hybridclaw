@@ -326,6 +326,7 @@ import {
   isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
   listStoredRuntimeSecretNames,
+  normalizeRuntimeSecretInputValue,
   readStoredRuntimeSecret,
   readStoredRuntimeSecrets,
   runtimeSecretsPath,
@@ -9936,7 +9937,9 @@ export async function handleGatewayCommand(
 
         if (sub === 'set') {
           const secretName = parseIdArg(req.args, 2);
-          const secretValue = req.args.slice(3).join(' ').trim();
+          const secretValue = normalizeRuntimeSecretInputValue(
+            req.args.slice(3).join(' '),
+          );
           if (!secretName || !secretValue) {
             return badCommand('Usage', 'Usage: `secret set <name> <value>`');
           }

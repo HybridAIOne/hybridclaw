@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
+import { repairUnicodeForJson } from '../../container/shared/unicode-utils.js';
 import { SlidingWindowRateLimiter } from '../channels/discord/rate-limiter.js';
 import {
   APP_VERSION,
@@ -301,6 +302,12 @@ function enrichObservabilityPayload(
   };
 }
 
+function repairObservabilityEventUnicode(
+  event: Record<string, unknown>,
+): Record<string, unknown> {
+  return repairUnicodeForJson(event) as Record<string, unknown>;
+}
+
 function buildEventUid(
   config: ResolvedIngestConfig,
   row: StructuredAuditEntry,
@@ -325,7 +332,7 @@ function mapAuditRowToEvent(
     row.event_type,
     parsePayload(row.payload),
   );
-  return {
+  return repairObservabilityEventUnicode({
     session_id: row.session_id,
     run_id: row.run_id,
     parent_run_id: row.parent_run_id || null,
@@ -361,7 +368,7 @@ function mapAuditRowToEvent(
     api_completion_tokens: readNullableInteger(payload, 'apiCompletionTokens'),
     api_total_tokens: readNullableInteger(payload, 'apiTotalTokens'),
     event_uid: buildEventUid(config, row),
-  };
+  });
 }
 
 function buildBatchPayloadText(

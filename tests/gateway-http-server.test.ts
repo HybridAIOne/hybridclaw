@@ -7651,6 +7651,41 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('blocks shell secret set commands from /api/chat before the model sees them', async () => {
+    const state = await importFreshHealth();
+    const leakedValue = 'very-secret-password';
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-secret-cli-guard',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: `hybridclaw secret set BLINK_PASSWORD "${leakedValue}"`,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    const body = JSON.parse(res.body);
+    expect(body).toMatchObject({
+      status: 'success',
+      commandResult: true,
+      sessionId: 'session-secret-cli-guard',
+    });
+    expect(body.result).toContain('did not run or send');
+    expect(body.result).toContain('/secret set BLINK_PASSWORD <value>');
+    expect(body.result).toContain(
+      'hybridclaw secret set BLINK_PASSWORD <value>',
+    );
+    expect(body.result).not.toContain(leakedValue);
+  });
+
   test('uses the signed session subject for web chat requests', async () => {
     const authSecret = 'health-secret';
     const sessionToken = signAuthPayload(
@@ -7877,6 +7912,46 @@ describe('gateway HTTP server', () => {
         }),
       },
     ]);
+  });
+
+  test('blocks shell secret set commands from streaming /api/chat before the model sees them', async () => {
+    const state = await importFreshHealth();
+    const leakedValue = 'stream-secret-token';
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-secret-cli-guard-stream',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: `/usr/local/bin/hybridclaw secret set API_TOKEN ${leakedValue}`,
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          commandResult: true,
+          sessionId: 'session-secret-cli-guard-stream',
+          result: expect.stringContaining('/secret set API_TOKEN <value>'),
+        }),
+      },
+    ]);
+    expect(events[0].result.result).not.toContain(leakedValue);
   });
 
   test('threads updated session ids through expanded web slash commands', async () => {
@@ -10020,6 +10095,385 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('url-encodes form fields after resolving secret placeholders', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-form-secret-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      FORM_PASSWORD: 'a&b+c=d%',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/login',
+        method: 'POST',
+        form: {
+          username: 'user@example.com',
+          password: '<secret:FORM_PASSWORD>',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        body: 'username=user%40example.com&password=a%26b%2Bc%3Dd%25',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }),
+      }),
+    );
+  });
+
+  test('captures explicit token bindDomain for cross-host OAuth tokens', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-bind-domain-capture-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { readStoredRuntimeSecret } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'blink-oauth-token' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.oauth.blink.com/oauth/token',
+        method: 'POST',
+        captureResponseFields: [
+          {
+            jsonPath: 'access_token',
+            secretName: 'BLINK_AUTH_TOKEN',
+            bindDomain: 'immedia-semi.com',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        access_token: 'BLINK_AUTH_TOKEN',
+      },
+    });
+    expect(readStoredRuntimeSecret('BLINK_AUTH_TOKEN_BOUND_DOMAIN')).toBe(
+      'immedia-semi.com',
+    );
+  });
+
+  test('captures nested response fields without exposing the response body', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-nested-capture-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { readStoredRuntimeSecret } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          auth: { token: 'blink-auth-token' },
+          account: {
+            tier: 'e003',
+            account_id: 1234,
+            client_id: 5678,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-prod.immedia-semi.com/api/v5/account/login',
+        method: 'POST',
+        captureResponseFields: [
+          { jsonPath: 'auth.token', secretName: 'BLINK_AUTH_TOKEN' },
+          { jsonPath: 'account.tier', secretName: 'BLINK_TIER' },
+          { jsonPath: 'account.account_id', secretName: 'BLINK_ACCOUNT_ID' },
+          { jsonPath: 'account.client_id', secretName: 'BLINK_CLIENT_ID' },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        'auth.token': 'BLINK_AUTH_TOKEN',
+        'account.tier': 'BLINK_TIER',
+        'account.account_id': 'BLINK_ACCOUNT_ID',
+        'account.client_id': 'BLINK_CLIENT_ID',
+      },
+    });
+    expect(res.body).not.toContain('blink-auth-token');
+    expect(readStoredRuntimeSecret('BLINK_AUTH_TOKEN')).toBe(
+      'blink-auth-token',
+    );
+    expect(readStoredRuntimeSecret('BLINK_TIER')).toBe('e003');
+    expect(readStoredRuntimeSecret('BLINK_ACCOUNT_ID')).toBe('1234');
+    expect(readStoredRuntimeSecret('BLINK_CLIENT_ID')).toBe('5678');
+  });
+
+  test('captures response headers without exposing response values', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-header-capture-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { readStoredRuntimeSecret, saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      BLINK_AUTH_TOKEN: 'blink-auth-token',
+      BLINK_AUTH_TOKEN_BOUND_DOMAIN: 'immedia-semi.com',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ tier: 'e003', account_id: 1234 }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'client-id': '5678',
+          },
+        }),
+      ),
+    );
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info',
+        secretHeaders: [
+          {
+            name: 'Authorization',
+            secretName: 'BLINK_AUTH_TOKEN',
+            prefix: 'Bearer',
+          },
+        ],
+        captureResponseFields: [
+          { jsonPath: 'tier', secretName: 'BLINK_TIER' },
+          { jsonPath: 'account_id', secretName: 'BLINK_ACCOUNT_ID' },
+        ],
+        captureResponseHeaders: [
+          { header: 'client-id', secretName: 'BLINK_CLIENT_ID' },
+        ],
+        suppressResponseBody: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        tier: 'BLINK_TIER',
+        account_id: 'BLINK_ACCOUNT_ID',
+        'headers.client-id': 'BLINK_CLIENT_ID',
+      },
+    });
+    expect(res.body).not.toContain('5678');
+    expect(readStoredRuntimeSecret('BLINK_TIER')).toBe('e003');
+    expect(readStoredRuntimeSecret('BLINK_ACCOUNT_ID')).toBe('1234');
+    expect(readStoredRuntimeSecret('BLINK_CLIENT_ID')).toBe('5678');
+  });
+
+  test('blocks secret header injection when the stored token binding does not match the target host', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-secret-header-binding-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      BLINK_AUTH_TOKEN: 'blink-auth-token',
+      BLINK_AUTH_TOKEN_BOUND_DOMAIN: 'api.oauth.blink.com',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-prod.immedia-semi.com/api/v1/users/tier_info',
+        secretHeaders: [
+          {
+            name: 'Authorization',
+            secretName: 'BLINK_AUTH_TOKEN',
+            prefix: 'Bearer',
+          },
+        ],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: expect.stringContaining('BLINK_AUTH_TOKEN is bound to'),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('suppresses outbound http_request response bodies for opaque results', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-suppress-body-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const cancelBody = vi.fn(async () => undefined);
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://rest-e003.immedia-semi.com/api/v5/accounts/1234/networks/111/cameras/222/liveview',
+      headers: new Headers({
+        'content-length': '2048',
+        'content-type': 'application/json',
+      }),
+      body: {
+        cancel: cancelBody,
+      },
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-e003.immedia-semi.com/api/v5/accounts/1234/networks/111/cameras/222/liveview',
+        method: 'POST',
+        suppressResponseBody: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      ok: true,
+      status: 200,
+      bodySuppressed: true,
+      bodyBytes: 2048,
+    });
+    expect(JSON.parse(res.body)).not.toHaveProperty('body');
+    expect(res.body).not.toContain('media.example');
+    expect(cancelBody).toHaveBeenCalledTimes(1);
+  });
+
   test('rejects malformed captureResponseFields before making outbound request', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-invalid-');
     process.env.HOME = homeDir;
@@ -10435,6 +10889,70 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('saves outbound http_request response bodies as workspace artifacts', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '54.230.228.80', family: 4 }]),
+    }));
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const imageBody = Buffer.from('jpeg-bytes', 'utf8');
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(new Uint8Array(imageBody), {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://rest-e003.immedia-semi.com/api/v3/media/accounts/123/networks/456/xt2/789/thumbnail/thumbnail.jpg',
+        method: 'GET',
+        responseArtifact: {
+          filename: 'backyard.jpg',
+        },
+        suppressResponseBody: true,
+        agentId: 'main',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body).toMatchObject({
+      success: true,
+      ok: true,
+      bodySuppressed: true,
+      bodyBytes: imageBody.length,
+      artifact: {
+        filename: 'backyard.jpg',
+        mimeType: 'image/jpeg',
+        sha256: createHash('sha256').update(imageBody).digest('hex'),
+      },
+    });
+    expect(body.artifact.path).toMatch(
+      /^\/workspace\/\.http-artifacts\/\d+-[a-f0-9]{8}-backyard\.jpg$/u,
+    );
+    const hostPath = path.join(
+      dataDir,
+      'agents',
+      'main',
+      'workspace',
+      body.artifact.path.replace(/^\/workspace\//u, ''),
+    );
+    expect(fs.readFileSync(hostPath)).toEqual(imageBody);
+  });
+
   test('blocks outbound http_request redirects to avoid SSRF bypasses', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
@@ -10471,6 +10989,113 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       error: 'Outbound HTTP redirects are blocked by the SSRF guard.',
     });
+  });
+
+  test('returns manual redirects when explicitly requested without following them', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 302,
+          statusText: 'Found',
+          headers: {
+            location:
+              'immedia-blink://applinks.blink.com/signin/callback?code=abc123',
+          },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.oauth.blink.com/oauth/v2/authorize',
+        allowManualRedirect: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ redirect: 'manual' }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      ok: false,
+      status: 302,
+      headers: {
+        location:
+          'immedia-blink://applinks.blink.com/signin/callback?code=abc123',
+      },
+    });
+  });
+
+  test('only returns upstream Set-Cookie headers when explicitly requested', async () => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('ok', {
+          status: 200,
+          headers: {
+            'set-cookie': 'blink-oauth=abc; Path=/; HttpOnly',
+            'content-type': 'text/plain',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('ok', {
+          status: 200,
+          headers: {
+            'set-cookie': 'blink-oauth=abc; Path=/; HttpOnly',
+            'content-type': 'text/plain',
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const hiddenReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.oauth.blink.com/oauth/v2/signin',
+      },
+    });
+    const hiddenRes = makeResponse();
+    state.handler(hiddenReq as never, hiddenRes as never);
+    await settle();
+
+    const visibleReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.oauth.blink.com/oauth/v2/signin',
+        includeResponseCookies: true,
+      },
+    });
+    const visibleRes = makeResponse();
+    state.handler(visibleReq as never, visibleRes as never);
+    await settle();
+
+    expect(JSON.parse(hiddenRes.body).headers).not.toHaveProperty(
+      'set-cookie',
+    );
+    expect(
+      String(JSON.parse(visibleRes.body).headers['set-cookie']),
+    ).toContain('blink-oauth=abc');
   });
 
   test('preserves outbound http_request fetch failure causes in 502 responses', async () => {
