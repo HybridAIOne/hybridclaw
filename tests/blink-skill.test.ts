@@ -1348,6 +1348,140 @@ test('Blink live thumbnail refresh does not download when Blink command never co
   ]);
 });
 
+test('Blink live thumbnail refresh does not download when Blink command completes with an error', async () => {
+  const thumbnailPath =
+    '/api/v3/media/accounts/1234/networks/111/xt2/222/thumbnail/thumbnail.jpg?ts=1775603908&ext=';
+  const requests: Array<{ url: string; method: string }> = [];
+  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init.body));
+    requests.push({
+      url: requestBody.url,
+      method: requestBody.method,
+    });
+    if (requestBody.url.includes('/homescreen')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: {
+            cameras: [
+              {
+                id: 222,
+                name: 'Backyard',
+                network_id: 111,
+                type: 'xt2',
+                status: 'done',
+                updated_at: '2026-06-07T12:19:15+00:00',
+                thumbnail: thumbnailPath,
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/thumbnail') && requestBody.method === 'POST') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: { id: 999, network_id: 111 },
+        }),
+        { status: 200 },
+      );
+    }
+    if (requestBody.url.includes('/command/999')) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: {
+            complete: true,
+            status: 1,
+            status_msg: 'Thumbnail failed',
+            status_code: 524,
+            commands: [
+              {
+                id: 999,
+                command: 'thumbnail',
+                state_stage: 'dev',
+                state_condition: 'error',
+                stage_sm: '2026-06-07T12:19:13+00:00',
+                stage_dev: '2026-06-07T12:19:45+00:00',
+                sm_ack: 1,
+                lfr_ack: 0,
+                debug:
+                  '{"lfr_ok":[111,2,6083,181,128,151,175,0]}|{"command_error":[111,2,6083,38,71,195,0,180]}',
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (
+      requestBody.url.includes('/thumbnail/thumbnail.jpg') &&
+      requestBody.method === 'GET'
+    ) {
+      throw new Error('failed command should not download stale thumbnail');
+    }
+    throw new Error(`Unexpected request ${requestBody.method} ${requestBody.url}`);
+  });
+
+  const result = await blink.runLive(
+    [
+      '--format',
+      'json',
+      'run',
+      'camera-thumbnail-refresh',
+      '--network',
+      '111',
+      '--camera',
+      '222',
+      '--operator-grant',
+      '--poll-interval-ms',
+      '1',
+    ],
+    { fetch },
+  );
+
+  expect(result.result.ok).toBe(false);
+  expect(result.result.freshness).toMatchObject({
+    ok: false,
+    reason: 'command-failed',
+    commandCompleted: true,
+    commandSucceeded: false,
+    previousThumbnailPath: thumbnailPath,
+    commandStatus: {
+      complete: true,
+      status: 1,
+      statusCode: 524,
+      statusMsg: 'Thumbnail failed',
+      stateStage: 'dev',
+      stateCondition: 'error',
+      stageSm: '2026-06-07T12:19:13+00:00',
+      stageDev: '2026-06-07T12:19:45+00:00',
+      smAck: 1,
+      lfrAck: 0,
+    },
+    warning:
+      'Blink completed the snapshot command with an error status. Do not download or display the previous thumbnail.',
+    cause:
+      'unknown; report Blink command status fields only and do not infer Wi-Fi, camera hardware, firmware, or service root cause from this evidence alone',
+  });
+  expect(result.result.display).toMatchObject({
+    shouldDisplayArtifact: false,
+    reason: 'refresh-command-failed',
+  });
+  expect(result.artifact).toMatchObject({
+    mode: 'no-artifact-command-failed',
+  });
+  expect(
+    requests.some((item) => item.url.includes('/thumbnail/thumbnail.jpg')),
+  ).toBe(false);
+  expect(requests.map((item) => item.method)).toEqual(['GET', 'POST', 'GET']);
+});
+
 test('Blink helper requires operator grant for mutating http-request commands', () => {
   const rejected = runHelper([
     '--format',
