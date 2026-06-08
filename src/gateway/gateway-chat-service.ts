@@ -55,6 +55,7 @@ import {
   memoryService,
 } from '../memory/memory-service.js';
 import { withSpan } from '../observability/otel.js';
+import { captureSentryException } from '../observability/sentry.js';
 import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
   modelRequiresChatbotId,
@@ -581,6 +582,48 @@ function resolvePluginRoutingModel(params: {
     return params.currentModel;
   }
   return configuredModel;
+}
+
+function captureGatewayChatResultError(params: {
+  message: string;
+  errorType: 'agent' | 'configuration' | 'gateway';
+  sessionId: string;
+  channelId: string;
+  agentId: string;
+  model: string;
+  provider: string;
+  runId: string;
+  turnIndex: number;
+  source?: string;
+  stage?: string;
+  durationMs?: number;
+  toolCallCount?: number;
+}): void {
+  const tags: Record<string, string> = {
+    agent_id: params.agentId,
+    channel_id: params.channelId,
+    error_type: params.errorType,
+    session_id: params.sessionId,
+  };
+  if (params.stage) tags.stage = params.stage;
+  captureSentryException(new Error(params.message), {
+    mechanism: 'gateway.chat_result',
+    tags,
+    extra: {
+      agentId: params.agentId,
+      channelId: params.channelId,
+      durationMs: params.durationMs,
+      errorType: params.errorType,
+      model: params.model,
+      provider: params.provider,
+      runId: params.runId,
+      sessionId: params.sessionId,
+      source: params.source,
+      stage: params.stage,
+      toolCallCount: params.toolCallCount,
+      turnIndex: params.turnIndex,
+    },
+  });
 }
 
 export async function handleGatewayMessage(
@@ -1162,6 +1205,21 @@ async function handleGatewayMessageInner(
       provider,
       error,
     };
+    captureGatewayChatResultError({
+      message: error,
+      errorType: 'configuration',
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      model,
+      provider,
+      runId,
+      turnIndex,
+      source,
+      stage: 'pre-agent',
+      durationMs: Date.now() - startedAt,
+      toolCallCount: 0,
+    });
     await emitPostTurnForResult(result);
     return attachSessionIdentity(result);
   }
@@ -1871,6 +1929,21 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         error: errorMessage,
       };
+      captureGatewayChatResultError({
+        message: errorMessage,
+        errorType: 'agent',
+        sessionId: req.sessionId,
+        channelId: req.channelId,
+        agentId,
+        model,
+        provider,
+        runId,
+        turnIndex,
+        source,
+        stage: agentStage,
+        durationMs,
+        toolCallCount: toolExecutions.length,
+      });
       await emitPostTurnForResult(result);
       return attachSessionIdentity(result);
     }
@@ -2151,6 +2224,21 @@ async function handleGatewayMessageInner(
       provider,
       toolExecutions: undefined,
       error: errorMsg,
+    });
+    captureGatewayChatResultError({
+      message: errorMsg,
+      errorType: 'gateway',
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      model,
+      provider,
+      runId,
+      turnIndex,
+      source,
+      stage: agentStage,
+      durationMs,
+      toolCallCount: 0,
     });
     await emitPostTurnForResult(result);
     return result;
