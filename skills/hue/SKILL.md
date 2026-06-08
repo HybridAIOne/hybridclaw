@@ -10,7 +10,7 @@ config_variables:
     env: HUE_BRIDGE_HOST
     required: true
     scope: "Local Hue Bridge HTTPS base URL used in gateway http_request URLs"
-    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `/env set HUE_BRIDGE_HOST \"https://192.168.1.30\"` in chat or `hybridclaw env set HUE_BRIDGE_HOST \"https://192.168.1.30\"` locally."
+    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it in chat with `/env set HUE_BRIDGE_HOST \"https://192.168.1.30\"`."
 credentials:
   - id: hue-application-key
     kind: api_key
@@ -19,7 +19,7 @@ credentials:
       source: store
       id: HUE_APPLICATION_KEY
     scope: "Philips Hue CLIP v2 hue-application-key header"
-    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned username with `/secret set HUE_APPLICATION_KEY \"<username>\"` in chat or `hybridclaw secret set HUE_APPLICATION_KEY \"<username>\"` locally."
+    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned username in chat with `/secret set HUE_APPLICATION_KEY \"<username>\"`."
   - id: hue-remote-refresh-token
     kind: bearer
     required: false
@@ -27,7 +27,7 @@ credentials:
       source: store
       id: HUE_REMOTE_REFRESH_TOKEN
     scope: "Hue Remote API OAuth token used for off-LAN API calls"
-    how_to_obtain: "Create a Hue developer app, complete the Hue Remote API OAuth flow, and store the refresh/access token with `/secret set HUE_REMOTE_REFRESH_TOKEN \"<token>\"` in chat or `hybridclaw secret set HUE_REMOTE_REFRESH_TOKEN \"<token>\"` locally."
+    how_to_obtain: "Create a Hue developer app, complete the Hue Remote API OAuth flow, and store the refresh/access token in chat with `/secret set HUE_REMOTE_REFRESH_TOKEN \"<token>\"`."
   - id: hue-remote-access-token
     kind: bearer
     required: false
@@ -126,21 +126,27 @@ bridge access is unavailable.
    gateway `http_request` proxy. Do not use a blanket insecure TLS bypass.
 8. If a live call returns `401` or `unauthorized_user`, stop after that first
    failed call and re-link the bridge with the link-button flow.
-9. Before telling the operator Hue config is missing, check the configured
-   names with `/env list` and `/secret list` when running inside chat, or
-   `hybridclaw env list` and `hybridclaw secret list` from a local terminal.
-   Inspect names only; never print secret values. Do not ask whether to check
-   config when the tools are available.
+9. In chat sessions, do not diagnose Hue runtime config by running
+   `hybridclaw env list`, `hybridclaw secret list`, or other local CLI commands
+   from `bash`; those commands can inspect the wrong runtime or fail because of
+   the host Node version. Use gateway `http_request` errors and any `/env show`
+   or `/secret list` output the operator provides.
 10. If `HUE_BRIDGE_HOST` is configured and `HUE_APPLICATION_KEY` is missing,
    say only that the application key is missing. Do not ask the operator to
    find the bridge IP again. Ask them to press the physical link button, then
    build `node skills/hue/hue.cjs --format json bridge link --app-name
    hybridclaw --instance-name lab`, send the emitted `httpRequest`, and store
-   the returned `success.username` as `HUE_APPLICATION_KEY`.
+   the returned `success.username` with `/secret set HUE_APPLICATION_KEY
+   "<username>"`.
 11. If `HUE_BRIDGE_HOST` is missing, first reuse an exact Hue Bridge URL from
    current context or workspace memory when one is present. Ask the operator to
    find the bridge IP only when no exact URL is available.
-12. If a private-host or gateway policy denial blocks a local bridge request,
+12. If a gateway `http_request` error says `Stored secret HUE_APPLICATION_KEY
+   is not set`, treat `HUE_BRIDGE_HOST` as already resolved for that request.
+   Do not say the bridge host may be missing, do not tell the operator to run
+   `hybridclaw env set`, and do not repeat the same read calls. Switch directly
+   to the link-button setup path in rule 10.
+13. If a private-host or gateway policy denial blocks a local bridge request,
    first inspect the current workspace network policy. Managed read-only LAN
    access already allows GET reads to RFC1918 hosts, and managed read-write LAN
    access allows the supported methods. If either managed LAN mode covers the
@@ -296,6 +302,20 @@ is rejected.
   helper-emitted host, method, and path. Do not substitute Remote API results
   unless the operator asks for off-LAN fallback.
 - On missing Hue configuration, report exactly which configured names are
-  present and which are missing. If only `HUE_APPLICATION_KEY` is missing, do
-  not say `HUE_BRIDGE_HOST` is missing and do not ask the operator to find the
-  bridge IP.
+  present and which are missing. If the gateway says `Stored secret
+  HUE_APPLICATION_KEY is not set`, do not say `HUE_BRIDGE_HOST` is unknown or
+  missing; the `<env:HUE_BRIDGE_HOST>` placeholder already resolved far enough
+  to reach secret-header injection. In chat, give only this slash-command
+  recovery path:
+
+```text
+Press the Hue bridge link button, then let me run:
+node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
+
+Store the returned username with:
+/secret set HUE_APPLICATION_KEY "<username-from-link-response>"
+```
+
+  Do not include `hybridclaw env set` or ask the operator to set
+  `HUE_BRIDGE_HOST` again unless the gateway explicitly reports that
+  `HUE_BRIDGE_HOST` itself is missing.

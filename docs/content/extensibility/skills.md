@@ -80,7 +80,7 @@ helper code shipped with the skill.
 | Approval plan | Helper output for a guarded action that names the exact command to run after explicit operator confirmation. |
 | Stakes tier | Skill-local risk classification: green for reads, amber for reversible or bounded writes requiring confirmation, red for forbidden operations. |
 | SecretRef | A reference to a stored runtime secret; helpers should emit secret references, never raw secrets. |
-| Config variable | A plaintext runtime env value stored with `hybridclaw env set`; use for non-secret hostnames, IPs, account ids, or usernames that agents and helpers may read. |
+| Config variable | A plaintext env-store value stored with `/env set` or `hybridclaw env set`; use for non-secret hostnames, IPs, account ids, or usernames that agents and helpers may reference. |
 
 ### What Goes In `SKILL.md`
 
@@ -194,16 +194,19 @@ Use `config_variables:` frontmatter for non-secret values that should be
 discoverable and persisted, for example inverter IPs, local host URLs, account
 ids, or usernames. These values are plaintext and model-visible; operators set
 them with `/env set NAME value` in chat or `hybridclaw env set NAME value` on a
-local CLI, and helpers read them from the runtime environment. Values that
-contain passwords, tokens, API keys, or signing material belong in
-`credentials:` with `secret_ref`, not in `config_variables:`.
+local CLI, and helpers should reference them with gateway-resolved
+`<env:NAME>` placeholders. Values that contain passwords, tokens, API keys, or
+signing material belong in `credentials:` with `secret_ref`, not in
+`config_variables:`.
 
 Every skill setup section that mentions `hybridclaw env set`, `hybridclaw env
 list`, `hybridclaw secret set`, or `hybridclaw secret list` must also include
 the slash-command equivalent (`/env ...` or `/secret ...`) for operators using
-chat surfaces without CLI access. Prefer slash commands first when the skill is
-user-invocable from chat, and keep CLI commands as the local-terminal
-alternative.
+chat surfaces without CLI access. For user-invocable chat skills, put slash
+commands in frontmatter `how_to_obtain` text and the first setup example; keep
+`hybridclaw ...` commands only in a clearly labeled local-terminal alternative.
+Do not tell chat users to run local CLI diagnostics when a gateway error or
+operator-provided slash-command output already identifies the missing value.
 
 ### Network And Gateway Failures
 
