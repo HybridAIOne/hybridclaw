@@ -15,7 +15,8 @@ const fetchArtifactBlobMock =
   vi.fn<(token: string, artifactPath: string) => Promise<Blob>>();
 const fetchAgentAvatarBlobMock =
   vi.fn<(token: string, imageUrl: string) => Promise<Blob>>();
-const renderMarkdownMock = vi.fn<(content: string) => string>();
+const renderMarkdownMock =
+  vi.fn<(content: string, options?: { highlight?: boolean }) => string>();
 
 vi.mock('../../api/chat', () => ({
   fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
@@ -25,7 +26,8 @@ vi.mock('../../api/chat', () => ({
 }));
 
 vi.mock('../../lib/markdown', () => ({
-  renderMarkdown: (content: string) => renderMarkdownMock(content),
+  renderMarkdown: (content: string, options?: { highlight?: boolean }) =>
+    renderMarkdownMock(content, options),
 }));
 
 function makeMessage(
@@ -403,7 +405,10 @@ describe('MessageBlock artifacts', () => {
     );
 
     expect(renderMarkdownMock).toHaveBeenCalledTimes(1);
-    expect(renderMarkdownMock).toHaveBeenLastCalledWith('A');
+    // While streaming, highlighting is skipped (runs once on completion).
+    expect(renderMarkdownMock).toHaveBeenLastCalledWith('A', {
+      highlight: false,
+    });
 
     rerender(
       <MessageBlock
@@ -441,7 +446,9 @@ describe('MessageBlock artifacts', () => {
     });
 
     expect(renderMarkdownMock).toHaveBeenCalledTimes(2);
-    expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABC');
+    expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABC', {
+      highlight: false,
+    });
 
     rerender(
       <MessageBlock
@@ -459,7 +466,10 @@ describe('MessageBlock artifacts', () => {
     );
 
     expect(renderMarkdownMock).toHaveBeenCalledTimes(3);
-    expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABCD');
+    // Streaming finished (isStreaming=false) → full highlight on the final pass.
+    expect(renderMarkdownMock).toHaveBeenLastCalledWith('ABCD', {
+      highlight: true,
+    });
   });
 
   it('renders accessible response rating controls and clears the selected rating', () => {
@@ -610,6 +620,7 @@ describe('MessageBlock command vs system output', () => {
     expect(screen.queryByText('Assistant')).toBeNull();
     expect(renderMarkdownMock).toHaveBeenCalledWith(
       'Switched model to opus-4-7.',
+      { highlight: true },
     );
     expect(screen.getByText('Switched model to opus-4-7.')).not.toBeNull();
     // ...and it carries the distinct terminal-block styling, not the centered
@@ -630,5 +641,191 @@ describe('MessageBlock command vs system output', () => {
     expect(screen.getByText('Error: network exploded')).not.toBeNull();
     expect(container.querySelector('[class*="bubbleSystem"]')).not.toBeNull();
     expect(container.querySelector('[class*="bubbleCommand"]')).toBeNull();
+  });
+});
+
+describe('MessageBlock code-block copy button', () => {
+  beforeEach(() => {
+    renderMarkdownMock.mockReset();
+    renderMarkdownMock.mockImplementation(
+      () =>
+        '<pre><code class="hljs language-ts"><span class="hljs-keyword">const</span> x = 1;</code></pre>',
+    );
+  });
+
+  function messageBlock(message: ChatMessage) {
+    return (
+      <MessageBlock
+        message={message}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />
+    );
+  }
+
+  function renderAssistant() {
+    return render(
+      messageBlock(makeMessage([], { role: 'assistant', content: 'code' })),
+    );
+  }
+
+  it('injects a copy button with a tooltip into each rendered code block', () => {
+    const { container } = renderAssistant();
+    const button = container.querySelector('pre button[data-copy-btn]');
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute('title')).toBe('Copy code');
+  });
+
+  it('attaches the copy button when the markdown container mounts on a later commit', async () => {
+    // Regression for the callback-ref fix: the markdown container is absent on
+    // the first commit (a user message has no markdown div) and appears only on
+    // a later commit (message becomes assistant markdown). A mount-only
+    // useEffect would never attach the observer; the callback ref must.
+    const { container, rerender } = render(
+      messageBlock(makeMessage([], { role: 'user', content: 'hi there' })),
+    );
+    expect(container.querySelector('button[data-copy-btn]')).toBeNull();
+
+    rerender(
+      messageBlock(makeMessage([], { role: 'assistant', content: 'code' })),
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('pre button[data-copy-btn]'),
+      ).not.toBeNull(),
+    );
+  });
+
+  it('shows the language label with a code glyph for a fenced code block', () => {
+    const { container } = renderAssistant();
+    const label = container.querySelector('pre span[class*="codeLangLabel"]');
+    expect(label?.textContent).toBe('ts');
+    expect(label?.querySelector('svg')).not.toBeNull();
+  });
+
+  it('omits the language label when the block has no language', () => {
+    renderMarkdownMock.mockImplementation(
+      () => '<pre><code class="hljs">plain text</code></pre>',
+    );
+    const { container } = renderAssistant();
+    expect(
+      container.querySelector('pre span[class*="codeLangLabel"]'),
+    ).toBeNull();
+    // …but the copy button is still attached.
+    expect(container.querySelector('pre button[data-copy-btn]')).not.toBeNull();
+  });
+
+  it('omits the language label for generic plaintext fences', () => {
+    renderMarkdownMock.mockImplementation(
+      () => '<pre><code class="hljs language-text">just text</code></pre>',
+    );
+    const { container } = renderAssistant();
+    expect(
+      container.querySelector('pre span[class*="codeLangLabel"]'),
+    ).toBeNull();
+  });
+
+  it('re-injects the copy button after React re-commits the markdown subtree', async () => {
+    // Regression: the markdown is set via dangerouslySetInnerHTML, so React
+    // owns the subtree and re-applies it on later commits, silently wiping any
+    // button we appended. A MutationObserver must re-decorate. Simulate that
+    // re-commit by replacing the container's innerHTML and assert the button
+    // comes back. (A render-effect keyed on the HTML string would NOT recover
+    // here, which is the bug this guards against.)
+    const { container } = renderAssistant();
+    const block = container.querySelector('pre');
+    const mdRoot = block?.parentElement;
+    expect(mdRoot).not.toBeNull();
+    expect(mdRoot?.querySelector('button[data-copy-btn]')).not.toBeNull();
+
+    await act(async () => {
+      // React replacing the subtree — pre is recreated without our button.
+      (mdRoot as HTMLElement).innerHTML =
+        '<pre><code class="hljs language-ts">const y = 2;</code></pre>';
+    });
+
+    await waitFor(() =>
+      expect(mdRoot?.querySelector('button[data-copy-btn]')).not.toBeNull(),
+    );
+  });
+
+  it('copies the code text and shows the copied state only on success', async () => {
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    try {
+      const { container } = renderAssistant();
+      const button = container.querySelector(
+        'pre button[data-copy-btn]',
+      ) as HTMLButtonElement;
+      expect(button.getAttribute('aria-label')).toBe('Copy code');
+
+      await act(async () => {
+        button.click();
+      });
+
+      expect(writeText).toHaveBeenCalledWith('const x = 1;');
+      await waitFor(() =>
+        expect(button.getAttribute('aria-label')).toBe('Copied'),
+      );
+      // Tooltip stays in sync with the aria-label.
+      expect(button.getAttribute('title')).toBe('Copied');
+    } finally {
+      if (original) Object.defineProperty(navigator, 'clipboard', original);
+      else Reflect.deleteProperty(navigator as unknown as object, 'clipboard');
+    }
+  });
+
+  it('does not show the copied state when the copy fails', async () => {
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockRejectedValue(new Error('blocked'));
+    const originalClip = Object.getOwnPropertyDescriptor(
+      navigator,
+      'clipboard',
+    );
+    const originalExec = document.execCommand;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    // Force the execCommand fallback to fail too, so the copy resolves false.
+    document.execCommand = vi.fn(() => false) as typeof document.execCommand;
+    try {
+      const { container } = renderAssistant();
+      const button = container.querySelector(
+        'pre button[data-copy-btn]',
+      ) as HTMLButtonElement;
+
+      await act(async () => {
+        button.click();
+        // Flush the copyToClipboard chain: writeText reject → catch →
+        // execCommand → resolve(false) → .then.
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(writeText).toHaveBeenCalled();
+      expect(button.getAttribute('aria-label')).toBe('Copy code');
+    } finally {
+      document.execCommand = originalExec;
+      if (originalClip)
+        Object.defineProperty(navigator, 'clipboard', originalClip);
+      else Reflect.deleteProperty(navigator as unknown as object, 'clipboard');
+    }
   });
 });

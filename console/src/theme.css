@@ -32,6 +32,20 @@
   --terminal-foreground: #cbd5e1;
   --terminal-overlay-start: rgba(15, 23, 42, 0.76);
   --terminal-overlay-end: rgba(15, 23, 42, 0.92);
+  /* Chat code-block surface. Stays dark in both themes (the syntax palette is
+     tuned for a dark surface); light mode uses a softer slate so the block
+     reads as a card on white rather than a harsh near-black slab. */
+  --code-bg: #1e293b;
+  /* Syntax highlighting palette, tuned for the dark code surface that code
+     blocks always render on, in both light and dark mode. */
+  --syntax-comment: #6b7c93;
+  --syntax-keyword: #c4a7f5;
+  --syntax-builtin: #5fd0d6;
+  --syntax-string: #8ee0a8;
+  --syntax-number: #e6a866;
+  --syntax-function: #8fb6ff;
+  --syntax-tag: #ff8b82;
+  --syntax-attr: #e6c07b;
   --editor: #0f172a;
   --editor-border: #334155;
   --editor-foreground: #e2e8f0;
@@ -118,6 +132,9 @@ html[data-theme="dark"] {
   --terminal-foreground: #e2e8f0;
   --terminal-overlay-start: rgba(11, 18, 32, 0.76);
   --terminal-overlay-end: rgba(11, 18, 32, 0.92);
+  /* Darker than light mode so code blocks stay distinct from the near-black
+     (#111827) message bubble in dark mode. */
+  --code-bg: #0a0e1a;
   --editor: #0f172a;
   --editor-border: #263347;
   --editor-foreground: #e2e8f0;
