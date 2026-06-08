@@ -52,6 +52,7 @@ metadata:
     issue: 1118
     stakes_tiers:
       green:
+        - local-bridge-status
         - local-bridge-list
         - local-device-list
         - local-light-list
@@ -139,22 +140,28 @@ bridge access is unavailable.
    the returned `success.username` with `/secret set HUE_APPLICATION_KEY
    "<username>"`.
 11. When linking after the operator presses the bridge button, run `bridge
-   link` without `--host` unless the operator explicitly provides a new
-   override URL in the same turn. The default link request must use
-   `<env:HUE_BRIDGE_HOST>` so the gateway resolves the env-store value.
-12. If the operator shows `/env show HUE_BRIDGE_HOST`, treat that value as the
+   status` first. If the live status result reports `linkbutton: true`,
+   immediately run `bridge link` without `--host`. If it reports
+   `linkbutton: false` or omits `linkbutton`, tell the operator that the
+   configured bridge did not report an active button press and ask them to press
+   and release the physical link button once, then retry immediately.
+12. When running the link request itself, do not pass `--host` unless the
+   operator explicitly provides a new override URL in the same turn. The default
+   link request must use `<env:HUE_BRIDGE_HOST>` so the gateway resolves the
+   env-store value.
+13. If the operator shows `/env show HUE_BRIDGE_HOST`, treat that value as the
    current configured bridge URL. If a failed request used any other host,
    report that the helper was called with the wrong host and retry the same
    operation with no `--host` override.
-13. If `HUE_BRIDGE_HOST` is missing, first reuse an exact Hue Bridge URL from
+14. If `HUE_BRIDGE_HOST` is missing, first reuse an exact Hue Bridge URL from
    current context or workspace memory when one is present. Ask the operator to
    find the bridge IP only when no exact URL is available.
-14. If a gateway `http_request` error says `Stored secret HUE_APPLICATION_KEY
+15. If a gateway `http_request` error says `Stored secret HUE_APPLICATION_KEY
    is not set`, treat `HUE_BRIDGE_HOST` as already resolved for that request.
    Do not say the bridge host may be missing, do not tell the operator to run
    `hybridclaw env set`, and do not repeat the same read calls. Switch directly
    to the link-button setup path in rule 10.
-15. If a private-host or gateway policy denial blocks a local bridge request,
+16. If a private-host or gateway policy denial blocks a local bridge request,
    first inspect the current workspace network policy. Managed read-only LAN
    access already allows GET reads to RFC1918 hosts, and managed read-write LAN
    access allows the supported methods. If either managed LAN mode covers the
@@ -162,7 +169,7 @@ bridge access is unavailable.
    bug instead of adding another rule. Do not edit policy by hand, do not add
    broad bridge rules, and do not tell the operator a gateway restart is
    required; workspace network policy is read per request.
-16. If a local Hue request fails with a certificate verification or
+17. If a local Hue request fails with a certificate verification or
    self-signed TLS error, do not ask for `HUE_BRIDGE_HOST` again, do not suggest
    plain HTTP on port 80, and do not invent a URL auth route or workspace
    policy setting for TLS. Re-run the exact helper-emitted `httpRequest` with
@@ -224,15 +231,19 @@ emitted `httpRequest` only after the operator approves the described effect.
 Link a bridge after pressing the physical link button:
 
 ```bash
+node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link \
   --app-name hybridclaw \
   --instance-name lab
 ```
 
-The link command emits a single `/api` request shape with
-`<env:HUE_BRIDGE_HOST>`. Send that request through the gateway after pressing
-the link button, then store the returned `success.username` as
-`HUE_APPLICATION_KEY`. Do not pass `--host` for normal chat setup.
+The status command emits a `/api/config` request shape with
+`<env:HUE_BRIDGE_HOST>` and no secret header. Use it to confirm the configured
+bridge reports `linkbutton: true` before sending the link request. The link
+command emits a single `/api` request shape with `<env:HUE_BRIDGE_HOST>`. Send
+that request through the gateway while the button is active, then store the
+returned `success.username` as `HUE_APPLICATION_KEY`. Do not pass `--host` for
+normal chat setup.
 
 Use Remote API reads only when off-LAN access is needed:
 
@@ -253,6 +264,7 @@ In chat:
 
 ```text
 /env set HUE_BRIDGE_HOST "https://<bridge-ip>"
+node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
 /secret set HUE_APPLICATION_KEY "<username-from-link-response>"
 ```
@@ -261,6 +273,7 @@ From a local terminal:
 
 ```bash
 hybridclaw env set HUE_BRIDGE_HOST "https://<bridge-ip>"
+node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
 hybridclaw secret set HUE_APPLICATION_KEY "<username-from-link-response>"
 ```
@@ -329,6 +342,7 @@ is rejected.
 
 ```text
 Press the Hue bridge link button, then let me run:
+node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
 
 Store the returned username with:
@@ -338,6 +352,13 @@ Store the returned username with:
   Do not include `hybridclaw env set` or ask the operator to set
   `HUE_BRIDGE_HOST` again unless the gateway explicitly reports that
   `HUE_BRIDGE_HOST` itself is missing.
+- On a live link response with Hue error `type: 101` or description
+  `link button not pressed`, run `bridge status` once in the current button
+  window. If status reports `linkbutton: true`, retry `bridge link`
+  immediately. If status reports `linkbutton: false`, explain that the bridge
+  at the configured env-store host is reachable but does not currently report
+  an active button press; ask the operator to press and release the physical
+  button once, then retry the status and link sequence immediately.
 - If the operator shows `/env show HUE_BRIDGE_HOST` and it differs from the host
   used by a failed request, explain that the request used the wrong override and
   retry with the normal helper command, which emits `<env:HUE_BRIDGE_HOST>`.
