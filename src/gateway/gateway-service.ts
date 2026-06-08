@@ -9100,12 +9100,15 @@ export async function handleGatewayCommand(
             id: newAgentId,
             ...(modelName ? { model: modelName } : {}),
           });
+          const workspacePath = path.resolve(agentWorkspaceDir(created.id));
+          ensureBootstrapFiles(created.id);
           return infoCommand(
             'Agent Created',
             [
               `Agent: ${created.id}`,
               `Model: ${formatModelForDisplay(resolveAgentModel(created) || HYBRIDAI_MODEL)}`,
-              `Workspace: ${path.resolve(agentWorkspaceDir(created.id))}`,
+              `Workspace: ${workspacePath}`,
+              'Hatching: open a fresh chat/session with this agent for automatic hatching, or switch to it and send a normal message. Agent commands do not run hatching turns.',
             ].join('\n'),
           );
         }
