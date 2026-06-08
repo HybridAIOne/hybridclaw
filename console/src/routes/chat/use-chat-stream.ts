@@ -47,6 +47,8 @@ export interface UseChatStreamReturn {
   isStreaming: boolean;
   /** The message ID currently being streamed, or null. */
   streamingMsgId: string | null;
+  /** The session ID currently running, or null when idle. */
+  activeSessionId: string | null;
   isActive: () => boolean;
 }
 
@@ -67,6 +69,7 @@ export function useChatStream(
   const activeRequestRef = useRef<ActiveRequest | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   // Writes must be bound to the sessionId captured when the send started —
   // reading `getSessionId()` at write time would race with navigation and
@@ -150,6 +153,7 @@ export function useChatStream(
         stopping: false,
       };
       activeRequestRef.current = req;
+      setActiveSessionId(targetSessionId);
       setIsStreaming(true);
 
       const doRender = () => {
@@ -338,6 +342,7 @@ export function useChatStream(
         });
       } finally {
         activeRequestRef.current = null;
+        setActiveSessionId(null);
         setIsStreaming(false);
         setStreamingMsgId(null);
       }
@@ -371,5 +376,12 @@ export function useChatStream(
 
   const isActive = useCallback(() => activeRequestRef.current !== null, []);
 
-  return { sendMessage, stopRequest, isStreaming, streamingMsgId, isActive };
+  return {
+    sendMessage,
+    stopRequest,
+    isStreaming,
+    streamingMsgId,
+    activeSessionId,
+    isActive,
+  };
 }
