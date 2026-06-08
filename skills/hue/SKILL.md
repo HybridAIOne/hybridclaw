@@ -126,6 +126,10 @@ bridge access is unavailable.
    gateway `http_request` proxy. Do not use a blanket insecure TLS bypass.
 8. If a live call returns `401` or `unauthorized_user`, stop after that first
    failed call and re-link the bridge with the link-button flow.
+9. If a private-host or gateway policy denial blocks a local bridge request,
+   run `setup-local` for the exact bridge HTTPS URL and retry. Do not edit
+   policy by hand, do not add `/**` broad rules, and do not tell the operator
+   a gateway restart is required; workspace network policy is read per request.
 
 ## Command Contract
 
@@ -135,11 +139,18 @@ Show helper usage:
 node skills/hue/hue.cjs --help
 ```
 
-Set up the local bridge host and workspace network policy:
+Set up the local bridge host and narrow workspace network policy:
 
 ```bash
 node skills/hue/hue.cjs --format json setup-local --host https://192.168.1.30
 ```
+
+`setup-local` stores `HUE_BRIDGE_HOST` in the HybridClaw env store and verifies
+the exact Hue Bridge network-policy rule for `/api`, `/clip/v2/**`, and
+`/eventstream/clip/v2`. It changes HybridClaw workspace configuration only; it
+does not mutate Hue devices, scenes, rooms, grouped lights, or bridge state.
+The gateway reads this workspace policy for each proxied HTTP request, so retry
+Hue reads immediately after `setup-local` succeeds.
 
 Build local CLIP v2 read requests. Pass the emitted `httpRequest` object to
 the gateway `http_request` tool when not using helper live mode:
@@ -246,6 +257,10 @@ is rejected.
   temperature, not both.
 - Eventstream output can reveal occupancy. Keep diagnostic reads short and do
   not create a long-lived subscription from this skill.
-- On gateway policy denial, report the policy failure and the helper-emitted
-  host, method, and path. Do not substitute Remote API results unless the
-  operator asks for off-LAN fallback.
+- On gateway policy denial for a local bridge, run `setup-local` for the exact
+  bridge HTTPS URL, report that this verifies env-store and workspace policy
+  setup only, and retry the requested Hue read. Do not tell the operator to
+  restart the gateway.
+- If policy denial persists after `setup-local`, report the policy failure and
+  the helper-emitted host, method, and path. Do not substitute Remote API
+  results unless the operator asks for off-LAN fallback.
