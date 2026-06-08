@@ -180,6 +180,41 @@ describe('workspace bootstrap lifecycle', () => {
     expect(files.some((file) => file.name === 'TASK_IDEAS.md')).toBe(true);
   });
 
+  test("refreshes legacy default hatching bootstrap instructions", async () => {
+    const homeDir = makeTempDir("hybridclaw-home-");
+    const unrelatedCwd = makeTempDir("hybridclaw-cwd-");
+    vi.stubEnv("HOME", homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import("../src/workspace.js");
+    const ipc = await import("../src/infra/ipc.js");
+
+    workspace.ensureBootstrapFiles("agent-test");
+
+    const workspaceDir = ipc.agentWorkspaceDir("agent-test");
+    const bootstrapPath = path.join(workspaceDir, "BOOTSTRAP.md");
+    fs.writeFileSync(
+      bootstrapPath,
+      [
+        "# BOOTSTRAP.md - First Hatch",
+        "",
+        "Use the hatching task ideas guide in the docs website when available",
+        "(`docs/content/guides/hatching-task-ideas.md` in the source tree). Do not recite",
+        "it.",
+        "",
+      ].join("\\n"),
+      "utf-8",
+    );
+
+    workspace.ensureBootstrapFiles("agent-test");
+
+    const refreshed = fs.readFileSync(bootstrapPath, "utf-8");
+    expect(refreshed).toContain("TASK_IDEAS.md");
+    expect(refreshed).toContain("local workspace file is the primary");
+    expect(refreshed).toContain("source.");
+    expect(refreshed).not.toContain("docs/content/guides/hatching-task-ideas.md");
+  });
+
   test("loads today's daily memory note into bootstrap context when present", async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

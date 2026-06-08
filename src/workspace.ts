@@ -194,6 +194,44 @@ function readTemplateFile(
   return content;
 }
 
+const LEGACY_DEFAULT_BOOTSTRAP_MARKERS = [
+  'Use the hatching task ideas guide in the docs website when available',
+  'docs/content/guides/hatching-task-ideas.md',
+] as const;
+
+function refreshLegacyDefaultBootstrapIfNeeded(params: {
+  agentId: string;
+  bootstrapPath: string;
+  state: WorkspaceOnboardingState;
+}): boolean {
+  if (params.state.onboardingCompletedAt) return false;
+  try {
+    const content = fs.readFileSync(params.bootstrapPath, 'utf-8');
+    if (
+      !LEGACY_DEFAULT_BOOTSTRAP_MARKERS.every((marker) =>
+        content.includes(marker),
+      )
+    ) {
+      return false;
+    }
+    fs.copyFileSync(
+      path.join(TEMPLATES_DIR, 'BOOTSTRAP.md'),
+      params.bootstrapPath,
+    );
+    logger.debug(
+      { agentId: params.agentId, file: 'BOOTSTRAP.md' },
+      'Refreshed legacy default hatching bootstrap template',
+    );
+    return true;
+  } catch (error) {
+    logger.warn(
+      { agentId: params.agentId, path: params.bootstrapPath, error },
+      'Failed to refresh legacy hatching bootstrap template',
+    );
+    return false;
+  }
+}
+
 function stripMarkdownSection(content: string, heading: string): string {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const targetHeading = `## ${heading}`;
@@ -583,6 +621,9 @@ export function ensureBootstrapFiles(
 
   const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
   let bootstrapExists = fs.existsSync(bootstrapPath);
+  if (bootstrapExists) {
+    refreshLegacyDefaultBootstrapIfNeeded({ agentId, bootstrapPath, state });
+  }
   if (bootstrapExists && !state.bootstrapSeededAt) {
     markState({ bootstrapSeededAt: nowIso() });
   }

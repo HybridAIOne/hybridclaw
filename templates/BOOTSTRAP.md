@@ -84,11 +84,13 @@ Then create a tailored "first jobs" email:
    HybridClaw docs URL as a fallback.
 2. Pick 5 to 8 specific jobs that match the user's work, tools, and goals, and
    write them into `USER.md` under `Suggested First Jobs`.
-3. Write a concise email to the user with the subject "Ways I can help with HybridClaw".
+3. Write a concise email to the user with the subject "Ways I can help with HybridClaw". Make it nice and add some personal flavor based on what you learned about the user.
 4. If the user's email is missing from `USER.md`, ask for it and store it before
    preparing the final addressed email.
 5. If an email-sending channel or tool is available, show the exact email draft
-   and ask for explicit confirmation before sending.
+   and ask for explicit confirmation before sending. After confirmation, use
+   `message` with `action="send"`, `to` set to the user email address, and
+   `content` beginning with `[Subject: Ways I can help with HybridClaw]`.
 6. If sending is confirmed, send the email and update `USER.md` under
    `First Jobs Email` with `Status: sent`, the recipient, subject, delivery
    channel, and date.
