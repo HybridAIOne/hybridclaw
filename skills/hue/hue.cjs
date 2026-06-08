@@ -388,6 +388,9 @@ function buildBridge(verb, args) {
         skillName: 'hue',
         stakesTier: 'amber',
         json: { devicetype: `${appName}#${instanceName}` },
+        captureResponseFields: [
+          { jsonPath: '0.success.username', secretName: LOCAL_KEY_SECRET },
+        ],
         replaceSecretPlaceholders: true,
         allowSelfSignedTls: true,
       },

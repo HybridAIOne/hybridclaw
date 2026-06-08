@@ -66,10 +66,9 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
   expect(skill).toContain('send only `devicetype`');
   expect(skill).toContain('That endpoint requires an existing\n  authorized user');
   expect(skill).toContain('retry the same\n   operation with no `--host` override');
-  expect(skill).toContain('Store the returned Hue credential secret with:');
-  expect(skill).toContain(
-    '/secret set HUE_APPLICATION_KEY "<application-key-from-response>"',
-  );
+  expect(skill).toContain('captureResponseFields');
+  expect(skill).toContain('captures the returned Hue credential\nsecret');
+  expect(skill).not.toContain('application-key-from-response');
   expect(skill).toContain('/env set HUE_BRIDGE_HOST "https://<bridge-ip>"');
   expect(skill).toContain('find the bridge IP again');
   expect(skill).toContain('Do not ask whether the\n  bridge supports plain HTTP');
@@ -222,6 +221,9 @@ test('Hue helper builds link and remote request shapes without runtime side effe
       json: {
         devicetype: 'hybridclaw#lab',
       },
+      captureResponseFields: [
+        { jsonPath: '0.success.username', secretName: 'HUE_APPLICATION_KEY' },
+      ],
     },
   });
   expect(linkWithHost.httpRequest.url).toBe('https://192.0.2.30/api');
