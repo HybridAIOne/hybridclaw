@@ -174,8 +174,7 @@ Supported environment variables:
 - `SENTRY_DSN` enables Sentry and sets the project DSN
 - `SENTRY_ENVIRONMENT` sets the Sentry environment
 - `SENTRY_RELEASE` sets the Sentry release name
-- `SENTRY_TRACES_SAMPLE_RATE` optionally enables Sentry transaction sampling
-  with a value from `0` to `1`
+- `SENTRY_TRACES_SAMPLE_RATE` optionally enables Sentry transaction sampling with a value from `0` to `1`
 
 HybridClaw already owns OpenTelemetry setup, so the Sentry SDK is initialized
 with its OpenTelemetry auto-setup disabled. Sentry events are passed through the

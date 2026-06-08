@@ -98,6 +98,24 @@ describe('Sentry observability', () => {
     });
   });
 
+  test('keeps mechanism tag authoritative over caller tags', async () => {
+    process.env.SENTRY_DSN = 'https://public@example.com/1';
+    const { captureSentryException, initSentry } = await importFreshSentry();
+
+    await initSentry();
+    captureSentryException(new Error('boom'), {
+      mechanism: 'authoritative',
+      tags: { mechanism: 'caller-value' },
+    });
+
+    expect(sentryCaptureException).toHaveBeenCalledWith(expect.any(Error), {
+      extra: undefined,
+      tags: {
+        mechanism: 'authoritative',
+      },
+    });
+  });
+
   test('flushes initialized Sentry client during shutdown', async () => {
     process.env.SENTRY_DSN = 'https://public@example.com/1';
     const { initSentry, shutdownSentry } = await importFreshSentry();
@@ -108,5 +126,21 @@ describe('Sentry observability', () => {
 
     expect(sentryFlush).toHaveBeenCalledTimes(1);
     expect(sentryFlush).toHaveBeenCalledWith(123);
+  });
+
+  test('swallows Sentry flush failures during shutdown', async () => {
+    process.env.SENTRY_DSN = 'https://public@example.com/1';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sentryFlush.mockRejectedValueOnce(new Error('flush failed'));
+    const { initSentry, shutdownSentry } = await importFreshSentry();
+
+    await initSentry();
+    await expect(shutdownSentry(123)).resolves.toBeUndefined();
+
+    expect(sentryFlush).toHaveBeenCalledWith(123);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Failed to flush Sentry SDK:',
+      expect.any(Error),
+    );
   });
 });

@@ -2,7 +2,7 @@ import { redactSecretsDeep } from '../security/redact.js';
 
 type SentryModule = typeof import('@sentry/node');
 
-interface SentryErrorContext {
+export interface SentryErrorContext {
   mechanism: string;
   extra?: Record<string, unknown>;
   tags?: Record<string, string>;
@@ -72,8 +72,8 @@ export function captureSentryException(
   if (!initialized || !sentry) return;
 
   const tags = {
-    mechanism: context.mechanism,
     ...context.tags,
+    mechanism: context.mechanism,
   };
   const extra = context.extra ? redactSecretsDeep(context.extra) : undefined;
 
@@ -88,5 +88,11 @@ export async function shutdownSentry(timeoutMs = 2_000): Promise<void> {
   const sdk = sentry;
   sentry = null;
   initialized = false;
-  await sdk.flush(timeoutMs);
+  try {
+    await sdk.flush(timeoutMs);
+  } catch (error) {
+    // Sentry is optional; telemetry shutdown must never block process exit.
+    // eslint-disable-next-line no-console
+    console.warn('Failed to flush Sentry SDK:', error);
+  }
 }
