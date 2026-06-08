@@ -158,6 +158,28 @@ describe('workspace bootstrap lifecycle', () => {
     expect(postHatchAgents?.content).toContain('## Every Session');
   });
 
+  test('seeds task ideas into fresh agent workspaces and loads them as context', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const taskIdeasPath = path.join(workspaceDir, 'TASK_IDEAS.md');
+    expect(fs.existsSync(taskIdeasPath)).toBe(true);
+    expect(fs.readFileSync(taskIdeasPath, 'utf-8')).toContain(
+      '# Hatching Task Ideas',
+    );
+
+    const files = workspace.loadBootstrapFiles('agent-test');
+    expect(files.some((file) => file.name === 'TASK_IDEAS.md')).toBe(true);
+  });
+
   test("loads today's daily memory note into bootstrap context when present", async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

@@ -22,6 +22,7 @@ export const WORKSPACE_BOOTSTRAP_FILES = [
   'TOOLS.md',
   'MEMORY.md',
   'HEARTBEAT.md',
+  'TASK_IDEAS.md',
   'BOOTSTRAP.md',
   'OPENING.md',
   'BOOT.md',

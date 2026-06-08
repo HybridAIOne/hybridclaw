@@ -21,7 +21,7 @@ _(What do they care about? What projects are they working on? What annoys them? 
 
 ## Suggested First Jobs
 
-_(After hatching, keep a short list of practical jobs the user may want HybridClaw to do based on their goals, tools, and the hatching task ideas guide in the docs.)_
+_(After hatching, keep a short list of practical jobs the user may want HybridClaw to do based on their goals, tools, and `TASK_IDEAS.md`.)_
 
 ## First Jobs Email
 

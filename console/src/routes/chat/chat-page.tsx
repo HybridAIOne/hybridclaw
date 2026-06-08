@@ -652,24 +652,36 @@ export function ChatPage() {
       if (!text) return;
       queryClient.setQueryData<ChatHistoryUiData>(
         chatHistoryQueryKey(auth.token, targetSessionId),
-        (prev) => ({
-          messages: [
-            ...(prev?.messages ?? []),
-            {
-              id: nextMsgId(),
-              role: 'command',
-              content: text,
-              rawContent: text,
-              sessionId: targetSessionId,
-              artifacts: [],
-              replayRequest: null,
-            },
-          ],
-          branchFamilies: prev?.branchFamilies ?? new Map(),
-          resolvedSessionId: targetSessionId,
-          agentId: prev?.agentId ?? null,
-          bootstrapAutostart: prev?.bootstrapAutostart ?? null,
-        }),
+        (prev) => {
+          const prevMessages = prev?.messages ?? [];
+          if (
+            prevMessages.some(
+              (message) =>
+                message.role === 'command' &&
+                (message.rawContent || message.content).trim() === text,
+            )
+          ) {
+            return prev;
+          }
+          return {
+            messages: [
+              ...prevMessages,
+              {
+                id: nextMsgId(),
+                role: 'command',
+                content: text,
+                rawContent: text,
+                sessionId: targetSessionId,
+                artifacts: [],
+                replayRequest: null,
+              },
+            ],
+            branchFamilies: prev?.branchFamilies ?? new Map(),
+            resolvedSessionId: targetSessionId,
+            agentId: prev?.agentId ?? null,
+            bootstrapAutostart: prev?.bootstrapAutostart ?? null,
+          };
+        },
       );
     },
     [auth.token, queryClient],
@@ -723,9 +735,15 @@ export function ChatPage() {
           auth.token,
           resolvedSessionId,
         );
-        void queryClient.invalidateQueries({ queryKey: historyQueryKey });
+        void queryClient
+          .invalidateQueries({ queryKey: historyQueryKey })
+          .then(() => appendLocalCommandResult(resolvedSessionId, result.text));
         window.setTimeout(() => {
-          void queryClient.invalidateQueries({ queryKey: historyQueryKey });
+          void queryClient
+            .invalidateQueries({ queryKey: historyQueryKey })
+            .then(() =>
+              appendLocalCommandResult(resolvedSessionId, result.text),
+            );
         }, 1200);
         if (resolvedSessionId !== requestedSessionId) {
           await switchToSession(resolvedSessionId, { replace: true });

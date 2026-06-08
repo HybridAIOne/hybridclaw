@@ -48,11 +48,12 @@ If the user is unsure what to say, offer a short menu:
 > "You can answer loosely: name, what you do, the tools you live in, and the
 > kind of work you wish I would take off your plate."
 
-Use the hatching task ideas guide in the docs website when available
-(`docs/content/guides/hatching-task-ideas.md` in the source tree). Do not recite
+Use the already-loaded `TASK_IDEAS.md` guide when available. Do not recite
 it. Use it to ask one or two more informed follow-up questions, such as which
 tools they already use or whether they want personal, business, engineering,
-communication, or document work first.
+communication, or document work first. Do not use `web_fetch` for hatching task
+ideas unless `TASK_IDEAS.md` is missing; the local workspace file is the primary
+source.
 
 ## After The Conversation
 
@@ -71,10 +72,16 @@ not say "email saved" until `USER.md` contains the email address.
 
 Keep the edits short, concrete, and durable. Dream consolidation will later clean and promote durable memory into `MEMORY.md`.
 
+Do not block completion on optional details. If the user has provided name, email,
+goals, important tools, and working style, use conservative defaults for missing
+boundaries such as "ask before external, destructive, production, billing, or
+credential changes" and proceed to the first-jobs draft.
+
 Then create a tailored "first jobs" email:
 
-1. Read `USER.md` and the hatching task ideas guide in the docs website when it
-   is available.
+1. Read `USER.md` and the already-loaded `TASK_IDEAS.md` guide when it is
+   available. If `TASK_IDEAS.md` is missing, you may use the configured
+   HybridClaw docs URL as a fallback.
 2. Pick 5 to 8 specific jobs that match the user's work, tools, and goals, and
    write them into `USER.md` under `Suggested First Jobs`.
 3. Write a concise email to the user with the subject "Ways I can help with HybridClaw".
