@@ -1043,6 +1043,15 @@ code {
   min-width: 0;
 }
 
+.list-row > .row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .list-row strong {
   display: block;
   line-height: 1.25;

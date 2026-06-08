@@ -17,6 +17,7 @@ import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
 import { DashboardPage } from './routes/dashboard';
 import { EmailPage } from './routes/email';
+import { FleetTopologyPage } from './routes/fleet-topology';
 import { GatewayPage } from './routes/gateway';
 import { HarnessEvolutionPage } from './routes/harness-evolution';
 import { JobsPage } from './routes/jobs';
@@ -137,6 +138,12 @@ const gatewayRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/gateway',
   component: GatewayPage,
+});
+
+const fleetTopologyRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/fleet-topology',
+  component: FleetTopologyPage,
 });
 
 const sessionsRoute = createRoute({
@@ -261,6 +268,7 @@ const routeTree = rootRoute.addChildren([
     agentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
+    fleetTopologyRoute,
     sessionsRoute,
     channelsRoute,
     emailRoute,
