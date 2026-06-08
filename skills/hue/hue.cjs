@@ -551,6 +551,8 @@ function buildSetupLocal(args) {
   return {
     command: 'setup-local',
     host,
+    deviceMutation: false,
+    gatewayRestartRequired: false,
     env: {
       name: LOCAL_HOST_ENV,
       value: host,
@@ -560,6 +562,8 @@ function buildSetupLocal(args) {
       preset: HUE_BRIDGE_POLICY_PRESET,
       rule,
     },
+    nextStep:
+      'Retry Hue reads immediately after setup succeeds; the gateway reads workspace network policy per request.',
   };
 }
 
@@ -574,6 +578,8 @@ async function executeSetupLocalPayload(payload, options = {}) {
     command: 'setup-local-result',
     ok: true,
     host,
+    deviceMutation: false,
+    gatewayRestartRequired: false,
     env: {
       name: LOCAL_HOST_ENV,
       stored: true,
@@ -583,6 +589,8 @@ async function executeSetupLocalPayload(payload, options = {}) {
       added: policy.added,
       rule: policy.rule,
     },
+    nextStep:
+      'Retry Hue reads immediately; the gateway reads workspace network policy per request.',
   };
 }
 

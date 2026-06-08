@@ -88,6 +88,9 @@ test('Hue skill manifest declares SecretRefs and guarded stakes', () => {
   expect(skill).toContain('approval-plan');
   expect(skill).toContain('approvedHelperCommandText');
   expect(skill).toContain('OpenHue');
+  expect(skill).toContain('workspace network policy is read per request');
+  expect(skill).toContain('Do not tell the operator to');
+  expect(skill).toContain('restart the gateway');
   expect(skill).not.toContain('CLIP v1');
 });
 
@@ -121,6 +124,8 @@ test('Hue helper setup-local stores env and narrow bridge network policy', async
   expect(payload).toMatchObject({
     command: 'setup-local',
     host: 'https://192.0.2.30',
+    deviceMutation: false,
+    gatewayRestartRequired: false,
     env: {
       name: 'HUE_BRIDGE_HOST',
       value: 'https://192.0.2.30',
@@ -137,6 +142,8 @@ test('Hue helper setup-local stores env and narrow bridge network policy', async
         agent: '*',
       },
     },
+    nextStep:
+      'Retry Hue reads immediately after setup succeeds; the gateway reads workspace network policy per request.',
   });
 
   const saveEnv = vi.fn(async () => undefined);
@@ -168,6 +175,8 @@ test('Hue helper setup-local stores env and narrow bridge network policy', async
   expect(result).toMatchObject({
     command: 'setup-local-result',
     ok: true,
+    deviceMutation: false,
+    gatewayRestartRequired: false,
     env: {
       name: 'HUE_BRIDGE_HOST',
       stored: true,
@@ -176,6 +185,8 @@ test('Hue helper setup-local stores env and narrow bridge network policy', async
       policyPath: '/workspace/.hybridclaw/policy.yaml',
       added: true,
     },
+    nextStep:
+      'Retry Hue reads immediately; the gateway reads workspace network policy per request.',
   });
 });
 
