@@ -32,7 +32,7 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
       required: true,
       scope: 'Local Hue Bridge HTTPS base URL used in gateway http_request URLs',
       howToObtain:
-        'Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it in chat with `/env set HUE_BRIDGE_HOST "https://192.168.1.30"`.',
+        'Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it in chat with `/env set HUE_BRIDGE_HOST "https://<bridge-ip>"`.',
     },
   ]);
   expect(manifest.credentials?.[0]).toMatchObject({
@@ -50,16 +50,24 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
   expect(skill).toContain('do not diagnose Hue runtime config by running');
   expect(skill).toContain('host Node version');
   expect(skill).toContain('Use gateway `http_request` errors');
+  expect(skill).toContain('self-signed TLS error');
+  expect(skill).toContain('Re-run the exact helper-emitted `httpRequest`');
   expect(skill).toContain(
     'If `HUE_BRIDGE_HOST` is configured and `HUE_APPLICATION_KEY` is missing',
   );
   expect(skill).toContain('Stored secret HUE_APPLICATION_KEY');
   expect(skill).toContain('treat `HUE_BRIDGE_HOST` as already resolved');
+  expect(skill).toContain('run `bridge\n   link` without `--host`');
+  expect(skill).toContain('retry the same\n   operation with no `--host` override');
   expect(skill).toContain('Store the returned username with:');
   expect(skill).toContain(
     '/secret set HUE_APPLICATION_KEY "<username-from-link-response>"',
   );
+  expect(skill).toContain('/env set HUE_BRIDGE_HOST "https://<bridge-ip>"');
   expect(skill).toContain('find the bridge IP again');
+  expect(skill).toContain('Do not ask whether the\n  bridge supports plain HTTP');
+  expect(skill).toContain('do not ask for the bridge host again');
+  expect(skill).not.toContain('192.168.1.30');
   expect(skill).not.toContain('CLIP v1');
 });
 
@@ -71,7 +79,10 @@ test('Hue helper --help lists subject verb commands', () => {
   expect(result.stdout).toContain('light list');
   expect(result.stdout).toContain('grouped-light brightness --id');
   expect(result.stdout).toContain('scene recall --id');
-  expect(result.stdout).toContain('bridge link [--host URL]');
+  expect(result.stdout).toContain(
+    'bridge link --app-name hybridclaw --instance-name lab',
+  );
+  expect(result.stdout).not.toContain('bridge link [--host URL]');
   expect(result.stdout).not.toContain('setup-local');
   expect(result.stdout).not.toContain('HYBRIDCLAW_GATEWAY_URL');
 });
