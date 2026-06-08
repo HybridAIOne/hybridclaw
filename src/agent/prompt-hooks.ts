@@ -24,6 +24,7 @@ import {
 } from '../config/runtime-config.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import { loadCloudMemoryContextFiles } from '../memory/cloud-memory.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
 import {
   buildSessionContextPrompt,
@@ -222,12 +223,33 @@ function buildBootstrapHook(context: PromptHookContext): string {
     },
   );
   const contextPrompt = buildContextPrompt(contextFiles);
+  const cloudMemoryPrompt = buildCloudMemoryPrompt(context.agentId);
   const skillsPrompt = context.explicitSkillInvocation
     ? ''
     : isBootstrapPartSelected('skills', context)
       ? buildSkillsSection(buildSkillsPrompt(context.skills))
       : '';
-  return [contextPrompt, skillsPrompt].filter(Boolean).join('\n\n');
+  return [contextPrompt, cloudMemoryPrompt, skillsPrompt]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function buildCloudMemoryPrompt(agentId: string): string {
+  const files = loadCloudMemoryContextFiles(agentId);
+  if (files.length === 0) return '';
+
+  const lines = [
+    '# Shared Memory',
+    '',
+    'The following cloud memory files are loaded in addition to the agent workspace memory.',
+    '',
+  ];
+  for (const file of files) {
+    const scopeLabel =
+      file.scope === 'installation' ? 'Installation Memory' : 'Company Memory';
+    lines.push(`## ${scopeLabel} (${file.name})`, '', file.content, '');
+  }
+  return lines.join('\n');
 }
 
 function buildMemoryHook(context: PromptHookContext): string {

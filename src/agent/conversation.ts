@@ -13,6 +13,7 @@ import {
   type SkillInvocation,
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
+import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {
   formatCurrentTime,
   loadDailyMemoryFile,
@@ -149,6 +150,7 @@ export function buildConversationContext(params: {
     blockedTools,
     currentUserContent,
   } = params;
+  scheduleCloudMemorySync(agentId);
   const mergedBlockedTools = mergeBlockedToolNames({ explicit: blockedTools });
   const skills = loadSkills(
     agentId,
