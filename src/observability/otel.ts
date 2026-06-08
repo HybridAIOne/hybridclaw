@@ -7,6 +7,8 @@
 
 import { context, SpanStatusCode, trace } from '@opentelemetry/api';
 
+import { captureSentryException } from './sentry.js';
+
 let sdkInstance: { shutdown(): Promise<void> } | null = null;
 
 function isOtelRequested(): boolean {
@@ -118,6 +120,11 @@ export async function withSpan<T>(
         span.recordException(
           err instanceof Error ? err : new Error(String(err)),
         );
+        captureSentryException(err, {
+          mechanism: 'otel.span',
+          tags: { span: name },
+          extra: { attributes },
+        });
         throw err;
       } finally {
         span.end();
@@ -152,6 +159,11 @@ export function withSpanSync<T>(
         span.recordException(
           err instanceof Error ? err : new Error(String(err)),
         );
+        captureSentryException(err, {
+          mechanism: 'otel.span',
+          tags: { span: name },
+          extra: { attributes },
+        });
         throw err;
       } finally {
         span.end();

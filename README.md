@@ -333,6 +333,9 @@ Once the gateway is running, open HybridClaw locally:
 - Optional OpenTelemetry tracing exports gateway and agent spans to OTLP
   backends and annotates structured logs with trace ids for cross-system
   correlation.
+- Optional Sentry reporting sends gateway startup failures, uncaught
+  exceptions, unhandled rejections, and shared span errors when `SENTRY_DSN` is
+  set.
 
 ## How HybridClaw compares
 
