@@ -173,8 +173,8 @@ during gateway shutdown.
 Supported environment variables:
 
 - `SENTRY_DSN` enables Sentry and sets the project DSN; set it with `hybridclaw env set SENTRY_DSN <dsn>`
-- `SENTRY_ENVIRONMENT` sets the Sentry environment; set it with `hybridclaw env set SENTRY_ENVIRONMENT <name>`
-- `SENTRY_RELEASE` sets the Sentry release name; set it with `hybridclaw env set SENTRY_RELEASE <release>`
+- `SENTRY_ENVIRONMENT` optionally overrides the Sentry environment; the default is `production`
+- `SENTRY_RELEASE` optionally overrides the Sentry release name; the default is `hybridclaw@<package-version>`
 - `SENTRY_TRACES_SAMPLE_RATE` optionally enables Sentry transaction sampling with a value from `0` to `1`; set it with `hybridclaw env set SENTRY_TRACES_SAMPLE_RATE <rate>`
 
 Process environment variables with the same names are fallback values when no
