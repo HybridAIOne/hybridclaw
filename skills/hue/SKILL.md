@@ -68,7 +68,7 @@ metadata:
         - local-entertainment-configuration-list
         - local-eventstream
       amber:
-        - local-bridge-connection-create
+        - local-link-button
         - remote-oauth-token
         - remote-bridges
         - remote-light-list
@@ -142,9 +142,11 @@ bridge access is unavailable.
 11. When linking after the operator presses the bridge button, run `bridge
    status` first. If the live status result reports `linkbutton: true`,
    immediately run `bridge link` without `--host`. If it reports
-   `linkbutton: false` or omits `linkbutton`, tell the operator that the
-   configured bridge did not report an active button press and ask them to press
-   and release the physical link button once, then retry immediately.
+   `linkbutton: false`, tell the operator that the configured bridge did not
+   report an active button press and ask them to press and release the physical
+   link button once, then retry immediately. If `linkbutton` is absent, do not
+   treat that as proof the button is inactive; modern bridge config responses
+   can omit the field.
 12. When running the link request itself, do not pass `--host` unless the
    operator explicitly provides a new override URL in the same turn. The default
    link request must use `<env:HUE_BRIDGE_HOST>` so the gateway resolves the
@@ -240,9 +242,9 @@ node skills/hue/hue.cjs --format json bridge link \
 The status command emits a `/api/config` request shape with
 `<env:HUE_BRIDGE_HOST>` and no secret header. Use it to confirm the configured
 bridge reports `linkbutton: true` before sending the link request. The link
-command emits a single `/api/config/connections` request shape with
-`<env:HUE_BRIDGE_HOST>`. Send that request through the gateway while the button
-is active, then store the returned Hue credential secret as
+command emits a single `/api` request shape with `<env:HUE_BRIDGE_HOST>` and
+only a `devicetype` body. Send that request through the gateway while the
+button is active, then store the returned Hue credential secret as
 `HUE_APPLICATION_KEY`. Do not pass `--host` for normal chat setup.
 
 Use Remote API reads only when off-LAN access is needed:
@@ -352,18 +354,25 @@ Store the returned Hue credential secret with:
   Do not include `hybridclaw env set` or ask the operator to set
   `HUE_BRIDGE_HOST` again unless the gateway explicitly reports that
   `HUE_BRIDGE_HOST` itself is missing.
-- On a live link response with Hue error `type: 101` or description
+- On a live link response from `/api` with Hue error `type: 101` or description
   `link button not pressed`, run `bridge status` once in the current button
   window. If status reports `linkbutton: true`, retry `bridge link`
   immediately. If status reports `linkbutton: false`, explain that the bridge
   at the configured env-store host is reachable but does not currently report
   an active button press; ask the operator to press and release the physical
-  button once, then retry the status and link sequence immediately.
+  button once, then retry the status and link sequence immediately. If status
+  omits `linkbutton`, explain that the bridge status endpoint did not expose
+  button state and retry the `/api` link request only when the operator confirms
+  the button was just pressed.
 - On a live link response saying `generateclientkey is not available` or
   directing the caller to `POST /api/config/connections`, rebuild the request
-  with the current helper and retry the emitted `/api/config/connections`
-  request. Do not send the operator to the Hue developer portal or mobile app
-  for a credential when the local bridge registration endpoint is available.
+  with the current helper and retry the emitted `/api` request. The helper must
+  not send `generateclientkey`; it should send only `devicetype`.
+- On a live link response from `/api/config/connections` with Hue error
+  `type: 1`, address `/connections`, or description `unauthorized user`, do not
+  claim the button window expired. That endpoint requires an existing
+  authorized user on this bridge. Rebuild with the current helper and use the
+  unauthenticated `/api` link request without `generateclientkey`.
 - If the operator shows `/env show HUE_BRIDGE_HOST` and it differs from the host
   used by a failed request, explain that the request used the wrong override and
   retry with the normal helper command, which emits `<env:HUE_BRIDGE_HOST>`.
