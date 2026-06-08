@@ -5,6 +5,25 @@
 ### Added
 
 - **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables optional gateway Sentry reporting for startup failures, uncaught exceptions, unhandled rejections, and errors recorded through shared gateway/agent spans, with default `production` environment, automatic `hybridclaw@<package-version>` release naming, secret redaction, and graceful shutdown flushes.
+- **`blink` skill**: Added Blink camera and video-doorbell workflows for account login/refresh, device and network inventory, camera and doorbell reads, motion events, clip and thumbnail artifact downloads, and approval-gated arm/disarm, motion, thumbnail refresh, and watched-state operations.
+- **`hue` skill**: Added Philips Hue local Bridge CLIP v2 and optional Remote API workflows for bridge, device, light, room, zone, scene, sensor, behavior, and eventstream reads, plus approval-gated light, group, room, scene, behavior, and bridge-configuration actions with SecretRef-backed credentials.
+- **Admin secret vault**: Added `/admin/secrets` as a write-only browser surface that lists stored and declared-but-empty secrets by metadata, supports overwrite and unset actions, and never returns cleartext values to the console.
+
+### Changed
+
+- **Gateway HTTP requests**: Gateway-backed `http_request` dispatch now supports structured form bodies, response-field capture into runtime secrets, response-body suppression for binary/media artifacts, explicit token bind-domain capture, and scoped self-signed TLS handling for local device APIs.
+- **Skill credential setup guidance**: Skill authoring docs now require chat-friendly `/env` and `/secret` setup equivalents when setup instructions mention local `hybridclaw env` or `hybridclaw secret` commands.
+- **Consumer install warnings**: Dropped the consumer-facing npm engine pin while keeping the project package manager pin for contributors, reducing install noise for published package users.
+
+### Fixed
+
+- **Secret command safety in chat**: Guarded shell secret commands that are unsafe or misleading from chat-launched runtime contexts, steering operators toward the gateway-backed slash-command surfaces.
+- **Blink OAuth and media handling**: Hardened Blink OAuth v2 login, PIN handover, refresh recovery, token binding, thumbnail and clip artifact handling, busy snapshot failures, and privacy-sensitive output suppression.
+- **Hue bridge setup and LAN handling**: Hardened Hue bridge link-button setup, local bridge status checks, TLS handling, LAN policy diagnostics, and credential capture for local CLIP v2 requests.
+- **Model prompt sanitization**: Avoided malformed Unicode in model prompts by normalizing shared container text handling.
+- **Audit trace exports**: Preserved trace hash identifiers during session trace export.
+- **Token-efficiency cleanup**: Limited the chat-delete run guard so unrelated run state is not deleted.
+- **Secret input ergonomics**: Unwrapped quoted secret values passed through secret-set flows before persistence.
 
 ## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
 

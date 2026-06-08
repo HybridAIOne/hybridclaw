@@ -548,6 +548,129 @@ planning flows.
 
 ---
 
+## blink
+
+Read Blink camera and video-doorbell state, inspect motion clips, download
+media artifacts, and prepare guarded privacy-control requests through
+gateway-managed Blink API calls.
+
+**Prerequisites** — a Blink account email and password stored as runtime
+secrets. The helper captures OAuth session tokens after login.
+
+In chat:
+
+```text
+/secret set BLINK_EMAIL "<account email>"
+/secret set BLINK_PASSWORD "<account password>"
+node skills/blink/blink.cjs --format json run account-login
+```
+
+From a local terminal:
+
+```bash
+hybridclaw secret set BLINK_EMAIL "<account email>"
+hybridclaw secret set BLINK_PASSWORD "<account password>"
+node skills/blink/blink.cjs --format json run account-login
+```
+
+If Blink asks for an email or SMS PIN, provide the PIN through the operator
+handover flow and rerun `account-login` with `--pin <code>`. Successful login
+captures `BLINK_AUTH_TOKEN`, `BLINK_REFRESH_TOKEN`, `BLINK_TIER`,
+`BLINK_ACCOUNT_ID`, and `BLINK_CLIENT_ID` into the secret store.
+
+> 💡 **Tips & Tricks**
+>
+> Start with `devices-list`, then narrow to networks, cameras, doorbells,
+> motion events, clips, or thumbnails.
+>
+> Clip and thumbnail downloads go through the gateway artifact path so raw
+> media bytes do not enter model context.
+>
+> Network arm/disarm, camera motion toggles, thumbnail refreshes, watched
+> state changes, deletion, and live view are privacy-sensitive and require
+> explicit approval.
+
+> 🎯 **Try it yourself**
+>
+> `List my Blink networks, cameras, and doorbells`
+>
+> `Summarize Blink motion events since this morning`
+>
+> `Download the latest Blink thumbnail as an artifact`
+>
+> `Prepare an approval plan to arm this Blink network`
+
+**Troubleshooting**
+
+- **Verification required** — stop and complete the PIN handover before retrying.
+- **Invalid credentials or app update required** — stop after the helper error;
+  do not probe alternate Blink endpoints.
+- **Media download fails** — verify the helper emitted a gateway artifact
+  request and suppressed the response body.
+
+---
+
+## hue
+
+Inspect and control Philips Hue Bridge lighting installations through the
+local CLIP v2 API, with optional Hue Remote API support for off-LAN reads.
+
+**Prerequisites** — a local bridge HTTPS URL stored as runtime env and a Hue
+application key captured after pressing the physical bridge link button.
+
+In chat:
+
+```text
+/env set HUE_BRIDGE_HOST "https://<bridge-ip>"
+node skills/hue/hue.cjs --format json bridge status
+node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
+```
+
+From a local terminal:
+
+```bash
+hybridclaw env set HUE_BRIDGE_HOST "https://<bridge-ip>"
+node skills/hue/hue.cjs --format json bridge status
+node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
+```
+
+Send the emitted `httpRequest` through the gateway while the bridge link
+button is active. The emitted `captureResponseFields` rule stores the returned
+credential as `HUE_APPLICATION_KEY`; do not paste the application key into
+chat.
+
+> 💡 **Tips & Tricks**
+>
+> Read current bridge, light, room, zone, and scene state before planning any
+> lighting changes.
+>
+> Local bridge reads are green. Light, group, room, scene, behavior, and remote
+> API operations are approval-gated; bridge configuration changes are red-tier.
+>
+> The helper adds scoped self-signed TLS handling for local bridge HTTPS. Do
+> not replace it with broad insecure TLS settings.
+
+> 🎯 **Try it yourself**
+>
+> `List my Hue rooms, lights, and scenes`
+>
+> `Show motion and temperature sensor readings from my Hue bridge`
+>
+> `Prepare an approval plan to dim the office lights to 60 percent`
+>
+> `Prepare an approval plan to recall this Hue scene`
+
+**Troubleshooting**
+
+- **Application key missing** — press the bridge link button and run the
+  `bridge status` then `bridge link` setup sequence again.
+- **Gateway policy denial** — verify workspace LAN HTTP policy before adding a
+  duplicate bridge-specific rule.
+- **Certificate verification fails** — rebuild the request with the Hue helper
+  so `allowSelfSignedTls` is present.
+
+---
+
 ## fronius
 
 Read Fronius photovoltaic inverter and Solar.web monitoring data without
