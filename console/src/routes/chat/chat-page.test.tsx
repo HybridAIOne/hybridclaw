@@ -331,6 +331,7 @@ describe('ChatPage', () => {
       stopRequest: stopRequestMock,
       isStreaming: false,
       streamingMsgId: null,
+      activeSessionId: null,
       isActive: isActiveMock,
     });
   });
@@ -860,6 +861,78 @@ describe('ChatPage', () => {
     );
     await waitFor(() => expect(fetchChatRecentMock).toHaveBeenCalledTimes(2));
     expect(screen.getByText('Opened session A')).not.toBeNull();
+  });
+
+  it('allows deleting an inactive recent session while the current session is streaming', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    isActiveMock.mockReturnValue(true);
+    useChatStreamMock.mockReturnValue({
+      sendMessage: sendMessageMock,
+      stopRequest: stopRequestMock,
+      isStreaming: true,
+      streamingMsgId: 'streaming-message',
+      activeSessionId: 'session-a',
+      isActive: isActiveMock,
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Delete Session B session',
+        hidden: true,
+      }),
+    );
+    expect(await screen.findByText('Delete session?')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(deleteChatSessionMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-b',
+      ),
+    );
+  });
+
+  it('blocks deleting the session with the current run', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    isActiveMock.mockReturnValue(true);
+    useChatStreamMock.mockReturnValue({
+      sendMessage: sendMessageMock,
+      stopRequest: stopRequestMock,
+      isStreaming: true,
+      streamingMsgId: 'streaming-message',
+      activeSessionId: 'session-a',
+      isActive: isActiveMock,
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Delete Session A session',
+        hidden: true,
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        'Stop the current run before deleting this chat.',
+      ),
+    ).not.toBeNull();
+    expect(screen.queryByText('Delete session?')).toBeNull();
+    expect(deleteChatSessionMock).not.toHaveBeenCalled();
   });
 
   it('keeps the delete dialog open when the session was not deleted', async () => {

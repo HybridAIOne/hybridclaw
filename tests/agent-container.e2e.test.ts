@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   cleanupStaleContainers,
+  dockerE2eGate,
   removeContainer,
   startContainer,
 } from './helpers/docker-test-setup.js';
@@ -10,9 +11,9 @@ import {
  * separate containers per test (~22s -> ~3s).
  */
 
-const DOCKER_E2E = process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1';
-const IMAGE =
-  process.env.HYBRIDCLAW_E2E_AGENT_IMAGE || 'hybridclaw-agent:preflight';
+const { image: IMAGE, enabled: DOCKER_E2E } = dockerE2eGate(
+  'HYBRIDCLAW_E2E_AGENT_IMAGE',
+);
 
 const CONTAINER_NAME = `hc-e2e-agent-${process.pid}`;
 

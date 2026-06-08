@@ -13,6 +13,14 @@ const sharedTestConfig = {
 
 const sharedExclude = ['node_modules/**', 'dist/**', 'container/**'];
 
+// The installer Docker matrix (scripts/install.sh) lives in its own project so a
+// plain `vitest run --project e2e` — invoked by several CI jobs — never pulls it
+// in. It is gated only on a reachable Docker daemon (no opt-in env var); run it
+// explicitly with `--project install-e2e` (see the test:install-e2e script).
+// Note the `-e2e` suffix does NOT match the `.e2e.test.ts` glob, so it must be
+// excluded from the broad `unit` include explicitly.
+const installE2eGlob = 'tests/**/*.install-e2e.test.ts';
+
 export default defineConfig({
   test: {
     coverage: {
@@ -41,6 +49,7 @@ export default defineConfig({
           exclude: [
             'tests/**/*.integration.test.ts',
             'tests/**/*.e2e.test.ts',
+            installE2eGlob,
             'tests/**/*.live.test.ts',
             ...sharedExclude,
           ],
@@ -59,8 +68,16 @@ export default defineConfig({
           ...sharedTestConfig,
           name: 'e2e',
           include: ['tests/**/*.e2e.test.ts'],
-          exclude: sharedExclude,
+          exclude: [installE2eGlob, ...sharedExclude],
           globalSetup: ['tests/helpers/e2e-global-setup.ts'],
+        },
+      },
+      {
+        test: {
+          ...sharedTestConfig,
+          name: 'install-e2e',
+          include: [installE2eGlob],
+          exclude: sharedExclude,
         },
       },
       {

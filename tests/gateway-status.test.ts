@@ -1464,6 +1464,17 @@ test('secret commands manage encrypted secrets and HTTP auth routes', async () =
   expect(setResult.kind).toBe('plain');
   expect(readStoredRuntimeSecret('NEW_HAI_API_KEY')).toBe('super-secret-value');
 
+  const quotedSetResult = await handleGatewayCommand({
+    sessionId: 'session-secret-set-quoted',
+    guildId: null,
+    channelId: 'tui',
+    args: ['secret', 'set', 'QUOTED_SECRET', '"wrapped secret value"'],
+  });
+  expect(quotedSetResult.kind).toBe('plain');
+  expect(readStoredRuntimeSecret('QUOTED_SECRET')).toBe(
+    'wrapped secret value',
+  );
+
   const routeResult = await handleGatewayCommand({
     sessionId: 'session-secret-route',
     guildId: null,

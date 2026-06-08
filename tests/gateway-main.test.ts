@@ -166,6 +166,13 @@ function createGatewayMainTestState(options?: {
       whatsapp: {
         dmPolicy: options?.whatsappEnabled === false ? 'disabled' : 'pairing',
         groupPolicy: 'disabled',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        debounceMs: 1_000,
+        ackReaction: '👀',
+        textChunkLimit: 4_000,
+        mediaMaxMb: 20,
+        sendReadReceipts: false,
       },
       local: { enabled: false },
       container: {
@@ -309,6 +316,8 @@ function createGatewayMainTestState(options?: {
     startDiscoveryLoop: vi.fn(),
     hybridAIProbeGet: vi.fn(async () => ({})),
     localBackendsProbeGet: vi.fn(async () => new Map()),
+    initSentry: vi.fn(async () => {}),
+    shutdownSentry: vi.fn(async () => {}),
     startObservabilityIngest: vi.fn(),
     startScheduler: vi.fn(),
     whatsappLinked: options?.whatsappLinked === true,
@@ -628,6 +637,11 @@ async function importFreshGatewayMain(options?: {
       invalidate: vi.fn(),
     },
   }));
+  vi.doMock('../src/observability/sentry.js', () => ({
+    captureSentryException: vi.fn(),
+    initSentry: state.initSentry,
+    shutdownSentry: state.shutdownSentry,
+  }));
   vi.doMock('../src/scheduler/heartbeat.js', () => ({
     startHeartbeat: state.startHeartbeat,
     stopHeartbeat: vi.fn(),
@@ -762,6 +776,7 @@ useCleanMocks({
     '../src/a2a/webhook-outbound.js',
     '../src/providers/local-discovery.js',
     '../src/providers/local-health.js',
+    '../src/observability/sentry.js',
     '../src/scheduler/heartbeat.js',
     '../src/scheduler/scheduler.js',
     '../src/gateway/gateway-service.js',
@@ -780,6 +795,7 @@ describe('gateway bootstrap', () => {
     const state = await importFreshGatewayMain();
 
     expect(state.initDatabase).toHaveBeenCalledTimes(1);
+    expect(state.initSentry).toHaveBeenCalledTimes(1);
     expect(state.migrateConfigSchedulerJobsToDatabase).toHaveBeenCalledTimes(1);
     expect(state.initGatewayService).toHaveBeenCalledTimes(1);
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
@@ -1103,6 +1119,41 @@ describe('gateway bootstrap', () => {
       'Gateway channels',
       expect.objectContaining({
         whatsapp: false,
+      }),
+    );
+  });
+
+  test('starts WhatsApp pairing runtime when admin config enables the transport', async () => {
+    const state = await importFreshGatewayMain({
+      whatsappEnabled: false,
+      whatsappLinked: false,
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      whatsapp: {
+        ...state.currentConfig.whatsapp,
+        dmPolicy: 'pairing',
+      },
+    };
+
+    expect(state.initWhatsApp).not.toHaveBeenCalled();
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.whatsappMessageHandler).not.toBeNull();
+    expectInfoLog(
+      state,
+      'Config changed, restarting WhatsApp integration',
+      expect.objectContaining({
+        dmPolicy: 'pairing',
+        groupPolicy: 'disabled',
+        allowFromCount: 0,
+        groupAllowFromCount: 0,
       }),
     );
   });
@@ -2776,6 +2827,7 @@ describe('gateway bootstrap', () => {
     expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
     expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
     expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.shutdownSentry).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
