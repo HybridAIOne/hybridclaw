@@ -19,7 +19,7 @@ credentials:
       source: store
       id: HUE_APPLICATION_KEY
     scope: "Philips Hue CLIP v2 hue-application-key header"
-    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned username with `hybridclaw secret set HUE_APPLICATION_KEY \"<username>\"`."
+    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned username with `hybridclaw secret set HUE_APPLICATION_KEY \"<username>\"`."
   - id: hue-remote-refresh-token
     kind: bearer
     required: false
@@ -126,7 +126,21 @@ bridge access is unavailable.
    gateway `http_request` proxy. Do not use a blanket insecure TLS bypass.
 8. If a live call returns `401` or `unauthorized_user`, stop after that first
    failed call and re-link the bridge with the link-button flow.
-9. If a private-host or gateway policy denial blocks a local bridge request,
+9. Before telling the operator Hue config is missing, check the configured
+   names with `hybridclaw env list` and `hybridclaw secret list`, or the
+   corresponding slash commands when running inside chat. Inspect names only;
+   never print secret values. Do not ask whether to check config when the tools
+   are available.
+10. If `HUE_BRIDGE_HOST` is configured and `HUE_APPLICATION_KEY` is missing,
+   say only that the application key is missing. Do not ask the operator to
+   find the bridge IP again. Ask them to press the physical link button, then
+   build `node skills/hue/hue.cjs --format json bridge link --app-name
+   hybridclaw --instance-name lab`, send the emitted `httpRequest`, and store
+   the returned `success.username` as `HUE_APPLICATION_KEY`.
+11. If `HUE_BRIDGE_HOST` is missing, first reuse an exact Hue Bridge URL from
+   current context or workspace memory when one is present. Ask the operator to
+   find the bridge IP only when no exact URL is available.
+12. If a private-host or gateway policy denial blocks a local bridge request,
    first inspect the current workspace network policy. Managed read-only LAN
    access already allows GET reads to RFC1918 hosts, and managed read-write LAN
    access allows the supported methods. If either managed LAN mode covers the
@@ -191,14 +205,14 @@ Link a bridge after pressing the physical link button:
 
 ```bash
 node skills/hue/hue.cjs --format json bridge link \
-  --host https://192.168.1.30 \
   --app-name hybridclaw \
   --instance-name lab
 ```
 
 The link command emits a single `/api` request shape. Send that request through
 the gateway after pressing the link button, then store the returned
-`success.username` as `HUE_APPLICATION_KEY`.
+`success.username` as `HUE_APPLICATION_KEY`. It uses `<env:HUE_BRIDGE_HOST>` by
+default; pass `--host` only to override the env-store bridge URL.
 
 Use Remote API reads only when off-LAN access is needed:
 
@@ -217,7 +231,7 @@ store the returned username as the application key:
 
 ```bash
 hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"
-node skills/hue/hue.cjs --format json bridge link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab
+node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
 hybridclaw secret set HUE_APPLICATION_KEY "<username-from-link-response>"
 ```
 
@@ -261,3 +275,7 @@ is rejected.
 - If policy denial persists despite a matching managed LAN setting, report the
   helper-emitted host, method, and path. Do not substitute Remote API results
   unless the operator asks for off-LAN fallback.
+- On missing Hue configuration, report exactly which configured names are
+  present and which are missing. If only `HUE_APPLICATION_KEY` is missing, do
+  not say `HUE_BRIDGE_HOST` is missing and do not ask the operator to find the
+  bridge IP.

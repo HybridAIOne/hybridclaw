@@ -45,6 +45,13 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
   expect(skill).toContain('local-bridge-config-timezone');
   expect(skill).toContain('managed read-only LAN access');
   expect(skill).toContain('do not tell the operator a gateway restart');
+  expect(skill).toContain('hybridclaw env list');
+  expect(skill).toContain('hybridclaw secret list');
+  expect(skill).toContain('Do not ask whether to check config');
+  expect(skill).toContain(
+    'If `HUE_BRIDGE_HOST` is configured and `HUE_APPLICATION_KEY` is missing',
+  );
+  expect(skill).toContain('find the bridge IP again');
   expect(skill).not.toContain('CLIP v1');
 });
 
@@ -56,7 +63,7 @@ test('Hue helper --help lists subject verb commands', () => {
   expect(result.stdout).toContain('light list');
   expect(result.stdout).toContain('grouped-light brightness --id');
   expect(result.stdout).toContain('scene recall --id');
-  expect(result.stdout).toContain('bridge link --host');
+  expect(result.stdout).toContain('bridge link [--host URL]');
   expect(result.stdout).not.toContain('setup-local');
   expect(result.stdout).not.toContain('HYBRIDCLAW_GATEWAY_URL');
 });
@@ -153,7 +160,8 @@ test('Hue helper builds granted local mutation request shapes', () => {
 });
 
 test('Hue helper builds link and remote request shapes without runtime side effects', () => {
-  const link = request([
+  const link = request(['bridge', 'link', '--app-name', 'hybridclaw', '--instance-name', 'lab']);
+  const linkWithHost = request([
     'bridge',
     'link',
     '--host',
@@ -171,13 +179,14 @@ test('Hue helper builds link and remote request shapes without runtime side effe
     stakesTier: 'amber',
     httpRequest: {
       method: 'POST',
-      url: 'https://192.0.2.30/api',
+      url: '<env:HUE_BRIDGE_HOST>/api',
       json: {
         devicetype: 'hybridclaw#lab',
         generateclientkey: true,
       },
     },
   });
+  expect(linkWithHost.httpRequest.url).toBe('https://192.0.2.30/api');
   expect(link).not.toHaveProperty('liveExecution');
   expect(remoteLights).toMatchObject({
     operation: 'remote-light-list',
