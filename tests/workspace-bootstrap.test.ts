@@ -80,7 +80,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n',
+      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **Email:** ben@example.com\n',
       'utf-8',
     );
     fs.unlinkSync(bootstrapPath);
@@ -118,7 +118,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n',
+      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **Email:** ben@example.com\n',
       'utf-8',
     );
     fs.unlinkSync(path.join(workspaceDir, 'BOOTSTRAP.md'));
@@ -253,7 +253,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **What to call them:** Ben\n',
+      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **What to call them:** Ben\n- **Email:** ben@example.com\n',
       'utf-8',
     );
     fs.writeFileSync(
@@ -292,7 +292,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **What to call them:** Ben\n',
+      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **What to call them:** Ben\n- **Email:** ben@example.com\n',
       'utf-8',
     );
     fs.mkdirSync(path.join(workspaceDir, '.session-transcripts'), {
@@ -310,6 +310,43 @@ describe('workspace bootstrap lifecycle', () => {
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test('keeps BOOTSTRAP.md while USER.md email is still pending', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **What to call them:** Ben\n- **Email:** (pending)\n',
+      'utf-8',
+    );
+    fs.mkdirSync(path.join(workspaceDir, '.session-transcripts'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(workspaceDir, '.session-transcripts', 'web.jsonl'),
+      '{"role":"user","content":"You can call me Ben"}\n',
+      'utf-8',
+    );
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+    const state = readWorkspaceState(workspaceDir);
+    expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toBeUndefined();
   });
 
   test('symlinks workspace node_modules to the container app deps when absent', async () => {
@@ -509,7 +546,7 @@ describe('workspace bootstrap lifecycle', () => {
     );
     fs.writeFileSync(
       path.join(workspaceDir, 'USER.md'),
-      '# USER.md - About Your Human\n\n- **Name:** Ben\n',
+      '# USER.md - About Your Human\n\n- **Name:** Ben\n- **Email:** ben@example.com\n',
       'utf-8',
     );
     fs.writeFileSync(

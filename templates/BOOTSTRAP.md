@@ -64,6 +64,10 @@ Update the files with what you learned:
 - `IDENTITY.md` — only if the user explicitly changes your identity
 - `SOUL.md` — only if the user explicitly wants behavior or boundary changes
 
+If the user gives their email address after `USER.md` already has
+`Email: (pending)`, update `USER.md` immediately as well as daily memory. Do
+not say "email saved" until `USER.md` contains the email address.
+
 Keep the edits short, concrete, and durable. Dream consolidation will later clean and promote durable memory into `MEMORY.md`.
 
 Then create a tailored "first jobs" email:

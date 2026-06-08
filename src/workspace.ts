@@ -282,6 +282,26 @@ function hasWorkspaceUserContent(wsDir: string): boolean {
   return isWorkspaceFileCustomized(wsDir, 'MEMORY.md');
 }
 
+function hasKnownUserEmail(wsDir: string): boolean {
+  const userPath = path.join(wsDir, 'USER.md');
+  if (!fs.existsSync(userPath)) return false;
+  try {
+    const content = fs.readFileSync(userPath, 'utf-8');
+    const emailLine = content.match(/^\s*-\s*\*\*Email:\*\*\s*(.+)$/im);
+    const candidate = (emailLine?.[1] || '').trim();
+    if (
+      !candidate ||
+      /\b(?:pending|unknown|to be determined|tbd|none)\b/i.test(candidate)
+    ) {
+      return false;
+    }
+    return /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(candidate);
+  } catch (error) {
+    logger.warn({ wsDir, error }, 'Failed to read USER.md email');
+    return false;
+  }
+}
+
 function readBootstrapReferenceTimestampMs(params: {
   wsDir: string;
   state: WorkspaceOnboardingState;
@@ -362,11 +382,15 @@ function looksLikeCompletedWorkspace(
   const customizedIdentity = isWorkspaceFileCustomized(wsDir, 'IDENTITY.md');
   const customizedUser = isWorkspaceFileCustomized(wsDir, 'USER.md');
   const userContentPresent = hasWorkspaceUserContent(wsDir);
+  const userEmailKnown = hasKnownUserEmail(wsDir);
   const customizedBootstrap =
     bootstrapExists && isWorkspaceFileCustomized(wsDir, 'BOOTSTRAP.md');
 
   if (!bootstrapExists) {
-    return customizedIdentity || customizedUser || userContentPresent;
+    return (
+      userEmailKnown &&
+      (customizedIdentity || customizedUser || userContentPresent)
+    );
   }
 
   if (
@@ -380,7 +404,11 @@ function looksLikeCompletedWorkspace(
     return false;
   }
 
-  return (customizedIdentity || customizedUser) && userContentPresent;
+  return (
+    userEmailKnown &&
+    (customizedIdentity || customizedUser) &&
+    userContentPresent
+  );
 }
 
 /**
@@ -519,7 +547,8 @@ export function ensureBootstrapFiles(
   if (
     !state.onboardingCompletedAt &&
     state.bootstrapSeededAt &&
-    !bootstrapExists
+    !bootstrapExists &&
+    hasKnownUserEmail(wsDir)
   ) {
     markState({ onboardingCompletedAt: nowIso() });
   }
@@ -787,8 +816,8 @@ export function buildContextPrompt(files: ContextFile[]): string {
 
 /**
  * Check if the workspace still needs bootstrapping.
- * Like OpenClaw: if the agent deleted BOOTSTRAP.md, or if IDENTITY.md / USER.md
- * have been modified from templates, bootstrapping is considered complete.
+ * Like OpenClaw, workspace edits are completion evidence, but hatching remains
+ * active until USER.md contains the user's email address.
  */
 export function isBootstrapping(agentId: string): boolean {
   const wsDir = agentWorkspaceDir(agentId);
