@@ -761,17 +761,20 @@ export function ChatPage() {
     [stream.isActive, navigateToSession, setError],
   );
 
-  const canDeleteSession = useCallback(() => {
-    if (stream.isActive()) {
-      setError('Stop the current run before deleting a chat.');
-      return false;
-    }
-    return !deleteSessionMutation.isPending;
-  }, [deleteSessionMutation.isPending, stream.isActive, setError]);
+  const canDeleteSession = useCallback(
+    (targetSessionId: string) => {
+      if (stream.activeSessionId === targetSessionId) {
+        setError('Stop the current run before deleting this chat.');
+        return false;
+      }
+      return !deleteSessionMutation.isPending;
+    },
+    [deleteSessionMutation.isPending, stream.activeSessionId, setError],
+  );
 
   const handleRequestDeleteSession = useCallback(
     (target: ChatRecentSession) => {
-      if (!canDeleteSession()) return;
+      if (!canDeleteSession(target.sessionId)) return;
       setSessionPendingDelete(target);
     },
     [canDeleteSession],
@@ -781,7 +784,7 @@ export function ChatPage() {
     if (!sessionPendingDelete) {
       throw new Error('Delete confirmation is missing a session.');
     }
-    if (!canDeleteSession()) return;
+    if (!canDeleteSession(sessionPendingDelete.sessionId)) return;
     deleteSessionMutation.mutate(sessionPendingDelete.sessionId);
   }, [canDeleteSession, deleteSessionMutation, sessionPendingDelete]);
 
