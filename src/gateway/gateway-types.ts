@@ -1043,6 +1043,53 @@ export interface GatewayAdminA2ATrustUpsertRequest {
   reason?: unknown;
 }
 
+export interface GatewayAdminFleetTopologyHq {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  version: string;
+  status: 'local';
+  latencyMs: number;
+  lastSeenAt: string;
+}
+
+export type GatewayAdminFleetTopologyInstanceStatus =
+  | 'online'
+  | 'unreachable'
+  | 'unconfigured'
+  | 'revoked';
+
+export interface GatewayAdminFleetTopologyInstance {
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyFingerprint: string;
+  trustStatus: 'trusted' | 'revoked';
+  status: GatewayAdminFleetTopologyInstanceStatus;
+  version: string | null;
+  latencyMs: number | null;
+  error: string | null;
+  trustedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface GatewayAdminFleetTopologyResponse {
+  hq: GatewayAdminFleetTopologyHq;
+  instances: GatewayAdminFleetTopologyInstance[];
+}
+
+export interface GatewayAdminFleetTopologyUpsertRequest {
+  peerId?: unknown;
+  agentCardUrl?: unknown;
+  deliveryUrl?: unknown;
+  publicKeyFingerprint?: unknown;
+  publicKeyJwk?: unknown;
+  reason?: unknown;
+}
+
 export interface GatewayAdminA2AThreadMessage {
   id: string;
   threadId: string;

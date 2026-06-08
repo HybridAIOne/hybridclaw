@@ -4,6 +4,7 @@ import {
   claimWarmEntry,
   createWarmSessionId,
   enforceWarmPoolPressure,
+  formatWarmRunnerTerminalError,
   getCachedObservedMemoryBytes,
   maintainWarmPool,
   observeAgentLifecycleLine,
@@ -184,6 +185,29 @@ test('enforces process capacity without sampling memory', () => {
 
   expect(getObservedMemoryBytes).not.toHaveBeenCalled();
   expect(stopEntries).toHaveBeenCalledWith([warm]);
+});
+
+test('omits internal stream progress lines from terminal error details', () => {
+  const error = formatWarmRunnerTerminalError(
+    {
+      process: { exitCode: 1, killed: false },
+      stderrHistory: [
+        '[thinking] IHVzZXIgd2FudHM=',
+        '[stream-activity]',
+        '[stream] SGVsbG8=',
+        'runtime crashed',
+      ],
+    },
+    'Host agent process',
+    { code: 1, signal: null },
+  );
+
+  expect(error).toBe(
+    'Host agent process exited before producing output (exit code 1). runtime crashed',
+  );
+  expect(error).not.toContain('[thinking]');
+  expect(error).not.toContain('[stream-activity]');
+  expect(error).not.toContain('[stream]');
 });
 
 test('maintains target warm entries for recent agent traffic', () => {

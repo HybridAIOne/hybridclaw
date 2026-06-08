@@ -1323,6 +1323,53 @@ export interface AdminA2ATrustUpsertRequest {
   reason?: string;
 }
 
+export interface AdminFleetTopologyHq {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  version: string;
+  status: 'local';
+  latencyMs: number;
+  lastSeenAt: string;
+}
+
+export type AdminFleetTopologyInstanceStatus =
+  | 'online'
+  | 'unreachable'
+  | 'unconfigured'
+  | 'revoked';
+
+export interface AdminFleetTopologyInstance {
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyFingerprint: string;
+  trustStatus: 'trusted' | 'revoked';
+  status: AdminFleetTopologyInstanceStatus;
+  version: string | null;
+  latencyMs: number | null;
+  error: string | null;
+  trustedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface AdminFleetTopologyResponse {
+  hq: AdminFleetTopologyHq;
+  instances: AdminFleetTopologyInstance[];
+}
+
+export interface AdminFleetTopologyUpsertRequest {
+  peerId: string;
+  agentCardUrl?: string;
+  deliveryUrl?: string;
+  publicKeyFingerprint?: string;
+  publicKeyJwk?: JsonWebKey;
+  reason?: string;
+}
+
 export interface AdminA2AThreadMessage {
   id: string;
   threadId: string;

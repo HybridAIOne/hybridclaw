@@ -12,6 +12,7 @@ import path from 'node:path';
 import { listAgents } from '../agents/agent-registry.js';
 import type { AgentA2AExposure, AgentConfig } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import { APP_VERSION } from '../config/app-version.js';
 import {
   getRuntimeAssetRevisionState,
   listRuntimeAssetRevisionStates,
@@ -481,6 +482,7 @@ export function buildLocalA2AAgentCard(
   }));
   return {
     name: 'HybridClaw',
+    version: APP_VERSION,
     url: new URL('/a2a', url.origin).toString(),
     capabilities: {
       messageSend: true,
@@ -501,6 +503,7 @@ export function buildLocalA2AAgentCard(
       // uses delegation-token.ts until key distribution is unified.
       publicKeyJwk: identity.publicKeyJwk,
       publicKeyFingerprint: identity.publicKeyFingerprint,
+      version: APP_VERSION,
       trustModel: 'tofu-ed25519-v1',
     },
   };
