@@ -12,6 +12,10 @@ import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
+import {
+  buildConnector as buildUndiciConnector,
+  Agent as UndiciAgent,
+} from 'undici';
 
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
@@ -27,6 +31,7 @@ import {
   getRuntimeConfig,
   isGoogleOAuthSecretRef,
 } from '../config/runtime-config.js';
+import { readStoredRuntimeEnvValue } from '../config/runtime-env.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -69,7 +74,7 @@ import {
 
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const HTTP_REQUEST_MAX_RESPONSE_BYTES = 1_000_000;
-const HTTP_REQUEST_SECRET_PLACEHOLDER_RE = /<secret:([A-Z][A-Z0-9_]{0,127})>/g;
+const HTTP_REQUEST_PLACEHOLDER_RE = /<(secret|env):([A-Z][A-Z0-9_]{0,127})>/g;
 const REDIRECT_RESPONSE_STATUS_MIN = 300;
 const REDIRECT_RESPONSE_STATUS_MAX = 399;
 const GOOGLE_WORKSPACE_CLI_TOKEN_SECRET = 'GOOGLE_WORKSPACE_CLI_TOKEN';
@@ -109,6 +114,9 @@ type ApiHttpRequestBody = {
   responseArtifact?: unknown;
   allowManualRedirect?: unknown;
   includeResponseCookies?: unknown;
+  tlsCertificateSha256?: unknown;
+  tlsCertificateSha256SecretName?: unknown;
+  allowSelfSignedTls?: unknown;
   timeoutMs?: unknown;
   maxResponseBytes?: unknown;
   sessionId?: unknown;
@@ -134,6 +142,10 @@ type OtcAkSkAuthRule = {
   secretAccessKeySecretName: string;
   securityTokenSecretName?: string;
 };
+
+type UndiciConnector = ReturnType<typeof buildUndiciConnector>;
+type UndiciConnectorOptions = Parameters<UndiciConnector>[0];
+type UndiciConnectorCallback = Parameters<UndiciConnector>[1];
 
 type SecretResolveContext = {
   sessionId?: string;
@@ -288,8 +300,9 @@ function isPrivateHttpRequestAllowedByPolicy(params: {
   method: string;
   agentId?: string;
 }): boolean {
+  const workspacePath = agentWorkspaceDir(params.agentId || DEFAULT_AGENT_ID);
   try {
-    const state = readPolicyState(process.cwd());
+    const state = readPolicyState(workspacePath);
     const evaluation = evaluateNetworkPolicyAccess({
       defaultAction: state.defaultAction,
       rules: state.rules,
@@ -302,7 +315,7 @@ function isPrivateHttpRequestAllowedByPolicy(params: {
     return evaluation.decision === 'allow' && Boolean(evaluation.matchedRule);
   } catch (error) {
     logger.warn(
-      { host: params.url.hostname, error },
+      { host: params.url.hostname, workspacePath, error },
       'Failed to evaluate network policy for private http_request target; blocking request',
     );
     return false;
@@ -879,35 +892,48 @@ async function acquireGoogleServiceAccountAccessToken(
   return accessToken;
 }
 
-async function replaceSecretPlaceholdersInString(
+async function replaceHttpPlaceholdersInString(
   value: string,
   context: SecretResolveContext,
 ): Promise<string> {
   let next = '';
   let lastIndex = 0;
-  for (const match of value.matchAll(HTTP_REQUEST_SECRET_PLACEHOLDER_RE)) {
+  for (const match of value.matchAll(HTTP_REQUEST_PLACEHOLDER_RE)) {
     const matchIndex = match.index ?? 0;
     next += value.slice(lastIndex, matchIndex);
-    next += await resolveHttpSecretOrThrow(match[1] || '', {
-      ...context,
-      selector: context.selector || '<secret-placeholder>',
-    });
+    const kind = match[1] || '';
+    const name = match[2] || '';
+    if (kind === 'secret') {
+      next += await resolveHttpSecretOrThrow(name, {
+        ...context,
+        selector: context.selector || '<secret-placeholder>',
+      });
+    } else {
+      const envValue = readStoredRuntimeEnvValue(name);
+      if (!envValue) {
+        throw new GatewayRequestError(
+          400,
+          `Env store value ${name} is not configured.`,
+        );
+      }
+      next += envValue;
+    }
     lastIndex = matchIndex + match[0].length;
   }
   next += value.slice(lastIndex);
   return next;
 }
 
-async function replaceSecretPlaceholders(
+async function replaceHttpPlaceholders(
   value: unknown,
   context: SecretResolveContext,
 ): Promise<unknown> {
   if (typeof value === 'string') {
-    return await replaceSecretPlaceholdersInString(value, context);
+    return await replaceHttpPlaceholdersInString(value, context);
   }
   if (Array.isArray(value)) {
     return await Promise.all(
-      value.map((entry) => replaceSecretPlaceholders(entry, context)),
+      value.map((entry) => replaceHttpPlaceholders(entry, context)),
     );
   }
   if (value && typeof value === 'object') {
@@ -915,7 +941,7 @@ async function replaceSecretPlaceholders(
       await Promise.all(
         Object.entries(value).map(async ([key, entry]) => [
           key,
-          await replaceSecretPlaceholders(entry, {
+          await replaceHttpPlaceholders(entry, {
             ...context,
             selector: context.selector || `json.${key}`,
           }),
@@ -1068,40 +1094,177 @@ function normalizeCaptureResponseHeaders(
   return rules;
 }
 
+function normalizeHttpRequestForm(value: unknown): [string, string][] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      '`form` must be an object of string values.',
+    );
+  }
+  const fields: [string, string][] = [];
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    const name = rawName.trim();
+    if (!name) {
+      throw new GatewayRequestError(
+        400,
+        '`form` field names must be non-empty.',
+      );
+    }
+    if (typeof rawValue !== 'string') {
+      throw new GatewayRequestError(
+        400,
+        '`form` values must be strings. Use `json` for structured payloads.',
+      );
+    }
+    fields.push([name, rawValue]);
+  }
+  return fields;
+}
+
+async function buildHttpRequestFormBody(
+  value: unknown,
+  context: SecretResolveContext,
+  replacePlaceholders: boolean,
+): Promise<string> {
+  const params = new URLSearchParams();
+  for (const [name, rawValue] of normalizeHttpRequestForm(value)) {
+    const resolvedValue = replacePlaceholders
+      ? await replaceHttpPlaceholdersInString(rawValue, {
+          ...context,
+          selector: `form.${name}`,
+        })
+      : rawValue;
+    params.append(name, resolvedValue);
+  }
+  return params.toString();
+}
+
+function verifyPinnedTlsCertificateFromSocket(
+  socket: unknown,
+  expectedSha256: string,
+): void {
+  const getPeerCertificate =
+    typeof (socket as { getPeerCertificate?: unknown }).getPeerCertificate ===
+    'function'
+      ? (
+          socket as {
+            getPeerCertificate: (detailed: true) => { raw?: unknown };
+          }
+        ).getPeerCertificate
+      : null;
+  if (!getPeerCertificate) {
+    throw new GatewayRequestError(
+      502,
+      'Pinned TLS certificate check failed: peer certificate was not available.',
+    );
+  }
+  const cert = getPeerCertificate.call(socket, true);
+  const raw = Buffer.isBuffer(cert.raw) ? cert.raw : null;
+  if (!raw) {
+    throw new GatewayRequestError(
+      502,
+      'Pinned TLS certificate check failed: peer certificate was not available.',
+    );
+  }
+  const actual = sha256Hex(raw);
+  if (actual !== expectedSha256) {
+    throw new GatewayRequestError(
+      502,
+      'Pinned TLS certificate check failed: SHA-256 fingerprint mismatch.',
+    );
+  }
+}
+
+function createPinnedTlsDispatcher(
+  expectedSha256: string,
+  timeoutMs: number,
+): UndiciAgent {
+  const connector = buildUndiciConnector({
+    rejectUnauthorized: false,
+    timeout: Math.min(timeoutMs, 10_000),
+  });
+  const pinnedConnector: UndiciConnector = (
+    options: UndiciConnectorOptions,
+    callback: UndiciConnectorCallback,
+  ): void => {
+    connector(options, (error, socket) => {
+      if (error) {
+        callback(error, null);
+        return;
+      }
+      try {
+        verifyPinnedTlsCertificateFromSocket(socket, expectedSha256);
+        callback(null, socket);
+      } catch (pinError) {
+        socket.destroy();
+        callback(
+          pinError instanceof Error ? pinError : new Error(String(pinError)),
+          null,
+        );
+      }
+    });
+  };
+  return new UndiciAgent({ connect: pinnedConnector });
+}
+
+function createSelfSignedTlsDispatcher(timeoutMs: number): UndiciAgent {
+  return new UndiciAgent({
+    connect: buildUndiciConnector({
+      rejectUnauthorized: false,
+      timeout: Math.min(timeoutMs, 10_000),
+    }),
+  });
+}
+
+function normalizeSha256Fingerprint(value: unknown, path: string): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  const normalized = raw
+    .replace(/^sha256:/iu, '')
+    .replace(/:/g, '')
+    .toLowerCase();
+  if (!/^[a-f0-9]{64}$/u.test(normalized)) {
+    throw new GatewayRequestError(
+      400,
+      `${path} must be a SHA-256 fingerprint as 64 hex characters, optionally colon-separated.`,
+    );
+  }
+  return normalized;
+}
+
+async function resolveTlsCertificateSha256Pin(
+  body: ApiHttpRequestBody,
+  context: SecretResolveContext,
+): Promise<string | null> {
+  const direct = body.tlsCertificateSha256;
+  const secretName =
+    typeof body.tlsCertificateSha256SecretName === 'string'
+      ? body.tlsCertificateSha256SecretName.trim()
+      : '';
+  if (direct !== undefined && secretName) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `tlsCertificateSha256` or `tlsCertificateSha256SecretName`.',
+    );
+  }
+  if (direct !== undefined) {
+    return normalizeSha256Fingerprint(direct, 'tlsCertificateSha256');
+  }
+  if (!secretName) return null;
+  return normalizeSha256Fingerprint(
+    await resolveHttpSecretOrThrow(secretName, {
+      ...context,
+      selector: 'tlsCertificateSha256',
+    }),
+    'tlsCertificateSha256SecretName',
+  );
+}
+
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim())
     .filter(Boolean);
-}
-
-function normalizeHttpForm(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new GatewayRequestError(
-      400,
-      '`form` must be an object when provided.',
-    );
-  }
-  const form: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    const name = key.trim();
-    if (!name) {
-      throw new GatewayRequestError(400, '`form` field names cannot be empty.');
-    }
-    if (
-      typeof entry !== 'string' &&
-      typeof entry !== 'number' &&
-      typeof entry !== 'boolean'
-    ) {
-      throw new GatewayRequestError(
-        400,
-        '`form` values must be strings, numbers, or booleans.',
-      );
-    }
-    form[name] = String(entry);
-  }
-  return form;
 }
 
 function normalizeGoogleServiceAccountAuth(
@@ -1512,10 +1675,15 @@ function readJsonPath(value: unknown, jsonPath: string): unknown {
   let current = value;
   for (const segment of jsonPath.split('.')) {
     if (!segment) return undefined;
-    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+    if (!current || typeof current !== 'object') {
       return undefined;
     }
-    current = (current as Record<string, unknown>)[segment];
+    if (Array.isArray(current)) {
+      if (!/^\d+$/u.test(segment)) return undefined;
+      current = current[Number(segment)];
+    } else {
+      current = (current as Record<string, unknown>)[segment];
+    }
   }
   return current;
 }
@@ -1703,7 +1871,7 @@ export async function handleApiHttpRequest(
     body.captureResponseHeaders,
   );
   const rawUrl = replacePlaceholders
-    ? await replaceSecretPlaceholdersInString(String(body.url || ''), {
+    ? await replaceHttpPlaceholdersInString(String(body.url || ''), {
         ...baseSecretContext,
         selector: 'url',
       })
@@ -1728,6 +1896,17 @@ export async function handleApiHttpRequest(
   );
   const allowManualRedirect = body.allowManualRedirect === true;
   const includeResponseCookies = body.includeResponseCookies === true;
+  const tlsCertificateSha256 = await resolveTlsCertificateSha256Pin(
+    body,
+    secretContext,
+  );
+  const allowSelfSignedTls = body.allowSelfSignedTls === true;
+  if (allowSelfSignedTls && tlsCertificateSha256) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `allowSelfSignedTls`, `tlsCertificateSha256`, or `tlsCertificateSha256SecretName`.',
+    );
+  }
   const config = getRuntimeConfig();
 
   const headers = normalizeHttpRequestHeaders(body.headers);
@@ -1833,7 +2012,7 @@ export async function handleApiHttpRequest(
 
   if (replacePlaceholders) {
     for (const [key, value] of Object.entries(headers)) {
-      headers[key] = await replaceSecretPlaceholdersInString(value, {
+      headers[key] = await replaceHttpPlaceholdersInString(value, {
         ...secretContext,
         selector: key,
       });
@@ -1856,7 +2035,7 @@ export async function handleApiHttpRequest(
   let payloadBody: BodyInit | undefined;
   if (body.json !== undefined) {
     const jsonValue = replacePlaceholders
-      ? await replaceSecretPlaceholders(body.json, {
+      ? await replaceHttpPlaceholders(body.json, {
           ...secretContext,
           selector: 'json',
         })
@@ -1867,31 +2046,9 @@ export async function handleApiHttpRequest(
     ) {
       setHeaderValue(headers, 'Content-Type', 'application/json');
     }
-  } else if (body.form !== undefined) {
-    const rawForm = normalizeHttpForm(body.form);
-    const formValue = replacePlaceholders
-      ? ((await replaceSecretPlaceholders(rawForm, {
-          ...secretContext,
-          selector: 'form',
-        })) as Record<string, string>)
-      : rawForm;
-    const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(formValue)) {
-      params.append(key, String(value));
-    }
-    payloadBody = params.toString();
-    if (
-      !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
-    ) {
-      setHeaderValue(
-        headers,
-        'Content-Type',
-        'application/x-www-form-urlencoded',
-      );
-    }
   } else if (typeof body.body === 'string') {
     payloadBody = replacePlaceholders
-      ? await replaceSecretPlaceholdersInString(body.body, {
+      ? await replaceHttpPlaceholdersInString(body.body, {
           ...secretContext,
           selector: 'body',
         })
@@ -1901,6 +2058,21 @@ export async function handleApiHttpRequest(
       400,
       '`body` must be a string when provided. Use `json` for structured payloads.',
     );
+  } else if (body.form !== undefined) {
+    payloadBody = await buildHttpRequestFormBody(
+      body.form,
+      secretContext,
+      replacePlaceholders,
+    );
+    if (
+      !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')
+    ) {
+      setHeaderValue(
+        headers,
+        'Content-Type',
+        'application/x-www-form-urlencoded',
+      );
+    }
   } else if (typeof body.bodyBase64 === 'string') {
     let payloadBuffer: Buffer;
     try {
@@ -1930,18 +2102,38 @@ export async function handleApiHttpRequest(
     });
   }
 
+  if (
+    (tlsCertificateSha256 || allowSelfSignedTls) &&
+    url.protocol !== 'https:'
+  ) {
+    throw new GatewayRequestError(
+      400,
+      '`allowSelfSignedTls` and `tlsCertificateSha256` can only be used with https URLs.',
+    );
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const dispatcher = tlsCertificateSha256
+    ? createPinnedTlsDispatcher(tlsCertificateSha256, timeoutMs)
+    : allowSelfSignedTls
+      ? createSelfSignedTlsDispatcher(timeoutMs)
+      : undefined;
   let response: Response;
   try {
-    response = await fetch(url, {
+    const fetchOptions: RequestInit & { dispatcher?: UndiciAgent } = {
       method,
       headers,
       body: payloadBody,
       signal: controller.signal,
       redirect: 'manual',
-    });
+    };
+    if (dispatcher) {
+      fetchOptions.dispatcher = dispatcher;
+    }
+    response = await fetch(url, fetchOptions);
   } catch (error) {
+    await dispatcher?.close();
     throw new GatewayRequestError(
       502,
       `Outbound HTTP request failed: ${formatOutboundHttpError(error)}`,
@@ -1951,140 +2143,145 @@ export async function handleApiHttpRequest(
     clearTimeout(timeout);
   }
 
-  if (
-    !allowManualRedirect &&
-    response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
-    response.status <= REDIRECT_RESPONSE_STATUS_MAX
-  ) {
-    throw new GatewayRequestError(
-      400,
-      'Outbound HTTP redirects are blocked by the SSRF guard.',
-    );
-  }
-
-  const declaredBodyBytes = readDeclaredBodyBytes(response);
-
-  if (
-    suppressResponseBody &&
-    !responseArtifact &&
-    captureFields.length === 0 &&
-    captureHeaders.length === 0
-  ) {
-    await response.body?.cancel();
-    sendSuppressedBodyResponse(
-      res,
-      response,
-      declaredBodyBytes ?? 0,
-      false,
-      maxResponseBytes,
-      includeResponseCookies,
-    );
-    return;
-  }
-
-  const responseBody =
-    declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes
-      ? {
-          buffer: Buffer.alloc(0),
-          bytesRead: declaredBodyBytes,
-          truncated: true,
-        }
-      : await readHttpResponseBuffer(response, maxResponseBytes);
-  const bodyBytes =
-    responseBody.truncated && declaredBodyBytes !== undefined
-      ? declaredBodyBytes
-      : responseBody.bytesRead;
-  const bodyTruncated = responseBody.truncated;
-
-  const responseText = responseBody.buffer.toString('utf-8');
-  let responseJson: unknown;
-  if (!bodyTruncated) {
-    try {
-      responseJson = JSON.parse(responseText) as unknown;
-    } catch {
-      responseJson = undefined;
-    }
-  }
-
-  // Capture selected response fields/headers into the secret store and return only a
-  // confirmation. The original response body is never forwarded on capture.
-  const capturedFields = captureSecretResponseFields(
-    responseJson,
-    captureFields,
-    url,
-  );
-  const capturedHeaders = captureSecretResponseHeaders(
-    response.headers,
-    captureHeaders,
-    url,
-  );
-  const captured =
-    capturedFields || capturedHeaders
-      ? { ...(capturedFields || {}), ...(capturedHeaders || {}) }
-      : null;
-  if (captured) {
-    sendJson(res, 200, {
-      ok: response.ok,
-      status: response.status,
-      captured,
-    });
-    return;
-  }
-
-  if (responseArtifact) {
-    if (bodyTruncated) {
+  try {
+    if (
+      !allowManualRedirect &&
+      response.status >= REDIRECT_RESPONSE_STATUS_MIN &&
+      response.status <= REDIRECT_RESPONSE_STATUS_MAX
+    ) {
+      await response.body?.cancel();
       throw new GatewayRequestError(
-        502,
-        `Response artifact exceeds maxResponseBytes (${maxResponseBytes}).`,
+        400,
+        'Outbound HTTP redirects are blocked by the SSRF guard.',
       );
     }
-    const artifact = await saveHttpResponseArtifact({
-      body: responseBody.buffer,
-      response,
-      options: responseArtifact,
-      agentId: baseSecretContext.agentId,
-    });
+
+    const declaredBodyBytes = readDeclaredBodyBytes(response);
+
+    if (
+      suppressResponseBody &&
+      !responseArtifact &&
+      captureFields.length === 0 &&
+      captureHeaders.length === 0
+    ) {
+      await response.body?.cancel();
+      sendSuppressedBodyResponse(
+        res,
+        response,
+        declaredBodyBytes ?? 0,
+        false,
+        maxResponseBytes,
+        includeResponseCookies,
+      );
+      return;
+    }
+
+    const responseBody =
+      declaredBodyBytes !== undefined && declaredBodyBytes > maxResponseBytes
+        ? {
+            buffer: Buffer.alloc(0),
+            bytesRead: declaredBodyBytes,
+            truncated: true,
+          }
+        : await readHttpResponseBuffer(response, maxResponseBytes);
+    const bodyBytes =
+      responseBody.truncated && declaredBodyBytes !== undefined
+        ? declaredBodyBytes
+        : responseBody.bytesRead;
+    const bodyTruncated = responseBody.truncated;
+
+    const responseText = responseBody.buffer.toString('utf-8');
+    let responseJson: unknown;
+    if (!bodyTruncated) {
+      try {
+        responseJson = JSON.parse(responseText) as unknown;
+      } catch {
+        responseJson = undefined;
+      }
+    }
+
+    // Capture selected response fields/headers into the secret store and return only a
+    // confirmation. The original response body is never forwarded on capture.
+    const capturedFields = captureSecretResponseFields(
+      responseJson,
+      captureFields,
+      url,
+    );
+    const capturedHeaders = captureSecretResponseHeaders(
+      response.headers,
+      captureHeaders,
+      url,
+    );
+    const captured =
+      capturedFields || capturedHeaders
+        ? { ...(capturedFields || {}), ...(capturedHeaders || {}) }
+        : null;
+    if (captured) {
+      sendJson(res, 200, {
+        ok: response.ok,
+        status: response.status,
+        captured,
+      });
+      return;
+    }
+
+    if (responseArtifact) {
+      if (bodyTruncated) {
+        throw new GatewayRequestError(
+          502,
+          `Response artifact exceeds maxResponseBytes (${maxResponseBytes}).`,
+        );
+      }
+      const artifact = await saveHttpResponseArtifact({
+        body: responseBody.buffer,
+        response,
+        options: responseArtifact,
+        agentId: baseSecretContext.agentId,
+      });
+      sendJson(res, 200, {
+        success: true,
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url,
+        headers: responseHeadersObject(response, includeResponseCookies),
+        artifact,
+        artifacts: [artifact],
+        bodySuppressed: true,
+        bodyBytes,
+      });
+      return;
+    }
+
+    if (suppressResponseBody) {
+      sendSuppressedBodyResponse(
+        res,
+        response,
+        bodyBytes,
+        bodyTruncated,
+        maxResponseBytes,
+        includeResponseCookies,
+      );
+      return;
+    }
+
     sendJson(res, 200, {
-      success: true,
       ok: response.ok,
       status: response.status,
       statusText: response.statusText,
       url: response.url,
       headers: responseHeadersObject(response, includeResponseCookies),
-      artifact,
-      artifacts: [artifact],
-      bodySuppressed: true,
-      bodyBytes,
+      body: responseText,
+      ...(bodyTruncated
+        ? {
+            bodyTruncated: true,
+            bodyBytes,
+            maxResponseBytes,
+          }
+        : {}),
+      ...(responseJson === undefined ? {} : { json: responseJson }),
     });
-    return;
+  } finally {
+    await dispatcher?.close();
   }
-
-  if (suppressResponseBody) {
-    sendSuppressedBodyResponse(
-      res,
-      response,
-      bodyBytes,
-      bodyTruncated,
-      maxResponseBytes,
-      includeResponseCookies,
-    );
-    return;
-  }
-
-  sendJson(res, 200, {
-    ok: response.ok,
-    status: response.status,
-    statusText: response.statusText,
-    url: response.url,
-    headers: responseHeadersObject(response, includeResponseCookies),
-    body: responseText,
-    ...(bodyTruncated
-      ? {
-          bodyTruncated: true,
-          bodyBytes,
-          maxResponseBytes,
-        }
-      : {}),
-    ...(responseJson === undefined ? {} : { json: responseJson }),
-  });
 }

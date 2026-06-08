@@ -57,17 +57,31 @@ export function nextMsgId(): string {
   return `local-${msgCounter}-${Date.now()}`;
 }
 
-export function copyToClipboard(text: string): void {
-  void navigator.clipboard?.writeText(text).catch(() => {
+// Resolves true only when the text was actually copied, so callers can gate
+// success feedback on it. Falls back to execCommand when the async Clipboard
+// API is unavailable (insecure context / older browser) or rejects.
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the execCommand path below.
+    }
+  }
+  try {
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.style.position = 'fixed';
     ta.style.opacity = '0';
     document.body.appendChild(ta);
     ta.select();
-    document.execCommand('copy');
+    const copied = document.execCommand('copy');
     document.body.removeChild(ta);
-  });
+    return copied;
+  } catch {
+    return false;
+  }
 }
 
 export function buildApprovalSummary(

@@ -29,6 +29,7 @@ export { Plugins } from './Plugins';
 export { Policy } from './Policy';
 export { Scheduler } from './Scheduler';
 export { Search } from './Search';
+export { Secrets } from './Secrets';
 export { Server } from './Server';
 export { Sessions } from './Sessions';
 export { Skills } from './Skills';
