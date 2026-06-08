@@ -11910,7 +11910,7 @@ describe('gateway HTTP server', () => {
       url: '/api/http/request',
       headers: { authorization: 'Bearer gateway-token' },
       body: {
-        url: '<env:HUE_BRIDGE_HOST>/api/config/connections',
+        url: '<env:HUE_BRIDGE_HOST>/api',
         method: 'POST',
         json: {
           devicetype: 'hybridclaw#lab',
@@ -11938,7 +11938,7 @@ describe('gateway HTTP server', () => {
       }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      new URL('https://192.168.178.73/api/config/connections'),
+      new URL('https://192.168.178.73/api'),
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({

@@ -378,10 +378,10 @@ function buildBridge(verb, args) {
     const instanceName = requireText(popFlag(args, '--instance-name', 'default'), '--instance-name');
     assertNoArgs(args);
     return requestPayload(
-      'local-bridge-connection-create',
+      'local-link-button',
       'amber',
       {
-        url: appendPath(host, '/api/config/connections'),
+        url: appendPath(host, '/api'),
         method: 'POST',
         timeoutMs: 5_000,
         maxResponseBytes: 50_000,
@@ -391,7 +391,7 @@ function buildBridge(verb, args) {
         replaceSecretPlaceholders: true,
         allowSelfSignedTls: true,
       },
-      { resource: 'bridge-connection', host },
+      { resource: 'link-button', host },
     );
   }
   if (verb === 'timezone') {

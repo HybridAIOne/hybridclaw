@@ -85,7 +85,7 @@ describe.sequential('container http_request dispatch', () => {
     const result = await executeTool(
       'http_request',
       JSON.stringify({
-        url: '<env:HUE_BRIDGE_HOST>/api/config/connections',
+        url: '<env:HUE_BRIDGE_HOST>/api',
         method: 'POST',
         json: {
           devicetype: 'hybridclaw#lab',
@@ -108,7 +108,7 @@ describe.sequential('container http_request dispatch', () => {
       'http://127.0.0.1:9000/api/http/request',
       expect.objectContaining({
         body: JSON.stringify({
-          url: '<env:HUE_BRIDGE_HOST>/api/config/connections',
+          url: '<env:HUE_BRIDGE_HOST>/api',
           method: 'POST',
           json: {
             devicetype: 'hybridclaw#lab',

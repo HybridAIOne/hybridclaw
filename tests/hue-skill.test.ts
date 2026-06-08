@@ -61,7 +61,10 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
   expect(skill).toContain('run `bridge\n   status` first');
   expect(skill).toContain('reports `linkbutton: true`');
   expect(skill).toContain('retry `bridge link`\n  immediately');
+  expect(skill).toContain('modern bridge config responses\n   can omit the field');
   expect(skill).toContain('do not pass `--host`');
+  expect(skill).toContain('send only `devicetype`');
+  expect(skill).toContain('That endpoint requires an existing\n  authorized user');
   expect(skill).toContain('retry the same\n   operation with no `--host` override');
   expect(skill).toContain('Store the returned Hue credential secret with:');
   expect(skill).toContain(
@@ -211,17 +214,17 @@ test('Hue helper builds link and remote request shapes without runtime side effe
   });
   expect(status.httpRequest).not.toHaveProperty('secretHeaders');
   expect(link).toMatchObject({
-    operation: 'local-bridge-connection-create',
+    operation: 'local-link-button',
     stakesTier: 'amber',
     httpRequest: {
       method: 'POST',
-      url: '<env:HUE_BRIDGE_HOST>/api/config/connections',
+      url: '<env:HUE_BRIDGE_HOST>/api',
       json: {
         devicetype: 'hybridclaw#lab',
       },
     },
   });
-  expect(linkWithHost.httpRequest.url).toBe('https://192.0.2.30/api/config/connections');
+  expect(linkWithHost.httpRequest.url).toBe('https://192.0.2.30/api');
   expect(JSON.stringify(link)).not.toContain('generateclientkey');
   expect(link).not.toHaveProperty('liveExecution');
   expect(remoteLights).toMatchObject({
