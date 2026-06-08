@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+### Added
+
+- **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables optional gateway Sentry reporting for startup failures, uncaught exceptions, unhandled rejections, and errors recorded through shared gateway/agent spans, with default `production` environment, automatic `hybridclaw@<package-version>` release naming, secret redaction, and graceful shutdown flushes.
+
+## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
+
+### Added
+
+- **One-line installer**: Added `scripts/install.sh` for Linux/macOS bootstrap
+  installs that ensure Node.js 22, install the global CLI, check Docker, and
+  optionally run onboarding without requiring `sudo`. Installation docs now
+  cover dry-run, pinned-version, no-prompt, verification, WSL2, and Alpine
+  usage.
+- **Interactive startup update prompt**: Starting HybridClaw on a terminal
+  (`hybridclaw tui`, `hybridclaw gateway`, or `hybridclaw gateway start`) now
+  checks for a newer published release and offers a yes/no prompt to update
+  before continuing. Skipped for non-interactive shells and source checkouts.
+- **`alexa` skill**: Added Alexa Skills Kit request verification, TTS-safe
+  response building, account-link session exchange, guarded Smart Home API
+  plans, and opt-in Alexa Remote workflows for devices, lists, announcements,
+  music playback, routines, and voice-command execution.
+- **Gateway Docker startup recovery**: Interactive gateway and TUI startup can
+  recover from missing Docker, unavailable Docker daemons, and Docker permission
+  failures by retrying after the operator starts Docker or by continuing in
+  host mode for the current run only.
+- **Agent runtime setup progress**: Container image pull/build operations now
+  show concise interactive progress for first-time setup, refreshes, and stale
+  runtime updates, with a `HYBRIDCLAW_NO_SPINNER=1` fallback for plain output.
+
+### Changed
+
+- **Full audit trace tool results**: Tool execution audit events now retain
+  redacted full result text for `/audit turn` and ATIF trace exports, with
+  `audit.toolResults.mode` and `audit.toolResults.maxChars` config available
+  when operators need truncation.
+- **Node.js runtime guard**: CLI startup now fails fast on unsupported Node.js
+  versions instead of allowing later dependency/runtime failures under an
+  incompatible engine.
+- **Test and CI wiring**: Docker-dependent e2e coverage is self-gating, while
+  container startup recovery, Node version guards, update prompts, audit
+  exports, and Alexa helpers gained targeted test coverage.
+
+### Fixed
+
+- **Provider onboarding secret exposure**: Provider API keys entered during
+  onboarding are masked instead of echoed in terminal prompts or summaries.
+- **WhatsApp config reloads**: Gateway config changes now restart the WhatsApp
+  integration so pairing and policy updates take effect without a full gateway
+  restart.
+- **OpenAI Codex auth compatibility**: Codex device-code auth now sends the
+  official `codex_cli_rs` originator and accepts responses that use `usercode`
+  instead of `user_code`.
+- **TypeScript plugin loading**: Runtime plugin loading handles `.ts` plugin
+  entrypoints through `amaro` for Node.js 22.x compatibility.
+- **Console theme initialization**: The admin console applies the configured
+  theme on every route instead of only initializing it from the admin shell.
+- **Scheduler noop TUI delivery**: Scheduled tasks that report heartbeat or
+  idle/no-work results no longer create unnecessary proactive TUI deliveries.
+- **Dependency audit advisories**: In-range and breaking dependency updates
+  clear high-severity transitive advisories while keeping release signature
+  audit baselines aligned.
+
+## [0.21.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.1) - 2026-05-29
+
+### Fixed
+
+- **Codex device-code login**: Accepted OpenAI Codex device-code responses that
+  return `usercode` instead of `user_code`, and defaulted missing verification
+  URLs to the current Codex device login page.
+
 ## [0.21.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.0) - 2026-05-29
 
 ### Added

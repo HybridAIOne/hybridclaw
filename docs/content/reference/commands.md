@@ -517,6 +517,20 @@ running with a replayable launch command, HybridClaw restarts it automatically
 with the original parameters; otherwise it falls back to manual restart
 instructions. Source checkouts receive git-based update instructions instead.
 
+When you start HybridClaw interactively (`hybridclaw tui`, `hybridclaw gateway`,
+or `hybridclaw gateway start`) and a newer release is available, HybridClaw
+prints the available version and prompts you to update before continuing. Answer
+`y` to install the update, or `n` to start on the current version. Installing
+exits the current command once the update finishes (the running process still
+holds the old code), so relaunch HybridClaw to use the new version; an
+already-running gateway is restarted automatically with its original
+parameters. This prompt appears only on an interactive terminal and only for
+global package installs; non-interactive shells and source checkouts are never
+blocked. The registry
+check is cached under the runtime home (`version-check.json`, 20-hour TTL) and
+refreshed in a detached background process, so startup never waits on the
+network — a newly published version surfaces on the next launch.
+
 ## Network Policy
 
 ```bash

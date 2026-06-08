@@ -5,7 +5,8 @@ import { expect, test, vi } from 'vitest';
 import type { StructuredAuditEntry } from '../src/types/audit.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
-const { runAgentMock } = vi.hoisted(() => ({
+const { captureSentryExceptionMock, runAgentMock } = vi.hoisted(() => ({
+  captureSentryExceptionMock: vi.fn(),
   runAgentMock: vi.fn(),
 }));
 
@@ -13,10 +14,15 @@ vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
 
+vi.mock('../src/observability/sentry.js', () => ({
+  captureSentryException: captureSentryExceptionMock,
+}));
+
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-audit-',
   envVars: ['HYBRIDCLAW_LOG_REQUESTS'],
   cleanup: () => {
+    captureSentryExceptionMock.mockReset();
     runAgentMock.mockReset();
     vi.doUnmock('../src/providers/hybridai-bots.ts');
     vi.doUnmock('../src/logger.js');
@@ -857,6 +863,24 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
     type: 'error',
     errorType: 'agent',
     stage: 'processing-agent-output',
+  });
+  expect(captureSentryExceptionMock).toHaveBeenCalledWith(expect.any(Error), {
+    mechanism: 'gateway.chat_result',
+    tags: expect.objectContaining({
+      agent_id: 'main',
+      channel_id: '491701234567@s.whatsapp.net',
+      error_type: 'agent',
+      session_id: sessionId,
+      stage: 'processing-agent-output',
+    }),
+    extra: expect.objectContaining({
+      agentId: 'main',
+      channelId: '491701234567@s.whatsapp.net',
+      errorType: 'agent',
+      model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+      sessionId,
+      stage: 'processing-agent-output',
+    }),
   });
 });
 

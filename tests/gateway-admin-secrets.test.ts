@@ -65,6 +65,7 @@ describe('gateway admin secrets metadata', () => {
         actor: 'admin-user',
         sourceIp: '127.0.0.1',
       },
+      sessionPayload: null,
     });
     const setEntry = response.secrets.find(
       (entry) => entry.name === 'SET_SECRET',
@@ -139,6 +140,7 @@ describe('gateway admin secrets metadata', () => {
       audit: {
         actor: 'admin-user',
       },
+      sessionPayload: null,
     });
     const declaredEntry = response.secrets.find(
       (entry) => entry.name === 'DECLARED_SECRET',
@@ -162,6 +164,41 @@ describe('gateway admin secrets metadata', () => {
     );
   });
 
+  test('returns the full action set when no session payload is present (local mode)', async () => {
+    const { adminSecrets } = await importAdminSecrets();
+    const response = adminSecrets.getGatewayAdminSecrets({
+      audit: { actor: 'admin-user' },
+      sessionPayload: null,
+    });
+    expect(response.actions).toEqual([
+      'secret.list_metadata',
+      'secret.overwrite',
+      'secret.unset',
+    ]);
+  });
+
+  test('filters the action set to the caller-allowed actions', async () => {
+    const { adminSecrets } = await importAdminSecrets();
+    const response = adminSecrets.getGatewayAdminSecrets({
+      audit: { actor: 'admin-user' },
+      sessionPayload: { actions: ['secret.list_metadata'] },
+    });
+    expect(response.actions).toEqual(['secret.list_metadata']);
+  });
+
+  test('includes overwrite and unset when the caller has the wildcard scope', async () => {
+    const { adminSecrets } = await importAdminSecrets();
+    const response = adminSecrets.getGatewayAdminSecrets({
+      audit: { actor: 'admin-user' },
+      sessionPayload: { scope: 'secret:*' },
+    });
+    expect(response.actions).toEqual([
+      'secret.list_metadata',
+      'secret.overwrite',
+      'secret.unset',
+    ]);
+  });
+
   test('always emits an audit event for metadata listing', async () => {
     const { adminSecrets, recordAuditEvent } = await importAdminSecrets();
 
@@ -169,6 +206,7 @@ describe('gateway admin secrets metadata', () => {
       audit: {
         actor: 'admin-user',
       },
+      sessionPayload: null,
     });
 
     expect(recordAuditEvent).toHaveBeenCalledWith(

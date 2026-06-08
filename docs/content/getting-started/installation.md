@@ -6,6 +6,47 @@ sidebar_position: 2
 
 # Installation
 
+## Install With the One-Line Script
+
+The quickest path on Linux and macOS is the bootstrap installer. It ensures a
+compatible Node.js 22 and npm, installs the `hybridclaw` CLI from npm, checks
+for Docker, and offers to run onboarding:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash
+```
+
+Pass options through the pipe with `-s --`, for example to pin a version and
+skip the interactive onboarding step:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh \
+  | bash -s -- --version 0.22.0 --no-onboarding
+```
+
+For automation, preview the plan with `--dry-run` (changes nothing), run
+headless with `--no-prompt`, and smoke-test the result with `--verify`
+(`hybridclaw --version` plus `hybridclaw doctor`). Each flag also has an
+environment-variable form (`HYBRIDCLAW_DRY_RUN=1`, `HYBRIDCLAW_NO_PROMPT=1`,
+`HYBRIDCLAW_VERIFY_INSTALL=1`) for CI runners that cannot pass arguments
+through the pipe:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh \
+  | bash -s -- --no-prompt --verify
+```
+
+The script never uses `sudo`: when no Node.js 22 is present it installs a
+user-local copy under `~/.hybridclaw/node` (verified against nodejs.org's
+published SHA-256 checksum), and if the global npm prefix is not writable it
+automatically switches npm to a user-writable prefix
+(`~/.hybridclaw/npm-global`) rather than escalating.
+Windows users should run it inside WSL2. On
+Alpine or other musl-based distros, install Node 22 with your package manager
+(`apk add nodejs npm`) and pass `--skip-node`, since nodejs.org ships glibc
+builds only. Review `scripts/install.sh` before piping it to a shell if you
+prefer; the steps below cover each install method manually.
+
 ## Install From npm
 
 ```bash

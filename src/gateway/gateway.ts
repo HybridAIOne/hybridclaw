@@ -144,6 +144,11 @@ import {
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { initOtel, shutdownOtel } from '../observability/otel.js';
+import {
+  captureSentryException,
+  initSentry,
+  shutdownSentry,
+} from '../observability/sentry.js';
 import { hybridAIProbe } from '../providers/hybridai-health.js';
 import {
   startDiscoveryLoop,
@@ -294,6 +299,23 @@ function hasSignalConfigChanged(
     next.textChunkLimit !== prev.textChunkLimit ||
     next.reconnectIntervalMs !== prev.reconnectIntervalMs ||
     next.outboundDelayMs !== prev.outboundDelayMs
+  );
+}
+
+function hasWhatsAppConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['whatsapp'],
+  prev: ReturnType<typeof getConfigSnapshot>['whatsapp'],
+): boolean {
+  return (
+    next.dmPolicy !== prev.dmPolicy ||
+    next.groupPolicy !== prev.groupPolicy ||
+    !equalStringSets(next.allowFrom, prev.allowFrom) ||
+    !equalStringSets(next.groupAllowFrom, prev.groupAllowFrom) ||
+    next.debounceMs !== prev.debounceMs ||
+    next.ackReaction !== prev.ackReaction ||
+    next.textChunkLimit !== prev.textChunkLimit ||
+    next.mediaMaxMb !== prev.mediaMaxMb ||
+    next.sendReadReceipts !== prev.sendReadReceipts
   );
 }
 
@@ -2665,6 +2687,30 @@ async function refreshSignalIntegrationForConfigChange(
   await startSignalIntegration();
 }
 
+async function refreshWhatsAppIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasWhatsAppConfigChanged(next.whatsapp, prev.whatsapp)) return;
+
+  logger.info(
+    {
+      dmPolicy: next.whatsapp.dmPolicy,
+      groupPolicy: next.whatsapp.groupPolicy,
+      allowFromCount: next.whatsapp.allowFrom.length,
+      groupAllowFromCount: next.whatsapp.groupAllowFrom.length,
+    },
+    'Config changed, restarting WhatsApp integration',
+  );
+  await shutdownWhatsApp().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop WhatsApp runtime during config-change restart',
+    );
+  });
+  await startWhatsAppIntegration();
+}
+
 async function refreshThreemaIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
@@ -3198,6 +3244,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     stopScheduler();
     stopMemoryConsolidationScheduler();
     await runShutdownStep('shut down OTel', shutdownOtel);
+    await runShutdownStep('flush Sentry', shutdownSentry);
     if (proactiveFlushTimer) {
       clearInterval(proactiveFlushTimer);
       proactiveFlushTimer = null;
@@ -3443,6 +3490,7 @@ function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
 }
 
 async function main(): Promise<void> {
+  await initSentry();
   await initOtel();
   logger.info('Starting HybridClaw gateway');
   ensureA2AInstanceKeypair();
@@ -3516,6 +3564,14 @@ async function main(): Promise<void> {
         'Signal integration restart failed after config change',
       );
     });
+    void refreshWhatsAppIntegrationForConfigChange(next, prev).catch(
+      (error) => {
+        logger.warn(
+          { error },
+          'WhatsApp integration restart failed after config change',
+        );
+      },
+    );
     void refreshThreemaIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
         { error },
@@ -3636,7 +3692,11 @@ async function main(): Promise<void> {
   httpServer.setReady();
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   logger.fatal({ err }, 'Failed to start gateway');
+  captureSentryException(err, {
+    mechanism: 'gateway.startup',
+  });
+  await shutdownSentry();
   process.exit(1);
 });

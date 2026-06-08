@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "repository": {
@@ -18,8 +18,7 @@
     "container"
   ],
   "engines": {
-    "node": "22.x",
-    "npm": ">=11.10.0 <12"
+    "node": "22.x"
   },
   "publishConfig": {
     "access": "public"
@@ -74,6 +73,7 @@
     "test:watch": "vitest --configLoader runner --project unit",
     "test:integration": "vitest run --configLoader runner --project integration --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --project e2e --passWithNoTests",
+    "test:install-e2e": "vitest run --configLoader runner --project install-e2e --passWithNoTests",
     "test:console": "npm --workspace console run test",
     "audit:signatures": "node ./scripts/audit-signatures.mjs",
     "deps:policy": "node ./scripts/check-dependency-policy.mjs",
@@ -105,13 +105,15 @@
     "@modelcontextprotocol/sdk": "1.27.1",
     "@ngrok/ngrok": "1.5.2",
     "@opentelemetry/api": "1.9.1",
-    "@opentelemetry/exporter-trace-otlp-grpc": "0.214.0",
-    "@opentelemetry/exporter-trace-otlp-http": "0.214.0",
+    "@opentelemetry/exporter-trace-otlp-grpc": "0.218.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.218.0",
     "@opentelemetry/resources": "2.6.1",
-    "@opentelemetry/sdk-node": "0.214.0",
+    "@opentelemetry/sdk-node": "0.218.0",
+    "@sentry/node": "10.55.0",
     "@slack/bolt": "4.7.0",
     "@whiskeysockets/baileys": "7.0.0-rc11",
     "ajv": "8.18.0",
+    "amaro": "1.1.9",
     "better-sqlite3": "12.8.0",
     "botbuilder": "4.23.3",
     "camoufox-js": "0.10.2",
@@ -125,7 +127,7 @@
     "mailparser": "3.9.6",
     "marked": "17.0.4",
     "node-pty": "1.1.0",
-    "nodemailer": "8.0.4",
+    "nodemailer": "8.0.8",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.5.207",
     "pino": "9.14.0",
@@ -135,7 +137,7 @@
     "qrcode-terminal": "0.12.0",
     "sanitize-html": "2.17.1",
     "stemmer": "2.0.1",
-    "ws": "8.20.0",
+    "ws": "8.21.0",
     "xlsx-populate": "1.21.0",
     "yaml": "2.8.3",
     "yauzl": "3.2.1",
@@ -150,16 +152,20 @@
     "@types/sanitize-html": "2.16.1",
     "@types/yauzl": "2.10.3",
     "@types/yazl": "3.3.0",
-    "@vitest/coverage-v8": "4.0.18",
+    "@vitest/coverage-v8": "4.1.7",
     "husky": "9.1.7",
     "tsx": "4.21.0",
     "typescript": "5.9.3",
-    "vitest": "4.0.18"
+    "vitest": "4.1.7"
   },
   "optionalDependencies": {
     "appdmg": "0.6.6"
   },
   "overrides": {
-    "undici": "6.24.1"
+    "undici": "6.24.1",
+    "lodash": "4.18.1",
+    "uuid": "11.1.1",
+    "vite": "8.0.14",
+    "nodemailer": "8.0.8"
   }
 }

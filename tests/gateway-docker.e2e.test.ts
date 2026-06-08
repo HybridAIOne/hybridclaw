@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   cleanupStaleContainers,
+  dockerE2eGate,
   getAvailablePort,
   removeContainer,
   startContainer,
@@ -14,8 +15,8 @@ import {
  * a dummy key lets the gateway start for static-content and endpoint tests.
  */
 
-const DOCKER_E2E = process.env.HYBRIDCLAW_RUN_DOCKER_E2E === '1';
-const IMAGE = process.env.HYBRIDCLAW_E2E_IMAGE || 'hybridclaw-gateway:e2e';
+const { image: IMAGE, enabled: DOCKER_E2E } =
+  dockerE2eGate('HYBRIDCLAW_E2E_IMAGE');
 const CI_FALLBACK_KEY = 'hai-ci-placeholder-not-a-real-key';
 const API_KEY = process.env.HYBRIDAI_API_KEY || CI_FALLBACK_KEY;
 const HAS_REAL_KEY = !!process.env.HYBRIDAI_API_KEY;

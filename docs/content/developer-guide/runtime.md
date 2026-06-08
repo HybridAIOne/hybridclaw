@@ -33,6 +33,8 @@ Maintainer overrides:
 - `HYBRIDCLAW_CONTAINER_REBUILD=if-stale|always|never` adjusts rebuild policy
 - `HYBRIDCLAW_CONTAINER_IMAGE=<name[:tag]> npm run build:container` builds and
   tags a custom image
+- `HYBRIDCLAW_NO_SPINNER=1` forces the plain (non-animated) image-setup output
+  even on an interactive terminal
 
 Build context hygiene is enforced by `container/.dockerignore` to avoid shipping
 local secrets or artifacts into published images.
@@ -159,6 +161,31 @@ host or container execution, and skill loading. Structured logs also include
 `traceId` and `spanId` fields so logs and traces can be correlated in the same
 incident workflow. The OTel SDK is loaded lazily, so there is no startup or
 runtime overhead when tracing is off.
+
+## Sentry Error Reporting
+
+HybridClaw can send gateway error traces to Sentry when `SENTRY_DSN` is stored
+with `hybridclaw env set SENTRY_DSN <dsn>`. The integration captures startup
+failures, uncaught exceptions, unhandled rejections, and errors recorded through
+shared gateway/agent spans. It is disabled by default and flushes pending events
+during gateway shutdown.
+
+Supported environment variables:
+
+- `SENTRY_DSN` enables Sentry and sets the project DSN; set it with `hybridclaw env set SENTRY_DSN <dsn>`
+- `SENTRY_ENVIRONMENT` optionally overrides the Sentry environment; the default is `production`
+- `SENTRY_RELEASE` optionally overrides the Sentry release name; the default is `hybridclaw@<package-version>`
+- `SENTRY_TRACES_SAMPLE_RATE` optionally enables Sentry transaction sampling with a value from `0` to `1`; set it with `hybridclaw env set SENTRY_TRACES_SAMPLE_RATE <rate>`
+
+Process environment variables with the same names are fallback values when no
+runtime env value is stored.
+
+HybridClaw already owns OpenTelemetry setup, so the Sentry SDK is initialized
+with its OpenTelemetry auto-setup disabled. Sentry events are passed through the
+same secret-redaction helper used by other security-sensitive diagnostics
+before they leave the gateway process. Gateway chat and agent/provider error
+events include searchable Sentry tags for `session_id`, `agent_id`, and
+`channel_id` when those values are available.
 
 ## Runtime Diagnostics
 
