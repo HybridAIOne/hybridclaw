@@ -1620,6 +1620,21 @@ export function formatTuiTitledCommandBlock(
   return [...lines, '', ...wrapTuiBlock(text, width, '  ').split('\n')];
 }
 
+export function formatTuiProseCommandBlock(
+  title: string,
+  text: string,
+  width: number,
+): string[] {
+  const proseWidth = Math.max(24, Math.floor(width || 120));
+  const lines = wrapTuiBlock(title, proseWidth, '  ').split('\n');
+  if (!text.trim()) return lines;
+  return [
+    ...lines,
+    '',
+    ...formatTuiMarkdownOutput(text, proseWidth, '  ').split('\n'),
+  ];
+}
+
 export function isMutedSkillListLine(line: string): boolean {
   return /\[disabled\]/i.test(line) || isSkillInstallHintLine(line);
 }
@@ -1711,6 +1726,23 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     );
     console.log();
     console.log(wrapTuiBlock(result.text, terminalColumns(), '  '));
+    console.log();
+    return;
+  }
+  if (result.title === 'Second Opinion') {
+    clearTuiSlashMenu();
+    console.log();
+    for (const line of formatTuiProseCommandBlock(
+      result.title,
+      result.text,
+      terminalColumns(),
+    )) {
+      if (!line) {
+        console.log();
+        continue;
+      }
+      console.log(`${GOLD}${line}${RESET}`);
+    }
     console.log();
     return;
   }
