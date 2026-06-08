@@ -7,13 +7,7 @@ import {
 
 export const DEFAULT_AGENT_ID = 'main';
 
-export type ApprovalAction =
-  | 'once'
-  | 'always'
-  | 'session'
-  | 'agent'
-  | 'all'
-  | 'deny';
+export type ApprovalAction = 'once' | 'session' | 'agent' | 'all' | 'deny';
 
 export function randomHex(bytes: number): string {
   const arr = new Uint8Array(bytes);
@@ -97,8 +91,7 @@ export function buildApprovalSummary(
 }
 
 const APPROVAL_COMMAND_MAP: Record<string, string> = {
-  once: '/approve once',
-  always: '/approve always',
+  once: '/approve yes',
   session: '/approve session',
   agent: '/approve agent',
   all: '/approve all',

@@ -1,5 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyToClipboard } from './chat-helpers';
+import { buildApprovalCommand, copyToClipboard } from './chat-helpers';
+
+describe('buildApprovalCommand', () => {
+  it('builds gateway-supported approval commands', () => {
+    expect(buildApprovalCommand('once', ' approve-1 ')).toBe(
+      '/approve yes approve-1',
+    );
+    expect(buildApprovalCommand('session', 'approve-1')).toBe(
+      '/approve session approve-1',
+    );
+    expect(buildApprovalCommand('all', 'approve-1')).toBe(
+      '/approve all approve-1',
+    );
+    expect(buildApprovalCommand('deny', 'approve-1')).toBe(
+      '/approve no approve-1',
+    );
+  });
+});
 
 describe('copyToClipboard', () => {
   const originalClipboard = Object.getOwnPropertyDescriptor(

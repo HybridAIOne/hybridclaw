@@ -47,6 +47,10 @@
 - **Skill setup guidance**: Skill authoring docs now require chat-friendly
   `/env` and `/secret` setup alternatives alongside local `hybridclaw env` and
   `hybridclaw secret` commands.
+- **Web agent hatching kickoff**: Switching to an agent with an active
+  `BOOTSTRAP.md` in web chat now sends a hidden kickoff turn so hatching starts
+  immediately while the visible slash-command response remains local command
+  output.
 
 ### Fixed
 
@@ -62,6 +66,10 @@
   on invalid surrogate data.
 - **Trace export identity preservation**: Session trace exports preserve trace
   hash identifiers while applying secret redaction.
+- **Web approval buttons**: Approval buttons now emit gateway-supported
+  commands: `Allow once` sends `/approve yes`, `Allow always` sends
+  `/approve all`, and scoped buttons send their matching `session` or `agent`
+  approvals.
 
 ## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
 

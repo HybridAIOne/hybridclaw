@@ -47,8 +47,13 @@ export interface BranchVariant {
 
 export interface ChatHistoryResponse {
   sessionId?: string;
+  agentId?: string | null;
   history: ChatHistoryMessage[];
   assistantPresentation?: AssistantPresentation | null;
+  bootstrapAutostart?: {
+    status: 'idle' | 'starting' | 'completed';
+    fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+  } | null;
   branchFamilies?: BranchFamily[];
 }
 

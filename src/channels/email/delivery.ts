@@ -77,6 +77,7 @@ export interface EmailSendParams {
   selfAddress: string;
   threadContext: ThreadContext | null;
   metadata?: EmailDeliveryMetadata | null;
+  fromName?: string | null;
   attachment?:
     | {
         filePath: string;
@@ -257,6 +258,13 @@ function normalizeRecipientList(raw: unknown): string[] {
   }
   return normalized;
 }
+function normalizeEmailFromName(raw: unknown): string | null {
+  const normalized = String(raw || '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized || null;
+}
 
 export function prepareEmailTextChunks(
   text: string,
@@ -308,6 +316,7 @@ export async function sendEmail(
   // is intentionally empty.
   const effectiveChunks = chunks.length > 0 ? chunks : [''];
   const metadataHeaders = buildEmailMetadataHeaders(params.metadata);
+  const fromName = normalizeEmailFromName(params.fromName);
 
   const messageIds: string[] = [];
   const sentCopies: Array<{ messageId: string | null; raw: Buffer }> = [];
@@ -332,7 +341,9 @@ export async function sendEmail(
     const text = `${partPrefix}${effectiveChunks[index]}`.trim();
     const html = renderEmailHtml(text);
     const mail: Mail.Options = {
-      from: params.selfAddress,
+      from: fromName
+        ? { name: fromName, address: params.selfAddress }
+        : params.selfAddress,
       to: params.to,
       ...(cc ? { cc } : {}),
       ...(bcc ? { bcc } : {}),

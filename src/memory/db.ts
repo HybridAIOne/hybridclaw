@@ -221,6 +221,7 @@ type AgentRow = {
 };
 
 interface ConversationHistoryPageRow {
+  session_agent_id: string | null;
   session_key: string | null;
   main_session_key: string | null;
   id: number | null;
@@ -7744,6 +7745,7 @@ export function getConversationHistoryPage(
   const rows = db
     .prepare(
       `SELECT
+         s.agent_id AS session_agent_id,
          s.session_key,
          s.main_session_key,
          m.id,
@@ -7775,6 +7777,7 @@ export function getConversationHistoryPage(
   if (rows.length === 0) {
     return {
       sessionId: resolvedSessionId,
+      agentId: null,
       sessionKey: null,
       mainSessionKey: null,
       history: [],
@@ -7809,6 +7812,7 @@ export function getConversationHistoryPage(
 
   return {
     sessionId: resolvedSessionId,
+    agentId: rows[0]?.session_agent_id || null,
     sessionKey: rows[0]?.session_key || null,
     mainSessionKey: rows[0]?.main_session_key || null,
     history,

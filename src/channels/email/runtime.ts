@@ -47,6 +47,7 @@ export interface EmailAttachmentSendParams {
   filename?: string | null;
   mimeType?: string | null;
   metadata?: EmailDeliveryMetadata | null;
+  fromName?: string | null;
 }
 
 export interface EmailTextSendOptions {
@@ -56,6 +57,7 @@ export interface EmailTextSendOptions {
   inReplyTo?: string | null;
   references?: string[] | null;
   metadata?: EmailDeliveryMetadata | null;
+  fromName?: string | null;
 }
 
 function createEmailShutdownAbortError(): Error {
@@ -249,6 +251,7 @@ export function createEmailRuntime() {
       inReplyTo: options?.inReplyTo,
       references: options?.references,
       metadata: options?.metadata,
+      fromName: options?.fromName,
     });
   };
 
@@ -264,6 +267,7 @@ export function createEmailRuntime() {
       inReplyTo: params.inReplyTo,
       references: params.references,
       metadata: params.metadata,
+      fromName: params.fromName,
       attachment: {
         filePath: params.filePath,
         filename: params.filename || null,

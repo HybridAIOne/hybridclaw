@@ -312,6 +312,9 @@ Notes:
   recent pending approval is used.
 - If there are multiple pending approvals, include the approval id. The TUI and
   web chat do this for you.
+- In web chat, `Allow once` sends `/approve yes`, `Allow always` sends
+  `/approve all`, and the session/agent buttons send their matching scoped
+  approval commands.
 - For pinned-sensitive red actions, `session`, `agent`, and `all` degrade to a
   one-time approval instead of creating durable trust.
 
