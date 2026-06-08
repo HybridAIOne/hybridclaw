@@ -81,7 +81,7 @@ Local writes:
   bridge timezone --id ID --timezone Europe/Berlin
 
 Setup request:
-  bridge link [--host URL] --app-name hybridclaw --instance-name lab
+  bridge link --app-name hybridclaw --instance-name lab
 
 Remote API:
   remote oauth-token

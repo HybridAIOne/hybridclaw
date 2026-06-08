@@ -11839,6 +11839,124 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('dispatches resolved env store URLs with self-signed TLS allowance', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-private-env-tls-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.ts'
+    );
+    saveNamedRuntimeEnv({
+      HUE_BRIDGE_HOST: 'https://192.168.178.73',
+    });
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      HUE_APPLICATION_KEY: 'test-hue-key',
+    });
+
+    const dataDir = path.join(homeDir, '.hybridclaw', 'data');
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'secret:',
+        '  default: allow',
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: "*"',
+        '      methods:',
+        '        - POST',
+        '      paths:',
+        '        - /**',
+        '      agent: "*"',
+        '      managed_by_preset: lan-http-access',
+        '  presets:',
+        '    - lan-http-access',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const connectorMock = vi.fn((_options, callback) => {
+      callback(null, {});
+    });
+    const closeMock = vi.fn(async () => undefined);
+    const buildConnectorMock = vi.fn(() => connectorMock);
+    vi.doMock('undici', () => ({
+      Agent: vi.fn().mockImplementation(function (options) {
+        return {
+          close: closeMock,
+          connect: options.connect,
+        };
+      }),
+      buildConnector: buildConnectorMock,
+    }));
+
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([{ success: { username: 'test-user' } }]), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: '<env:HUE_BRIDGE_HOST>/api',
+        method: 'POST',
+        json: {
+          devicetype: 'hybridclaw#lab',
+          generateclientkey: true,
+        },
+        secretHeaders: [
+          {
+            name: 'hue-application-key',
+            secretName: 'HUE_APPLICATION_KEY',
+            prefix: 'none',
+          },
+        ],
+        replaceSecretPlaceholders: true,
+        allowSelfSignedTls: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(buildConnectorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rejectUnauthorized: false,
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL('https://192.168.178.73/api'),
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'hue-application-key': 'test-hue-key',
+        }),
+        dispatcher: expect.anything(),
+      }),
+    );
+    expect(closeMock).toHaveBeenCalledOnce();
+  });
+
   test('keeps private outbound http_request targets blocked when policy path does not match', async () => {
     const dataDir = makeTempDataDir();
     const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
