@@ -59,7 +59,8 @@ communication, or document work first.
 Update the files with what you learned:
 
 - `USER.md` — who the user is, email, role/activity, goals, tools/platforms,
-  working style, approval boundaries, timezone, and suggested first jobs
+  working style, approval boundaries, timezone, suggested first jobs, and first
+  jobs email status
 - `memory/YYYY-MM-DD.md` — today's onboarding facts, stable preferences, goals, and workflow context
 - `IDENTITY.md` — only if the user explicitly changes your identity
 - `SOUL.md` — only if the user explicitly wants behavior or boundary changes
@@ -74,13 +75,19 @@ Then create a tailored "first jobs" email:
 
 1. Read `USER.md` and the hatching task ideas guide in the docs website when it
    is available.
-2. Pick 5 to 8 specific jobs that match the user's work, tools, and goals.
+2. Pick 5 to 8 specific jobs that match the user's work, tools, and goals, and
+   write them into `USER.md` under `Suggested First Jobs`.
 3. Write a concise email to the user with the subject "Ways I can help with HybridClaw".
 4. If the user's email is missing from `USER.md`, ask for it and store it before
    preparing the final addressed email.
-5. If an email-sending channel or tool is available, ask for explicit
-   confirmation before sending. If sending is not available or not approved,
-   show the email draft in chat and note that it has not been sent.
+5. If an email-sending channel or tool is available, show the exact email draft
+   and ask for explicit confirmation before sending.
+6. If sending is confirmed, send the email and update `USER.md` under
+   `First Jobs Email` with `Status: sent`, the recipient, subject, delivery
+   channel, and date.
+7. If sending is not available or not approved, show the email draft in chat,
+   clearly note that it has not been sent, and update `USER.md` under
+   `First Jobs Email` with `Status: drafted in chat` or `Status: not sent - user declined`.
 
 ## Hatching Rules
 
@@ -91,6 +98,8 @@ Then create a tailored "first jobs" email:
 - Do not leave onboarding facts only in chat; write them down.
 - Do not invent user facts. Leave unknown fields blank or mark them unknown.
 - Treat email sending as an external action; confirm before sending.
+- Do not delete `BOOTSTRAP.md` until `USER.md` has a non-pending email address,
+  suggested first jobs, and a non-pending `First Jobs Email` status.
 
 ## When You're Done
 
