@@ -81,7 +81,7 @@ Local writes:
   bridge timezone --id ID --timezone Europe/Berlin
 
 Setup request:
-  bridge link --host https://192.0.2.30 --app-name hybridclaw --instance-name lab
+  bridge link [--host URL] --app-name hybridclaw --instance-name lab
 
 Remote API:
   remote oauth-token
@@ -353,7 +353,7 @@ function buildBehavior(subject, verb, args) {
 function buildBridge(verb, args) {
   if (verb === 'list' || verb === 'get') return buildResourceRead('bridge', verb, args);
   if (verb === 'link') {
-    const host = normalizeBaseUrl(popFlag(args, '--host'), '--host');
+    const host = baseFromArgs(args);
     const appName = requireText(popFlag(args, '--app-name', 'hybridclaw'), '--app-name');
     const instanceName = requireText(popFlag(args, '--instance-name', 'default'), '--instance-name');
     assertNoArgs(args);
