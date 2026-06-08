@@ -19,7 +19,7 @@ credentials:
       source: store
       id: HUE_APPLICATION_KEY
     scope: "Philips Hue CLIP v2 hue-application-key header"
-    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned username in chat with `/secret set HUE_APPLICATION_KEY \"<username>\"`."
+    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned Hue credential secret in chat with `/secret set HUE_APPLICATION_KEY \"<application-key>\"`."
   - id: hue-remote-refresh-token
     kind: bearer
     required: false
@@ -68,7 +68,7 @@ metadata:
         - local-entertainment-configuration-list
         - local-eventstream
       amber:
-        - local-link-button
+        - local-bridge-connection-create
         - remote-oauth-token
         - remote-bridges
         - remote-light-list
@@ -137,8 +137,8 @@ bridge access is unavailable.
    find the bridge IP again. Ask them to press the physical link button, then
    build `node skills/hue/hue.cjs --format json bridge link --app-name
    hybridclaw --instance-name lab`, send the emitted `httpRequest`, and store
-   the returned `success.username` with `/secret set HUE_APPLICATION_KEY
-   "<username>"`.
+   the returned Hue credential secret with `/secret set HUE_APPLICATION_KEY
+   "<application-key>"`.
 11. When linking after the operator presses the bridge button, run `bridge
    status` first. If the live status result reports `linkbutton: true`,
    immediately run `bridge link` without `--host`. If it reports
@@ -240,10 +240,10 @@ node skills/hue/hue.cjs --format json bridge link \
 The status command emits a `/api/config` request shape with
 `<env:HUE_BRIDGE_HOST>` and no secret header. Use it to confirm the configured
 bridge reports `linkbutton: true` before sending the link request. The link
-command emits a single `/api` request shape with `<env:HUE_BRIDGE_HOST>`. Send
-that request through the gateway while the button is active, then store the
-returned `success.username` as `HUE_APPLICATION_KEY`. Do not pass `--host` for
-normal chat setup.
+command emits a single `/api/config/connections` request shape with
+`<env:HUE_BRIDGE_HOST>`. Send that request through the gateway while the button
+is active, then store the returned Hue credential secret as
+`HUE_APPLICATION_KEY`. Do not pass `--host` for normal chat setup.
 
 Use Remote API reads only when off-LAN access is needed:
 
@@ -258,7 +258,7 @@ node skills/hue/hue.cjs --format json remote room list --bridge <id>
 
 Store the local bridge URL in the env store, then press the bridge link button,
 build the link request, send the emitted `httpRequest` through the gateway, and
-store the returned username as the application key.
+store the returned Hue credential secret as the application key.
 
 In chat:
 
@@ -266,7 +266,7 @@ In chat:
 /env set HUE_BRIDGE_HOST "https://<bridge-ip>"
 node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
-/secret set HUE_APPLICATION_KEY "<username-from-link-response>"
+/secret set HUE_APPLICATION_KEY "<application-key-from-response>"
 ```
 
 From a local terminal:
@@ -275,7 +275,7 @@ From a local terminal:
 hybridclaw env set HUE_BRIDGE_HOST "https://<bridge-ip>"
 node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
-hybridclaw secret set HUE_APPLICATION_KEY "<username-from-link-response>"
+hybridclaw secret set HUE_APPLICATION_KEY "<application-key-from-response>"
 ```
 
 Managed LAN HTTP access covers local RFC1918 bridge reads according to the
@@ -345,8 +345,8 @@ Press the Hue bridge link button, then let me run:
 node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
 
-Store the returned username with:
-/secret set HUE_APPLICATION_KEY "<username-from-link-response>"
+Store the returned Hue credential secret with:
+/secret set HUE_APPLICATION_KEY "<application-key-from-response>"
 ```
 
   Do not include `hybridclaw env set` or ask the operator to set
@@ -359,6 +359,11 @@ Store the returned username with:
   at the configured env-store host is reachable but does not currently report
   an active button press; ask the operator to press and release the physical
   button once, then retry the status and link sequence immediately.
+- On a live link response saying `generateclientkey is not available` or
+  directing the caller to `POST /api/config/connections`, rebuild the request
+  with the current helper and retry the emitted `/api/config/connections`
+  request. Do not send the operator to the Hue developer portal or mobile app
+  for a credential when the local bridge registration endpoint is available.
 - If the operator shows `/env show HUE_BRIDGE_HOST` and it differs from the host
   used by a failed request, explain that the request used the wrong override and
   retry with the normal helper command, which emits `<env:HUE_BRIDGE_HOST>`.

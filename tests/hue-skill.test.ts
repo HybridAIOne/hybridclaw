@@ -63,9 +63,9 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
   expect(skill).toContain('retry `bridge link`\n  immediately');
   expect(skill).toContain('do not pass `--host`');
   expect(skill).toContain('retry the same\n   operation with no `--host` override');
-  expect(skill).toContain('Store the returned username with:');
+  expect(skill).toContain('Store the returned Hue credential secret with:');
   expect(skill).toContain(
-    '/secret set HUE_APPLICATION_KEY "<username-from-link-response>"',
+    '/secret set HUE_APPLICATION_KEY "<application-key-from-response>"',
   );
   expect(skill).toContain('/env set HUE_BRIDGE_HOST "https://<bridge-ip>"');
   expect(skill).toContain('find the bridge IP again');
@@ -211,18 +211,18 @@ test('Hue helper builds link and remote request shapes without runtime side effe
   });
   expect(status.httpRequest).not.toHaveProperty('secretHeaders');
   expect(link).toMatchObject({
-    operation: 'local-link-button',
+    operation: 'local-bridge-connection-create',
     stakesTier: 'amber',
     httpRequest: {
       method: 'POST',
-      url: '<env:HUE_BRIDGE_HOST>/api',
+      url: '<env:HUE_BRIDGE_HOST>/api/config/connections',
       json: {
         devicetype: 'hybridclaw#lab',
-        generateclientkey: true,
       },
     },
   });
-  expect(linkWithHost.httpRequest.url).toBe('https://192.0.2.30/api');
+  expect(linkWithHost.httpRequest.url).toBe('https://192.0.2.30/api/config/connections');
+  expect(JSON.stringify(link)).not.toContain('generateclientkey');
   expect(link).not.toHaveProperty('liveExecution');
   expect(remoteLights).toMatchObject({
     operation: 'remote-light-list',

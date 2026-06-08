@@ -11898,7 +11898,7 @@ describe('gateway HTTP server', () => {
     });
     const fetchMock = vi.fn(
       async () =>
-        new Response(JSON.stringify([{ success: { username: 'test-user' } }]), {
+        new Response(JSON.stringify({ key: 'test-application-key' }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),
@@ -11910,11 +11910,10 @@ describe('gateway HTTP server', () => {
       url: '/api/http/request',
       headers: { authorization: 'Bearer gateway-token' },
       body: {
-        url: '<env:HUE_BRIDGE_HOST>/api',
+        url: '<env:HUE_BRIDGE_HOST>/api/config/connections',
         method: 'POST',
         json: {
           devicetype: 'hybridclaw#lab',
-          generateclientkey: true,
         },
         secretHeaders: [
           {
@@ -11939,7 +11938,7 @@ describe('gateway HTTP server', () => {
       }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      new URL('https://192.168.178.73/api'),
+      new URL('https://192.168.178.73/api/config/connections'),
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
