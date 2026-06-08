@@ -31,6 +31,7 @@ import {
 } from '../memory/jobs.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
+import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
 
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift
@@ -41,12 +42,6 @@ const SCHEDULER_STATE_PATH = path.join(DATA_DIR, 'scheduler-jobs-state.json');
 const SQLITE_SECOND_PRECISION_TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const DEFAULT_SCHEDULER_TIME_ZONE = 'UTC';
 const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
-const HEARTBEAT_STYLE_SCHEDULER_MESSAGES = new Set([
-  '',
-  'hi',
-  'heartbeat',
-  'heartbeat poll',
-]);
 
 type CronWeekdayNumbering = 'crontab' | 'monday-zero-based';
 
@@ -143,19 +138,6 @@ function describeScheduledDeliveryTarget(
   if (isWhatsAppJid(trimmed)) return `WhatsApp chat ${trimmed}`;
   if (trimmed === 'tui') return 'the local TUI inbox';
   return `channel ${trimmed}`;
-}
-
-function isHeartbeatStyleSchedulerJob(job: RuntimeSchedulerJob): boolean {
-  if (job.action.kind !== 'agent_turn') return false;
-  if (!job.agentId) return false;
-  const normalized = job.action.message
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
-  if (HEARTBEAT_STYLE_SCHEDULER_MESSAGES.has(normalized)) return true;
-  return (
-    normalized.includes('heartbeat.md') && normalized.includes('periodic task')
-  );
 }
 
 export function wrapCronPrompt(
@@ -708,16 +690,21 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
     return;
   }
 
-  if (
-    isHeartbeatStyleSchedulerJob(job) &&
-    job.agentId &&
-    !hasActionableHeartbeatFile(job.agentId)
-  ) {
-    logger.debug(
-      { jobId: job.id, agentId: job.agentId },
-      'Scheduler heartbeat-style job skipped — no actionable HEARTBEAT.md',
-    );
-    return;
+  if (job.action.kind === 'heartbeat_poll') {
+    if (!job.agentId) {
+      logger.warn(
+        { jobId: job.id },
+        'Scheduler heartbeat poll skipped — missing agentId',
+      );
+      return;
+    }
+    if (!hasActionableHeartbeatFile(job.agentId)) {
+      logger.debug(
+        { jobId: job.id, agentId: job.agentId },
+        'Scheduler heartbeat poll skipped — no actionable HEARTBEAT.md',
+      );
+      return;
+    }
   }
 
   if (!taskRunner) return;
@@ -725,14 +712,16 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
   const contextChannelId =
     job.delivery.kind === 'channel' ? job.delivery.to : 'scheduler';
   const prompt =
-    job.action.kind === 'agent_turn'
-      ? wrapCronPrompt(
+    job.action.kind === 'system_event'
+      ? job.action.message
+      : wrapCronPrompt(
           jobLabel,
-          job.action.message,
+          job.action.kind === 'heartbeat_poll'
+            ? HEARTBEAT_POLL_PROMPT
+            : job.action.message,
           job.schedule.tz || undefined,
           job.delivery.kind === 'channel' ? job.delivery.to : undefined,
-        )
-      : job.action.message;
+        );
   await taskRunner({
     source: 'scheduler-job',
     jobId: job.id,
@@ -740,7 +729,8 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
     sessionId: `scheduler:${job.id}`,
     channelId: contextChannelId,
     prompt,
-    actionKind: job.action.kind,
+    actionKind:
+      job.action.kind === 'system_event' ? 'system_event' : 'agent_turn',
     delivery:
       job.delivery.kind === 'channel'
         ? { kind: 'channel', channelId: job.delivery.to }

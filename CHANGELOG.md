@@ -5,6 +5,7 @@
 ### Added
 
 - **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables optional gateway Sentry reporting for startup failures, uncaught exceptions, unhandled rejections, and errors recorded through shared gateway/agent spans, with default `production` environment, automatic `hybridclaw@<package-version>` release naming, secret redaction, and graceful shutdown flushes.
+- **Scheduler heartbeat polling action**: Config-backed scheduler jobs can use the explicit `heartbeat_poll` action kind so empty `HEARTBEAT.md` files are skipped before any model turn is started.
 
 ## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
 

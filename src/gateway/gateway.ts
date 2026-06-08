@@ -3419,10 +3419,6 @@ function isSchedulerNoopTuiResult(text: string): boolean {
     normalized.includes('no pending') ||
     normalized.includes('no queued') ||
     normalized.includes('no changes') ||
-    normalized.includes('no periodic tasks') ||
-    normalized.includes('no periodic task') ||
-    normalized.includes('no tasks configured') ||
-    normalized.includes('heartbeat.md is empty') ||
     normalized.includes('idle')
   );
 }

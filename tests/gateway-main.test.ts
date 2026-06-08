@@ -1289,7 +1289,7 @@ describe('gateway bootstrap', () => {
     );
   });
 
-  test('does not deliver empty HEARTBEAT.md scheduler no-op reports to the TUI inbox', async () => {
+  test('delivers empty HEARTBEAT.md scheduler no-op reports when a scheduler job reaches the model', async () => {
     const state = await importFreshGatewayMain();
     const idleText =
       'Nothing to report. HEARTBEAT.md is empty — no periodic tasks configured.';
@@ -1316,7 +1316,7 @@ describe('gateway bootstrap', () => {
     });
 
     expect(state.runGatewayScheduledTask).toHaveBeenCalledTimes(1);
-    expect(state.loggerInfo).toHaveBeenCalledWith(
+    expect(state.loggerInfo).not.toHaveBeenCalledWith(
       {
         jobId: 'budget-tokens',
         taskId: undefined,
@@ -1326,12 +1326,15 @@ describe('gateway bootstrap', () => {
       },
       'Scheduled task completed without TUI delivery',
     );
-    expect(state.loggerInfo).not.toHaveBeenCalledWith(
-      expect.objectContaining({
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
         jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
         channelId: 'tui',
+        artifactCount: 0,
         result: idleText,
-      }),
+      },
       'Scheduled task completed',
     );
   });
