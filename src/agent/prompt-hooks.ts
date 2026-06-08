@@ -22,9 +22,9 @@ import {
   type RuntimeChannelInstructionsConfig,
   SECURITY_POLICY_VERSION,
 } from '../config/runtime-config.js';
+import { loadCloudMemoryContextFiles } from '../memory/cloud-memory.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
-import { loadCloudMemoryContextFiles } from '../memory/cloud-memory.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
 import {
   buildSessionContextPrompt,

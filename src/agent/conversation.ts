@@ -1,6 +1,7 @@
 import os from 'node:os';
 
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {
   type HistoryOptimizationStats,
   optimizeHistoryMessagesForPrompt,
@@ -13,7 +14,6 @@ import {
   type SkillInvocation,
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
-import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {
   formatCurrentTime,
   loadDailyMemoryFile,

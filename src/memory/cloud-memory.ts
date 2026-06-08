@@ -64,10 +64,17 @@ function isCloudMemoryConfigured(): boolean {
 }
 
 function cloudMemoryCachePath(agentId: string): string {
-  return path.join(agentWorkspaceDir(agentId), '.hybridclaw', CLOUD_MEMORY_CACHE_NAME);
+  return path.join(
+    agentWorkspaceDir(agentId),
+    '.hybridclaw',
+    CLOUD_MEMORY_CACHE_NAME,
+  );
 }
 
-function readBoundedTextFile(filePath: string, maxChars: number): string | null {
+function readBoundedTextFile(
+  filePath: string,
+  maxChars: number,
+): string | null {
   try {
     const stats = fs.statSync(filePath);
     if (stats.size <= 0) return '';
@@ -90,12 +97,17 @@ function readBoundedTextFile(filePath: string, maxChars: number): string | null 
 
 function resolveTodayMemoryName(workspaceDir: string): string {
   const userPath = path.join(workspaceDir, 'USER.md');
-  const userContent = readBoundedTextFile(userPath, CLOUD_MEMORY_MAX_FILE_CHARS);
+  const userContent = readBoundedTextFile(
+    userPath,
+    CLOUD_MEMORY_MAX_FILE_CHARS,
+  );
   const timezone = extractUserTimezone(userContent || undefined);
   return `${currentDateStampInTimezone(timezone)}.md`;
 }
 
-function collectLocalAgentMemoryFiles(agentId: string): CloudMemoryFilePayload[] {
+function collectLocalAgentMemoryFiles(
+  agentId: string,
+): CloudMemoryFilePayload[] {
   const workspaceDir = agentWorkspaceDir(agentId);
   const files: CloudMemoryFilePayload[] = [];
 
@@ -111,7 +123,9 @@ function collectLocalAgentMemoryFiles(agentId: string): CloudMemoryFilePayload[]
   try {
     const entries = fs
       .readdirSync(memoryDir, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && DAILY_MEMORY_FILE_RE.test(entry.name))
+      .filter(
+        (entry) => entry.isFile() && DAILY_MEMORY_FILE_RE.test(entry.name),
+      )
       .map((entry) => entry.name)
       .sort();
     for (const filename of entries) {
