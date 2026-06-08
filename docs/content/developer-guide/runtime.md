@@ -162,6 +162,26 @@ host or container execution, and skill loading. Structured logs also include
 incident workflow. The OTel SDK is loaded lazily, so there is no startup or
 runtime overhead when tracing is off.
 
+## Sentry Error Reporting
+
+HybridClaw can send gateway error traces to Sentry when `SENTRY_DSN` is set.
+The integration captures startup failures, uncaught exceptions, unhandled
+rejections, and errors recorded through shared gateway/agent spans. It is
+disabled by default and flushes pending events during gateway shutdown.
+
+Supported environment variables:
+
+- `SENTRY_DSN` enables Sentry and sets the project DSN
+- `SENTRY_ENVIRONMENT` sets the Sentry environment
+- `SENTRY_RELEASE` sets the Sentry release name
+- `SENTRY_TRACES_SAMPLE_RATE` optionally enables Sentry transaction sampling
+  with a value from `0` to `1`
+
+HybridClaw already owns OpenTelemetry setup, so the Sentry SDK is initialized
+with its OpenTelemetry auto-setup disabled. Sentry events are passed through the
+same secret-redaction helper used by other security-sensitive diagnostics
+before they leave the gateway process.
+
 ## Runtime Diagnostics
 
 `hybridclaw doctor` is the operator-facing health check for local runtime

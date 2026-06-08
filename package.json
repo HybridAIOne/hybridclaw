@@ -108,6 +108,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "0.218.0",
     "@opentelemetry/resources": "2.6.1",
     "@opentelemetry/sdk-node": "0.218.0",
+    "@sentry/node": "10.55.0",
     "@slack/bolt": "4.7.0",
     "@whiskeysockets/baileys": "7.0.0-rc11",
     "ajv": "8.18.0",

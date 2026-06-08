@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **Sentry error reporting**: `SENTRY_DSN` now enables optional gateway Sentry
+  reporting for startup failures, uncaught exceptions, unhandled rejections,
+  and errors recorded through shared gateway/agent spans, with secret redaction
+  and graceful shutdown flushes.
+
 ## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
 
 ### Added

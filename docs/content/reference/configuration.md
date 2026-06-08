@@ -111,6 +111,9 @@ saved revision history directly.
   `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` for optional built-in
   distributed tracing export to OTLP collectors; see
   [Runtime Internals](../developer-guide/runtime.md)
+- `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, and
+  `SENTRY_TRACES_SAMPLE_RATE` for optional Sentry gateway error reporting; see
+  [Runtime Internals](../developer-guide/runtime.md)
 - `hybridai.baseUrl` for the HybridAI API origin; `HYBRIDAI_BASE_URL` can
   override it for the current process without rewriting `config.json`
 - `hybridai.maxTokens` for the default completion output budget; the shipped
