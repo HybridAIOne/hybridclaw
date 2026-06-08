@@ -10,7 +10,7 @@ config_variables:
     env: HUE_BRIDGE_HOST
     required: true
     scope: "Local Hue Bridge HTTPS base URL used in gateway http_request URLs"
-    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `hybridclaw env set HUE_BRIDGE_HOST \"https://192.168.1.30\"`."
+    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `/env set HUE_BRIDGE_HOST \"https://192.168.1.30\"` in chat or `hybridclaw env set HUE_BRIDGE_HOST \"https://192.168.1.30\"` locally."
 credentials:
   - id: hue-application-key
     kind: api_key
@@ -19,7 +19,7 @@ credentials:
       source: store
       id: HUE_APPLICATION_KEY
     scope: "Philips Hue CLIP v2 hue-application-key header"
-    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned username with `hybridclaw secret set HUE_APPLICATION_KEY \"<username>\"`."
+    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned username with `/secret set HUE_APPLICATION_KEY \"<username>\"` in chat or `hybridclaw secret set HUE_APPLICATION_KEY \"<username>\"` locally."
   - id: hue-remote-refresh-token
     kind: bearer
     required: false
@@ -27,7 +27,7 @@ credentials:
       source: store
       id: HUE_REMOTE_REFRESH_TOKEN
     scope: "Hue Remote API OAuth token used for off-LAN API calls"
-    how_to_obtain: "Create a Hue developer app, complete the Hue Remote API OAuth flow, and store the refresh/access token with `hybridclaw secret set HUE_REMOTE_REFRESH_TOKEN \"<token>\"`."
+    how_to_obtain: "Create a Hue developer app, complete the Hue Remote API OAuth flow, and store the refresh/access token with `/secret set HUE_REMOTE_REFRESH_TOKEN \"<token>\"` in chat or `hybridclaw secret set HUE_REMOTE_REFRESH_TOKEN \"<token>\"` locally."
   - id: hue-remote-access-token
     kind: bearer
     required: false
@@ -127,10 +127,10 @@ bridge access is unavailable.
 8. If a live call returns `401` or `unauthorized_user`, stop after that first
    failed call and re-link the bridge with the link-button flow.
 9. Before telling the operator Hue config is missing, check the configured
-   names with `hybridclaw env list` and `hybridclaw secret list`, or the
-   corresponding slash commands when running inside chat. Inspect names only;
-   never print secret values. Do not ask whether to check config when the tools
-   are available.
+   names with `/env list` and `/secret list` when running inside chat, or
+   `hybridclaw env list` and `hybridclaw secret list` from a local terminal.
+   Inspect names only; never print secret values. Do not ask whether to check
+   config when the tools are available.
 10. If `HUE_BRIDGE_HOST` is configured and `HUE_APPLICATION_KEY` is missing,
    say only that the application key is missing. Do not ask the operator to
    find the bridge IP again. Ask them to press the physical link button, then
@@ -227,7 +227,17 @@ node skills/hue/hue.cjs --format json remote room list --bridge <id>
 
 Store the local bridge URL in the env store, then press the bridge link button,
 build the link request, send the emitted `httpRequest` through the gateway, and
-store the returned username as the application key:
+store the returned username as the application key.
+
+In chat:
+
+```text
+/env set HUE_BRIDGE_HOST "https://192.168.1.30"
+node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
+/secret set HUE_APPLICATION_KEY "<username-from-link-response>"
+```
+
+From a local terminal:
 
 ```bash
 hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"
@@ -240,6 +250,16 @@ workspace policy setting. The helper does not create or modify that setting.
 
 For the Hue Remote API, create a developer app, complete the OAuth flow, then
 store the resulting values:
+
+```text
+/secret set HUE_REMOTE_CLIENT_ID "<oauth-client-id>"
+/secret set HUE_REMOTE_CLIENT_SECRET "<oauth-client-secret>"
+/secret set HUE_REMOTE_REFRESH_TOKEN "<refresh-token>"
+node skills/hue/hue.cjs --format json remote oauth-token
+/secret set HUE_REMOTE_BRIDGE_ID "<bridge-id>"
+```
+
+Or from a local terminal:
 
 ```bash
 hybridclaw secret set HUE_REMOTE_CLIENT_ID "<oauth-client-id>"
