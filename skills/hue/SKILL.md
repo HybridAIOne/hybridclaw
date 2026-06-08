@@ -10,7 +10,7 @@ config_variables:
     env: HUE_BRIDGE_HOST
     required: true
     scope: "Local Hue Bridge HTTPS base URL used in gateway http_request URLs"
-    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then run `node skills/hue/hue.cjs --format json setup-local --host https://192.168.1.30`; the helper stores `HUE_BRIDGE_HOST` and adds the narrow workspace network policy rule."
+    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `hybridclaw env set HUE_BRIDGE_HOST \"https://192.168.1.30\"`."
 credentials:
   - id: hue-application-key
     kind: api_key
@@ -19,7 +19,7 @@ credentials:
       source: store
       id: HUE_APPLICATION_KEY
     scope: "Philips Hue CLIP v2 hue-application-key header"
-    how_to_obtain: "Press the bridge link button and run `node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab`; the helper stores the returned key as `HUE_APPLICATION_KEY`."
+    how_to_obtain: "Press the bridge link button, build the link request with `node skills/hue/hue.cjs --format json bridge link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab`, send its `httpRequest` through the gateway, then store the returned username with `hybridclaw secret set HUE_APPLICATION_KEY \"<username>\"`."
   - id: hue-remote-refresh-token
     kind: bearer
     required: false
@@ -35,7 +35,7 @@ credentials:
       source: store
       id: HUE_REMOTE_ACCESS_TOKEN
     scope: "Hue Remote API short-lived access token used as Authorization bearer"
-    how_to_obtain: "Run `node skills/hue/hue.cjs --format json http-request remote-oauth-token` after configuring the Remote API client id, client secret, and refresh token; the gateway captures the access token into `HUE_REMOTE_ACCESS_TOKEN`."
+    how_to_obtain: "Run `node skills/hue/hue.cjs --format json remote oauth-token` after configuring the Remote API client id, client secret, and refresh token; the emitted gateway request captures the access token into `HUE_REMOTE_ACCESS_TOKEN`."
 metadata:
   hybridclaw:
     category: home-automation
@@ -113,9 +113,9 @@ bridge access is unavailable.
 3. Treat local reads as green, local light/group/scene/behavior changes as
    amber, off-LAN Remote API calls as amber, and bridge configuration writes as
    red.
-4. For amber/red operations, run `plan` first and stop after the emitted
-   `approval-plan`. Only after explicit operator approval in a later message,
-   run the exact `approvedHelperCommandText`.
+4. For amber/red operations, use the helper to build the request shape, explain
+   the target and expected effect, and stop for explicit operator approval
+   before sending the emitted `httpRequest` through the gateway.
 5. Include the target light, grouped light, room, scene, behavior, bridge id,
    action, and expected physical effect in approval text.
 6. Never paste the Hue application key, OAuth client secret, or remote token
@@ -131,12 +131,15 @@ bridge access is unavailable.
    access already allows GET reads to RFC1918 hosts, and managed read-write LAN
    access allows the supported methods. If either managed LAN mode covers the
    attempted Hue request, report that mismatch as a gateway policy-evaluation
-   bug instead of adding another rule. Otherwise run `setup-local` only when
-   the operator wants a bridge-specific policy grant. Do not edit policy by
-   hand, do not add `/**` broad rules, and do not tell the operator a gateway
-   restart is required; workspace network policy is read per request.
+   bug instead of adding another rule. Do not edit policy by hand, do not add
+   broad bridge rules, and do not tell the operator a gateway restart is
+   required; workspace network policy is read per request.
 
 ## Command Contract
+
+The helper is deliberately thin: it only turns clean subject/verb arguments
+into gateway-ready `httpRequest` payloads. It does not write env values, edit
+network policy, call the gateway, poll the bridge, or store secrets.
 
 Show helper usage:
 
@@ -144,98 +147,82 @@ Show helper usage:
 node skills/hue/hue.cjs --help
 ```
 
-Set up the local bridge host and narrow workspace network policy:
+Build local CLIP v2 read requests, then pass the emitted `httpRequest` object
+to the gateway `http_request` tool:
 
 ```bash
-node skills/hue/hue.cjs --format json setup-local --host https://192.168.1.30
-```
-
-`setup-local` stores `HUE_BRIDGE_HOST` in the HybridClaw env store and verifies
-the exact Hue Bridge network-policy rule for `/api`, `/clip/v2/**`, and
-`/eventstream/clip/v2`. It changes HybridClaw workspace configuration only; it
-does not mutate Hue devices, scenes, rooms, grouped lights, or bridge state.
-The gateway reads this workspace policy for each proxied HTTP request, so retry
-Hue reads immediately after `setup-local` succeeds.
-If the workspace already has managed read-write LAN HTTP access, this per-bridge
-policy rule is optional and should not be required for local Hue reads. Managed
-read-only LAN access is also sufficient for local Hue GET reads.
-
-Build local CLIP v2 read requests. Pass the emitted `httpRequest` object to
-the gateway `http_request` tool when not using helper live mode:
-
-```bash
-node skills/hue/hue.cjs --format json --request http-request bridge
-node skills/hue/hue.cjs --format json --request http-request devices
-node skills/hue/hue.cjs --format json --request http-request lights
-node skills/hue/hue.cjs --format json --request http-request grouped-lights
-node skills/hue/hue.cjs --format json --request http-request rooms
-node skills/hue/hue.cjs --format json --request http-request zones
-node skills/hue/hue.cjs --format json --request http-request scenes
-node skills/hue/hue.cjs --format json --request http-request motion-sensors
-node skills/hue/hue.cjs --format json --request http-request behavior-instances
-node skills/hue/hue.cjs --format json --request http-request entertainment-configurations
+node skills/hue/hue.cjs --format json bridge list
+node skills/hue/hue.cjs --format json device list
+node skills/hue/hue.cjs --format json light list
+node skills/hue/hue.cjs --format json grouped-light list
+node skills/hue/hue.cjs --format json room list
+node skills/hue/hue.cjs --format json zone list
+node skills/hue/hue.cjs --format json scene list
+node skills/hue/hue.cjs --format json motion list
+node skills/hue/hue.cjs --format json behavior list
+node skills/hue/hue.cjs --format json entertainment list
 ```
 
 Read a bounded diagnostic eventstream window:
 
 ```bash
-node skills/hue/hue.cjs --format json --request http-request eventstream --duration 30s
+node skills/hue/hue.cjs --format json eventstream read --duration 30s
 ```
 
-Prepare guarded write operations. First produce an approval plan:
+Prepare guarded write operations:
 
 ```bash
-node skills/hue/hue.cjs --format json plan light-on --light <id>
-node skills/hue/hue.cjs --format json plan light-off --light <id>
-node skills/hue/hue.cjs --format json plan light-brightness --light <id> --pct 60
-node skills/hue/hue.cjs --format json plan light-color --light <id> --xy 0.4317,0.4147
-node skills/hue/hue.cjs --format json plan light-color --light <id> --mirek 366
-node skills/hue/hue.cjs --format json plan group-on --group <grouped_light_id>
-node skills/hue/hue.cjs --format json plan group-brightness --group <grouped_light_id> --pct 60
-node skills/hue/hue.cjs --format json plan group-recall-scene --scene <id>
-node skills/hue/hue.cjs --format json plan behavior-disable --behavior <id>
-node skills/hue/hue.cjs --format json plan scene-create --name Evening --group <room_id> --group-type room --actions-json '[{"target":{"rid":"<light_id>","rtype":"light"},"action":{"on":{"on":true}}}]'
-node skills/hue/hue.cjs --format json plan behavior-create --name Vacation --configuration-json '{"script_id":"example"}'
-node skills/hue/hue.cjs --format json plan light-on --remote --remote-bridge <bridge-id> --light <id>
+node skills/hue/hue.cjs --format json light on --id <id>
+node skills/hue/hue.cjs --format json light off --id <id>
+node skills/hue/hue.cjs --format json light brightness --id <id> --pct 60
+node skills/hue/hue.cjs --format json light color --id <id> --xy 0.4317,0.4147
+node skills/hue/hue.cjs --format json light color --id <id> --mirek 366
+node skills/hue/hue.cjs --format json grouped-light on --id <grouped_light_id>
+node skills/hue/hue.cjs --format json grouped-light brightness --id <grouped_light_id> --pct 60
+node skills/hue/hue.cjs --format json scene recall --id <scene_id>
+node skills/hue/hue.cjs --format json behavior disable --id <behavior_id>
+node skills/hue/hue.cjs --format json bridge timezone --id <bridge_id> --timezone Europe/Berlin
 ```
 
-After explicit approval, run the helper command from
-`approvedHelperCommandText` exactly. It includes `--operator-grant
-approve-hue-write` for amber writes or `--operator-grant
-approve-hue-bridge-config` for red bridge configuration writes.
+The helper marks amber and red operations with `requiredGrant`. Send the
+emitted `httpRequest` only after the operator approves the described effect.
 
 Link a bridge after pressing the physical link button:
 
 ```bash
-node skills/hue/hue.cjs --format json link \
+node skills/hue/hue.cjs --format json bridge link \
   --host https://192.168.1.30 \
   --app-name hybridclaw \
   --instance-name lab
 ```
 
-The link helper polls `/api` for about 30 seconds via the gateway
-`http_request` proxy and stores the returned application key as
-`HUE_APPLICATION_KEY`. The helper output only reports the secret name captured;
-it never prints the key.
+The link command emits a single `/api` request shape. Send that request through
+the gateway after pressing the link button, then store the returned
+`success.username` as `HUE_APPLICATION_KEY`.
 
 Use Remote API reads only when off-LAN access is needed:
 
 ```bash
-node skills/hue/hue.cjs --format json http-request remote-oauth-token
-node skills/hue/hue.cjs --format json --request http-request remote-bridges
-node skills/hue/hue.cjs --format json --request http-request remote-lights --bridge <id>
-node skills/hue/hue.cjs --format json --request http-request remote-rooms --bridge <id>
+node skills/hue/hue.cjs --format json remote oauth-token
+node skills/hue/hue.cjs --format json remote bridge list
+node skills/hue/hue.cjs --format json remote light list --bridge <id>
+node skills/hue/hue.cjs --format json remote room list --bridge <id>
 ```
 
 ## Setup
 
-Set up the local bridge URL and narrow workspace network policy, then press
-the bridge link button and run the link helper to store the application key:
+Store the local bridge URL in the env store, then press the bridge link button,
+build the link request, send the emitted `httpRequest` through the gateway, and
+store the returned username as the application key:
 
 ```bash
-node skills/hue/hue.cjs --format json setup-local --host https://192.168.1.30
-node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab
+hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"
+node skills/hue/hue.cjs --format json bridge link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab
+hybridclaw secret set HUE_APPLICATION_KEY "<username-from-link-response>"
 ```
+
+Managed LAN HTTP access covers local RFC1918 bridge reads according to the
+workspace policy setting. The helper does not create or modify that setting.
 
 For the Hue Remote API, create a developer app, complete the OAuth flow, then
 store the resulting values:
@@ -244,7 +231,7 @@ store the resulting values:
 hybridclaw secret set HUE_REMOTE_CLIENT_ID "<oauth-client-id>"
 hybridclaw secret set HUE_REMOTE_CLIENT_SECRET "<oauth-client-secret>"
 hybridclaw secret set HUE_REMOTE_REFRESH_TOKEN "<refresh-token>"
-node skills/hue/hue.cjs --format json http-request remote-oauth-token
+node skills/hue/hue.cjs --format json remote oauth-token
 hybridclaw secret set HUE_REMOTE_BRIDGE_ID "<bridge-id>"
 ```
 
@@ -269,10 +256,8 @@ is rejected.
   network policy first. If managed read-only LAN access covers the GET read, or
   managed read-write LAN access covers the attempted method, report a gateway
   policy-evaluation bug and do not add a duplicate bridge rule. If LAN access
-  is off, run `setup-local` only when the operator wants a bridge-specific
-  policy grant, report that this verifies env-store and workspace policy setup
-  only, and retry the requested Hue read. Do not tell the operator to restart
-  the gateway.
-- If policy denial persists after `setup-local`, report the policy failure and
-  the helper-emitted host, method, and path. Do not substitute Remote API
-  results unless the operator asks for off-LAN fallback.
+  is off, tell the operator which LAN HTTP access setting is missing. Do not
+  tell the operator to restart the gateway.
+- If policy denial persists despite a matching managed LAN setting, report the
+  helper-emitted host, method, and path. Do not substitute Remote API results
+  unless the operator asks for off-LAN fallback.
