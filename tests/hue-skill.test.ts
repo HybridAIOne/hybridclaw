@@ -38,20 +38,7 @@ test('Hue skill manifest declares SecretRefs and guarded stakes', () => {
       },
       scope: 'Philips Hue CLIP v2 hue-application-key header',
       howToObtain:
-        'Press the bridge link button and run `node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --tls-sha256-secret HUE_BRIDGE_TLS_SHA256 --app-name hybridclaw --instance-name lab`; the helper stores the returned key as `HUE_APPLICATION_KEY`.',
-    },
-    {
-      id: 'hue-bridge-tls-sha256',
-      kind: 'header',
-      required: true,
-      secretRef: {
-        source: 'store',
-        id: 'HUE_BRIDGE_TLS_SHA256',
-      },
-      scope:
-        'Operator-pinned SHA-256 fingerprint for the local bridge TLS certificate',
-      howToObtain:
-        'Record the Hue Bridge certificate SHA-256 fingerprint out of band and store it with `hybridclaw secret set HUE_BRIDGE_TLS_SHA256 "<sha256>"`; do not disable TLS verification globally.',
+        'Press the bridge link button and run `node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab`; the helper stores the returned key as `HUE_APPLICATION_KEY`.',
     },
     {
       id: 'hue-remote-refresh-token',
@@ -129,8 +116,6 @@ test('Hue helper builds local CLIP v2 resource-list requests without exposing se
     'lights',
     '--host',
     'https://192.0.2.30',
-    '--tls-sha256',
-    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   ]);
 
   expect(bridge).toMatchObject({
@@ -149,28 +134,20 @@ test('Hue helper builds local CLIP v2 resource-list requests without exposing se
       ],
       replaceSecretPlaceholders: true,
       skillName: 'hue',
+      allowSelfSignedTls: true,
+    },
+    tls: {
+      selfSignedBridgeCertificateExpected: true,
+      allowSelfSignedTls: true,
     },
   });
-  expect(bridge.httpRequest.tlsCertificateSha256SecretName).toBe(
-    'HUE_BRIDGE_TLS_SHA256',
-  );
   expect(lights.httpRequest.url).toBe(
     'https://192.0.2.30/clip/v2/resource/light',
   );
-  expect(lights.httpRequest.tlsCertificateSha256).toBe(
-    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  );
-  expect(lights.tls.inlineSha256Configured).toBe(true);
-  expect(lights.tls).not.toHaveProperty('sha256');
-  const pinnedBySecret = request([
-    '--request',
-    'http-request',
-    'lights',
-    '--tls-sha256-secret',
-    'HUE_BRIDGE_TLS_SHA256',
-  ]);
-  expect(pinnedBySecret.httpRequest.tlsCertificateSha256SecretName).toBe(
-    'HUE_BRIDGE_TLS_SHA256',
+  expect(lights.httpRequest.allowSelfSignedTls).toBe(true);
+  expect(lights.httpRequest).not.toHaveProperty('tlsCertificateSha256');
+  expect(lights.httpRequest).not.toHaveProperty(
+    'tlsCertificateSha256SecretName',
   );
   expect(JSON.stringify(bridge)).not.toContain('test-application-key');
 });
@@ -375,6 +352,7 @@ test('Hue helper builds Remote API reads and granted remote mutations', () => {
   expect(remoteLight.httpRequest).not.toHaveProperty(
     'tlsCertificateSha256SecretName',
   );
+  expect(remoteLight.httpRequest).not.toHaveProperty('allowSelfSignedTls');
 });
 
 test('Hue helper emits granted mutation requests with allowlisted shapes only', () => {

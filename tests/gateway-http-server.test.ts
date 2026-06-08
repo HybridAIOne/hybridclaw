@@ -10414,6 +10414,86 @@ describe('gateway HTTP server', () => {
     expect(order).toEqual(['pin', 'body', 'close']);
   });
 
+  test('allows explicitly self-signed TLS on the outbound http_request connection', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-self-signed-tls-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const connectorMock = vi.fn((_options, callback) => {
+      callback(null, {});
+    });
+    const closeMock = vi.fn(async () => undefined);
+    const buildConnectorMock = vi.fn(() => connectorMock);
+    vi.doMock('undici', () => ({
+      Agent: vi.fn().mockImplementation(function (options) {
+        return {
+          close: closeMock,
+          connect: options.connect,
+        };
+      }),
+      buildConnector: buildConnectorMock,
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url, options) => {
+      await new Promise<void>((resolve, reject) => {
+        options.dispatcher.connect(
+          {
+            hostname: 'bridge.example.com',
+            port: '443',
+            protocol: 'https:',
+          },
+          (error: Error | null) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          },
+        );
+      });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://bridge.example.com/clip/v2/resource/light',
+        allowSelfSignedTls: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(buildConnectorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rejectUnauthorized: false,
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        dispatcher: expect.anything(),
+      }),
+    );
+    expect(closeMock).toHaveBeenCalledOnce();
+  });
+
   test('blocks pinned TLS fingerprint mismatches on the outbound http_request connection', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-tls-pin-mismatch-');
     process.env.HOME = homeDir;

@@ -8,7 +8,6 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const LOCAL_HOST_ENV = 'HUE_BRIDGE_HOST';
 const LOCAL_KEY_SECRET = 'HUE_APPLICATION_KEY';
-const LOCAL_TLS_SECRET = 'HUE_BRIDGE_TLS_SHA256';
 const REMOTE_CLIENT_ID_SECRET = 'HUE_REMOTE_CLIENT_ID';
 const REMOTE_CLIENT_SECRET_SECRET = 'HUE_REMOTE_CLIENT_SECRET';
 const REMOTE_REFRESH_TOKEN_SECRET = 'HUE_REMOTE_REFRESH_TOKEN';
@@ -61,7 +60,6 @@ const READ_ALIASES = new Set([
   'remote-lights',
   'remote-oauth-token',
 ]);
-const SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const SECRET_TEMPLATE_RE = /^<secret:([A-Z][A-Z0-9_]{0,127})>$/u;
 const ENV_TEMPLATE_RE = /^<env:([A-Z][A-Z0-9_]{0,127})>$/u;
 const LOCAL_SECRET_REF_POLICY =
@@ -120,7 +118,6 @@ Environment:
   HYBRIDCLAW_GATEWAY_TOKEN gateway bearer token for live execution
   HUE_BRIDGE_HOST          env store bridge URL used through <env:HUE_BRIDGE_HOST>
   HUE_APPLICATION_KEY      stored CLIP v2 application key, emitted only as a secretHeaders ref
-  HUE_BRIDGE_TLS_SHA256    required local bridge TLS certificate SHA-256 pin
 `);
 }
 
@@ -329,13 +326,6 @@ function isEnvTemplate(value) {
   return ENV_TEMPLATE_RE.test(value);
 }
 
-function validateSecretName(value, label) {
-  if (!SECRET_NAME_RE.test(value)) {
-    die(`${label} must be an uppercase runtime secret name.`);
-  }
-  return value;
-}
-
 function normalizeBaseUrl(value, label, options = {}) {
   const raw = requireText(value, label);
   if (raw.includes('<secret:')) {
@@ -415,10 +405,8 @@ function buildHttpPayload(operation, tier, options) {
   if (options.captureResponseFields) {
     httpRequest.captureResponseFields = options.captureResponseFields;
   }
-  if (options.tls?.sha256) {
-    httpRequest.tlsCertificateSha256 = options.tls.sha256;
-  } else if (options.tls?.secretName) {
-    httpRequest.tlsCertificateSha256SecretName = options.tls.secretName;
+  if (options.tls?.allowSelfSigned) {
+    httpRequest.allowSelfSignedTls = true;
   }
 
   const payload = {
@@ -440,9 +428,7 @@ function publicTlsPolicy(tls) {
   return {
     selfSignedBridgeCertificateExpected:
       tls.selfSignedBridgeCertificateExpected,
-    pinning: tls.pinning,
-    inlineSha256Configured: Boolean(tls.sha256),
-    secretNameConfigured: Boolean(tls.secretName),
+    allowSelfSignedTls: Boolean(tls.allowSelfSigned),
   };
 }
 
@@ -456,41 +442,16 @@ function localSecretHeaders() {
   ];
 }
 
-function localTlsPolicy(args) {
-  const sha256 = popFlag(args, '--tls-sha256');
-  const secretName = popFlag(args, '--tls-sha256-secret');
-  if (sha256 && secretName) {
-    die('Use only one of --tls-sha256 or --tls-sha256-secret.');
-  }
-  if (secretName) {
-    return {
-      selfSignedBridgeCertificateExpected: true,
-      secretName: validateSecretName(secretName, '--tls-sha256-secret'),
-      pinning:
-        'Operator supplied Hue Bridge certificate SHA-256 fingerprint secret.',
-    };
-  }
-  if (!sha256) {
-    return {
-      selfSignedBridgeCertificateExpected: true,
-      secretName: LOCAL_TLS_SECRET,
-      pinning:
-        'Local Hue HTTPS calls require a pinned bridge certificate SHA-256 fingerprint. Configure HUE_BRIDGE_TLS_SHA256 or pass --tls-sha256/--tls-sha256-secret.',
-    };
-  }
-  if (!/^[A-Fa-f0-9:]{64,95}$/u.test(sha256)) {
-    die('--tls-sha256 must be a SHA-256 certificate fingerprint.');
-  }
+function localTlsPolicy() {
   return {
     selfSignedBridgeCertificateExpected: true,
-    sha256: sha256.toLowerCase().replace(/:/gu, ''),
-    pinning: 'Operator supplied Hue Bridge certificate SHA-256 fingerprint.',
+    allowSelfSigned: true,
   };
 }
 
 function buildLocalRead(args, resourceAlias) {
   const base = resolveBridgeBase(args);
-  const tls = localTlsPolicy(args);
+  const tls = localTlsPolicy();
   const durationMs =
     resourceAlias === 'eventstream'
       ? parseDurationMs(popFlag(args, '--duration', '30s'))
@@ -889,7 +850,7 @@ function parsePlanBody(operation, args) {
   const tier = bridgeConfig ? 'red' : 'amber';
   const grant = bridgeConfig ? BRIDGE_CONFIG_GRANT : WRITE_GRANT;
   const base = remote ? remoteBase(args) : resolveBridgeBase(args);
-  const tls = remote ? undefined : localTlsPolicy(args);
+  const tls = remote ? undefined : localTlsPolicy();
   const { resource, id, json, target } = planBuilder(args, operation);
 
   const operatorGrant = popFlag(args, '--operator-grant');
@@ -975,7 +936,7 @@ function buildLinkRequest(args) {
     popFlag(args, '--instance-name', 'default'),
     '--instance-name',
   );
-  const tls = localTlsPolicy(args);
+  const tls = localTlsPolicy();
   assertNoUnexpectedArgs(args);
   return buildHttpPayload('local-link-button', 'amber', {
     url: appendPath(host, '/api'),
@@ -1222,7 +1183,7 @@ async function executeLivePayload(payload, options = {}) {
           operation: payload.operation,
           event: 'hue.link_button_failed',
           message:
-            'Hue Bridge returned a terminal error during link-button polling. Check the bridge host, TLS pin, and gateway proxy result before retrying.',
+            'Hue Bridge returned a terminal error during link-button polling. Check the bridge host and gateway proxy result before retrying.',
           lastResult,
         };
       }
