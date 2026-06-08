@@ -209,6 +209,68 @@ test('ensureGatewayBootstrapAutostart also kicks off from OPENING.md once per se
   expect(runAgentMock).toHaveBeenCalledTimes(1);
 });
 
+test('ensureGatewayBootstrapAutostart can hatch a selected agent in an existing session', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'Research agent is hatching.',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { initDatabase, storeMessage } = await import('../src/memory/db.ts');
+  const { ensureGatewayBootstrapAutostart, getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'research',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+  });
+  ensureBootstrapFiles('research');
+
+  const sessionId = 'agent:main:channel:web:chat:dm:peer:existing-bootstrap';
+  storeMessage(sessionId, 'user-1', 'user', 'user', 'previous turn', 'main');
+
+  await ensureGatewayBootstrapAutostart({
+    sessionId,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+    allowExistingSessionMessages: true,
+  });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | {
+        messages?: Array<{ role: string; content: string }>;
+        agentId?: string;
+      }
+    | undefined;
+  expect(request?.agentId).toBe('research');
+  expect(request?.messages?.at(-1)).toEqual({
+    role: 'user',
+    content: expect.stringContaining(
+      'A startup instruction file (BOOTSTRAP.md) exists',
+    ),
+  });
+  expect(getGatewayHistory(sessionId, 10).history).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Research agent is hatching.',
+      }),
+    ]),
+  );
+});
+
 test('ensureGatewayBootstrapAutostart ignores BOOT.md even when it is customized', async () => {
   setupHome();
 

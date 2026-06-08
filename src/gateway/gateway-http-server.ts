@@ -3383,7 +3383,10 @@ async function handleApiHistory(
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  void ensureGatewayBootstrapAutostart({ sessionId }).catch((error) => {
+  void ensureGatewayBootstrapAutostart({
+    sessionId,
+    allowExistingSessionMessages: true,
+  }).catch((error) => {
     logger.warn(
       { sessionId, error },
       'Failed to start gateway bootstrap autostart',
@@ -3401,7 +3404,10 @@ async function handleApiHistory(
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
-  const bootstrapAutostart = getGatewayBootstrapAutostartState({ sessionId });
+  const bootstrapAutostart = getGatewayBootstrapAutostartState({
+    sessionId,
+    allowExistingSessionMessages: true,
+  });
   // These keys are returned only as chat-routing metadata for the web client.
   // Auth stays anchored to the existing API/session auth checks above, never to
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
