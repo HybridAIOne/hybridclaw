@@ -74,7 +74,7 @@ describe.sequential('container http_request dispatch', () => {
         JSON.stringify({
           ok: true,
           status: 200,
-          body: '[{"success":{"username":"test-user"}}]',
+          body: '{"key":"test-application-key"}',
         }),
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -85,11 +85,10 @@ describe.sequential('container http_request dispatch', () => {
     const result = await executeTool(
       'http_request',
       JSON.stringify({
-        url: '<env:HUE_BRIDGE_HOST>/api',
+        url: '<env:HUE_BRIDGE_HOST>/api/config/connections',
         method: 'POST',
         json: {
           devicetype: 'hybridclaw#lab',
-          generateclientkey: true,
         },
         secretHeaders: [
           {
@@ -109,11 +108,10 @@ describe.sequential('container http_request dispatch', () => {
       'http://127.0.0.1:9000/api/http/request',
       expect.objectContaining({
         body: JSON.stringify({
-          url: '<env:HUE_BRIDGE_HOST>/api',
+          url: '<env:HUE_BRIDGE_HOST>/api/config/connections',
           method: 'POST',
           json: {
             devicetype: 'hybridclaw#lab',
-            generateclientkey: true,
           },
           secretHeaders: [
             {
