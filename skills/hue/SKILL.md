@@ -10,7 +10,7 @@ config_variables:
     env: HUE_BRIDGE_HOST
     required: true
     scope: "Local Hue Bridge HTTPS base URL used in gateway http_request URLs"
-    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `hybridclaw env set HUE_BRIDGE_HOST \"https://192.168.1.30\"`."
+    how_to_obtain: "Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then run `node skills/hue/hue.cjs --format json setup-local --host https://192.168.1.30`; the helper stores `HUE_BRIDGE_HOST` and adds the narrow workspace network policy rule."
 credentials:
   - id: hue-application-key
     kind: api_key
@@ -135,6 +135,12 @@ Show helper usage:
 node skills/hue/hue.cjs --help
 ```
 
+Set up the local bridge host and workspace network policy:
+
+```bash
+node skills/hue/hue.cjs --format json setup-local --host https://192.168.1.30
+```
+
 Build local CLIP v2 read requests. Pass the emitted `httpRequest` object to
 the gateway `http_request` tool when not using helper live mode:
 
@@ -204,11 +210,11 @@ node skills/hue/hue.cjs --format json --request http-request remote-rooms --brid
 
 ## Setup
 
-Store the local bridge URL in the env store, then press the bridge link button
-and run the link helper to store the application key:
+Set up the local bridge URL and narrow workspace network policy, then press
+the bridge link button and run the link helper to store the application key:
 
 ```bash
-hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"
+node skills/hue/hue.cjs --format json setup-local --host https://192.168.1.30
 node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab
 ```
 

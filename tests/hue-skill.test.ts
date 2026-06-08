@@ -73,7 +73,7 @@ test('Hue skill manifest declares SecretRefs and guarded stakes', () => {
       required: true,
       scope: 'Local Hue Bridge HTTPS base URL used in gateway http_request URLs',
       howToObtain:
-        'Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"`.',
+        'Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then run `node skills/hue/hue.cjs --format json setup-local --host https://192.168.1.30`; the helper stores `HUE_BRIDGE_HOST` and adds the narrow workspace network policy rule.',
     },
   ]);
   expect(skill).toContain('category: home-automation');
@@ -96,6 +96,7 @@ test('Hue helper --help exits cleanly and lists local, remote, and plan commands
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Hue skill helper');
+  expect(result.stdout).toContain('setup-local --host');
   expect(result.stdout).toContain('http-request bridge');
   expect(result.stdout).toContain('http-request eventstream');
   expect(result.stdout).toContain('remote-lights');
@@ -106,6 +107,76 @@ test('Hue helper --help exits cleanly and lists local, remote, and plan commands
   expect(result.stdout).toContain('link --host');
   expect(result.stdout).not.toContain('--application-key');
   expect(result.stdout).not.toContain('--refresh-token');
+});
+
+test('Hue helper setup-local stores env and narrow bridge network policy', async () => {
+  const payload = request([
+    'setup-local',
+    '--host',
+    'https://192.0.2.30',
+    '--workspace',
+    '/workspace',
+  ]);
+
+  expect(payload).toMatchObject({
+    command: 'setup-local',
+    host: 'https://192.0.2.30',
+    env: {
+      name: 'HUE_BRIDGE_HOST',
+      value: 'https://192.0.2.30',
+    },
+    networkPolicy: {
+      workspacePath: '/workspace',
+      preset: 'hue_bridge',
+      rule: {
+        action: 'allow',
+        host: '192.0.2.30',
+        port: 443,
+        methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
+        paths: ['/api', '/clip/v2/**', '/eventstream/clip/v2'],
+        agent: '*',
+      },
+    },
+  });
+
+  const saveEnv = vi.fn(async () => undefined);
+  const allowBridgeInPolicy = vi.fn(async ({ rule }) => ({
+    policyPath: '/workspace/.hybridclaw/policy.yaml',
+    added: true,
+    rule,
+  }));
+
+  const result = await hue.executeSetupLocalPayload(payload, {
+    saveEnv,
+    allowBridgeInPolicy,
+  });
+
+  expect(saveEnv).toHaveBeenCalledWith(
+    'HUE_BRIDGE_HOST',
+    'https://192.0.2.30',
+  );
+  expect(allowBridgeInPolicy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      host: 'https://192.0.2.30',
+      workspacePath: '/workspace',
+      rule: expect.objectContaining({
+        host: '192.0.2.30',
+        port: 443,
+      }),
+    }),
+  );
+  expect(result).toMatchObject({
+    command: 'setup-local-result',
+    ok: true,
+    env: {
+      name: 'HUE_BRIDGE_HOST',
+      stored: true,
+    },
+    networkPolicy: {
+      policyPath: '/workspace/.hybridclaw/policy.yaml',
+      added: true,
+    },
+  });
 });
 
 test('Hue helper builds local CLIP v2 resource-list requests without exposing secrets', () => {
@@ -552,6 +623,12 @@ test('Hue live execution stores link keys through injected SecretRef writer', as
     'lab',
   ]);
   const storeSecret = vi.fn(async () => undefined);
+  const saveEnv = vi.fn(async () => undefined);
+  const allowBridgeInPolicy = vi.fn(async ({ rule }) => ({
+    policyPath: '/workspace/.hybridclaw/policy.yaml',
+    added: false,
+    rule,
+  }));
   const fetchMock = vi.fn(async () => ({
     ok: true,
     status: 200,
@@ -573,6 +650,8 @@ test('Hue live execution stores link keys through injected SecretRef writer', as
     fetch: fetchMock,
     gatewayUrl: 'http://127.0.0.1:9090',
     storeSecret,
+    saveEnv,
+    allowBridgeInPolicy,
     pollDelayMs: 1,
   });
 
@@ -587,6 +666,19 @@ test('Hue live execution stores link keys through injected SecretRef writer', as
   expect(storeSecret).toHaveBeenCalledWith(
     'HUE_APPLICATION_KEY',
     'fresh-application-key',
+  );
+  expect(saveEnv).toHaveBeenCalledWith(
+    'HUE_BRIDGE_HOST',
+    'https://192.0.2.30',
+  );
+  expect(allowBridgeInPolicy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      host: 'https://192.0.2.30',
+      rule: expect.objectContaining({
+        host: '192.0.2.30',
+        paths: ['/api', '/clip/v2/**', '/eventstream/clip/v2'],
+      }),
+    }),
   );
   expect(JSON.stringify(result)).not.toContain('fresh-application-key');
 });
@@ -616,6 +708,12 @@ test('Hue live link polling stops early on terminal bridge errors', async () => 
   const result = await hue.executeLivePayload(payload, {
     fetch: fetchMock,
     gatewayUrl: 'http://127.0.0.1:9090',
+    saveEnv: vi.fn(async () => undefined),
+    allowBridgeInPolicy: vi.fn(async ({ rule }) => ({
+      policyPath: '/workspace/.hybridclaw/policy.yaml',
+      added: false,
+      rule,
+    })),
     pollDelayMs: 1,
   });
 
