@@ -1851,6 +1851,35 @@ export interface AdminToolsResponse {
   recentExecutions: AdminToolExecution[];
 }
 
+export type AdminSecretAction =
+  | 'secret.list_metadata'
+  | 'secret.overwrite'
+  | 'secret.unset';
+
+export interface AdminSecretFingerprint {
+  length: number;
+  sha256_prefix: string;
+}
+
+export interface AdminSecretEntry {
+  name: string;
+  state: 'set' | 'unset';
+  created_at: string | null;
+  last_rotated_at: string | null;
+  length: number | null;
+  fingerprint: AdminSecretFingerprint | null;
+}
+
+export interface AdminSecretsResponse {
+  secrets: AdminSecretEntry[];
+  total: number;
+  actions: AdminSecretAction[];
+}
+
+export interface AdminSecretMutationResponse {
+  secret: AdminSecretEntry;
+}
+
 export interface DeleteSessionResult {
   deleted: boolean;
   sessionId: string;
