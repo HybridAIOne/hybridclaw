@@ -97,6 +97,18 @@ export function useChatStream(
     [queryClient, token],
   );
 
+  const refreshCommandHistory = useCallback(
+    (sessionId: string) => {
+      const queryKey = chatHistoryQueryKey(token, sessionId);
+      const refresh = () => {
+        void queryClient.invalidateQueries({ queryKey });
+      };
+      refresh();
+      window.setTimeout(refresh, 1200);
+    },
+    [queryClient, token],
+  );
+
   const sendMessage = useCallback(
     async (
       content: string,
@@ -325,6 +337,9 @@ export function useChatStream(
           ];
         });
 
+        if (result.commandResult) {
+          refreshCommandHistory(result.sessionId ?? targetSessionId);
+        }
         refreshRecent();
       } catch (err) {
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
@@ -359,6 +374,7 @@ export function useChatStream(
       onSessionIdCorrection,
       onModelResolved,
       setError,
+      refreshCommandHistory,
       refreshRecent,
     ],
   );

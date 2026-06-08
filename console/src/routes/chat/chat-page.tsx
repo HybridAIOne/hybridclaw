@@ -719,6 +719,14 @@ export function ChatPage() {
           result.sessionId?.trim() || requestedSessionId;
         await ensureSwitchHistory(resolvedSessionId);
         appendLocalCommandResult(resolvedSessionId, result.text);
+        const historyQueryKey = chatHistoryQueryKey(
+          auth.token,
+          resolvedSessionId,
+        );
+        void queryClient.invalidateQueries({ queryKey: historyQueryKey });
+        window.setTimeout(() => {
+          void queryClient.invalidateQueries({ queryKey: historyQueryKey });
+        }, 1200);
         if (resolvedSessionId !== requestedSessionId) {
           await switchToSession(resolvedSessionId, { replace: true });
         }
