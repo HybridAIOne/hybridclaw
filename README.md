@@ -335,7 +335,7 @@ Once the gateway is running, open HybridClaw locally:
   correlation.
 - Optional Sentry reporting sends gateway startup failures, uncaught
   exceptions, unhandled rejections, and shared span errors when `SENTRY_DSN` is
-  set.
+  stored with `hybridclaw env set`.
 
 ## How HybridClaw compares
 

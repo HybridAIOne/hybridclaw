@@ -1,3 +1,4 @@
+import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { redactSecretsDeep } from '../security/redact.js';
 
 type SentryModule = typeof import('@sentry/node');
@@ -12,12 +13,14 @@ let sentry: SentryModule | null = null;
 let initPromise: Promise<void> | null = null;
 let initialized = false;
 
-function readEnv(name: string): string {
+function readRuntimeSetting(name: string): string {
+  const stored = readStoredRuntimeEnv()[name]?.trim();
+  if (stored) return stored;
   return String(process.env[name] || '').trim();
 }
 
 function readSampleRate(): number | undefined {
-  const raw = readEnv('SENTRY_TRACES_SAMPLE_RATE');
+  const raw = readRuntimeSetting('SENTRY_TRACES_SAMPLE_RATE');
   if (!raw) return undefined;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0 || value > 1) return undefined;
@@ -29,7 +32,7 @@ function normalizeException(error: unknown): Error {
 }
 
 export function isSentryConfigured(): boolean {
-  return Boolean(readEnv('SENTRY_DSN'));
+  return Boolean(readRuntimeSetting('SENTRY_DSN'));
 }
 
 export async function initSentry(): Promise<void> {
@@ -40,9 +43,9 @@ export async function initSentry(): Promise<void> {
     try {
       const sdk = await import('@sentry/node');
       const client = sdk.init({
-        dsn: readEnv('SENTRY_DSN'),
-        environment: readEnv('SENTRY_ENVIRONMENT') || undefined,
-        release: readEnv('SENTRY_RELEASE') || undefined,
+        dsn: readRuntimeSetting('SENTRY_DSN'),
+        environment: readRuntimeSetting('SENTRY_ENVIRONMENT') || undefined,
+        release: readRuntimeSetting('SENTRY_RELEASE') || undefined,
         skipOpenTelemetrySetup: true,
         tracesSampleRate: readSampleRate(),
         beforeSend(event) {

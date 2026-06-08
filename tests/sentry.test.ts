@@ -4,9 +4,13 @@ const sentryInit = vi.fn(() => ({}));
 const sentrySetTag = vi.fn();
 const sentryCaptureException = vi.fn();
 const sentryFlush = vi.fn(async () => true);
+let runtimeEnvValues: Record<string, string> = {};
 
 async function importFreshSentry() {
   vi.resetModules();
+  vi.doMock('../src/config/runtime-env.js', () => ({
+    readStoredRuntimeEnv: () => ({ ...runtimeEnvValues }),
+  }));
   vi.doMock('@sentry/node', () => ({
     captureException: sentryCaptureException,
     flush: sentryFlush,
@@ -20,7 +24,9 @@ describe('Sentry observability', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
+    vi.doUnmock('../src/config/runtime-env.js');
     vi.doUnmock('@sentry/node');
+    runtimeEnvValues = {};
     delete process.env.SENTRY_DSN;
     delete process.env.SENTRY_ENVIRONMENT;
     delete process.env.SENTRY_RELEASE;
@@ -44,11 +50,13 @@ describe('Sentry observability', () => {
     expect(sentryFlush).not.toHaveBeenCalled();
   });
 
-  test('initializes from Sentry environment variables', async () => {
-    process.env.SENTRY_DSN = 'https://public@example.com/1';
-    process.env.SENTRY_ENVIRONMENT = 'production';
-    process.env.SENTRY_RELEASE = 'hybridclaw@1.2.3';
-    process.env.SENTRY_TRACES_SAMPLE_RATE = '0.25';
+  test('initializes from stored runtime env values', async () => {
+    runtimeEnvValues = {
+      SENTRY_DSN: 'https://public@example.com/1',
+      SENTRY_ENVIRONMENT: 'production',
+      SENTRY_RELEASE: 'hybridclaw@1.2.3',
+      SENTRY_TRACES_SAMPLE_RATE: '0.25',
+    };
     const { initSentry } = await importFreshSentry();
 
     await initSentry();
@@ -65,6 +73,40 @@ describe('Sentry observability', () => {
     expect(sentrySetTag).toHaveBeenCalledWith(
       'service',
       'hybridclaw-gateway',
+    );
+  });
+
+  test('uses stored runtime env values before process environment fallbacks', async () => {
+    runtimeEnvValues = {
+      SENTRY_DSN: 'https://stored@example.com/1',
+      SENTRY_ENVIRONMENT: 'stored-env',
+    };
+    process.env.SENTRY_DSN = 'https://process@example.com/1';
+    process.env.SENTRY_ENVIRONMENT = 'process-env';
+    const { initSentry } = await importFreshSentry();
+
+    await initSentry();
+
+    expect(sentryInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dsn: 'https://stored@example.com/1',
+        environment: 'stored-env',
+      }),
+    );
+  });
+
+  test('falls back to process environment variables', async () => {
+    process.env.SENTRY_DSN = 'https://process@example.com/1';
+    process.env.SENTRY_ENVIRONMENT = 'process-env';
+    const { initSentry } = await importFreshSentry();
+
+    await initSentry();
+
+    expect(sentryInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dsn: 'https://process@example.com/1',
+        environment: 'process-env',
+      }),
     );
   });
 
