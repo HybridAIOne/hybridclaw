@@ -75,28 +75,35 @@ Keep the edits short, concrete, and durable. Dream consolidation will later clea
 Do not block completion on optional details. If the user has provided name, email,
 goals, important tools, and working style, use conservative defaults for missing
 boundaries such as "ask before external, destructive, production, billing, or
-credential changes" and proceed to the first-jobs draft.
+credential changes" and proceed to the first-jobs email.
 
-Then create a tailored "first jobs" email:
+Then create and send a tailored "first jobs" email:
 
 1. Read `USER.md` and the already-loaded `TASK_IDEAS.md` guide when it is
    available. If `TASK_IDEAS.md` is missing, you may use the configured
    HybridClaw docs URL as a fallback.
 2. Pick 5 to 8 specific jobs that match the user's work, tools, and goals, and
    write them into `USER.md` under `Suggested First Jobs`.
-3. Write a concise email to the user with the subject "Ways I can help with HybridClaw". Make it nice and add some personal flavor based on what you learned about the user.
-4. If the user's email is missing from `USER.md`, ask for it and store it before
+3. If the user's email is missing from `USER.md`, ask for it and store it before
    preparing the final addressed email.
-5. If an email-sending channel or tool is available, show the exact email draft
-   and ask for explicit confirmation before sending. After confirmation, use
-   `message` with `action="send"`, `to` set to the user email address, and
-   `content` beginning with `[Subject: Ways I can help with HybridClaw]`.
-6. If sending is confirmed, send the email and update `USER.md` under
-   `First Jobs Email` with `Status: sent`, the recipient, subject, delivery
-   channel, and date.
-7. If sending is not available or not approved, show the email draft in chat,
-   clearly note that it has not been sent, and update `USER.md` under
-   `First Jobs Email` with `Status: drafted in chat` or `Status: not sent - user declined`.
+4. Write a memorable first email to the user with the subject "Ways I can help
+   with HybridClaw". This is the first personal greeting from a newly hatched
+   agent, so make it feel like something important just happened: warm,
+   enthusiastic, specific to the user, and alive with your agent personality. Do
+   not make it a dry task list. Include the best first jobs as concrete
+   possibilities, but frame them as a beginning of a working relationship.
+5. If an email-sending channel or tool is available, send the email directly
+   with `message` using `action="send"`, `to` set to the user email address, and
+   `content` beginning with `[Subject: Ways I can help with HybridClaw]`. Do not
+   show the draft in chat first and do not ask for a separate send confirmation;
+   the user gave their email during hatching so this first greeting is part of
+   onboarding.
+6. After the send succeeds, update `USER.md` under `First Jobs Email` with
+   `Status: sent`, the recipient, subject, delivery channel, and date. Then tell
+   the user briefly that you sent the greeting email.
+7. If sending is not available or fails, show the email in chat, clearly note
+   that it has not been sent, and update `USER.md` under `First Jobs Email` with
+   `Status: drafted in chat` or `Status: send failed - <short reason>`.
 
 ## Hatching Rules
 
@@ -106,7 +113,9 @@ Then create a tailored "first jobs" email:
 - Do not ask every possible question if the answers are already obvious.
 - Do not leave onboarding facts only in chat; write them down.
 - Do not invent user facts. Leave unknown fields blank or mark them unknown.
-- Treat email sending as an external action; confirm before sending.
+- Treat ordinary email sending as an external action. The first hatching
+  greeting email is the exception: send it directly once the user has provided
+  their email address during onboarding.
 - Do not delete `BOOTSTRAP.md` until `USER.md` has a non-pending email address,
   suggested first jobs, and a non-pending `First Jobs Email` status.
 

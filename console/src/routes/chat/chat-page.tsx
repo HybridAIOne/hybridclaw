@@ -79,6 +79,7 @@ const EMPTY_MESSAGES: ChatUiMessage[] = [];
 const EMPTY_MODELS: ChatModel[] = [];
 const ERROR_BANNER_VISIBLE_MS = 5000;
 const ERROR_BANNER_FADE_MS = 200;
+const BOOTSTRAP_HATCHING_KICKOFF = 'Start hatching.';
 const BOOTSTRAP_AUTOSTART_REFETCH_MS = 1500;
 type RecentChatScope = 'user' | 'all';
 
@@ -689,7 +690,7 @@ export function ChatPage() {
 
   const ensureSwitchHistory = useCallback(
     async (resolvedSessionId: string) => {
-      await queryClient
+      return queryClient
         .ensureQueryData({
           queryKey: chatHistoryQueryKey(auth.token, resolvedSessionId),
           queryFn: () =>
@@ -729,28 +730,25 @@ export function ChatPage() {
         );
         const resolvedSessionId =
           result.sessionId?.trim() || requestedSessionId;
-        await ensureSwitchHistory(resolvedSessionId);
+        const switchHistory = await ensureSwitchHistory(resolvedSessionId);
         appendLocalCommandResult(resolvedSessionId, result.text);
-        const historyQueryKey = chatHistoryQueryKey(
-          auth.token,
-          resolvedSessionId,
-        );
-        void queryClient
-          .invalidateQueries({ queryKey: historyQueryKey })
-          .then(() => appendLocalCommandResult(resolvedSessionId, result.text));
-        window.setTimeout(() => {
-          void queryClient
-            .invalidateQueries({ queryKey: historyQueryKey })
-            .then(() =>
-              appendLocalCommandResult(resolvedSessionId, result.text),
-            );
-        }, 1200);
         if (resolvedSessionId !== requestedSessionId) {
           await switchToSession(resolvedSessionId, { replace: true });
         }
         void queryClient.invalidateQueries({
           queryKey: chatContextQueryKey(auth.token, resolvedSessionId),
         });
+        const shouldStartHatching =
+          commandArgs[0] === 'agent' &&
+          commandArgs[1] === 'switch' &&
+          switchHistory?.bootstrapAutostart?.fileName === 'BOOTSTRAP.md' &&
+          switchHistory.bootstrapAutostart.status !== 'completed';
+        if (shouldStartHatching) {
+          jumpToBottom();
+          void stream.sendMessage(BOOTSTRAP_HATCHING_KICKOFF, [], {
+            hideUser: true,
+          });
+        }
         refreshRecent();
         onAccepted(value);
       } catch (err) {
@@ -763,9 +761,11 @@ export function ChatPage() {
       ensureSessionForSend,
       ensureSwitchHistory,
       getSessionId,
+      jumpToBottom,
       queryClient,
       refreshRecent,
       setError,
+      stream.sendMessage,
       stream.isActive,
       switchToSession,
       userId,

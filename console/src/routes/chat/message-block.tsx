@@ -26,10 +26,9 @@ const APPROVAL_BUTTONS: ReadonlyArray<{
   action: ApprovalAction;
 }> = [
   { label: 'Allow once', action: 'once' },
-  { label: 'Allow always', action: 'always' },
+  { label: 'Allow always', action: 'all' },
   { label: 'Allow session', action: 'session' },
   { label: 'Allow agent', action: 'agent' },
-  { label: 'Allow all', action: 'all' },
 ];
 
 const STREAM_MARKDOWN_RENDER_INTERVAL_MS = 120;
