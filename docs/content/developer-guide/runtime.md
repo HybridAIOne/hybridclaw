@@ -183,7 +183,9 @@ runtime env value is stored.
 HybridClaw already owns OpenTelemetry setup, so the Sentry SDK is initialized
 with its OpenTelemetry auto-setup disabled. Sentry events are passed through the
 same secret-redaction helper used by other security-sensitive diagnostics
-before they leave the gateway process.
+before they leave the gateway process. Gateway chat and agent/provider error
+events include searchable Sentry tags for `session_id`, `agent_id`, and
+`channel_id` when those values are available.
 
 ## Runtime Diagnostics
 
