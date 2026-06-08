@@ -81,6 +81,7 @@ Local writes:
   bridge timezone --id ID --timezone Europe/Berlin
 
 Setup request:
+  bridge status
   bridge link --app-name hybridclaw --instance-name lab
 
 Remote API:
@@ -352,6 +353,25 @@ function buildBehavior(subject, verb, args) {
 
 function buildBridge(verb, args) {
   if (verb === 'list' || verb === 'get') return buildResourceRead('bridge', verb, args);
+  if (verb === 'status') {
+    const host = baseFromArgs(args);
+    assertNoArgs(args);
+    return requestPayload(
+      'local-bridge-status',
+      'green',
+      {
+        url: appendPath(host, '/api/config'),
+        method: 'GET',
+        timeoutMs: 5_000,
+        maxResponseBytes: 100_000,
+        skillName: 'hue',
+        stakesTier: 'green',
+        replaceSecretPlaceholders: true,
+        allowSelfSignedTls: true,
+      },
+      { resource: 'bridge-status', host },
+    );
+  }
   if (verb === 'link') {
     const host = baseFromArgs(args);
     const appName = requireText(popFlag(args, '--app-name', 'hybridclaw'), '--app-name');

@@ -40,6 +40,7 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
     secretRef: { source: 'store', id: 'HUE_APPLICATION_KEY' },
   });
   expect(skill).toContain('category: home-automation');
+  expect(skill).toContain('local-bridge-status');
   expect(skill).toContain('local-light-list');
   expect(skill).toContain('local-light-brightness');
   expect(skill).toContain('local-bridge-config-timezone');
@@ -57,7 +58,10 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
   );
   expect(skill).toContain('Stored secret HUE_APPLICATION_KEY');
   expect(skill).toContain('treat `HUE_BRIDGE_HOST` as already resolved');
-  expect(skill).toContain('run `bridge\n   link` without `--host`');
+  expect(skill).toContain('run `bridge\n   status` first');
+  expect(skill).toContain('reports `linkbutton: true`');
+  expect(skill).toContain('retry `bridge link`\n  immediately');
+  expect(skill).toContain('do not pass `--host`');
   expect(skill).toContain('retry the same\n   operation with no `--host` override');
   expect(skill).toContain('Store the returned username with:');
   expect(skill).toContain(
@@ -79,6 +83,7 @@ test('Hue helper --help lists subject verb commands', () => {
   expect(result.stdout).toContain('light list');
   expect(result.stdout).toContain('grouped-light brightness --id');
   expect(result.stdout).toContain('scene recall --id');
+  expect(result.stdout).toContain('bridge status');
   expect(result.stdout).toContain(
     'bridge link --app-name hybridclaw --instance-name lab',
   );
@@ -179,6 +184,7 @@ test('Hue helper builds granted local mutation request shapes', () => {
 });
 
 test('Hue helper builds link and remote request shapes without runtime side effects', () => {
+  const status = request(['bridge', 'status']);
   const link = request(['bridge', 'link', '--app-name', 'hybridclaw', '--instance-name', 'lab']);
   const linkWithHost = request([
     'bridge',
@@ -193,6 +199,17 @@ test('Hue helper builds link and remote request shapes without runtime side effe
   const remoteLights = request(['remote', 'light', 'list', '--bridge', 'bridge-1']);
   const remoteOauth = request(['remote', 'oauth-token']);
 
+  expect(status).toMatchObject({
+    operation: 'local-bridge-status',
+    stakesTier: 'green',
+    httpRequest: {
+      method: 'GET',
+      url: '<env:HUE_BRIDGE_HOST>/api/config',
+      replaceSecretPlaceholders: true,
+      allowSelfSignedTls: true,
+    },
+  });
+  expect(status.httpRequest).not.toHaveProperty('secretHeaders');
   expect(link).toMatchObject({
     operation: 'local-link-button',
     stakesTier: 'amber',
