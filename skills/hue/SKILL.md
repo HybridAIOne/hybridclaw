@@ -19,15 +19,7 @@ credentials:
       source: store
       id: HUE_APPLICATION_KEY
     scope: "Philips Hue CLIP v2 hue-application-key header"
-    how_to_obtain: "Press the bridge link button and run `node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --tls-sha256-secret HUE_BRIDGE_TLS_SHA256 --app-name hybridclaw --instance-name lab`; the helper stores the returned key as `HUE_APPLICATION_KEY`."
-  - id: hue-bridge-tls-sha256
-    kind: header
-    required: true
-    secret_ref:
-      source: store
-      id: HUE_BRIDGE_TLS_SHA256
-    scope: "Operator-pinned SHA-256 fingerprint for the local bridge TLS certificate"
-    how_to_obtain: "Record the Hue Bridge certificate SHA-256 fingerprint out of band and store it with `hybridclaw secret set HUE_BRIDGE_TLS_SHA256 \"<sha256>\"`; do not disable TLS verification globally."
+    how_to_obtain: "Press the bridge link button and run `node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab`; the helper stores the returned key as `HUE_APPLICATION_KEY`."
   - id: hue-remote-refresh-token
     kind: bearer
     required: false
@@ -129,9 +121,9 @@ bridge access is unavailable.
 6. Never paste the Hue application key, OAuth client secret, or remote token
    into chat. The helper emits `secretHeaders` or `<secret:...>` placeholders
    for gateway-side resolution.
-7. Hue Bridge certificates are self-signed by default. Use a pinned bridge
-   certificate SHA-256 fingerprint or operator-supplied CA trust. Do not use a
-   blanket insecure TLS bypass.
+7. Hue Bridge certificates are self-signed by default. The helper marks local
+   bridge HTTPS requests with a scoped `allowSelfSignedTls` flag for the
+   gateway `http_request` proxy. Do not use a blanket insecure TLS bypass.
 8. If a live call returns `401` or `unauthorized_user`, stop after that first
    failed call and re-link the bridge with the link-button flow.
 
@@ -192,7 +184,6 @@ Link a bridge after pressing the physical link button:
 ```bash
 node skills/hue/hue.cjs --format json link \
   --host https://192.168.1.30 \
-  --tls-sha256-secret HUE_BRIDGE_TLS_SHA256 \
   --app-name hybridclaw \
   --instance-name lab
 ```
@@ -213,18 +204,13 @@ node skills/hue/hue.cjs --format json --request http-request remote-rooms --brid
 
 ## Setup
 
-Store the local bridge URL in the env store, then store the TLS pin and
-application key in the secret store:
+Store the local bridge URL in the env store, then press the bridge link button
+and run the link helper to store the application key:
 
 ```bash
 hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"
-hybridclaw secret set HUE_BRIDGE_TLS_SHA256 "<sha256-fingerprint>"
-node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --tls-sha256-secret HUE_BRIDGE_TLS_SHA256 --app-name hybridclaw --instance-name lab
+node skills/hue/hue.cjs --format json link --host https://192.168.1.30 --app-name hybridclaw --instance-name lab
 ```
-
-Local bridge requests default to the `HUE_BRIDGE_TLS_SHA256` runtime secret.
-Use `--tls-sha256` only for one-off diagnostics from an operator-owned
-terminal.
 
 For the Hue Remote API, create a developer app, complete the OAuth flow, then
 store the resulting values:

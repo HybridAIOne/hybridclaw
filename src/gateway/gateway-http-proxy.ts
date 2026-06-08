@@ -116,6 +116,7 @@ type ApiHttpRequestBody = {
   includeResponseCookies?: unknown;
   tlsCertificateSha256?: unknown;
   tlsCertificateSha256SecretName?: unknown;
+  allowSelfSignedTls?: unknown;
   timeoutMs?: unknown;
   maxResponseBytes?: unknown;
   sessionId?: unknown;
@@ -1205,6 +1206,15 @@ function createPinnedTlsDispatcher(
   return new UndiciAgent({ connect: pinnedConnector });
 }
 
+function createSelfSignedTlsDispatcher(timeoutMs: number): UndiciAgent {
+  return new UndiciAgent({
+    connect: buildUndiciConnector({
+      rejectUnauthorized: false,
+      timeout: Math.min(timeoutMs, 10_000),
+    }),
+  });
+}
+
 function normalizeSha256Fingerprint(value: unknown, path: string): string {
   const raw = typeof value === 'string' ? value.trim() : '';
   const normalized = raw
@@ -1884,6 +1894,13 @@ export async function handleApiHttpRequest(
     body,
     secretContext,
   );
+  const allowSelfSignedTls = body.allowSelfSignedTls === true;
+  if (allowSelfSignedTls && tlsCertificateSha256) {
+    throw new GatewayRequestError(
+      400,
+      'Use only one of `allowSelfSignedTls`, `tlsCertificateSha256`, or `tlsCertificateSha256SecretName`.',
+    );
+  }
   const config = getRuntimeConfig();
 
   const headers = normalizeHttpRequestHeaders(body.headers);
@@ -2079,10 +2096,13 @@ export async function handleApiHttpRequest(
     });
   }
 
-  if (tlsCertificateSha256 && url.protocol !== 'https:') {
+  if (
+    (tlsCertificateSha256 || allowSelfSignedTls) &&
+    url.protocol !== 'https:'
+  ) {
     throw new GatewayRequestError(
       400,
-      '`tlsCertificateSha256` can only be used with https URLs.',
+      '`allowSelfSignedTls` and `tlsCertificateSha256` can only be used with https URLs.',
     );
   }
 
@@ -2090,7 +2110,9 @@ export async function handleApiHttpRequest(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const dispatcher = tlsCertificateSha256
     ? createPinnedTlsDispatcher(tlsCertificateSha256, timeoutMs)
-    : undefined;
+    : allowSelfSignedTls
+      ? createSelfSignedTlsDispatcher(timeoutMs)
+      : undefined;
   let response: Response;
   try {
     const fetchOptions: RequestInit & { dispatcher?: UndiciAgent } = {
