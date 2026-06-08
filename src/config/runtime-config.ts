@@ -238,7 +238,10 @@ export type DiscordPresenceActivityType =
   | 'competing'
   | 'custom';
 export type SchedulerScheduleKind = 'at' | 'every' | 'cron' | 'one_shot';
-export type SchedulerActionKind = 'agent_turn' | 'system_event';
+export type SchedulerActionKind =
+  | 'agent_turn'
+  | 'heartbeat_poll'
+  | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
 export const DEFAULT_ONE_SHOT_MAX_RETRIES = 3;
 export const SKILL_AUTONOMY_LEVELS = [
@@ -4571,7 +4574,11 @@ function normalizeSchedulerActionKind(
 ): SchedulerActionKind {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'agent_turn' || normalized === 'system_event')
+  if (
+    normalized === 'agent_turn' ||
+    normalized === 'heartbeat_poll' ||
+    normalized === 'system_event'
+  )
     return normalized;
   return fallback;
 }

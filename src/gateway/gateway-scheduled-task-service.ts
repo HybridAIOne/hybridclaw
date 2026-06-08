@@ -136,9 +136,13 @@ function parseAdminSchedulerJob(value: unknown): RuntimeSchedulerJob {
   const actionKind = String(rawAction.kind || 'agent_turn')
     .trim()
     .toLowerCase();
-  if (actionKind !== 'agent_turn' && actionKind !== 'system_event') {
+  if (
+    actionKind !== 'agent_turn' &&
+    actionKind !== 'heartbeat_poll' &&
+    actionKind !== 'system_event'
+  ) {
     throw new Error(
-      'Scheduler action kind must be `agent_turn` or `system_event`.',
+      'Scheduler action kind must be `agent_turn`, `heartbeat_poll`, or `system_event`.',
     );
   }
   const actionMessage = String(rawAction.message || '').trim() || description;
