@@ -641,6 +641,17 @@ function buildBootstrapChatTurnPrompt(fileName: 'BOOTSTRAP.md'): string {
   ].join('\n');
 }
 
+function shouldInjectBootstrapChatTurnPrompt(params: {
+  userContent: string;
+  promptMode?: PromptMode;
+  startupBootstrapFile: 'BOOTSTRAP.md' | null;
+}): boolean {
+  if (params.startupBootstrapFile !== 'BOOTSTRAP.md') return false;
+  if (params.promptMode === 'none') return false;
+  if (params.userContent.trim().startsWith('/')) return false;
+  return true;
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -1466,8 +1477,15 @@ async function handleGatewayMessageInner(
   let agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
-  if (startupBootstrapFile === 'BOOTSTRAP.md') {
-    agentUserContent = `${buildBootstrapChatTurnPrompt(startupBootstrapFile)}\n\nUser message:\n${agentUserContent}`;
+  if (
+    shouldInjectBootstrapChatTurnPrompt({
+      userContent: agentUserContent,
+      promptMode: promptPartDefaults.promptMode,
+      startupBootstrapFile:
+        startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
+    })
+  ) {
+    agentUserContent = `${buildBootstrapChatTurnPrompt('BOOTSTRAP.md')}\n\nUser message:\n${agentUserContent}`;
   }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
