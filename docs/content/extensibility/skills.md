@@ -193,10 +193,17 @@ binding and do not broaden it in skill prose.
 Use `config_variables:` frontmatter for non-secret values that should be
 discoverable and persisted, for example inverter IPs, local host URLs, account
 ids, or usernames. These values are plaintext and model-visible; operators set
-them with `hybridclaw env set NAME value`, and helpers read them from the
-runtime environment. Values that contain passwords, tokens, API keys, or
-signing material belong in `credentials:` with `secret_ref`, not in
-`config_variables:`.
+them with `/env set NAME value` in chat or `hybridclaw env set NAME value` on a
+local CLI, and helpers read them from the runtime environment. Values that
+contain passwords, tokens, API keys, or signing material belong in
+`credentials:` with `secret_ref`, not in `config_variables:`.
+
+Every skill setup section that mentions `hybridclaw env set`, `hybridclaw env
+list`, `hybridclaw secret set`, or `hybridclaw secret list` must also include
+the slash-command equivalent (`/env ...` or `/secret ...`) for operators using
+chat surfaces without CLI access. Prefer slash commands first when the skill is
+user-invocable from chat, and keep CLI commands as the local-terminal
+alternative.
 
 ### Network And Gateway Failures
 

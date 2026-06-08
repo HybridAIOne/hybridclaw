@@ -11760,6 +11760,85 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('resolves env store placeholders before private LAN policy and secret header injection', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-private-env-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.ts'
+    );
+    saveNamedRuntimeEnv({
+      HUE_BRIDGE_HOST: 'https://192.168.178.73',
+    });
+
+    const dataDir = path.join(homeDir, '.hybridclaw', 'data');
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: "*"',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /**',
+        '      agent: "*"',
+        '      managed_by_preset: lan-http-access',
+        '  presets:',
+        '    - lan-http-access',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/light',
+        method: 'GET',
+        secretHeaders: [
+          {
+            name: 'hue-application-key',
+            secretName: 'HUE_APPLICATION_KEY',
+            prefix: 'none',
+          },
+        ],
+        replaceSecretPlaceholders: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Stored secret HUE_APPLICATION_KEY is not set.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        secretName: 'HUE_APPLICATION_KEY',
+        targetHost: '192.168.178.73',
+      }),
+      'Secret used without a domain binding; set the matching *_BOUND_DOMAIN runtime secret before unbound secret injection is removed',
+    );
+  });
+
   test('keeps private outbound http_request targets blocked when policy path does not match', async () => {
     const dataDir = makeTempDataDir();
     const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');

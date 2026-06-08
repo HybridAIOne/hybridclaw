@@ -32,7 +32,7 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
       required: true,
       scope: 'Local Hue Bridge HTTPS base URL used in gateway http_request URLs',
       howToObtain:
-        'Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"`.',
+        'Find the bridge IP through the Hue app, router DHCP table, mDNS, or discovery.meethue.com, then store it with `/env set HUE_BRIDGE_HOST "https://192.168.1.30"` in chat or `hybridclaw env set HUE_BRIDGE_HOST "https://192.168.1.30"` locally.',
     },
   ]);
   expect(manifest.credentials?.[0]).toMatchObject({
@@ -45,9 +45,13 @@ test('Hue skill manifest declares env store host, SecretRefs, and guarded stakes
   expect(skill).toContain('local-bridge-config-timezone');
   expect(skill).toContain('managed read-only LAN access');
   expect(skill).toContain('do not tell the operator a gateway restart');
+  expect(skill).toContain('/env set HUE_BRIDGE_HOST');
+  expect(skill).toContain('/secret set HUE_APPLICATION_KEY');
+  expect(skill).toContain('/env list');
+  expect(skill).toContain('/secret list');
   expect(skill).toContain('hybridclaw env list');
   expect(skill).toContain('hybridclaw secret list');
-  expect(skill).toContain('Do not ask whether to check config');
+  expect(skill).toContain('Do not ask whether to check');
   expect(skill).toContain(
     'If `HUE_BRIDGE_HOST` is configured and `HUE_APPLICATION_KEY` is missing',
   );
