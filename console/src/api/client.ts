@@ -48,6 +48,8 @@ import type {
   AdminSchedulerBoardStatus,
   AdminSchedulerJob,
   AdminSchedulerResponse,
+  AdminSecretMutationResponse,
+  AdminSecretsResponse,
   AdminSession,
   AdminSkillsResponse,
   AdminStatisticsResponse,
@@ -189,6 +191,15 @@ export async function readErrorResponseMessage(
   }
 }
 
+export class HttpResponseError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'HttpResponseError';
+    this.status = status;
+  }
+}
+
 export async function throwResponseError(
   response: Response,
   options?: { onAuthError?: 'dispatch' | 'ignore' },
@@ -197,7 +208,7 @@ export async function throwResponseError(
   if (response.status === 401 && options?.onAuthError !== 'ignore') {
     dispatchAuthRequired(message);
   }
-  throw new Error(message);
+  throw new HttpResponseError(message, response.status);
 }
 
 export async function requestJson<T>(
@@ -833,6 +844,40 @@ export function setRuntimeSecret(
   secretValue: string,
 ): Promise<AdminCommandResult> {
   return runAdminCommand(token, ['secret', 'set', secretName, secretValue]);
+}
+
+export function fetchAdminSecrets(
+  token: string,
+): Promise<AdminSecretsResponse> {
+  return requestJson<AdminSecretsResponse>('/api/admin/secrets', { token });
+}
+
+export function overwriteAdminSecret(
+  token: string,
+  name: string,
+  value: string,
+): Promise<AdminSecretMutationResponse> {
+  return requestJson<AdminSecretMutationResponse>(
+    `/api/admin/secrets/${encodeURIComponent(name)}`,
+    {
+      token,
+      method: 'PUT',
+      body: { value },
+    },
+  );
+}
+
+export function unsetAdminSecret(
+  token: string,
+  name: string,
+): Promise<AdminSecretMutationResponse> {
+  return requestJson<AdminSecretMutationResponse>(
+    `/api/admin/secrets/${encodeURIComponent(name)}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchModels(token: string): Promise<AdminModelsResponse> {

@@ -209,6 +209,96 @@ test('observability ingest forwards bot.set audit events to HybridAI', async () 
   });
 });
 
+test('observability ingest repairs unsafe unicode before posting events', async () => {
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+  await configureObservabilityFixture();
+
+  let ingestedBody = '';
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.endsWith('/api/v1/agent-observability/ingest-token:ensure')) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            created: true,
+            token: 'ingest-token',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/api/v1/agent-observability/events:batch')) {
+        ingestedBody =
+          typeof init?.body === 'string'
+            ? init.body
+            : String(init?.body ?? '');
+        return new Response(
+          JSON.stringify({
+            status: 'ok',
+            inserted_events: 1,
+            duplicate_events: 0,
+            broken_chain_events: 0,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  const { startObservabilityIngest, stopObservabilityIngest } = await import(
+    '../src/audit/observability-ingest.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-observability-unicode',
+    runId: 'run-observability-unicode',
+    event: {
+      type: 'model.output',
+      text: 'broken emoji \ud83e and tuple read\u001fpath',
+      nested: {
+        'bad\ud83ekey': ['still broken \ud83e', 'keep\tnewline\nok'],
+      },
+    },
+  });
+
+  startObservabilityIngest();
+
+  await vi.waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  stopObservabilityIngest();
+
+  expect(ingestedBody).not.toContain('\\ud83e');
+  expect(ingestedBody).not.toContain('\\u001f');
+  expect(ingestedBody).toContain('broken emoji � and tuple read�path');
+  const payload = JSON.parse(ingestedBody) as {
+    events: Array<{
+      payload: {
+        text: string;
+        nested: Record<string, string[]>;
+      };
+    }>;
+  };
+  expect(payload.events[0]?.payload.text).toBe(
+    'broken emoji � and tuple read�path',
+  );
+  expect(payload.events[0]?.payload.nested['bad�key']).toEqual([
+    'still broken �',
+    'keep\tnewline\nok',
+  ]);
+});
+
 test('observability ingest proactively rotates stale cached tokens', async () => {
   setupHome({ HYBRIDAI_API_KEY: 'test-key' });
 

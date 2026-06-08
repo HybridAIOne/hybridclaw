@@ -7,6 +7,8 @@
 
 import { context, SpanStatusCode, trace } from '@opentelemetry/api';
 
+import { captureSentryException } from './sentry.js';
+
 let sdkInstance: { shutdown(): Promise<void> } | null = null;
 
 function isOtelRequested(): boolean {
@@ -87,9 +89,29 @@ export async function shutdownOtel(): Promise<void> {
 }
 
 const TRACER_NAME = 'hybridclaw';
+const SENTRY_SPAN_TAG_ATTRIBUTES = {
+  agent_id: 'hybridclaw.agent_id',
+  channel_id: 'hybridclaw.channel_id',
+  session_id: 'hybridclaw.session_id',
+} as const;
 
 function getTracer() {
   return trace.getTracer(TRACER_NAME);
+}
+
+function buildSentrySpanTags(
+  name: string,
+  attributes: Record<string, string | number | boolean | undefined>,
+): Record<string, string> {
+  const tags: Record<string, string> = { span: name };
+  for (const [tagName, attributeName] of Object.entries(
+    SENTRY_SPAN_TAG_ATTRIBUTES,
+  )) {
+    const rawValue = attributes[attributeName];
+    if (rawValue === undefined || rawValue === '') continue;
+    tags[tagName] = String(rawValue);
+  }
+  return tags;
 }
 
 /**
@@ -118,6 +140,11 @@ export async function withSpan<T>(
         span.recordException(
           err instanceof Error ? err : new Error(String(err)),
         );
+        captureSentryException(err, {
+          mechanism: 'otel.span',
+          tags: buildSentrySpanTags(name, attributes),
+          extra: { attributes },
+        });
         throw err;
       } finally {
         span.end();
@@ -152,6 +179,11 @@ export function withSpanSync<T>(
         span.recordException(
           err instanceof Error ? err : new Error(String(err)),
         );
+        captureSentryException(err, {
+          mechanism: 'otel.span',
+          tags: buildSentrySpanTags(name, attributes),
+          extra: { attributes },
+        });
         throw err;
       } finally {
         span.end();

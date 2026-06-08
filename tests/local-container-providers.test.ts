@@ -279,6 +279,63 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
+  test('OpenAI-compatible local provider repairs malformed Unicode before sending prompt', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(messages[0]?.content).toBe('remember �...[truncated]');
+      expect(messages[1]?.content).toEqual([
+        { type: 'text', text: 'look at �...[truncated]' },
+      ]);
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'Qwen/Qwen3.6-27B-FP8',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'vllm',
+      baseUrl: 'http://127.0.0.1:8000/v1',
+      apiKey: '',
+      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: [
+        { role: 'assistant', content: 'remember \ud83d...[truncated]' },
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'look at \ud83d...[truncated]' }],
+        },
+      ],
+      tools: [],
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe('ok');
+  });
+
   test('OpenRouter keeps native router ids and strips vendor-prefixed ids', () => {
     expect(
       normalizeOpenRouterRuntimeModelName(

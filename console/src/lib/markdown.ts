@@ -1,5 +1,6 @@
-import { marked } from 'marked';
+import { Marked, type Tokens } from 'marked';
 import sanitizeHtml from 'sanitize-html';
+import { highlightCodeBlock } from './highlight';
 
 const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
@@ -20,6 +21,7 @@ const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     'ol',
     'p',
     'pre',
+    'span',
     'strong',
     'table',
     'tbody',
@@ -33,6 +35,10 @@ const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     a: ['href', 'rel', 'target', 'title'],
     code: ['class'],
     ol: ['start'],
+    // syntax-highlight token spans emitted by highlight.js, e.g.
+    // <span class="hljs-keyword">. Class values can't execute, so allowing
+    // the attribute on span is safe.
+    span: ['class'],
     td: ['style'],
     th: ['style'],
   },
@@ -59,7 +65,34 @@ const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   },
 };
 
-export function renderMarkdown(raw: string): string {
+function createMarked(highlight: boolean): Marked {
+  const instance = new Marked({ async: false, breaks: true, gfm: true });
+  instance.use({
+    renderer: {
+      // marked v16+ passes a token object; older signatures pass (code, lang).
+      // Handle both so this keeps working across marked upgrades.
+      code(codeOrToken: string | Tokens.Code, infostring?: string): string {
+        const text =
+          typeof codeOrToken === 'string' ? codeOrToken : codeOrToken.text;
+        const lang =
+          typeof codeOrToken === 'string' ? infostring : codeOrToken.lang;
+        return highlightCodeBlock(text, lang, highlight);
+      },
+    },
+  });
+  return instance;
+}
+
+// Two preconfigured instances rather than re-registering the renderer per call.
+// The plain one skips syntax highlighting for streaming renders (see
+// renderMarkdown's `highlight` option).
+const markdownHighlighted = createMarked(true);
+const markdownPlain = createMarked(false);
+
+export function renderMarkdown(
+  raw: string,
+  options?: { highlight?: boolean },
+): string {
   const normalized = String(raw || '')
     .replace(/\r\n/g, '\n')
     // LLMs frequently emit numbered headings wrapped entirely in bold
@@ -69,11 +102,9 @@ export function renderMarkdown(raw: string): string {
     .replace(/^(\s*)\*\*(\d+)\.\s+(.+?)\*\*\s*$/gm, '$1$2. **$3**');
   if (!normalized.trim()) return '';
 
-  const rendered = marked.parse(normalized, {
-    async: false,
-    breaks: true,
-    gfm: true,
-  });
+  const instance =
+    options?.highlight === false ? markdownPlain : markdownHighlighted;
+  const rendered = instance.parse(normalized);
 
   return sanitizeHtml(
     typeof rendered === 'string' ? rendered : String(rendered || ''),

@@ -111,6 +111,7 @@ saved revision history directly.
   `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_SERVICE_NAME` for optional built-in
   distributed tracing export to OTLP collectors; see
   [Runtime Internals](../developer-guide/runtime.md)
+- `SENTRY_DSN` runtime env value for optional Sentry gateway error reporting; `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, and `SENTRY_TRACES_SAMPLE_RATE` are optional overrides. Set values with `hybridclaw env set` and see [Runtime Internals](../developer-guide/runtime.md)
 - `hybridai.baseUrl` for the HybridAI API origin; `HYBRIDAI_BASE_URL` can
   override it for the current process without rewriting `config.json`
 - `hybridai.maxTokens` for the default completion output budget; the shipped
@@ -158,8 +159,10 @@ saved revision history directly.
 - `agents.list[].webSearch.searxngBaseUrl` and
   `agents.list[].webSearch.searxngBearerTokenRef` override the global SearXNG
   instance and bearer SecretRef for a specific agent
-- `agents.list[].budget.cap` and `agents.list[].budget.currency` configure the
-  read-only board budget chip for that agent; `currency` accepts `USD` or `EUR`
+- `agents.list[].budget.cap`, `agents.list[].budget.currency`, and optional
+  `agents.list[].budget.unit` configure the read-only board budget chip and
+  budget-aware commands for that agent. `unit` accepts `USD`, `EUR`, or
+  `tokens`; when omitted, the budget uses the configured currency.
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short";
@@ -175,6 +178,9 @@ saved revision history directly.
   `auxiliaryModels.session_title.provider` to `"disabled"` to skip this
   forwarding and leave recent-session titles derived locally from conversation
   previews.
+- `auxiliaryModels.second_opinion` controls the default stronger model used by
+  `/second-opinion`. Set its `provider`, `model`, and `maxTokens` when the
+  automatic strongest-model selection is not the desired validator.
 - `adaptiveSkills.*` for skill observation, amendment staging, rollback, and opt-in trajectory capture via `adaptiveSkills.trajectoryCapture.enabledAgentIds`
 - Captured trajectories run through PII/secret redaction, and configured confidential-info rules preserve the documented `«CONF:<RULE_ID>»` placeholder format before trajectories are written
 - `adaptiveSkills.trajectoryCapture.storeDir` controls trajectory storage; empty stores beside the runtime database, absolute paths are used as-is, and relative paths resolve under the runtime home directory

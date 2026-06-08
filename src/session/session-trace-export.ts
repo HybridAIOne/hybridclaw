@@ -8,7 +8,6 @@ import {
   readAuditBoolean as readBoolean,
   readAuditNumber as readNumber,
   readAuditString as readString,
-  truncateAuditText,
 } from '../audit/audit-trail.js';
 import { APP_VERSION } from '../config/config.js';
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
@@ -39,6 +38,8 @@ const MAX_TRACE_VCS_DIFF_CHARS = 250_000;
 const TRACE_PRESERVED_IDENTIFIER_KEYS = new Set([
   'session_id',
   'trace_id',
+  'system_prompt_hash',
+  'dynamic_context_hash',
   'tool_call_id',
   'source_call_id',
 ]);
@@ -82,7 +83,7 @@ const TRACE_EXPORT_EXTRA_REDACTION_PATTERNS: ReadonlyArray<{
   },
 ]);
 const TRACE_EXPORT_BASE_LIMITATIONS = Object.freeze([
-  'Tool observations use structured audit summaries because full tool stdout/stderr is not retained in the audit trail.',
+  'Legacy audit records may only contain summarized tool output when they were captured before full tool-result retention was introduced.',
   'Environment metadata fields such as os and shell are exported as runtime host information and are not anonymized.',
 ]);
 const TRACE_EXPORT_FALLBACK_LIMITATION =
@@ -793,39 +794,6 @@ function finalizeTraceRecord(record: Record<string, unknown>): {
   };
 }
 
-function truncateText(text: string, maxChars = 12_000): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}...`;
-}
-
-function truncateFocusedTraceValue(value: unknown): unknown {
-  if (typeof value === 'string') return truncateText(value, 4_000);
-  if (Array.isArray(value))
-    return value.map((entry) => truncateFocusedTraceValue(entry));
-  if (!value || typeof value !== 'object') return value;
-
-  const truncated: Record<string, unknown> = {};
-  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    const stringLimit =
-      key === 'content' || key === 'output_summary' || key === 'error'
-        ? 2_000
-        : 4_000;
-    truncated[key] =
-      typeof raw === 'string'
-        ? truncateText(raw, stringLimit)
-        : truncateFocusedTraceValue(raw);
-  }
-  return truncated;
-}
-
-function truncateFocusedTraceSteps(
-  steps: Array<Record<string, unknown>>,
-): Array<Record<string, unknown>> {
-  return steps.map(
-    (step) => truncateFocusedTraceValue(step) as Record<string, unknown>,
-  );
-}
-
 function buildFallbackSteps(
   messages: StoredMessage[],
 ): Array<Record<string, unknown>> {
@@ -985,9 +953,10 @@ function buildObservationTraceEntries(
   return toolResultRows.map((row) => {
     const payload = parseJsonObject(row.payload);
     const resultSummary =
+      readString(payload, 'resultFull') ||
       (preferResultPreview ? readString(payload, 'resultPreview') : null) ||
       readString(payload, 'resultSummary') ||
-      truncateAuditText(JSON.stringify(payload), 280);
+      JSON.stringify(payload);
     return {
       source_call_id: readString(payload, 'toolCallId') || `${turn.runId}:tool`,
       content: resultSummary,
@@ -1488,17 +1457,8 @@ export async function exportSessionTraceAtifJsonl(params: {
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
           };
-    const steps = params.selector
-      ? truncateFocusedTraceSteps(traceData.steps)
-      : traceData.steps;
-    const exportedSystemPrompts = params.selector
-      ? Object.fromEntries(
-          Object.entries(systemPrompts).map(([key, value]) => [
-            key,
-            truncateText(value, 4_000),
-          ]),
-        )
-      : systemPrompts;
+    const steps = traceData.steps;
+    const exportedSystemPrompts = systemPrompts;
 
     const firstTimestampValue = steps[0]?.timestamp;
     const firstTimestamp =
@@ -1558,11 +1518,10 @@ export async function exportSessionTraceAtifJsonl(params: {
       timestamp_start: firstTimestamp,
       timestamp_end: lastTimestamp,
       task: {
-        description: truncateText(
+        description:
           firstUserContent ||
-            params.session.session_summary ||
-            `Session ${sessionId}`,
-        ),
+          params.session.session_summary ||
+          `Session ${sessionId}`,
         source: 'user_prompt',
         repository: projectContext.repository,
         base_commit: projectContext.baseCommit,
@@ -1659,7 +1618,7 @@ export async function exportSessionTraceAtifJsonl(params: {
         },
         ...(params.session.session_summary
           ? {
-              session_summary: truncateText(params.session.session_summary),
+              session_summary: params.session.session_summary,
             }
           : {}),
         limitations,

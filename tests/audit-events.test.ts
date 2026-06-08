@@ -240,11 +240,64 @@ test('tool result audit stores a redacted truncated preview beyond the summary',
     payload.resultSummary.length,
   );
   expect(payload.resultPreview.length).toBeLessThanOrEqual(4003);
+  expect(payload.resultFull.length).toBeGreaterThan(5000);
   expect(payload.resultPreview).not.toContain(
     'sk-test-ABCDEFGHIJKLMNOP1234567890',
   );
+  expect(payload.resultFull).not.toContain(
+    'sk-test-ABCDEFGHIJKLMNOP1234567890',
+  );
   expect(payload.resultPreview).toContain('token=***REDACTED***');
+  expect(payload.resultFull).toContain('token=***REDACTED***');
   expect(payload.resultPreview).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
+  expect(payload.resultFull).toContain('***HIGH_ENTROPY_SECRET_REDACTED***');
+});
+
+test('tool result audit can truncate retained full results through runtime config', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase, getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { emitToolExecutionAuditEvents } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.audit.toolResults.mode = 'truncate';
+    draft.audit.toolResults.maxChars = 128;
+  });
+
+  emitToolExecutionAuditEvents({
+    sessionId: 'session-result-truncated',
+    runId: 'run-result-truncated',
+    toolExecutions: [
+      {
+        name: 'bash',
+        arguments: '{"command":"node script.js"}',
+        result: `prefix sk-test-ABCDEFGHIJKLMNOP1234567890 ${'x'.repeat(5000)}`,
+        durationMs: 10,
+        isError: false,
+      },
+    ],
+  });
+
+  const result = getRecentStructuredAuditForSession(
+    'session-result-truncated',
+    10,
+  ).find((event) => event.event_type === 'tool.result');
+  const payload = JSON.parse(result?.payload || '{}') as Record<string, string>;
+  expect(payload.resultFull.length).toBeLessThanOrEqual(131);
+  expect(payload.resultFull.endsWith('...')).toBe(true);
+  expect(payload.resultFull).not.toContain(
+    'sk-test-ABCDEFGHIJKLMNOP1234567890',
+  );
 });
 
 test('autonomy audit falls back to internally consistent approval metadata', async () => {

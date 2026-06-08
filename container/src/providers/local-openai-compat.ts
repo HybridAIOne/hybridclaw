@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { replaceUnpairedSurrogates } from '../../shared/unicode-utils.js';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
@@ -175,7 +176,30 @@ function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
 function normalizeMessageContent(
   content: ChatMessage['content'],
 ): ChatMessage['content'] {
-  return content;
+  if (typeof content === 'string') return replaceUnpairedSurrogates(content);
+  if (!Array.isArray(content)) return content;
+  return content.map((part) => {
+    if (part.type === 'text') {
+      return { ...part, text: replaceUnpairedSurrogates(part.text) };
+    }
+    if (part.type === 'image_url') {
+      return {
+        ...part,
+        image_url: {
+          url: replaceUnpairedSurrogates(part.image_url.url),
+        },
+      };
+    }
+    if (part.type === 'audio_url') {
+      return {
+        ...part,
+        audio_url: {
+          url: replaceUnpairedSurrogates(part.audio_url.url),
+        },
+      };
+    }
+    return part;
+  });
 }
 
 function buildQwenRequestMessages(

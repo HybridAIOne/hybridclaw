@@ -171,8 +171,11 @@ should verify no broken references.
 
 ### Prerequisites
 
-- Node.js 22 (matches CI and `engines` field)
-- npm
+- Node.js 22 (matches CI and the `engines` field)
+- npm 11.10+ — run `corepack enable` so repo commands use the `packageManager`
+  pin (`npm@11.10.0`). Contributors need this version because npm's
+  `min-release-age` supply-chain gate (see `SECURITY.md`) only takes effect on
+  npm 11.10+; it is deliberately not enforced on end users via `engines.npm`.
 - Docker when working on container-mode behavior or image builds
 
 ### Common Commands
@@ -218,9 +221,15 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
   task requires wider movement.
 - Match the existing TypeScript + ESM patterns in the touched area.
 - Update tests and docs when behavior, commands, or repo workflows change.
+- Before creating, editing, or optimizing a skill, read
+  `docs/content/extensibility/skills.md` and follow its helper, command-surface,
+  approval, credential, gateway, and testing guidance.
 - When implementing a new feature, ask before keeping any compatibility shim,
   migration fallback, legacy alias, or feature flag solely for backward
   compatibility.
+- Do not preserve compatibility for previous internal states of a new,
+  unreleased feature. Remove provisional names, aliases, and workflows instead
+  of carrying them forward.
 - Do not rename or relocate files in `templates/` without updating
   `src/workspace.ts` and the workspace bootstrap tests.
 - Do not mix container and gateway changes in one commit unless they are

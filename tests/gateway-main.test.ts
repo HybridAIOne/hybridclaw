@@ -166,6 +166,13 @@ function createGatewayMainTestState(options?: {
       whatsapp: {
         dmPolicy: options?.whatsappEnabled === false ? 'disabled' : 'pairing',
         groupPolicy: 'disabled',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        debounceMs: 1_000,
+        ackReaction: '👀',
+        textChunkLimit: 4_000,
+        mediaMaxMb: 20,
+        sendReadReceipts: false,
       },
       local: { enabled: false },
       container: {
@@ -309,6 +316,8 @@ function createGatewayMainTestState(options?: {
     startDiscoveryLoop: vi.fn(),
     hybridAIProbeGet: vi.fn(async () => ({})),
     localBackendsProbeGet: vi.fn(async () => new Map()),
+    initSentry: vi.fn(async () => {}),
+    shutdownSentry: vi.fn(async () => {}),
     startObservabilityIngest: vi.fn(),
     startScheduler: vi.fn(),
     whatsappLinked: options?.whatsappLinked === true,
@@ -628,6 +637,11 @@ async function importFreshGatewayMain(options?: {
       invalidate: vi.fn(),
     },
   }));
+  vi.doMock('../src/observability/sentry.js', () => ({
+    captureSentryException: vi.fn(),
+    initSentry: state.initSentry,
+    shutdownSentry: state.shutdownSentry,
+  }));
   vi.doMock('../src/scheduler/heartbeat.js', () => ({
     startHeartbeat: state.startHeartbeat,
     stopHeartbeat: vi.fn(),
@@ -664,15 +678,24 @@ async function importFreshGatewayMain(options?: {
     startGatewayHttpServer: state.startGatewayHttpServer,
   }));
   vi.doMock('../src/gateway/proactive-delivery.js', () => ({
-    deliverProactiveMessage: vi.fn(async () => {}),
     deliverWebhookMessage: vi.fn(async () => {}),
     hasQueuedProactiveDeliveryPath: vi.fn(() => true),
     isDiscordChannelId: vi.fn(() => true),
     isEmailAddress: vi.fn(() => false),
+    isHeartbeatOkText: vi.fn((text: string) => {
+      const normalized = text
+        .trim()
+        .replace(/[^a-z]/gi, '')
+        .toUpperCase();
+      return (
+        normalized === 'HEARTBEATOK' || normalized.startsWith('HEARTBEATOK')
+      );
+    }),
     isSupportedProactiveChannelId: vi.fn(() => true),
     resolveHeartbeatDeliveryChannelId: vi.fn(() => '123456789012345678'),
     resolveLastUsedDeliverableChannelId: vi.fn(() => '123456789012345678'),
     shouldDropQueuedProactiveMessage: vi.fn(() => false),
+    shouldSuppressProactiveMessage: vi.fn(() => false),
   }));
   vi.doMock('../src/gateway/managed-media-cleanup.js', () => ({
     runManagedMediaCleanup: state.runManagedMediaCleanup,
@@ -753,6 +776,7 @@ useCleanMocks({
     '../src/a2a/webhook-outbound.js',
     '../src/providers/local-discovery.js',
     '../src/providers/local-health.js',
+    '../src/observability/sentry.js',
     '../src/scheduler/heartbeat.js',
     '../src/scheduler/scheduler.js',
     '../src/gateway/gateway-service.js',
@@ -771,6 +795,7 @@ describe('gateway bootstrap', () => {
     const state = await importFreshGatewayMain();
 
     expect(state.initDatabase).toHaveBeenCalledTimes(1);
+    expect(state.initSentry).toHaveBeenCalledTimes(1);
     expect(state.migrateConfigSchedulerJobsToDatabase).toHaveBeenCalledTimes(1);
     expect(state.initGatewayService).toHaveBeenCalledTimes(1);
     expect(state.resumeEnabledFullAutoSessions).toHaveBeenCalledTimes(1);
@@ -1098,6 +1123,41 @@ describe('gateway bootstrap', () => {
     );
   });
 
+  test('starts WhatsApp pairing runtime when admin config enables the transport', async () => {
+    const state = await importFreshGatewayMain({
+      whatsappEnabled: false,
+      whatsappLinked: false,
+    });
+    const previousConfig = state.currentConfig;
+    const nextConfig = {
+      ...state.currentConfig,
+      whatsapp: {
+        ...state.currentConfig.whatsapp,
+        dmPolicy: 'pairing',
+      },
+    };
+
+    expect(state.initWhatsApp).not.toHaveBeenCalled();
+
+    state.currentConfig = nextConfig;
+    state.configChangeListener?.(nextConfig, previousConfig);
+    await settle();
+
+    expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.whatsappMessageHandler).not.toBeNull();
+    expectInfoLog(
+      state,
+      'Config changed, restarting WhatsApp integration',
+      expect.objectContaining({
+        dmPolicy: 'pairing',
+        groupPolicy: 'disabled',
+        allowFromCount: 0,
+        groupAllowFromCount: 0,
+      }),
+    );
+  });
+
   test('skips last-channel scheduled jobs when no deliverable channel exists', async () => {
     const state = await importFreshGatewayMain({
       onState: (draft) => {
@@ -1134,6 +1194,151 @@ describe('gateway bootstrap', () => {
         delivery: 'last-channel',
       }),
       'Scheduled task failed',
+    );
+  });
+
+  test('does not deliver scheduler HEARTBEAT_OK results to the TUI inbox', async () => {
+    const state = await importFreshGatewayMain();
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onResult = args[4] as (result: {
+          text: string;
+        }) => Promise<void>;
+        await onResult({ text: 'HEARTBEAT_OK' });
+      },
+    );
+
+    await state.scheduledTaskRunner?.({
+      source: 'scheduler-job',
+      jobId: 'budget-tokens',
+      sessionId: 'scheduler:budget-tokens',
+      channelId: 'tui',
+      prompt: 'Hi',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'channel',
+        channelId: 'tui',
+      },
+    });
+
+    expect(state.runGatewayScheduledTask).toHaveBeenCalledTimes(1);
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
+        channelId: 'tui',
+        result: 'HEARTBEAT_OK',
+      },
+      'Scheduled task completed without TUI delivery',
+    );
+    expect(state.loggerInfo).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'budget-tokens',
+        channelId: 'tui',
+        result: 'HEARTBEAT_OK',
+      }),
+      'Scheduled task completed',
+    );
+  });
+
+  test('does not deliver scheduler idle reports to the TUI inbox', async () => {
+    const state = await importFreshGatewayMain();
+    const idleText =
+      'Nothing to report. No pending tasks configured for this agent, no queued work, and no changes to act on. Idle — standing by.';
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onResult = args[4] as (result: {
+          text: string;
+        }) => Promise<void>;
+        await onResult({ text: idleText });
+      },
+    );
+
+    await state.scheduledTaskRunner?.({
+      source: 'scheduler-job',
+      jobId: 'budget-tokens',
+      sessionId: 'scheduler:budget-tokens',
+      channelId: 'tui',
+      prompt: 'Hi',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'channel',
+        channelId: 'tui',
+      },
+    });
+
+    expect(state.runGatewayScheduledTask).toHaveBeenCalledTimes(1);
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
+        channelId: 'tui',
+        result: idleText,
+      },
+      'Scheduled task completed without TUI delivery',
+    );
+    expect(state.loggerInfo).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'budget-tokens',
+        channelId: 'tui',
+        result: idleText,
+      }),
+      'Scheduled task completed',
+    );
+  });
+
+  test('delivers scheduler no-op text to TUI when artifacts are present', async () => {
+    const state = await importFreshGatewayMain();
+    const artifacts = [
+      {
+        path: '/tmp/report.txt',
+        filename: 'report.txt',
+        mimeType: 'text/plain',
+      },
+    ];
+    state.runGatewayScheduledTask.mockImplementation(
+      async (...args: unknown[]) => {
+        const onResult = args[4] as (result: {
+          text: string;
+          artifacts?: typeof artifacts;
+        }) => Promise<void>;
+        await onResult({ text: 'HEARTBEAT_OK', artifacts });
+      },
+    );
+
+    await state.scheduledTaskRunner?.({
+      source: 'scheduler-job',
+      jobId: 'budget-tokens',
+      sessionId: 'scheduler:budget-tokens',
+      channelId: 'tui',
+      prompt: 'Hi',
+      actionKind: 'agent_turn',
+      delivery: {
+        kind: 'channel',
+        channelId: 'tui',
+      },
+    });
+
+    expect(state.loggerInfo).toHaveBeenCalledWith(
+      {
+        jobId: 'budget-tokens',
+        taskId: undefined,
+        source: 'scheduler-job',
+        channelId: 'tui',
+        result: 'HEARTBEAT_OK',
+        artifactCount: 1,
+      },
+      'Scheduled task completed',
+    );
+    expect(state.loggerInfo).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'budget-tokens',
+        channelId: 'tui',
+        result: 'HEARTBEAT_OK',
+      }),
+      'Scheduled task completed without TUI delivery',
     );
   });
 
@@ -2575,6 +2780,7 @@ describe('gateway bootstrap', () => {
     expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
     expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
     expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.shutdownSentry).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

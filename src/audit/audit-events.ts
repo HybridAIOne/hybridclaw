@@ -1,3 +1,4 @@
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import { logStructuredAuditEvent } from '../memory/db.js';
 import {
@@ -51,13 +52,32 @@ function summarizeToolResult(text: string): string {
 }
 
 function previewToolResult(text: string): string {
+  return truncateAuditText(fullToolResult(text), 4_000);
+}
+
+function fullToolResult(text: string): string {
   const redacted = redactHighEntropyStrings(
     String(redactSecretsDeep(text)).replace(
       URL_SECRET_QUERY_PARAM_RE,
       '$1***REDACTED***',
     ),
   );
-  return truncateAuditText(redacted, 4_000);
+  const toolResultsConfig = getRuntimeConfig().audit?.toolResults;
+  if (toolResultsConfig?.mode === 'truncate') {
+    return truncatePreservingWhitespace(
+      redacted,
+      toolResultsConfig.maxChars || 4_000,
+    );
+  }
+  return redacted;
+}
+
+function truncatePreservingWhitespace(text: string, maxChars: number): string {
+  const safeMaxChars = Number.isFinite(maxChars)
+    ? Math.max(1, Math.trunc(maxChars))
+    : 4_000;
+  if (text.length <= safeMaxChars) return text;
+  return `${text.slice(0, safeMaxChars)}...`;
 }
 
 type ApprovalTier = NonNullable<ToolExecution['approvalTier']>;
@@ -330,6 +350,7 @@ export function emitToolExecutionAuditEvents(input: {
         blocked: Boolean(execution.blocked),
         resultSummary: summarizeToolResult(execution.result || ''),
         resultPreview: previewToolResult(execution.result || ''),
+        resultFull: fullToolResult(execution.result || ''),
         durationMs: execution.durationMs,
         anomaly,
       },

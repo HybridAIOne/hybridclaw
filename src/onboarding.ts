@@ -1295,6 +1295,7 @@ async function runAnthropicOnboarding(params: {
         ? 'Anthropic API key (Enter to keep current): '
         : 'Anthropic API key: ',
       ICON_KEY,
+      true,
     );
     const apiKey = (entered || existingApiKey).trim();
     if (!apiKey) {
@@ -1354,6 +1355,7 @@ async function runOpenRouterOnboarding(params: {
       ? 'OpenRouter API key (Enter to keep current): '
       : 'OpenRouter API key: ',
     ICON_KEY,
+    true,
   );
   const apiKey = (entered || existingKey).trim();
   if (!apiKey) {
@@ -1407,6 +1409,7 @@ async function runMistralOnboarding(params: {
       ? 'Mistral API key (Enter to keep current): '
       : 'Mistral API key: ',
     ICON_KEY,
+    true,
   );
   const apiKey = (entered || existingKey).trim();
   if (!apiKey) {
@@ -1460,6 +1463,7 @@ async function runHuggingFaceOnboarding(params: {
       ? 'Hugging Face token (Enter to keep current): '
       : 'Hugging Face token: ',
     ICON_KEY,
+    true,
   );
   const apiKey = (entered || existingKey).trim();
   if (!apiKey) {

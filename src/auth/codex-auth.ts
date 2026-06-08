@@ -15,11 +15,12 @@ export const CODEX_AUTH_ISSUER = 'https://auth.openai.com';
 export const CODEX_AUTH_SCOPE = 'openid profile email offline_access';
 export const CODEX_AUTH_PROVIDER = 'openai-codex';
 export const CODEX_AUTH_METHOD = 'oauth';
+export const CODEX_AUTH_ORIGINATOR = 'codex_cli_rs';
 export const CODEX_DEFAULT_CALLBACK_HOST = '127.0.0.1';
 export const CODEX_DEFAULT_CALLBACK_PORT = 1455;
 export const CODEX_DEFAULT_CALLBACK_REDIRECT_HOST = 'localhost';
 export const CODEX_DEFAULT_DEVICE_CODE_VERIFICATION_URL =
-  'https://auth.openai.com/activate';
+  'https://auth.openai.com/codex/device';
 export const CODEX_REFRESH_SKEW_MS = 2 * 60_000;
 export const CODEX_LOCK_STALE_MS = 30_000;
 export const CODEX_LOCK_TIMEOUT_MS = 15_000;
@@ -441,7 +442,7 @@ function buildHeaders(
     Authorization: `Bearer ${accessToken}`,
     'Chatgpt-Account-Id': accountId,
     'OpenAI-Beta': CODEX_OPENAI_BETA_HEADER,
-    originator: 'hybridclaw',
+    originator: CODEX_AUTH_ORIGINATOR,
   };
 }
 
@@ -467,7 +468,7 @@ export function buildAuthUrl(params: {
     id_token_add_organizations: 'true',
     [CODEX_SIMPLIFIED_FLOW_PARAM]: 'true',
     state: params.state,
-    originator: 'hybridclaw',
+    originator: CODEX_AUTH_ORIGINATOR,
   });
   return `${CODEX_AUTH_ISSUER}/oauth/authorize?${query.toString()}`;
 }
@@ -785,7 +786,9 @@ function normalizeDeviceCodeResponse(payload: unknown): DeviceCodeResponse {
     normalizeString(payload.device_code) ||
     normalizeString(payload.deviceCode);
   const userCode =
-    normalizeString(payload.user_code) || normalizeString(payload.userCode);
+    normalizeString(payload.user_code) ||
+    normalizeString(payload.userCode) ||
+    normalizeString(payload.usercode);
   const verificationUrl =
     normalizeString(payload.verification_uri) ||
     normalizeString(payload.verification_url) ||

@@ -26,6 +26,7 @@ import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
 import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
+import { SecretsPage } from './routes/secrets';
 import { SessionsPage } from './routes/sessions';
 import { SkillsPage } from './routes/skills';
 import { StatisticsPage } from './routes/statistics';
@@ -239,6 +240,12 @@ const toolsRoute = createRoute({
   component: ToolsPage,
 });
 
+const secretsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/secrets',
+  component: SecretsPage,
+});
+
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
@@ -276,6 +283,7 @@ const routeTree = rootRoute.addChildren([
     pluginsRoute,
     outputGuardRoute,
     toolsRoute,
+    secretsRoute,
   ]),
   agentsOverviewRoute,
   chatRoute.addChildren([chatSessionRoute]),

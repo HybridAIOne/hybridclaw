@@ -2,8 +2,154 @@
 
 ## Unreleased
 
+### Added
+
+- **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables optional gateway Sentry reporting for startup failures, uncaught exceptions, unhandled rejections, and errors recorded through shared gateway/agent spans, with default `production` environment, automatic `hybridclaw@<package-version>` release naming, secret redaction, and graceful shutdown flushes.
+
+## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
+
+### Added
+
+- **One-line installer**: Added `scripts/install.sh` for Linux/macOS bootstrap
+  installs that ensure Node.js 22, install the global CLI, check Docker, and
+  optionally run onboarding without requiring `sudo`. Installation docs now
+  cover dry-run, pinned-version, no-prompt, verification, WSL2, and Alpine
+  usage.
+- **Interactive startup update prompt**: Starting HybridClaw on a terminal
+  (`hybridclaw tui`, `hybridclaw gateway`, or `hybridclaw gateway start`) now
+  checks for a newer published release and offers a yes/no prompt to update
+  before continuing. Skipped for non-interactive shells and source checkouts.
+- **`alexa` skill**: Added Alexa Skills Kit request verification, TTS-safe
+  response building, account-link session exchange, guarded Smart Home API
+  plans, and opt-in Alexa Remote workflows for devices, lists, announcements,
+  music playback, routines, and voice-command execution.
+- **Gateway Docker startup recovery**: Interactive gateway and TUI startup can
+  recover from missing Docker, unavailable Docker daemons, and Docker permission
+  failures by retrying after the operator starts Docker or by continuing in
+  host mode for the current run only.
+- **Agent runtime setup progress**: Container image pull/build operations now
+  show concise interactive progress for first-time setup, refreshes, and stale
+  runtime updates, with a `HYBRIDCLAW_NO_SPINNER=1` fallback for plain output.
+
+### Changed
+
+- **Full audit trace tool results**: Tool execution audit events now retain
+  redacted full result text for `/audit turn` and ATIF trace exports, with
+  `audit.toolResults.mode` and `audit.toolResults.maxChars` config available
+  when operators need truncation.
+- **Node.js runtime guard**: CLI startup now fails fast on unsupported Node.js
+  versions instead of allowing later dependency/runtime failures under an
+  incompatible engine.
+- **Test and CI wiring**: Docker-dependent e2e coverage is self-gating, while
+  container startup recovery, Node version guards, update prompts, audit
+  exports, and Alexa helpers gained targeted test coverage.
+
 ### Fixed
 
+- **Provider onboarding secret exposure**: Provider API keys entered during
+  onboarding are masked instead of echoed in terminal prompts or summaries.
+- **WhatsApp config reloads**: Gateway config changes now restart the WhatsApp
+  integration so pairing and policy updates take effect without a full gateway
+  restart.
+- **OpenAI Codex auth compatibility**: Codex device-code auth now sends the
+  official `codex_cli_rs` originator and accepts responses that use `usercode`
+  instead of `user_code`.
+- **TypeScript plugin loading**: Runtime plugin loading handles `.ts` plugin
+  entrypoints through `amaro` for Node.js 22.x compatibility.
+- **Console theme initialization**: The admin console applies the configured
+  theme on every route instead of only initializing it from the admin shell.
+- **Scheduler noop TUI delivery**: Scheduled tasks that report heartbeat or
+  idle/no-work results no longer create unnecessary proactive TUI deliveries.
+- **Dependency audit advisories**: In-range and breaking dependency updates
+  clear high-severity transitive advisories while keeping release signature
+  audit baselines aligned.
+
+## [0.21.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.1) - 2026-05-29
+
+### Fixed
+
+- **Codex device-code login**: Accepted OpenAI Codex device-code responses that
+  return `usercode` instead of `user_code`, and defaulted missing verification
+  URLs to the current Codex device login page.
+
+## [0.21.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.21.0) - 2026-05-29
+
+### Added
+
+- **A2A cross-instance transport**: Outbound A2A delivery can resolve
+  canonical peer IDs through the local deployment URL or active tunnel URL, the
+  public-key trust ledger, and DNS-style discovery, then dispatch over the A2A
+  transport with route invalidation and coverage for remote handoff delivery.
+- **Harness evolution loop**: Added `hybridclaw harness-evolve` for
+  eval-driven coworker workspace evolution, including seed validation,
+  round/rollout summaries, F12 manifest reporting, allowed-surface write
+  enforcement, and admin inspection support.
+- **Second-opinion command**: Added `/second-opinion` for stronger-model
+  comparison, validation of the last answer, and optional fact-checking with
+  web-search evidence. The command refreshes the model catalog, estimates
+  context/cost, honors per-agent budgets, and redacts or blocks confidential
+  payloads before remote model calls.
+- **Web response ratings**: Added thumbs-up/thumbs-down controls for persisted
+  web chat assistant responses, backed by idempotent per-operator ratings,
+  `response.rating` observability events, and Adaptive Skills feedback when a
+  response maps to a skill observation.
+- **Turn-level audit traces**: Added focused `/audit turn` and `/audit run`
+  trace views plus session trace export support for inspecting the exact
+  request, response, tool, approval, and audit events around one turn.
+- **Token agent budgets**: Agent budget config now supports token caps in
+  addition to USD/EUR spend caps, and board/job budget chips report token
+  usage with neutral, warning, and over-budget states.
+- **Per-channel brand-voice profiles**: The `output-guard` plugin can apply
+  channel-specific brand-voice profiles, blocked terms, rewrite behavior, and
+  guard configuration.
+- **`homematic` skill**: Added Homematic IP Home Control Unit state reads,
+  Connect API auth setup payloads, WebSocket message planning, guarded switch,
+  thermostat, shutter, scene, and safety-alarm control plans, and offline HCU
+  state fixture summaries.
+- **`fronius` skill**: Added Fronius photovoltaic monitoring through local
+  Fronius Solar API V1 and Solar.web Query API reads, including local health,
+  live power flow, energy rollups, cloud system/device/status endpoints, and
+  SecretRef-backed Solar.web access-key headers.
+
+### Changed
+
+- **Security fallback deprecations**: Added migration warnings for legacy
+  BlueBubbles query-param webhook auth, unbound `bearerSecretName` and
+  `secretHeaders` injection, and legacy `container.additionalMounts` config.
+  Existing setups continue to work during the deprecation window while docs and
+  `hybridclaw doctor security` point operators to header auth, bound bearer
+  secrets, and `container.binds`.
+- **A2A handoff ownership**: Handoff envelopes now preserve recipient
+  ownership and org-chart context so inbox views, persisted threads, and audit
+  records can distinguish handoff recipient responsibility from ordinary chat
+  routing.
+- **Slash-command rendering**: Web chat treats slash-command output as a
+  distinct command-result block instead of rendering it as ordinary assistant
+  prose, with stream metadata carried through history reloads.
+- **Admin console dialog behavior**: Console sheets were consolidated into the
+  dialog component, exit animation handling moved to the Web Animations API,
+  and focus guards were tightened for modal navigation.
+- **Console linting**: Added a console lint script and moved Biome scoping into
+  the shared config so root and console checks use the same formatting source
+  of truth.
+- **Roadmap status**: Updated internal roadmap status for merged A2A,
+  brand-voice, budget-chip, second-opinion, response-rating, harness
+  evolution, Homematic, Fronius, and T Cloud Public work, and added follow-up
+  rows for AWS, Blink, BYD Battery, Alexa, Hue, skill identity assets/chat
+  rendering, and pluggable secret backends.
+
+### Fixed
+
+- **Unknown provider prefixes**: Provider factory validation now rejects
+  unknown provider-prefixed model ids instead of falling through to an
+  unintended provider.
+- **Recovered skill tool failures**: Skill evaluations that recover from tool
+  failures are classified as partial instead of successful, and the admin
+  Skills page surfaces those partial states more clearly.
+- **Idle heartbeat runs**: Heartbeat scheduling skips idle agent runs instead
+  of creating empty proactive work.
+- **Web chat newlines**: Assistant message rendering preserves newlines in web
+  chat responses.
 - **npm signature audit attestation 404s**: Treat missing npm registry
   attestation endpoint artifacts as best-effort after retries while keeping
   registry signature validation failures fatal.
@@ -74,16 +220,6 @@
 
 ### Changed
 
-- **Security fallback deprecations**: Added migration warnings for legacy
-  BlueBubbles query-param webhook auth, unbound `bearerSecretName` and
-  `secretHeaders` injection, and legacy `container.additionalMounts` config.
-  Existing setups continue to work during the deprecation window while docs and
-  `hybridclaw doctor security` point operators to header auth, bound bearer
-  secrets, and `container.binds`.
-- **A2A cross-instance transport**: Outbound A2A delivery can resolve
-  canonical peer IDs through identity discovery, pin the resolved public key
-  against the peer Agent Card, and round-trip messages between two HTTP
-  instances.
 - **Diagram validation and accounting**: Mermaid diagrams are validated with
   the bundled Mermaid parser before render, diagram render artifacts retain
   skill-scoped source/rendered metadata, and local diagram renders emit

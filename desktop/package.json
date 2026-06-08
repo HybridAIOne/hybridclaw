@@ -2,7 +2,7 @@
   "name": "@hybridaione/hybridclaw-desktop",
   "productName": "HybridClaw",
   "private": true,
-  "version": "0.20.0",
+  "version": "0.22.0",
   "type": "module",
   "description": "macOS wrapper for the HybridClaw chat and admin web surfaces",
   "author": "HybridAI One",
@@ -24,7 +24,7 @@
     "@hybridaione/hybridclaw-desktop-packaging-anchor": "file:./support/packaging-anchor"
   },
   "devDependencies": {
-    "electron": "37.10.3",
+    "electron": "40.10.1",
     "electron-builder": "26.8.1"
   },
   "build": {

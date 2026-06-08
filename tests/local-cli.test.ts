@@ -262,6 +262,16 @@ test('secret set, show, and unset manage encrypted secrets', async () => {
     'user@example.com',
   );
 
+  await cli.main(['secret', 'set', 'SF_PASSWORD', '"quoted password"']);
+  expect(runtimeSecrets.readStoredRuntimeSecret('SF_PASSWORD')).toBe(
+    'quoted password',
+  );
+
+  await cli.main(['secret', 'set', 'SF_TOKEN', "'single-quoted-token'"]);
+  expect(runtimeSecrets.readStoredRuntimeSecret('SF_TOKEN')).toBe(
+    'single-quoted-token',
+  );
+
   logSpy.mockClear();
   await cli.main(['secret', 'show', 'SF_FULL_USERNAME']);
   expect(logSpy.mock.calls.map(([line]) => String(line))).toEqual([
