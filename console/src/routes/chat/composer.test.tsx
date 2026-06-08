@@ -131,6 +131,26 @@ describe('Composer', () => {
       expect(textarea.value).toBe('/approve ');
     });
 
+    it('Enter submits when the active slash command already has arguments', async () => {
+      const onSend = vi.fn();
+      const agentCreate: ChatCommandSuggestion = {
+        id: 'agent.create',
+        label: '/agent create <id> [model]',
+        insertText: '/agent create ',
+        description: 'Create a new agent',
+      };
+      fetchChatCommandsMock.mockResolvedValue({ commands: [agentCreate] });
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: '/agent create perso' } });
+      await screen.findByRole('listbox');
+
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+
+      expect(onSend).toHaveBeenCalledWith('/agent create perso', []);
+      expect(textarea.value).toBe('');
+    });
+
     it('ArrowDown moves selection and wraps around', async () => {
       const textarea = await showPanel([APPROVE, CLEAR]);
       const initial = screen
