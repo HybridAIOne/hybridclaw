@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   formatTuiMarkdownOutput,
+  formatTuiProseCommandBlock,
   formatTuiSkillListLines,
   formatTuiTitledCommandBlock,
   formatTuiToolActivityBlock,
@@ -37,6 +38,24 @@ test('formats titled command blocks with the standard left gutter', () => {
     '  Plugin: demo-plugin',
     '  Directory: /tmp/demo-plugin',
   ]);
+});
+
+test('wraps prose command blocks to the terminal width', () => {
+  const rendered = formatTuiProseCommandBlock(
+    'Second Opinion',
+    [
+      'Die beste Antwort hängt von Kontext und Zielprioritäten ab.',
+      '',
+      'Missing caveats:',
+      '- Individuelle Faktoren fehlen: Trainingsstand, verfügbare Kettlebell, Verletzungshistorie, Urlaubsaktivitäten, Zielpriorität Kraft vs. Erholung vs. Kondition.',
+    ].join('\n'),
+    140,
+  );
+
+  expect(rendered[0]).toBe('  Second Opinion');
+  expect(rendered.join('\n')).toContain('Missing caveats:');
+  expect(rendered.length).toBeGreaterThan(5);
+  expect(rendered.every((line) => visibleTuiLength(line) <= 140)).toBe(true);
 });
 
 test('mutes disabled skill and install hint lines in the skill list', () => {
