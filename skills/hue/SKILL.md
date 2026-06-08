@@ -127,12 +127,14 @@ bridge access is unavailable.
 8. If a live call returns `401` or `unauthorized_user`, stop after that first
    failed call and re-link the bridge with the link-button flow.
 9. If a private-host or gateway policy denial blocks a local bridge request,
-   first inspect the current workspace network policy. If managed LAN HTTP
-   access already allows read-write RFC1918 traffic, report that mismatch as a
-   gateway policy-evaluation bug instead of adding another rule. Otherwise run
-   `setup-local` for the exact bridge HTTPS URL and retry. Do not edit policy
-   by hand, do not add `/**` broad rules, and do not tell the operator a
-   gateway restart is required; workspace network policy is read per request.
+   first inspect the current workspace network policy. Managed read-only LAN
+   access already allows GET reads to RFC1918 hosts, and managed read-write LAN
+   access allows the supported methods. If either managed LAN mode covers the
+   attempted Hue request, report that mismatch as a gateway policy-evaluation
+   bug instead of adding another rule. Otherwise run `setup-local` only when
+   the operator wants a bridge-specific policy grant. Do not edit policy by
+   hand, do not add `/**` broad rules, and do not tell the operator a gateway
+   restart is required; workspace network policy is read per request.
 
 ## Command Contract
 
@@ -155,7 +157,8 @@ does not mutate Hue devices, scenes, rooms, grouped lights, or bridge state.
 The gateway reads this workspace policy for each proxied HTTP request, so retry
 Hue reads immediately after `setup-local` succeeds.
 If the workspace already has managed read-write LAN HTTP access, this per-bridge
-policy rule is optional and should not be required for local Hue reads.
+policy rule is optional and should not be required for local Hue reads. Managed
+read-only LAN access is also sufficient for local Hue GET reads.
 
 Build local CLIP v2 read requests. Pass the emitted `httpRequest` object to
 the gateway `http_request` tool when not using helper live mode:
@@ -263,11 +266,13 @@ is rejected.
 - Eventstream output can reveal occupancy. Keep diagnostic reads short and do
   not create a long-lived subscription from this skill.
 - On gateway policy denial for a local bridge, inspect the current workspace
-  network policy first. If managed read-write LAN access is present, report a
-  gateway policy-evaluation bug and do not add a duplicate bridge rule. If LAN
-  access is off, run `setup-local` for the exact bridge HTTPS URL, report that
-  this verifies env-store and workspace policy setup only, and retry the
-  requested Hue read. Do not tell the operator to restart the gateway.
+  network policy first. If managed read-only LAN access covers the GET read, or
+  managed read-write LAN access covers the attempted method, report a gateway
+  policy-evaluation bug and do not add a duplicate bridge rule. If LAN access
+  is off, run `setup-local` only when the operator wants a bridge-specific
+  policy grant, report that this verifies env-store and workspace policy setup
+  only, and retry the requested Hue read. Do not tell the operator to restart
+  the gateway.
 - If policy denial persists after `setup-local`, report the policy failure and
   the helper-emitted host, method, and path. Do not substitute Remote API
   results unless the operator asks for off-LAN fallback.

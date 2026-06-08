@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-const { randomBytes } = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -32,10 +29,6 @@ const HUE_BRIDGE_POLICY_METHODS = [
   'DELETE',
 ];
 const HUE_BRIDGE_POLICY_PATHS = ['/api', '/clip/v2/**', '/eventstream/clip/v2'];
-const RUNTIME_ENV_FILE = 'env.json';
-const RUNTIME_ENV_VERSION = 1;
-const RUNTIME_HOME_MODE = 0o700;
-const RUNTIME_ENV_MODE = 0o600;
 
 const CLIP_V2_RESOURCES = {
   bridge: 'bridge',
@@ -500,232 +493,16 @@ async function importDistModule(relativePath, label) {
   }
 }
 
-function runtimeHomeDir() {
-  const envDir = String(process.env.HYBRIDCLAW_DATA_DIR || '').trim();
-  if (envDir && !path.isAbsolute(envDir)) {
-    throw new Error(`HYBRIDCLAW_DATA_DIR must be absolute, got: ${envDir}`);
-  }
-  return envDir || path.join(os.homedir(), '.hybridclaw');
-}
-
-function runtimeEnvPath() {
-  return path.join(runtimeHomeDir(), RUNTIME_ENV_FILE);
-}
-
-function readRuntimeEnvStoreDirect() {
-  const filePath = runtimeEnvPath();
-  if (!fs.existsSync(filePath)) {
-    return { version: RUNTIME_ENV_VERSION, values: {} };
-  }
-  try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    const values =
-      parsed &&
-      typeof parsed === 'object' &&
-      !Array.isArray(parsed) &&
-      parsed.values &&
-      typeof parsed.values === 'object' &&
-      !Array.isArray(parsed.values)
-        ? parsed.values
-        : {};
-    return {
-      version: RUNTIME_ENV_VERSION,
-      values: Object.fromEntries(
-        Object.entries(values).filter(
-          ([key, value]) =>
-            /^[A-Z][A-Z0-9_]{0,127}$/u.test(key) &&
-            typeof value === 'string' &&
-            value.trim(),
-        ),
-      ),
-    };
-  } catch {
-    return { version: RUNTIME_ENV_VERSION, values: {} };
-  }
-}
-
-function writeRuntimeEnvStoreDirect(store) {
-  const homeDir = runtimeHomeDir();
-  fs.mkdirSync(homeDir, { recursive: true, mode: RUNTIME_HOME_MODE });
-  try {
-    fs.chmodSync(homeDir, RUNTIME_HOME_MODE);
-  } catch {
-    // Best effort; some host-mounted runtime dirs do not allow chmod.
-  }
-  const filePath = runtimeEnvPath();
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}-${randomBytes(6).toString('hex')}`;
-  try {
-    fs.writeFileSync(tempPath, `${JSON.stringify(store, null, 2)}\n`, {
-      encoding: 'utf-8',
-      mode: RUNTIME_ENV_MODE,
-    });
-    try {
-      fs.chmodSync(tempPath, RUNTIME_ENV_MODE);
-    } catch {
-      // Best effort; preserve the write even when chmod is blocked.
-    }
-    fs.renameSync(tempPath, filePath);
-  } catch (error) {
-    fs.rmSync(tempPath, { force: true });
-    throw error;
-  }
-}
-
-function saveHueBridgeHostDirect(host) {
-  const current = readRuntimeEnvStoreDirect().values;
-  const values = {
-    ...current,
-    [LOCAL_HOST_ENV]: host,
-  };
-  writeRuntimeEnvStoreDirect({
-    version: RUNTIME_ENV_VERSION,
-    values: Object.fromEntries(
-      Object.entries(values).sort(([left], [right]) =>
-        left.localeCompare(right),
-      ),
-    ),
-  });
-}
-
-function workspacePolicyPath(workspacePath) {
-  return path.join(path.resolve(workspacePath), '.hybridclaw', 'policy.yaml');
-}
-
-function yamlScalar(value) {
-  const raw = String(value);
-  if (/^[A-Za-z0-9_./:*?-]+$/u.test(raw)) return raw;
-  return JSON.stringify(raw);
-}
-
-function formatHuePolicyRule(rule) {
-  return [
-    '    - action: allow',
-    `      host: ${yamlScalar(rule.host)}`,
-    `      port: ${rule.port}`,
-    '      methods:',
-    ...rule.methods.map((method) => `        - ${method}`),
-    '      paths:',
-    ...rule.paths.map((entry) => `        - ${yamlScalar(entry)}`),
-    `      agent: ${yamlScalar(rule.agent)}`,
-    `      comment: ${yamlScalar(rule.comment || '')}`,
-    `      managed_by_preset: ${yamlScalar(rule.managedByPreset || '')}`,
-  ].join('\n');
-}
-
-function hueRuleExistsInPolicyText(raw, rule) {
-  return (
-    raw.includes(`host: ${rule.host}`) &&
-    raw.includes(`managed_by_preset: ${HUE_BRIDGE_POLICY_PRESET}`) &&
-    rule.paths.every((entry) => raw.includes(`- ${entry}`)) &&
-    rule.methods.every((method) => raw.includes(`- ${method}`))
-  );
-}
-
-function findTopLevelBlock(raw, name) {
-  const pattern = new RegExp(`^${name}:\\s*(?:#.*)?$`, 'mu');
-  const match = pattern.exec(raw);
-  if (!match) return null;
-  const start = match.index;
-  const rest = raw.slice(start + match[0].length);
-  const nextTopLevel = /\n[A-Za-z_][A-Za-z0-9_-]*:\s*(?:#.*)?$/mu.exec(rest);
-  const end =
-    nextTopLevel === null
-      ? raw.length
-      : start + match[0].length + nextTopLevel.index;
-  return {
-    start,
-    end,
-    text: raw.slice(start, end),
-  };
-}
-
-function ensureNetworkRulesBlock(networkBlock, rule) {
-  const formattedRule = formatHuePolicyRule(rule);
-  if (/^  rules:\s*\[\]\s*$/mu.test(networkBlock)) {
-    return networkBlock.replace(
-      /^  rules:\s*\[\]\s*$/mu,
-      `  rules:\n${formattedRule}`,
-    );
-  }
-  if (/^  rules:\s*$/mu.test(networkBlock)) {
-    return networkBlock.replace(
-      /^  rules:\s*$/mu,
-      (line) => `${line}\n${formattedRule}`,
-    );
-  }
-  return `${networkBlock.replace(/\s*$/u, '')}\n  rules:\n${formattedRule}\n`;
-}
-
-function ensureNetworkPreset(networkBlock) {
-  if (
-    new RegExp(`^\\s*-\\s*${HUE_BRIDGE_POLICY_PRESET}\\s*$`, 'mu').test(
-      networkBlock,
-    )
-  ) {
-    return networkBlock;
-  }
-  if (/^  presets:\s*\[\]\s*$/mu.test(networkBlock)) {
-    return networkBlock.replace(
-      /^  presets:\s*\[\]\s*$/mu,
-      `  presets:\n    - ${HUE_BRIDGE_POLICY_PRESET}`,
-    );
-  }
-  if (/^  presets:\s*$/mu.test(networkBlock)) {
-    return networkBlock.replace(
-      /^  presets:\s*$/mu,
-      (line) => `${line}\n    - ${HUE_BRIDGE_POLICY_PRESET}`,
-    );
-  }
-  return `${networkBlock.replace(/\s*$/u, '')}\n  presets:\n    - ${HUE_BRIDGE_POLICY_PRESET}\n`;
-}
-
-function buildInitialNetworkPolicySection(rule) {
-  return [
-    'network:',
-    '  default: deny',
-    '  rules:',
-    formatHuePolicyRule(rule),
-    '  presets:',
-    `    - ${HUE_BRIDGE_POLICY_PRESET}`,
-    '',
-  ].join('\n');
-}
-
-function allowHueBridgeInWorkspacePolicyDirect(workspacePath, rule) {
-  const policyPath = workspacePolicyPath(workspacePath);
-  const raw = fs.existsSync(policyPath)
-    ? fs.readFileSync(policyPath, 'utf-8')
-    : '';
-  if (hueRuleExistsInPolicyText(raw, rule)) {
-    return { policyPath, added: false, rule };
-  }
-
-  const networkBlock = findTopLevelBlock(raw, 'network');
-  const nextRaw =
-    networkBlock === null
-      ? `${raw.replace(/\s*$/u, '')}${raw.trim() ? '\n\n' : ''}${buildInitialNetworkPolicySection(rule)}`
-      : `${raw.slice(0, networkBlock.start)}${ensureNetworkPreset(ensureNetworkRulesBlock(networkBlock.text, rule))}${raw.slice(networkBlock.end)}`;
-
-  fs.mkdirSync(path.dirname(policyPath), { recursive: true });
-  fs.writeFileSync(policyPath, nextRaw.endsWith('\n') ? nextRaw : `${nextRaw}\n`);
-  return { policyPath, added: true, rule };
-}
-
 async function saveHueBridgeHost(host, options = {}) {
   if (typeof options.saveEnv === 'function') {
     await options.saveEnv(LOCAL_HOST_ENV, host);
     return;
   }
-  try {
-    const runtimeEnv = await importDistModule(
-      ['config', 'runtime-env.js'],
-      'env store',
-    );
-    runtimeEnv.saveNamedRuntimeEnv({ [LOCAL_HOST_ENV]: host });
-    return;
-  } catch {
-    saveHueBridgeHostDirect(host);
-  }
+  const runtimeEnv = await importDistModule(
+    ['config', 'runtime-env.js'],
+    'env store',
+  );
+  runtimeEnv.saveNamedRuntimeEnv({ [LOCAL_HOST_ENV]: host });
 }
 
 async function allowHueBridgeInWorkspacePolicy(host, options = {}) {
@@ -734,40 +511,34 @@ async function allowHueBridgeInWorkspacePolicy(host, options = {}) {
   if (typeof options.allowBridgeInPolicy === 'function') {
     return await options.allowBridgeInPolicy({ host, workspacePath, rule });
   }
-  try {
-    const policyStore = await importDistModule(
-      ['policy', 'policy-store.js'],
-      'network policy',
-    );
-    const state = policyStore.readPolicyState(workspacePath);
-    const targetKey = policyRuleKey(rule);
-    const existingRules = state.rules.map((entry) => ({
-      ...policyStore.stripRuleIndex(entry),
-      ...(entry.managedByPreset
-        ? { managedByPreset: entry.managedByPreset }
-        : {}),
-    }));
+  const policyStore = await importDistModule(
+    ['policy', 'policy-store.js'],
+    'network policy',
+  );
+  const state = policyStore.readPolicyState(workspacePath);
+  const targetKey = policyRuleKey(rule);
+  const existingRules = state.rules.map((entry) => ({
+    ...policyStore.stripRuleIndex(entry),
+    ...(entry.managedByPreset ? { managedByPreset: entry.managedByPreset } : {}),
+  }));
 
-    if (existingRules.some((entry) => policyRuleKey(entry) === targetKey)) {
-      return {
-        policyPath: state.policyPath,
-        added: false,
-        rule,
-      };
-    }
-
-    const nextState = policyStore.setPolicyPresets(workspacePath, {
-      presets: [...new Set([...state.presets, HUE_BRIDGE_POLICY_PRESET])],
-      rules: [...existingRules, rule],
-    });
+  if (existingRules.some((entry) => policyRuleKey(entry) === targetKey)) {
     return {
-      policyPath: nextState.policyPath,
-      added: true,
+      policyPath: state.policyPath,
+      added: false,
       rule,
     };
-  } catch {
-    return allowHueBridgeInWorkspacePolicyDirect(workspacePath, rule);
   }
+
+  const nextState = policyStore.setPolicyPresets(workspacePath, {
+    presets: [...new Set([...state.presets, HUE_BRIDGE_POLICY_PRESET])],
+    rules: [...existingRules, rule],
+  });
+  return {
+    policyPath: nextState.policyPath,
+    added: true,
+    rule,
+  };
 }
 
 function buildSetupLocal(args) {
