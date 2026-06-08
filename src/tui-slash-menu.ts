@@ -342,6 +342,61 @@ function subsequenceScore(query: string, target: string): number | null {
   );
 }
 
+function normalizePatternLiteral(token: string): string {
+  return normalizeSearchText(token.replace(/^\/+/, ''));
+}
+
+function isArgumentPlaceholder(token: string): boolean {
+  const match = /^<([^>]+)>$/.exec(token) ?? /^\[([^\]]+)\]$/.exec(token);
+  const placeholder = match?.[1].trim() ?? '';
+  return Boolean(
+    placeholder && !placeholder.includes('|') && !placeholder.startsWith('-'),
+  );
+}
+
+function scoreCommandPrefixWithArguments(query: string, searchTerm: string) {
+  const queryTokens = normalizeSearchText(query).split(/\s+/).filter(Boolean);
+  if (queryTokens.length < 2) return null;
+
+  const patternTokens = searchTerm.trim().split(/\s+/).filter(Boolean);
+  const commandTokens: string[] = [];
+  let hasArgumentPlaceholder = false;
+
+  for (const patternToken of patternTokens) {
+    if (/^<[^>]+>$/.test(patternToken) || /^\[[^\]]+\]$/.test(patternToken)) {
+      hasArgumentPlaceholder = isArgumentPlaceholder(patternToken);
+      break;
+    }
+
+    const literal = normalizePatternLiteral(patternToken);
+    if (literal) commandTokens.push(literal);
+  }
+
+  if (
+    !hasArgumentPlaceholder ||
+    commandTokens.length === 0 ||
+    queryTokens.length <= commandTokens.length
+  ) {
+    return null;
+  }
+
+  let prefixPenalty = 0;
+  for (let i = 0; i < commandTokens.length; i += 1) {
+    const commandToken = commandTokens[i];
+    const queryToken = queryTokens[i];
+    if (commandToken === queryToken) continue;
+    if (!commandToken.startsWith(queryToken)) return null;
+    prefixPenalty += commandToken.length - queryToken.length;
+  }
+
+  return (
+    SCORE_WEIGHTS.substringNormalizedBase +
+    commandTokens.length * 20 -
+    (queryTokens.length - commandTokens.length) -
+    prefixPenalty
+  );
+}
+
 function scoreSearchTerm(query: string, searchTerm: string): number | null {
   if (!query) return 0;
 
@@ -370,6 +425,9 @@ function scoreSearchTerm(query: string, searchTerm: string): number | null {
       substringIndex * SCORE_WEIGHTS.substringIndexPenalty
     );
   }
+
+  const commandPrefixScore = scoreCommandPrefixWithArguments(query, searchTerm);
+  if (commandPrefixScore != null) return commandPrefixScore;
 
   const compactQuery = compactSearchText(normalizedQuery);
   const compactSearchTerm = compactSearchText(normalizedSearchTerm);
