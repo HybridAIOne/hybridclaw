@@ -47,6 +47,7 @@ export interface BranchVariant {
 
 export interface ChatHistoryResponse {
   sessionId?: string;
+  agentId?: string | null;
   history: ChatHistoryMessage[];
   assistantPresentation?: AssistantPresentation | null;
   bootstrapAutostart?: {

@@ -3414,6 +3414,7 @@ async function handleApiHistory(
   // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
     sessionId: historyPage.sessionId,
+    agentId: historyPage.agentId || undefined,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,

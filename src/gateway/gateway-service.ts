@@ -7434,6 +7434,7 @@ export function getGatewayHistory(
     .reverse();
   return {
     sessionId: page.sessionId,
+    agentId: page.agentId,
     sessionKey: page.sessionKey,
     mainSessionKey: page.mainSessionKey,
     history,

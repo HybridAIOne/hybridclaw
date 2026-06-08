@@ -406,6 +406,34 @@ describe('ChatPage', () => {
     );
   });
 
+  it('syncs the agent dropdown from the active session history', async () => {
+    fetchAgentListMock.mockResolvedValue([
+      { id: 'main', name: 'Main Agent' },
+      { id: 'research', name: 'research' },
+    ]);
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      agentId: 'research',
+      history: [
+        {
+          id: 101,
+          role: 'assistant',
+          agent_id: 'research',
+          content: 'Opened research session',
+        },
+      ],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened research session')).not.toBeNull();
+    const agentSelect = await screen.findByLabelText('Switch agent');
+    expect(agentSelect).toBeInstanceOf(HTMLSelectElement);
+    await waitFor(() =>
+      expect((agentSelect as HTMLSelectElement).value).toBe('research'),
+    );
+  });
+
   it('refetches history while bootstrap autostart is starting', async () => {
     fetchChatHistoryMock
       .mockResolvedValueOnce({

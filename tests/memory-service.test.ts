@@ -2727,6 +2727,7 @@ describe('MemoryService', () => {
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getConversationHistoryPage: () => ({
+        agentId: null,
         sessionKey: null,
         mainSessionKey: null,
         history: [] as StoredMessage[],
@@ -2849,6 +2850,7 @@ describe('MemoryService', () => {
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getConversationHistoryPage: () => ({
+        agentId: null,
         sessionKey: null,
         mainSessionKey: null,
         history: [] as StoredMessage[],
@@ -3059,6 +3061,7 @@ describe('MemoryService', () => {
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getConversationHistoryPage: () => ({
+        agentId: null,
         sessionKey: null,
         mainSessionKey: null,
         history: [] as StoredMessage[],
@@ -3157,6 +3160,7 @@ describe('MemoryService', () => {
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getConversationHistoryPage: () => ({
+        agentId: null,
         sessionKey: null,
         mainSessionKey: null,
         history: [] as StoredMessage[],
@@ -3223,6 +3227,7 @@ describe('MemoryService', () => {
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getConversationHistoryPage: () => ({
+        agentId: null,
         sessionKey: null,
         mainSessionKey: null,
         history: [] as StoredMessage[],
@@ -3469,6 +3474,7 @@ describe('MemoryService', () => {
       getSessionById: () => makeSession(),
       getConversationHistory: () => [] as StoredMessage[],
       getConversationHistoryPage: () => ({
+        agentId: null,
         sessionKey: null,
         mainSessionKey: null,
         history: [] as StoredMessage[],

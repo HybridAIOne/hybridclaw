@@ -254,14 +254,6 @@ export function ChatPage() {
     enabled: chatApiReady,
   });
 
-  // Selection is local-once-set: until the user picks an agent the UI follows
-  // the gateway default; after they pick, their choice sticks even when the
-  // query refetches with a different default.
-  const effectiveAgentId =
-    selectedAgentId ??
-    appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ??
-    DEFAULT_AGENT_ID;
-
   // /model set is session-scoped on the gateway, so re-seed the local selection
   // to the gateway default whenever the session changes. We don't know what
   // model the new session was last set to, so the default is the best guess
@@ -359,6 +351,11 @@ export function ChatPage() {
   const messages = historyQuery.data?.messages ?? EMPTY_MESSAGES;
   const branchFamilies =
     historyQuery.data?.branchFamilies ?? EMPTY_BRANCH_FAMILIES;
+  const effectiveAgentId =
+    selectedAgentId ??
+    historyQuery.data?.agentId?.trim().toLowerCase() ??
+    appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ??
+    DEFAULT_AGENT_ID;
 
   const deleteSessionMutation = useMutation({
     mutationFn: (targetSessionId: string) =>
@@ -437,6 +434,11 @@ export function ChatPage() {
     const id = contextQuery.data?.snapshot?.model?.trim() ?? '';
     if (id) setSelectedModelId(id);
   }, [contextQuery.data?.snapshot?.model]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is intentionally a re-fire trigger, not read inside the body
+  useEffect(() => {
+    setSelectedAgentId(null);
+  }, [sessionId]);
 
   useEffect(() => {
     if (!historyQuery.error) return;
@@ -665,6 +667,7 @@ export function ChatPage() {
           ],
           branchFamilies: prev?.branchFamilies ?? new Map(),
           resolvedSessionId: targetSessionId,
+          agentId: prev?.agentId ?? null,
           bootstrapAutostart: prev?.bootstrapAutostart ?? null,
         }),
       );
