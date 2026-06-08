@@ -9277,6 +9277,91 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('dispatches gateway-owned http requests with env store placeholders', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-env-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.ts'
+    );
+    saveNamedRuntimeEnv({
+      HUE_BRIDGE_HOST: 'https://bridge.example.com',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: 'https://bridge.example.com/clip/v2/resource/light',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      arrayBuffer: async () =>
+        Buffer.from(JSON.stringify({ data: [{ id: 'light-1' }] })),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/light',
+        method: 'GET',
+        headers: {
+          'X-Bridge-Origin': '<env:HUE_BRIDGE_HOST>',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          'X-Bridge-Origin': 'https://bridge.example.com',
+        }),
+      }),
+    );
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'https://bridge.example.com/clip/v2/resource/light',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).json).toEqual({
+      data: [{ id: 'light-1' }],
+    });
+
+    const missingReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: '<env:MISSING_BRIDGE_HOST>/clip/v2/resource/light',
+        method: 'GET',
+      },
+    });
+    const missingRes = makeResponse();
+
+    state.handler(missingReq as never, missingRes as never);
+    await settle();
+
+    expect(missingRes.statusCode).toBe(400);
+    expect(JSON.parse(missingRes.body)).toEqual({
+      error: 'Env store value MISSING_BRIDGE_HOST is not configured.',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test('allows Google OAuth runtime token placeholders for googleapis http requests', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-');
     process.env.HOME = homeDir;
@@ -9789,6 +9874,70 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body).json).toEqual({ rows: [], rowCount: 0 });
   });
 
+  test('URL-encodes resolved secret values in outbound http_request form bodies', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-form-secrets-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      FORM_CLIENT_ID: 'client+id',
+      FORM_REFRESH_TOKEN: 'refresh+token&with=syntax',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://api.example.com/token',
+        method: 'POST',
+        form: {
+          grant_type: 'refresh_token',
+          client_id: '<secret:FORM_CLIENT_ID>',
+          refresh_token: '<secret:FORM_REFRESH_TOKEN>',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          client_id: 'client+id',
+          refresh_token: 'refresh+token&with=syntax',
+        }).toString(),
+        headers: expect.objectContaining({
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }),
+      }),
+    );
+  });
+
   test('blocks Google service-account auth for non-Google API hosts', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-sa-block-');
     process.env.HOME = homeDir;
@@ -10151,6 +10300,267 @@ describe('gateway HTTP server', () => {
         }),
       }),
     );
+  });
+
+  test('validates pinned TLS certificate SHA-256 on the outbound http_request connection', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-tls-pin-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const certRaw = Buffer.from('test bridge certificate');
+    const fingerprint = createHash('sha256').update(certRaw).digest('hex');
+    const order: string[] = [];
+    const socket = {
+      destroy: vi.fn(),
+      getPeerCertificate: vi.fn(() => {
+        order.push('pin');
+        return { raw: certRaw };
+      }),
+    };
+    const connectorMock = vi.fn((_options, callback) => {
+      callback(null, socket);
+    });
+    const closeMock = vi.fn(async () => {
+      order.push('close');
+    });
+    vi.doMock('undici', () => ({
+      Agent: vi.fn().mockImplementation(function (options) {
+        return {
+          close: closeMock,
+          connect: options.connect,
+        };
+      }),
+      buildConnector: vi.fn(() => connectorMock),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url, options) => {
+      await new Promise<void>((resolve, reject) => {
+        options.dispatcher.connect(
+          {
+            hostname: 'bridge.example.com',
+            port: '443',
+            protocol: 'https:',
+          },
+          (error: Error | null) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          },
+        );
+      });
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            order.push('body');
+            controller.enqueue(
+              new TextEncoder().encode(JSON.stringify({ ok: true })),
+            );
+            controller.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://bridge.example.com/clip/v2/resource/light',
+        tlsCertificateSha256: fingerprint,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(connectorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostname: 'bridge.example.com',
+        port: '443',
+        protocol: 'https:',
+      }),
+      expect.any(Function),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        dispatcher: expect.anything(),
+      }),
+    );
+    expect(closeMock).toHaveBeenCalledOnce();
+    expect(order).toEqual(['pin', 'body', 'close']);
+  });
+
+  test('allows explicitly self-signed TLS on the outbound http_request connection', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-self-signed-tls-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const connectorMock = vi.fn((_options, callback) => {
+      callback(null, {});
+    });
+    const closeMock = vi.fn(async () => undefined);
+    const buildConnectorMock = vi.fn(() => connectorMock);
+    vi.doMock('undici', () => ({
+      Agent: vi.fn().mockImplementation(function (options) {
+        return {
+          close: closeMock,
+          connect: options.connect,
+        };
+      }),
+      buildConnector: buildConnectorMock,
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url, options) => {
+      await new Promise<void>((resolve, reject) => {
+        options.dispatcher.connect(
+          {
+            hostname: 'bridge.example.com',
+            port: '443',
+            protocol: 'https:',
+          },
+          (error: Error | null) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          },
+        );
+      });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://bridge.example.com/clip/v2/resource/light',
+        allowSelfSignedTls: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(buildConnectorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rejectUnauthorized: false,
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        dispatcher: expect.anything(),
+      }),
+    );
+    expect(closeMock).toHaveBeenCalledOnce();
+  });
+
+  test('blocks pinned TLS fingerprint mismatches on the outbound http_request connection', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-tls-pin-mismatch-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const socket = {
+      destroy: vi.fn(),
+      getPeerCertificate: vi.fn(() => ({ raw: Buffer.from('other cert') })),
+    };
+    const connectorMock = vi.fn((_options, callback) => {
+      callback(null, socket);
+    });
+    const closeMock = vi.fn(async () => undefined);
+    vi.doMock('undici', () => ({
+      Agent: vi.fn().mockImplementation(function (options) {
+        return {
+          close: closeMock,
+          connect: options.connect,
+        };
+      }),
+      buildConnector: vi.fn(() => connectorMock),
+    }));
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(async (_url, options) => {
+      await new Promise<void>((resolve, reject) => {
+        options.dispatcher.connect(
+          {
+            hostname: 'bridge.example.com',
+            port: '443',
+            protocol: 'https:',
+          },
+          (error: Error | null) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          },
+        );
+      });
+      return new Response(JSON.stringify({ ok: true }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://bridge.example.com/clip/v2/resource/light',
+        tlsCertificateSha256:
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body).error).toContain(
+      'Pinned TLS certificate check failed',
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(socket.destroy).toHaveBeenCalledOnce();
+    expect(closeMock).toHaveBeenCalledOnce();
   });
 
   test('captures explicit token bindDomain for cross-host OAuth tokens', async () => {
@@ -11167,7 +11577,8 @@ describe('gateway HTTP server', () => {
   });
 
   test('allows private outbound http_request targets only when explicitly allowlisted by policy', async () => {
-    const workspacePath = makeTempDocsRoot();
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
     fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
     fs.writeFileSync(
       path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
@@ -11187,47 +11598,359 @@ describe('gateway HTTP server', () => {
       ].join('\n'),
       'utf8',
     );
-    const originalCwd = process.cwd();
     const state = await importFreshHealth({
+      dataDir,
       gatewayApiToken: 'gateway-token',
     });
-    process.chdir(workspacePath);
-    try {
-      const fetchMock = vi.fn(
-        async () =>
-          new Response(JSON.stringify({ id: 0, name: 'Living room' }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          }),
-      );
-      vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: 0, name: 'Living room' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
 
-      const req = makeRequest({
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
+        method: 'GET',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  test('honors managed read-write LAN policy for private http_request targets', async () => {
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: "*"',
+        '      methods:',
+        '        - GET',
+        '        - HEAD',
+        '        - POST',
+        '        - PUT',
+        '        - PATCH',
+        '        - DELETE',
+        '        - OPTIONS',
+        '      paths:',
+        '        - /**',
+        '      agent: "*"',
+        '      managed_by_preset: lan-http-access',
+        '  presets:',
+        '    - lan-http-access',
+      ].join('\n'),
+      'utf8',
+    );
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://192.168.178.73/clip/v2/resource/light',
+        method: 'GET',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  test('honors managed read-only LAN policy for private http_request GET targets', async () => {
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: "*"',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /**',
+        '      agent: "*"',
+        '      managed_by_preset: lan-http-access',
+        '  presets:',
+        '    - lan-http-access',
+      ].join('\n'),
+      'utf8',
+    );
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://192.168.178.73/clip/v2/resource/light',
+        method: 'GET',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  test('resolves env store placeholders before private LAN policy and secret header injection', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-private-env-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.ts'
+    );
+    saveNamedRuntimeEnv({
+      HUE_BRIDGE_HOST: 'https://192.168.178.73',
+    });
+
+    const dataDir = path.join(homeDir, '.hybridclaw', 'data');
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: "*"',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /**',
+        '      agent: "*"',
+        '      managed_by_preset: lan-http-access',
+        '  presets:',
+        '    - lan-http-access',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: '<env:HUE_BRIDGE_HOST>/clip/v2/resource/light',
+        method: 'GET',
+        secretHeaders: [
+          {
+            name: 'hue-application-key',
+            secretName: 'HUE_APPLICATION_KEY',
+            prefix: 'none',
+          },
+        ],
+        replaceSecretPlaceholders: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Stored secret HUE_APPLICATION_KEY is not set.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        secretName: 'HUE_APPLICATION_KEY',
+        targetHost: '192.168.178.73',
+      }),
+      'Secret used without a domain binding; set the matching *_BOUND_DOMAIN runtime secret before unbound secret injection is removed',
+    );
+  });
+
+  test('dispatches resolved env store URLs with self-signed TLS allowance', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-private-env-tls-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    const { saveNamedRuntimeEnv } = await import(
+      '../src/config/runtime-env.ts'
+    );
+    saveNamedRuntimeEnv({
+      HUE_BRIDGE_HOST: 'https://192.168.178.73',
+    });
+    const { readStoredRuntimeSecret } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+
+    const dataDir = path.join(homeDir, '.hybridclaw', 'data');
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'secret:',
+        '  default: allow',
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: "*"',
+        '      methods:',
+        '        - POST',
+        '      paths:',
+        '        - /**',
+        '      agent: "*"',
+        '      managed_by_preset: lan-http-access',
+        '  presets:',
+        '    - lan-http-access',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const connectorMock = vi.fn((_options, callback) => {
+      callback(null, {});
+    });
+    const closeMock = vi.fn(async () => undefined);
+    const buildConnectorMock = vi.fn(() => connectorMock);
+    vi.doMock('undici', () => ({
+      Agent: vi.fn().mockImplementation(function (options) {
+        return {
+          close: closeMock,
+          connect: options.connect,
+        };
+      }),
+      buildConnector: buildConnectorMock,
+    }));
+
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([{ success: { username: 'test-hue-key' } }]), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: '<env:HUE_BRIDGE_HOST>/api',
         method: 'POST',
-        url: '/api/http/request',
-        headers: { authorization: 'Bearer gateway-token' },
-        body: {
-          url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
-          method: 'GET',
+        json: {
+          devicetype: 'hybridclaw#lab',
         },
-      });
-      const res = makeResponse();
+        captureResponseFields: [
+          {
+            jsonPath: '0.success.username',
+            secretName: 'HUE_APPLICATION_KEY',
+          },
+        ],
+        replaceSecretPlaceholders: true,
+        allowSelfSignedTls: true,
+      },
+    });
+    const res = makeResponse();
 
-      state.handler(req as never, res as never);
-      await settle();
+    state.handler(req as never, res as never);
+    await settle();
 
-      expect(res.statusCode).toBe(200);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.any(URL),
-        expect.objectContaining({ method: 'GET' }),
-      );
-    } finally {
-      process.chdir(originalCwd);
-    }
+    expect(res.statusCode).toBe(200);
+    expect(buildConnectorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rejectUnauthorized: false,
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL('https://192.168.178.73/api'),
+      expect.objectContaining({
+        method: 'POST',
+        dispatcher: expect.anything(),
+      }),
+    );
+    const fetchOptions = fetchMock.mock.calls[0]?.[1] as
+      | { headers?: Record<string, string> }
+      | undefined;
+    expect(fetchOptions?.headers).not.toHaveProperty('hue-application-key');
+    expect(readStoredRuntimeSecret('HUE_APPLICATION_KEY')).toBe('test-hue-key');
+    expect(closeMock).toHaveBeenCalledOnce();
   });
 
   test('keeps private outbound http_request targets blocked when policy path does not match', async () => {
-    const workspacePath = makeTempDocsRoot();
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
     fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
     fs.writeFileSync(
       path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
@@ -11247,42 +11970,38 @@ describe('gateway HTTP server', () => {
       ].join('\n'),
       'utf8',
     );
-    const originalCwd = process.cwd();
     const state = await importFreshHealth({
+      dataDir,
       gatewayApiToken: 'gateway-token',
     });
-    process.chdir(workspacePath);
-    try {
-      const fetchMock = vi.fn();
-      vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
 
-      const req = makeRequest({
-        method: 'POST',
-        url: '/api/http/request',
-        headers: { authorization: 'Bearer gateway-token' },
-        body: {
-          url: 'http://192.168.178.198/debug',
-          method: 'GET',
-        },
-      });
-      const res = makeResponse();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'http://192.168.178.198/debug',
+        method: 'GET',
+      },
+    });
+    const res = makeResponse();
 
-      state.handler(req as never, res as never);
-      await settle();
+    state.handler(req as never, res as never);
+    await settle();
 
-      expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({
-        error:
-          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for GET /debug on port 80.',
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      process.chdir(originalCwd);
-    }
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for GET /debug on port 80.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('reports private outbound http_request method mismatches against policy', async () => {
-    const workspacePath = makeTempDocsRoot();
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
     fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
     fs.writeFileSync(
       path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
@@ -11302,38 +12021,33 @@ describe('gateway HTTP server', () => {
       ].join('\n'),
       'utf8',
     );
-    const originalCwd = process.cwd();
     const state = await importFreshHealth({
+      dataDir,
       gatewayApiToken: 'gateway-token',
     });
-    process.chdir(workspacePath);
-    try {
-      const fetchMock = vi.fn();
-      vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
 
-      const req = makeRequest({
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
         method: 'POST',
-        url: '/api/http/request',
-        headers: { authorization: 'Bearer gateway-token' },
-        body: {
-          url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
-          method: 'POST',
-        },
-      });
-      const res = makeResponse();
+      },
+    });
+    const res = makeResponse();
 
-      state.handler(req as never, res as never);
-      await settle();
+    state.handler(req as never, res as never);
+    await settle();
 
-      expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({
-        error:
-          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for POST /rpc/Cover.GetConfig on port 80.',
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      process.chdir(originalCwd);
-    }
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for POST /rpc/Cover.GetConfig on port 80.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('streams outbound http_request responses and truncates once the size limit is exceeded', async () => {

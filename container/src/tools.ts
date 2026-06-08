@@ -4533,6 +4533,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'When true, return 3xx response headers such as Location without following the redirect. Use only when a helper must inspect an authorization redirect code; the gateway still never follows outbound redirects.',
           },
+          allowSelfSignedTls: {
+            type: 'boolean',
+            description:
+              'When true, allow a self-signed TLS certificate for this HTTPS request only. Use only for local/private devices whose helper explicitly marks the request, such as a Philips Hue Bridge.',
+          },
+          tlsCertificateSha256: {
+            type: 'string',
+            description:
+              'Optional SHA-256 certificate fingerprint pin for this HTTPS request. Do not combine with allowSelfSignedTls.',
+          },
+          tlsCertificateSha256SecretName: {
+            type: 'string',
+            description:
+              'Optional stored secret containing a SHA-256 certificate fingerprint pin for this HTTPS request. Do not combine with allowSelfSignedTls.',
+          },
           timeoutMs: {
             type: 'number',
             description: 'Optional timeout in milliseconds.',
