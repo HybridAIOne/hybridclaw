@@ -137,8 +137,8 @@ bridge access is unavailable.
    find the bridge IP again. Ask them to press the physical link button, then
    build `node skills/hue/hue.cjs --format json bridge link --app-name
    hybridclaw --instance-name lab`, send the emitted `httpRequest`, and store
-   the returned Hue credential secret with `/secret set HUE_APPLICATION_KEY
-   "<application-key>"`.
+   the returned Hue credential secret through the helper-emitted
+   `captureResponseFields`.
 11. When linking after the operator presses the bridge button, run `bridge
    status` first. If the live status result reports `linkbutton: true`,
    immediately run `bridge link` without `--host`. If it reports
@@ -245,7 +245,8 @@ bridge reports `linkbutton: true` before sending the link request. The link
 command emits a single `/api` request shape with `<env:HUE_BRIDGE_HOST>` and
 only a `devicetype` body. Send that request through the gateway while the
 button is active, then store the returned Hue credential secret as
-`HUE_APPLICATION_KEY`. Do not pass `--host` for normal chat setup.
+`HUE_APPLICATION_KEY` through the emitted `captureResponseFields`. Do not pass
+`--host` for normal chat setup.
 
 Use Remote API reads only when off-LAN access is needed:
 
@@ -260,7 +261,8 @@ node skills/hue/hue.cjs --format json remote room list --bridge <id>
 
 Store the local bridge URL in the env store, then press the bridge link button,
 build the link request, send the emitted `httpRequest` through the gateway, and
-store the returned Hue credential secret as the application key.
+let the gateway capture the returned Hue credential secret as the application
+key.
 
 In chat:
 
@@ -268,7 +270,6 @@ In chat:
 /env set HUE_BRIDGE_HOST "https://<bridge-ip>"
 node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
-/secret set HUE_APPLICATION_KEY "<application-key-from-response>"
 ```
 
 From a local terminal:
@@ -277,7 +278,6 @@ From a local terminal:
 hybridclaw env set HUE_BRIDGE_HOST "https://<bridge-ip>"
 node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
-hybridclaw secret set HUE_APPLICATION_KEY "<application-key-from-response>"
 ```
 
 Managed LAN HTTP access covers local RFC1918 bridge reads according to the
@@ -347,8 +347,8 @@ Press the Hue bridge link button, then let me run:
 node skills/hue/hue.cjs --format json bridge status
 node skills/hue/hue.cjs --format json bridge link --app-name hybridclaw --instance-name lab
 
-Store the returned Hue credential secret with:
-/secret set HUE_APPLICATION_KEY "<application-key-from-response>"
+The emitted `captureResponseFields` rule captures the returned Hue credential
+secret into `HUE_APPLICATION_KEY`.
 ```
 
   Do not include `hybridclaw env set` or ask the operator to set

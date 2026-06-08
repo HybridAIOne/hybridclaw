@@ -11844,12 +11844,9 @@ describe('gateway HTTP server', () => {
     saveNamedRuntimeEnv({
       HUE_BRIDGE_HOST: 'https://192.168.178.73',
     });
-    const { saveNamedRuntimeSecrets } = await import(
+    const { readStoredRuntimeSecret } = await import(
       '../src/security/runtime-secrets.ts'
     );
-    saveNamedRuntimeSecrets({
-      HUE_APPLICATION_KEY: 'test-hue-key',
-    });
 
     const dataDir = path.join(homeDir, '.hybridclaw', 'data');
     const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
@@ -11898,7 +11895,7 @@ describe('gateway HTTP server', () => {
     });
     const fetchMock = vi.fn(
       async () =>
-        new Response(JSON.stringify({ key: 'test-application-key' }), {
+        new Response(JSON.stringify([{ success: { username: 'test-hue-key' } }]), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),
@@ -11915,11 +11912,10 @@ describe('gateway HTTP server', () => {
         json: {
           devicetype: 'hybridclaw#lab',
         },
-        secretHeaders: [
+        captureResponseFields: [
           {
-            name: 'hue-application-key',
+            jsonPath: '0.success.username',
             secretName: 'HUE_APPLICATION_KEY',
-            prefix: 'none',
           },
         ],
         replaceSecretPlaceholders: true,
@@ -11941,12 +11937,14 @@ describe('gateway HTTP server', () => {
       new URL('https://192.168.178.73/api'),
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({
-          'hue-application-key': 'test-hue-key',
-        }),
         dispatcher: expect.anything(),
       }),
     );
+    const fetchOptions = fetchMock.mock.calls[0]?.[1] as
+      | { headers?: Record<string, string> }
+      | undefined;
+    expect(fetchOptions?.headers).not.toHaveProperty('hue-application-key');
+    expect(readStoredRuntimeSecret('HUE_APPLICATION_KEY')).toBe('test-hue-key');
     expect(closeMock).toHaveBeenCalledOnce();
   });
 

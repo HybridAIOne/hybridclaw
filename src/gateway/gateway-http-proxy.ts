@@ -1675,10 +1675,15 @@ function readJsonPath(value: unknown, jsonPath: string): unknown {
   let current = value;
   for (const segment of jsonPath.split('.')) {
     if (!segment) return undefined;
-    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+    if (!current || typeof current !== 'object') {
       return undefined;
     }
-    current = (current as Record<string, unknown>)[segment];
+    if (Array.isArray(current)) {
+      if (!/^\d+$/u.test(segment)) return undefined;
+      current = current[Number(segment)];
+    } else {
+      current = (current as Record<string, unknown>)[segment];
+    }
   }
   return current;
 }

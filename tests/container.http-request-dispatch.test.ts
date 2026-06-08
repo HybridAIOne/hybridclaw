@@ -74,7 +74,7 @@ describe.sequential('container http_request dispatch', () => {
         JSON.stringify({
           ok: true,
           status: 200,
-          body: '{"key":"test-application-key"}',
+          body: '[{"success":{"username":"test-application-key"}}]',
         }),
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -90,11 +90,10 @@ describe.sequential('container http_request dispatch', () => {
         json: {
           devicetype: 'hybridclaw#lab',
         },
-        secretHeaders: [
+        captureResponseFields: [
           {
-            name: 'hue-application-key',
+            jsonPath: '0.success.username',
             secretName: 'HUE_APPLICATION_KEY',
-            prefix: 'none',
           },
         ],
         replaceSecretPlaceholders: true,
@@ -113,11 +112,10 @@ describe.sequential('container http_request dispatch', () => {
           json: {
             devicetype: 'hybridclaw#lab',
           },
-          secretHeaders: [
+          captureResponseFields: [
             {
-              name: 'hue-application-key',
+              jsonPath: '0.success.username',
               secretName: 'HUE_APPLICATION_KEY',
-              prefix: 'none',
             },
           ],
           replaceSecretPlaceholders: true,
