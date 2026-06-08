@@ -234,7 +234,10 @@ Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --
 
   version="$(resolve_node_version)"
   dir="$HYBRIDCLAW_HOME/node"
-  filename="node-v${version}-${PLATFORM_OS}-${PLATFORM_ARCH}.tar.xz"
+  # Use the gzip tarball, not .tar.xz: `tar -xzf` only needs gzip (universally
+  # present), whereas `tar -xJf` shells out to an `xz` binary that minimal
+  # Debian/Ubuntu and many container/CI bases don't ship.
+  filename="node-v${version}-${PLATFORM_OS}-${PLATFORM_ARCH}.tar.gz"
   url="https://nodejs.org/dist/v${version}/${filename}"
 
   if is_dry; then
@@ -246,13 +249,17 @@ Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --
 
   info "Installing Node.js v${version} into ${dir} (no system changes)"
   mkdir -p "$dir"
-  # No .tar.xz suffix: BusyBox mktemp requires the XXXXXX to be the final chars.
+  # No .tar.gz suffix: BusyBox mktemp requires the XXXXXX to be the final chars.
   tarball="$(mktemp "${TMPDIR:-/tmp}/hybridclaw-node.XXXXXX")"
-  trap 'rm -f "$tarball"' EXIT
+  # `${tarball:-}`: this EXIT trap also fires when a later step fails and the
+  # function unwinds, by which point the `local tarball` is out of scope; under
+  # `set -u` a bare "$tarball" would abort with "unbound variable" and mask the
+  # real error.
+  trap 'rm -f "${tarball:-}"' EXIT
   fetch --retry 3 --retry-delay 2 -o "$tarball" "$url" \
     || die "failed to download Node.js from $url"
   verify_node_checksum "$tarball" "$version" "$filename"
-  tar -xJf "$tarball" -C "$dir" --strip-components=1
+  tar -xzf "$tarball" -C "$dir" --strip-components=1
   rm -f "$tarball"
   trap - EXIT
 
@@ -335,6 +342,11 @@ ensure_npm() {
   info "Upgrading npm ${npm_version} -> >=${REQUIRED_NPM}"
   npm install -g "npm@^11" >/dev/null 2>&1 \
     || die "could not upgrade npm to >= ${REQUIRED_NPM} (have ${npm_version}). Upgrade it manually ('npm install -g npm@^11') and re-run."
+  # Forget the cached path to the old npm: when the prefix fallback installed
+  # the new npm into a different bin dir (e.g. ~/.hybridclaw/npm-global/bin), the
+  # shell's command hash still resolves `npm` to the old system binary, so the
+  # version check below would see the pre-upgrade version and wrongly fail.
+  hash -r
   npm_version="$(npm --version)"
   version_ge "$npm_version" "$REQUIRED_NPM" \
     || die "npm is still ${npm_version} after the upgrade; HybridClaw requires >= ${REQUIRED_NPM}."

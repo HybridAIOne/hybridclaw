@@ -73,6 +73,7 @@
     "test:watch": "vitest --configLoader runner --project unit",
     "test:integration": "vitest run --configLoader runner --project integration --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --project e2e --passWithNoTests",
+    "test:install-e2e": "vitest run --configLoader runner --project install-e2e --passWithNoTests",
     "test:console": "npm --workspace console run test",
     "audit:signatures": "node ./scripts/audit-signatures.mjs",
     "deps:policy": "node ./scripts/check-dependency-policy.mjs",
