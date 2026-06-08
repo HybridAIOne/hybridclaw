@@ -348,7 +348,10 @@ function normalizePatternLiteral(token: string): string {
 
 function isArgumentPlaceholder(token: string): boolean {
   const match = /^<([^>]+)>$/.exec(token) ?? /^\[([^\]]+)\]$/.exec(token);
-  return Boolean(match?.[1].trim() && !match[1].includes('|'));
+  const placeholder = match?.[1].trim() ?? '';
+  return Boolean(
+    placeholder && !placeholder.includes('|') && !placeholder.startsWith('-'),
+  );
 }
 
 function scoreCommandPrefixWithArguments(query: string, searchTerm: string) {

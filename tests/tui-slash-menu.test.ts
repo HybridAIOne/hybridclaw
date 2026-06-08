@@ -253,6 +253,25 @@ test('slash menu placeholder matching keeps choice groups literal', () => {
   expect(ranked).toEqual([]);
 });
 
+test('slash menu argument matching keeps flag placeholders literal', () => {
+  const entries = [
+    {
+      id: 'demo',
+      label: '/demo [--json]',
+      insertText: '/demo ',
+      description: 'Demo flag command',
+      searchTerms: ['/demo [--json]'],
+      depth: 1,
+      sortIndex: 0,
+    },
+  ];
+
+  expect(rankTuiSlashMenuEntries(entries, 'demo anything')).toEqual([]);
+  expect(rankTuiSlashMenuEntries(entries, 'demo --json')[0]?.label).toBe(
+    '/demo [--json]',
+  );
+});
+
 test('slash menu argument matching still ignores unknown commands', () => {
   const ranked = rankTuiSlashMenuEntries(
     buildTuiSlashMenuEntries(),
