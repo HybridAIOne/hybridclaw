@@ -144,6 +144,11 @@ import {
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { initOtel, shutdownOtel } from '../observability/otel.js';
+import {
+  captureSentryException,
+  initSentry,
+  shutdownSentry,
+} from '../observability/sentry.js';
 import { hybridAIProbe } from '../providers/hybridai-health.js';
 import {
   startDiscoveryLoop,
@@ -3239,6 +3244,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     stopScheduler();
     stopMemoryConsolidationScheduler();
     await runShutdownStep('shut down OTel', shutdownOtel);
+    await runShutdownStep('flush Sentry', shutdownSentry);
     if (proactiveFlushTimer) {
       clearInterval(proactiveFlushTimer);
       proactiveFlushTimer = null;
@@ -3484,6 +3490,7 @@ function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
 }
 
 async function main(): Promise<void> {
+  await initSentry();
   await initOtel();
   logger.info('Starting HybridClaw gateway');
   ensureA2AInstanceKeypair();
@@ -3685,7 +3692,11 @@ async function main(): Promise<void> {
   httpServer.setReady();
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   logger.fatal({ err }, 'Failed to start gateway');
+  captureSentryException(err, {
+    mechanism: 'gateway.startup',
+  });
+  await shutdownSentry();
   process.exit(1);
 });
