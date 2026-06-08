@@ -19,6 +19,16 @@ const COST_MEASUREMENT = {
   system: 'UsageTotals',
   subLimitKey: 'hue',
 };
+const HUE_BRIDGE_POLICY_PRESET = 'hue_bridge';
+const HUE_BRIDGE_POLICY_METHODS = [
+  'GET',
+  'HEAD',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+];
+const HUE_BRIDGE_POLICY_PATHS = ['/api', '/clip/v2/**', '/eventstream/clip/v2'];
 
 const CLIP_V2_RESOURCES = {
   bridge: 'bridge',
@@ -86,6 +96,7 @@ function printHelp() {
   console.log(`Hue skill helper
 
 Usage:
+  node skills/hue/hue.cjs [--format json|pretty] setup-local --host https://192.0.2.30
   node skills/hue/hue.cjs [--format json|pretty] [--request] http-request <resource> [flags]
   node skills/hue/hue.cjs [--format json|pretty] plan <operation> [flags]
   node skills/hue/hue.cjs [--format json|pretty] link --host https://192.0.2.30 --app-name hybridclaw --instance-name lab
@@ -440,6 +451,139 @@ function localSecretHeaders() {
       prefix: 'none',
     },
   ];
+}
+
+function hueBridgePolicyRuleForUrl(host) {
+  const parsed = new URL(host);
+  return {
+    action: 'allow',
+    host: parsed.hostname.toLowerCase(),
+    port: parsed.port ? Number.parseInt(parsed.port, 10) : 443,
+    methods: HUE_BRIDGE_POLICY_METHODS,
+    paths: HUE_BRIDGE_POLICY_PATHS,
+    agent: '*',
+    comment: 'Allow local Philips Hue Bridge API access.',
+    managedByPreset: HUE_BRIDGE_POLICY_PRESET,
+  };
+}
+
+function policyRuleKey(rule) {
+  return [
+    rule.action,
+    rule.host,
+    String(rule.port),
+    rule.methods.join(','),
+    rule.paths.join(','),
+    rule.agent,
+    rule.managedByPreset || '',
+  ].join('|');
+}
+
+async function importDistModule(relativePath, label) {
+  const moduleUrl = pathToFileURL(
+    path.resolve(__dirname, '..', '..', 'dist', ...relativePath),
+  ).href;
+  try {
+    return await import(moduleUrl);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Hue ${label} setup requires a built HybridClaw checkout; ${moduleUrl} was not available: ${message}.`,
+    );
+  }
+}
+
+async function saveHueBridgeHost(host, options = {}) {
+  if (typeof options.saveEnv === 'function') {
+    await options.saveEnv(LOCAL_HOST_ENV, host);
+    return;
+  }
+  const runtimeEnv = await importDistModule(
+    ['config', 'runtime-env.js'],
+    'env store',
+  );
+  runtimeEnv.saveNamedRuntimeEnv({ [LOCAL_HOST_ENV]: host });
+}
+
+async function allowHueBridgeInWorkspacePolicy(host, options = {}) {
+  const workspacePath = options.workspacePath || process.cwd();
+  const rule = hueBridgePolicyRuleForUrl(host);
+  if (typeof options.allowBridgeInPolicy === 'function') {
+    return await options.allowBridgeInPolicy({ host, workspacePath, rule });
+  }
+  const policyStore = await importDistModule(
+    ['policy', 'policy-store.js'],
+    'network policy',
+  );
+  const state = policyStore.readPolicyState(workspacePath);
+  const targetKey = policyRuleKey(rule);
+  const existingRules = state.rules.map((entry) => ({
+    ...policyStore.stripRuleIndex(entry),
+    ...(entry.managedByPreset ? { managedByPreset: entry.managedByPreset } : {}),
+  }));
+
+  if (existingRules.some((entry) => policyRuleKey(entry) === targetKey)) {
+    return {
+      policyPath: state.policyPath,
+      added: false,
+      rule,
+    };
+  }
+
+  const nextState = policyStore.setPolicyPresets(workspacePath, {
+    presets: [...new Set([...state.presets, HUE_BRIDGE_POLICY_PRESET])],
+    rules: [...existingRules, rule],
+  });
+  return {
+    policyPath: nextState.policyPath,
+    added: true,
+    rule,
+  };
+}
+
+function buildSetupLocal(args) {
+  const workspacePath = popFlag(args, '--workspace');
+  const host = normalizeBaseUrl(popFlag(args, '--host'), '--host', {
+    requireHttps: true,
+  });
+  assertNoUnexpectedArgs(args);
+  const rule = hueBridgePolicyRuleForUrl(host);
+  return {
+    command: 'setup-local',
+    host,
+    env: {
+      name: LOCAL_HOST_ENV,
+      value: host,
+    },
+    networkPolicy: {
+      workspacePath: workspacePath || process.cwd(),
+      preset: HUE_BRIDGE_POLICY_PRESET,
+      rule,
+    },
+  };
+}
+
+async function executeSetupLocalPayload(payload, options = {}) {
+  const host = normalizeBaseUrl(payload.host, 'host', { requireHttps: true });
+  await saveHueBridgeHost(host, options);
+  const policy = await allowHueBridgeInWorkspacePolicy(host, {
+    ...options,
+    workspacePath: payload.networkPolicy?.workspacePath || options.workspacePath,
+  });
+  return {
+    command: 'setup-local-result',
+    ok: true,
+    host,
+    env: {
+      name: LOCAL_HOST_ENV,
+      stored: true,
+    },
+    networkPolicy: {
+      policyPath: policy.policyPath,
+      added: policy.added,
+      rule: policy.rule,
+    },
+  };
 }
 
 function localTlsPolicy() {
@@ -986,6 +1130,10 @@ function buildRequest(inputArgs) {
       : buildLocalRead(args, resource);
   }
 
+  if (command === 'setup-local') {
+    return buildSetupLocal(args);
+  }
+
   if (command === 'plan') {
     const operation = requireText(args.shift(), 'operation');
     return parsePlanBody(operation, args);
@@ -1151,6 +1299,16 @@ function isTerminalHueLinkResult(result) {
 async function executeLivePayload(payload, options = {}) {
   if (!payload.httpRequest) return payload;
   if (payload.operation === 'local-link-button') {
+    await executeSetupLocalPayload(
+      {
+        command: 'setup-local',
+        host: payload.target.host,
+        networkPolicy: {
+          workspacePath: options.workspacePath || process.cwd(),
+        },
+      },
+      options,
+    );
     const deadline = Date.now() + 30_000;
     let lastResult;
     while (Date.now() <= deadline) {
@@ -1234,9 +1392,11 @@ async function main() {
   const payload = buildRequest(args);
   if (payload === undefined) return;
   const output =
-    !emitRequestOnly && payload.httpRequest
-      ? await executeLivePayload(payload)
-      : payload;
+    !emitRequestOnly && payload.command === 'setup-local'
+      ? await executeSetupLocalPayload(payload)
+      : !emitRequestOnly && payload.httpRequest
+        ? await executeLivePayload(payload)
+        : payload;
   process.stdout.write(
     JSON.stringify(output, null, format === 'pretty' ? 2 : 0),
   );
@@ -1256,6 +1416,8 @@ module.exports = {
   buildRequest,
   executeGatewayRequest,
   executeLivePayload,
+  executeSetupLocalPayload,
   extractHueLinkUsername,
+  hueBridgePolicyRuleForUrl,
   isHueUnauthorizedResult,
 };
