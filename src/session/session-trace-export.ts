@@ -38,6 +38,8 @@ const MAX_TRACE_VCS_DIFF_CHARS = 250_000;
 const TRACE_PRESERVED_IDENTIFIER_KEYS = new Set([
   'session_id',
   'trace_id',
+  'system_prompt_hash',
+  'dynamic_context_hash',
   'tool_call_id',
   'source_call_id',
 ]);
