@@ -300,8 +300,9 @@ function isPrivateHttpRequestAllowedByPolicy(params: {
   method: string;
   agentId?: string;
 }): boolean {
+  const workspacePath = agentWorkspaceDir(params.agentId || DEFAULT_AGENT_ID);
   try {
-    const state = readPolicyState(process.cwd());
+    const state = readPolicyState(workspacePath);
     const evaluation = evaluateNetworkPolicyAccess({
       defaultAction: state.defaultAction,
       rules: state.rules,
@@ -314,7 +315,7 @@ function isPrivateHttpRequestAllowedByPolicy(params: {
     return evaluation.decision === 'allow' && Boolean(evaluation.matchedRule);
   } catch (error) {
     logger.warn(
-      { host: params.url.hostname, error },
+      { host: params.url.hostname, workspacePath, error },
       'Failed to evaluate network policy for private http_request target; blocking request',
     );
     return false;

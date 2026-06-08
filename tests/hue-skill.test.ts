@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
@@ -188,6 +189,79 @@ test('Hue helper setup-local stores env and narrow bridge network policy', async
     nextStep:
       'Retry Hue reads immediately; the gateway reads workspace network policy per request.',
   });
+});
+
+test('Hue helper setup-local works from mirrored skill workspace without dist modules', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hue-skill-mirror-'));
+  const mirroredSkillRoot = path.join(tempRoot, 'skills', 'hue');
+  const workspacePath = path.join(tempRoot, 'workspace');
+  const runtimeHome = path.join(tempRoot, 'runtime-home');
+  fs.mkdirSync(mirroredSkillRoot, { recursive: true });
+  fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+  fs.copyFileSync(helperPath, path.join(mirroredSkillRoot, 'hue.cjs'));
+  fs.writeFileSync(
+    path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+    [
+      'approval:',
+      '  pinned_red:',
+      '    - pattern: rm -rf /',
+      '      paths:',
+      '        - ~/.ssh/**',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const previousDataDir = process.env.HYBRIDCLAW_DATA_DIR;
+  process.env.HYBRIDCLAW_DATA_DIR = runtimeHome;
+  try {
+    const mirroredHue = createRequire(import.meta.url)(
+      path.join(mirroredSkillRoot, 'hue.cjs'),
+    );
+    const result = await mirroredHue.executeSetupLocalPayload({
+      command: 'setup-local',
+      host: 'https://192.0.2.30',
+      networkPolicy: { workspacePath },
+    });
+
+    expect(result).toMatchObject({
+      command: 'setup-local-result',
+      ok: true,
+      gatewayRestartRequired: false,
+      networkPolicy: {
+        policyPath: path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+        added: true,
+      },
+    });
+    expect(
+      JSON.parse(fs.readFileSync(path.join(runtimeHome, 'env.json'), 'utf8')),
+    ).toMatchObject({
+      version: 1,
+      values: {
+        HUE_BRIDGE_HOST: 'https://192.0.2.30',
+      },
+    });
+    const policy = fs.readFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      'utf8',
+    );
+    expect(policy).toContain('approval:');
+    expect(policy).toContain('network:');
+    expect(policy).toContain('host: 192.0.2.30');
+    expect(policy).toContain('managed_by_preset: hue_bridge');
+
+    const secondResult = await mirroredHue.executeSetupLocalPayload({
+      command: 'setup-local',
+      host: 'https://192.0.2.30',
+      networkPolicy: { workspacePath },
+    });
+    expect(secondResult.networkPolicy.added).toBe(false);
+  } finally {
+    if (previousDataDir === undefined) {
+      delete process.env.HYBRIDCLAW_DATA_DIR;
+    } else {
+      process.env.HYBRIDCLAW_DATA_DIR = previousDataDir;
+    }
+  }
 });
 
 test('Hue helper builds local CLIP v2 resource-list requests without exposing secrets', () => {
