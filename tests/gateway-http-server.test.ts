@@ -11583,7 +11583,8 @@ describe('gateway HTTP server', () => {
   });
 
   test('allows private outbound http_request targets only when explicitly allowlisted by policy', async () => {
-    const workspacePath = makeTempDocsRoot();
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
     fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
     fs.writeFileSync(
       path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
@@ -11603,47 +11604,107 @@ describe('gateway HTTP server', () => {
       ].join('\n'),
       'utf8',
     );
-    const originalCwd = process.cwd();
     const state = await importFreshHealth({
+      dataDir,
       gatewayApiToken: 'gateway-token',
     });
-    process.chdir(workspacePath);
-    try {
-      const fetchMock = vi.fn(
-        async () =>
-          new Response(JSON.stringify({ id: 0, name: 'Living room' }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          }),
-      );
-      vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: 0, name: 'Living room' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
 
-      const req = makeRequest({
-        method: 'POST',
-        url: '/api/http/request',
-        headers: { authorization: 'Bearer gateway-token' },
-        body: {
-          url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
-          method: 'GET',
-        },
-      });
-      const res = makeResponse();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
+        method: 'GET',
+      },
+    });
+    const res = makeResponse();
 
-      state.handler(req as never, res as never);
-      await settle();
+    state.handler(req as never, res as never);
+    await settle();
 
-      expect(res.statusCode).toBe(200);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.any(URL),
-        expect.objectContaining({ method: 'GET' }),
-      );
-    } finally {
-      process.chdir(originalCwd);
-    }
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  test('honors managed read-write LAN policy for private http_request targets', async () => {
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: "*"',
+        '      methods:',
+        '        - GET',
+        '        - HEAD',
+        '        - POST',
+        '        - PUT',
+        '        - PATCH',
+        '        - DELETE',
+        '        - OPTIONS',
+        '      paths:',
+        '        - /**',
+        '      agent: "*"',
+        '      managed_by_preset: lan-http-access',
+        '  presets:',
+        '    - lan-http-access',
+      ].join('\n'),
+      'utf8',
+    );
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://192.168.178.73/clip/v2/resource/light',
+        method: 'GET',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ method: 'GET' }),
+    );
   });
 
   test('keeps private outbound http_request targets blocked when policy path does not match', async () => {
-    const workspacePath = makeTempDocsRoot();
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
     fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
     fs.writeFileSync(
       path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
@@ -11663,42 +11724,38 @@ describe('gateway HTTP server', () => {
       ].join('\n'),
       'utf8',
     );
-    const originalCwd = process.cwd();
     const state = await importFreshHealth({
+      dataDir,
       gatewayApiToken: 'gateway-token',
     });
-    process.chdir(workspacePath);
-    try {
-      const fetchMock = vi.fn();
-      vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
 
-      const req = makeRequest({
-        method: 'POST',
-        url: '/api/http/request',
-        headers: { authorization: 'Bearer gateway-token' },
-        body: {
-          url: 'http://192.168.178.198/debug',
-          method: 'GET',
-        },
-      });
-      const res = makeResponse();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'http://192.168.178.198/debug',
+        method: 'GET',
+      },
+    });
+    const res = makeResponse();
 
-      state.handler(req as never, res as never);
-      await settle();
+    state.handler(req as never, res as never);
+    await settle();
 
-      expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({
-        error:
-          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for GET /debug on port 80.',
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      process.chdir(originalCwd);
-    }
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for GET /debug on port 80.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('reports private outbound http_request method mismatches against policy', async () => {
-    const workspacePath = makeTempDocsRoot();
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
     fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
     fs.writeFileSync(
       path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
@@ -11718,38 +11775,33 @@ describe('gateway HTTP server', () => {
       ].join('\n'),
       'utf8',
     );
-    const originalCwd = process.cwd();
     const state = await importFreshHealth({
+      dataDir,
       gatewayApiToken: 'gateway-token',
     });
-    process.chdir(workspacePath);
-    try {
-      const fetchMock = vi.fn();
-      vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
 
-      const req = makeRequest({
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
         method: 'POST',
-        url: '/api/http/request',
-        headers: { authorization: 'Bearer gateway-token' },
-        body: {
-          url: 'http://192.168.178.198/rpc/Cover.GetConfig?id=0',
-          method: 'POST',
-        },
-      });
-      const res = makeResponse();
+      },
+    });
+    const res = makeResponse();
 
-      state.handler(req as never, res as never);
-      await settle();
+    state.handler(req as never, res as never);
+    await settle();
 
-      expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({
-        error:
-          'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for POST /rpc/Cover.GetConfig on port 80.',
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      process.chdir(originalCwd);
-    }
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host (192.168.178.198) is not allowlisted by workspace network policy for POST /rpc/Cover.GetConfig on port 80.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('streams outbound http_request responses and truncates once the size limit is exceeded', async () => {
