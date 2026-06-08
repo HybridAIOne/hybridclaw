@@ -40,21 +40,14 @@ agent needs a real turn so the bootstrapped workspace context is loaded.
 - Ask what the user does and which tools they live in before suggesting jobs.
 - Prefer concrete recurring jobs over vague capability lists.
 - Suggest a few easy first wins and one or two more ambitious workflows.
-- Mention setup requirements only when relevant, such as email, calendar, CRM,
-  GitHub, browser login, or stored credentials.
-- Ask before any action that sends messages, posts publicly, changes business
-  systems, spends money, or touches sensitive records.
+- Mention setup requirements only when relevant, such as email, calendar, CRM, GitHub, browser login, or stored credentials.
+- Ask before any action that sends messages, posts publicly, changes business systems, spends money, or touches sensitive records.
 
 ## Good Hatching Follow-Ups
 
-- "Which tools do you use every day: email, calendar, Slack, Discord, Teams,
-  WhatsApp, Notion, Google Docs, GitHub, Trello, Stripe, HubSpot, Salesforce,
-  accounting tools, or something else?"
-- "What repeats every week that you wish someone else would prepare, summarize,
-  check, or draft?"
-- "Do you want me to be mostly a personal assistant, a business operations
-  helper, an engineering copilot, a communications aide, or a document/media
-  producer?"
+- "Which tools do you use every day: email, calendar, Slack, Discord, Teams, WhatsApp, Notion, Google Docs, GitHub, Trello, Stripe, HubSpot, Salesforce, accounting tools, or something else?"
+- "What repeats every week that you wish someone else would prepare, summarize, check, or draft?"
+- "Do you want me to be mostly a personal assistant, a business operations helper, an engineering copilot, a communications aide, or a document/media producer?"
 - "Which actions should I only draft for approval instead of doing directly?"
 
 ## Personal Assistant Jobs
@@ -67,12 +60,9 @@ agent needs a real turn so the bootstrapped workspace context is loaded.
 
 ## Business And Operations Jobs
 
-- Weekly pipeline, customer, or operations digest from CRM, email, chat, and
-  spreadsheets.
-- Meeting prep packets with account context, open issues, agenda, and likely
-  decisions.
-- Post-demo follow-up packs: recap, next steps, proposal outline, and email
-  drafts.
+- Weekly pipeline, customer, or operations digest from CRM, email, chat, and spreadsheets.
+- Meeting prep packets with account context, open issues, agenda, and likely decisions.
+- Post-demo follow-up packs: recap, next steps, proposal outline, and email drafts.
 - Customer feedback digest from support emails, reviews, sales notes, and chat.
 - Invoice and receipt collection into a normalized manifest for bookkeeping.
 - KPI spreadsheet updates and executive summaries from exports or dashboards.
@@ -80,20 +70,15 @@ agent needs a real turn so the bootstrapped workspace context is loaded.
 ## Engineering Jobs
 
 - Code review focused on bugs, regressions, security risks, and missing tests.
-- GitHub issue triage, branch creation, implementation, PR drafting, and CI
-  follow-up.
+- GitHub issue triage, branch creation, implementation, PR drafting, and CI follow-up.
 - Release prep: changelog polish, docs checks, smoke tests, and release notes.
-- Architecture or feature planning with risks, milestones, and acceptance
-  criteria.
-- Incident timelines from chat logs, commits, monitoring notes, and status
-  updates.
+- Architecture or feature planning with risks, milestones, and acceptance criteria.
+- Incident timelines from chat logs, commits, monitoring notes, and status updates.
 
 ## Communication Jobs
 
-- Catch-up summaries across Discord, Slack, Teams, Telegram, WhatsApp, email,
-  and local chat.
-- Draft stakeholder updates, customer replies, internal announcements, and
-  follow-up emails.
+- Catch-up summaries across Discord, Slack, Teams, Telegram, WhatsApp, email, and local chat.
+- Draft stakeholder updates, customer replies, internal announcements, and follow-up emails.
 - Convert a messy thread into decisions, action items, owners, and deadlines.
 - Prepare response options for urgent messages without sending until approved.
 - Keep recurring status updates short, factual, and tailored to the audience.
@@ -119,12 +104,10 @@ agent needs a real turn so the bootstrapped workspace context is loaded.
 - **Email:** summarize threads, draft replies, collect invoices, prepare follow-ups.
 - **Calendar:** find focus time, prepare meeting briefs, draft `.ics` events.
 - **GitHub:** review diffs, process issues, open PRs, monitor CI.
-- **Trello / project boards:** build sprint plans, risk registers, and status
-  updates.
+- **Trello / project boards:** build sprint plans, risk registers, and status updates.
 - **Google Workspace / docs:** search emails/docs, prepare agendas, create docs.
 - **CRM / sales tools:** prep account briefs, pipeline summaries, and deal notes.
-- **Stripe / billing:** inspect failed payments, customer subscriptions, and
-  invoice workflows.
+- **Stripe / billing:** inspect failed payments, customer subscriptions, and invoice workflows.
 - **Discord / Slack / Teams:** catch up, summarize incidents, draft replies.
 - **Apple apps:** inspect calendar, open Passwords metadata, control Music.
 
