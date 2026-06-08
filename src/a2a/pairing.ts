@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import { SlidingWindowRateLimiter } from '../channels/discord/rate-limiter.js';
 import {
   getRuntimeAssetRevisionState,
   listRuntimeAssetRevisionStates,
@@ -46,6 +47,10 @@ const A2A_PAIRING_REQUEST_ASSET_PREFIX = path.join(
 );
 const A2A_PAIRING_AUDIT_SESSION_ID = 'a2a:pairing';
 const A2A_PAIRING_MAX_BODY_BYTES = 64 * 1024;
+const A2A_PAIRING_PUBLIC_RATE_LIMIT_PER_MINUTE = 30;
+const A2A_PAIRING_FIELD_MAX_CHARS = 512;
+const A2A_PAIRING_URL_MAX_CHARS = 2_048;
+const pairingRequestRateLimiter = new SlidingWindowRateLimiter(60_000);
 
 export type A2APairingRequestStatus = 'pending' | 'approved' | 'declined';
 export type A2APairingRemoteNotificationStatus =
@@ -118,6 +123,12 @@ function normalizePairingUrl(value: string, label: string): string {
   if (!normalized) {
     throw new GatewayRequestError(400, `${label} is required.`);
   }
+  if (normalized.length > A2A_PAIRING_URL_MAX_CHARS) {
+    throw new GatewayRequestError(
+      400,
+      `${label} must be ${A2A_PAIRING_URL_MAX_CHARS} characters or fewer.`,
+    );
+  }
   let url: URL;
   try {
     url = new URL(normalized);
@@ -131,6 +142,22 @@ function normalizePairingUrl(value: string, label: string): string {
     );
   }
   return url.toString();
+}
+
+function normalizeOptionalPairingString(
+  value: unknown,
+  label: string,
+): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+  if (normalized.length > A2A_PAIRING_FIELD_MAX_CHARS) {
+    throw new GatewayRequestError(
+      400,
+      `${label} must be ${A2A_PAIRING_FIELD_MAX_CHARS} characters or fewer.`,
+    );
+  }
+  return normalized;
 }
 
 function deriveAgentCardUrl(peerUrl: string): string {
@@ -417,7 +444,12 @@ async function resolveA2APairingCanonicalTarget(
     .replace(/\.+$/u, '')}`;
   const records = await resolveTxt(recordName);
   for (const record of records) {
-    const parsed = JSON.parse(record.join('')) as Record<string, unknown>;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(record.join('')) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
     if (parsed.instanceId !== instanceId) continue;
     if (
       typeof parsed.url !== 'string' ||
@@ -587,15 +619,18 @@ export function createIncomingA2APairingRequest(
   }
   const requestId = requestIdFor(key);
   const existing = getIncomingPairingRequest(requestId);
+  if (existing && existing.status !== 'pending') {
+    return existing;
+  }
   const timestamp = now.toISOString();
   const request: A2AIncomingPairingRequest = {
     schemaVersion: A2A_PAIRING_REQUEST_SCHEMA_VERSION,
     requestId,
     status: existing?.status || 'pending',
     pairingId:
-      typeof input.pairingId === 'string' && input.pairingId.trim()
-        ? input.pairingId.trim()
-        : existing?.pairingId || null,
+      normalizeOptionalPairingString(input.pairingId, 'pairingId') ||
+      existing?.pairingId ||
+      null,
     peerId: key.peerId,
     agentCardUrl: normalizePairingUrl(
       String(input.agentCardUrl || ''),
@@ -604,12 +639,11 @@ export function createIncomingA2APairingRequest(
     deliveryUrl: card.url,
     publicKeyJwk: key.publicKeyJwk,
     publicKeyFingerprint: key.publicKeyFingerprint,
-    name:
-      typeof input.name === 'string' && input.name.trim() ? input.name : null,
-    requestedBy:
-      typeof input.requestedBy === 'string' && input.requestedBy.trim()
-        ? input.requestedBy.trim()
-        : null,
+    name: normalizeOptionalPairingString(input.name, 'name'),
+    requestedBy: normalizeOptionalPairingString(
+      input.requestedBy,
+      'requestedBy',
+    ),
     requestedAt: existing?.requestedAt || timestamp,
     updatedAt: timestamp,
     ...(existing?.approvedAt ? { approvedAt: existing.approvedAt } : {}),
@@ -642,6 +676,12 @@ export function approveIncomingA2APairingRequest(params: {
   const request = getIncomingPairingRequest(params.requestId);
   if (!request) {
     throw new GatewayRequestError(404, 'A2A pairing request not found.');
+  }
+  if (request.status !== 'pending') {
+    throw new GatewayRequestError(
+      409,
+      'Pairing request is already in a terminal state.',
+    );
   }
   const now = params.now ?? new Date();
   const timestamp = now.toISOString();
@@ -687,6 +727,12 @@ export function declineIncomingA2APairingRequest(params: {
   if (!request) {
     throw new GatewayRequestError(404, 'A2A pairing request not found.');
   }
+  if (request.status !== 'pending') {
+    throw new GatewayRequestError(
+      409,
+      'Pairing request is already in a terminal state.',
+    );
+  }
   const timestamp = (params.now ?? new Date()).toISOString();
   const declined: A2AIncomingPairingRequest = {
     ...request,
@@ -720,6 +766,19 @@ export async function handleA2APairingRequestInbound(
   }
   if (req.method !== 'POST') {
     sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+  const rateLimitKey = req.socket.remoteAddress || 'unknown';
+  const rateLimit = pairingRequestRateLimiter.check(
+    rateLimitKey,
+    A2A_PAIRING_PUBLIC_RATE_LIMIT_PER_MINUTE,
+  );
+  if (!rateLimit.allowed) {
+    res.setHeader(
+      'Retry-After',
+      String(Math.ceil(rateLimit.retryAfterMs / 1000)),
+    );
+    sendJson(res, 429, { error: 'Too Many Requests' });
     return;
   }
   try {

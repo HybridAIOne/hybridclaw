@@ -1,5 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { describe, expect, test, vi } from 'vitest';
 
 import { setupA2AWebhookTestEnv } from './helpers/a2a-webhook-fixtures.ts';
@@ -9,6 +10,38 @@ setupA2AWebhookTestEnv('hc-a2a-pairing-');
 function peerPublicKeyJwk() {
   const pair = generateKeyPairSync('ed25519');
   return pair.publicKey.export({ format: 'jwk' });
+}
+
+function makePairingRequest(params: {
+  body: unknown;
+  remoteAddress?: string;
+}) {
+  return Object.assign(Readable.from([Buffer.from(JSON.stringify(params.body))]), {
+    method: 'POST',
+    socket: {
+      remoteAddress: params.remoteAddress || '203.0.113.10',
+    },
+  });
+}
+
+function makePairingResponse() {
+  const headers = new Map<string, string>();
+  return {
+    statusCode: 0,
+    body: '',
+    setHeader(name: string, value: string) {
+      headers.set(name.toLowerCase(), value);
+    },
+    getHeader(name: string) {
+      return headers.get(name.toLowerCase());
+    },
+    writeHead(statusCode: number) {
+      this.statusCode = statusCode;
+    },
+    end(body?: string) {
+      this.body = body || '';
+    },
+  };
 }
 
 describe('A2A operator pairing', () => {
@@ -115,6 +148,141 @@ describe('A2A operator pairing', () => {
     });
   });
 
+  test('keeps terminal pairing request URLs immutable on replay', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const pairing = await import('../src/a2a/pairing.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
+
+    initDatabase({ quiet: true });
+    const publicKeyJwk = peerPublicKeyJwk();
+    const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const request = pairing.createIncomingA2APairingRequest(
+      {
+        peerId: 'stable-prod',
+        agentCardUrl: 'https://stable.example.com/.well-known/agent.json',
+        deliveryUrl: 'https://stable.example.com/a2a',
+        publicKeyJwk,
+        publicKeyFingerprint,
+      },
+      new Date('2030-01-01T00:00:00.000Z'),
+    );
+    const approved = pairing.approveIncomingA2APairingRequest({
+      requestId: request.requestId,
+      actor: 'local-admin',
+      now: new Date('2030-01-01T00:01:00.000Z'),
+    });
+
+    const replayed = pairing.createIncomingA2APairingRequest(
+      {
+        peerId: 'stable-prod',
+        agentCardUrl: 'https://attacker.example.com/.well-known/agent.json',
+        deliveryUrl: 'https://attacker.example.com/a2a',
+        publicKeyJwk,
+        publicKeyFingerprint,
+      },
+      new Date('2030-01-01T00:02:00.000Z'),
+    );
+
+    expect(replayed).toMatchObject({
+      status: 'approved',
+      agentCardUrl: approved.agentCardUrl,
+      deliveryUrl: approved.deliveryUrl,
+      updatedAt: approved.updatedAt,
+    });
+  });
+
+  test('rejects approve or decline on terminal pairing requests', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const pairing = await import('../src/a2a/pairing.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
+
+    initDatabase({ quiet: true });
+    const publicKeyJwk = peerPublicKeyJwk();
+    const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const request = pairing.createIncomingA2APairingRequest({
+      peerId: 'terminal-prod',
+      agentCardUrl: 'https://terminal.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://terminal.example.com/a2a',
+      publicKeyJwk,
+      publicKeyFingerprint,
+    });
+    pairing.declineIncomingA2APairingRequest({
+      requestId: request.requestId,
+      actor: 'local-admin',
+    });
+
+    expect(() =>
+      pairing.approveIncomingA2APairingRequest({
+        requestId: request.requestId,
+        actor: 'local-admin',
+      }),
+    ).toThrow('Pairing request is already in a terminal state.');
+    expect(() =>
+      pairing.declineIncomingA2APairingRequest({
+        requestId: request.requestId,
+        actor: 'local-admin',
+      }),
+    ).toThrow('Pairing request is already in a terminal state.');
+  });
+
+  test('rejects oversized peer-supplied pairing display fields', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const pairing = await import('../src/a2a/pairing.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
+
+    initDatabase({ quiet: true });
+    const publicKeyJwk = peerPublicKeyJwk();
+    const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+
+    expect(() =>
+      pairing.createIncomingA2APairingRequest({
+        peerId: 'large-field-prod',
+        agentCardUrl: 'https://large-field.example.com/.well-known/agent.json',
+        deliveryUrl: 'https://large-field.example.com/a2a',
+        publicKeyJwk,
+        publicKeyFingerprint,
+        name: 'x'.repeat(513),
+      }),
+    ).toThrow('name must be 512 characters or fewer.');
+  });
+
+  test('rate limits the public inbound pairing endpoint per remote address', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const pairing = await import('../src/a2a/pairing.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
+
+    initDatabase({ quiet: true });
+    const publicKeyJwk = peerPublicKeyJwk();
+    const publicKeyFingerprint = trust.fingerprintA2APublicKey(publicKeyJwk);
+    const body = {
+      peerId: 'rate-prod',
+      agentCardUrl: 'https://rate.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://rate.example.com/a2a',
+      publicKeyJwk,
+      publicKeyFingerprint,
+    };
+    const url = new URL('https://local.example.com/a2a/pairing/requests');
+
+    for (let index = 0; index < 30; index += 1) {
+      const res = makePairingResponse();
+      await pairing.handleA2APairingRequestInbound(
+        makePairingRequest({ body }),
+        res as never,
+        url,
+      );
+      expect(res.statusCode).toBe(202);
+    }
+
+    const limited = makePairingResponse();
+    await pairing.handleA2APairingRequestInbound(
+      makePairingRequest({ body }),
+      limited as never,
+      url,
+    );
+    expect(limited.statusCode).toBe(429);
+    expect(limited.getHeader('Retry-After')).toBeTruthy();
+  });
+
   test('rejects stored pairing requests with mismatched deterministic request ids', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const { DEFAULT_RUNTIME_HOME_DIR } = await import(
@@ -200,6 +368,47 @@ describe('A2A operator pairing', () => {
       peerId: 'known-peer',
       name: 'Known Peer',
       publicKeyFingerprint: trust.fingerprintA2APublicKey(peerKey),
+    });
+  });
+
+  test('skips malformed DNS TXT records while resolving canonical instance ids', async () => {
+    const peerKey = peerPublicKeyJwk();
+    vi.doMock('node:dns/promises', () => ({
+      resolveTxt: vi.fn(async () => [
+        ['{not json'],
+        [
+          JSON.stringify({
+            instanceId: 'dns-peer',
+            url: 'https://dns.example.com',
+            publicKey: JSON.stringify(peerKey),
+          }),
+        ],
+      ]),
+    }));
+    process.env.HYBRIDCLAW_IDENTITY_DISCOVERY_ZONE = 'example.test';
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const pairing = await import('../src/a2a/pairing.ts');
+
+    initDatabase({ quiet: true });
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        name: 'DNS Peer',
+        url: 'https://dns.example.com/a2a',
+        hybridclaw: {
+          instanceId: 'dns-peer',
+          publicKeyJwk: peerKey,
+        },
+      }),
+    );
+
+    await expect(
+      pairing.fetchA2APairingProposal({
+        canonicalId: 'dns-peer',
+        fetchImpl,
+      }),
+    ).resolves.toMatchObject({
+      peerId: 'dns-peer',
+      agentCardUrl: 'https://dns.example.com/.well-known/agent.json',
     });
   });
 });

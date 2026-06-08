@@ -5610,10 +5610,10 @@ function mapA2APairingStartResponse(
   };
 }
 
-export async function startGatewayAdminA2APairing(
-  input: GatewayAdminA2APairingStartRequest,
-  actor?: string,
-): Promise<GatewayAdminA2APairingStartResponse> {
+function resolvePairingTargetInput(input: GatewayAdminA2APairingStartRequest): {
+  peerUrl?: string;
+  canonicalId?: string;
+} {
   const peerUrl = normalizeOptionalA2AStringInput(input.peerUrl, 'peerUrl');
   const canonicalId =
     normalizeOptionalA2AStringInput(input.canonicalId, 'canonicalId') ||
@@ -5627,6 +5627,14 @@ export async function startGatewayAdminA2APairing(
       'Expected `peerUrl`, `canonicalId`, or `canonicalInstanceId`.',
     );
   }
+  return { peerUrl, canonicalId };
+}
+
+export async function startGatewayAdminA2APairing(
+  input: GatewayAdminA2APairingStartRequest,
+  actor?: string,
+): Promise<GatewayAdminA2APairingStartResponse> {
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
   const notifyPeer =
     normalizeOptionalA2ABooleanInput(input.notifyPeer, 'notifyPeer') ?? true;
   const result = await startA2APairing({
@@ -5643,19 +5651,7 @@ export async function startGatewayAdminA2APairing(
 export async function previewGatewayAdminA2APairing(
   input: GatewayAdminA2APairingStartRequest,
 ): Promise<GatewayAdminA2APairingPreviewResponse> {
-  const peerUrl = normalizeOptionalA2AStringInput(input.peerUrl, 'peerUrl');
-  const canonicalId =
-    normalizeOptionalA2AStringInput(input.canonicalId, 'canonicalId') ||
-    normalizeOptionalA2AStringInput(
-      input.canonicalInstanceId,
-      'canonicalInstanceId',
-    );
-  if (!peerUrl && !canonicalId) {
-    throw new GatewayRequestError(
-      400,
-      'Expected `peerUrl`, `canonicalId`, or `canonicalInstanceId`.',
-    );
-  }
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
   const proposal = await fetchA2APairingProposal({ peerUrl, canonicalId });
   return {
     proposal: {

@@ -1043,6 +1043,13 @@ code {
   min-width: 0;
 }
 
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .list-row > .row-actions {
   display: flex;
   flex: 0 0 auto;
@@ -1145,13 +1152,6 @@ code {
 .info-row strong,
 .info-row small {
   overflow-wrap: anywhere;
-}
-
-.row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .skill-blocked-badge {
