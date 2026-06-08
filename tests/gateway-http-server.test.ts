@@ -11702,6 +11702,64 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('honors managed read-only LAN policy for private http_request GET targets', async () => {
+    const dataDir = makeTempDataDir();
+    const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'network:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      host: 192.168.0.0/16',
+        '      port: "*"',
+        '      methods:',
+        '        - GET',
+        '      paths:',
+        '        - /**',
+        '      agent: "*"',
+        '      managed_by_preset: lan-http-access',
+        '  presets:',
+        '    - lan-http-access',
+      ].join('\n'),
+      'utf8',
+    );
+    const state = await importFreshHealth({
+      dataDir,
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://192.168.178.73/clip/v2/resource/light',
+        method: 'GET',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
   test('keeps private outbound http_request targets blocked when policy path does not match', async () => {
     const dataDir = makeTempDataDir();
     const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
