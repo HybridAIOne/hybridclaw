@@ -23,6 +23,14 @@ _(What do they care about? What projects are they working on? What annoys them? 
 
 _(After hatching, keep a short list of practical jobs the user may want HybridClaw to do based on their goals, tools, and the hatching task ideas guide in the docs.)_
 
+## First Jobs Email
+
+- **Status:** pending
+- **Recipient:**
+- **Subject:** Ways I can help with HybridClaw
+- **Delivery:** not sent
+- **Last handled:**
+
 ---
 
 The more you know, the better you can help. But remember — you're learning about a person, not building a dossier. Respect the difference.
