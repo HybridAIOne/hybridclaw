@@ -30,20 +30,6 @@ import {
   SlashSuggestionsPanel,
 } from './slash-suggestions-panel';
 
-function shouldSubmitWithActiveSlashSuggestion(
-  value: string,
-  cursor: number,
-  item: ChatCommandSuggestion,
-): boolean {
-  const ctx = getSlashContext(value, cursor);
-  if (!ctx) return false;
-  const query = ctx.query.trim();
-  const suggestedCommand = item.insertText
-    .replace(/^\//, '')
-    .replace(/\s+$/, '');
-  return query.startsWith(`${suggestedCommand} `);
-}
-
 export function Composer(props: {
   isStreaming: boolean;
   onSend: (content: string, media: MediaItem[]) => void;
@@ -254,16 +240,7 @@ export function Composer(props: {
         setActiveIdx(suggestions.length - 1);
         return;
       }
-      if (
-        e.key === 'Enter' &&
-        shouldSubmitWithActiveSlashSuggestion(
-          e.currentTarget.value,
-          e.currentTarget.selectionStart ?? e.currentTarget.value.length,
-          suggestions[activeIdx],
-        )
-      ) {
-        closePanel();
-      } else if (e.key === 'Tab' || e.key === 'Enter') {
+      if (e.key === 'Tab') {
         e.preventDefault();
         applySuggestion(suggestions[activeIdx]);
         return;

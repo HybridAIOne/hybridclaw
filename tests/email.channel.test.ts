@@ -895,9 +895,15 @@ describe('email runtime', () => {
     );
     const runtime = createEmailRuntime();
 
-    await runtime.sendToEmail('boss@example.com', 'hello from the bot');
+    await runtime.sendToEmail('boss@example.com', 'hello from the bot', {
+      fromName: 'assist',
+    });
 
     expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(sendMail.mock.calls[0]?.[0]?.from).toEqual({
+      name: 'assist',
+      address: 'agent@example.com',
+    });
     const generatedMessageId = String(
       sendMail.mock.calls[0]?.[0]?.messageId || '',
     );

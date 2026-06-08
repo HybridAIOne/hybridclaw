@@ -7,6 +7,14 @@
 - **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables optional gateway Sentry reporting for startup failures, uncaught exceptions, unhandled rejections, and errors recorded through shared gateway/agent spans, with default `production` environment, automatic `hybridclaw@<package-version>` release naming, secret redaction, and graceful shutdown flushes.
 - **Scheduler heartbeat polling action**: Config-backed scheduler jobs can use the explicit `heartbeat_poll` action kind so empty `HEARTBEAT.md` files are skipped before any model turn is started.
 
+### Changed
+
+- **Web agent hatching kickoff**: Switching to an agent with an active `BOOTSTRAP.md` in web chat now sends a hidden kickoff turn so hatching starts immediately while the visible slash-command response remains local command output.
+
+### Fixed
+
+- **Web approval buttons**: Approval buttons now emit gateway-supported commands: `Allow once` sends `/approve yes`, `Allow always` sends `/approve all`, and scoped buttons send their matching `session` or `agent` approvals.
+
 ## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
 
 ### Added

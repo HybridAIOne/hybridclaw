@@ -115,13 +115,13 @@ describe('Composer', () => {
 
     it('inserts insertText with exactly one trailing space (no double space)', async () => {
       const textarea = await showPanel([APPROVE]);
-      fireEvent.keyDown(textarea, { key: 'Enter' });
+      fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(textarea.value).toBe('/approve ');
     });
 
     it('appends a single trailing space when insertText has none', async () => {
       const textarea = await showPanel([CLEAR]);
-      fireEvent.keyDown(textarea, { key: 'Enter' });
+      fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(textarea.value).toBe('/clear ');
     });
 
@@ -149,6 +149,46 @@ describe('Composer', () => {
 
       expect(onSend).toHaveBeenCalledWith('/agent create perso', []);
       expect(textarea.value).toBe('');
+    });
+
+    it('Enter submits slash commands even while suggestions are open', async () => {
+      const onSend = vi.fn();
+      const agentRoot: ChatCommandSuggestion = {
+        id: 'agent',
+        label: '/agent <list|switch|create|install>',
+        insertText: '/agent ',
+        description: 'Manage agents',
+      };
+      fetchChatCommandsMock.mockResolvedValue({ commands: [agentRoot] });
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: '/agent create bob' } });
+      await screen.findByRole('listbox');
+
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+
+      expect(onSend).toHaveBeenCalledWith('/agent create bob', []);
+      expect(textarea.value).toBe('');
+    });
+
+    it('Tab completes the active slash suggestion instead of submitting', async () => {
+      const onSend = vi.fn();
+      const agentRoot: ChatCommandSuggestion = {
+        id: 'agent',
+        label: '/agent <list|switch|create|install>',
+        insertText: '/agent ',
+        description: 'Manage agents',
+      };
+      fetchChatCommandsMock.mockResolvedValue({ commands: [agentRoot] });
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: '/ag' } });
+      await screen.findByRole('listbox');
+
+      fireEvent.keyDown(textarea, { key: 'Tab' });
+
+      expect(onSend).not.toHaveBeenCalled();
+      expect(textarea.value).toBe('/agent ');
     });
 
     it('ArrowDown moves selection and wraps around', async () => {
@@ -378,7 +418,7 @@ describe('Composer', () => {
       textarea.setSelectionRange(cursor, cursor);
       fireEvent.input(textarea);
       await screen.findByRole('listbox');
-      fireEvent.keyDown(textarea, { key: 'Enter' });
+      fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(textarea.value).toBe('hello /approve world');
       expect(textarea.selectionStart).toBe('hello /approve'.length);
     });

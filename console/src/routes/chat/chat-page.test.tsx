@@ -512,6 +512,32 @@ describe('ChatPage', () => {
     });
   });
 
+  it('starts hidden hatching after switching to an agent with active BOOTSTRAP', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+      bootstrapAutostart: {
+        status: 'idle',
+        fileName: 'BOOTSTRAP.md',
+      },
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Switch agent'), {
+      target: { value: 'charly' },
+    });
+
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith('Start hatching.', [], {
+        hideUser: true,
+      }),
+    );
+  });
+
   it('keeps first agent switch result visible when bare /chat resolves to a server session id', async () => {
     const routerModule = (await import(
       '@tanstack/react-router'

@@ -627,7 +627,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 
 | Command | Main surface | Purpose |
 |---|---|---|
-| `/agent [info|list|switch|create|install|model]` | local and chat channels | Inspect, create, switch, install, or set models for agents |
+| `/agent [info|list|switch|create|install|model]` | local and chat channels | Inspect, create, switch, install, or set models for agents; web `/agent switch` starts hatching when `BOOTSTRAP.md` is active |
 | `/approve [view|yes|session|agent|all|no] [approval_id]` | local and chat channels | View or answer pending tool approval requests |
 | `/audit [sessionId]|last|turn <n>|run <runId>` | local and chat channels | Show recent audit events or focused turn traces |
 | `/auth status <provider>` | local TUI/web | Show local auth and provider config state |

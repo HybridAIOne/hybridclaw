@@ -14,26 +14,21 @@ systems that are actually configured.
 ## Triggering Hatching
 
 Hatching runs from `BOOTSTRAP.md` in the agent workspace. Creating an agent
-seeds the workspace, but the `agent create` and `agent switch` commands are
-gateway commands, not agent turns.
+seeds the workspace and reports where that workspace lives. The command response
+itself is still gateway output, not the hatching conversation.
 
-For automatic hatching, create the agent and then open a fresh chat/session
-with that agent selected:
+In web chat, switching to an agent with an active `BOOTSTRAP.md` starts hatching
+automatically by sending a hidden kickoff turn to the selected agent:
 
 ```text
 /agent create bob
-```
-
-If you are already in a chat, switch to the new agent and then send a normal
-message such as `hi`:
-
-```text
 /agent switch bob
-hi
 ```
 
-Do not expect hatching to run as part of the slash command response itself. The
-agent needs a real turn so the bootstrapped workspace context is loaded.
+The visible switch response remains command output, and the hatching reply
+follows as the agent's first normal turn. If another surface does not start the
+hidden kickoff, open a fresh chat/session with that agent selected or send a
+short normal message such as `hi` after switching.
 
 ## How To Use This
 
@@ -52,15 +47,18 @@ specific jobs tied to the user's work, tools, and goals.
 Write those jobs into `USER.md` under `Suggested First Jobs`, then update the
 `First Jobs Email` section:
 
-- `Status: sent` only after the user explicitly approves sending and an email
-  channel or message tool actually sends it.
-- `Status: drafted in chat` when no email-sending channel is available or the
-  user has not approved sending. Show the draft in chat and say it has not been
-  sent.
-- `Status: not sent - user declined` when the user does not want it sent.
+- `Status: sent` after the first hatching greeting email is sent successfully
+  through the email channel or message tool.
+- `Status: drafted in chat` when no email-sending channel is available. Show the
+  email in chat and say it has not been sent.
+- `Status: send failed - <short reason>` when the email channel or message tool
+  fails.
 
-Treat sending the email as an external action. Always show the exact draft and
-ask for confirmation before sending.
+The first hatching email is part of onboarding. If the user provided an email
+address and an email-sending channel is available, send it directly instead of
+showing a draft first. Make it warm, enthusiastic, specific to the user, and
+personal to the new agent. It should feel like a meaningful first hello, not a
+dry task list.
 
 ## Good Hatching Follow-Ups
 
