@@ -43,6 +43,25 @@ agent needs a real turn so the bootstrapped workspace context is loaded.
 - Mention setup requirements only when relevant, such as email, calendar, CRM, GitHub, browser login, or stored credentials.
 - Ask before any action that sends messages, posts publicly, changes business systems, spends money, or touches sensitive records.
 
+## Handling The Ideas Email
+
+After the user gives enough context, create a tailored first-jobs email rather
+than a generic capability list. Use `USER.md` and this guide to pick 5 to 8
+specific jobs tied to the user's work, tools, and goals.
+
+Write those jobs into `USER.md` under `Suggested First Jobs`, then update the
+`First Jobs Email` section:
+
+- `Status: sent` only after the user explicitly approves sending and an email
+  channel or message tool actually sends it.
+- `Status: drafted in chat` when no email-sending channel is available or the
+  user has not approved sending. Show the draft in chat and say it has not been
+  sent.
+- `Status: not sent - user declined` when the user does not want it sent.
+
+Treat sending the email as an external action. Always show the exact draft and
+ask for confirmation before sending.
+
 ## Good Hatching Follow-Ups
 
 - "Which tools do you use every day: email, calendar, Slack, Discord, Teams, WhatsApp, Notion, Google Docs, GitHub, Trello, Stripe, HubSpot, Salesforce, accounting tools, or something else?"
