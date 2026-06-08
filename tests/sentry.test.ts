@@ -4,6 +4,7 @@ const sentryInit = vi.fn(() => ({}));
 const sentrySetTag = vi.fn();
 const sentryCaptureException = vi.fn();
 const sentryFlush = vi.fn(async () => true);
+const originalNpmPackageVersion = process.env.npm_package_version;
 let runtimeEnvValues: Record<string, string> = {};
 
 async function importFreshSentry() {
@@ -31,6 +32,11 @@ describe('Sentry observability', () => {
     delete process.env.SENTRY_ENVIRONMENT;
     delete process.env.SENTRY_RELEASE;
     delete process.env.SENTRY_TRACES_SAMPLE_RATE;
+    if (originalNpmPackageVersion === undefined) {
+      delete process.env.npm_package_version;
+    } else {
+      process.env.npm_package_version = originalNpmPackageVersion;
+    }
     sentryInit.mockClear();
     sentrySetTag.mockClear();
     sentryCaptureException.mockClear();
@@ -76,13 +82,33 @@ describe('Sentry observability', () => {
     );
   });
 
+  test('defaults environment and release from app version', async () => {
+    runtimeEnvValues = {
+      SENTRY_DSN: 'https://public@example.com/1',
+    };
+    process.env.npm_package_version = '9.8.7';
+    const { initSentry } = await importFreshSentry();
+
+    await initSentry();
+
+    expect(sentryInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dsn: 'https://public@example.com/1',
+        environment: 'production',
+        release: 'hybridclaw@9.8.7',
+      }),
+    );
+  });
+
   test('uses stored runtime env values before process environment fallbacks', async () => {
     runtimeEnvValues = {
       SENTRY_DSN: 'https://stored@example.com/1',
       SENTRY_ENVIRONMENT: 'stored-env',
+      SENTRY_RELEASE: 'stored-release',
     };
     process.env.SENTRY_DSN = 'https://process@example.com/1';
     process.env.SENTRY_ENVIRONMENT = 'process-env';
+    process.env.SENTRY_RELEASE = 'process-release';
     const { initSentry } = await importFreshSentry();
 
     await initSentry();
@@ -91,6 +117,7 @@ describe('Sentry observability', () => {
       expect.objectContaining({
         dsn: 'https://stored@example.com/1',
         environment: 'stored-env',
+        release: 'stored-release',
       }),
     );
   });
@@ -98,6 +125,7 @@ describe('Sentry observability', () => {
   test('falls back to process environment variables', async () => {
     process.env.SENTRY_DSN = 'https://process@example.com/1';
     process.env.SENTRY_ENVIRONMENT = 'process-env';
+    process.env.SENTRY_RELEASE = 'process-release';
     const { initSentry } = await importFreshSentry();
 
     await initSentry();
@@ -106,6 +134,7 @@ describe('Sentry observability', () => {
       expect.objectContaining({
         dsn: 'https://process@example.com/1',
         environment: 'process-env',
+        release: 'process-release',
       }),
     );
   });

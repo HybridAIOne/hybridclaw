@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { redactSecretsDeep } from '../security/redact.js';
 
@@ -12,6 +16,7 @@ export interface SentryErrorContext {
 let sentry: SentryModule | null = null;
 let initPromise: Promise<void> | null = null;
 let initialized = false;
+let resolvedRelease: string | null = null;
 
 function readRuntimeSetting(name: string): string {
   const stored = readStoredRuntimeEnv()[name]?.trim();
@@ -25,6 +30,44 @@ function readSampleRate(): number | undefined {
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0 || value > 1) return undefined;
   return value;
+}
+
+function readPackageVersion(packageJsonPath: string): string | null {
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(packageJsonPath, 'utf-8'),
+    ) as unknown;
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as { version?: unknown }).version === 'string'
+    ) {
+      const version = (parsed as { version: string }).version.trim();
+      if (version) return version;
+    }
+  } catch {
+    // Fall through to the next release source.
+  }
+  return null;
+}
+
+function defaultSentryRelease(): string {
+  if (resolvedRelease) return resolvedRelease;
+  const envVersion = String(process.env.npm_package_version || '').trim();
+  const packageVersion =
+    envVersion ||
+    readPackageVersion(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'package.json',
+      ),
+    ) ||
+    '0.0.0';
+  resolvedRelease = `hybridclaw@${packageVersion}`;
+  return resolvedRelease;
 }
 
 function normalizeException(error: unknown): Error {
@@ -44,8 +87,8 @@ export async function initSentry(): Promise<void> {
       const sdk = await import('@sentry/node');
       const client = sdk.init({
         dsn: readRuntimeSetting('SENTRY_DSN'),
-        environment: readRuntimeSetting('SENTRY_ENVIRONMENT') || undefined,
-        release: readRuntimeSetting('SENTRY_RELEASE') || undefined,
+        environment: readRuntimeSetting('SENTRY_ENVIRONMENT') || 'production',
+        release: readRuntimeSetting('SENTRY_RELEASE') || defaultSentryRelease(),
         skipOpenTelemetrySetup: true,
         tracesSampleRate: readSampleRate(),
         beforeSend(event) {
