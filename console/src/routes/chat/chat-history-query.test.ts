@@ -117,6 +117,24 @@ describe('buildChatHistoryUiData', () => {
     expect(ui.messages[0]?.sessionId).toBe('session-canonical');
   });
 
+  it('preserves bootstrap autostart status for the chat page', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [{ id: 1, role: 'assistant', content: 'hi' }],
+      bootstrapAutostart: {
+        status: 'starting',
+        fileName: 'BOOTSTRAP.md',
+      },
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.bootstrapAutostart).toEqual({
+      status: 'starting',
+      fileName: 'BOOTSTRAP.md',
+    });
+  });
+
   it('uses per-message assistantPresentation instead of session-level presentation', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-a',

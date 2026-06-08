@@ -49,6 +49,10 @@ export interface ChatHistoryResponse {
   sessionId?: string;
   history: ChatHistoryMessage[];
   assistantPresentation?: AssistantPresentation | null;
+  bootstrapAutostart?: {
+    status: 'idle' | 'starting' | 'completed';
+    fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+  } | null;
   branchFamilies?: BranchFamily[];
 }
 

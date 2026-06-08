@@ -406,6 +406,52 @@ describe('ChatPage', () => {
     );
   });
 
+  it('refetches history while bootstrap autostart is starting', async () => {
+    fetchChatHistoryMock
+      .mockResolvedValueOnce({
+        sessionId: 'session-a',
+        history: [
+          {
+            id: 101,
+            role: 'assistant',
+            content: 'Existing transcript',
+          },
+        ],
+        bootstrapAutostart: {
+          status: 'starting',
+          fileName: 'BOOTSTRAP.md',
+        },
+      })
+      .mockResolvedValueOnce({
+        sessionId: 'session-a',
+        history: [
+          {
+            id: 101,
+            role: 'assistant',
+            content: 'Existing transcript',
+          },
+          {
+            id: 102,
+            role: 'assistant',
+            content: 'What should I call you?',
+          },
+        ],
+        bootstrapAutostart: {
+          status: 'completed',
+          fileName: 'BOOTSTRAP.md',
+        },
+      });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Existing transcript')).not.toBeNull();
+
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalledTimes(2), {
+      timeout: 2500,
+    });
+    expect(await screen.findByText('What should I call you?')).not.toBeNull();
+  });
+
   it('switches agents from the composer dropdown using the command path', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',

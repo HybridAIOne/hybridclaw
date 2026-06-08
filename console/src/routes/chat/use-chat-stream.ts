@@ -89,6 +89,7 @@ export function useChatStream(
           messages: nextMessages,
           branchFamilies: prev?.branchFamilies ?? new Map(),
           resolvedSessionId: prev?.resolvedSessionId ?? sessionId,
+          bootstrapAutostart: prev?.bootstrapAutostart ?? null,
         };
       });
     },

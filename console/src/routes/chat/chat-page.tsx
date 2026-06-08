@@ -79,6 +79,7 @@ const EMPTY_MESSAGES: ChatUiMessage[] = [];
 const EMPTY_MODELS: ChatModel[] = [];
 const ERROR_BANNER_VISIBLE_MS = 5000;
 const ERROR_BANNER_FADE_MS = 200;
+const BOOTSTRAP_AUTOSTART_REFETCH_MS = 1500;
 type RecentChatScope = 'user' | 'all';
 
 function buildBranchInfoMap(
@@ -443,6 +444,19 @@ export function ChatPage() {
   }, [historyQuery.error, setError]);
 
   useEffect(() => {
+    if (historyQuery.data?.bootstrapAutostart?.status !== 'starting') return;
+    if (historyQuery.isFetching) return;
+    const timer = window.setTimeout(() => {
+      void historyQuery.refetch();
+    }, BOOTSTRAP_AUTOSTART_REFETCH_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    historyQuery.data?.bootstrapAutostart?.status,
+    historyQuery.isFetching,
+    historyQuery.refetch,
+  ]);
+
+  useEffect(() => {
     if (!mobileQr) return;
     const previousOverflow = document.body.style.overflow;
     const previousActiveElement = document.activeElement;
@@ -651,6 +665,7 @@ export function ChatPage() {
           ],
           branchFamilies: prev?.branchFamilies ?? new Map(),
           resolvedSessionId: targetSessionId,
+          bootstrapAutostart: prev?.bootstrapAutostart ?? null,
         }),
       );
     },
