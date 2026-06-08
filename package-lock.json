@@ -1,12 +1,12 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@hybridaione/hybridclaw",
-      "version": "0.22.0",
+      "version": "0.23.0",
       "hasInstallScript": true,
       "workspaces": [
         "desktop",
@@ -108,7 +108,7 @@
     },
     "container": {
       "name": "hybridclaw-agent",
-      "version": "0.22.0",
+      "version": "0.23.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.27.1",
         "@mozilla/readability": "0.6.0",
@@ -412,7 +412,7 @@
     },
     "desktop": {
       "name": "@hybridaione/hybridclaw-desktop",
-      "version": "0.22.0",
+      "version": "0.23.0",
       "dependencies": {
         "@hybridaione/hybridclaw-desktop-packaging-anchor": "file:./support/packaging-anchor"
       },

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.23.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.23.0) - 2026-06-09
+
 ### Added
 
 - **`blink` skill**: Added Blink camera and video-doorbell workflows for
