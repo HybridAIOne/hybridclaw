@@ -257,16 +257,12 @@ export function useChatStream(
         const finalText = result.result ?? req.assistantText ?? '';
         const finalApproval = req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
-        const finalRole: ChatMessage['role'] = finalApproval
-          ? 'approval'
-          : result.commandResult
-            ? 'command'
-            : 'assistant';
+        const finalRole: ChatMessage['role'] =
+          result.messageRole ?? (finalApproval ? 'approval' : 'assistant');
         // A slash command that produced no visible output (and no artifacts)
         // leaves no bubble — like a shell command that succeeds silently.
         const isSilentCommand =
-          Boolean(result.commandResult) &&
-          !finalApproval &&
+          finalRole === 'command' &&
           finalText.trim().length === 0 &&
           finalArtifacts.length === 0;
         const buildFinalizedMessage = (

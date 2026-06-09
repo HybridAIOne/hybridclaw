@@ -304,7 +304,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: null,
       result: 'Session agent set to `research` (model: `gpt-5`).',
-      commandResult: true,
+      messageRole: 'command',
       toolsUsed: [],
     });
 
@@ -358,7 +358,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: null,
       result: '',
-      commandResult: true,
+      messageRole: 'command',
       toolsUsed: [],
     });
 
@@ -424,7 +424,7 @@ describe('useChatStream', () => {
     expect(harness.messages.some((msg) => msg.role === 'command')).toBe(false);
   });
 
-  it('keeps a plain model reply as an assistant message when commandResult is absent', async () => {
+  it('keeps a plain model reply as an assistant message', async () => {
     const harness = makeHarness();
 
     requestChatStreamMock.mockImplementation(
@@ -439,6 +439,7 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-1',
           assistantMessageId: 'assistant-1',
           result: 'A normal answer',
+          messageRole: 'assistant',
         };
       },
     );

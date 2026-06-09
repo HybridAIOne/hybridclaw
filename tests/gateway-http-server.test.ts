@@ -7834,7 +7834,7 @@ describe('gateway HTTP server', () => {
     const body = JSON.parse(res.body);
     expect(body).toMatchObject({
       status: 'success',
-      commandResult: true,
+      messageRole: 'command',
       sessionId: 'session-secret-cli-guard',
     });
     expect(body.result).toContain('did not run or send');
@@ -8104,7 +8104,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
-          commandResult: true,
+          messageRole: 'command',
           sessionId: 'session-secret-cli-guard-stream',
           result: expect.stringContaining('/secret set API_TOKEN <value>'),
         }),
@@ -8200,11 +8200,11 @@ describe('gateway HTTP server', () => {
 
     // No visible output -> empty result (the web console renders no bubble for
     // it) rather than a "Done." placeholder. Success is still signalled by
-    // status, and the flag still marks it as command output.
+    // status, and messageRole still marks it as command output.
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
       result: '',
-      commandResult: true,
+      messageRole: 'command',
       sessionId: 'session-web-empty',
     });
     expect(state.loggerDebug).toHaveBeenCalledWith(
@@ -8249,7 +8249,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
-      commandResult: true,
+      messageRole: 'command',
       result: '**Pending Approval**\nI need approval before continuing.',
       sessionId: 'session-web-approve',
     });
@@ -8296,7 +8296,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
-      commandResult: true,
+      messageRole: 'command',
       result: expect.stringContaining('/approve'),
       sessionId: 'session-web-approve',
     });
@@ -8368,7 +8368,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
-          commandResult: false,
+          messageRole: 'approval',
           sessionId: 'session-web-approve',
           pendingApproval: {
             approvalId: 'be945bbf',
@@ -8440,7 +8440,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
-          commandResult: false,
+          messageRole: 'assistant',
           result:
             'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: delete, read*',
           sessionId: 'session-web-approve',
