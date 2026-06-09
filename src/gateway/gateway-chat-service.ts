@@ -85,7 +85,10 @@ import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
-import { ensureBootstrapFiles } from '../workspace.js';
+import {
+  ensureBootstrapFiles,
+  resolveStartupBootstrapFile,
+} from '../workspace.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
@@ -626,6 +629,29 @@ function captureGatewayChatResultError(params: {
   });
 }
 
+function buildBootstrapChatTurnPrompt(fileName: 'BOOTSTRAP.md'): string {
+  return [
+    'Hatching mode is active for this agent.',
+    `A startup instruction file (${fileName}) exists and is already loaded in the system context.`,
+    'Do not answer this as a normal chat turn.',
+    `Follow ${fileName} now: introduce yourself, begin onboarding, and ask the first few useful customization questions.`,
+    'Use the user message below only as the signal that the user is present.',
+    'Do not ask a generic "what can I do for you?" question.',
+    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
+  ].join('\n');
+}
+
+function shouldInjectBootstrapChatTurnPrompt(params: {
+  userContent: string;
+  promptMode?: PromptMode;
+  startupBootstrapFile: 'BOOTSTRAP.md' | null;
+}): boolean {
+  if (params.startupBootstrapFile !== 'BOOTSTRAP.md') return false;
+  if (params.promptMode === 'none') return false;
+  if (params.userContent.trim().startsWith('/')) return false;
+  return true;
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -877,6 +903,9 @@ async function handleGatewayMessageInner(
         workspaceInitialized: false,
       }
     : ensureBootstrapFiles(agentId);
+  const startupBootstrapFile = req.workspacePathOverride
+    ? null
+    : resolveStartupBootstrapFile(agentId);
   if (
     workspaceBootstrap.workspaceInitialized &&
     (session.message_count > 0 || Boolean(session.session_summary))
@@ -1448,6 +1477,16 @@ async function handleGatewayMessageInner(
   let agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
+  if (
+    shouldInjectBootstrapChatTurnPrompt({
+      userContent: agentUserContent,
+      promptMode: promptPartDefaults.promptMode,
+      startupBootstrapFile:
+        startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
+    })
+  ) {
+    agentUserContent = `${buildBootstrapChatTurnPrompt('BOOTSTRAP.md')}\n\nUser message:\n${agentUserContent}`;
+  }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
       sessionId: req.sessionId,

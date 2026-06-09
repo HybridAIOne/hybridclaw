@@ -22,6 +22,7 @@ export const WORKSPACE_BOOTSTRAP_FILES = [
   'TOOLS.md',
   'MEMORY.md',
   'HEARTBEAT.md',
+  'TASK_IDEAS.md',
   'BOOTSTRAP.md',
   'OPENING.md',
   'BOOT.md',
@@ -193,6 +194,44 @@ function readTemplateFile(
   return content;
 }
 
+const LEGACY_DEFAULT_BOOTSTRAP_MARKERS = [
+  'Use the hatching task ideas guide in the docs website when available',
+  'docs/content/guides/hatching-task-ideas.md',
+] as const;
+
+function refreshLegacyDefaultBootstrapIfNeeded(params: {
+  agentId: string;
+  bootstrapPath: string;
+  state: WorkspaceOnboardingState;
+}): boolean {
+  if (params.state.onboardingCompletedAt) return false;
+  try {
+    const content = fs.readFileSync(params.bootstrapPath, 'utf-8');
+    if (
+      !LEGACY_DEFAULT_BOOTSTRAP_MARKERS.every((marker) =>
+        content.includes(marker),
+      )
+    ) {
+      return false;
+    }
+    fs.copyFileSync(
+      path.join(TEMPLATES_DIR, 'BOOTSTRAP.md'),
+      params.bootstrapPath,
+    );
+    logger.debug(
+      { agentId: params.agentId, file: 'BOOTSTRAP.md' },
+      'Refreshed legacy default hatching bootstrap template',
+    );
+    return true;
+  } catch (error) {
+    logger.warn(
+      { agentId: params.agentId, path: params.bootstrapPath, error },
+      'Failed to refresh legacy hatching bootstrap template',
+    );
+    return false;
+  }
+}
+
 function stripMarkdownSection(content: string, heading: string): string {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const targetHeading = `## ${heading}`;
@@ -282,6 +321,86 @@ function hasWorkspaceUserContent(wsDir: string): boolean {
   return isWorkspaceFileCustomized(wsDir, 'MEMORY.md');
 }
 
+function readUserMarkdown(wsDir: string): string | null {
+  const userPath = path.join(wsDir, 'USER.md');
+  if (!fs.existsSync(userPath)) return null;
+  try {
+    return fs.readFileSync(userPath, 'utf-8');
+  } catch (error) {
+    logger.warn({ wsDir, error }, 'Failed to read USER.md');
+    return null;
+  }
+}
+
+function readMarkdownSection(content: string, title: string): string {
+  const body: string[] = [];
+  let inSection = false;
+
+  for (const line of content.split(/\r?\n/)) {
+    if (/^##\s+/.test(line)) {
+      if (inSection) break;
+      inSection = line.trim().toLowerCase() === `## ${title.toLowerCase()}`;
+      continue;
+    }
+    if (inSection) body.push(line);
+  }
+
+  return body.join('\n');
+}
+
+function hasKnownUserEmail(wsDir: string): boolean {
+  const content = readUserMarkdown(wsDir);
+  if (!content) return false;
+  try {
+    const emailLine = content.match(/^\s*-\s*\*\*Email:\*\*\s*(.+)$/im);
+    const candidate = (emailLine?.[1] || '').trim();
+    if (
+      !candidate ||
+      /\b(?:pending|unknown|to be determined|tbd|none)\b/i.test(candidate)
+    ) {
+      return false;
+    }
+    return /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/.test(candidate);
+  } catch (error) {
+    logger.warn({ wsDir, error }, 'Failed to parse USER.md email');
+    return false;
+  }
+}
+
+function hasSuggestedFirstJobs(wsDir: string): boolean {
+  const content = readUserMarkdown(wsDir);
+  if (!content) return false;
+  const section = readMarkdownSection(content, 'Suggested First Jobs');
+  return section.split(/\r?\n/).some((line) => {
+    const trimmed = line.trim();
+    return (
+      /^-\s+\S/.test(trimmed) &&
+      !trimmed.includes('After hatching') &&
+      !trimmed.includes('practical jobs')
+    );
+  });
+}
+
+function hasHandledFirstJobsEmail(wsDir: string): boolean {
+  const content = readUserMarkdown(wsDir);
+  if (!content) return false;
+  const section = readMarkdownSection(content, 'First Jobs Email');
+  const statusLine = section.match(/^\s*-\s*\*\*Status:\*\*\s*(.+)$/im);
+  const candidate = (statusLine?.[1] || '').trim();
+  return (
+    !!candidate &&
+    !/\b(?:pending|unknown|to be determined|tbd|none)\b/i.test(candidate)
+  );
+}
+
+function hasCompletedHatchingArtifacts(wsDir: string): boolean {
+  return (
+    hasKnownUserEmail(wsDir) &&
+    hasSuggestedFirstJobs(wsDir) &&
+    hasHandledFirstJobsEmail(wsDir)
+  );
+}
+
 function readBootstrapReferenceTimestampMs(params: {
   wsDir: string;
   state: WorkspaceOnboardingState;
@@ -362,11 +481,15 @@ function looksLikeCompletedWorkspace(
   const customizedIdentity = isWorkspaceFileCustomized(wsDir, 'IDENTITY.md');
   const customizedUser = isWorkspaceFileCustomized(wsDir, 'USER.md');
   const userContentPresent = hasWorkspaceUserContent(wsDir);
+  const hatchingArtifactsComplete = hasCompletedHatchingArtifacts(wsDir);
   const customizedBootstrap =
     bootstrapExists && isWorkspaceFileCustomized(wsDir, 'BOOTSTRAP.md');
 
   if (!bootstrapExists) {
-    return customizedIdentity || customizedUser || userContentPresent;
+    return (
+      hatchingArtifactsComplete &&
+      (customizedIdentity || customizedUser || userContentPresent)
+    );
   }
 
   if (
@@ -380,7 +503,11 @@ function looksLikeCompletedWorkspace(
     return false;
   }
 
-  return (customizedIdentity || customizedUser) && userContentPresent;
+  return (
+    hatchingArtifactsComplete &&
+    (customizedIdentity || customizedUser) &&
+    userContentPresent
+  );
 }
 
 /**
@@ -494,6 +621,9 @@ export function ensureBootstrapFiles(
 
   const bootstrapPath = path.join(wsDir, 'BOOTSTRAP.md');
   let bootstrapExists = fs.existsSync(bootstrapPath);
+  if (bootstrapExists) {
+    refreshLegacyDefaultBootstrapIfNeeded({ agentId, bootstrapPath, state });
+  }
   if (bootstrapExists && !state.bootstrapSeededAt) {
     markState({ bootstrapSeededAt: nowIso() });
   }
@@ -519,7 +649,8 @@ export function ensureBootstrapFiles(
   if (
     !state.onboardingCompletedAt &&
     state.bootstrapSeededAt &&
-    !bootstrapExists
+    !bootstrapExists &&
+    hasCompletedHatchingArtifacts(wsDir)
   ) {
     markState({ onboardingCompletedAt: nowIso() });
   }
@@ -787,8 +918,9 @@ export function buildContextPrompt(files: ContextFile[]): string {
 
 /**
  * Check if the workspace still needs bootstrapping.
- * Like OpenClaw: if the agent deleted BOOTSTRAP.md, or if IDENTITY.md / USER.md
- * have been modified from templates, bootstrapping is considered complete.
+ * Like OpenClaw, workspace edits are completion evidence, but hatching remains
+ * active until USER.md contains the user's email address, suggested first
+ * jobs, and a handled first-jobs email status.
  */
 export function isBootstrapping(agentId: string): boolean {
   const wsDir = agentWorkspaceDir(agentId);

@@ -25,6 +25,8 @@ import type {
   AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
+  AdminFleetTopologyResponse,
+  AdminFleetTopologyUpsertRequest,
   AdminHarnessEvolutionManifestResponse,
   AdminHarnessEvolutionResponse,
   AdminHarnessEvolutionRunResponse,
@@ -329,6 +331,39 @@ export function fetchStatistics(
 
 export function fetchA2ATrust(token: string): Promise<AdminA2ATrustResponse> {
   return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/trust', { token });
+}
+
+export function fetchFleetTopology(
+  token: string,
+): Promise<AdminFleetTopologyResponse> {
+  return requestJson<AdminFleetTopologyResponse>('/api/admin/fleet-topology', {
+    token,
+  });
+}
+
+export function upsertFleetTopologyInstance(
+  token: string,
+  body: AdminFleetTopologyUpsertRequest,
+): Promise<AdminFleetTopologyResponse> {
+  return requestJson<AdminFleetTopologyResponse>('/api/admin/fleet-topology', {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
+export function deleteFleetTopologyInstance(
+  token: string,
+  peerId: string,
+): Promise<AdminFleetTopologyResponse> {
+  const search = new URLSearchParams({ peerId });
+  return requestJson<AdminFleetTopologyResponse>(
+    `/api/admin/fleet-topology?${search.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchA2AInbox(

@@ -159,6 +159,11 @@ import {
   unsetGatewayAdminSecret,
 } from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import {
+  deleteGatewayAdminFleetTopologyInstance,
+  getGatewayAdminFleetTopology,
+  upsertGatewayAdminFleetTopologyInstance,
+} from './gateway-fleet-topology.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
   parsePositiveInteger,
@@ -248,6 +253,7 @@ import {
 import type {
   GatewayAdminA2ATrustUpsertRequest,
   GatewayAdminDiscordWebhookTargetRequest,
+  GatewayAdminFleetTopologyUpsertRequest,
   GatewayAdminSlackWebhookTargetRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
@@ -3383,7 +3389,10 @@ async function handleApiHistory(
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  void ensureGatewayBootstrapAutostart({ sessionId }).catch((error) => {
+  void ensureGatewayBootstrapAutostart({
+    sessionId,
+    allowExistingSessionMessages: true,
+  }).catch((error) => {
     logger.warn(
       { sessionId, error },
       'Failed to start gateway bootstrap autostart',
@@ -3401,13 +3410,17 @@ async function handleApiHistory(
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
-  const bootstrapAutostart = getGatewayBootstrapAutostartState({ sessionId });
+  const bootstrapAutostart = getGatewayBootstrapAutostartState({
+    sessionId,
+    allowExistingSessionMessages: true,
+  });
   // These keys are returned only as chat-routing metadata for the web client.
   // Auth stays anchored to the existing API/session auth checks above, never to
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
   // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
     sessionId: historyPage.sessionId,
+    agentId: historyPage.agentId || undefined,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
@@ -4759,6 +4772,56 @@ async function handleApiAdminA2ATrust(
         ? deleteGatewayAdminA2ATrustPeer({ peerId })
         : revokeGatewayAdminA2ATrustPeer({ peerId, reason }),
     );
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
+async function handleApiAdminFleetTopology(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  try {
+    if (method === 'GET') {
+      sendJson(res, 200, await getGatewayAdminFleetTopology());
+      return;
+    }
+
+    if (method === 'POST' || method === 'PUT') {
+      const body = (await readJsonBody(req).catch(() => ({}))) as
+        | GatewayAdminFleetTopologyUpsertRequest
+        | undefined;
+      sendJson(
+        res,
+        200,
+        await upsertGatewayAdminFleetTopologyInstance(body || {}),
+      );
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const peerId = (url.searchParams.get('peerId') || '').trim();
+      if (!peerId) {
+        sendJson(res, 400, { error: 'Missing `peerId` query parameter.' });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        await deleteGatewayAdminFleetTopologyInstance({ peerId }),
+      );
+      return;
+    }
+
+    sendJson(res, 405, { error: 'Method Not Allowed' });
   } catch (error) {
     sendJson(
       res,
@@ -6626,9 +6689,22 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (
             pathname === '/api/admin/a2a/trust' &&
-            (method === 'GET' || method === 'DELETE')
+            (method === 'GET' ||
+              method === 'POST' ||
+              method === 'PUT' ||
+              method === 'DELETE')
           ) {
             await handleApiAdminA2ATrust(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/fleet-topology' &&
+            (method === 'GET' ||
+              method === 'POST' ||
+              method === 'PUT' ||
+              method === 'DELETE')
+          ) {
+            await handleApiAdminFleetTopology(req, res, url);
             return;
           }
           if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {

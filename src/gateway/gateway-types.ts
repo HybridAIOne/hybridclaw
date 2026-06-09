@@ -282,6 +282,7 @@ export interface GatewayHistoryBranchFamily {
 
 export interface GatewayHistoryResponse {
   sessionId: string;
+  agentId?: string | null;
   // Routing metadata for related chat session instances. These are not bearer
   // credentials and must never be used for authorization decisions.
   // If they ever become auth-relevant, remove them from web responses instead
@@ -1034,6 +1035,53 @@ export interface GatewayAdminA2ATrustResponse {
 }
 
 export interface GatewayAdminA2ATrustUpsertRequest {
+  peerId?: unknown;
+  agentCardUrl?: unknown;
+  deliveryUrl?: unknown;
+  publicKeyFingerprint?: unknown;
+  publicKeyJwk?: unknown;
+  reason?: unknown;
+}
+
+export interface GatewayAdminFleetTopologyHq {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  version: string;
+  status: 'local';
+  latencyMs: number;
+  lastSeenAt: string;
+}
+
+export type GatewayAdminFleetTopologyInstanceStatus =
+  | 'online'
+  | 'unreachable'
+  | 'unconfigured'
+  | 'revoked';
+
+export interface GatewayAdminFleetTopologyInstance {
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyFingerprint: string;
+  trustStatus: 'trusted' | 'revoked';
+  status: GatewayAdminFleetTopologyInstanceStatus;
+  version: string | null;
+  latencyMs: number | null;
+  error: string | null;
+  trustedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface GatewayAdminFleetTopologyResponse {
+  hq: GatewayAdminFleetTopologyHq;
+  instances: GatewayAdminFleetTopologyInstance[];
+}
+
+export interface GatewayAdminFleetTopologyUpsertRequest {
   peerId?: unknown;
   agentCardUrl?: unknown;
   deliveryUrl?: unknown;

@@ -117,6 +117,36 @@ describe('buildChatHistoryUiData', () => {
     expect(ui.messages[0]?.sessionId).toBe('session-canonical');
   });
 
+  it('preserves the active session agent id for the composer selector', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      agentId: 'research',
+      history: [{ id: 1, role: 'assistant', content: 'hi' }],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.agentId).toBe('research');
+  });
+
+  it('preserves bootstrap autostart status for the chat page', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [{ id: 1, role: 'assistant', content: 'hi' }],
+      bootstrapAutostart: {
+        status: 'starting',
+        fileName: 'BOOTSTRAP.md',
+      },
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.bootstrapAutostart).toEqual({
+      status: 'starting',
+      fileName: 'BOOTSTRAP.md',
+    });
+  });
+
   it('uses per-message assistantPresentation instead of session-level presentation', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-a',

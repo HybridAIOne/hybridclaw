@@ -42,13 +42,11 @@ import { maybeCompactSession } from '../session/session-maintenance.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import { runPeriodicSkillInspection } from '../skills/skills-inspection.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
+import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import {
   buildModelUsageAuditStats,
   recordModelUsageAuditEvent,
 } from './model-usage.js';
-
-const HEARTBEAT_PROMPT =
-  '[Heartbeat poll] Check HEARTBEAT.md for periodic tasks. If nothing needs attention, reply HEARTBEAT_OK.';
 
 const MAX_HEARTBEAT_HISTORY = 5;
 const HEARTBEAT_ALLOWED_TOOLS = [
@@ -204,7 +202,7 @@ export function startHeartbeat(
       );
       const memoryContext = memoryService.buildPromptMemoryContext({
         session,
-        query: HEARTBEAT_PROMPT,
+        query: HEARTBEAT_POLL_PROMPT,
       });
       const resolvedRuntime = resolveAgentForRequest({
         agentId,
@@ -248,7 +246,7 @@ export function startHeartbeat(
         },
         allowedTools: HEARTBEAT_ALLOWED_TOOLS,
       });
-      messages.push({ role: 'user', content: HEARTBEAT_PROMPT });
+      messages.push({ role: 'user', content: HEARTBEAT_POLL_PROMPT });
 
       const provider = resolveModelProvider(model);
       const heartbeatChannelId = HEARTBEAT_CHANNEL || 'heartbeat';
@@ -270,7 +268,7 @@ export function startHeartbeat(
         event: {
           type: 'turn.start',
           turnIndex,
-          userInput: HEARTBEAT_PROMPT,
+          userInput: HEARTBEAT_POLL_PROMPT,
           source: 'heartbeat',
         },
       });
@@ -395,7 +393,7 @@ export function startHeartbeat(
         user: {
           userId: 'heartbeat',
           username: 'heartbeat',
-          content: HEARTBEAT_PROMPT,
+          content: HEARTBEAT_POLL_PROMPT,
         },
         assistant: {
           userId: 'assistant',
@@ -410,7 +408,7 @@ export function startHeartbeat(
         role: 'user',
         userId: 'heartbeat',
         username: 'heartbeat',
-        content: HEARTBEAT_PROMPT,
+        content: HEARTBEAT_POLL_PROMPT,
       });
       appendSessionTranscript(resolvedAgentId, {
         sessionId,

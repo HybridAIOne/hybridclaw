@@ -16,6 +16,7 @@ import {
   Policy,
   Scheduler,
   Secrets,
+  Server,
   Sessions,
   Skills,
   SquarePen,
@@ -59,6 +60,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     items: [
       { to: '/admin/terminal', label: 'Terminal', icon: Terminal },
       { to: '/admin/gateway', label: 'Gateway', icon: Gateway },
+      { to: '/admin/fleet-topology', label: 'Fleet', icon: Server },
       { to: '/admin/sessions', label: 'Sessions', icon: Sessions },
       { to: '/admin/channels', label: 'Channels', icon: Channels },
       { to: '/admin/email', label: 'Email', icon: Email, requiresEmail: true },

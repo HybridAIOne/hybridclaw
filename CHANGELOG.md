@@ -2,9 +2,76 @@
 
 ## Unreleased
 
+## [0.23.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.23.0) - 2026-06-09
+
 ### Added
 
-- **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables optional gateway Sentry reporting for startup failures, uncaught exceptions, unhandled rejections, and errors recorded through shared gateway/agent spans, with default `production` environment, automatic `hybridclaw@<package-version>` release naming, secret redaction, and graceful shutdown flushes.
+- **`blink` skill**: Added Blink camera and video-doorbell workflows for
+  OAuth v2 login with PIN handoff, device/network/camera inventory, motion
+  clip listing and artifact-backed downloads, guarded arm/disarm and motion
+  control plans, and fresh-thumbnail refresh handling that keeps Blink media
+  bytes out of model context.
+- **`hue` skill**: Added Philips Hue Bridge support for local CLIP v2 reads,
+  bridge-link credential capture, self-signed bridge TLS handling, guarded
+  light/group/scene/behavior changes, Remote API token refresh support, and
+  LAN policy diagnostics for Hue Bridge requests.
+- **Fleet topology admin UI**: Added `/admin/fleet-topology` for viewing the
+  local A2A instance identity, checking trusted child instances through their
+  Agent Card URLs, and adding, editing, or removing A2A trust-ledger peers from
+  the console.
+- **Admin secrets console**: Added `/admin/secrets` as a write-only secret
+  manager that lists set and declared-but-empty secrets by metadata, supports
+  overwrite and unset actions, and never returns cleartext secret values to the
+  browser.
+- **Chat code rendering**: Web chat now syntax-highlights completed code
+  blocks, shows language labels, and provides a touch-reachable copy button
+  with success feedback while skipping highlighter work for actively streaming
+  messages.
+- **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables
+  optional gateway Sentry reporting for startup failures, uncaught exceptions,
+  unhandled rejections, and errors recorded through shared gateway/agent spans,
+  with default `production` environment, automatic
+  `hybridclaw@<package-version>` release naming, secret redaction, and graceful
+  shutdown flushes.
+- **Scheduler heartbeat polling action**: Config-backed scheduler jobs can use
+  the explicit `heartbeat_poll` action kind so empty `HEARTBEAT.md` files are
+  skipped before any model turn is started.
+
+### Changed
+
+- **Installer and npm policy alignment**: The bootstrap installer works more
+  cleanly on fresh Debian/Ubuntu hosts and no-sudo system Node setups, while
+  contributor docs, CI, Docker, and package metadata pin npm 11.10+ without
+  forcing consumer-facing `engines.npm` warnings.
+- **Second-opinion TUI formatting**: `/second-opinion` output in the terminal
+  wraps long model-comparison and validation responses instead of spilling past
+  the viewport.
+- **Skill setup guidance**: Skill authoring docs now require chat-friendly
+  `/env` and `/secret` setup alternatives alongside local `hybridclaw env` and
+  `hybridclaw secret` commands.
+- **Web agent hatching kickoff**: Switching to an agent with an active
+  `BOOTSTRAP.md` in web chat now sends a hidden kickoff turn so hatching starts
+  immediately while the visible slash-command response remains local command
+  output.
+
+### Fixed
+
+- **Interrupted agent shutdown output**: Container/runtime shutdown output now
+  distinguishes expected interrupted-run signal errors from real runtime
+  failures.
+- **Slash autocomplete flags**: TUI slash-command autocomplete keeps literal
+  argument and flag completions instead of rewriting them.
+- **Chat delete guard**: Deleting browser chat sessions is blocked while a run
+  is still active for that session.
+- **Malformed Unicode in prompts**: Container utilities sanitize malformed
+  Unicode so provider prompts and local OpenAI-compatible requests do not fail
+  on invalid surrogate data.
+- **Trace export identity preservation**: Session trace exports preserve trace
+  hash identifiers while applying secret redaction.
+- **Web approval buttons**: Approval buttons now emit gateway-supported
+  commands: `Allow once` sends `/approve yes`, `Allow always` sends
+  `/approve all`, and scoped buttons send their matching `session` or `agent`
+  approvals.
 
 ## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
 
