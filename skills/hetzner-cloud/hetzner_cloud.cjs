@@ -4,7 +4,7 @@
 const path = require('node:path');
 const {
   DEFAULT_GATEWAY_URL,
-  executeGatewayEnvelope,
+  executeGatewayRequest: executeSharedGatewayRequest,
   resolveGatewayToken,
   resolveGatewayUrl,
 } = require('../shared/gateway-http.cjs');
@@ -25,6 +25,11 @@ const {
 const API_BASE = 'https://api.hetzner.cloud/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const TOKEN_SECRET = 'HETZNER_API_TOKEN';
+const GATEWAY_TOKEN_ENV_NAMES = [
+  'HYBRIDCLAW_GATEWAY_TOKEN',
+  'GATEWAY_API_TOKEN',
+  'WEB_API_TOKEN',
+];
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
 const LIVE_EXECUTION = {
   mode: 'live-hetzner-api',
@@ -155,10 +160,11 @@ function buildHttpRequest(
 
 async function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
   try {
-    return await executeGatewayEnvelope(httpRequest, {
+    return await executeSharedGatewayRequest(httpRequest, {
       defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
       gatewayToken,
       gatewayUrl,
+      normalize: false,
       serviceName: 'Hetzner Cloud',
     });
   } catch (error) {
@@ -605,7 +611,9 @@ function commandHttpRequest(args) {
 
 async function commandRun(args) {
   const gatewayUrl = resolveGatewayUrl(popFlag(args, '--gateway-url'));
-  const gatewayToken = resolveGatewayToken(popFlag(args, '--gateway-token'));
+  const gatewayToken = resolveGatewayToken(popFlag(args, '--gateway-token'), {
+    gatewayTokenEnvNames: GATEWAY_TOKEN_ENV_NAMES,
+  });
   const requestPayload = commandHttpRequest(args);
   const response = await gatewayRequest(requestPayload.httpRequest, {
     gatewayUrl,

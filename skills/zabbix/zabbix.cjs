@@ -10,6 +10,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const SKILL_NAME = 'zabbix';
 const SECRET_NAME = 'ZABBIX_API_TOKEN';
+const GATEWAY_TOKEN_ENV_NAMES = ['HYBRIDCLAW_GATEWAY_TOKEN'];
 
 const RPC_IDS = {
   apiVersion: 1,
@@ -578,6 +579,7 @@ async function executeZabbixGatewayRequest(httpRequest, options = {}) {
     normalized = await executeSharedGatewayRequest(httpRequest, {
       ...options,
       defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      gatewayTokenEnvNames: GATEWAY_TOKEN_ENV_NAMES,
       rejectEnvelopeErrors: false,
       serviceName: 'Zabbix',
       truncationGuidance: 'Narrow the query or increase maxResponseBytes.',

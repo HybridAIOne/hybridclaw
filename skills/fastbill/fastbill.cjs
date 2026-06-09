@@ -17,6 +17,11 @@ const {
 const API_URL = 'https://my.fastbill.com/api/1.0/api.php';
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_AUTH_SECRET_NAME = 'FASTBILL_BASIC_AUTH';
+const GATEWAY_TOKEN_ENV_NAMES = [
+  'HYBRIDCLAW_GATEWAY_TOKEN',
+  'GATEWAY_API_TOKEN',
+  'WEB_API_TOKEN',
+];
 
 const READ_SERVICES = new Set([
   'article.get',
@@ -412,7 +417,11 @@ async function gatewayRequest(input) {
 
   const { response, text } = await sendGatewayRequest(payload, {
     defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-    gatewayToken: input.gatewayToken || resolveGatewayToken(),
+    gatewayToken:
+      input.gatewayToken ||
+      resolveGatewayToken(undefined, {
+        gatewayTokenEnvNames: GATEWAY_TOKEN_ENV_NAMES,
+      }),
     gatewayUrl: input.gatewayUrl || resolveGatewayUrl(),
     serviceName: 'FastBill',
   });

@@ -1218,10 +1218,6 @@ function syncSkillIntoWorkspace(
     throw new Error(`Unsafe synced skill path: ${targetDir}`);
   }
 
-  if (skill.source === 'bundled') {
-    syncBundledSharedSkillHelpers(skill, rootDir);
-  }
-
   let shouldSync = true;
   try {
     if (fs.existsSync(targetSkillFile)) {
@@ -1242,12 +1238,17 @@ function syncSkillIntoWorkspace(
 }
 
 function syncBundledSharedSkillHelpers(
-  skill: SkillCandidate,
-  rootDir: string,
+  skills: SkillCandidate[],
+  workspaceDir: string,
 ): void {
-  const sourceDir = path.join(path.dirname(skill.baseDir), 'shared');
+  const bundledSkill = skills.find((skill) => skill.source === 'bundled');
+  if (!bundledSkill) return;
+
+  const rootDir = path.join(workspaceDir, 'skills');
+  const sourceDir = path.join(path.dirname(bundledSkill.baseDir), 'shared');
   if (!fs.existsSync(sourceDir)) return;
 
+  fs.mkdirSync(rootDir, { recursive: true });
   const targetDir = path.join(rootDir, 'shared');
   if (!pathWithin(rootDir, targetDir)) {
     throw new Error(`Unsafe synced shared skill helper path: ${targetDir}`);
@@ -2300,6 +2301,7 @@ function loadSkillsInner(
   );
   const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(eligible);
   pruneStaleSyncedSkills(eligible, workspaceDir);
+  syncBundledSharedSkillHelpers(eligible, workspaceDir);
 
   const resolved: Skill[] = [];
   for (const skill of eligible) {

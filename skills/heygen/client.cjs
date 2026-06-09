@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  extractResponseHeader,
   normalizeGatewayEnvelope,
   parseJsonMaybe,
   resolveGatewayToken,
@@ -29,16 +30,6 @@ class HeyGenApiError extends Error {
     this.retryAfterMs = input.retryAfterMs ?? null;
     this.body = input.body || '';
   }
-}
-
-function extractHeader(headers, name) {
-  if (!headers) return '';
-  if (typeof headers.get === 'function') return headers.get(name) || '';
-  const lowerName = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === lowerName) return String(value || '');
-  }
-  return '';
 }
 
 function classifyHeyGenResponse(input) {
@@ -272,6 +263,7 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
     /\/+$/u,
     '',
   );
+  // HeyGen intentionally ignores WEB_API_TOKEN; it may hold unrelated API credentials.
   const gatewayToken =
     options.gatewayToken ||
     resolveGatewayToken(undefined, {
@@ -296,7 +288,6 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
         defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
         fetch: fetchImpl,
         gatewayToken,
-        gatewayTokenEnvNames: GATEWAY_TOKEN_ENV_NAMES,
         gatewayUrl,
         serviceName: 'HeyGen',
       }));
@@ -311,7 +302,7 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
 
     if (response) {
       if (!response.ok) {
-        const retryAfter = extractHeader(response.headers, 'retry-after');
+        const retryAfter = extractResponseHeader(response.headers, 'retry-after');
         const classification = classifyHeyGenResponse({
           status: response.status,
           body: text,
@@ -344,7 +335,10 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
         }
         const normalized = normalizeHeyGenPayload(envelope);
         if (envelope.ok === false) {
-          const retryAfter = extractHeader(normalized.headers, 'retry-after');
+          const retryAfter = extractResponseHeader(
+            normalized.headers,
+            'retry-after',
+          );
           const classification = classifyHeyGenResponse({
             status: normalized.status,
             body: normalized.body || text,

@@ -7,7 +7,6 @@ const DEFAULT_TIMEOUT_BUFFER_MS = 1_000;
 const DEFAULT_GATEWAY_TOKEN_ENV_NAMES = [
   'HYBRIDCLAW_GATEWAY_TOKEN',
   'GATEWAY_API_TOKEN',
-  'WEB_API_TOKEN',
 ];
 const DEFAULT_GATEWAY_URL_ENV_NAMES = [
   'HYBRIDCLAW_GATEWAY_URL',
@@ -25,11 +24,7 @@ function parseJsonMaybe(text) {
 
 function resolveGatewayUrl(raw, options = {}) {
   const env = options.env || process.env;
-  const envNames =
-    options.gatewayUrlEnvNames ||
-    options.urlEnvNames ||
-    options.envNames ||
-    DEFAULT_GATEWAY_URL_ENV_NAMES;
+  const envNames = options.gatewayUrlEnvNames || DEFAULT_GATEWAY_URL_ENV_NAMES;
   const defaultUrl = options.defaultUrl || DEFAULT_GATEWAY_URL;
   const value =
     String(raw || '').trim() ||
@@ -52,10 +47,7 @@ function resolveGatewayUrl(raw, options = {}) {
 function resolveGatewayToken(raw, options = {}) {
   const env = options.env || process.env;
   const envNames =
-    options.gatewayTokenEnvNames ||
-    options.tokenEnvNames ||
-    options.envNames ||
-    DEFAULT_GATEWAY_TOKEN_ENV_NAMES;
+    options.gatewayTokenEnvNames || DEFAULT_GATEWAY_TOKEN_ENV_NAMES;
   return (
     String(raw || '').trim() ||
     envNames.map((name) => String(env[name] || '').trim()).find(Boolean) ||
@@ -217,22 +209,6 @@ function assertNotTruncated(result, options = {}) {
   );
 }
 
-async function executeGatewayEnvelope(httpRequest, options = {}) {
-  const { response, text } = await sendGatewayRequest(httpRequest, options);
-  if (!response.ok) {
-    throw new Error(
-      formatGatewayHttpError(response, text, {
-        serviceName: options.serviceName,
-      }),
-    );
-  }
-  const parsed = parseJsonMaybe(text);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`Gateway returned non-JSON response: ${text.slice(0, 500)}`);
-  }
-  return parsed;
-}
-
 async function executeGatewayRequest(httpRequest, options = {}) {
   const { response, text } = await sendGatewayRequest(httpRequest, options);
   const serviceName = options.serviceName || 'HTTP';
@@ -241,6 +217,15 @@ async function executeGatewayRequest(httpRequest, options = {}) {
   }
 
   const parsed = parseJsonMaybe(text);
+  if (options.normalize === false) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(
+        `Gateway returned non-JSON response: ${text.slice(0, 500)}`,
+      );
+    }
+    return parsed;
+  }
+
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return {
       ...(options.command ? { command: options.command } : {}),
@@ -258,12 +243,15 @@ async function executeGatewayRequest(httpRequest, options = {}) {
     serviceName,
     guidance: options.truncationGuidance,
   });
-  const allowedStatuses = new Set(options.allowedStatuses || []);
+  const allowedStatuses = options.allowedStatuses;
+  const statusIsAllowed =
+    Array.isArray(allowedStatuses) &&
+    allowedStatuses.includes(normalized.status);
   if (
     options.rejectEnvelopeErrors !== false &&
     !normalized.ok &&
     (normalized.status < 300 || normalized.status > 399) &&
-    !allowedStatuses.has(normalized.status)
+    !statusIsAllowed
   ) {
     throw new Error(
       `${serviceName} returned HTTP ${normalized.status || 'error'}: ${
@@ -276,16 +264,10 @@ async function executeGatewayRequest(httpRequest, options = {}) {
 
 module.exports = {
   DEFAULT_GATEWAY_URL,
-  DEFAULT_TIMEOUT_BUFFER_MS,
-  DEFAULT_TIMEOUT_MS,
   assertNotTruncated,
-  executeGatewayEnvelope,
   executeGatewayRequest,
   extractResponseHeader,
   formatGatewayHttpError,
-  formatTransportError,
-  gatewayErrorText,
-  gatewayRequestUrl,
   normalizeGatewayEnvelope,
   parseJsonMaybe,
   resolveGatewayToken,

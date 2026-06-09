@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { URL } = require('node:url');
 const {
-  executeGatewayEnvelope,
+  executeGatewayRequest: executeSharedGatewayRequest,
   resolveGatewayToken,
   resolveGatewayUrl,
 } = require('../shared/gateway-http.cjs');
@@ -18,6 +18,11 @@ const DEFAULT_SECRET_KEY_SECRET = 'OTC_SECRET_ACCESS_KEY';
 const DEFAULT_ENTERPRISE_DASHBOARD_TOKEN_SECRET =
   'OTC_ENTERPRISE_DASHBOARD_TOKEN';
 const DEFAULT_TIMEOUT_MS = 30_000;
+const GATEWAY_TOKEN_ENV_NAMES = [
+  'HYBRIDCLAW_GATEWAY_TOKEN',
+  'GATEWAY_API_TOKEN',
+  'WEB_API_TOKEN',
+];
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
 
 const COST_MEASUREMENT = {
@@ -767,17 +772,24 @@ function summarizeBillingResponse(response) {
 }
 
 async function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
-  return executeGatewayEnvelope(httpRequest, {
-    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-    gatewayToken,
-    gatewayUrl,
-    serviceName: 'T-Cloud Public',
-  });
+  try {
+    return await executeSharedGatewayRequest(httpRequest, {
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      gatewayToken,
+      gatewayUrl,
+      normalize: false,
+      serviceName: 'T-Cloud Public',
+    });
+  } catch (error) {
+    die(error instanceof Error ? error.message : String(error), 1);
+  }
 }
 
 async function commandRun(args) {
   const gatewayUrl = resolveGatewayUrl(popFlag(args, '--gateway-url'));
-  const gatewayToken = resolveGatewayToken(popFlag(args, '--gateway-token'));
+  const gatewayToken = resolveGatewayToken(popFlag(args, '--gateway-token'), {
+    gatewayTokenEnvNames: GATEWAY_TOKEN_ENV_NAMES,
+  });
   const payload = commandHttpRequest(args);
   const response = await gatewayRequest(payload.httpRequest, {
     gatewayUrl,

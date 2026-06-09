@@ -4,12 +4,17 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  executeGatewayEnvelope,
+  executeGatewayRequest: executeSharedGatewayRequest,
   resolveGatewayToken,
   resolveGatewayUrl,
 } = require('../shared/gateway-http.cjs');
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
 const DEFAULT_TIMEOUT_MS = 30_000;
+const GATEWAY_TOKEN_ENV_NAMES = [
+  'HYBRIDCLAW_GATEWAY_TOKEN',
+  'GATEWAY_API_TOKEN',
+  'WEB_API_TOKEN',
+];
 const {
   ACTIVITY_ASSOCIATION_TYPE_IDS,
   WRITE_GRANTS,
@@ -123,10 +128,11 @@ function popFlag(args, name, defaultValue = '') {
 }
 
 async function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
-  return executeGatewayEnvelope(httpRequest, {
+  return executeSharedGatewayRequest(httpRequest, {
     defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
     gatewayToken,
     gatewayUrl,
+    normalize: false,
     serviceName: 'HubSpot',
   });
 }
@@ -214,7 +220,9 @@ function interpretedHubSpotResponse(response) {
 
 async function buildRunCommand(args, options = {}) {
   const gatewayUrl = resolveGatewayUrl(popFlag(args, '--gateway-url'));
-  const gatewayToken = resolveGatewayToken(popFlag(args, '--gateway-token'));
+  const gatewayToken = resolveGatewayToken(popFlag(args, '--gateway-token'), {
+    gatewayTokenEnvNames: GATEWAY_TOKEN_ENV_NAMES,
+  });
   const requestPayload = buildHttpRequestCommand(args, options);
   const response = await gatewayRequest(requestPayload.httpRequest, {
     gatewayUrl,

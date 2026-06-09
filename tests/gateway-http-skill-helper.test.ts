@@ -33,6 +33,17 @@ test('shared gateway helper resolves gateway URL and token consistently', () => 
       env: { HYBRIDCLAW_GATEWAY_TOKEN: 'hybridclaw-token' },
     }),
   ).toBe('raw-token');
+  expect(
+    gatewayHttp.resolveGatewayToken('', {
+      env: { WEB_API_TOKEN: 'web-token' },
+    }),
+  ).toBe('');
+  expect(
+    gatewayHttp.resolveGatewayToken('', {
+      env: { WEB_API_TOKEN: 'web-token' },
+      gatewayTokenEnvNames: ['WEB_API_TOKEN'],
+    }),
+  ).toBe('web-token');
 });
 
 test('shared gateway helper posts through the gateway and normalizes envelopes', async () => {
@@ -80,6 +91,32 @@ test('shared gateway helper posts through the gateway and normalizes envelopes',
       method: 'POST',
     }),
   );
+});
+
+test('shared gateway helper can return raw gateway envelopes', async () => {
+  const envelope = {
+    ok: true,
+    status: 200,
+    headers: {},
+    body: '{"raw":true}',
+  };
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    text: async () => JSON.stringify(envelope),
+  }));
+
+  await expect(
+    gatewayHttp.executeGatewayRequest(
+      { method: 'GET', url: 'https://api.example.com/v1/items' },
+      {
+        fetch: fetchMock,
+        gatewayUrl: 'http://127.0.0.1:9090',
+        normalize: false,
+      },
+    ),
+  ).resolves.toEqual(envelope);
 });
 
 test('shared gateway helper formats gateway policy and truncation errors', async () => {
