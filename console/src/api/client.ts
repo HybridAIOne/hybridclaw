@@ -1,5 +1,8 @@
 import type {
   AdminA2AInboxResponse,
+  AdminA2APairingPreviewResponse,
+  AdminA2APairingStartRequest,
+  AdminA2APairingStartResponse,
   AdminA2ATrustResponse,
   AdminA2ATrustUpsertRequest,
   AdminAdaptiveSkillAmendmentsResponse,
@@ -418,6 +421,55 @@ export function deleteA2ATrustPeer(
       method: 'DELETE',
     },
   );
+}
+
+export function startA2APairing(
+  token: string,
+  body: AdminA2APairingStartRequest,
+): Promise<AdminA2APairingStartResponse> {
+  return requestJson<AdminA2APairingStartResponse>('/api/admin/a2a/pairing', {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
+export function previewA2APairing(
+  token: string,
+  body: AdminA2APairingStartRequest,
+): Promise<AdminA2APairingPreviewResponse> {
+  return requestJson<AdminA2APairingPreviewResponse>(
+    '/api/admin/a2a/pairing/preview',
+    {
+      token,
+      method: 'POST',
+      body,
+    },
+  );
+}
+
+export function approveA2APairingRequest(
+  token: string,
+  requestId: string,
+  reason?: string,
+): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/pairing/approve', {
+    token,
+    method: 'POST',
+    body: { requestId, ...(reason?.trim() ? { reason: reason.trim() } : {}) },
+  });
+}
+
+export function declineA2APairingRequest(
+  token: string,
+  requestId: string,
+  reason?: string,
+): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/pairing/decline', {
+    token,
+    method: 'POST',
+    body: { requestId, ...(reason?.trim() ? { reason: reason.trim() } : {}) },
+  });
 }
 
 export function reloadGateway(

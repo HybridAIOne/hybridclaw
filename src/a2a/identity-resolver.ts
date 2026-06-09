@@ -15,6 +15,7 @@ import {
 import { resolveA2AAgentId } from './identity.js';
 import { registerA2AIdentityResolverInvalidator } from './identity-resolver-invalidation.js';
 import {
+  A2APeerUntrustedError,
   ensureA2AInstanceKeypair,
   getA2ATrustedPublicKeyPeer,
 } from './trust-ledger.js';
@@ -100,7 +101,10 @@ class TrustedPeerA2AIdentityResolverBackend implements IdentityResolverBackend {
     if (parsed.kind !== 'agent') return null;
 
     const peer = getA2ATrustedPublicKeyPeer(parsed.parsed.instanceId);
-    if (!peer || peer.status !== 'trusted') return null;
+    if (!peer) return null;
+    if (peer.status !== 'trusted') {
+      throw new A2APeerUntrustedError(peer.peerId);
+    }
     const reachableUrl = peer.deliveryUrl || peer.agentCardUrl;
     if (!reachableUrl) return null;
     return {
