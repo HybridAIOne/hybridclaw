@@ -85,6 +85,7 @@ import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
+import { parseJsonObject } from '../utils/json-object.js';
 import {
   ensureBootstrapFiles,
   resolveStartupBootstrapFile,
@@ -166,17 +167,6 @@ function resolveTurnRuntimeAuditLabel(
     : 'hybridclaw';
 }
 
-function parseToolResultObject(result: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(result) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function persistSpeechTranscriptsToScopedMemory(params: {
   sessionId: string;
   skillName: string | null;
@@ -187,7 +177,7 @@ function persistSpeechTranscriptsToScopedMemory(params: {
     : 'skill:speech-to-text';
   for (const execution of params.toolExecutions) {
     if (execution.name !== 'audio_transcribe' || execution.isError) continue;
-    const payload = parseToolResultObject(execution.result);
+    const payload = parseJsonObject(execution.result);
     if (!payload || payload.success !== true) continue;
     if (typeof payload.action === 'string' && payload.action !== 'transcribe') {
       continue;

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StructuredAuditEntry } from '../types/audit.js';
+import { parseJsonObject } from '../utils/json-object.js';
 import { finiteNumberOrNull } from '../utils/number-normalization.js';
 
 const COMMON_EXTENSION_MIME_TYPES: Record<string, string> = {
@@ -41,13 +42,7 @@ export function firstNumber(values: unknown[]): number | null {
 export function parseAuditPayload(
   entry: StructuredAuditEntry,
 ): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(entry.payload) as unknown;
-    if (!parsed || typeof parsed !== 'object') return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  return parseJsonObject(entry.payload);
 }
 
 export function resolveWorkspaceRelativePath(
