@@ -170,13 +170,36 @@ test('migrateV43 backfills structured audit actors from legacy payload fields', 
 
   const legacy = new Database(dbPath);
   try {
-    legacy
-      .prepare(
-        `INSERT INTO audit_events (
+    const insertLegacy = legacy.prepare(
+      `INSERT INTO audit_events (
           session_id, seq, event_type, timestamp, run_id, parent_run_id, payload, wire_hash, wire_prev_hash
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+    );
+    const insertWithActorColumns = legacy.prepare(
+      `INSERT INTO audit_events (
+          session_id, seq, event_type, timestamp, run_id, parent_run_id, actor_type, actor_id, payload, wire_hash, wire_prev_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+
+    const insertRows = legacy.transaction(() => {
+      for (let index = 1; index <= 501; index += 1) {
+        insertLegacy.run(
+          'session-invalid-actor',
+          index,
+          'operator.action',
+          '2026-06-09T07:00:00.000Z',
+          `run-invalid-${index}`,
+          null,
+          JSON.stringify({
+            type: 'operator.action',
+            action: 'review',
+          }),
+          `hash-invalid-${index}`,
+          `prev-invalid-${index}`,
+        );
+      }
+
+      insertLegacy.run(
         'session-legacy-actor',
         1,
         'operator.action',
@@ -191,6 +214,27 @@ test('migrateV43 backfills structured audit actors from legacy payload fields', 
         'hash-legacy-actor',
         'prev-legacy-actor',
       );
+
+      insertWithActorColumns.run(
+        'session-partial-actor',
+        1,
+        'operator.action',
+        '2026-06-09T08:01:00.000Z',
+        'run-partial-actor',
+        null,
+        'agent',
+        null,
+        JSON.stringify({
+          type: 'operator.action',
+          agentId: ' Support@Lena@Inst-1 ',
+          action: 'review',
+        }),
+        'hash-partial-actor',
+        'prev-partial-actor',
+      );
+    });
+
+    insertRows();
     legacy.pragma('user_version = 42');
   } finally {
     legacy.close();
@@ -211,6 +255,65 @@ test('migrateV43 backfills structured audit actors from legacy payload fields', 
   expect(JSON.parse(entry?.payload || '{}')).toEqual(
     expect.objectContaining({
       userId: ' Lena@HybridAI ',
+      actor: { type: 'user', id: 'lena@hybridai' },
+    }),
+  );
+
+  const [partialEntry] = getRecentStructuredAuditForSession(
+    'session-partial-actor',
+    10,
+  );
+  expect(partialEntry?.actor_type).toBe('agent');
+  expect(partialEntry?.actor_id).toBe('support@lena@inst-1');
+});
+
+test('structured audit hydration replaces mismatched payload actors', async () => {
+  const homeDir = setupHome();
+  const dbPath = path.join(homeDir, 'hybridclaw.db');
+
+  const { getRecentStructuredAuditForSession, initDatabase } = await import(
+    '../src/memory/db.ts'
+  );
+
+  initDatabase({ quiet: true, dbPath });
+
+  const database = new Database(dbPath);
+  try {
+    database
+      .prepare(
+        `INSERT INTO audit_events (
+          session_id, seq, event_type, timestamp, run_id, parent_run_id, actor_type, actor_id, payload, wire_hash, wire_prev_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'session-mismatched-actor',
+        1,
+        'operator.action',
+        '2026-06-09T08:00:00.000Z',
+        'run-mismatched-actor',
+        null,
+        'user',
+        'lena@hybridai',
+        JSON.stringify({
+          type: 'operator.action',
+          actor: { type: 'user', id: 'ada@hybridai' },
+          action: 'review',
+        }),
+        'hash-mismatched-actor',
+        'prev-mismatched-actor',
+      );
+  } finally {
+    database.close();
+  }
+
+  const [entry] = getRecentStructuredAuditForSession(
+    'session-mismatched-actor',
+    10,
+  );
+  expect(entry?.actor_type).toBe('user');
+  expect(entry?.actor_id).toBe('lena@hybridai');
+  expect(JSON.parse(entry?.payload || '{}')).toEqual(
+    expect.objectContaining({
       actor: { type: 'user', id: 'lena@hybridai' },
     }),
   );

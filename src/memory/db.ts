@@ -163,6 +163,7 @@ export const DATABASE_SCHEMA_VERSION = 43;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
+const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
   'messages_recent_chat_search_ai';
@@ -2985,12 +2986,13 @@ function migrateV43(database: Database.Database): void {
     quiet: true,
   });
 
-  const rows = queryAll<{ id: number; payload: string }>(
-    database,
+  const selectBatch = database.prepare(
     `SELECT id, payload
      FROM audit_events
-     WHERE actor_type IS NULL
-       AND actor_id IS NULL`,
+     WHERE (actor_type IS NULL OR actor_id IS NULL)
+       AND id > ?
+     ORDER BY id ASC
+     LIMIT ?`,
   );
   const update = database.prepare(
     `UPDATE audit_events
@@ -2998,10 +3000,20 @@ function migrateV43(database: Database.Database): void {
      WHERE id = ?`,
   );
   database.transaction(() => {
-    for (const row of rows) {
-      const actor = readAuditActorFromPayloadText(row.payload);
-      if (!actor) continue;
-      update.run(actor.type, actor.id, row.id);
+    let lastId = 0;
+    while (true) {
+      const rows = selectBatch.all(
+        lastId,
+        AUDIT_ACTOR_MIGRATION_BATCH_SIZE,
+      ) as Array<{ id: number; payload: string }>;
+      if (rows.length === 0) break;
+
+      for (const row of rows) {
+        lastId = row.id;
+        const actor = readAuditActorFromPayloadText(row.payload);
+        if (!actor) continue;
+        update.run(actor.type, actor.id, row.id);
+      }
     }
   })();
 
@@ -10379,6 +10391,18 @@ function normalizeAuditEventPayload(
   return { ...payload, actor };
 }
 
+function payloadActorMatches(
+  payload: Record<string, unknown>,
+  actor: Actor,
+): boolean {
+  try {
+    const payloadActor = normalizeActor(payload.actor);
+    return payloadActor.type === actor.type && payloadActor.id === actor.id;
+  } catch {
+    return false;
+  }
+}
+
 function hydrateStructuredAuditEntry(
   entry: StructuredAuditEntry,
 ): StructuredAuditEntry {
@@ -10389,12 +10413,12 @@ function hydrateStructuredAuditEntry(
   if (!actor) return entry;
 
   const payload = readPayloadObject(entry.payload);
-  if (
-    payload.actor &&
-    typeof payload.actor === 'object' &&
-    !Array.isArray(payload.actor)
-  ) {
-    return entry;
+  if (payloadActorMatches(payload, actor)) {
+    return {
+      ...entry,
+      actor_type: actor.type,
+      actor_id: actor.id,
+    };
   }
 
   return {
