@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -22,7 +23,6 @@ interface CloudMemoryFilePayload {
   scope: 'agent' | CloudMemoryScope;
   path: string;
   content: string;
-  updated_at?: string | null;
 }
 
 interface CloudMemorySyncResponse {
@@ -31,18 +31,16 @@ interface CloudMemorySyncResponse {
 }
 
 interface CloudMemoryCache {
-  version: 1;
-  updatedAt: string;
   files: CloudMemoryContextFile[];
 }
 
-const CLOUD_MEMORY_CACHE_VERSION = 1;
 const CLOUD_MEMORY_CACHE_NAME = 'cloud-memory.json';
 const CLOUD_MEMORY_MAX_FILE_CHARS = 20_000;
 const CLOUD_MEMORY_PROMPT_FILE_CHARS = 12_000;
 const CLOUD_MEMORY_MAX_DAILY_FILES = 14;
 const CLOUD_MEMORY_SYNC_MIN_INTERVAL_MS = 60_000;
 const CLOUD_MEMORY_PERIODIC_SYNC_INTERVAL_MS = 5 * 60_000;
+const CLOUD_MEMORY_FETCH_TIMEOUT_MS = 30_000;
 const CLOUD_MEMORY_SOURCE_FILES = new Set(['MEMORY.md', 'USER.md']);
 const DAILY_MEMORY_FILE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
 
@@ -50,40 +48,39 @@ const inFlightSyncs = new Map<string, Promise<void>>();
 const lastSyncStartedAt = new Map<string, number>();
 let periodicSyncTimer: ReturnType<typeof setInterval> | null = null;
 
-type CloudMemoryConfigKey =
-  | 'HYBRIDAI_API_KEY'
-  | 'HYBRIDAI_BASE_URL'
-  | 'HYBRIDAI_CHATBOT_ID';
+function getCloudMemoryConfig(): {
+  apiKey: string;
+  baseUrl: string;
+  chatbotId: string;
+} {
+  return {
+    apiKey: readRuntimeConfigString(() => runtimeConfig.HYBRIDAI_API_KEY),
+    baseUrl: readRuntimeConfigString(() => runtimeConfig.HYBRIDAI_BASE_URL),
+    chatbotId: readRuntimeConfigString(() => runtimeConfig.HYBRIDAI_CHATBOT_ID),
+  };
+}
 
-function getCloudMemoryConfigValue(key: CloudMemoryConfigKey): string {
-  let value: unknown;
+function readRuntimeConfigString(read: () => unknown): string {
   try {
-    switch (key) {
-      case 'HYBRIDAI_API_KEY':
-        value = runtimeConfig.HYBRIDAI_API_KEY;
-        break;
-      case 'HYBRIDAI_BASE_URL':
-        value = runtimeConfig.HYBRIDAI_BASE_URL;
-        break;
-      case 'HYBRIDAI_CHATBOT_ID':
-        value = runtimeConfig.HYBRIDAI_CHATBOT_ID;
-        break;
-    }
+    const value = read();
+    return typeof value === 'string' ? value : '';
   } catch {
     return '';
   }
-  return typeof value === 'string' ? value : '';
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/+$/, '');
+  const normalized = baseUrl.trim().replace(/\/+$/, '');
+  if (!normalized.startsWith('https://')) {
+    throw new Error('HYBRIDAI_BASE_URL must use HTTPS for cloud memory sync');
+  }
+  return normalized;
 }
 
 function isCloudMemoryConfigured(): boolean {
+  const config = getCloudMemoryConfig();
   return Boolean(
-    getCloudMemoryConfigValue('HYBRIDAI_API_KEY').trim() &&
-      getCloudMemoryConfigValue('HYBRIDAI_BASE_URL').trim() &&
-      getCloudMemoryConfigValue('HYBRIDAI_CHATBOT_ID').trim(),
+    config.apiKey.trim() && config.baseUrl.trim() && config.chatbotId.trim(),
   );
 }
 
@@ -189,9 +186,9 @@ function collectLocalAgentMemoryFiles(
   return files;
 }
 
-function normalizeCloudPath(rawPath: string): string {
+function normalizeCloudPath(rawPath: string): string | null {
   const trimmed = rawPath.trim();
-  if (!trimmed) return '/MEMORY.md';
+  if (!trimmed) return null;
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
@@ -199,11 +196,13 @@ function normalizeCloudFile(
   file: CloudMemoryFilePayload,
 ): CloudMemoryContextFile | null {
   if (file.scope !== 'installation' && file.scope !== 'company') return null;
+  const name = normalizeCloudPath(file.path);
+  if (!name) return null;
   const content = file.content.trim();
   if (!content) return null;
   return {
     scope: file.scope,
-    name: normalizeCloudPath(file.path),
+    name,
     content: truncateHeadTailText(content, CLOUD_MEMORY_PROMPT_FILE_CHARS),
   };
 }
@@ -215,12 +214,10 @@ function writeCloudMemoryCache(
   const cachePath = cloudMemoryCachePath(agentId);
   fs.mkdirSync(path.dirname(cachePath), { recursive: true });
   const payload: CloudMemoryCache = {
-    version: CLOUD_MEMORY_CACHE_VERSION,
-    updatedAt: new Date().toISOString(),
     files,
   };
-  const tempPath = `${cachePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
-  fs.writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+  const tempPath = `${cachePath}.tmp-${randomBytes(6).toString('hex')}`;
+  fs.writeFileSync(tempPath, `${JSON.stringify(payload)}\n`, 'utf-8');
   fs.renameSync(tempPath, cachePath);
 }
 
@@ -239,14 +236,8 @@ function readCloudMemoryCache(agentId: string): CloudMemoryCache | null {
   try {
     const raw = fs.readFileSync(cloudMemoryCachePath(agentId), 'utf-8');
     const parsed = JSON.parse(raw) as Partial<CloudMemoryCache>;
-    if (parsed.version !== CLOUD_MEMORY_CACHE_VERSION) return null;
     if (!Array.isArray(parsed.files)) return null;
     return {
-      version: CLOUD_MEMORY_CACHE_VERSION,
-      updatedAt:
-        typeof parsed.updatedAt === 'string'
-          ? parsed.updatedAt
-          : new Date(0).toISOString(),
       files: parsed.files.filter(
         (file): file is CloudMemoryContextFile =>
           (file?.scope === 'installation' || file?.scope === 'company') &&
@@ -267,27 +258,41 @@ export function loadCloudMemoryContextFiles(
 }
 
 export async function syncCloudMemoryNow(agentId: string): Promise<void> {
-  if (!isCloudMemoryConfigured()) return;
-  const apiKey = getCloudMemoryConfigValue('HYBRIDAI_API_KEY').trim();
-  const baseUrl = getCloudMemoryConfigValue('HYBRIDAI_BASE_URL').trim();
-  const chatbotId = getCloudMemoryConfigValue('HYBRIDAI_CHATBOT_ID').trim();
-  const localFiles = collectLocalAgentMemoryFiles(agentId);
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) return;
+  const config = getCloudMemoryConfig();
+  const apiKey = config.apiKey.trim();
+  const baseUrl = config.baseUrl.trim();
+  const chatbotId = config.chatbotId.trim();
+  if (!apiKey || !baseUrl || !chatbotId) return;
+  const localFiles = collectLocalAgentMemoryFiles(normalizedAgentId);
   const url = `${normalizeBaseUrl(baseUrl)}/api/hybridclaw/memory/sync`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      chatbot_id: chatbotId,
-      agent_id: agentId,
-      files: localFiles,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    CLOUD_MEMORY_FETCH_TIMEOUT_MS,
+  );
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        chatbot_id: chatbotId,
+        agent_id: normalizedAgentId,
+        files: localFiles,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (response.status === 404) {
-    clearCloudMemoryCache(agentId);
+    clearCloudMemoryCache(normalizedAgentId);
     return;
   }
   if (!response.ok) {
@@ -302,7 +307,7 @@ export async function syncCloudMemoryNow(agentId: string): Promise<void> {
 
   const cloudFiles = Array.isArray(body.files) ? body.files : [];
   writeCloudMemoryCache(
-    agentId,
+    normalizedAgentId,
     cloudFiles
       .map(normalizeCloudFile)
       .filter((file): file is CloudMemoryContextFile => file !== null),
@@ -310,22 +315,27 @@ export async function syncCloudMemoryNow(agentId: string): Promise<void> {
 }
 
 export function scheduleCloudMemorySync(agentId: string): void {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) return;
   if (!isCloudMemoryConfigured()) return;
-  if (inFlightSyncs.has(agentId)) return;
+  if (inFlightSyncs.has(normalizedAgentId)) return;
 
   const now = Date.now();
-  const lastStarted = lastSyncStartedAt.get(agentId) || 0;
+  const lastStarted = lastSyncStartedAt.get(normalizedAgentId) || 0;
   if (now - lastStarted < CLOUD_MEMORY_SYNC_MIN_INTERVAL_MS) return;
-  lastSyncStartedAt.set(agentId, now);
+  lastSyncStartedAt.set(normalizedAgentId, now);
 
-  const promise = syncCloudMemoryNow(agentId)
+  const promise = syncCloudMemoryNow(normalizedAgentId)
     .catch((err) => {
-      logger.warn({ agentId, err }, 'Cloud memory sync failed');
+      logger.warn(
+        { agentId: normalizedAgentId, err },
+        'Cloud memory sync failed',
+      );
     })
     .finally(() => {
-      inFlightSyncs.delete(agentId);
+      inFlightSyncs.delete(normalizedAgentId);
     });
-  inFlightSyncs.set(agentId, promise);
+  inFlightSyncs.set(normalizedAgentId, promise);
 }
 
 function syncAgentIds(agentIds: string[]): void {
