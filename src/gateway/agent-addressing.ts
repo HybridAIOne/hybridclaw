@@ -136,6 +136,8 @@ export function resolveAgentAddressing(params: {
   const agents = listAgents();
 
   for (const match of content.matchAll(HANDLE_RE)) {
+    if (!isLeadingHandle(content, match)) break;
+
     const handle = match[2] ?? '';
     const normalizedHandle = slugify(handle);
     const compactHandle = compact(handle);
@@ -169,7 +171,6 @@ export function resolveAgentAddressing(params: {
     });
 
     if (matches.length === 0) {
-      if (!isLeadingHandle(content, match)) continue;
       return {
         kind: 'error',
         handle,

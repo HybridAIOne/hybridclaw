@@ -9276,7 +9276,7 @@ export async function handleGatewayCommand(
           ].includes(sub)
         ) {
           const rawTarget = req.args.slice(1).join(' ').trim();
-          const handle = rawTarget.replace(/\s+/g, '-');
+          const handle = rawTarget.replace(/^@+/, '').replace(/\s+/g, '-');
           const resolution = resolveAgentAddressing({
             content: `@${handle}`,
             currentAgentId: resolveSessionAgentId(session),

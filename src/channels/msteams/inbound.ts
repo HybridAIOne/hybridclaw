@@ -33,7 +33,7 @@ const CARD_TEXT_KEYS = new Set([
 function stripHtml(text: string): string {
   const blockTags = new Set(['br', 'div', 'p', 'li', 'tr', 'ul', 'ol']);
   const normalizedText = text.replace(
-    /<at>([^<]+)<\/at>/gi,
+    /<at\b[^>]*>([^<]+)<\/at>/gi,
     (_match, label: string) => ` ${formatNativeAgentMention(label)} `,
   );
   let result = '';

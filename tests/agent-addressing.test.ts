@@ -115,7 +115,7 @@ test('ignores context references and non-leading unknown handles', async () => {
   ).toMatchObject({ kind: 'none' });
 });
 
-test('known body mentions still address agents', async () => {
+test('known body mentions do not address agents', async () => {
   setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
@@ -134,11 +134,7 @@ test('known body mentions still address agents', async () => {
     currentAgentId: 'main',
   });
 
-  expect(resolved).toMatchObject({
-    kind: 'agent',
-    agentId: 'research',
-    content: 'Please ask @research to check this',
-  });
+  expect(resolved).toMatchObject({ kind: 'none' });
 
   const punctuated = resolveAgentAddressing({
     content: '@research: check this',

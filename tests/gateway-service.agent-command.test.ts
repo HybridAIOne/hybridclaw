@@ -179,7 +179,7 @@ test('agent shorthand switches by display name', async () => {
     channelId: 'web',
     userId: 'user-1',
     username: 'user',
-    args: ['agent', 'Research', 'Agent'],
+    args: ['agent', '@Research', 'Agent'],
   });
   const current = await handleGatewayCommand({
     sessionId: 'session-agent-shorthand',

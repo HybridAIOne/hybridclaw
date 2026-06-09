@@ -39,6 +39,12 @@ test('cleanIncomingContent maps Teams mention bodies to agent addresses', async 
       text: '<at>Research Agent</at> hi there',
     }),
   ).toBe('@Research-Agent hi there');
+
+  expect(
+    cleanIncomingContent({
+      text: '<at id="0">Research Agent</at> hi there',
+    }),
+  ).toBe('@Research-Agent hi there');
 });
 
 test('cleanIncomingContent extracts nested Adaptive Card text', async () => {
