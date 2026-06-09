@@ -11,6 +11,14 @@ import {
 } from '../../container/shared/workspace-time.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
+  approveIncomingA2APairingRequest,
+  declineIncomingA2APairingRequest,
+  fetchA2APairingProposal,
+  listIncomingA2APairingRequests,
+  type StartA2APairingResult,
+  startA2APairing,
+} from '../a2a/pairing.js';
+import {
   type A2AThreadSummary,
   listA2AThreadEnvelopes,
   listA2AThreads,
@@ -481,6 +489,10 @@ import {
 } from './gateway-tunnel-service.js';
 import {
   type GatewayAdminA2AInboxResponse,
+  type GatewayAdminA2APairingDecisionRequest,
+  type GatewayAdminA2APairingPreviewResponse,
+  type GatewayAdminA2APairingStartRequest,
+  type GatewayAdminA2APairingStartResponse,
   type GatewayAdminA2AThreadMessage,
   type GatewayAdminA2AThreadSummary,
   type GatewayAdminA2ATrustPeer,
@@ -5504,15 +5516,18 @@ export function getGatewayAdminA2ATrust(): GatewayAdminA2ATrustResponse {
       publicKeyJwk: identity.publicKeyJwk,
     },
     peers: listA2ATrustedPublicKeyPeers().map(mapA2ATrustPeer),
+    pairingRequests: listIncomingA2APairingRequests(),
   };
 }
 
 export function revokeGatewayAdminA2ATrustPeer(params: {
   peerId: string;
   reason?: string;
+  actor?: string;
 }): GatewayAdminA2ATrustResponse {
   revokeA2ATrustedPublicKeyPeer(params.peerId, {
     reason: params.reason,
+    actor: params.actor,
   });
   return getGatewayAdminA2ATrust();
 }
@@ -5538,6 +5553,7 @@ function normalizeOptionalA2AStringInput(
 
 export function upsertGatewayAdminA2ATrustPeer(
   input: GatewayAdminA2ATrustUpsertRequest,
+  actor?: string,
 ): GatewayAdminA2ATrustResponse {
   upsertA2ATrustedPublicKeyPeer({
     peerId: normalizeA2AStringInput(input.peerId, 'peerId'),
@@ -5555,14 +5571,132 @@ export function upsertGatewayAdminA2ATrustPeer(
     ),
     publicKeyJwk: input.publicKeyJwk,
     reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
   });
   return getGatewayAdminA2ATrust();
 }
 
 export function deleteGatewayAdminA2ATrustPeer(params: {
   peerId: string;
+  actor?: string;
 }): GatewayAdminA2ATrustResponse {
-  deleteA2ATrustedPublicKeyPeer(params.peerId);
+  deleteA2ATrustedPublicKeyPeer(params.peerId, { actor: params.actor });
+  return getGatewayAdminA2ATrust();
+}
+
+function normalizeOptionalA2ABooleanInput(
+  value: unknown,
+  label: string,
+): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'boolean') {
+    throw new GatewayRequestError(400, `Expected boolean \`${label}\`.`);
+  }
+  return value;
+}
+
+function resolveGatewayA2APublicBaseUrl(): string | null {
+  const tunnelStatus = getGatewayAdminTunnelStatus();
+  return (
+    tunnelStatus.publicUrl ||
+    getRuntimeConfig().deployment.public_url.trim() ||
+    null
+  );
+}
+
+function mapA2APairingStartResponse(
+  result: StartA2APairingResult,
+): GatewayAdminA2APairingStartResponse {
+  const trust = getGatewayAdminA2ATrust();
+  return {
+    ...trust,
+    proposal: {
+      peerId: result.proposal.peerId,
+      agentCardUrl: result.proposal.agentCardUrl,
+      deliveryUrl: result.proposal.deliveryUrl,
+      publicKeyFingerprint: result.proposal.publicKeyFingerprint,
+      name: result.proposal.name,
+    },
+    remoteNotification: result.remoteNotification,
+  };
+}
+
+function resolvePairingTargetInput(input: GatewayAdminA2APairingStartRequest): {
+  peerUrl?: string;
+  canonicalId?: string;
+} {
+  const peerUrl = normalizeOptionalA2AStringInput(input.peerUrl, 'peerUrl');
+  const canonicalId =
+    normalizeOptionalA2AStringInput(input.canonicalId, 'canonicalId') ||
+    normalizeOptionalA2AStringInput(
+      input.canonicalInstanceId,
+      'canonicalInstanceId',
+    );
+  if (!peerUrl && !canonicalId) {
+    throw new GatewayRequestError(
+      400,
+      'Expected `peerUrl`, `canonicalId`, or `canonicalInstanceId`.',
+    );
+  }
+  return { peerUrl, canonicalId };
+}
+
+export async function startGatewayAdminA2APairing(
+  input: GatewayAdminA2APairingStartRequest,
+  actor?: string,
+): Promise<GatewayAdminA2APairingStartResponse> {
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
+  const notifyPeer =
+    normalizeOptionalA2ABooleanInput(input.notifyPeer, 'notifyPeer') ?? true;
+  const result = await startA2APairing({
+    peerUrl,
+    canonicalId,
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    notifyPeer,
+    actor,
+    localBaseUrl: notifyPeer ? resolveGatewayA2APublicBaseUrl() : null,
+  });
+  return mapA2APairingStartResponse(result);
+}
+
+export async function previewGatewayAdminA2APairing(
+  input: GatewayAdminA2APairingStartRequest,
+): Promise<GatewayAdminA2APairingPreviewResponse> {
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
+  const proposal = await fetchA2APairingProposal({ peerUrl, canonicalId });
+  return {
+    proposal: {
+      peerId: proposal.peerId,
+      agentCardUrl: proposal.agentCardUrl,
+      deliveryUrl: proposal.deliveryUrl,
+      publicKeyFingerprint: proposal.publicKeyFingerprint,
+      publicKeyJwk: proposal.publicKeyJwk,
+      name: proposal.name,
+    },
+  };
+}
+
+export function approveGatewayAdminA2APairingRequest(
+  input: GatewayAdminA2APairingDecisionRequest,
+  actor?: string,
+): GatewayAdminA2ATrustResponse {
+  approveIncomingA2APairingRequest({
+    requestId: normalizeA2AStringInput(input.requestId, 'requestId'),
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
+  });
+  return getGatewayAdminA2ATrust();
+}
+
+export function declineGatewayAdminA2APairingRequest(
+  input: GatewayAdminA2APairingDecisionRequest,
+  actor?: string,
+): GatewayAdminA2ATrustResponse {
+  declineIncomingA2APairingRequest({
+    requestId: normalizeA2AStringInput(input.requestId, 'requestId'),
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
+  });
   return getGatewayAdminA2ATrust();
 }
 
