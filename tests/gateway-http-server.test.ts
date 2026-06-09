@@ -985,6 +985,55 @@ async function importFreshHealth(options?: {
       ],
     }),
   );
+  const getGatewayAdminA2ATrust = vi.fn(() => ({
+    identity: {
+      instanceId: 'local-dev',
+      publicKeyFingerprint: 'local-fingerprint',
+      publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'local-key' },
+    },
+    peers: [],
+    pairingRequests: [],
+  }));
+  const upsertGatewayAdminA2ATrustPeer = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const revokeGatewayAdminA2ATrustPeer = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const deleteGatewayAdminA2ATrustPeer = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const startGatewayAdminA2APairing = vi.fn(async () => ({
+    ...getGatewayAdminA2ATrust(),
+    proposal: {
+      peerId: 'peer-prod',
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://peer.example.com/a2a',
+      publicKeyFingerprint: 'peer-fingerprint',
+      name: 'Peer',
+    },
+    remoteNotification: {
+      status: 'sent' as const,
+      url: 'https://peer.example.com/a2a/pairing/requests',
+      error: null,
+    },
+  }));
+  const previewGatewayAdminA2APairing = vi.fn(async () => ({
+    proposal: {
+      peerId: 'peer-prod',
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://peer.example.com/a2a',
+      publicKeyFingerprint: 'peer-fingerprint',
+      publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'peer-key' },
+      name: 'Peer',
+    },
+  }));
+  const approveGatewayAdminA2APairingRequest = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const declineGatewayAdminA2APairingRequest = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
   const getGatewayAdminPlugins = vi.fn(async () => ({
     totals: {
       totalPlugins: 2,
@@ -1841,8 +1890,11 @@ async function importFreshHealth(options?: {
     GatewayRequestError,
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
+    approveGatewayAdminA2APairingRequest,
     createGatewayAdminAgent,
     createGatewayAdminSkill,
+    declineGatewayAdminA2APairingRequest,
+    deleteGatewayAdminA2ATrustPeer,
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
@@ -1854,6 +1906,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgentMarkdownRevision,
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
+    getGatewayAdminA2ATrust,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
@@ -1882,6 +1935,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     reconnectGatewayAdminTunnel,
+    previewGatewayAdminA2APairing,
     readSystemPromptMessage,
     renderGatewayCommand,
     resolveGatewayChatbotId,
@@ -1889,6 +1943,7 @@ async function importFreshHealth(options?: {
     removeGatewayAdminMcpServer,
     restoreGatewayAdminAgentMarkdownRevision,
     restoreGatewayAdminTeamStructureRevision,
+    revokeGatewayAdminA2ATrustPeer,
     saveGatewayAdminConfig,
     saveGatewayAdminSlackWebhookTarget,
     saveGatewayAdminAgentMarkdownFile,
@@ -1897,8 +1952,10 @@ async function importFreshHealth(options?: {
     saveGatewayAdminPolicyRule,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
+    startGatewayAdminA2APairing,
     updateGatewayAdminAgent,
     uploadGatewayAdminSkillZip,
+    upsertGatewayAdminA2ATrustPeer,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
   }));
@@ -2013,6 +2070,14 @@ async function importFreshHealth(options?: {
     getGatewayAdminTeamStructureRevision,
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
+    getGatewayAdminA2ATrust,
+    previewGatewayAdminA2APairing,
+    upsertGatewayAdminA2ATrustPeer,
+    revokeGatewayAdminA2ATrustPeer,
+    deleteGatewayAdminA2ATrustPeer,
+    startGatewayAdminA2APairing,
+    approveGatewayAdminA2APairingRequest,
+    declineGatewayAdminA2APairingRequest,
     saveGatewayAdminPolicyDefault,
     saveGatewayAdminPolicyLanHttpAccess,
     applyGatewayAdminPolicyPreset,
@@ -5432,6 +5497,92 @@ describe('gateway HTTP server', () => {
       selectedThreadId: 'thread-b',
       threads: [{ id: 'thread-b', messageCount: 1 }],
       messages: [{ id: 'msg-b', threadId: 'thread-b' }],
+    });
+  });
+
+  test('allows admin A2A trust upserts', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/a2a/trust',
+      body: JSON.stringify({
+        peerId: 'peer-prod',
+        publicKeyFingerprint:
+          'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO_',
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.upsertGatewayAdminA2ATrustPeer).toHaveBeenCalledWith(
+      {
+        peerId: 'peer-prod',
+        publicKeyFingerprint:
+          'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO_',
+      },
+      'admin-console',
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('starts admin A2A pairing from the console endpoint', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/a2a/pairing',
+      body: JSON.stringify({
+        peerUrl: 'https://peer.example.com',
+        notifyPeer: true,
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.startGatewayAdminA2APairing).toHaveBeenCalledWith(
+      {
+        peerUrl: 'https://peer.example.com',
+        notifyPeer: true,
+      },
+      'admin-console',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      proposal: { peerId: 'peer-prod' },
+      remoteNotification: { status: 'sent' },
+    });
+  });
+
+  test('previews admin A2A pairing before trust approval', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/a2a/pairing/preview',
+      body: JSON.stringify({
+        canonicalInstanceId: 'peer-prod',
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.previewGatewayAdminA2APairing).toHaveBeenCalledWith({
+      canonicalInstanceId: 'peer-prod',
+    });
+    expect(state.startGatewayAdminA2APairing).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      proposal: {
+        peerId: 'peer-prod',
+        publicKeyFingerprint: 'peer-fingerprint',
+      },
     });
   });
 

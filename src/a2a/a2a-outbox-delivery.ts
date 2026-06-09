@@ -32,6 +32,7 @@ import { resolveA2AIdentity } from './identity-resolver.js';
 import { normalizePeerDescriptor } from './peer-descriptor.js';
 import {
   type A2APeerPublicKeyMaterial,
+  A2APeerUntrustedError,
   assertA2APeerPublicKeyTrust,
   extractA2APeerPublicKey,
   fingerprintA2APublicKey,
@@ -531,7 +532,8 @@ export async function deliverA2AItem(
       error instanceof A2AHttpError ? error.statusCode : undefined;
     if (
       error instanceof A2AFailFastError ||
-      error instanceof IdentityNotFoundError
+      error instanceof IdentityNotFoundError ||
+      error instanceof A2APeerUntrustedError
     ) {
       failA2AItem(deliveryItem, now, reason, attemptDetails(deliveryItem));
       return 'failed';

@@ -1,12 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
+  approveA2APairingRequest,
+  declineA2APairingRequest,
   deleteA2ATrustPeer,
   fetchA2ATrust,
+  previewA2APairing,
   revokeA2ATrustPeer,
+  startA2APairing,
   upsertA2ATrustPeer,
 } from '../api/client';
-import type { AdminA2ATrustPeer } from '../api/types';
+import type {
+  AdminA2APairingPreviewResponse,
+  AdminA2APairingStartResponse,
+  AdminA2ATrustPeer,
+} from '../api/types';
 import { useAuth } from '../auth';
 import {
   Card,
@@ -47,6 +55,16 @@ export function A2ATrustPage() {
   const [pinFingerprint, setPinFingerprint] = useState('');
   const [pinPublicKeyJwk, setPinPublicKeyJwk] = useState('');
   const [pinReason, setPinReason] = useState('');
+  const [pairPeerUrl, setPairPeerUrl] = useState('');
+  const [pairCanonicalId, setPairCanonicalId] = useState('');
+  const [pairCanonicalInstanceId, setPairCanonicalInstanceId] = useState('');
+  const [pairReason, setPairReason] = useState('');
+  const [pairNotifyPeer, setPairNotifyPeer] = useState(true);
+  const [pairPreview, setPairPreview] =
+    useState<AdminA2APairingPreviewResponse | null>(null);
+  const [pairResult, setPairResult] =
+    useState<AdminA2APairingStartResponse | null>(null);
+  const [pairingDecisionReason, setPairingDecisionReason] = useState('');
 
   const trustQuery = useQuery({
     queryKey: ['a2a-trust', auth.token],
@@ -91,7 +109,53 @@ export function A2ATrustPage() {
     },
   });
 
+  const startPairingMutation = useMutation({
+    mutationFn: () =>
+      startA2APairing(auth.token, {
+        peerUrl: pairPeerUrl || undefined,
+        canonicalId: pairCanonicalId || undefined,
+        canonicalInstanceId: pairCanonicalInstanceId || undefined,
+        reason: pairReason || undefined,
+        notifyPeer: pairNotifyPeer,
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['a2a-trust', auth.token], data);
+      setPairResult(data);
+      setSelectedPeerId(data.proposal.peerId);
+    },
+  });
+
+  const previewPairingMutation = useMutation({
+    mutationFn: () =>
+      previewA2APairing(auth.token, {
+        peerUrl: pairPeerUrl || undefined,
+        canonicalId: pairCanonicalId || undefined,
+        canonicalInstanceId: pairCanonicalInstanceId || undefined,
+      }),
+    onSuccess: (data) => {
+      setPairPreview(data);
+      setPairResult(null);
+    },
+  });
+
+  const approvePairingMutation = useMutation({
+    mutationFn: (requestId: string) =>
+      approveA2APairingRequest(auth.token, requestId, pairingDecisionReason),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['a2a-trust', auth.token], data);
+    },
+  });
+
+  const declinePairingMutation = useMutation({
+    mutationFn: (requestId: string) =>
+      declineA2APairingRequest(auth.token, requestId, pairingDecisionReason),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['a2a-trust', auth.token], data);
+    },
+  });
+
   const peers = trustQuery.data?.peers || [];
+  const pairingRequests = trustQuery.data?.pairingRequests || [];
   const selectedPeer =
     peers.find((peer) => peer.peerId === selectedPeerId) || peers[0] || null;
 
@@ -104,6 +168,11 @@ export function A2ATrustPage() {
       peer.publicKeyJwk ? JSON.stringify(peer.publicKeyJwk, null, 2) : '',
     );
     setPinReason('');
+  }
+
+  function clearPairPreview(): void {
+    setPairPreview(null);
+    setPairResult(null);
   }
 
   return (
@@ -134,6 +203,210 @@ export function A2ATrustPage() {
             </div>
           ) : (
             <div className="empty-state">Identity unavailable.</div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Add peer instance</CardTitle>
+          <CardDescription>
+            Fetch a peer Agent Card, pin its public key, and notify the remote
+            operator.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="detail-stack">
+            <div className="two-column-grid">
+              <Field>
+                <FieldLabel>Peer URL</FieldLabel>
+                <Input
+                  placeholder="https://peer.example.com"
+                  value={pairPeerUrl}
+                  onChange={(event) => {
+                    setPairPeerUrl(event.target.value);
+                    clearPairPreview();
+                  }}
+                />
+              </Field>
+              <Field>
+                <FieldLabel>Canonical agent id</FieldLabel>
+                <Input
+                  placeholder="agent@user@instance"
+                  value={pairCanonicalId}
+                  onChange={(event) => {
+                    setPairCanonicalId(event.target.value);
+                    clearPairPreview();
+                  }}
+                />
+              </Field>
+            </div>
+            <Field>
+              <FieldLabel>Canonical instance id</FieldLabel>
+              <Input
+                placeholder="instance-prod"
+                value={pairCanonicalInstanceId}
+                onChange={(event) => {
+                  setPairCanonicalInstanceId(event.target.value);
+                  clearPairPreview();
+                }}
+              />
+            </Field>
+            <Field>
+              <FieldLabel>Reason</FieldLabel>
+              <Input
+                value={pairReason}
+                onChange={(event) => setPairReason(event.target.value)}
+              />
+            </Field>
+            <label className="inline-checkbox">
+              <input
+                type="checkbox"
+                checked={pairNotifyPeer}
+                onChange={(event) => setPairNotifyPeer(event.target.checked)}
+              />
+              <span>Send peer-side approval prompt</span>
+            </label>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={
+                (!pairPeerUrl.trim() &&
+                  !pairCanonicalId.trim() &&
+                  !pairCanonicalInstanceId.trim()) ||
+                previewPairingMutation.isPending
+              }
+              onClick={() => previewPairingMutation.mutate()}
+            >
+              Fetch peer
+            </button>
+            {pairPreview ? (
+              <div className="info-row">
+                <div>
+                  <strong>{pairPreview.proposal.peerId}</strong>
+                  <small>{pairPreview.proposal.agentCardUrl}</small>
+                  <small>{pairPreview.proposal.deliveryUrl}</small>
+                  <small>{pairPreview.proposal.publicKeyFingerprint}</small>
+                </div>
+              </div>
+            ) : null}
+            <button
+              className="primary-button"
+              type="button"
+              disabled={
+                !pairPreview ||
+                startPairingMutation.isPending ||
+                previewPairingMutation.isPending
+              }
+              onClick={() => startPairingMutation.mutate()}
+            >
+              Trust peer
+            </button>
+            {pairResult ? (
+              <small className="row-status-note">
+                {`Trusted ${pairResult.proposal.peerId} (${shortFingerprint(
+                  pairResult.proposal.publicKeyFingerprint,
+                )}); peer prompt ${pairResult.remoteNotification.status}.`}
+              </small>
+            ) : null}
+            {startPairingMutation.error ? (
+              <small className="row-status-note-danger">
+                {startPairingMutation.error instanceof Error
+                  ? startPairingMutation.error.message
+                  : 'Pairing failed.'}
+              </small>
+            ) : null}
+            {previewPairingMutation.error ? (
+              <small className="row-status-note-danger">
+                {previewPairingMutation.error instanceof Error
+                  ? previewPairingMutation.error.message
+                  : 'Pairing preview failed.'}
+              </small>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Incoming pairing requests</CardTitle>
+          <CardDescription>
+            {`${pairingRequests.length} request${
+              pairingRequests.length === 1 ? '' : 's'
+            }`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {pairingRequests.length ? (
+            <div className="detail-stack">
+              <Field>
+                <FieldLabel>Decision reason</FieldLabel>
+                <Input
+                  value={pairingDecisionReason}
+                  onChange={(event) =>
+                    setPairingDecisionReason(event.target.value)
+                  }
+                />
+              </Field>
+              <div className="list-stack">
+                {pairingRequests.map((request) => (
+                  <div className="info-row" key={request.requestId}>
+                    <div>
+                      <strong>{request.peerId}</strong>
+                      <small>
+                        {`${request.status} - ${shortFingerprint(
+                          request.publicKeyFingerprint,
+                        )}`}
+                      </small>
+                      {request.pairingId ? (
+                        <small>{`Pairing ${request.pairingId}`}</small>
+                      ) : null}
+                    </div>
+                    <div className="row-actions">
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={
+                          request.status !== 'pending' ||
+                          approvePairingMutation.isPending
+                        }
+                        onClick={() =>
+                          approvePairingMutation.mutate(request.requestId)
+                        }
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="danger-button"
+                        type="button"
+                        disabled={
+                          request.status !== 'pending' ||
+                          declinePairingMutation.isPending
+                        }
+                        onClick={() =>
+                          declinePairingMutation.mutate(request.requestId)
+                        }
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {approvePairingMutation.error || declinePairingMutation.error ? (
+                <small className="row-status-note-danger">
+                  {(approvePairingMutation.error ||
+                    declinePairingMutation.error) instanceof Error
+                    ? (
+                        approvePairingMutation.error ||
+                        declinePairingMutation.error
+                      )?.message
+                    : 'Pairing decision failed.'}
+                </small>
+              ) : null}
+            </div>
+          ) : (
+            <div className="empty-state">No incoming pairing requests.</div>
           )}
         </CardContent>
       </Card>

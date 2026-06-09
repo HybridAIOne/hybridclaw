@@ -1312,6 +1312,7 @@ export interface AdminA2ATrustPeer {
 export interface AdminA2ATrustResponse {
   identity: AdminA2AIdentity;
   peers: AdminA2ATrustPeer[];
+  pairingRequests: AdminA2APairingRequest[];
 }
 
 export interface AdminA2ATrustUpsertRequest {
@@ -1368,6 +1369,61 @@ export interface AdminFleetTopologyUpsertRequest {
   publicKeyFingerprint?: string;
   publicKeyJwk?: JsonWebKey;
   reason?: string;
+}
+
+export interface AdminA2APairingRequest {
+  schemaVersion: 1;
+  requestId: string;
+  status: 'pending' | 'approved' | 'declined';
+  pairingId: string | null;
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyJwk: JsonWebKey;
+  publicKeyFingerprint: string;
+  name: string | null;
+  requestedBy: string | null;
+  requestedAt: string;
+  updatedAt: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  declinedAt?: string;
+  declinedBy?: string;
+  reason?: string;
+}
+
+export interface AdminA2APairingStartRequest {
+  peerUrl?: string;
+  canonicalId?: string;
+  canonicalInstanceId?: string;
+  reason?: string;
+  notifyPeer?: boolean;
+}
+
+export interface AdminA2APairingPreviewResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    publicKeyJwk: JsonWebKey;
+    name: string | null;
+  };
+}
+
+export interface AdminA2APairingStartResponse extends AdminA2ATrustResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    name: string | null;
+  };
+  remoteNotification: {
+    status: 'not_requested' | 'sent' | 'failed';
+    url: string | null;
+    error: string | null;
+  };
 }
 
 export interface AdminA2AThreadMessage {
