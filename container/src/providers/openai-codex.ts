@@ -157,15 +157,18 @@ function buildCodexRequestBody(
   messages: ChatMessage[],
   tools: ToolDefinition[],
 ): Record<string, unknown> {
-  return {
+  const body: Record<string, unknown> = {
     model: normalizeCodexModelName(model),
     store: false,
     instructions: extractCodexInstructions(messages),
     input: messages.flatMap(convertMessageToResponsesInput),
-    tools: convertToolsToResponsesTools(tools),
-    tool_choice: 'auto',
-    parallel_tool_calls: true,
   };
+  if (tools.length > 0) {
+    body.tools = convertToolsToResponsesTools(tools);
+    body.tool_choice = 'auto';
+    body.parallel_tool_calls = true;
+  }
+  return body;
 }
 
 function buildCodexSyntheticMessageOutput(
