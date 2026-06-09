@@ -307,7 +307,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.79 | Skill | Facebook Lead Ads skill (lead-form harvesting, page-posts read, ad-set status) | ⬜ To be filed |
 | R21.80 | Skill | X (Twitter) skill (tweet CRUD via v2 API, search, list management — gated by API tier) | ⬜ To be filed |
 | R21.81 | Skill | Mixpanel skill (event ingest, JQL reports, cohort export — peer to R21.5 GA4) | ⬜ To be filed |
-| R21.82 | Skill | PostHog skill (capture, person properties, feature flags, insights query) | ⬜ To be filed |
+| R21.82 | Skill | PostHog business skill (event capture, person properties, feature flags, insights query) | ⬜ #1168 |
 | R21.83 | Skill | Stock / equities deep-research skill (announcements, market explorer, financial deep research). DACH-relevant companion to the R21.28–R21.31 finance bundle. | ⬜ To be filed |
 | R21.84 | Skill | Financial-services modeling bundle — 3-statement modeling, DCF, LBO, merger, comps, with Excel and PPTX authoring. Bridges R21.28 finance close and R21.41 pitch decks. | ⬜ To be filed |
 | R21.85 | Skill | B2B lead-generation skill with ICP scoring. Workflow-shaped complement to the Salesforce / HubSpot connectors (R21.2 / R21.3). | ⬜ To be filed |
