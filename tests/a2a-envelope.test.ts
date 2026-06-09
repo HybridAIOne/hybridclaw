@@ -116,12 +116,58 @@ describe('A2A envelope schema', () => {
     expect(summarizeA2AEnvelopeForAudit(envelope)).toEqual({
       messageId: 'msg-delegate-1',
       threadId: 'thread-delegate',
+      from: null,
+      to: null,
       senderAgentId: 'researcher@team-a@inst-source',
       recipientAgentId: 'writer@team-b@inst-target',
       senderInstanceId: 'inst-source',
       sourceInstanceId: 'inst-source',
       targetInstanceId: 'inst-target',
       delegation: true,
+    });
+  });
+
+  test('accepts actor from and to routing fields', () => {
+    const envelope = validateA2AEnvelope({
+      id: 'msg-actor-route',
+      from: { type: 'user', id: 'Lena@HybridAI' },
+      to: { type: 'agent', id: 'Writer@Team-B@Inst-Target' },
+      sender_agent_id: 'Researcher@Team-A@Inst-Source',
+      recipient_agent_id: 'Writer@Team-B@Inst-Target',
+      thread_id: 'thread-actor-route',
+      intent: 'chat',
+      content: 'Please pick this up.',
+      created_at: '2026-06-09T08:00:00.000Z',
+    });
+
+    expect(envelope).toMatchObject({
+      from: { type: 'user', id: 'lena@hybridai' },
+      to: { type: 'agent', id: 'writer@team-b@inst-target' },
+      sender_agent_id: 'researcher@team-a@inst-source',
+      recipient_agent_id: 'writer@team-b@inst-target',
+    });
+    expect(summarizeA2AEnvelopeForAudit(envelope)).toMatchObject({
+      from: { type: 'user', id: 'lena@hybridai' },
+      to: { type: 'agent', id: 'writer@team-b@inst-target' },
+    });
+  });
+
+  test('derives legacy agent routing fields from agent actors', () => {
+    const envelope = validateA2AEnvelope({
+      id: 'msg-agent-actors',
+      from: { type: 'agent', id: 'Researcher@Team-A@Inst-Source' },
+      to: { type: 'agent', id: 'Writer@Team-B@Inst-Target' },
+      thread_id: 'thread-agent-actors',
+      intent: 'chat',
+      content: 'Agent routed hello.',
+      created_at: '2026-06-09T08:00:00.000Z',
+    });
+
+    expect(envelope).toMatchObject({
+      from: { type: 'agent', id: 'researcher@team-a@inst-source' },
+      to: { type: 'agent', id: 'writer@team-b@inst-target' },
+      sender_agent_id: 'researcher@team-a@inst-source',
+      recipient_agent_id: 'writer@team-b@inst-target',
     });
   });
 

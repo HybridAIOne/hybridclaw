@@ -34,6 +34,11 @@ import {
   syncRuntimeAssetRevisionStateInOpenDatabase,
 } from '../config/runtime-config-revisions.js';
 import {
+  type Actor,
+  actorFromLegacyFields,
+  normalizeActor,
+} from '../identity/actor.js';
+import {
   AGENT_IDENTITY_COMPONENT_MAX_LENGTH,
   deriveLocalAgentIdentity,
   formatAgentIdentity,
@@ -154,7 +159,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 42;
+export const DATABASE_SCHEMA_VERSION = 43;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -173,6 +178,8 @@ const STRUCTURED_AUDIT_SELECT_COLUMNS = [
   'timestamp',
   'run_id',
   'parent_run_id',
+  'actor_type',
+  'actor_id',
   'payload',
   'wire_hash',
   'wire_prev_hash',
@@ -839,6 +846,8 @@ function migrateV1(database: Database.Database): void {
       timestamp TEXT NOT NULL,
       run_id TEXT NOT NULL,
       parent_run_id TEXT,
+      actor_type TEXT CHECK (actor_type IN ('user', 'agent')),
+      actor_id TEXT,
       payload TEXT NOT NULL,
       wire_hash TEXT NOT NULL,
       wire_prev_hash TEXT NOT NULL,
@@ -848,6 +857,7 @@ function migrateV1(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_audit_events_type_timestamp ON audit_events(event_type, timestamp);
     CREATE INDEX IF NOT EXISTS idx_audit_events_session_seq ON audit_events(session_id, seq);
     CREATE INDEX IF NOT EXISTS idx_audit_events_run_seq ON audit_events(run_id, seq);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_actor_timestamp ON audit_events(actor_type, actor_id, timestamp);
 
     CREATE TABLE IF NOT EXISTS observability_offsets (
       stream_key TEXT PRIMARY KEY,
@@ -2945,6 +2955,62 @@ function migrateV42(database: Database.Database): void {
   recordMigration(database, 42, 'Persist per-response operator ratings');
 }
 
+function auditEventsNeedActorMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'audit_events') &&
+    (!columnExists(database, 'audit_events', 'actor_type') ||
+      !columnExists(database, 'audit_events', 'actor_id') ||
+      !indexExists(database, 'idx_audit_events_actor_timestamp'))
+  );
+}
+
+function migrateV43(database: Database.Database): void {
+  if (!tableExists(database, 'audit_events')) {
+    recordMigration(database, 43, 'Index structured audit events by Actor');
+    return;
+  }
+
+  addColumnIfMissing({
+    database,
+    table: 'audit_events',
+    column: 'actor_type',
+    ddl: "actor_type TEXT CHECK (actor_type IN ('user', 'agent'))",
+    quiet: true,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'audit_events',
+    column: 'actor_id',
+    ddl: 'actor_id TEXT',
+    quiet: true,
+  });
+
+  const rows = queryAll<{ id: number; payload: string }>(
+    database,
+    `SELECT id, payload
+     FROM audit_events
+     WHERE actor_type IS NULL
+       AND actor_id IS NULL`,
+  );
+  const update = database.prepare(
+    `UPDATE audit_events
+     SET actor_type = ?, actor_id = ?
+     WHERE id = ?`,
+  );
+  database.transaction(() => {
+    for (const row of rows) {
+      const actor = readAuditActorFromPayloadText(row.payload);
+      if (!actor) continue;
+      update.run(actor.type, actor.id, row.id);
+    }
+  })();
+
+  database.exec(
+    'CREATE INDEX IF NOT EXISTS idx_audit_events_actor_timestamp ON audit_events(actor_type, actor_id, timestamp)',
+  );
+  recordMigration(database, 43, 'Index structured audit events by Actor');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3050,6 +3116,9 @@ function runMigrations(
   }
   if (currentVersion < 42 || responseRatingsNeedMigration(database)) {
     migrateV42(database);
+  }
+  if (currentVersion < 43 || auditEventsNeedActorMigration(database)) {
+    migrateV43(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -7160,6 +7229,134 @@ export function getRecentSessionsForUser(params: {
   });
 }
 
+export function getRecentSessionsForActor(params: {
+  actor: Actor;
+  channelId?: string | null;
+  limit?: number;
+  query?: string | null;
+  includeScheduled?: boolean;
+}): RecentUserSessionSummary[] {
+  if (params.actor.type === 'user') {
+    return getRecentSessionsForUser({
+      userId: params.actor.id,
+      channelId: params.channelId,
+      limit: params.limit,
+      query: params.query,
+      includeScheduled: params.includeScheduled,
+    });
+  }
+
+  const agentId = params.actor.id.trim();
+  if (!agentId) return [];
+  const channelId = String(params.channelId || '').trim();
+  const searchQuery = normalizeRecentChatSearchQuery(
+    params.query,
+  ).toLowerCase();
+  const limit = normalizeRecentChatSessionLimit(params.limit);
+  const sqlLimit = searchQuery ? MAX_RECENT_CHAT_SESSION_LIMIT : limit;
+  const scheduledWhere =
+    params.includeScheduled === false
+      ? ` AND ${NON_SCHEDULED_RECENT_SESSION_SQL}`
+      : '';
+
+  const rows = channelId
+    ? queryAll<RecentUserSessionRow, [string, string, number]>(
+        db,
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           s.title,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
+           FROM sessions s
+           WHERE s.agent_id = ?
+             AND s.channel_id = ?
+             ${scheduledWhere}
+           ORDER BY COALESCE(last_message_at, s.last_active) DESC
+           LIMIT ?`,
+        agentId,
+        channelId,
+        sqlLimit,
+      )
+    : queryAll<RecentUserSessionRow, [string, number]>(
+        db,
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           s.title,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
+           FROM sessions s
+           WHERE s.agent_id = ?
+             ${scheduledWhere}
+           ORDER BY COALESCE(last_message_at, s.last_active) DESC
+           LIMIT ?`,
+        agentId,
+        sqlLimit,
+      );
+
+  return buildRecentSessionSummaries({
+    rows,
+    boundaryUserId: null,
+    searchQuery,
+    limit,
+  });
+}
+
+export interface ActorDataDiscoveryResult {
+  actor: Actor;
+  sessions: RecentUserSessionSummary[];
+  auditEvents: StructuredAuditEntry[];
+}
+
+export function discoverActorData(params: {
+  actor: Actor;
+  channelId?: string | null;
+  limit?: number;
+  query?: string | null;
+  includeScheduled?: boolean;
+  auditLimit?: number;
+}): ActorDataDiscoveryResult {
+  ensureDatabaseReady();
+  const sessions = getRecentSessionsForActor({
+    actor: params.actor,
+    channelId: params.channelId,
+    limit: params.limit,
+    query: params.query,
+    includeScheduled: params.includeScheduled,
+  });
+  const auditLimit = Math.max(
+    1,
+    Math.min(Math.trunc(params.auditLimit ?? 200), 1_000),
+  );
+  const auditEvents = queryAll<StructuredAuditEntry, [string, string, number]>(
+    db,
+    `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM audit_events
+     WHERE actor_type = ?
+       AND actor_id = ?
+     ORDER BY id DESC
+     LIMIT ?`,
+    params.actor.type,
+    params.actor.id,
+    auditLimit,
+  ).map(hydrateStructuredAuditEntry);
+
+  return {
+    actor: params.actor,
+    sessions,
+    auditEvents,
+  };
+}
+
 export function getRecentSessionsForChannel(params: {
   channelId: string;
   limit?: number;
@@ -9556,6 +9753,7 @@ function mapAgentSkillScoreRow(row: AgentSkillScoreAggregate): AgentSkillScore {
   });
   return {
     ...normalized,
+    actor: { type: 'agent', id: normalized.agent_id },
     quality_score: qualityScore,
     reliability_score: reliabilityScore,
     timing_score: timingScore,
@@ -10141,14 +10339,83 @@ function readPayloadBooleanValue(
   return typeof value === 'boolean' ? value : null;
 }
 
+function readPayloadActor(payload: Record<string, unknown>): Actor | null {
+  const actor = payload.actor;
+  if (actor && typeof actor === 'object' && !Array.isArray(actor)) {
+    try {
+      return normalizeActor(actor);
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    return actorFromLegacyFields({
+      userId: readPayloadStringValue(payload, 'userId'),
+      agentId: readPayloadStringValue(payload, 'agentId'),
+    });
+  } catch {
+    return null;
+  }
+}
+
+function readAuditActorFromPayloadText(payloadText: string): Actor | null {
+  try {
+    const parsed = JSON.parse(payloadText) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return readPayloadActor(parsed as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeAuditEventPayload(
+  payload: Record<string, unknown>,
+  actor: Actor | null,
+): Record<string, unknown> {
+  if (!actor || payload.actor !== undefined) return payload;
+  return { ...payload, actor };
+}
+
+function hydrateStructuredAuditEntry(
+  entry: StructuredAuditEntry,
+): StructuredAuditEntry {
+  const actor =
+    entry.actor_type && entry.actor_id
+      ? ({ type: entry.actor_type, id: entry.actor_id } as Actor)
+      : readAuditActorFromPayloadText(entry.payload);
+  if (!actor) return entry;
+
+  const payload = readPayloadObject(entry.payload);
+  if (
+    payload.actor &&
+    typeof payload.actor === 'object' &&
+    !Array.isArray(payload.actor)
+  ) {
+    return entry;
+  }
+
+  return {
+    ...entry,
+    actor_type: actor.type,
+    actor_id: actor.id,
+    payload: JSON.stringify({ ...payload, actor }),
+  };
+}
+
 export function logStructuredAuditEvent(record: WireRecord): void {
   const eventType = record.event.type || 'unknown';
-  const payloadText = JSON.stringify(record.event);
+  const actor = readPayloadActor(record.event);
+  const payloadText = JSON.stringify(
+    normalizeAuditEventPayload(record.event, actor),
+  );
 
   db.prepare(
     `INSERT OR IGNORE INTO audit_events (
-      session_id, seq, event_type, timestamp, run_id, parent_run_id, payload, wire_hash, wire_prev_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      session_id, seq, event_type, timestamp, run_id, parent_run_id, actor_type, actor_id, payload, wire_hash, wire_prev_hash
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     record.sessionId,
     record.seq,
@@ -10156,6 +10423,8 @@ export function logStructuredAuditEvent(record: WireRecord): void {
     record.timestamp,
     record.runId,
     record.parentRunId || null,
+    actor?.type ?? null,
+    actor?.id ?? null,
     payloadText,
     record._hash,
     record._prevHash,
@@ -10200,10 +10469,11 @@ export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
      ORDER BY id DESC
      LIMIT ?`,
     bounded,
-  );
+  ).map(hydrateStructuredAuditEntry);
 }
 
 export interface AgentAnomalyRollup {
+  actor: Actor;
   agent_id: string;
   flagged: number;
   confirmed_normal: number;
@@ -10270,6 +10540,7 @@ export function getWeeklyAgentAnomalyRollups(
     const rollup =
       byAgent.get(agentId) ||
       ({
+        actor: { type: 'agent', id: agentId },
         agent_id: agentId,
         flagged: 0,
         confirmed_normal: 0,
@@ -10422,7 +10693,7 @@ function queryStructuredAuditEntries(params?: {
       db,
       sql,
       ...values,
-    );
+    ).map(hydrateStructuredAuditEntry);
   }
 
   return queryAll<StructuredAuditEntry, Array<string | number>>(
@@ -10430,7 +10701,7 @@ function queryStructuredAuditEntries(params?: {
     sql,
     ...values,
     limit,
-  );
+  ).map(hydrateStructuredAuditEntry);
 }
 
 export function getRecentStructuredAuditForSession(
@@ -10474,7 +10745,7 @@ export function getRecentStructuredAuditForSessions(
      ORDER BY session_id ASC, seq DESC`,
     ...normalizedSessionIds,
     limit,
-  );
+  ).map(hydrateStructuredAuditEntry);
 }
 
 export function listStructuredAuditSessionIdsByPrefix(
@@ -10564,7 +10835,7 @@ export function getStructuredAuditAfterId(
      LIMIT ?`,
     boundedAfterId,
     boundedLimit,
-  );
+  ).map(hydrateStructuredAuditEntry);
 }
 
 export function searchStructuredAudit(
@@ -10594,7 +10865,7 @@ export function searchStructuredAudit(
     like,
     like,
     bounded,
-  );
+  ).map(hydrateStructuredAuditEntry);
 }
 
 export function getRecentApprovals(

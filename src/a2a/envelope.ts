@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-
+import { type Actor, normalizeActor } from '../identity/actor.js';
 import {
   isAgentIdentityComponent,
   isCanonicalAgentIdentity,
@@ -27,6 +27,8 @@ interface NormalizedA2AAgentId {
 
 export interface A2AEnvelope {
   id: string;
+  from?: Actor;
+  to?: Actor;
   sender_agent_id: string;
   recipient_agent_id: string;
   sender_instance_id?: string;
@@ -48,6 +50,8 @@ export type CreateA2AEnvelopeInput = Omit<A2AEnvelope, 'id' | 'created_at'> & {
 export interface A2AEnvelopeAuditSummary {
   messageId: string | null;
   threadId: string | null;
+  from: Actor | null;
+  to: Actor | null;
   senderAgentId: string | null;
   recipientAgentId: string | null;
   senderInstanceId: string | null;
@@ -82,6 +86,8 @@ export class A2AEnvelopeDuplicateError extends A2AEnvelopeValidationError {
 
 const A2A_ENVELOPE_FIELDS = new Set([
   'id',
+  'from',
+  'to',
   'sender_agent_id',
   'recipient_agent_id',
   'sender_instance_id',
@@ -131,6 +137,51 @@ function readOptionalTrimmedString(
   if (!normalized) {
     issues.push(`${field} must not be empty when provided`);
     return undefined;
+  }
+  return normalized;
+}
+
+function readOptionalActor(
+  record: Record<string, unknown>,
+  field: 'from' | 'to',
+  issues: string[],
+): Actor | undefined {
+  const value = record[field];
+  if (value === undefined || value === null) return undefined;
+  try {
+    return normalizeActor(value);
+  } catch (error) {
+    const detail =
+      error instanceof Error
+        ? error.message.replace(/^Invalid actor: /, '')
+        : 'invalid actor';
+    issues.push(`${field} ${detail}`);
+    return undefined;
+  }
+}
+
+function readRoutingAgentId(params: {
+  record: Record<string, unknown>;
+  field: 'sender_agent_id' | 'recipient_agent_id';
+  actorField: 'from' | 'to';
+  actor: Actor | undefined;
+  issues: string[];
+}): string {
+  const value = params.record[params.field];
+  if (value === undefined || value === null) {
+    if (params.actor?.type === 'agent') return params.actor.id;
+    params.issues.push(
+      `${params.field} is required unless ${params.actorField} is an agent actor`,
+    );
+    return '';
+  }
+  if (typeof value !== 'string') {
+    params.issues.push(`${params.field} must be a string`);
+    return '';
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    params.issues.push(`${params.field} is required`);
   }
   return normalized;
 }
@@ -244,6 +295,19 @@ function validateInstanceId(
   }
 }
 
+function validateAgentActorMatch(
+  actorField: 'from' | 'to',
+  actor: Actor | undefined,
+  agentField: 'sender_agent_id' | 'recipient_agent_id',
+  agentId: string,
+  issues: string[],
+): void {
+  if (!actor || actor.type !== 'agent') return;
+  if (actor.id !== agentId) {
+    issues.push(`${actorField}.id must match ${agentField}`);
+  }
+}
+
 function requireCanonicalAgentIdForDelegation(
   field: 'sender_agent_id' | 'recipient_agent_id',
   kind: A2AAgentIdKind | null,
@@ -332,16 +396,22 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
   validateNoUnknownFields(value, issues);
 
   const id = readRequiredTrimmedString(value, 'id', issues);
-  const senderAgentId = readRequiredTrimmedString(
-    value,
-    'sender_agent_id',
+  const from = readOptionalActor(value, 'from', issues);
+  const to = readOptionalActor(value, 'to', issues);
+  const senderAgentId = readRoutingAgentId({
+    record: value,
+    field: 'sender_agent_id',
+    actorField: 'from',
+    actor: from,
     issues,
-  );
-  const recipientAgentId = readRequiredTrimmedString(
-    value,
-    'recipient_agent_id',
+  });
+  const recipientAgentId = readRoutingAgentId({
+    record: value,
+    field: 'recipient_agent_id',
+    actorField: 'to',
+    actor: to,
     issues,
-  );
+  });
   const rawSourceInstanceId = readOptionalTrimmedString(
     value,
     'source_instance_id',
@@ -449,6 +519,20 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
     recipientAgent.instanceId,
     issues,
   );
+  validateAgentActorMatch(
+    'from',
+    from,
+    'sender_agent_id',
+    senderAgent.value,
+    issues,
+  );
+  validateAgentActorMatch(
+    'to',
+    to,
+    'recipient_agent_id',
+    recipientAgent.value,
+    issues,
+  );
   if (!isA2AEnvelopeIntent(intent)) {
     issues.push(`intent must be one of: ${A2A_ENVELOPE_INTENTS.join(', ')}`);
   }
@@ -460,6 +544,8 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
 
   const envelope: A2AEnvelope = {
     id,
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
     sender_agent_id: senderAgent.value,
     recipient_agent_id: recipientAgent.value,
     thread_id: threadId,
@@ -505,6 +591,8 @@ export function summarizeA2AEnvelopeForAudit(
   return {
     messageId: envelope.id,
     threadId: envelope.thread_id,
+    from: envelope.from ?? null,
+    to: envelope.to ?? null,
     senderAgentId: envelope.sender_agent_id,
     recipientAgentId: envelope.recipient_agent_id,
     senderInstanceId: envelope.sender_instance_id ?? null,

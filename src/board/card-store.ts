@@ -10,6 +10,7 @@ import {
   type RuntimeConfigChangeMeta,
   syncRuntimeAssetRevisionStateInOpenDatabase,
 } from '../config/runtime-config-revisions.js';
+import type { Actor as IdentityActor } from '../identity/actor.js';
 import {
   withMemoryDatabase,
   withMemoryDatabaseRuntimeRevisionStore,
@@ -49,7 +50,8 @@ export type BoardCardOwner =
   | { userId: string; agentId?: never }
   | { agentId: string; userId?: never };
 
-export type BoardCardActor = BoardCardOwner | { system: string };
+export type BoardCardActor = IdentityActor | { system: string };
+export type BoardCardActorInput = BoardCardActor | BoardCardOwner;
 
 export type BoardCardSource =
   | 'manual'
@@ -109,7 +111,7 @@ export interface ListCardsFilter {
 }
 
 export interface BoardCardMutationContext {
-  actor?: BoardCardActor | null;
+  actor?: BoardCardActorInput | null;
   sessionId?: string | null;
   runId?: string | null;
   meta?: RuntimeConfigChangeMeta;
@@ -291,12 +293,34 @@ function normalizeOwner(owner: BoardCardOwner): {
   throw new Error('Board card owner is required.');
 }
 
-function normalizeActor(actor?: BoardCardActor | null): BoardCardActor {
+function normalizeActor(actor?: BoardCardActorInput | null): BoardCardActor {
   if (!actor) return { system: 'board' };
   if ('system' in actor) {
     return { system: normalizeNonEmptyString(actor.system, 'actor.system') };
   }
-  return normalizeOwner(actor).owner;
+  if ('type' in actor) {
+    const type = normalizeNonEmptyString(actor.type, 'actor.type');
+    if (type !== 'user' && type !== 'agent') {
+      throw new Error(`Unsupported board card actor type: ${type}`);
+    }
+    return {
+      type,
+      id: normalizeNonEmptyString(actor.id, 'actor.id'),
+    } as BoardCardActor;
+  }
+  if ('userId' in actor) {
+    return {
+      type: 'user',
+      id: normalizeNonEmptyString(actor.userId, 'actor.userId'),
+    };
+  }
+  if ('agentId' in actor) {
+    return {
+      type: 'agent',
+      id: normalizeNonEmptyString(actor.agentId, 'actor.agentId'),
+    };
+  }
+  throw new Error('Unsupported board card actor.');
 }
 
 function serializeActor(actor: BoardCardActor): string {
@@ -638,11 +662,10 @@ function syncEdgeRevisionState(
   );
 }
 
-function formatActorForRevision(actor?: BoardCardActor | null): string {
+function formatActorForRevision(actor?: BoardCardActorInput | null): string {
   const normalized = normalizeActor(actor);
   if ('system' in normalized) return `system:${normalized.system}`;
-  if ('userId' in normalized) return `user:${normalized.userId}`;
-  return `agent:${normalized.agentId}`;
+  return `${normalized.type}:${normalized.id}`;
 }
 
 function insertOrReplaceCard(database: Database.Database, card: Card): Card {
