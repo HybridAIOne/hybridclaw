@@ -3398,7 +3398,6 @@ async function handleApiHistory(
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
   void ensureGatewayBootstrapAutostart({
     sessionId,
-    allowExistingSessionMessages: true,
   }).catch((error) => {
     logger.warn(
       { sessionId, error },

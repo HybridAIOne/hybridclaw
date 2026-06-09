@@ -46,6 +46,29 @@ function completedUserMarkdown(): string {
   ].join('\n');
 }
 
+function completedUserMarkdownWithNumberedJobs(): string {
+  return [
+    '# USER.md - About Your Human',
+    '',
+    '- **Name:** Ben',
+    '- **What to call them:** Ben',
+    '- **Email:** ben@example.com',
+    '',
+    '## Suggested First Jobs',
+    '',
+    '1. Review GitHub pull requests and follow CI to green.',
+    '2. Draft weekly HybridClaw progress updates.',
+    '',
+    '## First Jobs Email',
+    '',
+    '- **Status:** sent',
+    '- **Recipient:** ben@example.com',
+    '- **Subject:** Ways I can help with HybridClaw',
+    '- **Delivery:** email channel, 2026-06-09',
+    '',
+  ].join('\n');
+}
+
 function currentLocalDateStamp(): string {
   const now = new Date();
   const year = String(now.getFullYear());
@@ -114,6 +137,40 @@ describe('workspace bootstrap lifecycle', () => {
     expect(fs.existsSync(bootstrapPath)).toBe(false);
     const state = readWorkspaceState(workspaceDir);
     expect(state.bootstrapSeededAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test('does not recreate BOOTSTRAP.md when first jobs are numbered', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+    const ipc = await import('../src/infra/ipc.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const workspaceDir = ipc.agentWorkspaceDir('agent-test');
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    expect(fs.existsSync(bootstrapPath)).toBe(true);
+
+    fs.writeFileSync(
+      path.join(workspaceDir, 'IDENTITY.md'),
+      '# IDENTITY.md - Who Am I?\n\n- **Name:** Nova\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(workspaceDir, 'USER.md'),
+      completedUserMarkdownWithNumberedJobs(),
+      'utf-8',
+    );
+    fs.unlinkSync(bootstrapPath);
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    expect(fs.existsSync(bootstrapPath)).toBe(false);
+    const state = readWorkspaceState(workspaceDir);
     expect(state.onboardingCompletedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 
