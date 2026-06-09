@@ -90,6 +90,68 @@ test('unknown handles fail loud', async () => {
   expect(resolved.message).toContain('Unknown agent address');
 });
 
+test('ignores context references and non-leading unknown handles', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { resolveAgentAddressing } = await import(
+    '../src/gateway/agent-addressing.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  expect(
+    resolveAgentAddressing({
+      content: 'Explain @file:src/app.ts',
+      currentAgentId: 'main',
+    }),
+  ).toMatchObject({ kind: 'none' });
+
+  expect(
+    resolveAgentAddressing({
+      content: 'Use @handles from this list in normal replies.',
+      currentAgentId: 'main',
+    }),
+  ).toMatchObject({ kind: 'none' });
+});
+
+test('known body mentions still address agents', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { resolveAgentAddressing } = await import(
+    '../src/gateway/agent-addressing.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({ id: 'research', displayName: 'Research Agent' });
+
+  const resolved = resolveAgentAddressing({
+    content: 'Please ask @research to check this',
+    currentAgentId: 'main',
+  });
+
+  expect(resolved).toMatchObject({
+    kind: 'agent',
+    agentId: 'research',
+    content: 'Please ask @research to check this',
+  });
+
+  const punctuated = resolveAgentAddressing({
+    content: '@research: check this',
+    currentAgentId: 'main',
+  });
+
+  expect(punctuated).toMatchObject({
+    kind: 'agent',
+    agentId: 'research',
+    content: 'check this',
+  });
+});
+
 test('@team and @all resolve to fanout envelopes', async () => {
   setupHome();
 

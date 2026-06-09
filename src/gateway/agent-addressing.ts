@@ -5,7 +5,14 @@ import type { Session } from '../types/session.js';
 import type { GatewayAddressEnvelope } from './gateway-types.js';
 
 const ACTIVE_AGENT_KEY_PREFIX = 'gateway.activeAgent:';
-const HANDLE_RE = /(^|[\s([{])@([A-Za-z0-9][A-Za-z0-9._-]{0,127})\b/u;
+const HANDLE_RE = /(^|[\s([{])@([A-Za-z0-9][A-Za-z0-9._-]{0,127})\b/gu;
+const SIMPLE_CONTEXT_REFERENCE_HANDLES = new Set(['diff', 'staged']);
+const VALUED_CONTEXT_REFERENCE_HANDLES = new Set([
+  'file',
+  'folder',
+  'git',
+  'url',
+]);
 
 export type AgentAddressResolution =
   | { kind: 'none'; content: string; envelope?: undefined }
@@ -94,8 +101,28 @@ function resolveByOrgContext(
 function stripLeadingHandle(content: string, match: RegExpExecArray): string {
   const before = content.slice(0, match.index);
   if (before.trim()) return content;
-  const end = match.index + match[0].length;
+  let end = match.index + match[0].length;
+  if (content[end] === ':') {
+    end += 1;
+  }
   return `${before}${content.slice(end)}`.trimStart();
+}
+
+function isLeadingHandle(content: string, match: RegExpExecArray): boolean {
+  return content.slice(0, match.index).trim().length === 0;
+}
+
+function isContextReference(
+  content: string,
+  match: RegExpExecArray,
+  normalizedHandle: string,
+): boolean {
+  const end = match.index + match[0].length;
+  return (
+    SIMPLE_CONTEXT_REFERENCE_HANDLES.has(normalizedHandle) ||
+    (VALUED_CONTEXT_REFERENCE_HANDLES.has(normalizedHandle) &&
+      content[end] === ':')
+  );
 }
 
 export function resolveAgentAddressing(params: {
@@ -104,73 +131,78 @@ export function resolveAgentAddressing(params: {
   fromAgentId?: string | null;
 }): AgentAddressResolution {
   const content = params.content;
-  const match = HANDLE_RE.exec(content);
-  if (!match) return { kind: 'none', content };
-
-  const handle = match[2] ?? '';
-  const normalizedHandle = slugify(handle);
-  const compactHandle = compact(handle);
   const currentAgentId = params.currentAgentId?.trim() || DEFAULT_AGENT_ID;
   const fromAgentId = params.fromAgentId?.trim() || currentAgentId;
-  const strippedContent = stripLeadingHandle(content, match);
   const agents = listAgents();
 
-  if (normalizedHandle === 'team' || normalizedHandle === 'all') {
-    const agentIds = uniqueAgentIds(
-      agents.filter(
-        (agent) => normalizedHandle === 'all' || agent.id !== currentAgentId,
-      ),
-    );
+  for (const match of content.matchAll(HANDLE_RE)) {
+    const handle = match[2] ?? '';
+    const normalizedHandle = slugify(handle);
+    const compactHandle = compact(handle);
+    if (isContextReference(content, match, normalizedHandle)) continue;
+
+    const strippedContent = stripLeadingHandle(content, match);
+
+    if (normalizedHandle === 'team' || normalizedHandle === 'all') {
+      const agentIds = uniqueAgentIds(
+        agents.filter(
+          (agent) => normalizedHandle === 'all' || agent.id !== currentAgentId,
+        ),
+      );
+      return {
+        kind: 'fanout',
+        alias: normalizedHandle,
+        agentIds,
+        handle,
+        content: strippedContent,
+        envelope: {
+          to: agentIds,
+          from: fromAgentId,
+          fanoutAlias: normalizedHandle,
+        },
+      };
+    }
+
+    const matches = agents.filter((agent) => {
+      const aliases = aliasesForAgent(agent);
+      return aliases.has(normalizedHandle) || aliases.has(compactHandle);
+    });
+
+    if (matches.length === 0) {
+      if (!isLeadingHandle(content, match)) continue;
+      return {
+        kind: 'error',
+        handle,
+        content,
+        message: `Unknown agent address @${handle}. Use /agent list to see available agents.`,
+      };
+    }
+
+    const resolved = resolveByOrgContext(matches, currentAgentId);
+    if (resolved.length !== 1) {
+      const options = resolved.map((agent) => agent.id).join(', ');
+      return {
+        kind: 'error',
+        handle,
+        content,
+        message: `Ambiguous agent address @${handle}. Matching agents: ${options}. Use the exact agent id.`,
+      };
+    }
+
+    const agentId = resolved[0]?.id ?? DEFAULT_AGENT_ID;
     return {
-      kind: 'fanout',
-      alias: normalizedHandle,
-      agentIds,
+      kind: 'agent',
+      agentId,
       handle,
       content: strippedContent,
       envelope: {
-        to: agentIds,
+        to: agentId,
         from: fromAgentId,
-        fanoutAlias: normalizedHandle,
       },
     };
   }
 
-  const matches = agents.filter((agent) => {
-    const aliases = aliasesForAgent(agent);
-    return aliases.has(normalizedHandle) || aliases.has(compactHandle);
-  });
-
-  if (matches.length === 0) {
-    return {
-      kind: 'error',
-      handle,
-      content,
-      message: `Unknown agent address @${handle}. Use /agent list to see available agents.`,
-    };
-  }
-
-  const resolved = resolveByOrgContext(matches, currentAgentId);
-  if (resolved.length !== 1) {
-    const options = resolved.map((agent) => agent.id).join(', ');
-    return {
-      kind: 'error',
-      handle,
-      content,
-      message: `Ambiguous agent address @${handle}. Matching agents: ${options}. Use the exact agent id.`,
-    };
-  }
-
-  const agentId = resolved[0]?.id ?? DEFAULT_AGENT_ID;
-  return {
-    kind: 'agent',
-    agentId,
-    handle,
-    content: strippedContent,
-    envelope: {
-      to: agentId,
-      from: fromAgentId,
-    },
-  };
+  return { kind: 'none', content };
 }
 
 function threadStateKey(
