@@ -8520,7 +8520,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8564,7 +8564,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8636,7 +8636,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
@@ -12602,7 +12602,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body)).toEqual({
