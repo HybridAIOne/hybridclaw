@@ -1,6 +1,8 @@
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import { HYBRIDAI_CHATBOT_ID, OBSERVABILITY_BOT_ID } from '../config/config.js';
 import {
   clearResponseRating,
+  getAnyChatbotId,
   getResponseRatingFeedbackContext,
   getResponseRatingTarget,
   upsertResponseRating,
@@ -37,16 +39,16 @@ function resolveHybridAIChatFeedbackUrl(): string {
   return `${normalizeBaseUrl(baseUrl)}/api/chat_feedback`;
 }
 
-function isHybridAIResponseTarget(params: {
-  model: string | null;
-  provider: string | null;
-}): boolean {
-  if (params.provider === 'hybridai') return true;
-  if (params.provider) return false;
-
-  const normalizedModel = params.model?.trim();
-  if (!normalizedModel) return false;
-  return !normalizedModel.includes('/');
+function resolveHybridAIChatFeedbackBotId(
+  sessionChatbotId: string | null | undefined,
+): string {
+  return (
+    sessionChatbotId?.trim() ||
+    OBSERVABILITY_BOT_ID.trim() ||
+    HYBRIDAI_CHATBOT_ID.trim() ||
+    getAnyChatbotId() ||
+    ''
+  );
 }
 
 async function warnHybridAIChatFeedbackForwardingFailed(
@@ -65,17 +67,14 @@ export async function forwardHybridAIChatFeedbackForRating(input: {
   messageId: number;
   operatorUserId: string;
   rating: ResponseRatingValue;
-  model: string | null;
-  provider: string | null;
 }): Promise<void> {
-  if (!isHybridAIResponseTarget(input)) return;
-
   const context = getResponseRatingFeedbackContext({
     sessionId: input.sessionId,
     messageId: input.messageId,
   });
-  const chatbotId = context?.chatbot_id?.trim();
-  if (!context || !chatbotId) return;
+  if (!context) return;
+  const chatbotId = resolveHybridAIChatFeedbackBotId(context?.chatbot_id);
+  if (!chatbotId) return;
 
   let apiKey = '';
   try {
@@ -196,8 +195,6 @@ export function submitResponseRating(
       messageId: input.messageId,
       operatorUserId,
       rating: input.rating,
-      model: target.model,
-      provider: target.provider,
     });
   }
 

@@ -1,9 +1,14 @@
 import path from 'node:path';
 
 import { describe, expect, test, vi } from 'vitest';
+import { setupGatewayTest } from './helpers/gateway-test-setup.ts';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-response-ratings-');
+const { setupHome } = setupGatewayTest({
+  tempHomePrefix: 'hybridclaw-response-ratings-home-',
+  envVars: ['HYBRIDAI_BASE_URL', 'HYBRIDAI_CHATBOT_ID'],
+});
 
 useCleanMocks({
   resetModules: true,
@@ -19,8 +24,15 @@ useCleanMocks({
 async function setup(options?: {
   apiKey?: string;
   authenticated?: boolean;
+  hybridAIBaseUrl?: string;
+  hybridAIChatbotId?: string;
   chatbotId?: string | null;
+  model?: string;
 }) {
+  setupHome({
+    HYBRIDAI_BASE_URL: options?.hybridAIBaseUrl ?? '',
+    HYBRIDAI_CHATBOT_ID: options?.hybridAIChatbotId ?? '',
+  });
   const recordAuditEvent = vi.fn();
   const recordSkillFeedbackForObservation = vi.fn();
   vi.doMock('../src/audit/audit-events.js', () => ({
@@ -52,7 +64,7 @@ async function setup(options?: {
     'web',
     'main',
   );
-  dbModule.updateSessionModel(session.id, 'hybridai/gpt-5');
+  dbModule.updateSessionModel(session.id, options?.model ?? 'hybridai/gpt-5');
   if (options?.chatbotId !== undefined) {
     dbModule.updateSessionChatbot(session.id, options.chatbotId);
   }
@@ -221,8 +233,7 @@ describe('response ratings', () => {
     });
   });
 
-  test('forwards accepted HybridAI ratings to chat feedback endpoint with stored prompt and response', async () => {
-    vi.stubEnv('HYBRIDAI_BASE_URL', 'https://hybridai.example/');
+  test('forwards accepted ratings to chat feedback endpoint with stored prompt and response', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 201,
@@ -230,6 +241,7 @@ describe('response ratings', () => {
     vi.stubGlobal('fetch', fetchMock);
     const service = await setup({
       apiKey: 'hai-feedback-test-key',
+      hybridAIBaseUrl: 'https://hybridai.example/',
       chatbotId: 'bot-feedback',
     });
 
@@ -258,6 +270,68 @@ describe('response ratings', () => {
       user_message: 'Hello',
       bot_response: 'Hi there',
       external_user_id: 'operator-a',
+    });
+  });
+
+  test('forwards non-HybridAI model ratings when a HybridAI bot is active', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      chatbotId: 'bot-feedback',
+      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    });
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'up',
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [, request] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit & { body: string },
+    ];
+    expect(JSON.parse(request.body)).toMatchObject({
+      chatbot_id: 'bot-feedback',
+      rating: 'up',
+      user_message: 'Hello',
+      bot_response: 'Hi there',
+    });
+  });
+
+  test('uses configured HybridAI bot id when the rated session has no bot id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      hybridAIChatbotId: 'bot-configured',
+      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    });
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'down',
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [, request] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit & { body: string },
+    ];
+    expect(JSON.parse(request.body)).toMatchObject({
+      chatbot_id: 'bot-configured',
+      rating: 'down',
     });
   });
 
