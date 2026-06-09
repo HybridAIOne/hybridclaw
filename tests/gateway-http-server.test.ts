@@ -8249,6 +8249,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
+      commandResult: true,
       result: '**Pending Approval**\nI need approval before continuing.',
       sessionId: 'session-web-approve',
     });
@@ -8295,6 +8296,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
+      commandResult: true,
       result: expect.stringContaining('/approve'),
       sessionId: 'session-web-approve',
     });
@@ -8366,6 +8368,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
+          commandResult: false,
           sessionId: 'session-web-approve',
           pendingApproval: {
             approvalId: 'be945bbf',
@@ -8378,6 +8381,69 @@ describe('gateway HTTP server', () => {
             allowAll: true,
             expiresAt: 1_710_000_000_000,
           },
+        }),
+      },
+    ]);
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
+  test('does not mark /approve yes assistant output as command output on the web chat stream path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Onboarding complete — BOOTSTRAP.md deleted.',
+      sessionId: 'session-web-approve',
+      toolsUsed: ['delete', 'read'],
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve yes',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-approve',
+        content: 'yes approve-123',
+      }),
+    );
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          commandResult: false,
+          result:
+            'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: delete, read*',
+          sessionId: 'session-web-approve',
         }),
       },
     ]);

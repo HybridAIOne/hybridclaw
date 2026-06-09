@@ -1745,6 +1745,7 @@ async function resolveApiChatSlashCommandResult(
   let sessionKey: string | undefined;
   let mainSessionKey: string | undefined;
   let handledApprovalCommand = false;
+  let rendersAsCommandResult = true;
 
   for (const args of slashCommands) {
     if (parseLowerArg(args, 0) === 'approve') {
@@ -1758,6 +1759,7 @@ async function resolveApiChatSlashCommandResult(
       });
       if (!handled) continue;
       handledApprovalCommand = true;
+      rendersAsCommandResult = handled.commandResult !== false;
       sessionId = handled.sessionId || sessionId;
       sessionKey = handled.sessionKey || sessionKey;
       mainSessionKey = handled.mainSessionKey || mainSessionKey;
@@ -1814,7 +1816,7 @@ async function resolveApiChatSlashCommandResult(
     result:
       renderedText || (handledApprovalCommand ? 'Approval submitted.' : ''),
     toolsUsed: [],
-    commandResult: true,
+    commandResult: rendersAsCommandResult,
     sessionId,
     ...(resolvedModel ? { model: resolvedModel } : {}),
     ...(sessionKey ? { sessionKey } : {}),

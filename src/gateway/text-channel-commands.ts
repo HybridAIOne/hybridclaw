@@ -51,6 +51,7 @@ export interface HandledTextChannelApprovalResult {
   pendingApproval?: NonNullable<GatewayChatResult['pendingApproval']>;
   text: string | null;
   artifacts: ArtifactMetadata[];
+  commandResult?: boolean;
 }
 
 export function resolveTextChannelSlashCommands(
@@ -289,6 +290,7 @@ export async function handleTextChannelApprovalCommand(params: {
       mainSessionKey: commandResult.mainSessionKey,
       text: renderTextChannelCommandResult(commandResult),
       artifacts: [],
+      commandResult: true,
     };
   }
 
@@ -379,6 +381,7 @@ export async function handleTextChannelApprovalCommand(params: {
       pendingApproval: approvalResult.pendingApproval,
       text: formatInfo('Pending Approval', resultText),
       artifacts: approvalResult.artifacts || [],
+      commandResult: false,
     };
   }
 
@@ -390,5 +393,6 @@ export async function handleTextChannelApprovalCommand(params: {
     mainSessionKey: approvalResult.mainSessionKey,
     text: resultText,
     artifacts: approvalResult.artifacts || [],
+    commandResult: false,
   };
 }
