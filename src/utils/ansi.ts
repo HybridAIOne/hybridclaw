@@ -82,7 +82,9 @@ export function truncateAnsi(
 
   const ellipsis = options.ellipsis ?? '…';
   const includeEllipsis = options.includeEllipsis ?? true;
-  const marker = includeEllipsis ? ellipsis : '';
+  const requestedMarker = includeEllipsis ? ellipsis : '';
+  const marker =
+    visibleAnsiWidth(requestedMarker) <= width ? requestedMarker : '';
   const markerWidth = visibleAnsiWidth(marker);
   const targetWidth = Math.max(0, width - markerWidth);
   let output = '';
@@ -157,7 +159,7 @@ function getControlSequenceLength(
     cursor += 1;
   }
 
-  return 0;
+  return value.length - index;
 }
 
 function isZeroWidthCodePoint(codePoint: number): boolean {
