@@ -223,7 +223,9 @@ function buildBootstrapHook(context: PromptHookContext): string {
     },
   );
   const contextPrompt = buildContextPrompt(contextFiles);
-  const cloudMemoryPrompt = buildCloudMemoryPrompt(context.agentId);
+  const cloudMemoryPrompt = isBootstrapPartSelected('memory-file', context)
+    ? buildCloudMemoryPrompt(context.agentId)
+    : '';
   const skillsPrompt = context.explicitSkillInvocation
     ? ''
     : isBootstrapPartSelected('skills', context)

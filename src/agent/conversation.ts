@@ -150,7 +150,9 @@ export function buildConversationContext(params: {
     blockedTools,
     currentUserContent,
   } = params;
-  scheduleCloudMemorySync(agentId);
+  if (promptMode !== 'none') {
+    scheduleCloudMemorySync(agentId);
+  }
   const mergedBlockedTools = mergeBlockedToolNames({ explicit: blockedTools });
   const skills = loadSkills(
     agentId,

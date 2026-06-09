@@ -5,11 +5,7 @@ import {
   currentDateStampInTimezone,
   extractUserTimezone,
 } from '../../container/shared/workspace-time.js';
-import {
-  HYBRIDAI_API_KEY,
-  HYBRIDAI_BASE_URL,
-  HYBRIDAI_CHATBOT_ID,
-} from '../config/config.js';
+import * as runtimeConfig from '../config/config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { truncateHeadTailText } from '../session/token-efficiency.js';
@@ -44,6 +40,7 @@ const CLOUD_MEMORY_CACHE_VERSION = 1;
 const CLOUD_MEMORY_CACHE_NAME = 'cloud-memory.json';
 const CLOUD_MEMORY_MAX_FILE_CHARS = 20_000;
 const CLOUD_MEMORY_PROMPT_FILE_CHARS = 12_000;
+const CLOUD_MEMORY_MAX_DAILY_FILES = 14;
 const CLOUD_MEMORY_SYNC_MIN_INTERVAL_MS = 60_000;
 const CLOUD_MEMORY_SOURCE_FILES = new Set(['MEMORY.md', 'USER.md']);
 const DAILY_MEMORY_FILE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
@@ -51,15 +48,40 @@ const DAILY_MEMORY_FILE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
 const inFlightSyncs = new Map<string, Promise<void>>();
 const lastSyncStartedAt = new Map<string, number>();
 
+type CloudMemoryConfigKey =
+  | 'HYBRIDAI_API_KEY'
+  | 'HYBRIDAI_BASE_URL'
+  | 'HYBRIDAI_CHATBOT_ID';
+
+function getCloudMemoryConfigValue(key: CloudMemoryConfigKey): string {
+  let value: unknown;
+  try {
+    switch (key) {
+      case 'HYBRIDAI_API_KEY':
+        value = runtimeConfig.HYBRIDAI_API_KEY;
+        break;
+      case 'HYBRIDAI_BASE_URL':
+        value = runtimeConfig.HYBRIDAI_BASE_URL;
+        break;
+      case 'HYBRIDAI_CHATBOT_ID':
+        value = runtimeConfig.HYBRIDAI_CHATBOT_ID;
+        break;
+    }
+  } catch {
+    return '';
+  }
+  return typeof value === 'string' ? value : '';
+}
+
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
 }
 
 function isCloudMemoryConfigured(): boolean {
   return Boolean(
-    HYBRIDAI_API_KEY.trim() &&
-      HYBRIDAI_BASE_URL.trim() &&
-      HYBRIDAI_CHATBOT_ID.trim(),
+    getCloudMemoryConfigValue('HYBRIDAI_API_KEY').trim() &&
+      getCloudMemoryConfigValue('HYBRIDAI_BASE_URL').trim() &&
+      getCloudMemoryConfigValue('HYBRIDAI_CHATBOT_ID').trim(),
   );
 }
 
@@ -105,6 +127,23 @@ function resolveTodayMemoryName(workspaceDir: string): string {
   return `${currentDateStampInTimezone(timezone)}.md`;
 }
 
+function selectDailyMemoryFilenames(
+  filenames: string[],
+  todayName: string,
+): string[] {
+  if (filenames.length <= CLOUD_MEMORY_MAX_DAILY_FILES) return filenames;
+
+  const hasToday = filenames.includes(todayName);
+  if (!hasToday) {
+    return filenames.slice(-CLOUD_MEMORY_MAX_DAILY_FILES);
+  }
+
+  const recentWithoutToday = filenames
+    .filter((filename) => filename !== todayName)
+    .slice(-(CLOUD_MEMORY_MAX_DAILY_FILES - 1));
+  return [...recentWithoutToday, todayName].sort();
+}
+
 function collectLocalAgentMemoryFiles(
   agentId: string,
 ): CloudMemoryFilePayload[] {
@@ -128,7 +167,7 @@ function collectLocalAgentMemoryFiles(
       )
       .map((entry) => entry.name)
       .sort();
-    for (const filename of entries) {
+    for (const filename of selectDailyMemoryFilenames(entries, todayName)) {
       const content = readBoundedTextFile(
         path.join(memoryDir, filename),
         filename === todayName
@@ -227,22 +266,26 @@ export function loadCloudMemoryContextFiles(
 
 export async function syncCloudMemoryNow(agentId: string): Promise<void> {
   if (!isCloudMemoryConfigured()) return;
+  const apiKey = getCloudMemoryConfigValue('HYBRIDAI_API_KEY').trim();
+  const baseUrl = getCloudMemoryConfigValue('HYBRIDAI_BASE_URL').trim();
+  const chatbotId = getCloudMemoryConfigValue('HYBRIDAI_CHATBOT_ID').trim();
   const localFiles = collectLocalAgentMemoryFiles(agentId);
-  const url = `${normalizeBaseUrl(HYBRIDAI_BASE_URL)}/api/hybridclaw/memory/sync`;
+  const url = `${normalizeBaseUrl(baseUrl)}/api/hybridclaw/memory/sync`;
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${HYBRIDAI_API_KEY.trim()}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      chatbot_id: HYBRIDAI_CHATBOT_ID.trim(),
+      chatbot_id: chatbotId,
       agent_id: agentId,
       files: localFiles,
     }),
   });
 
   if (response.status === 404) {
+    clearCloudMemoryCache(agentId);
     return;
   }
   if (!response.ok) {

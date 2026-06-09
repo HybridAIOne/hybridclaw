@@ -117,6 +117,95 @@ test('syncCloudMemoryNow pushes local agent memory and caches shared memory', as
   ]);
 });
 
+test('syncCloudMemoryNow tolerates partial config mocks', async () => {
+  vi.doMock('../src/config/config.js', () => ({
+    HYBRIDAI_API_KEY: 'hai-cloud-memory-test',
+    HYBRIDAI_BASE_URL: 'https://hybridai.example/',
+  }));
+
+  try {
+    const { syncCloudMemoryNow } = await import('../src/memory/cloud-memory.js');
+
+    await expect(
+      syncCloudMemoryNow('partial-config-agent'),
+    ).resolves.toBeUndefined();
+  } finally {
+    vi.doUnmock('../src/config/config.js');
+  }
+});
+
+test('syncCloudMemoryNow clears cached shared memory on 404', async () => {
+  const agentId = 'cloud-cache-404-agent';
+  const workspaceDir = await createAgentWorkspace(agentId);
+  fs.mkdirSync(path.join(workspaceDir, '.hybridclaw'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspaceDir, '.hybridclaw', 'cloud-memory.json'),
+    `${JSON.stringify({
+      version: 1,
+      updatedAt: '2026-06-08T10:00:00.000Z',
+      files: [
+        {
+          scope: 'company',
+          name: '/MEMORY.md',
+          content: '- stale company memory',
+        },
+      ],
+    })}\n`,
+    'utf-8',
+  );
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: false,
+      status: 404,
+    })),
+  );
+
+  const { loadCloudMemoryContextFiles, syncCloudMemoryNow } = await import(
+    '../src/memory/cloud-memory.js'
+  );
+
+  await syncCloudMemoryNow(agentId);
+
+  expect(loadCloudMemoryContextFiles(agentId)).toEqual([]);
+});
+
+test('syncCloudMemoryNow bounds daily memory uploads to recent files', async () => {
+  const agentId = 'cloud-bounded-agent';
+  const workspaceDir = await createAgentWorkspace(agentId);
+  const memoryDir = path.join(workspaceDir, 'memory');
+  for (let day = 1; day <= 20; day += 1) {
+    fs.writeFileSync(
+      path.join(memoryDir, `2026-05-${String(day).padStart(2, '0')}.md`),
+      `# Daily Memory\n\n- day ${day}\n`,
+      'utf-8',
+    );
+  }
+
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ enabled: false, files: [] }),
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { syncCloudMemoryNow } = await import('../src/memory/cloud-memory.js');
+
+  await syncCloudMemoryNow(agentId);
+
+  const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+  const body = JSON.parse(String(init.body)) as {
+    files: Array<{ path: string }>;
+  };
+  const dailyPaths = body.files
+    .map((file) => file.path)
+    .filter((filePath) => filePath.startsWith('/memory/'));
+  expect(dailyPaths).toHaveLength(14);
+  expect(dailyPaths).not.toContain('/memory/2026-05-01.md');
+  expect(dailyPaths).toContain('/memory/2026-06-08.md');
+});
+
 test('buildSystemPromptFromHooks includes cached installation and company memory', async () => {
   const agentId = 'cloud-prompt-agent';
   const workspaceDir = await createAgentWorkspace(agentId);
@@ -164,4 +253,62 @@ test('buildSystemPromptFromHooks includes cached installation and company memory
   expect(prompt).toContain('- Installation-level fact.');
   expect(prompt).toContain('## Company Memory (/MEMORY.md)');
   expect(prompt).toContain('- Company-level fact.');
+});
+
+test('buildSystemPromptFromHooks omits shared memory with memory-file prompt part', async () => {
+  const agentId = 'cloud-prompt-omit-agent';
+  const workspaceDir = await createAgentWorkspace(agentId);
+  fs.mkdirSync(path.join(workspaceDir, '.hybridclaw'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspaceDir, '.hybridclaw', 'cloud-memory.json'),
+    `${JSON.stringify({
+      version: 1,
+      updatedAt: '2026-06-08T10:00:00.000Z',
+      files: [
+        {
+          scope: 'installation',
+          name: '/MEMORY.md',
+          content: '- Installation-level fact.',
+        },
+      ],
+    })}\n`,
+    'utf-8',
+  );
+
+  const { buildSystemPromptFromHooks } = await import(
+    '../src/agent/prompt-hooks.js'
+  );
+  const prompt = buildSystemPromptFromHooks({
+    agentId,
+    skills: [],
+    omitPromptParts: ['memory-file'],
+    runtimeInfo: {
+      model: 'openai-codex/gpt-5.4',
+      workspacePath: '/workspace/cloud-prompt-omit-agent',
+    },
+  });
+
+  expect(prompt).not.toContain('Local agent fact.');
+  expect(prompt).not.toContain('# Shared Memory');
+  expect(prompt).not.toContain('- Installation-level fact.');
+});
+
+test('buildConversationContext does not schedule sync when prompt mode is none', async () => {
+  const scheduleCloudMemorySync = vi.fn();
+  vi.doMock('../src/memory/cloud-memory.js', () => ({
+    loadCloudMemoryContextFiles: () => [],
+    scheduleCloudMemorySync,
+  }));
+
+  const { buildConversationContext } = await import(
+    '../src/agent/conversation.js'
+  );
+
+  buildConversationContext({
+    agentId: 'cloud-no-prompt-agent',
+    history: [],
+    promptMode: 'none',
+  });
+
+  expect(scheduleCloudMemorySync).not.toHaveBeenCalled();
 });
