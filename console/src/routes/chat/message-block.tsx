@@ -51,16 +51,20 @@ interface ApprovalDetailRow {
   value: string;
 }
 
+interface ParsedPromptLines {
+  introLine?: string;
+  rows: ApprovalDetailRow[];
+}
+
 const PROMPT_FIELD_RE = /^([^:\n]{2,44}):\s+(.+)$/;
 const HTTP_METHOD_RE = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+/i;
 
 function prettifyApprovalTier(
   tier: ChatStreamApproval['approvalTier'] | undefined,
-): string {
+): string | null {
   if (tier === 'yellow') return 'Amber';
   if (tier === 'red') return 'Red';
-  if (tier === 'green') return 'Green';
-  return 'Amber';
+  return null;
 }
 
 function isPromptInstructionLine(line: string): boolean {
@@ -76,6 +80,35 @@ function normalizePromptLabel(label: string): string {
   if (/^proposed action$/i.test(trimmed)) return 'Request';
   if (/^why$/i.test(trimmed)) return 'Reason';
   return trimmed;
+}
+
+function parsePromptLines(prompt: string): ParsedPromptLines {
+  const rows: ApprovalDetailRow[] = [];
+  let introLine: string | undefined;
+
+  const promptLines = prompt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of promptLines) {
+    if (isPromptInstructionLine(line)) continue;
+    if (/^classifier reasoning$/i.test(line)) continue;
+    if (/^if you skip this/i.test(line)) continue;
+
+    const match = line.match(PROMPT_FIELD_RE);
+    if (match) {
+      const label = normalizePromptLabel(match[1] ?? '');
+      if (!/^classifier reasoning$/i.test(label)) {
+        rows.push({ label, value: match[2] ?? '' });
+      }
+      continue;
+    }
+
+    introLine ??= line;
+  }
+
+  return { introLine, rows };
 }
 
 function buildApprovalRows(approval: ChatStreamApproval): ApprovalDetailRow[] {
@@ -100,20 +133,8 @@ function buildApprovalRows(approval: ChatStreamApproval): ApprovalDetailRow[] {
   }
   if (approval.toolName) addRow('Tool', approval.toolName);
 
-  const promptLines = approval.prompt
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  for (const line of promptLines) {
-    if (isPromptInstructionLine(line)) continue;
-    if (/^classifier reasoning$/i.test(line)) continue;
-    if (/^if you skip this/i.test(line)) continue;
-    const match = line.match(PROMPT_FIELD_RE);
-    if (!match) continue;
-    const label = normalizePromptLabel(match[1] ?? '');
-    if (/^classifier reasoning$/i.test(label)) continue;
-    addRow(label, match[2]);
+  for (const row of parsePromptLines(approval.prompt).rows) {
+    addRow(row.label, row.value);
   }
 
   addRow('Approval ID', approval.approvalId);
@@ -128,35 +149,11 @@ function buildApprovalRows(approval: ChatStreamApproval): ApprovalDetailRow[] {
 }
 
 function buildApprovalIntro(approval: ChatStreamApproval): string {
-  const promptLines = approval.prompt
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const introLine = promptLines.find((line) => {
-    if (isPromptInstructionLine(line)) return false;
-    if (PROMPT_FIELD_RE.test(line)) return false;
-    return true;
-  });
+  const { introLine } = parsePromptLines(approval.prompt);
   if (introLine) return introLine;
   if (approval.summary) return approval.summary.split(/\r?\n/)[0] ?? '';
   if (approval.intent) return `Confirmation required for ${approval.intent}.`;
   return 'Confirmation required before this action can continue.';
-}
-
-function buildConfirmLabel(approval: ChatStreamApproval): string {
-  const source = [approval.intent, approval.commandPreview, approval.prompt]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
-  if (/\b(snapshot|thumbnail)\b/.test(source)) return 'Confirm snapshot';
-  if (/\binstall\b/.test(source)) return 'Confirm install';
-  if (/\b(delete|remove)\b/.test(source)) return 'Confirm delete';
-  if (/\b(update|modify|write|change|set)\b/.test(source)) {
-    return 'Confirm change';
-  }
-  if (/\b(access|contact)\b/.test(source)) return 'Confirm access';
-  return 'Confirm action';
 }
 
 function ApprovalCard(props: {
@@ -167,7 +164,6 @@ function ApprovalCard(props: {
   const { approval } = props;
   const rows = useMemo(() => buildApprovalRows(approval), [approval]);
   const intro = useMemo(() => buildApprovalIntro(approval), [approval]);
-  const confirmLabel = useMemo(() => buildConfirmLabel(approval), [approval]);
   const availableTrustButtons = TRUST_APPROVAL_BUTTONS.filter((btn) =>
     btn.isAvailable(approval),
   );
@@ -180,7 +176,9 @@ function ApprovalCard(props: {
   return (
     <div className={css.approvalCard}>
       <div className={css.approvalHeader}>
-        <span className={css.approvalTier}>{tierLabel}</span>
+        {tierLabel ? (
+          <span className={css.approvalTier}>{tierLabel}</span>
+        ) : null}
         <span className={css.approvalTitle}>Confirmation required</span>
       </div>
       <p className={css.approvalIntro}>{intro}</p>
@@ -203,7 +201,7 @@ function ApprovalCard(props: {
           disabled={props.busy}
           onClick={() => handleAction('once')}
         >
-          {confirmLabel}
+          Allow once
         </Button>
         <Button
           variant="danger"

@@ -409,15 +409,16 @@ function buildPendingApproval(
   approval: ToolApprovalEvaluation,
   prompt: string,
   toolName: string,
-): PendingApproval | undefined {
-  if (!approval.requestId) return undefined;
+): PendingApproval {
+  if (!approval.requestId) {
+    throw new Error('Approval-required tool call is missing a request id.');
+  }
   return {
     approvalId: approval.requestId,
     prompt,
     intent: approval.intent,
     reason: approval.reason,
     approvalTier: approval.tier,
-    approvalBaseTier: approval.baseTier,
     toolName,
     commandPreview: approval.commandPreview,
     allowSession: !approval.pinned,
@@ -1195,6 +1196,11 @@ async function processRequest(
     });
     if (approval.decision === 'required') {
       const prompt = approvalRuntime.formatApprovalRequest(approval);
+      const pendingApproval = buildPendingApproval(
+        approval,
+        prompt,
+        approvedToolCall.toolName,
+      );
       return {
         status: 'success',
         result: prompt,
@@ -1224,11 +1230,7 @@ async function processRequest(
             approvalExpiresAt: approval.expiresAtMs,
           },
         ],
-        pendingApproval: buildPendingApproval(
-          approval,
-          prompt,
-          approvedToolCall.toolName,
-        ),
+        pendingApproval,
         tokenUsage: finalizeTokenUsage(tokenUsage),
         effectiveUserPrompt,
       };
@@ -1768,22 +1770,12 @@ async function processRequest(
 
       if (approval.decision === 'required') {
         toolsUsed.push(toolName);
-        if (!approval.requestId) {
-          throw new Error(
-            'Approval-required tool call is missing a request id.',
-          );
-        }
         const prompt = approvalRuntime.formatApprovalRequest(approval);
         const pendingApproval = buildPendingApproval(
           approval,
           prompt,
           toolName,
         );
-        if (!pendingApproval) {
-          throw new Error(
-            'Approval-required tool call is missing a request id.',
-          );
-        }
         emitApprovalProgress(pendingApproval);
         toolExecutions.push({
           name: toolName,

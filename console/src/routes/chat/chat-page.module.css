@@ -609,12 +609,16 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .bubbleApproval {
+  --approval-amber: #d97706;
+  --approval-amber-strong: #92400e;
+  --approval-amber-bg: #f59e0b;
+  --approval-amber-dark: #fbbf24;
   width: min(640px, 100%);
   max-width: 92%;
   padding: 0;
   overflow: hidden;
-  border-color: color-mix(in srgb, #d97706 44%, var(--line));
-  background: color-mix(in srgb, #f59e0b 8%, var(--card));
+  border-color: color-mix(in srgb, var(--approval-amber) 44%, var(--line));
+  background: color-mix(in srgb, var(--approval-amber-bg) 8%, var(--card));
 }
 
 /* System notices (e.g. error messages): a centered, low-emphasis pill. */
@@ -1016,17 +1020,17 @@ aside[data-state="collapsed"] .chatSidebarContent {
   align-items: center;
   min-height: 24px;
   padding: 3px 9px;
-  border: 1px solid color-mix(in srgb, #d97706 55%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--approval-amber) 55%, var(--line));
   border-radius: 999px;
-  background: color-mix(in srgb, #f59e0b 16%, var(--card));
-  color: #92400e;
+  background: color-mix(in srgb, var(--approval-amber-bg) 16%, var(--card));
+  color: var(--approval-amber-strong);
   font-size: 0.76rem;
   font-weight: 700;
   line-height: 1;
 }
 
 :global(html[data-theme="dark"]) .approvalTier {
-  color: #fbbf24;
+  color: var(--approval-amber-dark);
 }
 
 .approvalTitle {

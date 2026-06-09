@@ -635,7 +635,7 @@ describe('MessageBlock artifacts', () => {
     ).not.toBeNull();
     expect(screen.queryByText('Reply `yes` to approve once.')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm snapshot' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));
     expect(onApprovalAction).toHaveBeenCalledWith('once', 'approve123');
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));

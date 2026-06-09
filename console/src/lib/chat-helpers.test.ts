@@ -23,6 +23,11 @@ describe('buildApprovalCommand', () => {
   it('omits the id only when none is available', () => {
     expect(buildApprovalCommand('once', '  ')).toBe('/approve yes');
   });
+
+  it('rejects approval ids with whitespace', () => {
+    expect(buildApprovalCommand('once', 'approve 1')).toBeNull();
+    expect(buildApprovalCommand('deny', 'approve\n1')).toBeNull();
+  });
 });
 
 describe('copyToClipboard', () => {

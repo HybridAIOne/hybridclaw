@@ -110,7 +110,6 @@ export interface ChatStreamApproval {
   intent?: string;
   reason?: string;
   approvalTier?: 'green' | 'yellow' | 'red';
-  approvalBaseTier?: 'green' | 'yellow' | 'red';
   toolName?: string;
   commandPreview?: string;
   args?: unknown;

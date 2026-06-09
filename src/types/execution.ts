@@ -118,7 +118,6 @@ export interface PendingApproval {
   intent: string;
   reason: string;
   approvalTier?: 'green' | 'yellow' | 'red';
-  approvalBaseTier?: 'green' | 'yellow' | 'red';
   toolName?: string;
   commandPreview?: string;
   allowSession: boolean;

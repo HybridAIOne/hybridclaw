@@ -39,14 +39,9 @@ export function extractGatewayChatApprovalEvent(
     prompt: String(approval.prompt || '').trim(),
     intent: String(approval.intent || '').trim(),
     reason: String(approval.reason || '').trim(),
-    ...(approval.approvalTier ? { approvalTier: approval.approvalTier } : {}),
-    ...(approval.approvalBaseTier
-      ? { approvalBaseTier: approval.approvalBaseTier }
-      : {}),
-    ...(approval.toolName ? { toolName: approval.toolName } : {}),
-    ...(approval.commandPreview
-      ? { commandPreview: approval.commandPreview }
-      : {}),
+    approvalTier: approval.approvalTier,
+    toolName: approval.toolName,
+    commandPreview: approval.commandPreview,
     summary,
     allowSession: approval.allowSession === true,
     allowAgent: approval.allowAgent === true,
