@@ -30,14 +30,22 @@ async function importFreshCli(
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
   process.env.HYBRIDCLAW_WHATSAPP_SETUP_SETTLE_MS = '0';
   vi.resetModules();
-  vi.doMock('../src/channels/imessage/local-prereqs.js', () => ({
+  const imessageLocalPrereqsMock = () => ({
     assertLocalIMessageBackendReady: vi.fn(() => {
       if (options?.imessageLocalReadyError) {
         throw options.imessageLocalReadyError;
       }
     }),
     formatMissingIMessageCliMessage: vi.fn((cliPath: string) => cliPath),
-  }));
+  });
+  vi.doMock(
+    '../src/channels/imessage/local-prereqs.js',
+    imessageLocalPrereqsMock,
+  );
+  vi.doMock(
+    '../src/channels/imessage/local-prereqs.ts',
+    imessageLocalPrereqsMock,
+  );
   vi.doMock('../src/channels/whatsapp/connection.ts', () => ({
     createWhatsAppConnectionManager: () => ({
       getSocket: () => null,
@@ -97,6 +105,7 @@ async function readRuntimeSecrets(
 afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock('../src/channels/imessage/local-prereqs.js');
+  vi.doUnmock('../src/channels/imessage/local-prereqs.ts');
   vi.doUnmock('../src/channels/whatsapp/connection.ts');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
