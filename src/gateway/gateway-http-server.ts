@@ -137,6 +137,7 @@ import {
   getSessionAuthPayload,
   hasLocalWebSessionAuth,
   hasSessionAuth,
+  safeEqualToken,
   setLocalWebSessionCookie,
   setSessionCookie,
   verifyLaunchToken,
@@ -1921,8 +1922,12 @@ function isRuntimeMSTeamsChannelConfig(
 function hasQueryToken(url: URL): boolean {
   const token = (url.searchParams.get('token') || '').trim();
   if (!token) return false;
-  if (WEB_API_TOKEN && token === WEB_API_TOKEN) return true;
-  return token === GATEWAY_API_TOKEN;
+  if (WEB_API_TOKEN && safeEqualToken(token, WEB_API_TOKEN)) return true;
+  return Boolean(GATEWAY_API_TOKEN) && safeEqualToken(token, GATEWAY_API_TOKEN);
+}
+
+function hasBearerToken(authHeader: string, token: string): boolean {
+  return Boolean(token) && safeEqualToken(authHeader, `Bearer ${token}`);
 }
 
 function isLoopbackSocketAddress(address: string | undefined): boolean {
@@ -2027,11 +2032,10 @@ function hasApiAuth(
   },
 ): boolean {
   const authHeader = req.headers.authorization || '';
-  const gatewayTokenMatch =
-    Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
+  const gatewayTokenMatch = hasBearerToken(authHeader, GATEWAY_API_TOKEN);
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
-  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
+  if (hasBearerToken(authHeader, WEB_API_TOKEN)) return true;
   if (
     opts?.allowLocalWebSession &&
     isLocalWebSessionAllowed(req) &&
@@ -2045,16 +2049,16 @@ function hasApiAuth(
 
 function hasGatewayApiAuth(req: IncomingMessage): boolean {
   const authHeader = req.headers.authorization || '';
-  return (
-    Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`
-  );
+  return hasBearerToken(authHeader, GATEWAY_API_TOKEN);
 }
 
 function hasApiTokenValue(token: string): boolean {
   const trimmed = token.trim();
   if (!trimmed) return false;
-  if (WEB_API_TOKEN && trimmed === WEB_API_TOKEN) return true;
-  return Boolean(GATEWAY_API_TOKEN) && trimmed === GATEWAY_API_TOKEN;
+  if (WEB_API_TOKEN && safeEqualToken(trimmed, WEB_API_TOKEN)) return true;
+  return (
+    Boolean(GATEWAY_API_TOKEN) && safeEqualToken(trimmed, GATEWAY_API_TOKEN)
+  );
 }
 
 function readRecordProperty(
@@ -2115,10 +2119,10 @@ function resolveAdminSecretAuditContext(
 
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   const authHeader = req.headers.authorization || '';
-  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
+  if (hasBearerToken(authHeader, WEB_API_TOKEN)) {
     return 'web-token';
   }
-  if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
+  if (hasBearerToken(authHeader, GATEWAY_API_TOKEN)) {
     return 'gateway-token';
   }
   return 'authenticated';

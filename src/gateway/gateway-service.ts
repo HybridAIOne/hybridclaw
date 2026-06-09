@@ -7843,7 +7843,7 @@ function nextDelegationSessionId(
   const safeParent = parentSessionId
     .replace(/[^a-zA-Z0-9:_-]/g, '-')
     .slice(0, 48);
-  const nonce = Math.random().toString(36).slice(2, 8);
+  const nonce = randomUUID();
   return `delegate:d${nextDepth}:${safeParent}:${Date.now()}:${nonce}`;
 }
 
@@ -8829,7 +8829,7 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           .filter(Boolean)
           .join(', ') || undefined;
 
-  const jobId = `${parentSessionId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const jobId = `${parentSessionId}:${Date.now()}:${randomUUID()}`;
   enqueueDelegation({
     id: jobId,
     run: async () => {
