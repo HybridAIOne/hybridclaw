@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminAgent,
   AdminAgentMarkdownFileResponse,
+  AdminAgentMarkdownRevision,
   AdminAgentMarkdownRevisionResponse,
+  AdminTeamStructureRevision,
 } from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { AgentFilesPage } from './agents';
@@ -98,6 +100,15 @@ function makeDocument(
   agent: AdminAgent,
   fileName: string,
   content: string,
+  revisions: AdminAgentMarkdownRevision[] = [
+    {
+      id: 'rev-1',
+      createdAt: '2026-04-13T09:00:00.000Z',
+      sizeBytes: 80,
+      sha256: 'abc123',
+      source: 'save',
+    },
+  ],
 ): AdminAgentMarkdownFileResponse {
   const file =
     agent.markdownFiles.find((entry) => entry.name === fileName) ||
@@ -110,17 +121,38 @@ function makeDocument(
     file: {
       ...file,
       content,
-      revisions: [
-        {
-          id: 'rev-1',
-          createdAt: '2026-04-13T09:00:00.000Z',
-          sizeBytes: 80,
-          sha256: 'abc123',
-          source: 'save',
-        },
-      ],
+      revisions,
     },
   };
+}
+
+function makeMarkdownRevisions(count: number): AdminAgentMarkdownRevision[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `rev-${index + 1}`,
+    createdAt: `2026-04-13T09:${String(index).padStart(2, '0')}:00.000Z`,
+    sizeBytes: 1000 + index,
+    sha256: `sha-${index + 1}`,
+    source: 'save',
+  }));
+}
+
+function makeTeamRevisions(count: number): AdminTeamStructureRevision[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: index + 1,
+    createdAt: `2026-04-13T10:${String(index).padStart(2, '0')}:00.000Z`,
+    actor: 'admin',
+    route: `/admin/team/${index + 1}`,
+    source: 'save',
+    md5: `md5-${index + 1}`,
+    sizeBytes: 100 + index,
+    replacedByMd5: null,
+    changeCount: index + 1,
+    diff: {
+      added: [],
+      removed: [],
+      changed: [],
+    },
+  }));
 }
 
 function renderPage() {
@@ -317,6 +349,48 @@ describe('AgentFilesPage', () => {
         },
       ),
     );
+  });
+
+  it('shows only the first 10 markdown revisions until more are requested', async () => {
+    const agent = makeAgent({});
+    fetchAdminAgentsMock.mockResolvedValue([agent]);
+    fetchAdminAgentMarkdownFileMock.mockResolvedValue(
+      makeDocument(agent, 'AGENTS.md', '# Current Rules', makeMarkdownRevisions(12)),
+    );
+
+    renderPage();
+
+    await screen.findByDisplayValue('# Current Rules');
+    expect(screen.getByText(/1009 bytes/i)).not.toBeNull();
+    expect(screen.queryByText(/1010 bytes/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show 2 more' }));
+
+    expect(screen.getByText(/1010 bytes/i)).not.toBeNull();
+    expect(screen.getByText(/1011 bytes/i)).not.toBeNull();
+  });
+
+  it('shows only the first 10 team revisions until more are requested', async () => {
+    const agent = makeAgent({});
+    fetchAdminAgentsMock.mockResolvedValue([agent]);
+    fetchAdminAgentMarkdownFileMock.mockResolvedValue(
+      makeDocument(agent, 'AGENTS.md', '# Current Rules'),
+    );
+    fetchAdminTeamStructureMock.mockResolvedValue({
+      snapshot: { version: 1, agents: [{ id: 'main' }] },
+      revisions: makeTeamRevisions(12),
+    });
+
+    renderPage();
+
+    await screen.findByDisplayValue('# Current Rules');
+    expect(screen.getByText(/#10/)).not.toBeNull();
+    expect(screen.queryByText(/#11/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show 2 more' }));
+
+    expect(screen.getByText(/#11/)).not.toBeNull();
+    expect(screen.getByText(/#12/)).not.toBeNull();
   });
 
   it('preserves dirty editor content when the selected file refetches', async () => {

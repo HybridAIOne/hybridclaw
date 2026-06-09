@@ -73,6 +73,8 @@ function formatTeamDiff(diff: AdminTeamStructureDiff): string {
   return lines.length > 0 ? lines.join('\n') : 'No field changes recorded.';
 }
 
+const REVISION_BATCH_SIZE = 10;
+
 export function AgentFilesPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
@@ -90,6 +92,10 @@ export function AgentFilesPage() {
   const [selectedTeamRevisionId, setSelectedTeamRevisionId] = useState<
     number | null
   >(null);
+  const [visibleFileRevisionCount, setVisibleFileRevisionCount] =
+    useState(REVISION_BATCH_SIZE);
+  const [visibleTeamRevisionCount, setVisibleTeamRevisionCount] =
+    useState(REVISION_BATCH_SIZE);
   const [draftContent, setDraftContent] = useState('');
   const hydratedDocumentKeyRef = useRef<string | null>(null);
   const hydratedContentRef = useRef('');
@@ -197,6 +203,10 @@ export function AgentFilesPage() {
     enabled: Boolean(selectedTeamRevisionId),
     refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    setVisibleFileRevisionCount(REVISION_BATCH_SIZE);
+  }, [selectedDocumentKey]);
 
   useEffect(() => {
     if (!selectedDocumentKey) {
@@ -320,6 +330,24 @@ export function AgentFilesPage() {
   const isDirty = fileQuery.data
     ? draftContent !== fileQuery.data.file.content
     : false;
+  const fileRevisions = fileQuery.data?.file.revisions || [];
+  const visibleFileRevisions = fileRevisions.slice(
+    0,
+    visibleFileRevisionCount,
+  );
+  const hiddenFileRevisionCount = Math.max(
+    0,
+    fileRevisions.length - visibleFileRevisionCount,
+  );
+  const teamRevisions = teamQuery.data?.revisions || [];
+  const visibleTeamRevisions = teamRevisions.slice(
+    0,
+    visibleTeamRevisionCount,
+  );
+  const hiddenTeamRevisionCount = Math.max(
+    0,
+    teamRevisions.length - visibleTeamRevisionCount,
+  );
 
   return (
     <div className="page-stack">
@@ -451,29 +479,58 @@ export function AgentFilesPage() {
                           Revisions appear here after the file changes.
                         </div>
                       ) : (
-                        <div className="list-stack selectable-list">
-                          {fileQuery.data.file.revisions.map((revision) => (
-                            <button
-                              key={revision.id}
-                              className={
-                                revision.id === selectedRevisionId
-                                  ? 'selectable-row active'
-                                  : 'selectable-row'
-                              }
-                              type="button"
-                              onClick={() => setSelectedRevisionId(revision.id)}
-                            >
-                              <div>
-                                <strong>
-                                  {formatDateTime(revision.createdAt)}
-                                </strong>
-                                <small>
-                                  {formatRelativeTime(revision.createdAt)} ·{' '}
-                                  {revision.source} · {revision.sizeBytes} bytes
-                                </small>
-                              </div>
-                            </button>
-                          ))}
+                        <div className="detail-stack">
+                          <div className="list-stack selectable-list">
+                            {visibleFileRevisions.map((revision) => (
+                              <button
+                                key={revision.id}
+                                className={
+                                  revision.id === selectedRevisionId
+                                    ? 'selectable-row active'
+                                    : 'selectable-row'
+                                }
+                                type="button"
+                                onClick={() =>
+                                  setSelectedRevisionId(revision.id)
+                                }
+                              >
+                                <div>
+                                  <strong>
+                                    {formatDateTime(revision.createdAt)}
+                                  </strong>
+                                  <small>
+                                    {formatRelativeTime(revision.createdAt)} ·{' '}
+                                    {revision.source} · {revision.sizeBytes}{' '}
+                                    bytes
+                                  </small>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                          {hiddenFileRevisionCount > 0 ? (
+                            <div className="button-row">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                type="button"
+                                onClick={() =>
+                                  setVisibleFileRevisionCount((count) =>
+                                    Math.min(
+                                      count + REVISION_BATCH_SIZE,
+                                      fileRevisions.length,
+                                    ),
+                                  )
+                                }
+                              >
+                                Show{' '}
+                                {Math.min(
+                                  REVISION_BATCH_SIZE,
+                                  hiddenFileRevisionCount,
+                                )}{' '}
+                                more
+                              </Button>
+                            </div>
+                          ) : null}
                         </div>
                       )}
                     </CardContent>
@@ -563,34 +620,60 @@ export function AgentFilesPage() {
                           Team revisions appear here after org-chart changes.
                         </div>
                       ) : (
-                        <div className="list-stack selectable-list">
-                          {teamQuery.data.revisions.map((revision) => (
-                            <button
-                              key={revision.id}
-                              className={
-                                revision.id === selectedTeamRevisionId
-                                  ? 'selectable-row active'
-                                  : 'selectable-row'
-                              }
-                              type="button"
-                              onClick={() =>
-                                setSelectedTeamRevisionId(revision.id)
-                              }
-                            >
-                              <div>
-                                <strong>
-                                  #{revision.id} ·{' '}
-                                  {formatDateTime(revision.createdAt)}
-                                </strong>
-                                <small>
-                                  {formatRelativeTime(revision.createdAt)} ·{' '}
-                                  {revision.changeCount} change
-                                  {revision.changeCount === 1 ? '' : 's'} ·{' '}
-                                  {revision.route}
-                                </small>
-                              </div>
-                            </button>
-                          ))}
+                        <div className="detail-stack">
+                          <div className="list-stack selectable-list">
+                            {visibleTeamRevisions.map((revision) => (
+                              <button
+                                key={revision.id}
+                                className={
+                                  revision.id === selectedTeamRevisionId
+                                    ? 'selectable-row active'
+                                    : 'selectable-row'
+                                }
+                                type="button"
+                                onClick={() =>
+                                  setSelectedTeamRevisionId(revision.id)
+                                }
+                              >
+                                <div>
+                                  <strong>
+                                    #{revision.id} ·{' '}
+                                    {formatDateTime(revision.createdAt)}
+                                  </strong>
+                                  <small>
+                                    {formatRelativeTime(revision.createdAt)} ·{' '}
+                                    {revision.changeCount} change
+                                    {revision.changeCount === 1 ? '' : 's'} ·{' '}
+                                    {revision.route}
+                                  </small>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                          {hiddenTeamRevisionCount > 0 ? (
+                            <div className="button-row">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                type="button"
+                                onClick={() =>
+                                  setVisibleTeamRevisionCount((count) =>
+                                    Math.min(
+                                      count + REVISION_BATCH_SIZE,
+                                      teamRevisions.length,
+                                    ),
+                                  )
+                                }
+                              >
+                                Show{' '}
+                                {Math.min(
+                                  REVISION_BATCH_SIZE,
+                                  hiddenTeamRevisionCount,
+                                )}{' '}
+                                more
+                              </Button>
+                            </div>
+                          ) : null}
                         </div>
                       )}
                     </CardContent>
