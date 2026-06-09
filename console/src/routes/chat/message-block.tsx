@@ -18,18 +18,9 @@ import { ThumbsDown, ThumbsUp } from '../../components/icons';
 import { type ApprovalAction, copyToClipboard } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { renderMarkdown } from '../../lib/markdown';
+import { ApprovalCard } from './approval-card';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
-
-const APPROVAL_BUTTONS: ReadonlyArray<{
-  label: string;
-  action: ApprovalAction;
-}> = [
-  { label: 'Allow once', action: 'once' },
-  { label: 'Allow always', action: 'all' },
-  { label: 'Allow session', action: 'session' },
-  { label: 'Allow agent', action: 'agent' },
-];
 
 const STREAM_MARKDOWN_RENDER_INTERVAL_MS = 120;
 
@@ -418,11 +409,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
     });
   }, [msg.artifacts]);
 
+  const isApproval = msg.role === 'approval';
+  const shouldRenderApprovalCard = isApproval && Boolean(msg.pendingApproval);
   const isMarkdownMessage =
     msg.role === 'assistant' ||
-    msg.role === 'approval' ||
     msg.role === 'command' ||
-    Boolean(msg.pendingApproval);
+    (isApproval && !shouldRenderApprovalCard);
   const renderedHtml = useRenderedMarkdown(
     msg.content,
     isMarkdownMessage,
@@ -448,7 +440,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   const isUser = msg.role === 'user';
   const isAssistant = msg.role === 'assistant';
-  const isApproval = msg.role === 'approval' || Boolean(msg.pendingApproval);
   const shouldRenderBubble =
     isUser ||
     msg.content.trim().length > 0 ||
@@ -469,6 +460,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
     css.bubble,
     isUser && css.bubbleUser,
     (isAssistant || isApproval) && css.bubbleAssistant,
+    isApproval && css.bubbleApproval,
     msg.role === 'system' && css.bubbleSystem,
     msg.role === 'command' && css.bubbleCommand,
   );
@@ -490,7 +482,13 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {shouldRenderBubble ? (
         <div className={bubbleClass}>
-          {isMarkdownMessage ? (
+          {shouldRenderApprovalCard && msg.pendingApproval ? (
+            <ApprovalCard
+              approval={msg.pendingApproval}
+              busy={props.approvalBusy}
+              onAction={props.onApprovalAction}
+            />
+          ) : isMarkdownMessage ? (
             <div
               ref={markdownRef}
               className={css.markdownContent}
@@ -500,41 +498,6 @@ export const MessageBlock = memo(function MessageBlock(props: {
           ) : (
             msg.content
           )}
-
-          {isApproval && msg.pendingApproval ? (
-            <div className={css.approvalActions}>
-              {APPROVAL_BUTTONS.map((btn) => (
-                <Button
-                  key={btn.action}
-                  variant="outline"
-                  size="sm"
-                  className={css.approvalAllow}
-                  disabled={props.approvalBusy}
-                  onClick={() =>
-                    props.onApprovalAction(
-                      btn.action,
-                      msg.pendingApproval?.approvalId ?? '',
-                    )
-                  }
-                >
-                  {btn.label}
-                </Button>
-              ))}
-              <Button
-                variant="danger"
-                size="sm"
-                disabled={props.approvalBusy}
-                onClick={() =>
-                  props.onApprovalAction(
-                    'deny',
-                    msg.pendingApproval?.approvalId ?? '',
-                  )
-                }
-              >
-                Deny
-              </Button>
-            </div>
-          ) : null}
         </div>
       ) : null}
 

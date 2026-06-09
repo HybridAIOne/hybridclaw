@@ -374,7 +374,7 @@ function hasSuggestedFirstJobs(wsDir: string): boolean {
   return section.split(/\r?\n/).some((line) => {
     const trimmed = line.trim();
     return (
-      /^-\s+\S/.test(trimmed) &&
+      /^(?:-\s+|\d+[.)]\s+)\S/.test(trimmed) &&
       !trimmed.includes('After hatching') &&
       !trimmed.includes('practical jobs')
     );

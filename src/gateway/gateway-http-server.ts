@@ -266,6 +266,7 @@ import type {
   GatewayChatRequest,
   GatewayChatRequestBody,
   GatewayChatResult,
+  GatewayChatResultMessageRole,
   GatewayCommandRequest,
 } from './gateway-types.js';
 import {
@@ -1745,6 +1746,7 @@ async function resolveApiChatSlashCommandResult(
   let sessionKey: string | undefined;
   let mainSessionKey: string | undefined;
   let handledApprovalCommand = false;
+  let messageRole: GatewayChatResultMessageRole = 'command';
 
   for (const args of slashCommands) {
     if (parseLowerArg(args, 0) === 'approve') {
@@ -1758,6 +1760,7 @@ async function resolveApiChatSlashCommandResult(
       });
       if (!handled) continue;
       handledApprovalCommand = true;
+      messageRole = handled.messageRole;
       sessionId = handled.sessionId || sessionId;
       sessionKey = handled.sessionKey || sessionKey;
       mainSessionKey = handled.mainSessionKey || mainSessionKey;
@@ -1773,7 +1776,7 @@ async function resolveApiChatSlashCommandResult(
       continue;
     }
 
-    const commandResult = await handleGatewayCommand({
+    const gatewayCommandResult = await handleGatewayCommand({
       sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
@@ -1782,10 +1785,10 @@ async function resolveApiChatSlashCommandResult(
       userId: chatRequest.userId,
       username: chatRequest.username,
     });
-    sessionId = commandResult.sessionId || sessionId;
-    sessionKey = commandResult.sessionKey || sessionKey;
-    mainSessionKey = commandResult.mainSessionKey || mainSessionKey;
-    const text = renderTextChannelCommandResult(commandResult).trim();
+    sessionId = gatewayCommandResult.sessionId || sessionId;
+    sessionKey = gatewayCommandResult.sessionKey || sessionKey;
+    mainSessionKey = gatewayCommandResult.mainSessionKey || mainSessionKey;
+    const text = renderTextChannelCommandResult(gatewayCommandResult).trim();
     if (text) {
       textParts.push(text);
     }
@@ -1814,7 +1817,7 @@ async function resolveApiChatSlashCommandResult(
     result:
       renderedText || (handledApprovalCommand ? 'Approval submitted.' : ''),
     toolsUsed: [],
-    commandResult: true,
+    messageRole,
     sessionId,
     ...(resolvedModel ? { model: resolvedModel } : {}),
     ...(sessionKey ? { sessionKey } : {}),
@@ -1833,7 +1836,7 @@ function resolveApiChatSecretCommandGuardResult(
     status: 'success',
     result: renderCliSecretSetCommandWarning(command),
     toolsUsed: [],
-    commandResult: true,
+    messageRole: 'command',
     sessionId: chatRequest.sessionId,
   };
 }
@@ -3398,7 +3401,6 @@ async function handleApiHistory(
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
   void ensureGatewayBootstrapAutostart({
     sessionId,
-    allowExistingSessionMessages: true,
   }).catch((error) => {
     logger.warn(
       { sessionId, error },

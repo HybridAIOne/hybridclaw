@@ -735,7 +735,7 @@ async function handleGatewayMessageInner(
       status: 'success',
       result: renderCliSecretSetCommandWarning(cliSecretSetCommand),
       toolsUsed: [],
-      commandResult: true,
+      messageRole: 'command',
     });
   }
   if (source !== 'fullauto') {
@@ -1073,6 +1073,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         agentId,
         model,
         provider,
@@ -1277,6 +1278,7 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: 'assistant',
       toolsUsed: [],
       agentId,
       model,
@@ -1547,6 +1549,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         toolsUsed: [],
         pluginsUsed,
         agentId,
@@ -2151,6 +2154,7 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: output.pendingApproval ? 'approval' : 'assistant',
       toolsUsed: output.toolsUsed || [],
       pluginsUsed,
       skillUsed: observedSkillName ?? undefined,

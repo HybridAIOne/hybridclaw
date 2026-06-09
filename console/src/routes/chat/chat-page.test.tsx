@@ -538,6 +538,36 @@ describe('ChatPage', () => {
     );
   });
 
+  it('does not start hidden hatching when gateway autostart is already starting', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+      bootstrapAutostart: {
+        status: 'starting',
+        fileName: 'BOOTSTRAP.md',
+      },
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Switch agent'), {
+      target: { value: 'charly' },
+    });
+
+    await waitFor(() =>
+      expect(executeCommandMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+        'web-user-1',
+        ['agent', 'switch', 'charly'],
+      ),
+    );
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
   it('keeps first agent switch result visible when bare /chat resolves to a server session id', async () => {
     const routerModule = (await import(
       '@tanstack/react-router'

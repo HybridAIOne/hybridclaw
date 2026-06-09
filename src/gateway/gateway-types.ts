@@ -70,16 +70,17 @@ export interface GatewayAssistantPresentation {
   imageUrl?: string;
 }
 
+export type GatewayChatResultMessageRole = 'assistant' | 'approval' | 'command';
+
 export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
   /**
-   * True when this result was produced by handling a slash command rather than
-   * by the model. Lets clients (e.g. the web console) render command/system
-   * output distinctly from assistant replies.
+   * UI presentation role for the result message. This is separate from persisted
+   * history roles and avoids inferring rendering from command/approval metadata.
    */
-  commandResult?: boolean;
+  messageRole?: GatewayChatResultMessageRole;
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;
