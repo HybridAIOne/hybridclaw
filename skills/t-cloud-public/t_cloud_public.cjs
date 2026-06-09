@@ -5,7 +5,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { URL } = require('node:url');
 const {
-  DEFAULT_GATEWAY_URL,
   executeGatewayEnvelope,
   resolveGatewayToken,
   resolveGatewayUrl,

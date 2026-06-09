@@ -3,7 +3,6 @@
 
 const {
   executeGatewayRequest: executeSharedGatewayRequest,
-  parseJsonMaybe,
 } = require('../shared/gateway-http.cjs');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
