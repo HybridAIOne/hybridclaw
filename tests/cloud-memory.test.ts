@@ -171,6 +171,26 @@ test('syncCloudMemoryNow clears cached shared memory on 404', async () => {
   expect(loadCloudMemoryContextFiles(agentId)).toEqual([]);
 });
 
+test('syncCloudMemoryNow includes response body for failed sync requests', async () => {
+  const agentId = 'cloud-error-agent';
+  await createAgentWorkspace(agentId);
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      text: async () => '{"error":"embedding cache write failed"}',
+    })),
+  );
+
+  const { syncCloudMemoryNow } = await import('../src/memory/cloud-memory.js');
+
+  await expect(syncCloudMemoryNow(agentId)).rejects.toThrow(
+    'HybridAI memory sync failed with HTTP 500: {"error":"embedding cache write failed"}',
+  );
+});
+
 test('syncCloudMemoryNow refuses plain HTTP base URLs', async () => {
   const agentId = 'cloud-http-agent';
   await createAgentWorkspace(agentId);

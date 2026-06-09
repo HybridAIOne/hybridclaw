@@ -37,6 +37,7 @@ interface CloudMemoryCache {
 const CLOUD_MEMORY_CACHE_NAME = 'cloud-memory.json';
 const CLOUD_MEMORY_MAX_FILE_CHARS = 20_000;
 const CLOUD_MEMORY_PROMPT_FILE_CHARS = 12_000;
+const CLOUD_MEMORY_ERROR_BODY_CHARS = 1_000;
 const CLOUD_MEMORY_MAX_DAILY_FILES = 14;
 const CLOUD_MEMORY_SYNC_MIN_INTERVAL_MS = 60_000;
 const CLOUD_MEMORY_PERIODIC_SYNC_INTERVAL_MS = 5 * 60_000;
@@ -207,6 +208,15 @@ function normalizeCloudFile(
   };
 }
 
+async function readCloudMemoryErrorBody(response: Response): Promise<string> {
+  try {
+    const body = await response.text();
+    return truncateHeadTailText(body.trim(), CLOUD_MEMORY_ERROR_BODY_CHARS);
+  } catch {
+    return '';
+  }
+}
+
 function writeCloudMemoryCache(
   agentId: string,
   files: CloudMemoryContextFile[],
@@ -296,7 +306,12 @@ export async function syncCloudMemoryNow(agentId: string): Promise<void> {
     return;
   }
   if (!response.ok) {
-    throw new Error(`HybridAI memory sync failed with HTTP ${response.status}`);
+    const detail = await readCloudMemoryErrorBody(response);
+    throw new Error(
+      `HybridAI memory sync failed with HTTP ${response.status}${
+        detail ? `: ${detail}` : ''
+      }`,
+    );
   }
 
   const body = (await response.json()) as CloudMemorySyncResponse;
