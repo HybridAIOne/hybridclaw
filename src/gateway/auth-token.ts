@@ -93,7 +93,7 @@ function normalizeExpirySeconds(
     : Math.floor(value);
 }
 
-function safeEqual(value: string, expected: string): boolean {
+export function safeEqualToken(value: string, expected: string): boolean {
   const valueBuffer = Buffer.from(value);
   const expectedBuffer = Buffer.from(expected);
   if (valueBuffer.length !== expectedBuffer.length) return false;
@@ -107,8 +107,8 @@ function hasValidSignature(
 ): boolean {
   const digest = createHmac('sha256', secret).update(signedPortion).digest();
   return (
-    safeEqual(signatureSegment, digest.toString('base64url')) ||
-    safeEqual(signatureSegment, digest.toString('hex'))
+    safeEqualToken(signatureSegment, digest.toString('base64url')) ||
+    safeEqualToken(signatureSegment, digest.toString('hex'))
   );
 }
 
