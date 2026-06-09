@@ -25,6 +25,7 @@ import {
   type SkillImportResult,
 } from '../skills/skills-import.js';
 import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
+import { isRecord } from '../utils/type-guards.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import {
   deleteRegisteredAgent,
@@ -178,10 +179,6 @@ export interface UninstallAgentResult {
 
 export interface UninstallAgentOptions {
   existingAgent?: AgentConfig | null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function sanitizeArchiveFileStem(value: string): string {

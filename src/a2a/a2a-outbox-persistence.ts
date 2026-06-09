@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-
 import {
   listRuntimeAssetRevisionStates,
   syncRuntimeAssetRevisionState,
@@ -9,6 +8,7 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
 import type { SecretRef } from '../security/secret-refs.js';
 import type { EscalationTarget } from '../types/execution.js';
+import { isRecord } from '../utils/type-guards.js';
 import { type A2AEnvelope, validateA2AEnvelope } from './envelope.js';
 import type { A2APeerDescriptor } from './peer-descriptor.js';
 import type { TransportAdapterContext } from './transport-registry.js';
@@ -76,10 +76,6 @@ export function nowIso(now: Date): string {
 
 function outboxAssetPath(id: string): string {
   return path.join(A2A_OUTBOX_ASSET_PREFIX, `${id}.json`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeIdentityResolution(

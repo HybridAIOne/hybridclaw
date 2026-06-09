@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { recordAuditEvent as defaultRecordAuditEvent } from '../audit/audit-events.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   DEFAULT_TUNNEL_HEALTH_CHECK_TIMEOUT_MS as DEFAULT_COMMAND_TIMEOUT_MS,
   DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS as DEFAULT_HEALTH_INTERVAL_MS,
@@ -101,10 +102,6 @@ function parseJson(value: string): unknown {
   } catch {
     return null;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizePublicUrl(value: unknown): string | null {

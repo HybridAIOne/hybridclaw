@@ -10,6 +10,7 @@ import { parseSessionKey } from '../session/session-key.js';
 import { DEFAULT_SKILL_SUPPORTED_CHANNELS } from '../skills/skill-manifest.js';
 import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
 import type { ToolExecution } from '../types/execution.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   joinSections,
   renderKeyValueSection,
@@ -1929,10 +1930,6 @@ function infoResult(title: string, text: string): GatewayCommandResult {
 
 function errorResult(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function resolveInstallRootSafe(): string {

@@ -9,6 +9,7 @@ import {
 import type { ResolvedModelRuntimeCredentials } from '../providers/types.js';
 import type { ChatMessage, ToolCall } from '../types/api.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { isRecord } from '../utils/type-guards.js';
 
 export interface OpenAICompatibleToolDefinition {
   type: 'function';
@@ -149,10 +150,6 @@ function collapseSystemMessages(messages: ChatMessage[]): ChatMessage[] {
     },
     ...remaining,
   ];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function parseErrorText(body: string): string {

@@ -1,12 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 import { logger } from '../logger.js';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { isRecord } from '../utils/type-guards.js';
 
 function readVersionFromPackageJson(packageJsonPath: string): string | null {
   try {
