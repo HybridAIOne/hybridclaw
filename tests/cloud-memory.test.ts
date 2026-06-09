@@ -298,13 +298,11 @@ test('startPeriodicCloudMemorySync refreshes registered agents on an interval', 
       resolveAgentIds: () => [agentId, 'cloud-periodic-peer', agentId],
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
-    await Promise.resolve();
-    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(5 * 60_000);
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
 
     stopPeriodicCloudMemorySync();
     await Promise.resolve();
@@ -312,6 +310,97 @@ test('startPeriodicCloudMemorySync refreshes registered agents on an interval', 
     await vi.advanceTimersByTimeAsync(5 * 60_000);
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('startPeriodicCloudMemorySync runs scheduled agent syncs sequentially', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-09T12:00:00.000Z'));
+
+  try {
+    await createAgentWorkspace('scheduled-a');
+    await createAgentWorkspace('scheduled-b');
+    let releaseFirst: (() => void) | undefined;
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ enabled: false, files: [] }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { startPeriodicCloudMemorySync, stopPeriodicCloudMemorySync } =
+      await import('../src/memory/cloud-memory.js');
+
+    startPeriodicCloudMemorySync({
+      intervalMs: 5 * 60_000,
+      resolveAgentIds: () => ['scheduled-a', 'scheduled-b'],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    releaseFirst?.();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    stopPeriodicCloudMemorySync();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('startPeriodicCloudMemorySync serializes case-variant agent ids', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-09T12:00:00.000Z'));
+
+  try {
+    await createAgentWorkspace('bob');
+    await createAgentWorkspace('Bob');
+
+    let releaseFirst: (() => void) | undefined;
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ enabled: false, files: [] }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { startPeriodicCloudMemorySync, stopPeriodicCloudMemorySync } =
+      await import('../src/memory/cloud-memory.js');
+
+    startPeriodicCloudMemorySync({
+      intervalMs: 5 * 60_000,
+      resolveAgentIds: () => ['bob', 'Bob'],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    releaseFirst?.();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const bodies = fetchMock.mock.calls.map((call) =>
+      JSON.parse(String((call[1] as RequestInit).body)),
+    ) as Array<{ agent_id: string }>;
+    expect(bodies.map((body) => body.agent_id)).toEqual(['bob', 'Bob']);
+
+    stopPeriodicCloudMemorySync();
   } finally {
     vi.useRealTimers();
   }
