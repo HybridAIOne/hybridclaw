@@ -432,5 +432,4 @@ export function stopPeriodicCloudMemorySync(): void {
     clearInterval(periodicSyncTimer);
     periodicSyncTimer = null;
   }
-  periodicSyncInFlight = null;
 }

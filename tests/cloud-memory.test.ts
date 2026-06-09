@@ -360,6 +360,54 @@ test('startPeriodicCloudMemorySync runs scheduled agent syncs sequentially', asy
   }
 });
 
+test('startPeriodicCloudMemorySync does not overlap after restart while a batch is running', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-09T12:00:00.000Z'));
+
+  try {
+    await createAgentWorkspace('restart-a');
+    await createAgentWorkspace('restart-b');
+    let releaseFirst: (() => void) | undefined;
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ enabled: false, files: [] }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { startPeriodicCloudMemorySync, stopPeriodicCloudMemorySync } =
+      await import('../src/memory/cloud-memory.js');
+
+    const options = {
+      intervalMs: 5 * 60_000,
+      resolveAgentIds: () => ['restart-a', 'restart-b'],
+    };
+    startPeriodicCloudMemorySync(options);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    startPeriodicCloudMemorySync(options);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    releaseFirst?.();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    stopPeriodicCloudMemorySync();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test('startPeriodicCloudMemorySync serializes case-variant agent ids', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-06-09T12:00:00.000Z'));
