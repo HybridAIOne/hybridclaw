@@ -1,13 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-
 import YAML from 'yaml';
-
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { DATA_DIR } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { readPolicyState } from '../policy/policy-store.js';
+import { isRecord } from '../utils/type-guards.js';
 
 export interface ManagedBrowserTenantPolicySyncResult {
   tenantId: string;
@@ -59,10 +58,6 @@ export function ensureLocalManagedBrowserTenantPolicyFile(
     mode: 0o600,
   });
   return policyPath;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function readPolicyDocument(policyPath: string): TenantPolicyDocument {
