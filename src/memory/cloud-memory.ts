@@ -48,6 +48,30 @@ const DAILY_MEMORY_FILE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
 const inFlightSyncs = new Map<string, Promise<void>>();
 const lastSyncStartedAt = new Map<string, number>();
 let periodicSyncTimer: ReturnType<typeof setInterval> | null = null;
+let periodicSyncInFlight: Promise<void> | null = null;
+
+interface StartedCloudMemorySync {
+  normalizedAgentId: string;
+  inFlightKey: string;
+}
+
+function cloudMemoryInFlightKey(agentId: string): string {
+  return agentId.trim().toLowerCase();
+}
+
+function beginCloudMemorySync(agentId: string): StartedCloudMemorySync | null {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) return null;
+  const inFlightKey = cloudMemoryInFlightKey(normalizedAgentId);
+  if (!isCloudMemoryConfigured()) return null;
+  if (inFlightSyncs.has(inFlightKey)) return null;
+
+  const now = Date.now();
+  const lastStarted = lastSyncStartedAt.get(normalizedAgentId) || 0;
+  if (now - lastStarted < CLOUD_MEMORY_SYNC_MIN_INTERVAL_MS) return null;
+  lastSyncStartedAt.set(normalizedAgentId, now);
+  return { normalizedAgentId, inFlightKey };
+}
 
 function getCloudMemoryConfig(): {
   apiKey: string;
@@ -330,35 +354,45 @@ export async function syncCloudMemoryNow(agentId: string): Promise<void> {
 }
 
 export function scheduleCloudMemorySync(agentId: string): void {
-  const normalizedAgentId = agentId.trim();
-  if (!normalizedAgentId) return;
-  if (!isCloudMemoryConfigured()) return;
-  if (inFlightSyncs.has(normalizedAgentId)) return;
+  const started = beginCloudMemorySync(agentId);
+  if (!started) return;
 
-  const now = Date.now();
-  const lastStarted = lastSyncStartedAt.get(normalizedAgentId) || 0;
-  if (now - lastStarted < CLOUD_MEMORY_SYNC_MIN_INTERVAL_MS) return;
-  lastSyncStartedAt.set(normalizedAgentId, now);
-
-  const promise = syncCloudMemoryNow(normalizedAgentId)
+  const promise = syncCloudMemoryNow(started.normalizedAgentId)
     .catch((err) => {
       logger.warn(
-        { agentId: normalizedAgentId, err },
+        { agentId: started.normalizedAgentId, err },
         'Cloud memory sync failed',
       );
     })
     .finally(() => {
-      inFlightSyncs.delete(normalizedAgentId);
+      inFlightSyncs.delete(started.inFlightKey);
     });
-  inFlightSyncs.set(normalizedAgentId, promise);
+  inFlightSyncs.set(started.inFlightKey, promise);
 }
 
-function syncAgentIds(agentIds: string[]): void {
-  const uniqueAgentIds = Array.from(
+function uniqueSyncAgentIds(agentIds: string[]): string[] {
+  return Array.from(
     new Set(agentIds.map((agentId) => agentId.trim()).filter(Boolean)),
   );
-  for (const agentId of uniqueAgentIds) {
-    scheduleCloudMemorySync(agentId);
+}
+
+async function syncAgentIds(agentIds: string[]): Promise<void> {
+  for (const agentId of uniqueSyncAgentIds(agentIds)) {
+    const started = beginCloudMemorySync(agentId);
+    if (!started) continue;
+
+    const promise = syncCloudMemoryNow(started.normalizedAgentId);
+    inFlightSyncs.set(started.inFlightKey, promise);
+    try {
+      await promise;
+    } catch (err) {
+      logger.warn(
+        { agentId: started.normalizedAgentId, err },
+        'Cloud memory sync failed',
+      );
+    } finally {
+      inFlightSyncs.delete(started.inFlightKey);
+    }
   }
 }
 
@@ -376,9 +410,13 @@ export function startPeriodicCloudMemorySync(options?: {
   );
   const resolveAgentIds = options?.resolveAgentIds ?? (() => ['main']);
   const runSync = () => {
+    if (periodicSyncInFlight) return;
     try {
-      syncAgentIds(resolveAgentIds());
+      periodicSyncInFlight = syncAgentIds(resolveAgentIds()).finally(() => {
+        periodicSyncInFlight = null;
+      });
     } catch (err) {
+      periodicSyncInFlight = null;
       logger.warn({ err }, 'Cloud memory periodic sync failed to list agents');
     }
   };
@@ -390,7 +428,8 @@ export function startPeriodicCloudMemorySync(options?: {
 }
 
 export function stopPeriodicCloudMemorySync(): void {
-  if (!periodicSyncTimer) return;
-  clearInterval(periodicSyncTimer);
-  periodicSyncTimer = null;
+  if (periodicSyncTimer) {
+    clearInterval(periodicSyncTimer);
+    periodicSyncTimer = null;
+  }
 }
