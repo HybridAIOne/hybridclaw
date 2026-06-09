@@ -98,6 +98,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
     title: 'Guides',
     pages: [
       { title: 'Guides', path: 'guides/README.md' },
+      { title: 'Hatching Task Ideas', path: 'guides/hatching-task-ideas.md' },
       { title: 'Bundled Skills', path: 'guides/bundled-skills.md' },
       { title: 'Local Providers', path: 'guides/local-providers.md' },
       { title: 'Remote Access', path: 'guides/remote-access.md' },

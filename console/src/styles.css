@@ -1043,6 +1043,22 @@ code {
   min-width: 0;
 }
 
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.list-row > .row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .list-row strong {
   display: block;
   line-height: 1.25;
@@ -1096,6 +1112,46 @@ code {
 
 .row-status-note-danger {
   color: var(--danger);
+}
+
+.row-status-note {
+  color: var(--muted-foreground);
+}
+
+.inline-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: var(--muted-foreground);
+  font-size: 0.92rem;
+}
+
+.inline-checkbox input {
+  width: 16px;
+  height: 16px;
+}
+
+.info-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg);
+}
+
+.info-row > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.info-row strong,
+.info-row small {
+  overflow-wrap: anywhere;
 }
 
 .skill-blocked-badge {

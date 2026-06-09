@@ -100,6 +100,86 @@ test('handleGatewayMessage expands context references only for llm-facing paths'
   expect(turnStart?.userInput).toBe(content);
 });
 
+test('handleGatewayMessage makes active hatching explicit for switched agents in reused sessions', async () => {
+  setupHome();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'agent result',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  ensureBootstrapFiles('research');
+
+  const sessionId = 'session-switched-agent-hatching';
+  await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'bob',
+    content: 'hi',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    chatbotId: 'bot-1',
+  });
+  await handleGatewayMessage({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    agentId: 'research',
+    content: 'Hi',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+    chatbotId: 'bot-1',
+  });
+
+  expect(runAgentMock).toHaveBeenCalledTimes(2);
+  const request = runAgentMock.mock.calls[1]?.[0] as
+    | {
+        messages?: Array<{ content: string; role: string }>;
+      }
+    | undefined;
+  const userMessage = request?.messages?.at(-1);
+  expect(userMessage?.role).toBe('user');
+  expect(userMessage?.content).toContain(
+    'Hatching mode is active for this agent.',
+  );
+  expect(userMessage?.content).toContain(
+    'A startup instruction file (BOOTSTRAP.md) exists',
+  );
+  expect(userMessage?.content).toContain(
+    'Do not answer this as a normal chat turn.',
+  );
+  expect(userMessage?.content).toContain('User message:\nHi');
+  expect(
+    request?.messages?.some((message) =>
+      message.content.includes('## BOOTSTRAP.md'),
+    ),
+  ).toBe(true);
+
+  const storedUsers = memoryService
+    .getConversationHistory(sessionId, 10)
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content);
+  expect(storedUsers).toContain('Hi');
+  expect(
+    storedUsers.every(
+      (content) => !content.includes('Hatching mode is active'),
+    ),
+  ).toBe(true);
+});
+
 test('handleGatewayMessage keeps explicit skill expansion when skill args inject context', async () => {
   setupHome();
 

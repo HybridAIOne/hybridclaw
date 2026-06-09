@@ -19,6 +19,7 @@ import type { ChatUiMessage, ThinkingChatMessage } from './chat-ui-message';
 interface ActiveRequest {
   controller: AbortController;
   sessionId: string;
+  messageRole: ChatMessage['role'];
   assistantText: string;
   lastRenderedText: string;
   pendingApproval: ChatStreamApproval | null;
@@ -47,6 +48,8 @@ export interface UseChatStreamReturn {
   isStreaming: boolean;
   /** The message ID currently being streamed, or null. */
   streamingMsgId: string | null;
+  /** The session ID currently running, or null when idle. */
+  activeSessionId: string | null;
   isActive: () => boolean;
 }
 
@@ -67,6 +70,7 @@ export function useChatStream(
   const activeRequestRef = useRef<ActiveRequest | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   // Writes must be bound to the sessionId captured when the send started —
   // reading `getSessionId()` at write time would race with navigation and
@@ -86,6 +90,8 @@ export function useChatStream(
           messages: nextMessages,
           branchFamilies: prev?.branchFamilies ?? new Map(),
           resolvedSessionId: prev?.resolvedSessionId ?? sessionId,
+          agentId: prev?.agentId ?? null,
+          bootstrapAutostart: prev?.bootstrapAutostart ?? null,
         };
       });
     },
@@ -143,6 +149,7 @@ export function useChatStream(
       const req: ActiveRequest = {
         controller: new AbortController(),
         sessionId: targetSessionId,
+        messageRole: 'assistant',
         assistantText: '',
         lastRenderedText: '',
         pendingApproval: null,
@@ -150,6 +157,7 @@ export function useChatStream(
         stopping: false,
       };
       activeRequestRef.current = req;
+      setActiveSessionId(targetSessionId);
       setIsStreaming(true);
 
       const doRender = () => {
@@ -162,9 +170,6 @@ export function useChatStream(
         }
         req.lastRenderedText = req.assistantText;
 
-        const role: ChatMessage['role'] = req.pendingApproval
-          ? 'approval'
-          : 'assistant';
         const text = req.assistantText;
         const approval = req.pendingApproval;
 
@@ -174,7 +179,12 @@ export function useChatStream(
           if (existing) {
             return withoutThinking.map((m) =>
               m === existing
-                ? { ...m, role, content: text, pendingApproval: approval }
+                ? {
+                    ...m,
+                    role: req.messageRole,
+                    content: text,
+                    pendingApproval: approval,
+                  }
                 : m,
             );
           }
@@ -182,7 +192,7 @@ export function useChatStream(
             ...withoutThinking,
             {
               id: streamId,
-              role,
+              role: req.messageRole,
               content: text,
               sessionId: req.sessionId,
               artifacts: [],
@@ -225,6 +235,7 @@ export function useChatStream(
             },
             onApproval: (event) => {
               req.pendingApproval = event;
+              req.messageRole = 'approval';
               if (!req.assistantText.trim()) {
                 req.assistantText = buildApprovalSummary(event);
               }
@@ -251,16 +262,14 @@ export function useChatStream(
         const finalText = result.result ?? req.assistantText ?? '';
         const finalApproval = req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
-        const finalRole: ChatMessage['role'] = finalApproval
-          ? 'approval'
-          : result.commandResult
-            ? 'command'
-            : 'assistant';
+        if (!result.messageRole) {
+          throw new Error('Gateway chat result is missing messageRole.');
+        }
+        const finalRole: ChatMessage['role'] = result.messageRole;
         // A slash command that produced no visible output (and no artifacts)
         // leaves no bubble — like a shell command that succeeds silently.
         const isSilentCommand =
-          Boolean(result.commandResult) &&
-          !finalApproval &&
+          finalRole === 'command' &&
           finalText.trim().length === 0 &&
           finalArtifacts.length === 0;
         const buildFinalizedMessage = (
@@ -338,6 +347,7 @@ export function useChatStream(
         });
       } finally {
         activeRequestRef.current = null;
+        setActiveSessionId(null);
         setIsStreaming(false);
         setStreamingMsgId(null);
       }
@@ -371,5 +381,12 @@ export function useChatStream(
 
   const isActive = useCallback(() => activeRequestRef.current !== null, []);
 
-  return { sendMessage, stopRequest, isStreaming, streamingMsgId, isActive };
+  return {
+    sendMessage,
+    stopRequest,
+    isStreaming,
+    streamingMsgId,
+    activeSessionId,
+    isActive,
+  };
 }

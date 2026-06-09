@@ -11,6 +11,14 @@ import {
 } from '../../container/shared/workspace-time.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
+  approveIncomingA2APairingRequest,
+  declineIncomingA2APairingRequest,
+  fetchA2APairingProposal,
+  listIncomingA2APairingRequests,
+  type StartA2APairingResult,
+  startA2APairing,
+} from '../a2a/pairing.js';
+import {
   type A2AThreadSummary,
   listA2AThreadEnvelopes,
   listA2AThreads,
@@ -481,6 +489,10 @@ import {
 } from './gateway-tunnel-service.js';
 import {
   type GatewayAdminA2AInboxResponse,
+  type GatewayAdminA2APairingDecisionRequest,
+  type GatewayAdminA2APairingPreviewResponse,
+  type GatewayAdminA2APairingStartRequest,
+  type GatewayAdminA2APairingStartResponse,
   type GatewayAdminA2AThreadMessage,
   type GatewayAdminA2AThreadSummary,
   type GatewayAdminA2ATrustPeer,
@@ -616,6 +628,17 @@ function buildBootstrapAutostartPrompt(
     'Send a concise first message to the user.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ].join(' ');
+}
+
+function getBootstrapAutostartMarkerKey(agentId: string): string {
+  return `${BOOTSTRAP_AUTOSTART_MARKER_KEY}.${agentId}`;
+}
+
+function getBootstrapAutostartLockKey(
+  sessionId: string,
+  agentId: string,
+): string {
+  return `${sessionId}:${agentId}`;
 }
 const REQUEST_LOG_SENSITIVE_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
@@ -5493,15 +5516,18 @@ export function getGatewayAdminA2ATrust(): GatewayAdminA2ATrustResponse {
       publicKeyJwk: identity.publicKeyJwk,
     },
     peers: listA2ATrustedPublicKeyPeers().map(mapA2ATrustPeer),
+    pairingRequests: listIncomingA2APairingRequests(),
   };
 }
 
 export function revokeGatewayAdminA2ATrustPeer(params: {
   peerId: string;
   reason?: string;
+  actor?: string;
 }): GatewayAdminA2ATrustResponse {
   revokeA2ATrustedPublicKeyPeer(params.peerId, {
     reason: params.reason,
+    actor: params.actor,
   });
   return getGatewayAdminA2ATrust();
 }
@@ -5527,6 +5553,7 @@ function normalizeOptionalA2AStringInput(
 
 export function upsertGatewayAdminA2ATrustPeer(
   input: GatewayAdminA2ATrustUpsertRequest,
+  actor?: string,
 ): GatewayAdminA2ATrustResponse {
   upsertA2ATrustedPublicKeyPeer({
     peerId: normalizeA2AStringInput(input.peerId, 'peerId'),
@@ -5544,14 +5571,132 @@ export function upsertGatewayAdminA2ATrustPeer(
     ),
     publicKeyJwk: input.publicKeyJwk,
     reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
   });
   return getGatewayAdminA2ATrust();
 }
 
 export function deleteGatewayAdminA2ATrustPeer(params: {
   peerId: string;
+  actor?: string;
 }): GatewayAdminA2ATrustResponse {
-  deleteA2ATrustedPublicKeyPeer(params.peerId);
+  deleteA2ATrustedPublicKeyPeer(params.peerId, { actor: params.actor });
+  return getGatewayAdminA2ATrust();
+}
+
+function normalizeOptionalA2ABooleanInput(
+  value: unknown,
+  label: string,
+): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'boolean') {
+    throw new GatewayRequestError(400, `Expected boolean \`${label}\`.`);
+  }
+  return value;
+}
+
+function resolveGatewayA2APublicBaseUrl(): string | null {
+  const tunnelStatus = getGatewayAdminTunnelStatus();
+  return (
+    tunnelStatus.publicUrl ||
+    getRuntimeConfig().deployment.public_url.trim() ||
+    null
+  );
+}
+
+function mapA2APairingStartResponse(
+  result: StartA2APairingResult,
+): GatewayAdminA2APairingStartResponse {
+  const trust = getGatewayAdminA2ATrust();
+  return {
+    ...trust,
+    proposal: {
+      peerId: result.proposal.peerId,
+      agentCardUrl: result.proposal.agentCardUrl,
+      deliveryUrl: result.proposal.deliveryUrl,
+      publicKeyFingerprint: result.proposal.publicKeyFingerprint,
+      name: result.proposal.name,
+    },
+    remoteNotification: result.remoteNotification,
+  };
+}
+
+function resolvePairingTargetInput(input: GatewayAdminA2APairingStartRequest): {
+  peerUrl?: string;
+  canonicalId?: string;
+} {
+  const peerUrl = normalizeOptionalA2AStringInput(input.peerUrl, 'peerUrl');
+  const canonicalId =
+    normalizeOptionalA2AStringInput(input.canonicalId, 'canonicalId') ||
+    normalizeOptionalA2AStringInput(
+      input.canonicalInstanceId,
+      'canonicalInstanceId',
+    );
+  if (!peerUrl && !canonicalId) {
+    throw new GatewayRequestError(
+      400,
+      'Expected `peerUrl`, `canonicalId`, or `canonicalInstanceId`.',
+    );
+  }
+  return { peerUrl, canonicalId };
+}
+
+export async function startGatewayAdminA2APairing(
+  input: GatewayAdminA2APairingStartRequest,
+  actor?: string,
+): Promise<GatewayAdminA2APairingStartResponse> {
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
+  const notifyPeer =
+    normalizeOptionalA2ABooleanInput(input.notifyPeer, 'notifyPeer') ?? true;
+  const result = await startA2APairing({
+    peerUrl,
+    canonicalId,
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    notifyPeer,
+    actor,
+    localBaseUrl: notifyPeer ? resolveGatewayA2APublicBaseUrl() : null,
+  });
+  return mapA2APairingStartResponse(result);
+}
+
+export async function previewGatewayAdminA2APairing(
+  input: GatewayAdminA2APairingStartRequest,
+): Promise<GatewayAdminA2APairingPreviewResponse> {
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
+  const proposal = await fetchA2APairingProposal({ peerUrl, canonicalId });
+  return {
+    proposal: {
+      peerId: proposal.peerId,
+      agentCardUrl: proposal.agentCardUrl,
+      deliveryUrl: proposal.deliveryUrl,
+      publicKeyFingerprint: proposal.publicKeyFingerprint,
+      publicKeyJwk: proposal.publicKeyJwk,
+      name: proposal.name,
+    },
+  };
+}
+
+export function approveGatewayAdminA2APairingRequest(
+  input: GatewayAdminA2APairingDecisionRequest,
+  actor?: string,
+): GatewayAdminA2ATrustResponse {
+  approveIncomingA2APairingRequest({
+    requestId: normalizeA2AStringInput(input.requestId, 'requestId'),
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
+  });
+  return getGatewayAdminA2ATrust();
+}
+
+export function declineGatewayAdminA2APairingRequest(
+  input: GatewayAdminA2APairingDecisionRequest,
+  actor?: string,
+): GatewayAdminA2ATrustResponse {
+  declineIncomingA2APairingRequest({
+    requestId: normalizeA2AStringInput(input.requestId, 'requestId'),
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
+  });
   return getGatewayAdminA2ATrust();
 }
 
@@ -6929,6 +7074,7 @@ function resolveBootstrapAutostartContext(params: {
   sessionId: string;
   channelId?: string | null;
   agentId?: string | null;
+  allowExistingSessionMessages?: boolean;
 }): {
   channelId: string;
   session: ReturnType<(typeof memoryService)['getOrCreateSession']>;
@@ -6949,8 +7095,9 @@ function resolveBootstrapAutostartContext(params: {
     params.agentId ?? undefined,
   );
   if (
-    session.message_count > 0 ||
-    String(session.session_summary || '').trim().length > 0
+    !params.allowExistingSessionMessages &&
+    (session.message_count > 0 ||
+      String(session.session_summary || '').trim().length > 0)
   ) {
     return null;
   }
@@ -6977,20 +7124,23 @@ export async function ensureGatewayBootstrapAutostart(params: {
   userId?: string | null;
   username?: string | null;
   agentId?: string | null;
+  allowExistingSessionMessages?: boolean;
 }): Promise<void> {
   const context = resolveBootstrapAutostartContext(params);
   if (!context) return;
   const { channelId, session, resolved, bootstrapFile } = context;
-  if (activeBootstrapAutostartSessions.has(session.id)) {
+  const markerKey = getBootstrapAutostartMarkerKey(resolved.agentId);
+  const lockKey = getBootstrapAutostartLockKey(session.id, resolved.agentId);
+  if (activeBootstrapAutostartSessions.has(lockKey)) {
     return;
   }
-  activeBootstrapAutostartSessions.add(session.id);
+  activeBootstrapAutostartSessions.add(lockKey);
 
   try {
-    if (getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY)) {
+    if (getMemoryValue(session.id, markerKey)) {
       return;
     }
-    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+    setMemoryValue(session.id, markerKey, {
       status: 'started',
       fileName: bootstrapFile,
       at: new Date().toISOString(),
@@ -7058,7 +7208,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const chatbotId = chatbotResolution.chatbotId;
 
     if (modelRequiresChatbotId(resolved.model) && !chatbotId) {
-      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      deleteMemoryValue(session.id, markerKey);
       const error =
         chatbotResolution.error ||
         'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
@@ -7244,7 +7394,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     }
 
     if (output.status !== 'success' || !resultText) {
-      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      deleteMemoryValue(session.id, markerKey);
       recordAuditEvent({
         sessionId: session.id,
         runId,
@@ -7287,7 +7437,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       username: null,
       content: resultText,
     });
-    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+    setMemoryValue(session.id, markerKey, {
       status: 'completed',
       assistantMessageId,
       completedAt: new Date().toISOString(),
@@ -7316,13 +7466,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
       },
     });
   } catch (error) {
-    deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+    deleteMemoryValue(session.id, markerKey);
     logger.warn(
       { sessionId: session.id, agentId: resolved.agentId, channelId, error },
       'Failed to run bootstrap autostart turn',
     );
   } finally {
-    activeBootstrapAutostartSessions.delete(session.id);
+    activeBootstrapAutostartSessions.delete(lockKey);
   }
 }
 
@@ -7330,15 +7480,19 @@ export function getGatewayBootstrapAutostartState(params: {
   sessionId: string;
   channelId?: string | null;
   agentId?: string | null;
+  allowExistingSessionMessages?: boolean;
 }): {
   status: 'idle' | 'starting' | 'completed';
   fileName: 'BOOTSTRAP.md' | 'OPENING.md';
 } | null {
   const context = resolveBootstrapAutostartContext(params);
   if (!context) return null;
-  const { session, bootstrapFile } = context;
+  const { session, resolved, bootstrapFile } = context;
 
-  const marker = getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY) as {
+  const marker = getMemoryValue(
+    session.id,
+    getBootstrapAutostartMarkerKey(resolved.agentId),
+  ) as {
     status?: unknown;
     fileName?: unknown;
   } | null;
@@ -7414,6 +7568,7 @@ export function getGatewayHistory(
     .reverse();
   return {
     sessionId: page.sessionId,
+    agentId: page.agentId,
     sessionKey: page.sessionKey,
     mainSessionKey: page.mainSessionKey,
     history,
@@ -8961,8 +9116,21 @@ export async function handleGatewayCommand(
           }
           updateSessionAgent(session.id, targetAgent.id);
           const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
+          void ensureGatewayBootstrapAutostart({
+            sessionId: session.id,
+            channelId: req.channelId,
+            userId: req.userId,
+            username: req.username,
+            agentId: targetAgent.id,
+            allowExistingSessionMessages: true,
+          }).catch((error) => {
+            logger.warn(
+              { sessionId: session.id, agentId: targetAgent.id, error },
+              'Failed to start agent hatching after switch',
+            );
+          });
           return plainCommand(
-            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`).`,
+            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`). Hatching will start automatically if \`BOOTSTRAP.md\` is active.`,
           );
         }
 
@@ -9100,12 +9268,15 @@ export async function handleGatewayCommand(
             id: newAgentId,
             ...(modelName ? { model: modelName } : {}),
           });
+          const workspacePath = path.resolve(agentWorkspaceDir(created.id));
+          ensureBootstrapFiles(created.id);
           return infoCommand(
             'Agent Created',
             [
               `Agent: ${created.id}`,
               `Model: ${formatModelForDisplay(resolveAgentModel(created) || HYBRIDAI_MODEL)}`,
-              `Workspace: ${path.resolve(agentWorkspaceDir(created.id))}`,
+              `Workspace: ${workspacePath}`,
+              'Hatching: open or switch to a session with this agent. If BOOTSTRAP.md is active, hatching starts automatically without waiting for a user message.',
             ].join('\n'),
           );
         }

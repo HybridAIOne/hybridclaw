@@ -240,7 +240,7 @@ export function Composer(props: {
         setActiveIdx(suggestions.length - 1);
         return;
       }
-      if (e.key === 'Tab' || e.key === 'Enter') {
+      if (e.key === 'Tab') {
         e.preventDefault();
         applySuggestion(suggestions[activeIdx]);
         return;

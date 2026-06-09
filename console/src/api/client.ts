@@ -1,5 +1,8 @@
 import type {
   AdminA2AInboxResponse,
+  AdminA2APairingPreviewResponse,
+  AdminA2APairingStartRequest,
+  AdminA2APairingStartResponse,
   AdminA2ATrustResponse,
   AdminA2ATrustUpsertRequest,
   AdminAdaptiveSkillAmendmentsResponse,
@@ -25,6 +28,8 @@ import type {
   AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
+  AdminFleetTopologyResponse,
+  AdminFleetTopologyUpsertRequest,
   AdminHarnessEvolutionManifestResponse,
   AdminHarnessEvolutionResponse,
   AdminHarnessEvolutionRunResponse,
@@ -46,6 +51,8 @@ import type {
   AdminSchedulerBoardStatus,
   AdminSchedulerJob,
   AdminSchedulerResponse,
+  AdminSecretMutationResponse,
+  AdminSecretsResponse,
   AdminSession,
   AdminSkillsResponse,
   AdminStatisticsResponse,
@@ -187,6 +194,15 @@ export async function readErrorResponseMessage(
   }
 }
 
+export class HttpResponseError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'HttpResponseError';
+    this.status = status;
+  }
+}
+
 export async function throwResponseError(
   response: Response,
   options?: { onAuthError?: 'dispatch' | 'ignore' },
@@ -195,7 +211,7 @@ export async function throwResponseError(
   if (response.status === 401 && options?.onAuthError !== 'ignore') {
     dispatchAuthRequired(message);
   }
-  throw new Error(message);
+  throw new HttpResponseError(message, response.status);
 }
 
 export async function requestJson<T>(
@@ -320,6 +336,39 @@ export function fetchA2ATrust(token: string): Promise<AdminA2ATrustResponse> {
   return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/trust', { token });
 }
 
+export function fetchFleetTopology(
+  token: string,
+): Promise<AdminFleetTopologyResponse> {
+  return requestJson<AdminFleetTopologyResponse>('/api/admin/fleet-topology', {
+    token,
+  });
+}
+
+export function upsertFleetTopologyInstance(
+  token: string,
+  body: AdminFleetTopologyUpsertRequest,
+): Promise<AdminFleetTopologyResponse> {
+  return requestJson<AdminFleetTopologyResponse>('/api/admin/fleet-topology', {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
+export function deleteFleetTopologyInstance(
+  token: string,
+  peerId: string,
+): Promise<AdminFleetTopologyResponse> {
+  const search = new URLSearchParams({ peerId });
+  return requestJson<AdminFleetTopologyResponse>(
+    `/api/admin/fleet-topology?${search.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
+}
+
 export function fetchA2AInbox(
   token: string,
   threadId?: string | null,
@@ -372,6 +421,55 @@ export function deleteA2ATrustPeer(
       method: 'DELETE',
     },
   );
+}
+
+export function startA2APairing(
+  token: string,
+  body: AdminA2APairingStartRequest,
+): Promise<AdminA2APairingStartResponse> {
+  return requestJson<AdminA2APairingStartResponse>('/api/admin/a2a/pairing', {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
+export function previewA2APairing(
+  token: string,
+  body: AdminA2APairingStartRequest,
+): Promise<AdminA2APairingPreviewResponse> {
+  return requestJson<AdminA2APairingPreviewResponse>(
+    '/api/admin/a2a/pairing/preview',
+    {
+      token,
+      method: 'POST',
+      body,
+    },
+  );
+}
+
+export function approveA2APairingRequest(
+  token: string,
+  requestId: string,
+  reason?: string,
+): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/pairing/approve', {
+    token,
+    method: 'POST',
+    body: { requestId, ...(reason?.trim() ? { reason: reason.trim() } : {}) },
+  });
+}
+
+export function declineA2APairingRequest(
+  token: string,
+  requestId: string,
+  reason?: string,
+): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/pairing/decline', {
+    token,
+    method: 'POST',
+    body: { requestId, ...(reason?.trim() ? { reason: reason.trim() } : {}) },
+  });
 }
 
 export function reloadGateway(
@@ -798,6 +896,40 @@ export function setRuntimeSecret(
   secretValue: string,
 ): Promise<AdminCommandResult> {
   return runAdminCommand(token, ['secret', 'set', secretName, secretValue]);
+}
+
+export function fetchAdminSecrets(
+  token: string,
+): Promise<AdminSecretsResponse> {
+  return requestJson<AdminSecretsResponse>('/api/admin/secrets', { token });
+}
+
+export function overwriteAdminSecret(
+  token: string,
+  name: string,
+  value: string,
+): Promise<AdminSecretMutationResponse> {
+  return requestJson<AdminSecretMutationResponse>(
+    `/api/admin/secrets/${encodeURIComponent(name)}`,
+    {
+      token,
+      method: 'PUT',
+      body: { value },
+    },
+  );
+}
+
+export function unsetAdminSecret(
+  token: string,
+  name: string,
+): Promise<AdminSecretMutationResponse> {
+  return requestJson<AdminSecretMutationResponse>(
+    `/api/admin/secrets/${encodeURIComponent(name)}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function fetchModels(token: string): Promise<AdminModelsResponse> {

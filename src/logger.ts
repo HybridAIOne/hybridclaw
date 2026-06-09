@@ -15,6 +15,7 @@ import {
   LOGGER_SERIALIZERS,
 } from './logger-format.js';
 import { getTraceContext } from './observability/otel.js';
+import { captureSentryException } from './observability/sentry.js';
 import { isExpectedTransportError } from './utils/transport-errors.js';
 
 const VALID_LOG_LEVELS = new Set([
@@ -223,6 +224,9 @@ function uncaughtExceptionHandler(err: Error) {
   }
 
   logger.fatal({ err }, 'Uncaught exception');
+  captureSentryException(err, {
+    mechanism: 'process.uncaughtException',
+  });
   process.exit(1);
 }
 (
@@ -243,6 +247,9 @@ function unhandledRejectionHandler(reason: unknown) {
   }
 
   logger.error({ err: reason }, 'Unhandled rejection');
+  captureSentryException(reason, {
+    mechanism: 'process.unhandledRejection',
+  });
 }
 (
   unhandledRejectionHandler as typeof unhandledRejectionHandler & {

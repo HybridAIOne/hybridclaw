@@ -53,6 +53,7 @@ describe('logger forced level override', () => {
     vi.restoreAllMocks();
     vi.resetModules();
     vi.doUnmock('../src/config/runtime-config.ts');
+    vi.doUnmock('../src/observability/sentry.js');
     loadedLoggerModule?.removeLoggerProcessHandlersForTests();
     loadedLoggerModule = null;
     delete process.env.HYBRIDCLAW_FORCE_LOG_LEVEL;
@@ -273,6 +274,46 @@ describe('logger forced level override', () => {
       'Uncaught exception',
     );
     expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('captures unexpected process failures in Sentry', async () => {
+    const captureSentryException = vi.fn();
+    vi.doMock('../src/observability/sentry.js', () => ({
+      captureSentryException,
+    }));
+    const { handleUncaughtExceptionForTests, handleUnhandledRejectionForTests } =
+      await importFreshLogger();
+    vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+    const uncaught = new Error('Invariant violation');
+    const rejection = new Error('Rejected invariant');
+    handleUncaughtExceptionForTests(uncaught);
+    handleUnhandledRejectionForTests(rejection);
+
+    expect(captureSentryException).toHaveBeenCalledWith(uncaught, {
+      mechanism: 'process.uncaughtException',
+    });
+    expect(captureSentryException).toHaveBeenCalledWith(rejection, {
+      mechanism: 'process.unhandledRejection',
+    });
+  });
+
+  it('does not capture expected transport noise in Sentry', async () => {
+    const captureSentryException = vi.fn();
+    vi.doMock('../src/observability/sentry.js', () => ({
+      captureSentryException,
+    }));
+    const { handleUncaughtExceptionForTests, handleUnhandledRejectionForTests } =
+      await importFreshLogger();
+
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+    handleUnhandledRejectionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+
+    expect(captureSentryException).not.toHaveBeenCalled();
   });
 
   it('registers process handlers only once across module reloads', async () => {

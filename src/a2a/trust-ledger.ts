@@ -12,6 +12,7 @@ import path from 'node:path';
 import { listAgents } from '../agents/agent-registry.js';
 import type { AgentA2AExposure, AgentConfig } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import { APP_VERSION } from '../config/app-version.js';
 import {
   getRuntimeAssetRevisionState,
   listRuntimeAssetRevisionStates,
@@ -74,6 +75,15 @@ export const A2A_TRUST_LEDGER_DEFAULT_REVOKE_REASON = 'operator revocation';
 const PEER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const EPOCH_ISO = new Date(0).toISOString();
 const TOFU_AUDIT_SESSION_ID = 'a2a:trust-ledger';
+
+export class A2APeerUntrustedError extends Error {
+  readonly code = 'peer-untrusted';
+
+  constructor(peerId: string) {
+    super(`peer-untrusted: A2A peer trust has been revoked for ${peerId}`);
+    this.name = 'A2APeerUntrustedError';
+  }
+}
 
 let trustedA2APeersBySenderCache: Map<string, A2ATrustedA2APeer> | null = null;
 let trustedA2APeersByPublicKeyCache: Map<string, A2ATrustedA2APeer> | null =
@@ -143,6 +153,7 @@ export interface UpsertA2ATrustedPublicKeyPeerInput {
   publicKeyJwk?: unknown;
   publicKeyFingerprint?: string;
   reason?: string;
+  actor?: string;
 }
 
 export interface UpsertA2ATrustedWebhookPeerInput {
@@ -481,6 +492,7 @@ export function buildLocalA2AAgentCard(
   }));
   return {
     name: 'HybridClaw',
+    version: APP_VERSION,
     url: new URL('/a2a', url.origin).toString(),
     capabilities: {
       messageSend: true,
@@ -501,6 +513,7 @@ export function buildLocalA2AAgentCard(
       // uses delegation-token.ts until key distribution is unified.
       publicKeyJwk: identity.publicKeyJwk,
       publicKeyFingerprint: identity.publicKeyFingerprint,
+      version: APP_VERSION,
       trustModel: 'tofu-ed25519-v1',
     },
   };
@@ -920,6 +933,10 @@ export function assertA2APeerPublicKeyTrust(params: {
     return trusted;
   }
 
+  if (existing.status === 'revoked') {
+    throw new A2APeerUntrustedError(existing.peerId);
+  }
+
   if (existing.publicKeyFingerprint !== params.key.publicKeyFingerprint) {
     const mismatch: A2ATrustedPublicKeyPeer = {
       ...existing,
@@ -945,10 +962,6 @@ export function assertA2APeerPublicKeyTrust(params: {
     throw new Error(
       `A2A peer public key mismatch for ${existing.peerId}; refusing delivery`,
     );
-  }
-
-  if (existing.status === 'revoked') {
-    throw new Error(`A2A peer trust has been revoked for ${existing.peerId}`);
   }
 
   if (!existing.publicKeyJwk) {
@@ -997,7 +1010,7 @@ export function assertA2APeerPublicKeyTrust(params: {
 
 export function revokeA2ATrustedPublicKeyPeer(
   peerId: string,
-  params: { reason?: string; runId?: string; now?: Date } = {},
+  params: { reason?: string; actor?: string; runId?: string; now?: Date } = {},
 ): A2ATrustedPublicKeyPeer {
   const normalizedPeerId = normalizeA2APeerId(peerId);
   const existing = getA2ATrustedPublicKeyPeer(normalizedPeerId);
@@ -1026,6 +1039,7 @@ export function revokeA2ATrustedPublicKeyPeer(
       deliveryUrl: revoked.deliveryUrl,
       publicKeyFingerprint: revoked.publicKeyFingerprint,
       reason: revoked.revokedReason,
+      actor: params.actor?.trim() || null,
     },
   });
   return revoked;
@@ -1074,13 +1088,17 @@ export function upsertA2ATrustedPublicKeyPeer(
       previousStatus: existing?.status || null,
       previousPublicKeyFingerprint: existing?.publicKeyFingerprint || null,
       reason: input.reason?.trim() || null,
+      actor: input.actor?.trim() || null,
       publicKeyMaterial: peer.publicKeyJwk ? 'jwk' : 'fingerprint',
     },
   });
   return peer;
 }
 
-export function deleteA2ATrustedPublicKeyPeer(peerId: string): void {
+export function deleteA2ATrustedPublicKeyPeer(
+  peerId: string,
+  params: { actor?: string } = {},
+): void {
   const normalizedPeerId = normalizeA2APeerId(peerId);
   const existing = getA2ATrustedPublicKeyPeer(normalizedPeerId);
   syncRuntimeAssetRevisionState(
@@ -1100,6 +1118,7 @@ export function deleteA2ATrustedPublicKeyPeer(peerId: string): void {
         peerId: existing.peerId,
         publicKeyFingerprint: existing.publicKeyFingerprint,
         previousStatus: existing.status,
+        actor: params.actor?.trim() || null,
       },
     });
   }

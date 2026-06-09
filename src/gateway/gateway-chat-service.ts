@@ -55,6 +55,7 @@ import {
   memoryService,
 } from '../memory/memory-service.js';
 import { withSpan } from '../observability/otel.js';
+import { captureSentryException } from '../observability/sentry.js';
 import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
   modelRequiresChatbotId,
@@ -84,7 +85,10 @@ import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
-import { ensureBootstrapFiles } from '../workspace.js';
+import {
+  ensureBootstrapFiles,
+  resolveStartupBootstrapFile,
+} from '../workspace.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
@@ -583,6 +587,71 @@ function resolvePluginRoutingModel(params: {
   return configuredModel;
 }
 
+function captureGatewayChatResultError(params: {
+  message: string;
+  errorType: 'agent' | 'configuration' | 'gateway';
+  sessionId: string;
+  channelId: string;
+  agentId: string;
+  model: string;
+  provider: string;
+  runId: string;
+  turnIndex: number;
+  source?: string;
+  stage?: string;
+  durationMs?: number;
+  toolCallCount?: number;
+}): void {
+  const tags: Record<string, string> = {
+    agent_id: params.agentId,
+    channel_id: params.channelId,
+    error_type: params.errorType,
+    session_id: params.sessionId,
+  };
+  if (params.stage) tags.stage = params.stage;
+  captureSentryException(new Error(params.message), {
+    mechanism: 'gateway.chat_result',
+    tags,
+    extra: {
+      agentId: params.agentId,
+      channelId: params.channelId,
+      durationMs: params.durationMs,
+      errorType: params.errorType,
+      model: params.model,
+      provider: params.provider,
+      runId: params.runId,
+      sessionId: params.sessionId,
+      source: params.source,
+      stage: params.stage,
+      toolCallCount: params.toolCallCount,
+      turnIndex: params.turnIndex,
+    },
+  });
+}
+
+function buildBootstrapChatTurnPrompt(fileName: 'BOOTSTRAP.md'): string {
+  return [
+    'Hatching mode is active for this agent.',
+    `A startup instruction file (${fileName}) exists and is already loaded in the system context.`,
+    'Do not answer this as a normal chat turn.',
+    `Follow ${fileName} now: introduce yourself, begin onboarding, and ask the first few useful customization questions.`,
+    'Use the user message below only as the signal that the user is present.',
+    'Do not ask a generic "what can I do for you?" question.',
+    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
+  ].join('\n');
+}
+
+function shouldInjectBootstrapChatTurnPrompt(params: {
+  userContent: string;
+  promptMode?: PromptMode;
+  startupBootstrapFile: 'BOOTSTRAP.md' | null;
+}): boolean {
+  if (params.startupBootstrapFile !== 'BOOTSTRAP.md') return false;
+  if (params.promptMode === 'none') return false;
+  if (params.userContent.trim().startsWith('/')) return false;
+  return true;
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -666,7 +735,7 @@ async function handleGatewayMessageInner(
       status: 'success',
       result: renderCliSecretSetCommandWarning(cliSecretSetCommand),
       toolsUsed: [],
-      commandResult: true,
+      messageRole: 'command',
     });
   }
   if (source !== 'fullauto') {
@@ -834,6 +903,9 @@ async function handleGatewayMessageInner(
         workspaceInitialized: false,
       }
     : ensureBootstrapFiles(agentId);
+  const startupBootstrapFile = req.workspacePathOverride
+    ? null
+    : resolveStartupBootstrapFile(agentId);
   if (
     workspaceBootstrap.workspaceInitialized &&
     (session.message_count > 0 || Boolean(session.session_summary))
@@ -1001,6 +1073,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         agentId,
         model,
         provider,
@@ -1162,6 +1235,21 @@ async function handleGatewayMessageInner(
       provider,
       error,
     };
+    captureGatewayChatResultError({
+      message: error,
+      errorType: 'configuration',
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      model,
+      provider,
+      runId,
+      turnIndex,
+      source,
+      stage: 'pre-agent',
+      durationMs: Date.now() - startedAt,
+      toolCallCount: 0,
+    });
     await emitPostTurnForResult(result);
     return attachSessionIdentity(result);
   }
@@ -1190,6 +1278,7 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: 'assistant',
       toolsUsed: [],
       agentId,
       model,
@@ -1390,6 +1479,16 @@ async function handleGatewayMessageInner(
   let agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
+  if (
+    shouldInjectBootstrapChatTurnPrompt({
+      userContent: agentUserContent,
+      promptMode: promptPartDefaults.promptMode,
+      startupBootstrapFile:
+        startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
+    })
+  ) {
+    agentUserContent = `${buildBootstrapChatTurnPrompt('BOOTSTRAP.md')}\n\nUser message:\n${agentUserContent}`;
+  }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
       sessionId: req.sessionId,
@@ -1450,6 +1549,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         toolsUsed: [],
         pluginsUsed,
         agentId,
@@ -1871,6 +1971,21 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         error: errorMessage,
       };
+      captureGatewayChatResultError({
+        message: errorMessage,
+        errorType: 'agent',
+        sessionId: req.sessionId,
+        channelId: req.channelId,
+        agentId,
+        model,
+        provider,
+        runId,
+        turnIndex,
+        source,
+        stage: agentStage,
+        durationMs,
+        toolCallCount: toolExecutions.length,
+      });
       await emitPostTurnForResult(result);
       return attachSessionIdentity(result);
     }
@@ -2039,6 +2154,7 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: output.pendingApproval ? 'approval' : 'assistant',
       toolsUsed: output.toolsUsed || [],
       pluginsUsed,
       skillUsed: observedSkillName ?? undefined,
@@ -2151,6 +2267,21 @@ async function handleGatewayMessageInner(
       provider,
       toolExecutions: undefined,
       error: errorMsg,
+    });
+    captureGatewayChatResultError({
+      message: errorMsg,
+      errorType: 'gateway',
+      sessionId: req.sessionId,
+      channelId: req.channelId,
+      agentId,
+      model,
+      provider,
+      runId,
+      turnIndex,
+      source,
+      stage: agentStage,
+      durationMs,
+      toolCallCount: 0,
     });
     await emitPostTurnForResult(result);
     return result;

@@ -11,6 +11,7 @@ import {
   handleA2AJsonRpcInbound,
   resolveA2AAgentCardPeerTrust,
 } from '../a2a/a2a-inbound.js';
+import { handleA2APairingRequestInbound } from '../a2a/pairing.js';
 import {
   handleA2AWebhookInbound,
   parseA2AWebhookInboundPath,
@@ -159,6 +160,11 @@ import {
   unsetGatewayAdminSecret,
 } from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import {
+  deleteGatewayAdminFleetTopologyInstance,
+  getGatewayAdminFleetTopology,
+  upsertGatewayAdminFleetTopologyInstance,
+} from './gateway-fleet-topology.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
   parsePositiveInteger,
@@ -182,8 +188,10 @@ import {
 import { handleApiSecretInject } from './gateway-secret-injection.js';
 import {
   applyGatewayAdminPolicyPreset,
+  approveGatewayAdminA2APairingRequest,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
+  declineGatewayAdminA2APairingRequest,
   deleteGatewayAdminA2ATrustPeer,
   deleteGatewayAdminAgent,
   deleteGatewayAdminEmailMessage,
@@ -223,6 +231,7 @@ import {
   getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
+  previewGatewayAdminA2APairing,
   reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
@@ -238,6 +247,7 @@ import {
   saveGatewayAdminPolicyRule,
   saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
+  startGatewayAdminA2APairing,
   unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
@@ -246,13 +256,17 @@ import {
   upsertGatewayAdminMcpServer,
 } from './gateway-service.js';
 import type {
+  GatewayAdminA2APairingDecisionRequest,
+  GatewayAdminA2APairingStartRequest,
   GatewayAdminA2ATrustUpsertRequest,
   GatewayAdminDiscordWebhookTargetRequest,
+  GatewayAdminFleetTopologyUpsertRequest,
   GatewayAdminSlackWebhookTargetRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
   GatewayChatRequestBody,
   GatewayChatResult,
+  GatewayChatResultMessageRole,
   GatewayCommandRequest,
 } from './gateway-types.js';
 import {
@@ -1732,6 +1746,7 @@ async function resolveApiChatSlashCommandResult(
   let sessionKey: string | undefined;
   let mainSessionKey: string | undefined;
   let handledApprovalCommand = false;
+  let messageRole: GatewayChatResultMessageRole = 'command';
 
   for (const args of slashCommands) {
     if (parseLowerArg(args, 0) === 'approve') {
@@ -1745,6 +1760,7 @@ async function resolveApiChatSlashCommandResult(
       });
       if (!handled) continue;
       handledApprovalCommand = true;
+      messageRole = handled.messageRole;
       sessionId = handled.sessionId || sessionId;
       sessionKey = handled.sessionKey || sessionKey;
       mainSessionKey = handled.mainSessionKey || mainSessionKey;
@@ -1760,7 +1776,7 @@ async function resolveApiChatSlashCommandResult(
       continue;
     }
 
-    const commandResult = await handleGatewayCommand({
+    const gatewayCommandResult = await handleGatewayCommand({
       sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
@@ -1769,10 +1785,10 @@ async function resolveApiChatSlashCommandResult(
       userId: chatRequest.userId,
       username: chatRequest.username,
     });
-    sessionId = commandResult.sessionId || sessionId;
-    sessionKey = commandResult.sessionKey || sessionKey;
-    mainSessionKey = commandResult.mainSessionKey || mainSessionKey;
-    const text = renderTextChannelCommandResult(commandResult).trim();
+    sessionId = gatewayCommandResult.sessionId || sessionId;
+    sessionKey = gatewayCommandResult.sessionKey || sessionKey;
+    mainSessionKey = gatewayCommandResult.mainSessionKey || mainSessionKey;
+    const text = renderTextChannelCommandResult(gatewayCommandResult).trim();
     if (text) {
       textParts.push(text);
     }
@@ -1801,7 +1817,7 @@ async function resolveApiChatSlashCommandResult(
     result:
       renderedText || (handledApprovalCommand ? 'Approval submitted.' : ''),
     toolsUsed: [],
-    commandResult: true,
+    messageRole,
     sessionId,
     ...(resolvedModel ? { model: resolvedModel } : {}),
     ...(sessionKey ? { sessionKey } : {}),
@@ -1820,7 +1836,7 @@ function resolveApiChatSecretCommandGuardResult(
     status: 'success',
     result: renderCliSecretSetCommandWarning(command),
     toolsUsed: [],
-    commandResult: true,
+    messageRole: 'command',
     sessionId: chatRequest.sessionId,
   };
 }
@@ -3383,7 +3399,9 @@ async function handleApiHistory(
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  void ensureGatewayBootstrapAutostart({ sessionId }).catch((error) => {
+  void ensureGatewayBootstrapAutostart({
+    sessionId,
+  }).catch((error) => {
     logger.warn(
       { sessionId, error },
       'Failed to start gateway bootstrap autostart',
@@ -3401,13 +3419,17 @@ async function handleApiHistory(
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
-  const bootstrapAutostart = getGatewayBootstrapAutostartState({ sessionId });
+  const bootstrapAutostart = getGatewayBootstrapAutostartState({
+    sessionId,
+    allowExistingSessionMessages: true,
+  });
   // These keys are returned only as chat-routing metadata for the web client.
   // Auth stays anchored to the existing API/session auth checks above, never to
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
   // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
     sessionId: historyPage.sessionId,
+    agentId: historyPage.agentId || undefined,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
@@ -3874,6 +3896,7 @@ function handleApiAdminSecrets(
     200,
     getGatewayAdminSecrets({
       audit: resolveAdminSecretAuditContext(req, sessionPayload),
+      sessionPayload,
     }),
   );
 }
@@ -4715,6 +4738,12 @@ async function handleApiAdminA2ATrust(
   url: URL,
 ): Promise<void> {
   const method = req.method || 'GET';
+  const actor =
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      fallbackUserId: 'admin-console',
+    }) || 'admin-console';
   if (method === 'GET') {
     sendJson(res, 200, getGatewayAdminA2ATrust());
     return;
@@ -4725,7 +4754,7 @@ async function handleApiAdminA2ATrust(
       | GatewayAdminA2ATrustUpsertRequest
       | undefined;
     try {
-      sendJson(res, 200, upsertGatewayAdminA2ATrustPeer(body || {}));
+      sendJson(res, 200, upsertGatewayAdminA2ATrustPeer(body || {}, actor));
     } catch (error) {
       sendJson(
         res,
@@ -4755,8 +4784,8 @@ async function handleApiAdminA2ATrust(
       res,
       200,
       action === 'delete'
-        ? deleteGatewayAdminA2ATrustPeer({ peerId })
-        : revokeGatewayAdminA2ATrustPeer({ peerId, reason }),
+        ? deleteGatewayAdminA2ATrustPeer({ peerId, actor })
+        : revokeGatewayAdminA2ATrustPeer({ peerId, reason, actor }),
     );
   } catch (error) {
     sendJson(
@@ -4765,6 +4794,106 @@ async function handleApiAdminA2ATrust(
       {
         error: error instanceof Error ? error.message : String(error),
       },
+    );
+  }
+}
+
+async function handleApiAdminFleetTopology(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  try {
+    if (method === 'GET') {
+      sendJson(res, 200, await getGatewayAdminFleetTopology());
+      return;
+    }
+
+    if (method === 'POST' || method === 'PUT') {
+      const body = (await readJsonBody(req).catch(() => ({}))) as
+        | GatewayAdminFleetTopologyUpsertRequest
+        | undefined;
+      sendJson(
+        res,
+        200,
+        await upsertGatewayAdminFleetTopologyInstance(body || {}),
+      );
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const peerId = (url.searchParams.get('peerId') || '').trim();
+      if (!peerId) {
+        sendJson(res, 400, { error: 'Missing `peerId` query parameter.' });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        await deleteGatewayAdminFleetTopologyInstance({ peerId }),
+      );
+      return;
+    }
+
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
+async function handleApiAdminA2APairing(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+  const actor =
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      fallbackUserId: 'admin-console',
+    }) || 'admin-console';
+  const body = (await readJsonBody(req).catch(() => ({}))) as
+    | GatewayAdminA2APairingStartRequest
+    | GatewayAdminA2APairingDecisionRequest
+    | undefined;
+  try {
+    if (pathname === '/api/admin/a2a/pairing/approve') {
+      sendJson(
+        res,
+        200,
+        approveGatewayAdminA2APairingRequest(body || {}, actor),
+      );
+      return;
+    }
+    if (pathname === '/api/admin/a2a/pairing/decline') {
+      sendJson(
+        res,
+        200,
+        declineGatewayAdminA2APairingRequest(body || {}, actor),
+      );
+      return;
+    }
+    if (pathname === '/api/admin/a2a/pairing/preview') {
+      sendJson(res, 200, await previewGatewayAdminA2APairing(body || {}));
+      return;
+    }
+    sendJson(res, 200, await startGatewayAdminA2APairing(body || {}, actor));
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      { error: error instanceof Error ? error.message : String(error) },
     );
   }
 }
@@ -6384,6 +6513,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/a2a/pairing/requests') {
+      dispatchWebhookRoute(res, () =>
+        handleA2APairingRequestInbound(req, res, url),
+      );
+      return;
+    }
+
     if (parseA2AWebhookInboundPath(pathname)) {
       dispatchWebhookRoute(res, () => handleA2AWebhookInbound(req, res, url));
       return;
@@ -6625,9 +6761,32 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (
             pathname === '/api/admin/a2a/trust' &&
-            (method === 'GET' || method === 'DELETE')
+            (method === 'GET' ||
+              method === 'POST' ||
+              method === 'PUT' ||
+              method === 'DELETE')
           ) {
             await handleApiAdminA2ATrust(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/fleet-topology' &&
+            (method === 'GET' ||
+              method === 'POST' ||
+              method === 'PUT' ||
+              method === 'DELETE')
+          ) {
+            await handleApiAdminFleetTopology(req, res, url);
+            return;
+          }
+          if (
+            (pathname === '/api/admin/a2a/pairing' ||
+              pathname === '/api/admin/a2a/pairing/preview' ||
+              pathname === '/api/admin/a2a/pairing/approve' ||
+              pathname === '/api/admin/a2a/pairing/decline') &&
+            method === 'POST'
+          ) {
+            await handleApiAdminA2APairing(req, res, pathname);
             return;
           }
           if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {

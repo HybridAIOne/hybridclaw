@@ -129,9 +129,11 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat renders slash-command output as command results and lets operators
   rate persisted assistant responses with thumbs-up/down feedback that feeds
   observability and skill-improvement signals
+- Web Chat syntax-highlights completed code blocks, shows language labels, and
+  exposes copy controls that work on hover and touch devices
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, statistics, config, secrets, output guard, A2A inbox threads, and
-  channel-specific instructions
+  scheduler, audit, statistics, config, secrets, output guard, A2A inbox
+  threads, fleet topology, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Discord, Discord Incoming Webhooks, Slack, Slack Incoming
   Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, Email, Fax
@@ -185,6 +187,9 @@ Once the gateway is running, open HybridClaw locally:
   with sender, recipient, timestamp, intent, and content for each message.
 - `/admin/a2a-trust` shows the local A2A public-key trust ledger for paired
   peer instances.
+- `/admin/fleet-topology` shows the local A2A instance identity, checks trusted
+  child instances through Agent Card URLs, and edits trust-ledger peers from the
+  browser.
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
   browser, and shows public URL plus tunnel status, without tearing down the
   enclosing workspace container; keep `hybridclaw gateway restart` for
@@ -246,8 +251,8 @@ Once the gateway is running, open HybridClaw locally:
   local operators review scanner-blocked skills and record a bypass marker for
   the installed copy when the finding has been accepted.
 - Bundled skills include CRM, finance, infrastructure, monitoring,
-  home-automation and solar monitoring, fax, local PII redaction, media,
-  search, and office workflows. Skill setup guides live in the
+  home-automation, home-security, lighting, solar monitoring, fax, local PII
+  redaction, media, search, and office workflows. Skill setup guides live in the
   [Skills Catalog](https://hybridaione.github.io/hybridclaw/docs/guides/skills/).
 - The bundled tutorials cover owner, GTM, marketing, sales, DevRel, content,
   invoicing, webinar, and release-launch workflows that can run from the TUI,
@@ -301,13 +306,14 @@ Once the gateway is running, open HybridClaw locally:
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
   Salesforce inspection, GitHub issue queue processing (`gh-issues`),
   monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
-  FastBill, Lexware Office, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
-  HeyGen, Hermes3000 long-form writing, Fronius solar monitoring, Homematic
-  HCU state/control planning, natural-language warehouse SQL
-  (`warehouse-sql`), brand-voice drafting, speech transcription and language
-  detection (`speech.transcribe`, `speech.detect-language`), validated
-  diagram-as-code creation through `diagram`, and editable Excalidraw diagram
-  creation.
+  FastBill, Lexware Office, managed or self-hosted Firecrawl, Google Ads, GA4
+  reporting, HeyGen, Hermes3000 long-form writing, Alexa custom-skill and
+  smart-home planning, Blink home-security reads and guarded controls, Philips
+  Hue lighting reads and guarded controls, Fronius solar monitoring, Homematic
+  HCU state/control planning, natural-language warehouse SQL (`warehouse-sql`),
+  brand-voice drafting, speech transcription and language detection
+  (`speech.transcribe`, `speech.detect-language`), validated diagram-as-code
+  creation through `diagram`, and editable Excalidraw diagram creation.
 - Native media tools generate images and videos through configured providers,
   persist the resulting artifacts, and expose the same capability through the
   bundled `image-generation`, `video-generation`, and `video.from-script`
@@ -333,6 +339,9 @@ Once the gateway is running, open HybridClaw locally:
 - Optional OpenTelemetry tracing exports gateway and agent spans to OTLP
   backends and annotates structured logs with trace ids for cross-system
   correlation.
+- Optional Sentry reporting sends gateway startup failures, uncaught
+  exceptions, unhandled rejections, and shared span errors when `SENTRY_DSN` is
+  stored with `hybridclaw env set`.
 
 ## How HybridClaw compares
 

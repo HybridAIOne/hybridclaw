@@ -84,6 +84,7 @@ export interface ConversationBranchFamily {
 
 export interface ConversationHistoryPage {
   sessionId: string;
+  agentId: string | null;
   sessionKey: string | null;
   mainSessionKey: string | null;
   history: StoredMessage[];
