@@ -1163,7 +1163,11 @@ export interface GatewayAdminA2AInboxResponse {
 
 export interface GatewayAdminAgentMarkdownFile {
   name: string;
+  displayName?: string;
   path: string;
+  scope?: 'agent' | 'installation' | 'company';
+  cloudPath?: string;
+  readOnly?: boolean;
   exists: boolean;
   updatedAt: string | null;
   sizeBytes: number | null;

@@ -965,7 +965,11 @@ export interface AdminSchedulerResponse {
 
 export interface AdminAgentMarkdownFile {
   name: string;
+  displayName?: string;
   path: string;
+  scope?: 'agent' | 'installation' | 'company';
+  cloudPath?: string;
+  readOnly?: boolean;
   exists: boolean;
   updatedAt: string | null;
   sizeBytes: number | null;

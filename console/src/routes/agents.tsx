@@ -48,6 +48,13 @@ function getSelectedDocumentKey(
   return `${agentId}:${fileName}`;
 }
 
+function getMarkdownFileDisplayName(file: {
+  displayName?: string;
+  name: string;
+}): string {
+  return file.displayName || file.name;
+}
+
 function formatTeamFieldValue(
   value: AdminTeamStructureFieldDiff['before'],
 ): string {
@@ -133,6 +140,7 @@ export function AgentFilesPage() {
     if (availableFile !== selectedFileName) {
       setSelectedFileName(availableFile);
       setSelectedRevisionId(null);
+      setVisibleFileRevisionCount(REVISION_BATCH_SIZE);
     }
   }, [agentsQuery.data, selectedAgent, selectedFileName]);
 
@@ -165,6 +173,10 @@ export function AgentFilesPage() {
     fileQuery.data?.file.name === selectedFileName
       ? fileQuery.data.file
       : selectedFileSummary;
+  const selectedFileReadOnly = Boolean(selectedFileMetadata?.readOnly);
+  const selectedFileDisplayName = selectedFileMetadata
+    ? getMarkdownFileDisplayName(selectedFileMetadata)
+    : selectedFileName;
 
   const revisionQuery = useQuery({
     queryKey: [
@@ -203,10 +215,6 @@ export function AgentFilesPage() {
     enabled: Boolean(selectedTeamRevisionId),
     refetchOnWindowFocus: false,
   });
-
-  useEffect(() => {
-    setVisibleFileRevisionCount(REVISION_BATCH_SIZE);
-  }, [selectedDocumentKey]);
 
   useEffect(() => {
     if (!selectedDocumentKey) {
@@ -331,19 +339,13 @@ export function AgentFilesPage() {
     ? draftContent !== fileQuery.data.file.content
     : false;
   const fileRevisions = fileQuery.data?.file.revisions || [];
-  const visibleFileRevisions = fileRevisions.slice(
-    0,
-    visibleFileRevisionCount,
-  );
+  const visibleFileRevisions = fileRevisions.slice(0, visibleFileRevisionCount);
   const hiddenFileRevisionCount = Math.max(
     0,
     fileRevisions.length - visibleFileRevisionCount,
   );
   const teamRevisions = teamQuery.data?.revisions || [];
-  const visibleTeamRevisions = teamRevisions.slice(
-    0,
-    visibleTeamRevisionCount,
-  );
+  const visibleTeamRevisions = teamRevisions.slice(0, visibleTeamRevisionCount);
   const hiddenTeamRevisionCount = Math.max(
     0,
     teamRevisions.length - visibleTeamRevisionCount,
@@ -389,11 +391,12 @@ export function AgentFilesPage() {
                   onChange={(event) => {
                     setSelectedFileName(event.target.value);
                     setSelectedRevisionId(null);
+                    setVisibleFileRevisionCount(REVISION_BATCH_SIZE);
                   }}
                 >
                   {selectedAgent.markdownFiles.map((file) => (
                     <NativeSelectOption key={file.name} value={file.name}>
-                      {file.name}
+                      {getMarkdownFileDisplayName(file)}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
@@ -404,10 +407,14 @@ export function AgentFilesPage() {
               <div className="agent-file-meta">
                 <p className="supporting-text agent-file-meta-line">
                   {selectedFileMetadata?.exists
-                    ? selectedFileMetadata.updatedAt
-                      ? `Last updated ${formatRelativeTime(selectedFileMetadata.updatedAt)} · ${formatDateTime(selectedFileMetadata.updatedAt)} · ${selectedFileMetadata.path}`
-                      : selectedFileMetadata.path
-                    : 'File not created yet'}
+                    ? selectedFileMetadata.readOnly
+                      ? `${selectedFileMetadata.cloudPath || selectedFileMetadata.path} · read-only cloud memory cache`
+                      : selectedFileMetadata.updatedAt
+                        ? `Last updated ${formatRelativeTime(selectedFileMetadata.updatedAt)} · ${formatDateTime(selectedFileMetadata.updatedAt)} · ${selectedFileMetadata.path}`
+                        : selectedFileMetadata.path
+                    : selectedFileMetadata?.readOnly
+                      ? 'Shared memory has not synced to this agent yet'
+                      : 'File not created yet'}
                 </p>
               </div>
             ) : null}
@@ -418,11 +425,12 @@ export function AgentFilesPage() {
               <>
                 <label className="field textarea-field">
                   <span className="agent-file-editor-title">
-                    {selectedFileName}
+                    {selectedFileDisplayName}
                   </span>
                   <Textarea
                     className="code-editor"
                     rows={28}
+                    readOnly={selectedFileReadOnly}
                     value={draftContent}
                     onChange={(event) => setDraftContent(event.target.value)}
                   />
@@ -433,7 +441,10 @@ export function AgentFilesPage() {
                     type="button"
                     loading={saveMutation.isPending}
                     disabled={
-                      saveMutation.isPending || !fileQuery.data || !isDirty
+                      selectedFileReadOnly ||
+                      saveMutation.isPending ||
+                      !fileQuery.data ||
+                      !isDirty
                     }
                     onClick={() => saveMutation.mutate()}
                   >
@@ -443,7 +454,10 @@ export function AgentFilesPage() {
                     variant="ghost"
                     type="button"
                     disabled={
-                      !fileQuery.data || saveMutation.isPending || !isDirty
+                      !fileQuery.data ||
+                      saveMutation.isPending ||
+                      !isDirty ||
+                      selectedFileReadOnly
                     }
                     onClick={() => {
                       const nextContent = fileQuery.data?.file.content || '';
@@ -457,11 +471,15 @@ export function AgentFilesPage() {
                     Reset to Disk
                   </Button>
                   <p className="supporting-text">
-                    {isDirty
-                      ? 'Unsaved changes.'
-                      : selectedFileSummary?.exists
-                        ? 'Disk copy loaded.'
-                        : 'Saving will create this file in the agent workspace.'}
+                    {selectedFileReadOnly
+                      ? selectedFileMetadata?.exists
+                        ? 'Read-only cloud memory cache.'
+                        : 'Waiting for cloud memory sync.'
+                      : isDirty
+                        ? 'Unsaved changes.'
+                        : selectedFileSummary?.exists
+                          ? 'Disk copy loaded.'
+                          : 'Saving will create this file in the agent workspace.'}
                   </p>
                 </div>
 
@@ -476,7 +494,9 @@ export function AgentFilesPage() {
                     <CardContent>
                       {!fileQuery.data?.file.revisions.length ? (
                         <div className="empty-state">
-                          Revisions appear here after the file changes.
+                          {selectedFileReadOnly
+                            ? 'Shared memory files are read-only and do not have local revisions.'
+                            : 'Revisions appear here after the file changes.'}
                         </div>
                       ) : (
                         <div className="detail-stack">

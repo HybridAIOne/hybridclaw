@@ -274,6 +274,91 @@ describe('AgentFilesPage', () => {
     });
   });
 
+  it('shows shared cloud memory files as read-only agent files', async () => {
+    const agent = makeAgent({
+      markdownFiles: [
+        {
+          name: 'AGENTS.md',
+          path: '/tmp/main/workspace/AGENTS.md',
+          exists: true,
+          updatedAt: '2026-04-13T10:00:00.000Z',
+          sizeBytes: 120,
+        },
+        {
+          name: 'Instance Memory.md',
+          displayName: 'Instance Memory',
+          path: 'cloud-memory://installation/MEMORY.md',
+          scope: 'installation',
+          cloudPath: '/MEMORY.md',
+          readOnly: true,
+          exists: true,
+          updatedAt: null,
+          sizeBytes: 64,
+        },
+        {
+          name: 'Organization Memory.md',
+          displayName: 'Organization Memory',
+          path: 'cloud-memory://company/MEMORY.md',
+          scope: 'company',
+          cloudPath: '/MEMORY.md',
+          readOnly: true,
+          exists: true,
+          updatedAt: null,
+          sizeBytes: 72,
+        },
+      ],
+    });
+    const organizationMemoryFile = agent.markdownFiles.find(
+      (file) => file.name === 'Organization Memory.md',
+    );
+    if (!organizationMemoryFile) {
+      throw new Error('Expected organization memory test file.');
+    }
+    fetchAdminAgentsMock.mockResolvedValue([agent]);
+    fetchAdminAgentMarkdownFileMock.mockImplementation(
+      async (_token, params) =>
+        params.fileName === 'Organization Memory.md'
+          ? {
+              agent,
+              file: {
+                ...organizationMemoryFile,
+                content: '# Organization Memory',
+                revisions: [],
+              },
+            }
+          : makeDocument(agent, params.fileName, '# Main Rules'),
+    );
+
+    renderPage();
+
+    await screen.findByDisplayValue('# Main Rules');
+    fireEvent.change(screen.getByLabelText('Markdown file'), {
+      target: { value: 'Organization Memory.md' },
+    });
+
+    const editor = (await screen.findByDisplayValue(
+      '# Organization Memory',
+    )) as HTMLTextAreaElement;
+    expect(editor.readOnly).toBe(true);
+    expect(screen.getByText('Read-only cloud memory cache.')).not.toBeNull();
+    expect(
+      screen.getByText(
+        'Shared memory files are read-only and do not have local revisions.',
+      ),
+    ).not.toBeNull();
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save Markdown',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(fetchAdminAgentMarkdownFileMock).toHaveBeenCalledWith('test-token', {
+      agentId: 'main',
+      fileName: 'Organization Memory.md',
+    });
+  });
+
   it('saves edited markdown content for the selected agent file', async () => {
     const agent = makeAgent({});
     fetchAdminAgentsMock.mockResolvedValue([agent]);
@@ -355,7 +440,12 @@ describe('AgentFilesPage', () => {
     const agent = makeAgent({});
     fetchAdminAgentsMock.mockResolvedValue([agent]);
     fetchAdminAgentMarkdownFileMock.mockResolvedValue(
-      makeDocument(agent, 'AGENTS.md', '# Current Rules', makeMarkdownRevisions(12)),
+      makeDocument(
+        agent,
+        'AGENTS.md',
+        '# Current Rules',
+        makeMarkdownRevisions(12),
+      ),
     );
 
     renderPage();
