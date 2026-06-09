@@ -42,11 +42,13 @@ const CLOUD_MEMORY_MAX_FILE_CHARS = 20_000;
 const CLOUD_MEMORY_PROMPT_FILE_CHARS = 12_000;
 const CLOUD_MEMORY_MAX_DAILY_FILES = 14;
 const CLOUD_MEMORY_SYNC_MIN_INTERVAL_MS = 60_000;
+const CLOUD_MEMORY_PERIODIC_SYNC_INTERVAL_MS = 5 * 60_000;
 const CLOUD_MEMORY_SOURCE_FILES = new Set(['MEMORY.md', 'USER.md']);
 const DAILY_MEMORY_FILE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
 
 const inFlightSyncs = new Map<string, Promise<void>>();
 const lastSyncStartedAt = new Map<string, number>();
+let periodicSyncTimer: ReturnType<typeof setInterval> | null = null;
 
 type CloudMemoryConfigKey =
   | 'HYBRIDAI_API_KEY'
@@ -324,4 +326,46 @@ export function scheduleCloudMemorySync(agentId: string): void {
       inFlightSyncs.delete(agentId);
     });
   inFlightSyncs.set(agentId, promise);
+}
+
+function syncAgentIds(agentIds: string[]): void {
+  const uniqueAgentIds = Array.from(
+    new Set(agentIds.map((agentId) => agentId.trim()).filter(Boolean)),
+  );
+  for (const agentId of uniqueAgentIds) {
+    scheduleCloudMemorySync(agentId);
+  }
+}
+
+export function startPeriodicCloudMemorySync(options?: {
+  intervalMs?: number;
+  resolveAgentIds?: () => string[];
+  syncImmediately?: boolean;
+}): void {
+  stopPeriodicCloudMemorySync();
+  if (!isCloudMemoryConfigured()) return;
+
+  const intervalMs = Math.max(
+    CLOUD_MEMORY_SYNC_MIN_INTERVAL_MS,
+    options?.intervalMs ?? CLOUD_MEMORY_PERIODIC_SYNC_INTERVAL_MS,
+  );
+  const resolveAgentIds = options?.resolveAgentIds ?? (() => ['main']);
+  const runSync = () => {
+    try {
+      syncAgentIds(resolveAgentIds());
+    } catch (err) {
+      logger.warn({ err }, 'Cloud memory periodic sync failed to list agents');
+    }
+  };
+
+  if (options?.syncImmediately !== false) {
+    runSync();
+  }
+  periodicSyncTimer = setInterval(runSync, intervalMs);
+}
+
+export function stopPeriodicCloudMemorySync(): void {
+  if (!periodicSyncTimer) return;
+  clearInterval(periodicSyncTimer);
+  periodicSyncTimer = null;
 }

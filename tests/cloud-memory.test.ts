@@ -206,6 +206,48 @@ test('syncCloudMemoryNow bounds daily memory uploads to recent files', async () 
   expect(dailyPaths).toContain('/memory/2026-06-08.md');
 });
 
+test('startPeriodicCloudMemorySync refreshes registered agents on an interval', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-09T12:00:00.000Z'));
+
+  try {
+    const agentId = 'cloud-periodic-agent';
+    await createAgentWorkspace(agentId);
+
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ enabled: false, files: [] }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { startPeriodicCloudMemorySync, stopPeriodicCloudMemorySync } =
+      await import('../src/memory/cloud-memory.js');
+
+    startPeriodicCloudMemorySync({
+      intervalMs: 5 * 60_000,
+      resolveAgentIds: () => [agentId, 'cloud-periodic-peer', agentId],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    stopPeriodicCloudMemorySync();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test('buildSystemPromptFromHooks includes cached installation and company memory', async () => {
   const agentId = 'cloud-prompt-agent';
   const workspaceDir = await createAgentWorkspace(agentId);
