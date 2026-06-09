@@ -25,7 +25,11 @@ import {
   CardTitle,
 } from '../components/card';
 import { Field, FieldLabel } from '../components/field';
-import { NativeSelect, NativeSelectOption } from '../components/native-select';
+import {
+  NativeSelect,
+  NativeSelectOptGroup,
+  NativeSelectOption,
+} from '../components/native-select';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { getErrorMessage } from '../lib/error-message';
@@ -173,6 +177,12 @@ export function AgentFilesPage() {
     fileQuery.data?.file.name === selectedFileName
       ? fileQuery.data.file
       : selectedFileSummary;
+  const localMarkdownFiles = selectedAgent?.markdownFiles.filter(
+    (file) => !file.readOnly,
+  );
+  const sharedMemoryFiles = selectedAgent?.markdownFiles.filter(
+    (file) => file.readOnly,
+  );
   const selectedFileReadOnly = Boolean(selectedFileMetadata?.readOnly);
   const selectedFileDisplayName = selectedFileMetadata
     ? getMarkdownFileDisplayName(selectedFileMetadata)
@@ -394,11 +404,20 @@ export function AgentFilesPage() {
                     setVisibleFileRevisionCount(REVISION_BATCH_SIZE);
                   }}
                 >
-                  {selectedAgent.markdownFiles.map((file) => (
+                  {localMarkdownFiles?.map((file) => (
                     <NativeSelectOption key={file.name} value={file.name}>
                       {getMarkdownFileDisplayName(file)}
                     </NativeSelectOption>
                   ))}
+                  {sharedMemoryFiles?.length ? (
+                    <NativeSelectOptGroup label="Shared memory">
+                      {sharedMemoryFiles.map((file) => (
+                        <NativeSelectOption key={file.name} value={file.name}>
+                          {getMarkdownFileDisplayName(file)}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelectOptGroup>
+                  ) : null}
                 </NativeSelect>
               </Field>
             </div>

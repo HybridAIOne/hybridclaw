@@ -332,6 +332,9 @@ describe('AgentFilesPage', () => {
     renderPage();
 
     await screen.findByDisplayValue('# Main Rules');
+    expect(
+      document.querySelector('optgroup[label="Shared memory"]'),
+    ).not.toBeNull();
     fireEvent.change(screen.getByLabelText('Markdown file'), {
       target: { value: 'Organization Memory.md' },
     });
