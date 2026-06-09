@@ -268,7 +268,7 @@ describe('response ratings', () => {
       browser_id: service.sessionId,
       rating: 'up',
       user_message: 'Hello',
-      bot_response: 'Hi there',
+      bot_response: '[main] Hi there',
       external_user_id: 'operator-a',
     });
   });
@@ -301,7 +301,7 @@ describe('response ratings', () => {
       chatbot_id: 'bot-feedback',
       rating: 'up',
       user_message: 'Hello',
-      bot_response: 'Hi there',
+      bot_response: '[main] Hi there',
     });
   });
 

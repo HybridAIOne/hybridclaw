@@ -67,6 +67,7 @@ export async function forwardHybridAIChatFeedbackForRating(input: {
   messageId: number;
   operatorUserId: string;
   rating: ResponseRatingValue;
+  agentId: string | null;
 }): Promise<void> {
   const context = getResponseRatingFeedbackContext({
     sessionId: input.sessionId,
@@ -92,7 +93,9 @@ export async function forwardHybridAIChatFeedbackForRating(input: {
     browser_id: input.sessionId,
     rating: input.rating,
     user_message: context.user_content ?? '',
-    bot_response: context.assistant_content,
+    bot_response: input.agentId?.trim()
+      ? `[${input.agentId.trim()}] ${context.assistant_content}`
+      : context.assistant_content,
     external_user_id: input.operatorUserId,
   };
 
@@ -195,6 +198,7 @@ export function submitResponseRating(
       messageId: input.messageId,
       operatorUserId,
       rating: input.rating,
+      agentId: target.agent_id,
     });
   }
 
