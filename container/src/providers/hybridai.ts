@@ -49,10 +49,12 @@ function buildHybridAIRequestBody(
     model: stripHybridAIModelPrefix(args.model),
     chatbot_id: args.chatbotId,
     messages: args.messages,
-    tools: args.tools,
-    tool_choice: 'auto',
     enable_rag: args.enableRag,
   };
+  if (args.tools.length > 0) {
+    request.tools = args.tools;
+    request.tool_choice = 'auto';
+  }
   if (
     typeof args.maxTokens === 'number' &&
     Number.isFinite(args.maxTokens) &&
