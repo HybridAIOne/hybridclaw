@@ -406,6 +406,80 @@ describe('ChatPage', () => {
     );
   });
 
+  it('syncs the agent dropdown from the active session history', async () => {
+    fetchAgentListMock.mockResolvedValue([
+      { id: 'main', name: 'Main Agent' },
+      { id: 'research', name: 'research' },
+    ]);
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      agentId: 'research',
+      history: [
+        {
+          id: 101,
+          role: 'assistant',
+          agent_id: 'research',
+          content: 'Opened research session',
+        },
+      ],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened research session')).not.toBeNull();
+    const agentSelect = await screen.findByLabelText('Switch agent');
+    expect(agentSelect).toBeInstanceOf(HTMLSelectElement);
+    await waitFor(() =>
+      expect((agentSelect as HTMLSelectElement).value).toBe('research'),
+    );
+  });
+
+  it('refetches history while bootstrap autostart is starting', async () => {
+    fetchChatHistoryMock
+      .mockResolvedValueOnce({
+        sessionId: 'session-a',
+        history: [
+          {
+            id: 101,
+            role: 'assistant',
+            content: 'Existing transcript',
+          },
+        ],
+        bootstrapAutostart: {
+          status: 'starting',
+          fileName: 'BOOTSTRAP.md',
+        },
+      })
+      .mockResolvedValueOnce({
+        sessionId: 'session-a',
+        history: [
+          {
+            id: 101,
+            role: 'assistant',
+            content: 'Existing transcript',
+          },
+          {
+            id: 102,
+            role: 'assistant',
+            content: 'What should I call you?',
+          },
+        ],
+        bootstrapAutostart: {
+          status: 'completed',
+          fileName: 'BOOTSTRAP.md',
+        },
+      });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Existing transcript')).not.toBeNull();
+
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalledTimes(2), {
+      timeout: 2500,
+    });
+    expect(await screen.findByText('What should I call you?')).not.toBeNull();
+  });
+
   it('switches agents from the composer dropdown using the command path', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
@@ -436,6 +510,32 @@ describe('ChatPage', () => {
       );
       expect(document.body.textContent).toContain('gpt-5');
     });
+  });
+
+  it('starts hidden hatching after switching to an agent with active BOOTSTRAP', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+      bootstrapAutostart: {
+        status: 'idle',
+        fileName: 'BOOTSTRAP.md',
+      },
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Switch agent'), {
+      target: { value: 'charly' },
+    });
+
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith('Start hatching.', [], {
+        hideUser: true,
+      }),
+    );
   });
 
   it('keeps first agent switch result visible when bare /chat resolves to a server session id', async () => {

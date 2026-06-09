@@ -524,6 +524,7 @@ async function importFreshHealth(options?: {
   const loggerWarn = vi.fn();
   const getGatewayHistory = vi.fn((sessionId: string) => ({
     sessionId,
+    agentId: 'research',
     sessionKey: null,
     mainSessionKey: null,
     branchFamilies: [],
@@ -4237,6 +4238,7 @@ describe('gateway HTTP server', () => {
 
     expect(state.ensureGatewayBootstrapAutostart).toHaveBeenCalledWith({
       sessionId: 's1',
+      allowExistingSessionMessages: true,
     });
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2, {
       operatorUserId: 'web',
@@ -4247,6 +4249,7 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       sessionId: 's1',
+      agentId: 'research',
       sessionKey: undefined,
       mainSessionKey: undefined,
       bootstrapAutostart: null,

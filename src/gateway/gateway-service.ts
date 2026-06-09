@@ -629,6 +629,17 @@ function buildBootstrapAutostartPrompt(
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ].join(' ');
 }
+
+function getBootstrapAutostartMarkerKey(agentId: string): string {
+  return `${BOOTSTRAP_AUTOSTART_MARKER_KEY}.${agentId}`;
+}
+
+function getBootstrapAutostartLockKey(
+  sessionId: string,
+  agentId: string,
+): string {
+  return `${sessionId}:${agentId}`;
+}
 const REQUEST_LOG_SENSITIVE_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
 const REQUEST_LOG_INLINE_SECRET_RE =
@@ -7063,6 +7074,7 @@ function resolveBootstrapAutostartContext(params: {
   sessionId: string;
   channelId?: string | null;
   agentId?: string | null;
+  allowExistingSessionMessages?: boolean;
 }): {
   channelId: string;
   session: ReturnType<(typeof memoryService)['getOrCreateSession']>;
@@ -7083,8 +7095,9 @@ function resolveBootstrapAutostartContext(params: {
     params.agentId ?? undefined,
   );
   if (
-    session.message_count > 0 ||
-    String(session.session_summary || '').trim().length > 0
+    !params.allowExistingSessionMessages &&
+    (session.message_count > 0 ||
+      String(session.session_summary || '').trim().length > 0)
   ) {
     return null;
   }
@@ -7111,20 +7124,23 @@ export async function ensureGatewayBootstrapAutostart(params: {
   userId?: string | null;
   username?: string | null;
   agentId?: string | null;
+  allowExistingSessionMessages?: boolean;
 }): Promise<void> {
   const context = resolveBootstrapAutostartContext(params);
   if (!context) return;
   const { channelId, session, resolved, bootstrapFile } = context;
-  if (activeBootstrapAutostartSessions.has(session.id)) {
+  const markerKey = getBootstrapAutostartMarkerKey(resolved.agentId);
+  const lockKey = getBootstrapAutostartLockKey(session.id, resolved.agentId);
+  if (activeBootstrapAutostartSessions.has(lockKey)) {
     return;
   }
-  activeBootstrapAutostartSessions.add(session.id);
+  activeBootstrapAutostartSessions.add(lockKey);
 
   try {
-    if (getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY)) {
+    if (getMemoryValue(session.id, markerKey)) {
       return;
     }
-    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+    setMemoryValue(session.id, markerKey, {
       status: 'started',
       fileName: bootstrapFile,
       at: new Date().toISOString(),
@@ -7192,7 +7208,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const chatbotId = chatbotResolution.chatbotId;
 
     if (modelRequiresChatbotId(resolved.model) && !chatbotId) {
-      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      deleteMemoryValue(session.id, markerKey);
       const error =
         chatbotResolution.error ||
         'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
@@ -7378,7 +7394,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     }
 
     if (output.status !== 'success' || !resultText) {
-      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      deleteMemoryValue(session.id, markerKey);
       recordAuditEvent({
         sessionId: session.id,
         runId,
@@ -7421,7 +7437,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       username: null,
       content: resultText,
     });
-    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+    setMemoryValue(session.id, markerKey, {
       status: 'completed',
       assistantMessageId,
       completedAt: new Date().toISOString(),
@@ -7450,13 +7466,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
       },
     });
   } catch (error) {
-    deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+    deleteMemoryValue(session.id, markerKey);
     logger.warn(
       { sessionId: session.id, agentId: resolved.agentId, channelId, error },
       'Failed to run bootstrap autostart turn',
     );
   } finally {
-    activeBootstrapAutostartSessions.delete(session.id);
+    activeBootstrapAutostartSessions.delete(lockKey);
   }
 }
 
@@ -7464,15 +7480,19 @@ export function getGatewayBootstrapAutostartState(params: {
   sessionId: string;
   channelId?: string | null;
   agentId?: string | null;
+  allowExistingSessionMessages?: boolean;
 }): {
   status: 'idle' | 'starting' | 'completed';
   fileName: 'BOOTSTRAP.md' | 'OPENING.md';
 } | null {
   const context = resolveBootstrapAutostartContext(params);
   if (!context) return null;
-  const { session, bootstrapFile } = context;
+  const { session, resolved, bootstrapFile } = context;
 
-  const marker = getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY) as {
+  const marker = getMemoryValue(
+    session.id,
+    getBootstrapAutostartMarkerKey(resolved.agentId),
+  ) as {
     status?: unknown;
     fileName?: unknown;
   } | null;
@@ -7548,6 +7568,7 @@ export function getGatewayHistory(
     .reverse();
   return {
     sessionId: page.sessionId,
+    agentId: page.agentId,
     sessionKey: page.sessionKey,
     mainSessionKey: page.mainSessionKey,
     history,
@@ -9095,8 +9116,21 @@ export async function handleGatewayCommand(
           }
           updateSessionAgent(session.id, targetAgent.id);
           const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
+          void ensureGatewayBootstrapAutostart({
+            sessionId: session.id,
+            channelId: req.channelId,
+            userId: req.userId,
+            username: req.username,
+            agentId: targetAgent.id,
+            allowExistingSessionMessages: true,
+          }).catch((error) => {
+            logger.warn(
+              { sessionId: session.id, agentId: targetAgent.id, error },
+              'Failed to start agent hatching after switch',
+            );
+          });
           return plainCommand(
-            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`).`,
+            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`). Hatching will start automatically if \`BOOTSTRAP.md\` is active.`,
           );
         }
 
@@ -9234,12 +9268,15 @@ export async function handleGatewayCommand(
             id: newAgentId,
             ...(modelName ? { model: modelName } : {}),
           });
+          const workspacePath = path.resolve(agentWorkspaceDir(created.id));
+          ensureBootstrapFiles(created.id);
           return infoCommand(
             'Agent Created',
             [
               `Agent: ${created.id}`,
               `Model: ${formatModelForDisplay(resolveAgentModel(created) || HYBRIDAI_MODEL)}`,
-              `Workspace: ${path.resolve(agentWorkspaceDir(created.id))}`,
+              `Workspace: ${workspacePath}`,
+              'Hatching: open or switch to a session with this agent. If BOOTSTRAP.md is active, hatching starts automatically without waiting for a user message.',
             ].join('\n'),
           );
         }

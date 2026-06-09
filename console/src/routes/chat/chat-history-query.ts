@@ -11,6 +11,8 @@ export interface ChatHistoryUiData {
   messages: ChatUiMessage[];
   branchFamilies: Map<string, BranchVariant[]>;
   resolvedSessionId: string;
+  agentId: string | null;
+  bootstrapAutostart: ChatHistoryResponse['bootstrapAutostart'];
 }
 
 export const EMPTY_BRANCH_FAMILIES: Map<string, BranchVariant[]> = new Map();
@@ -67,7 +69,13 @@ export function buildChatHistoryUiData(
     };
   });
 
-  return { messages, branchFamilies, resolvedSessionId };
+  return {
+    messages,
+    branchFamilies,
+    resolvedSessionId,
+    agentId: raw.agentId?.trim() || null,
+    bootstrapAutostart: raw.bootstrapAutostart ?? null,
+  };
 }
 
 export function chatHistoryQueryKey(

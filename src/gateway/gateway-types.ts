@@ -283,6 +283,7 @@ export interface GatewayHistoryBranchFamily {
 
 export interface GatewayHistoryResponse {
   sessionId: string;
+  agentId?: string | null;
   // Routing metadata for related chat session instances. These are not bearer
   // credentials and must never be used for authorization decisions.
   // If they ever become auth-relevant, remove them from web responses instead
