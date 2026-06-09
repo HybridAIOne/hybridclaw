@@ -329,6 +329,8 @@ const HARNESS_EVOLUTION_ALLOWED_ROOTS = [
     .map((entry) => entry.trim())
     .filter(Boolean),
 ].map((entry) => path.resolve(entry));
+let resolvedHarnessEvolutionAllowedRootsPromise: Promise<string[]> | null =
+  null;
 const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
@@ -2495,24 +2497,24 @@ async function resolveValidatedApiChatMediaHostPath(
 async function isAllowedApiChatMediaHostPath(
   hostPath: string,
 ): Promise<boolean> {
-  const normalizedHostPath = await resolvePathForContainmentCheck(hostPath);
-  if (
-    isWithinRoot(
-      normalizedHostPath,
-      await resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
-    )
-  ) {
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  const [normalizedHostPath, discordMediaCacheDir, uploadedMediaCacheRoot] =
+    await Promise.all([
+      resolvePathForContainmentCheck(hostPath),
+      resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
+      uploadedMediaCacheDir
+        ? resolvePathForContainmentCheck(uploadedMediaCacheDir)
+        : Promise.resolve(null),
+    ]);
+
+  if (isWithinRoot(normalizedHostPath, discordMediaCacheDir)) {
     return true;
   }
 
-  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
-  if (!uploadedMediaCacheDir) {
+  if (!uploadedMediaCacheRoot) {
     return false;
   }
-  return isWithinRoot(
-    normalizedHostPath,
-    await resolvePathForContainmentCheck(uploadedMediaCacheDir),
-  );
+  return isWithinRoot(normalizedHostPath, uploadedMediaCacheRoot);
 }
 
 async function normalizeApiChatMediaItems(
@@ -6123,16 +6125,22 @@ async function assertPathInsideRoot(
 async function isAllowedHarnessEvolutionRoot(
   targetRoot: string,
 ): Promise<boolean> {
-  const resolvedTargetRoot =
-    await resolveHarnessEvolutionAccessPathForRequest(targetRoot);
-  const allowedRoots = await Promise.all(
+  const [resolvedTargetRoot, allowedRoots] = await Promise.all([
+    resolveHarnessEvolutionAccessPathForRequest(targetRoot),
+    getResolvedHarnessEvolutionAllowedRoots(),
+  ]);
+  return allowedRoots.some((root) =>
+    isPathInsideRoot(root, resolvedTargetRoot),
+  );
+}
+
+function getResolvedHarnessEvolutionAllowedRoots(): Promise<string[]> {
+  resolvedHarnessEvolutionAllowedRootsPromise ??= Promise.all(
     HARNESS_EVOLUTION_ALLOWED_ROOTS.map((root) =>
       resolveHarnessEvolutionAccessPathForRequest(root),
     ),
   );
-  return allowedRoots.some((root) =>
-    isPathInsideRoot(root, resolvedTargetRoot),
-  );
+  return resolvedHarnessEvolutionAllowedRootsPromise;
 }
 
 async function resolveHarnessEvolutionAccessPathForRequest(
