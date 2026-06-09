@@ -317,9 +317,11 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
     messages: buildRequestMessages(args),
-    tools: args.tools,
-    tool_choice: 'auto',
   };
+  if (args.tools.length > 0) {
+    request.tools = args.tools;
+    request.tool_choice = 'auto';
+  }
   if (
     typeof args.maxTokens === 'number' &&
     Number.isFinite(args.maxTokens) &&

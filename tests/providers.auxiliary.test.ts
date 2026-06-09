@@ -409,6 +409,69 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
   });
 });
 
+test('host auxiliary caller avoids empty tools for HybridAI providers', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: 'hybridai-key',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot_123',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'HybridAI response without empty tools.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'session_title',
+    provider: 'hybridai',
+    model: 'Qwen/Qwen3.6-27B-FP8',
+    fallbackChatbotId: 'bot_123',
+    messages: [{ role: 'user', content: 'Name this session.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'hybridai',
+    model: 'Qwen/Qwen3.6-27B-FP8',
+    content: 'HybridAI response without empty tools.',
+  });
+});
+
 test('host auxiliary caller supports HybridAI-routed vendor model hints', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
@@ -520,6 +583,9 @@ test('host auxiliary caller streams Codex responses for auxiliary tasks', async 
         unknown
       >;
       expect(body.stream).toBe(true);
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
+      expect(body.parallel_tool_calls).toBeUndefined();
       expect(body.temperature).toBeUndefined();
       expect(body.max_output_tokens).toBeUndefined();
       return new Response(streamBody, {
@@ -1705,6 +1771,9 @@ test('host auxiliary caller falls through to Codex when OpenRouter and Anthropic
         unknown
       >;
       expect(body.model).toBe('gpt-5.4-mini');
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
+      expect(body.parallel_tool_calls).toBeUndefined();
       return new Response(
         JSON.stringify({
           output: [

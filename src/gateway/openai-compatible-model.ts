@@ -182,28 +182,34 @@ function createProviderError(status: number, body: string): Error {
 function buildHybridAIRequestBody(
   params: OpenAICompatibleModelCallParams,
 ): Record<string, unknown> {
-  return {
+  const body: Record<string, unknown> = {
     model: stripHybridAIModelPrefix(params.model),
     chatbot_id: params.runtime.chatbotId,
     messages: params.messages,
-    tools: params.tools,
-    tool_choice: params.toolChoice || 'auto',
     enable_rag: params.runtime.enableRag,
   };
+  if (params.tools.length > 0) {
+    body.tools = params.tools;
+    body.tool_choice = params.toolChoice || 'auto';
+  }
+  return body;
 }
 
 function buildOpenAICompatRequestBody(
   params: OpenAICompatibleModelCallParams,
 ): Record<string, unknown> {
-  return {
+  const body: Record<string, unknown> = {
     model: normalizeOpenAICompatModelName(
       params.runtime.provider,
       params.model,
     ),
     messages: collapseSystemMessages(params.messages),
-    tools: params.tools,
-    tool_choice: params.toolChoice || 'auto',
   };
+  if (params.tools.length > 0) {
+    body.tools = params.tools;
+    body.tool_choice = params.toolChoice || 'auto';
+  }
+  return body;
 }
 
 function convertMessageToResponsesInput(
@@ -261,20 +267,23 @@ function buildCodexRequestBody(
     .map((message) => contentToText(message.content).trim())
     .filter(Boolean)
     .join('\n\n');
-  return {
+  const body: Record<string, unknown> = {
     model: normalizeCodexModelName(params.model),
     store: false,
     instructions: instructions || 'You are Codex, a coding assistant.',
     input: params.messages.flatMap(convertMessageToResponsesInput),
-    tools: params.tools.map((tool) => ({
+  };
+  if (params.tools.length > 0) {
+    body.tools = params.tools.map((tool) => ({
       type: 'function',
       name: tool.function.name,
       description: tool.function.description,
       parameters: tool.function.parameters,
-    })),
-    tool_choice: params.toolChoice || 'auto',
-    parallel_tool_calls: true,
-  };
+    }));
+    body.tool_choice = params.toolChoice || 'auto';
+    body.parallel_tool_calls = true;
+  }
+  return body;
 }
 
 function adaptCodexResponse(
