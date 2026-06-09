@@ -3,11 +3,19 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const {
+  DEFAULT_GATEWAY_URL,
+  assertNotTruncated,
+  formatGatewayHttpError,
+  normalizeGatewayEnvelope,
+  parseJsonMaybe,
+  resolveGatewayToken,
+  resolveGatewayUrl,
+  sendGatewayRequest,
+} = require('../shared/gateway-http.cjs');
 
 const API_URL = 'https://my.fastbill.com/api/1.0/api.php';
-const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const DEFAULT_TIMEOUT_MS = 30000;
-const GATEWAY_TIMEOUT_BUFFER_MS = 5000;
 const DEFAULT_AUTH_SECRET_NAME = 'FASTBILL_BASIC_AUTH';
 
 const READ_SERVICES = new Set([
@@ -134,23 +142,6 @@ function usageTotalsMeasurement() {
       'total_tool_calls',
     ],
   };
-}
-
-function resolveGatewayUrl() {
-  return (
-    (process.env.HYBRIDCLAW_GATEWAY_URL || '').trim() ||
-    (process.env.GATEWAY_BASE_URL || '').trim() ||
-    DEFAULT_GATEWAY_URL
-  );
-}
-
-function resolveGatewayToken() {
-  return (
-    (process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim() ||
-    (process.env.GATEWAY_API_TOKEN || '').trim() ||
-    (process.env.WEB_API_TOKEN || '').trim() ||
-    ''
-  );
 }
 
 function escapeXml(value) {
@@ -417,33 +408,14 @@ function buildFastBillHttpRequest(input) {
 }
 
 async function gatewayRequest(input) {
-  const gatewayUrl = (input.gatewayUrl || resolveGatewayUrl()).replace(
-    /\/+$/u,
-    '',
-  );
   const payload = buildGatewayRequestPayload(input);
 
-  const headers = { 'Content-Type': 'application/json' };
-  const token = input.gatewayToken || resolveGatewayToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    (input.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
-  );
-  let response;
-  try {
-    response = await fetch(`${gatewayUrl}/api/http/request`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-  const text = await response.text();
+  const { response, text } = await sendGatewayRequest(payload, {
+    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+    gatewayToken: input.gatewayToken || resolveGatewayToken(),
+    gatewayUrl: input.gatewayUrl || resolveGatewayUrl(),
+    serviceName: 'FastBill',
+  });
   if (!response.ok) {
     if (
       response.status === 401 &&
@@ -454,29 +426,36 @@ async function gatewayRequest(input) {
       );
     }
     throw new FastBillApiError(
-      `Gateway proxy returned ${response.status} for FastBill request: ${text}`,
+      formatGatewayHttpError(response, text, { serviceName: 'FastBill' }),
       { status: response.status },
     );
   }
-  let wrapper;
-  try {
-    wrapper = JSON.parse(text);
-  } catch {
+  const wrapper = parseJsonMaybe(text);
+  if (!wrapper || typeof wrapper !== 'object' || Array.isArray(wrapper)) {
     return text;
   }
+  const normalized = normalizeGatewayEnvelope(wrapper, response.status);
+  try {
+    assertNotTruncated(normalized, { serviceName: 'FastBill' });
+  } catch (error) {
+    throw new FastBillApiError(
+      error instanceof Error ? error.message : String(error),
+      { status: normalized.status || null },
+    );
+  }
   if (wrapper && wrapper.ok === false) {
-    const body = wrapper.body || wrapper.statusText || '';
-    if (isFastBillCredentialRejection(wrapper.status, body)) {
+    const body = normalized.body || normalized.statusText || '';
+    if (isFastBillCredentialRejection(normalized.status, body)) {
       throw new FastBillCredentialError(
         'FastBill rejected the Basic auth credentials. The gateway and secret route worked, but FASTBILL_BASIC_AUTH decodes to an email/API-key pair FastBill does not accept.',
       );
     }
     throw new FastBillApiError(
-      `FastBill returned HTTP ${wrapper.status || 'error'}: ${body}`,
-      { status: wrapper.status || null },
+      `FastBill returned HTTP ${normalized.status || 'error'}: ${body}`,
+      { status: normalized.status || null },
     );
   }
-  if (typeof wrapper.body === 'string') return wrapper.body;
+  if (typeof wrapper.body === 'string') return normalized.body;
   if (typeof wrapper.text === 'string') {
     process.stderr.write(
       'Warning: gateway response omitted body; using text fallback.\n',

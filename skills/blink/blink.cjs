@@ -5,12 +5,14 @@ const { createHash, randomBytes } = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {
+  executeGatewayRequest: executeSharedGatewayRequest,
+  parseJsonMaybe,
+} = require('../shared/gateway-http.cjs');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
-const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
 const DEFAULT_COMMAND_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_THUMBNAIL_WAIT_MS = 45_000;
-const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const SKILL_NAME = 'blink';
 const REST_PROD_HOST = 'rest-prod.immedia-semi.com';
 const DEFAULT_REST_BASE = `https://${REST_PROD_HOST}`;
@@ -559,149 +561,13 @@ function authSecretHeaders() {
   ];
 }
 
-function resolveGatewayUrl() {
-  return String(
-    process.env.HYBRIDCLAW_GATEWAY_URL ||
-      process.env.GATEWAY_BASE_URL ||
-      DEFAULT_GATEWAY_URL,
-  ).replace(/\/+$/u, '');
-}
-
-function resolveGatewayToken() {
-  return String(
-    process.env.HYBRIDCLAW_GATEWAY_TOKEN || process.env.GATEWAY_API_TOKEN || '',
-  ).trim();
-}
-
-function parseJsonMaybe(text) {
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeGatewayResult(wrapper, fallbackStatus) {
-  const status = Number(wrapper.status || fallbackStatus || 0);
-  const body = typeof wrapper.body === 'string' ? wrapper.body : '';
-  return {
-    command: 'live-result',
-    ok: wrapper.ok !== false,
-    status,
-    statusText: wrapper.statusText || '',
-    headers: wrapper.headers || {},
-    body,
-    bodyJson:
-      wrapper.json && typeof wrapper.json === 'object'
-        ? wrapper.json
-        : parseJsonMaybe(body),
-    bodyTruncated: wrapper.bodyTruncated === true,
-    maxResponseBytes: wrapper.maxResponseBytes,
-    bodySuppressed: wrapper.bodySuppressed === true,
-    bodyBytes: wrapper.bodyBytes,
-    success: wrapper.success === true,
-    artifact: wrapper.artifact,
-    artifacts: Array.isArray(wrapper.artifacts) ? wrapper.artifacts : undefined,
-    captured: wrapper.captured,
-  };
-}
-
-function gatewayErrorMessage(response, text) {
-  const parsed = parseJsonMaybe(text);
-  const errorText =
-    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? String(parsed.error || parsed.text || text).trim()
-      : String(text || '').trim();
-  const prefix = `Gateway proxy returned HTTP ${response.status} for Blink request`;
-  if (
-    response.status === 400 &&
-    /not allowlisted by workspace network policy/u.test(errorText)
-  ) {
-    return `${prefix}: workspace network policy denied this helper-emitted target. ${errorText}`;
-  }
-  return errorText ? `${prefix}: ${errorText}` : prefix;
-}
-
-function formatTransportError(error) {
-  if (!error) return 'unknown error';
-  const message = error instanceof Error ? error.message : String(error);
-  const cause = error.cause instanceof Error ? ` (${error.cause.message})` : '';
-  return `${message}${cause}`;
-}
-
 async function executeGatewayRequest(httpRequest, options = {}) {
-  const fetchImpl = options.fetch || globalThis.fetch;
-  if (typeof fetchImpl !== 'function') {
-    throw new Error('fetch is not available for Blink requests.');
-  }
-  const gatewayUrl = String(options.gatewayUrl || resolveGatewayUrl()).replace(
-    /\/+$/u,
-    '',
-  );
-  const gatewayToken = options.gatewayToken || resolveGatewayToken();
-  const headers = { 'Content-Type': 'application/json' };
-  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
-  );
-  let response;
-  let text = '';
-  try {
-    try {
-      response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(httpRequest),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      throw new Error(
-        `Gateway proxy request failed before Blink request was sent: ${formatTransportError(
-          error,
-        )}. Check that the HybridClaw gateway is running and reachable at ${gatewayUrl}.`,
-      );
-    }
-    text = await response.text();
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!response.ok) {
-    throw new Error(gatewayErrorMessage(response, text));
-  }
-  const parsed = parseJsonMaybe(text);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {
-      command: 'live-result',
-      ok: true,
-      status: response.status,
-      statusText: response.statusText || '',
-      headers: {},
-      body: text,
-      bodyJson: null,
-    };
-  }
-  const normalized = normalizeGatewayResult(parsed, response.status);
-  if (normalized.bodyTruncated) {
-    throw new Error(
-      `Blink response was truncated by the gateway at ${normalized.maxResponseBytes || 'the configured'} bytes.`,
-    );
-  }
-  if (
-    !normalized.ok &&
-    (normalized.status < 300 || normalized.status > 399) &&
-    !new Set(options.allowedStatuses || []).has(normalized.status)
-  ) {
-    throw new Error(
-      `Blink returned HTTP ${normalized.status || 'error'}: ${
-        normalized.body || normalized.statusText
-      }`,
-    );
-  }
-  return normalized;
+  return executeSharedGatewayRequest(httpRequest, {
+    ...options,
+    command: 'live-result',
+    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+    serviceName: 'Blink',
+  });
 }
 
 function blinkMissingSecretName(error) {

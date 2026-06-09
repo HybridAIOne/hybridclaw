@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 
+const {
+  executeGatewayRequest: executeSharedGatewayRequest,
+} = require('../shared/gateway-http.cjs');
+
 const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
-const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const SKILL_NAME = 'zabbix';
@@ -565,106 +567,29 @@ function buildRequest(argv = process.argv.slice(2)) {
   return request;
 }
 
-function resolveGatewayUrl() {
-  return (
-    String(process.env.HYBRIDCLAW_GATEWAY_URL || '').trim() ||
-    DEFAULT_GATEWAY_URL
-  ).replace(/\/+$/u, '');
-}
-
-function resolveGatewayToken() {
-  return String(process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim();
-}
-
-function parseJsonMaybe(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeGatewayResult(wrapper, fallbackStatus) {
-  const status = Number(wrapper.status || fallbackStatus || 0);
-  const body = typeof wrapper.body === 'string' ? wrapper.body : '';
-  const bodyJson = parseJsonMaybe(body);
-  return {
-    ok: wrapper.ok !== false,
-    status,
-    statusText: wrapper.statusText || '',
-    headers: wrapper.headers || {},
-    body,
-    bodyJson,
-    bodyTruncated: wrapper.bodyTruncated === true,
-    maxResponseBytes: wrapper.maxResponseBytes,
-  };
-}
-
 function zabbixCredentialMessage(status, body) {
   const suffix = body ? ` Zabbix response: ${body}` : '';
   return `Zabbix returned HTTP ${status} for the first live call. Check ZABBIX_API_TOKEN, token permissions, and the configured Zabbix frontend URL before retrying.${suffix}`;
 }
 
 async function executeZabbixGatewayRequest(httpRequest, options = {}) {
-  const gatewayUrl = String(options.gatewayUrl || resolveGatewayUrl()).replace(
-    /\/+$/u,
-    '',
-  );
-  const gatewayToken = options.gatewayToken || resolveGatewayToken();
-  const fetchImpl = options.fetch || globalThis.fetch;
-  if (typeof fetchImpl !== 'function') {
-    throw new ZabbixError('fetch is not available for Zabbix requests.');
-  }
-
-  const headers = { 'Content-Type': 'application/json' };
-  if (gatewayToken) {
-    headers.Authorization = `Bearer ${gatewayToken}`;
-  }
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
-  );
-  let response;
-  let text = '';
+  let normalized;
   try {
-    response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(httpRequest),
-      signal: controller.signal,
+    normalized = await executeSharedGatewayRequest(httpRequest, {
+      ...options,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      rejectEnvelopeErrors: false,
+      serviceName: 'Zabbix',
+      truncationGuidance: 'Narrow the query or increase maxResponseBytes.',
     });
-    text = await response.text();
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!response.ok) {
+  } catch (error) {
     throw new ZabbixError(
-      `Gateway proxy returned HTTP ${response.status} for Zabbix request: ${text}`,
-      { status: response.status, body: text },
+      error instanceof Error ? error.message : String(error),
+      error && typeof error === 'object' ? error : {},
     );
   }
 
-  const parsed = parseJsonMaybe(text);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {
-      ok: true,
-      status: response.status,
-      headers: {},
-      body: text,
-      bodyJson: null,
-    };
-  }
-
-  const normalized = normalizeGatewayResult(parsed, response.status);
-  if (normalized.bodyTruncated) {
-    throw new ZabbixError(
-      `Zabbix response was truncated by the gateway at ${normalized.maxResponseBytes || 'the configured'} bytes. Narrow the query or increase maxResponseBytes.`,
-      normalized,
-    );
-  }
-  if (parsed.ok === false) {
+  if (normalized.ok === false) {
     if (normalized.status === 401 || normalized.status === 403) {
       throw new ZabbixCredentialError(
         zabbixCredentialMessage(normalized.status, normalized.body),

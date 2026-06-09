@@ -1,12 +1,22 @@
 'use strict';
 
-const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
-const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
+const {
+  normalizeGatewayEnvelope,
+  parseJsonMaybe,
+  resolveGatewayToken,
+  resolveGatewayUrl,
+  sendGatewayRequest,
+} = require('../shared/gateway-http.cjs');
 const {
   DEFAULT_TIMEOUT_MS,
   isRateLimitBody,
   parseRetryAfterMs,
 } = require('./lib/common.cjs');
+
+const GATEWAY_TOKEN_ENV_NAMES = [
+  'HYBRIDCLAW_GATEWAY_TOKEN',
+  'GATEWAY_API_TOKEN',
+];
 
 class HeyGenApiError extends Error {
   constructor(message, input = {}) {
@@ -18,30 +28,6 @@ class HeyGenApiError extends Error {
     this.rateLimited = Boolean(input.rateLimited);
     this.retryAfterMs = input.retryAfterMs ?? null;
     this.body = input.body || '';
-  }
-}
-
-function resolveGatewayUrl() {
-  return (
-    (process.env.HYBRIDCLAW_GATEWAY_URL || '').trim() ||
-    (process.env.GATEWAY_BASE_URL || '').trim() ||
-    DEFAULT_GATEWAY_URL
-  );
-}
-
-function resolveGatewayToken() {
-  return (
-    (process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim() ||
-    (process.env.GATEWAY_API_TOKEN || '').trim() ||
-    ''
-  );
-}
-
-function parseJsonMaybe(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
   }
 }
 
@@ -286,7 +272,11 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
     /\/+$/u,
     '',
   );
-  const gatewayToken = options.gatewayToken || resolveGatewayToken();
+  const gatewayToken =
+    options.gatewayToken ||
+    resolveGatewayToken(undefined, {
+      gatewayTokenEnvNames: GATEWAY_TOKEN_ENV_NAMES,
+    });
   const fetchImpl = options.fetch || globalThis.fetch;
   if (typeof fetchImpl !== 'function') {
     throw new HeyGenApiError('fetch is not available for HeyGen requests.', {
@@ -299,24 +289,17 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
 
   let lastError = null;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const headers = { 'Content-Type': 'application/json' };
-    if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
-    const controller = new AbortController();
-    const timeoutMs = httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS;
-    const timeout = setTimeout(
-      () => controller.abort(),
-      timeoutMs + GATEWAY_TIMEOUT_BUFFER_MS,
-    );
     let response;
     let text = '';
     try {
-      response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(httpRequest),
-        signal: controller.signal,
-      });
-      text = await response.text();
+      ({ response, text } = await sendGatewayRequest(httpRequest, {
+        defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+        fetch: fetchImpl,
+        gatewayToken,
+        gatewayTokenEnvNames: GATEWAY_TOKEN_ENV_NAMES,
+        gatewayUrl,
+        serviceName: 'HeyGen',
+      }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       response = undefined;
@@ -324,8 +307,6 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
         `Gateway proxy failed before the HeyGen response completed: ${message}`,
         { status: 0, retryable: true },
       );
-    } finally {
-      clearTimeout(timeout);
     }
 
     if (response) {
@@ -349,19 +330,20 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
             body: text,
           });
         }
-        if (wrapper.bodyTruncated) {
+        const envelope = normalizeGatewayEnvelope(wrapper, response.status);
+        if (envelope.bodyTruncated) {
           throw new HeyGenApiError(
-            `HeyGen response was truncated by the gateway at ${wrapper.maxResponseBytes || 'the configured'} bytes. Use a larger maxResponseBytes value or a summary-mode helper command.`,
+            `HeyGen response was truncated by the gateway at ${envelope.maxResponseBytes || 'the configured'} bytes. Use a larger maxResponseBytes value or a summary-mode helper command.`,
             {
               code: 'HEYGEN_RESPONSE_TRUNCATED',
-              status: Number(wrapper.status || response.status || 0),
+              status: Number(envelope.status || response.status || 0),
               retryable: false,
-              body: typeof wrapper.body === 'string' ? wrapper.body : text,
+              body: typeof envelope.body === 'string' ? envelope.body : text,
             },
           );
         }
-        const normalized = normalizeHeyGenPayload(wrapper);
-        if (wrapper.ok === false) {
+        const normalized = normalizeHeyGenPayload(envelope);
+        if (envelope.ok === false) {
           const retryAfter = extractHeader(normalized.headers, 'retry-after');
           const classification = classifyHeyGenResponse({
             status: normalized.status,

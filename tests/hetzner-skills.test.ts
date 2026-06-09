@@ -111,6 +111,10 @@ test('Hetzner helpers expose expected commands', () => {
 test('Hetzner helpers run when copied as standalone skill packages', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hetzner-skills-'));
   try {
+    fs.cpSync(path.join(skillRoot, 'shared'), path.join(tempRoot, 'shared'), {
+      recursive: true,
+    });
+
     for (const skill of skills) {
       const packagedSkillDir = path.join(tempRoot, skill.name);
       fs.cpSync(path.join(skillRoot, skill.name), packagedSkillDir, {

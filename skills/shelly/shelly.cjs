@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
+const {
+  executeGatewayRequest: executeSharedGatewayRequest,
+  parseJsonMaybe,
+} = require('../shared/gateway-http.cjs');
+
 const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
-const GATEWAY_TIMEOUT_BUFFER_MS = 1_000;
 const CLOUD_AUTH_SECRET = 'SHELLY_CLOUD_AUTH_KEY';
 const CLOUD_ACCESS_TOKEN_SECRET = 'SHELLY_CLOUD_ACCESS_TOKEN';
 const CLOUD_OAUTH_CODE_SECRET = 'SHELLY_OAUTH_CODE';
@@ -481,160 +484,13 @@ function buildPayload(
   return payload;
 }
 
-function resolveGatewayUrl() {
-  return String(
-    process.env.HYBRIDCLAW_GATEWAY_URL ||
-      process.env.GATEWAY_BASE_URL ||
-      DEFAULT_GATEWAY_URL,
-  ).replace(/\/+$/u, '');
-}
-
-function resolveGatewayToken() {
-  return String(
-    process.env.HYBRIDCLAW_GATEWAY_TOKEN || process.env.GATEWAY_API_TOKEN || '',
-  ).trim();
-}
-
-function parseJsonMaybe(text) {
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeGatewayResult(wrapper, fallbackStatus) {
-  const status = Number(wrapper.status || fallbackStatus || 0);
-  const body = typeof wrapper.body === 'string' ? wrapper.body : '';
-  return {
-    command: 'live-result',
-    ok: wrapper.ok !== false,
-    status,
-    statusText: wrapper.statusText || '',
-    headers: wrapper.headers || {},
-    body,
-    bodyJson: parseJsonMaybe(body),
-    bodyTruncated: wrapper.bodyTruncated === true,
-    maxResponseBytes: wrapper.maxResponseBytes,
-  };
-}
-
-function gatewayErrorMessage(response, text) {
-  const parsed = parseJsonMaybe(text);
-  const errorText =
-    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? String(parsed.error || parsed.text || text).trim()
-      : String(text || '').trim();
-  const prefix = `Gateway proxy returned HTTP ${response.status} for Shelly request`;
-  if (
-    response.status === 400 &&
-    /not allowlisted by workspace network policy/u.test(errorText)
-  ) {
-    return `${prefix}: workspace network policy denied this helper-emitted target. ${errorText}`;
-  }
-  if (
-    response.status === 502 &&
-    /Outbound HTTP request failed/u.test(errorText)
-  ) {
-    return `${prefix}: gateway policy accepted the request, but the gateway process could not open the outbound connection. ${errorText}`;
-  }
-  return `${prefix}: ${errorText || text}`;
-}
-
-function formatErrorCause(error) {
-  if (!error || typeof error !== 'object') return '';
-  const cause = error.cause;
-  if (!cause) return '';
-  if (cause instanceof Error) {
-    const nested = formatErrorCause(cause);
-    return nested && !cause.message.includes(nested)
-      ? `${cause.message} (${nested})`
-      : cause.message;
-  }
-  if (typeof cause === 'object') {
-    const code = typeof cause.code === 'string' ? cause.code : '';
-    const message = typeof cause.message === 'string' ? cause.message : '';
-    return [code, message].filter(Boolean).join(' ');
-  }
-  return String(cause);
-}
-
-function formatTransportError(error) {
-  if (!(error instanceof Error)) return String(error);
-  const cause = formatErrorCause(error);
-  if (!cause || error.message.includes(cause)) return error.message;
-  return `${error.message} (${cause})`;
-}
-
 async function executeGatewayRequest(httpRequest, options = {}) {
-  const fetchImpl = options.fetch || globalThis.fetch;
-  if (typeof fetchImpl !== 'function') {
-    throw new Error('fetch is not available for Shelly requests.');
-  }
-  const gatewayUrl = String(options.gatewayUrl || resolveGatewayUrl()).replace(
-    /\/+$/u,
-    '',
-  );
-  const gatewayToken = options.gatewayToken || resolveGatewayToken();
-  const headers = { 'Content-Type': 'application/json' };
-  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
-  );
-  let response;
-  let text = '';
-  try {
-    try {
-      response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(httpRequest),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      throw new Error(
-        `Gateway proxy request failed before Shelly request was sent: ${formatTransportError(
-          error,
-        )}. Check that the HybridClaw gateway is running and reachable at ${gatewayUrl}.`,
-      );
-    }
-    text = await response.text();
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!response.ok) {
-    throw new Error(gatewayErrorMessage(response, text));
-  }
-  const parsed = parseJsonMaybe(text);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {
-      command: 'live-result',
-      ok: true,
-      status: response.status,
-      statusText: response.statusText || '',
-      headers: {},
-      body: text,
-      bodyJson: null,
-    };
-  }
-  const normalized = normalizeGatewayResult(parsed, response.status);
-  if (normalized.bodyTruncated) {
-    throw new Error(
-      `Shelly response was truncated by the gateway at ${normalized.maxResponseBytes || 'the configured'} bytes.`,
-    );
-  }
-  if (!normalized.ok) {
-    throw new Error(
-      `Shelly returned HTTP ${normalized.status || 'error'}: ${
-        normalized.body || normalized.statusText
-      }`,
-    );
-  }
-  return normalized;
+  return executeSharedGatewayRequest(httpRequest, {
+    ...options,
+    command: 'live-result',
+    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+    serviceName: 'Shelly',
+  });
 }
 
 function isShellyOauthInvalidTokenError(error) {

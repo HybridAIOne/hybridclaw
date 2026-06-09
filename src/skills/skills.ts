@@ -1218,6 +1218,10 @@ function syncSkillIntoWorkspace(
     throw new Error(`Unsafe synced skill path: ${targetDir}`);
   }
 
+  if (skill.source === 'bundled') {
+    syncBundledSharedSkillHelpers(skill, rootDir);
+  }
+
   let shouldSync = true;
   try {
     if (fs.existsSync(targetSkillFile)) {
@@ -1235,6 +1239,35 @@ function syncSkillIntoWorkspace(
   }
 
   return targetSkillFile;
+}
+
+function syncBundledSharedSkillHelpers(
+  skill: SkillCandidate,
+  rootDir: string,
+): void {
+  const sourceDir = path.join(path.dirname(skill.baseDir), 'shared');
+  if (!fs.existsSync(sourceDir)) return;
+
+  const targetDir = path.join(rootDir, 'shared');
+  if (!pathWithin(rootDir, targetDir)) {
+    throw new Error(`Unsafe synced shared skill helper path: ${targetDir}`);
+  }
+
+  let shouldSync = true;
+  try {
+    if (fs.existsSync(targetDir)) {
+      shouldSync =
+        buildDirectoryContentSignature(sourceDir) !==
+        buildDirectoryContentSignature(targetDir);
+    }
+  } catch {
+    shouldSync = true;
+  }
+
+  if (shouldSync) {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
+  }
 }
 
 function collectSyncedSkillDirs(rootDir: string): string[] {

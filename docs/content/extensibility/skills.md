@@ -56,6 +56,14 @@ normal helper command should send the helper-built request through the
 HybridClaw gateway so the script remains the single owner of endpoint
 selection, payload construction, approval metadata, and secret refs.
 
+Bundled CommonJS helpers can reuse `skills/shared/gateway-http.cjs` for the
+gateway transport layer instead of implementing their own `fetch` calls. The
+shared helper covers gateway URL and token resolution, timeout handling, fetch
+injection for tests, gateway envelope normalization, JSON body parsing,
+truncation checks, and consistent gateway error messages. Keep domain-specific
+request construction, credential interpretation, retry policy, and response
+summaries in the skill helper itself.
+
 Provide a dry-run request mode, usually `--request`, that emits gateway-ready
 JSON so the model can inspect the request or pass the returned request object
 unchanged to `http_request` when direct gateway execution is unavailable. Avoid

@@ -4,6 +4,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { URL } = require('node:url');
+const {
+  DEFAULT_GATEWAY_URL,
+  executeGatewayEnvelope,
+  resolveGatewayToken,
+  resolveGatewayUrl,
+} = require('../shared/gateway-http.cjs');
 
 const SKILL_NAME = 't-cloud-public';
 const DEFAULT_REGION = 'eu-de';
@@ -12,9 +18,7 @@ const DEFAULT_ACCESS_KEY_SECRET = 'OTC_ACCESS_KEY_ID';
 const DEFAULT_SECRET_KEY_SECRET = 'OTC_SECRET_ACCESS_KEY';
 const DEFAULT_ENTERPRISE_DASHBOARD_TOKEN_SECRET =
   'OTC_ENTERPRISE_DASHBOARD_TOKEN';
-const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const DEFAULT_TIMEOUT_MS = 30_000;
-const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
 
 const COST_MEASUREMENT = {
@@ -763,72 +767,13 @@ function summarizeBillingResponse(response) {
   return summary;
 }
 
-function resolveGatewayUrl(raw) {
-  const value =
-    String(raw || '').trim() ||
-    String(process.env.HYBRIDCLAW_GATEWAY_URL || '').trim() ||
-    String(process.env.GATEWAY_BASE_URL || '').trim() ||
-    DEFAULT_GATEWAY_URL;
-  let parsed;
-  try {
-    parsed = new URL(value.replace(/\/+$/u, ''));
-  } catch {
-    die('--gateway-url must be an absolute http or https URL.');
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    die('--gateway-url must use http or https.');
-  }
-  return parsed.toString().replace(/\/+$/u, '');
-}
-
-function resolveGatewayToken(raw) {
-  return (
-    String(raw || '').trim() ||
-    String(process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim() ||
-    String(process.env.GATEWAY_API_TOKEN || '').trim() ||
-    String(process.env.WEB_API_TOKEN || '').trim()
-  );
-}
-
 async function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
-  const url = new URL(`${gatewayUrl}/api/http/request`);
-  const body = JSON.stringify(httpRequest);
-  const headers = {
-    'Content-Type': 'application/json',
-  };
-  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
-  );
-  let response;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  const text = await response.text();
-  let parsed = {};
-  try {
-    parsed = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(
-      `Gateway returned non-JSON response: ${text.slice(0, 500)}`,
-    );
-  }
-  if (!response.ok) {
-    throw new Error(
-      `Gateway request failed with HTTP ${response.status}: ${text.slice(0, 500)}`,
-    );
-  }
-  return parsed;
+  return executeGatewayEnvelope(httpRequest, {
+    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+    gatewayToken,
+    gatewayUrl,
+    serviceName: 'T-Cloud Public',
+  });
 }
 
 async function commandRun(args) {

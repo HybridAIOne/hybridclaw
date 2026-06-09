@@ -3,6 +3,12 @@
 
 const path = require('node:path');
 const {
+  DEFAULT_GATEWAY_URL,
+  executeGatewayEnvelope,
+  resolveGatewayToken,
+  resolveGatewayUrl,
+} = require('../shared/gateway-http.cjs');
+const {
   COST_MEASUREMENT,
   appendQuery,
   assertNoUnexpectedArgs,
@@ -17,9 +23,7 @@ const {
 } = require('./hetzner-shared.cjs');
 
 const API_BASE = 'https://api.hetzner.cloud/v1';
-const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const DEFAULT_TIMEOUT_MS = 30_000;
-const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
 const TOKEN_SECRET = 'HETZNER_API_TOKEN';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
 const LIVE_EXECUTION = {
@@ -149,80 +153,17 @@ function buildHttpRequest(
   return payload;
 }
 
-function resolveGatewayUrl(raw) {
-  const value =
-    String(raw || '').trim() ||
-    String(process.env.HYBRIDCLAW_GATEWAY_URL || '').trim() ||
-    String(process.env.GATEWAY_BASE_URL || '').trim() ||
-    DEFAULT_GATEWAY_URL;
-  const normalized = value.replace(/\/+$/u, '');
-  let parsed;
-  try {
-    parsed = new URL(normalized);
-  } catch {
-    die('--gateway-url must be an absolute http or https URL.');
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    die('--gateway-url must use http or https.');
-  }
-  return normalized;
-}
-
-function resolveGatewayToken(raw) {
-  return (
-    String(raw || '').trim() ||
-    String(process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim() ||
-    String(process.env.GATEWAY_API_TOKEN || '').trim() ||
-    String(process.env.WEB_API_TOKEN || '').trim()
-  );
-}
-
 async function gatewayRequest(httpRequest, { gatewayUrl, gatewayToken }) {
-  const url = `${gatewayUrl}/api/http/request`;
-  const headers = { 'Content-Type': 'application/json' };
-  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
-  );
-  let response;
   try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(httpRequest),
-      signal: controller.signal,
+    return await executeGatewayEnvelope(httpRequest, {
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      gatewayToken,
+      gatewayUrl,
+      serviceName: 'Hetzner Cloud',
     });
   } catch (error) {
-    die(
-      `Cannot reach HybridClaw gateway at ${url}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      1,
-    );
-  } finally {
-    clearTimeout(timeout);
+    die(error instanceof Error ? error.message : String(error), 1);
   }
-
-  const text = await response.text();
-  let envelope;
-  try {
-    envelope = text ? JSON.parse(text) : {};
-  } catch {
-    die(`Gateway returned non-JSON response: ${text.slice(0, 500)}`, 1);
-  }
-  if (!response.ok) {
-    die(
-      `Gateway request failed with HTTP ${response.status}: ${text.slice(
-        0,
-        500,
-      )}`,
-      1,
-    );
-  }
-  return envelope;
 }
 
 function buildPlan(text) {

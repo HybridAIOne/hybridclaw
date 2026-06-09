@@ -109,6 +109,20 @@ describe('skill resolution integration', () => {
     expect(invoiceSkill?.metadata.hybridclaw.tags).toContain('invoices');
   });
 
+  it('loadSkills mirrors bundled shared CJS helpers into workspace', async () => {
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const skills = skillsMod.loadSkills('main');
+    const workspaceDir = agentWorkspaceDir('main');
+
+    expect(skills.some((skill) => skill.name === 'shelly')).toBe(true);
+    expect(skills.some((skill) => skill.name === 'shared')).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(workspaceDir, 'skills', 'shared', 'gateway-http.cjs'),
+      ),
+    ).toBe(true);
+  });
+
   it('advertises gog for Google Calendar event access', () => {
     const catalog = skillsMod.loadSkillCatalog();
     const gogSkill = catalog.find((skill) => skill.name === 'gog');
