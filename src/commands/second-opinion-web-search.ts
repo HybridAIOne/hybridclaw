@@ -5,6 +5,7 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import { isRecord } from '../utils/type-guards.js';
 
 export type SecondOpinionWebSearchProvider = 'brave' | 'tavily' | 'duckduckgo';
 
@@ -30,10 +31,6 @@ const SECOND_OPINION_SEARCH_RESULT_LIMIT = 10;
 const SECOND_OPINION_FETCH_EXCERPT_LIMIT = 1200;
 const SECOND_OPINION_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 function decodeEntities(value: string): string {
   return value

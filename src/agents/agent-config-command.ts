@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import { isRecord } from '../utils/type-guards.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import {
   getAgentById,
@@ -57,10 +57,6 @@ type AgentConfigJsonPayload = Record<string, unknown> & {
   files?: unknown;
   markdown?: unknown;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;

@@ -21,6 +21,7 @@ import {
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import type { UsageTotals } from '../types/usage.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   type AuditTurnTraceSelector,
   buildAuditTurnTraceRecords,
@@ -135,10 +136,6 @@ interface TraceExportRedactionStats {
 function safeFilePart(raw: string): string {
   const normalized = raw.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
   return normalized || 'session';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function exportBaseDir(agentId: string, sessionId: string): string {

@@ -32,6 +32,7 @@ import type { ToolExecution } from '../types/execution.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
+import { isRecord } from '../utils/type-guards.js';
 import { createPluginApi } from './plugin-api.js';
 import type {
   HybridClawPluginDefinition,
@@ -218,10 +219,6 @@ export interface PluginManagerOptions {
     pluginId: string,
     request: PluginDispatchInboundMessageRequest,
   ) => Promise<import('../gateway/gateway-types.js').GatewayChatResult>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function safeString(value: () => unknown, fallback: string): string {

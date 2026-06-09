@@ -1,10 +1,10 @@
 import path from 'node:path';
-
 import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedString as normalizeString,
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
+import { isRecord } from '../utils/type-guards.js';
 import type { AgentModelConfig } from './agent-types.js';
 
 export const CLAW_FORMAT_VERSION = 1 as const;
@@ -76,10 +76,6 @@ type ClawPluginConfigList = Array<{
   enabled: boolean;
   config?: Record<string, unknown>;
 }>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
-}
 
 function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? normalizeTrimmedUniqueStringArray(value) : [];
