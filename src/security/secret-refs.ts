@@ -1,3 +1,4 @@
+import { isRecord } from '../utils/type-guards.js';
 import {
   isRuntimeSecretName,
   readStoredRuntimeSecret,
@@ -27,10 +28,6 @@ type ParsedSecretInput =
   | { kind: 'plain' }
   | { kind: 'ref'; ref: SecretRef }
   | { kind: 'invalid'; reason: string };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 export function hardenSecretRef(ref: StoreSecretRef): SecretRef {
   const hardened = { source: 'store' as const, id: ref.id };

@@ -106,6 +106,7 @@ import {
   normalizeTrimmedStringSet,
 } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
@@ -2048,10 +2049,6 @@ function isRuntimeConfigWatcherDisabled(): boolean {
 
 function cloneConfig<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeString(

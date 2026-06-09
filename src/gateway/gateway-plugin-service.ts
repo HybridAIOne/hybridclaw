@@ -38,6 +38,7 @@ import {
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { isRecord } from '../utils/type-guards.js';
 import { consumeCommandApproval } from './command-approval-trust.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
@@ -1022,10 +1023,6 @@ function normalizePluginCommandResult(value: unknown): GatewayCommandResult {
     }
   }
   return { kind: 'plain', text: JSON.stringify(value, null, 2) };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isGatewayMessageComponents(
