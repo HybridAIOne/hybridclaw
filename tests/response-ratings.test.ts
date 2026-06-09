@@ -350,7 +350,6 @@ describe('response ratings', () => {
       rating: 'up',
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -369,7 +368,6 @@ describe('response ratings', () => {
       rating: 'up',
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -392,7 +390,6 @@ describe('response ratings', () => {
       rating: 'up',
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -464,7 +461,6 @@ describe('response ratings', () => {
       rating: null,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

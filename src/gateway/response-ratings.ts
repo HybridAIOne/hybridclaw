@@ -1,10 +1,18 @@
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
-import { HYBRIDAI_CHATBOT_ID, OBSERVABILITY_BOT_ID } from '../config/config.js';
+import {
+  getHybridAIApiKey,
+  getHybridAIAuthStatus,
+} from '../auth/hybridai-auth.js';
+import {
+  HYBRIDAI_BASE_URL,
+  HYBRIDAI_CHATBOT_ID,
+  OBSERVABILITY_BOT_ID,
+} from '../config/config.js';
+import { logger } from '../logger.js';
 import {
   clearResponseRating,
-  getAnyChatbotId,
-  getResponseRatingFeedbackContext,
   getResponseRatingTarget,
+  type ResponseRatingTarget,
   upsertResponseRating,
 } from '../memory/db.js';
 import { normalizeBaseUrl } from '../providers/utils.js';
@@ -32,12 +40,9 @@ export class ResponseRatingNotFoundError extends Error {
 }
 
 const HYBRIDAI_CHAT_FEEDBACK_TIMEOUT_MS = 10_000;
-
-function resolveHybridAIChatFeedbackUrl(): string {
-  const baseUrl =
-    process.env.HYBRIDAI_BASE_URL?.trim() || 'https://hybridai.one';
-  return `${normalizeBaseUrl(baseUrl)}/api/chat_feedback`;
-}
+const HYBRIDAI_CHAT_FEEDBACK_URL = `${normalizeBaseUrl(
+  HYBRIDAI_BASE_URL,
+)}/api/chat_feedback`;
 
 function resolveHybridAIChatFeedbackBotId(
   sessionChatbotId: string | null | undefined,
@@ -46,61 +51,55 @@ function resolveHybridAIChatFeedbackBotId(
     sessionChatbotId?.trim() ||
     OBSERVABILITY_BOT_ID.trim() ||
     HYBRIDAI_CHATBOT_ID.trim() ||
-    getAnyChatbotId() ||
     ''
   );
 }
 
-async function warnHybridAIChatFeedbackForwardingFailed(
+function warnHybridAIChatFeedbackForwardingFailed(
   context: Record<string, unknown>,
-): Promise<void> {
-  try {
-    const { logger } = await import('../logger.js');
-    logger.warn(context, 'HybridAI chat feedback forwarding failed');
-  } catch {
-    // Logging must not make rating submission fail.
-  }
+): void {
+  logger.warn(context, 'HybridAI chat feedback forwarding failed');
 }
 
-export async function forwardHybridAIChatFeedbackForRating(input: {
+function resolveHybridAIChatFeedbackBrowserId(sessionId: string): string {
+  // HybridAI's feedback API requires a stable opaque browser_id. Web ratings
+  // are session-scoped and do not expose a separate browser fingerprint here,
+  // so use the HybridClaw session id rather than adding user-identifying data.
+  return sessionId;
+}
+
+async function forwardHybridAIChatFeedbackForRating(input: {
   sessionId: string;
   messageId: number;
   operatorUserId: string;
   rating: ResponseRatingValue;
-  agentId: string | null;
+  target: ResponseRatingTarget;
 }): Promise<void> {
-  const context = getResponseRatingFeedbackContext({
-    sessionId: input.sessionId,
-    messageId: input.messageId,
-  });
-  if (!context) return;
-  const chatbotId = resolveHybridAIChatFeedbackBotId(context?.chatbot_id);
-  if (!chatbotId) return;
-
   let apiKey = '';
   try {
-    const { getHybridAIApiKey, getHybridAIAuthStatus } = await import(
-      '../auth/hybridai-auth.js'
-    );
     if (!getHybridAIAuthStatus().authenticated) return;
     apiKey = getHybridAIApiKey();
   } catch {
     return;
   }
 
+  const chatbotId = resolveHybridAIChatFeedbackBotId(input.target.chatbot_id);
+  if (!chatbotId) return;
+
+  const agentId = input.target.agent_id?.trim();
   const payload = {
     chatbot_id: chatbotId,
-    browser_id: input.sessionId,
+    browser_id: resolveHybridAIChatFeedbackBrowserId(input.sessionId),
     rating: input.rating,
-    user_message: context.user_content ?? '',
-    bot_response: input.agentId?.trim()
-      ? `[${input.agentId.trim()}] ${context.assistant_content}`
-      : context.assistant_content,
+    user_message: input.target.user_content ?? '',
+    bot_response: agentId
+      ? `[${agentId}] ${input.target.assistant_content}`
+      : input.target.assistant_content,
     external_user_id: input.operatorUserId,
   };
 
   try {
-    const response = await fetch(resolveHybridAIChatFeedbackUrl(), {
+    const response = await fetch(HYBRIDAI_CHAT_FEEDBACK_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -110,14 +109,14 @@ export async function forwardHybridAIChatFeedbackForRating(input: {
       signal: AbortSignal.timeout(HYBRIDAI_CHAT_FEEDBACK_TIMEOUT_MS),
     });
     if (!response.ok) {
-      await warnHybridAIChatFeedbackForwardingFailed({
+      warnHybridAIChatFeedbackForwardingFailed({
         sessionId: input.sessionId,
         messageId: input.messageId,
         status: response.status,
       });
     }
   } catch (err) {
-    await warnHybridAIChatFeedbackForwardingFailed({
+    warnHybridAIChatFeedbackForwardingFailed({
       sessionId: input.sessionId,
       messageId: input.messageId,
       err,
@@ -198,7 +197,7 @@ export function submitResponseRating(
       messageId: input.messageId,
       operatorUserId,
       rating: input.rating,
-      agentId: target.agent_id,
+      target,
     });
   }
 
