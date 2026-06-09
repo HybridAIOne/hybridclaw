@@ -17,6 +17,7 @@ import { resolveManagedTempMediaDir } from '../../media/managed-temp-media.js';
 import { createUploadedMediaContextItem } from '../../media/uploaded-media-cache.js';
 import { buildSessionKey } from '../../session/session-key.js';
 import type { MediaContextItem } from '../../types/container.js';
+import { normalizeNativeAgentAddressingText } from '../agent-addressing.js';
 import { guessWhatsAppExtensionFromMimeType } from './mime-utils.js';
 import {
   canonicalizeWhatsAppUserJid,
@@ -349,7 +350,9 @@ export async function processInboundWhatsAppMessage(params: {
     message: params.message,
     mediaMaxMb: params.config.mediaMaxMb,
   });
-  const content = extractInboundText(params.message.message ?? {}) || '';
+  const content = normalizeNativeAgentAddressingText(
+    extractInboundText(params.message.message ?? {}) || '',
+  );
   if (!content.trim() && media.length === 0) {
     return null;
   }

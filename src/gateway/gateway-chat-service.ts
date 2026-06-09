@@ -90,6 +90,11 @@ import {
   ensureBootstrapFiles,
   resolveStartupBootstrapFile,
 } from '../workspace.js';
+import {
+  getActiveThreadAgentId,
+  resolveAgentAddressing,
+  setActiveThreadAgentId,
+} from './agent-addressing.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
@@ -719,6 +724,105 @@ async function handleGatewayMessageInner(
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
   });
+  const fanoutSource = source.includes('.fanout');
+  const shouldUpdateActiveAgent =
+    source !== 'fullauto' &&
+    !fanoutSource &&
+    !isGoalContinuationSource(source) &&
+    resolveSessionResetChannelKind(req.channelId) !== 'scheduler' &&
+    resolveSessionResetChannelKind(req.channelId) !== 'heartbeat';
+  const addressed = resolveAgentAddressing({
+    content: req.content,
+    currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
+    fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
+  });
+  if (addressed.kind === 'error') {
+    return attachSessionIdentity({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: addressed.message,
+    });
+  }
+  if (addressed.kind === 'fanout') {
+    if (addressed.agentIds.length === 0) {
+      return attachSessionIdentity({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `No agents are available for @${addressed.alias}.`,
+        addressEnvelope: addressed.envelope,
+      });
+    }
+    const outputs: string[] = [];
+    try {
+      for (const targetAgentId of addressed.agentIds) {
+        const childEnvelope = {
+          ...addressed.envelope,
+          to: targetAgentId,
+        };
+        const childResult = await handleGatewayMessageInner({
+          ...req,
+          content: addressed.content,
+          agentId: targetAgentId,
+          addressEnvelope: childEnvelope,
+          source: `${source}.fanout`,
+          onTextDelta: undefined,
+          onThinkingDelta: undefined,
+          onToolProgress: undefined,
+          onApprovalProgress: undefined,
+        });
+        const childText =
+          childResult.result ||
+          childResult.error ||
+          (childResult.status === 'success' ? '(no reply)' : 'failed');
+        outputs.push(`@${targetAgentId}: ${childText}`);
+      }
+    } finally {
+      session = memoryService.getOrCreateSession(
+        req.sessionId,
+        req.guildId,
+        req.channelId,
+        session.agent_id || DEFAULT_AGENT_ID,
+        { forceNewCurrent: shouldForceNewTuiSession(req) },
+      );
+    }
+    return attachSessionIdentity({
+      status: 'success',
+      result: outputs.join('\n\n'),
+      toolsUsed: [],
+      agentId: session.agent_id || DEFAULT_AGENT_ID,
+      addressEnvelope: addressed.envelope,
+      assistantPresentation: getGatewayAssistantPresentationForMessageAgent(
+        session.agent_id || DEFAULT_AGENT_ID,
+      ),
+    });
+  }
+  if (addressed.kind === 'agent') {
+    req.content = addressed.content;
+    req.agentId = addressed.agentId;
+    req.addressEnvelope = addressed.envelope;
+    if (shouldUpdateActiveAgent) {
+      setActiveThreadAgentId(session, addressed.agentId);
+    }
+  } else if (req.agentId?.trim()) {
+    if (shouldUpdateActiveAgent) {
+      setActiveThreadAgentId(session, req.agentId.trim());
+    }
+    req.addressEnvelope ??= {
+      to: req.agentId.trim(),
+      from: session.agent_id || DEFAULT_AGENT_ID,
+    };
+  } else {
+    const activeAgentId = getActiveThreadAgentId(session);
+    if (activeAgentId) {
+      req.agentId = activeAgentId;
+      req.addressEnvelope = {
+        to: activeAgentId,
+        from: session.agent_id || DEFAULT_AGENT_ID,
+      };
+    }
+  }
   const cliSecretSetCommand = detectCliSecretSetCommand(req.content);
   if (cliSecretSetCommand) {
     return attachSessionIdentity({
@@ -1677,6 +1781,7 @@ async function handleGatewayMessageInner(
       executorModeOverride: req.executorModeOverride,
       model,
       agentId,
+      addressEnvelope: req.addressEnvelope,
       workspacePathOverride: req.workspacePathOverride,
       workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
       skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
@@ -2149,6 +2254,7 @@ async function handleGatewayMessageInner(
       pluginsUsed,
       skillUsed: observedSkillName ?? undefined,
       agentId,
+      addressEnvelope: req.addressEnvelope,
       model,
       provider,
       memoryCitations: output.memoryCitations,

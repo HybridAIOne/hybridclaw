@@ -292,6 +292,23 @@ export function Composer(props: {
     setPendingMedia((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const prefixAgentMention = (agentId: string) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const mention = `@${agentId}`;
+    const trimmed = ta.value.trimStart();
+    if (trimmed.startsWith(`${mention} `) || trimmed === mention) {
+      ta.focus();
+      return;
+    }
+    ta.value = `${mention} ${trimmed}`;
+    const cursor = ta.value.length;
+    ta.setSelectionRange(cursor, cursor);
+    closePanel();
+    resize();
+    ta.focus();
+  };
+
   const agentOptions = props.agents ?? [];
   const selectedAgentId = props.selectedAgentId ?? '';
   const modelOptions = props.models ?? [];
@@ -323,6 +340,25 @@ export function Composer(props: {
               {uploading > 0 ? (
                 <span className={css.mediaChip}>Uploading…</span>
               ) : null}
+            </div>
+          ) : null}
+          {agentOptions.length > 1 ? (
+            <div className={css.agentMentionRow}>
+              {agentOptions.map((agent) => (
+                <button
+                  key={agent.id}
+                  type="button"
+                  className={cx(
+                    css.agentMentionChip,
+                    agent.id === selectedAgentId && css.isActive,
+                  )}
+                  disabled={props.isStreaming}
+                  title={`Address ${agent.name?.trim() || agent.id}`}
+                  onClick={() => prefixAgentMention(agent.id)}
+                >
+                  @{agent.id}
+                </button>
+              ))}
             </div>
           ) : null}
           <textarea

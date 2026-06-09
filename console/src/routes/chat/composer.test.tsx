@@ -86,6 +86,22 @@ describe('Composer', () => {
     expect(onAgentSwitch).toHaveBeenCalledWith('charly');
   });
 
+  it('prefixes the next message when an agent chip is selected', () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'research', name: 'Research Agent' },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: 'summarize this' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '@research' }));
+
+    expect(textarea.value).toBe('@research summarize this');
+  });
+
   it('preserves internal newlines when sending a multiline message', () => {
     const onSend = vi.fn();
     renderComposer({ onSend });

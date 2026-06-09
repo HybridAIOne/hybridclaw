@@ -132,6 +132,11 @@ export interface ChatStreamResult {
   userMessageId?: number | string | null;
   assistantMessageId?: number | string | null;
   result?: string;
+  addressEnvelope?: {
+    to: string | string[];
+    from?: string | null;
+    fanoutAlias?: 'team' | 'all';
+  };
   assistantPresentation?: AssistantPresentation | null;
   model?: string;
   provider?: string;

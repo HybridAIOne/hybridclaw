@@ -1310,6 +1310,54 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--danger);
 }
 
+.agentMentionRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.agentMentionRow::-webkit-scrollbar {
+  display: none;
+}
+
+.agentMentionChip {
+  flex: 0 0 auto;
+  max-width: 160px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentMentionChip:hover:not(:disabled),
+.agentMentionChip:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
+  outline: none;
+}
+
+.agentMentionChip.isActive {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.agentMentionChip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .composerRow {
   display: flex;
   align-items: flex-end;
