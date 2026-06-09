@@ -229,8 +229,8 @@ import {
   getMemoryValue,
   getQueuedProactiveMessageCount,
   getRecentMessages,
-  getRecentSessionsForActor,
   getRecentSessionsForChannel,
+  getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
   getResponseRatingsForMessages,
   getSessionBoundaryMessagesBySessionIds,
@@ -7767,8 +7767,8 @@ export function getGatewayRecentChatSessions(params: {
   fallbackToChannelRecent?: boolean;
   includeScheduled?: boolean;
 }): GatewayRecentChatSession[] {
-  const sessions = getRecentSessionsForActor({
-    actor: { type: 'user', id: params.userId },
+  const sessions = getRecentSessionsForUser({
+    userId: params.userId,
     channelId: params.channelId || 'web',
     limit: params.limit,
     query: params.query,
