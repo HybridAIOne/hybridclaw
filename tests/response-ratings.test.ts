@@ -7,18 +7,37 @@ const makeTempDir = useTempDir('hybridclaw-response-ratings-');
 
 useCleanMocks({
   resetModules: true,
+  unstubAllEnvs: true,
+  unstubAllGlobals: true,
   unmock: [
     '../src/audit/audit-events.js',
+    '../src/auth/hybridai-auth.js',
     '../src/skills/skills-observation.js',
   ],
 });
 
-async function setup() {
+async function setup(options?: {
+  apiKey?: string;
+  authenticated?: boolean;
+  chatbotId?: string | null;
+}) {
   const recordAuditEvent = vi.fn();
   const recordSkillFeedbackForObservation = vi.fn();
   vi.doMock('../src/audit/audit-events.js', () => ({
     makeAuditRunId: () => 'rating_run',
     recordAuditEvent,
+  }));
+  vi.doMock('../src/auth/hybridai-auth.js', () => ({
+    getHybridAIAuthStatus: () => ({
+      authenticated: options?.authenticated ?? Boolean(options?.apiKey),
+      path: 'test',
+      maskedApiKey: options?.apiKey ? 'hai-…test' : null,
+      source: options?.apiKey ? 'env' : null,
+    }),
+    getHybridAIApiKey: () => {
+      if (options?.apiKey) return options.apiKey;
+      throw new Error('HYBRIDAI_API_KEY is not configured.');
+    },
   }));
   vi.doMock('../src/skills/skills-observation.js', () => ({
     recordSkillFeedbackForObservation,
@@ -34,6 +53,9 @@ async function setup() {
     'main',
   );
   dbModule.updateSessionModel(session.id, 'hybridai/gpt-5');
+  if (options?.chatbotId !== undefined) {
+    dbModule.updateSessionChatbot(session.id, options.chatbotId);
+  }
   const userMessageId = dbModule.storeMessage(
     session.id,
     'user_a',
@@ -199,6 +221,107 @@ describe('response ratings', () => {
     });
   });
 
+  test('forwards accepted HybridAI ratings to chat feedback endpoint with stored prompt and response', async () => {
+    vi.stubEnv('HYBRIDAI_BASE_URL', 'https://hybridai.example/');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      chatbotId: 'bot-feedback',
+    });
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'up',
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [url, request] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit & { body: string },
+    ];
+    expect(url).toBe('https://hybridai.example/api/chat_feedback');
+    expect(request.method).toBe('POST');
+    expect(request.headers).toMatchObject({
+      Authorization: 'Bearer hai-feedback-test-key',
+      'Content-Type': 'application/json',
+    });
+    expect(JSON.parse(request.body)).toEqual({
+      chatbot_id: 'bot-feedback',
+      browser_id: service.sessionId,
+      rating: 'up',
+      user_message: 'Hello',
+      bot_response: 'Hi there',
+      external_user_id: 'operator-a',
+    });
+  });
+
+  test('does not forward without a HybridAI key', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const service = await setup({ chatbotId: 'bot-feedback' });
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'up',
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('does not forward without a bot id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const service = await setup({ apiKey: 'hai-feedback-test-key' });
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'up',
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('does not forward when HybridAI auth is inactive', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      authenticated: false,
+      chatbotId: 'bot-feedback',
+    });
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'up',
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('rejects missing and non-assistant response identifiers', async () => {
     const service = await setup();
 
@@ -247,5 +370,27 @@ describe('response ratings', () => {
       }),
     ).toEqual(new Map());
     expect(service.recordSkillFeedbackForObservation).not.toHaveBeenCalled();
+  });
+
+  test('does not forward cleared ratings', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      chatbotId: 'bot-feedback',
+    });
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: null,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -260,6 +260,14 @@ export interface ResponseRatingTarget {
   skill_name: string | null;
 }
 
+export interface ResponseRatingFeedbackContext {
+  session_id: string;
+  message_id: number;
+  chatbot_id: string | null;
+  user_content: string | null;
+  assistant_content: string;
+}
+
 interface SessionBranchRow {
   session_id: string;
   parent_session_id: string;
@@ -7520,6 +7528,37 @@ export function getResponseRatingTarget(params: {
     ...row,
     provider: inferProviderFromModel(row.model),
   };
+}
+
+export function getResponseRatingFeedbackContext(params: {
+  sessionId: string;
+  messageId: number;
+}): ResponseRatingFeedbackContext | null {
+  const sessionId = resolveSessionIdCompat(params.sessionId);
+  const row = queryOne<ResponseRatingFeedbackContext, [string, number]>(
+    db,
+    `SELECT
+       m.session_id,
+       m.id AS message_id,
+       s.chatbot_id,
+       (
+         SELECT previous_user_message.content
+         FROM messages previous_user_message
+         WHERE previous_user_message.session_id = m.session_id
+           AND previous_user_message.id < m.id
+           AND previous_user_message.role = 'user'
+         ORDER BY previous_user_message.id DESC
+         LIMIT 1
+       ) AS user_content,
+       m.content AS assistant_content
+     FROM messages m
+     LEFT JOIN sessions s ON s.id = m.session_id
+     WHERE m.session_id = ? AND m.id = ?
+     LIMIT 1`,
+    sessionId,
+    params.messageId,
+  );
+  return row ?? null;
 }
 
 export function upsertResponseRating(input: {
