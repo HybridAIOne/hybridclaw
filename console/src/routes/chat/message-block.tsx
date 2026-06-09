@@ -409,7 +409,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
     });
   }, [msg.artifacts]);
 
-  const isApproval = msg.role === 'approval' || Boolean(msg.pendingApproval);
+  const isApproval = msg.role === 'approval';
   const shouldRenderApprovalCard = isApproval && Boolean(msg.pendingApproval);
   const isMarkdownMessage =
     msg.role === 'assistant' ||
