@@ -19,6 +19,7 @@ import type { ChatUiMessage, ThinkingChatMessage } from './chat-ui-message';
 interface ActiveRequest {
   controller: AbortController;
   sessionId: string;
+  messageRole: ChatMessage['role'];
   assistantText: string;
   lastRenderedText: string;
   pendingApproval: ChatStreamApproval | null;
@@ -148,6 +149,7 @@ export function useChatStream(
       const req: ActiveRequest = {
         controller: new AbortController(),
         sessionId: targetSessionId,
+        messageRole: 'assistant',
         assistantText: '',
         lastRenderedText: '',
         pendingApproval: null,
@@ -168,9 +170,6 @@ export function useChatStream(
         }
         req.lastRenderedText = req.assistantText;
 
-        const role: ChatMessage['role'] = req.pendingApproval
-          ? 'approval'
-          : 'assistant';
         const text = req.assistantText;
         const approval = req.pendingApproval;
 
@@ -180,7 +179,12 @@ export function useChatStream(
           if (existing) {
             return withoutThinking.map((m) =>
               m === existing
-                ? { ...m, role, content: text, pendingApproval: approval }
+                ? {
+                    ...m,
+                    role: req.messageRole,
+                    content: text,
+                    pendingApproval: approval,
+                  }
                 : m,
             );
           }
@@ -188,7 +192,7 @@ export function useChatStream(
             ...withoutThinking,
             {
               id: streamId,
-              role,
+              role: req.messageRole,
               content: text,
               sessionId: req.sessionId,
               artifacts: [],
@@ -231,6 +235,7 @@ export function useChatStream(
             },
             onApproval: (event) => {
               req.pendingApproval = event;
+              req.messageRole = 'approval';
               if (!req.assistantText.trim()) {
                 req.assistantText = buildApprovalSummary(event);
               }
@@ -257,8 +262,10 @@ export function useChatStream(
         const finalText = result.result ?? req.assistantText ?? '';
         const finalApproval = req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
-        const finalRole: ChatMessage['role'] =
-          result.messageRole ?? (finalApproval ? 'approval' : 'assistant');
+        if (!result.messageRole) {
+          throw new Error('Gateway chat result is missing messageRole.');
+        }
+        const finalRole: ChatMessage['role'] = result.messageRole;
         // A slash command that produced no visible output (and no artifacts)
         // leaves no bubble — like a shell command that succeeds silently.
         const isSilentCommand =

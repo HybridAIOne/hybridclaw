@@ -122,6 +122,7 @@ describe('useChatStream', () => {
           status: 'ok',
           assistantMessageId: 'assistant-1',
           result: 'Approval requested',
+          messageRole: 'approval',
         };
       },
     );
@@ -189,6 +190,7 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-2',
           assistantMessageId: 'assistant-2',
           result: 'Answer',
+          messageRole: 'assistant',
           assistantPresentation: {
             agentId: 'charly',
             displayName: 'Charly',
@@ -262,6 +264,7 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-1',
           assistantMessageId: 'assistant-1',
           result: 'Answer',
+          messageRole: 'assistant',
         };
       },
     );
@@ -480,6 +483,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: 'assistant-1',
       result: 'Answer',
+      messageRole: 'assistant',
       model: 'hybridai/grok-4.20-0309-non-reasoning',
     });
 
@@ -596,6 +600,7 @@ describe('useChatStream', () => {
         userMessageId: 'server-user-1',
         assistantMessageId: 'assistant-1',
         result: 'Answer',
+        messageRole: 'assistant',
       });
       await firstSend;
     });
@@ -611,6 +616,7 @@ describe('useChatStream', () => {
         userMessageId: 'server-user-1',
         assistantMessageId: 'assistant-1',
         result: 'Answer',
+        messageRole: 'assistant',
       }),
     );
 
@@ -685,6 +691,7 @@ describe('useChatStream', () => {
         userMessageId: 'server-user-1',
         assistantMessageId: 'assistant-1',
         result: 'Reply from A',
+        messageRole: 'assistant',
       });
       await sendPromise;
     });
