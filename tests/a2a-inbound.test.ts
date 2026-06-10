@@ -492,21 +492,21 @@ describe('A2A JSON-RPC inbound adapter', () => {
         },
       };
     });
-    const { getRecentStructuredAuditForSession, runtime, inbound } =
-      await loadInboundTestModules();
-    const keyPair = generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-    });
-
-    inbound.upsertA2ATrustedA2APeer({
-      peerId: 'instance-x',
-      senderAgentId: 'main@team@inst-x',
-      publicKeyPem: keyPair.publicKeyPem,
-    });
-
     try {
+      const { getRecentStructuredAuditForSession, runtime, inbound } =
+        await loadInboundTestModules();
+      const keyPair = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      });
+
+      inbound.upsertA2ATrustedA2APeer({
+        peerId: 'instance-x',
+        senderAgentId: 'main@team@inst-x',
+        publicKeyPem: keyPair.publicKey,
+      });
+
       expect(
         inbound.acceptA2AHttpEnvelopeInboundRequest({
           rawBody: JSON.stringify({
@@ -520,7 +520,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
             created_at: '2026-05-01T10:00:00.000Z',
           }),
           authorization: null,
-          mtlsPublicKeyPem: keyPair.publicKeyPem,
+          mtlsPublicKeyPem: keyPair.publicKey,
           audience: 'http://localhost/a2a/envelopes',
           now: new Date('2030-01-01T00:00:30.000Z'),
         }),
