@@ -2,9 +2,11 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -36,6 +38,8 @@ interface AgentMentionContext {
   tokenStart: number;
   query: string;
 }
+
+const AGENT_MENTION_TOKEN_RE = /@([A-Za-z0-9._-]+)(?=$|[\s:])/gu;
 
 function getAgentMentionContext(
   value: string,
@@ -77,8 +81,10 @@ export function Composer(props: {
   const [activeIdx, setActiveIdx] = useState(0);
   const [panelMode, setPanelMode] = useState<SlashPanelMode>('closed');
   const [lastQuery, setLastQuery] = useState('');
+  const [composerValue, setComposerValue] = useState('');
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestSeqRef = useRef(0);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
   const isOpen = panelMode !== 'closed';
   const liveMessage =
@@ -215,6 +221,7 @@ export function Composer(props: {
     resize();
     const ta = textareaRef.current;
     if (!ta) return;
+    setComposerValue(ta.value);
     const cursor = ta.selectionStart ?? ta.value.length;
     const ctx = getSlashContext(ta.value, cursor);
     if (ctx) {
@@ -266,6 +273,7 @@ export function Composer(props: {
         ta.value = `${insertCore} `;
         ta.setSelectionRange(ta.value.length, ta.value.length);
       }
+      setComposerValue(ta.value);
       closePanel();
       resize();
       ta.focus();
@@ -284,6 +292,7 @@ export function Composer(props: {
       ta.value = `${insertCore} `;
       ta.setSelectionRange(ta.value.length, ta.value.length);
     }
+    setComposerValue(ta.value);
     closePanel();
     resize();
     ta.focus();
@@ -299,9 +308,18 @@ export function Composer(props: {
     if (uploading > 0) return;
     props.onSend(val, pendingMedia);
     if (textareaRef.current) textareaRef.current.value = '';
+    setComposerValue('');
     setPendingMedia([]);
     closePanel();
     resize();
+  };
+
+  const handleScroll = () => {
+    const ta = textareaRef.current;
+    const overlay = overlayRef.current;
+    if (!ta || !overlay) return;
+    overlay.scrollTop = ta.scrollTop;
+    overlay.scrollLeft = ta.scrollLeft;
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -384,6 +402,10 @@ export function Composer(props: {
   };
 
   const agentOptions = props.agents ?? [];
+  const agentIds = useMemo(
+    () => new Set(agentOptions.map((agent) => agent.id)),
+    [agentOptions],
+  );
   const selectedAgentId = props.selectedAgentId ?? '';
   const modelOptions = props.models ?? [];
   const selectedModelId = props.selectedModelId ?? '';
@@ -416,27 +438,45 @@ export function Composer(props: {
               ) : null}
             </div>
           ) : null}
-          <textarea
-            ref={textareaRef}
-            className={css.composerInput}
-            rows={1}
-            placeholder="Message HybridClaw"
-            disabled={props.isStreaming}
-            onInput={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            aria-label="Message input"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-haspopup="listbox"
-            aria-controls={listboxId}
-            aria-expanded={isOpen}
-            aria-activedescendant={
-              panelMode === 'list' && suggestions.length > 0
-                ? optionIdFor(listboxId, activeIdx)
-                : undefined
-            }
-          />
+          <div className={css.composerInputWrap}>
+            {composerValue ? (
+              <div
+                ref={overlayRef}
+                className={css.composerInputOverlay}
+                aria-hidden="true"
+              >
+                <ComposerInputPreview
+                  value={composerValue}
+                  agentIds={agentIds}
+                />
+              </div>
+            ) : null}
+            <textarea
+              ref={textareaRef}
+              className={cx(
+                css.composerInput,
+                composerValue && css.composerInputHasOverlay,
+              )}
+              rows={1}
+              placeholder="Message HybridClaw"
+              disabled={props.isStreaming}
+              onInput={handleInput}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onScroll={handleScroll}
+              aria-label="Message input"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-haspopup="listbox"
+              aria-controls={listboxId}
+              aria-expanded={isOpen}
+              aria-activedescendant={
+                panelMode === 'list' && suggestions.length > 0
+                  ? optionIdFor(listboxId, activeIdx)
+                  : undefined
+              }
+            />
+          </div>
           <div className={css.composerActions}>
             <div className={css.composerLeftActions}>
               <button
@@ -524,4 +564,30 @@ export function Composer(props: {
       </div>
     </div>
   );
+}
+
+function ComposerInputPreview(props: {
+  value: string;
+  agentIds: ReadonlySet<string>;
+}) {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+
+  for (const match of props.value.matchAll(AGENT_MENTION_TOKEN_RE)) {
+    const mention = match[0];
+    const agentId = match[1] ?? '';
+    const index = match.index ?? 0;
+    if (!props.agentIds.has(agentId)) continue;
+    if (index > last) parts.push(props.value.slice(last, index));
+    parts.push(
+      <span key={`mention-${key++}`} className={css.composerMentionPill}>
+        {mention}
+      </span>,
+    );
+    last = index + mention.length;
+  }
+
+  if (last < props.value.length) parts.push(props.value.slice(last));
+  return parts.length > 0 ? parts : props.value;
 }

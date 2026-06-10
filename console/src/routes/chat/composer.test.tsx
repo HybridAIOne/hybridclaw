@@ -12,6 +12,7 @@ import type {
   ChatCommandsResponse,
   MediaItem,
 } from '../../api/chat-types';
+import css from './chat-page.module.css';
 import { Composer } from './composer';
 
 const fetchChatCommandsMock =
@@ -117,7 +118,28 @@ describe('Composer', () => {
     fireEvent.keyDown(textarea, { key: 'Tab' });
 
     expect(textarea.value).toBe('@research ');
+    const mention = screen.getByText('@research');
+    expect(mention.classList.contains(css.composerMentionPill)).toBe(true);
     expect(fetchChatCommandsMock).not.toHaveBeenCalled();
+  });
+
+  it('renders typed complete agent mentions as prompt pills', () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'research', name: 'Research Agent' },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@research summarize' } });
+
+    const mention = screen
+      .getAllByText('@research')
+      .find((node) => node.classList.contains(css.composerMentionPill));
+
+    expect(textarea.value).toBe('@research summarize');
+    expect(mention).toBeTruthy();
   });
 
   it('replaces only the active @ token when accepting a mid-line agent mention', async () => {
