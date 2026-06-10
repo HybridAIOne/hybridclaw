@@ -11438,9 +11438,25 @@ export async function handleGatewayCommand(
 
       case 'status': {
         const status = await getGatewayStatus();
-        const delegationStatus = delegationQueueStatus();
         const commitShort = resolveGitCommitShort();
         const runtime = resolveSessionRuntimeTarget(session);
+        const activeAgent = resolveAgentConfig(runtime.agentId);
+        if (activeAgent.proxy) {
+          const proxyScope = activeAgent.proxy.conversationScope ?? 'channel';
+          const lines = [
+            `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
+            '🔁 Mode: HybridAI proxy',
+            `🤖 Agent: ${runtime.agentId}`,
+            `🌐 Upstream: ${activeAgent.proxy.baseUrl}`,
+            `💬 Chatbot: ${activeAgent.proxy.chatbotId}`,
+            `🧵 Conversation scope: ${proxyScope}`,
+            `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
+            `📊 Gateway: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions}`,
+          ];
+          return infoCommand('Status', lines.join('\n'));
+        }
+
+        const delegationStatus = delegationQueueStatus();
         const containerImageStatus =
           status.sandbox?.mode === 'container' && status.sandbox.image
             ? await resolveContainerImageStatus(status.sandbox.image)
