@@ -54,6 +54,7 @@ import {
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
+import { findAgentMentions } from './agent-mention-display';
 import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
@@ -219,15 +220,6 @@ export function ChatPage() {
     });
   }, [queryClient, auth.token, userId, getSessionId]);
 
-  const stream = useChatStream({
-    token: auth.token,
-    userId,
-    getSessionId,
-    setError,
-    refreshRecent,
-    onSessionIdCorrection: handleSessionIdCorrection,
-    onModelResolved: setSelectedModelId,
-  });
   const chatApiReady = isAuthReadyForApi(auth);
 
   const appStatusQuery = useQuery({
@@ -316,7 +308,36 @@ export function ChatPage() {
       })),
     [agentsQuery.data],
   );
+  const resolveAddressedAgentPresentation = useCallback(
+    (content: string) => {
+      const mentions = findAgentMentions(content);
+      for (const mention of mentions) {
+        const agent = agentOptions.find(
+          (option) => option.id.toLowerCase() === mention.agentId.toLowerCase(),
+        );
+        if (!agent) continue;
+        return {
+          agentId: agent.id,
+          displayName: agent.name ?? agent.id,
+          imageUrl: agent.imageUrl ?? null,
+        };
+      }
+      return null;
+    },
+    [agentOptions],
+  );
   const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
+
+  const stream = useChatStream({
+    token: auth.token,
+    userId,
+    getSessionId,
+    setError,
+    refreshRecent,
+    onSessionIdCorrection: handleSessionIdCorrection,
+    onModelResolved: setSelectedModelId,
+    resolveAddressedAgentPresentation,
+  });
 
   useEffect(() => {
     const message = errorState.message;

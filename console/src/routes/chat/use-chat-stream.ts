@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { executeCommand } from '../../api/chat';
 import type {
+  AssistantPresentation,
   ChatMessage,
   ChatStreamApproval,
   ChatStreamResult,
@@ -36,6 +37,9 @@ interface UseChatStreamOptions {
   refreshRecent: () => void;
   onSessionIdCorrection: (serverSessionId: string) => void;
   onModelResolved?: (modelId: string) => void;
+  resolveAddressedAgentPresentation?: (
+    content: string,
+  ) => AssistantPresentation | null;
 }
 
 export interface UseChatStreamReturn {
@@ -65,6 +69,7 @@ export function useChatStream(
     refreshRecent,
     onSessionIdCorrection,
     onModelResolved,
+    resolveAddressedAgentPresentation,
   } = options;
 
   const queryClient = useQueryClient();
@@ -120,6 +125,8 @@ export function useChatStream(
       setError('');
 
       if (userMsgId) {
+        const addressedAgentPresentation =
+          resolveAddressedAgentPresentation?.(content) ?? null;
         const userMsg: ChatMessage = {
           id: userMsgId,
           role: 'user',
@@ -129,6 +136,7 @@ export function useChatStream(
           media,
           artifacts: [],
           replayRequest: { content, media },
+          addressedAgentPresentation,
         };
         setMessages((prev) => [...prev, userMsg]);
       }
@@ -370,6 +378,7 @@ export function useChatStream(
       writeMessages,
       onSessionIdCorrection,
       onModelResolved,
+      resolveAddressedAgentPresentation,
       setError,
       refreshRecent,
     ],
