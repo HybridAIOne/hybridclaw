@@ -15,6 +15,8 @@ export interface StructuredAuditEntry {
   timestamp: string;
   run_id: string;
   parent_run_id: string | null;
+  actor_type: 'user' | 'agent' | null;
+  actor_id: string | null;
   payload: string;
   wire_hash: string;
   wire_prev_hash: string;

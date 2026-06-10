@@ -124,6 +124,7 @@ export function getAgentScoreboard(): AgentScoreboardEntry[] {
       const confirmedNormal = anomalyRollup?.confirmed_normal ?? 0;
       const displayName = displayNameForAgent(agentId);
       return {
+        actor: { type: 'agent' as const, id: agentId },
         agent_id: agentId,
         display_name: displayName,
         total_executions: summary.totalExecutions,

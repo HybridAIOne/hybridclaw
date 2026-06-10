@@ -26,7 +26,7 @@ import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import {
   addEdge,
-  type BoardCardActor,
+  type BoardCardActorInput,
   type BoardCardEdgeKind,
   type BoardCardMutationContext,
   isBlocked,
@@ -3718,7 +3718,7 @@ function normalizeBoardRevisionId(value: unknown): number {
 
 function normalizeBoardActorField(
   record: Record<string, unknown>,
-  field: 'system' | 'userId' | 'agentId',
+  field: 'system' | 'userId' | 'agentId' | 'type' | 'id',
 ): string {
   const value = record[field];
   if (value == null) return '';
@@ -3728,7 +3728,9 @@ function normalizeBoardActorField(
   return value.trim();
 }
 
-function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
+function normalizeBoardEdgeActor(
+  value: unknown,
+): BoardCardActorInput | undefined {
   if (value == null) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new GatewayRequestError(400, '`actor` must be an object.');
@@ -3737,11 +3739,15 @@ function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
   const system = normalizeBoardActorField(record, 'system');
   const userId = normalizeBoardActorField(record, 'userId');
   const agentId = normalizeBoardActorField(record, 'agentId');
-  const actorCount = [system, userId, agentId].filter(Boolean).length;
+  const type = normalizeBoardActorField(record, 'type');
+  const id = normalizeBoardActorField(record, 'id');
+  const hasTypedActor = Boolean(type || id);
+  const actorCount =
+    [system, userId, agentId].filter(Boolean).length + (hasTypedActor ? 1 : 0);
   if (actorCount !== 1) {
     throw new GatewayRequestError(
       400,
-      '`actor` must contain exactly one of system, userId, or agentId.',
+      '`actor` must contain exactly one of system, userId, agentId, or type/id.',
     );
   }
   if (system) {
@@ -3750,8 +3756,25 @@ function normalizeBoardEdgeActor(value: unknown): BoardCardActor | undefined {
     }
     return { system };
   }
-  if (userId) return { userId };
-  return { agentId };
+  if (userId) {
+    logger.warn(
+      'Deprecated board actor shape `userId` used; send `{ type: "user", id }` instead',
+    );
+    return { userId };
+  }
+  if (agentId) {
+    logger.warn(
+      'Deprecated board actor shape `agentId` used; send `{ type: "agent", id }` instead',
+    );
+    return { agentId };
+  }
+  if (type !== 'user' && type !== 'agent') {
+    throw new GatewayRequestError(400, '`actor.type` must be user or agent.');
+  }
+  if (!id) {
+    throw new GatewayRequestError(400, '`actor.id` is required.');
+  }
+  return { type, id };
 }
 
 function extractBoardEdgeContext(
