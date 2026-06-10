@@ -1017,6 +1017,17 @@ export interface AdminAgentsResponse {
   agents: AdminAgent[];
 }
 
+export interface AdminHybridAIBot {
+  id: string;
+  name: string;
+  description?: string;
+  model?: string;
+}
+
+export interface AdminHybridAIBotsResponse {
+  bots: AdminHybridAIBot[];
+}
+
 export interface AdminTeamStructureEntry {
   id: string;
   role?: string;

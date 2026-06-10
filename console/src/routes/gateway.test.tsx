@@ -1,10 +1,12 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdminAgent } from '../api/types';
+import type { AdminAgent, AdminHybridAIBot } from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { GatewayPage } from './gateway';
 
 const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
+const fetchAdminHybridAIBotsMock =
+  vi.fn<(token: string, baseUrl?: string) => Promise<AdminHybridAIBot[]>>();
 const reloadGatewayMock = vi.fn();
 const updateAdminAgentMock = vi.fn();
 const navigateMock = vi.fn();
@@ -13,6 +15,8 @@ const useLiveEventsMock = vi.fn();
 
 vi.mock('../api/client', () => ({
   fetchAdminAgents: () => fetchAdminAgentsMock(),
+  fetchAdminHybridAIBots: (...args: [string, string?]) =>
+    fetchAdminHybridAIBotsMock(...args),
   reloadGateway: (...args: unknown[]) => reloadGatewayMock(...args),
   updateAdminAgent: (...args: unknown[]) => updateAdminAgentMock(...args),
 }));
@@ -107,6 +111,7 @@ function renderGatewayPage(): void {
 describe('GatewayPage', () => {
   beforeEach(() => {
     fetchAdminAgentsMock.mockReset();
+    fetchAdminHybridAIBotsMock.mockReset();
     reloadGatewayMock.mockReset();
     updateAdminAgentMock.mockReset();
     navigateMock.mockReset();
@@ -124,6 +129,17 @@ describe('GatewayPage', () => {
       lastEventAt: Date.now(),
     });
     fetchAdminAgentsMock.mockResolvedValue([makeAgent()]);
+    fetchAdminHybridAIBotsMock.mockResolvedValue([
+      {
+        id: 'bot-support',
+        name: 'Support Bot',
+        model: 'gpt-5',
+      },
+      {
+        id: 'bot-research',
+        name: 'Research Bot',
+      },
+    ]);
   });
 
   afterEach(() => {
@@ -146,6 +162,60 @@ describe('GatewayPage', () => {
     });
   });
 
+  it('prefills the official HybridAI base URL and saves a selected known bot', async () => {
+    const savedAgent = makeAgent({
+      proxy: {
+        kind: 'hybridai',
+        baseUrl: 'https://hybridai.one',
+        chatbotId: 'bot-research',
+        apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+        conversationScope: 'channel',
+      },
+    });
+    updateAdminAgentMock.mockResolvedValue(savedAgent);
+
+    renderGatewayPage();
+
+    fireEvent.click(await screen.findByRole('switch', { name: 'Proxy mode' }));
+
+    const baseUrlInput = screen.getByLabelText(
+      'HybridAI base URL',
+    ) as HTMLInputElement;
+    expect(baseUrlInput.value).toBe('https://hybridai.one');
+
+    await waitFor(() => {
+      expect(fetchAdminHybridAIBotsMock).toHaveBeenCalledWith(
+        'test-token',
+        'https://hybridai.one',
+      );
+    });
+    expect(
+      await screen.findByRole('option', {
+        name: 'Support Bot (bot-support) - gpt-5',
+      }),
+    ).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Chatbot id'), {
+      target: { value: 'bot-research' },
+    });
+    fireEvent.change(screen.getByLabelText('API key SecretRef id'), {
+      target: { value: 'HYBRIDAI_PROXY_KEY' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Proxy Mode' }));
+
+    await waitFor(() => {
+      expect(updateAdminAgentMock).toHaveBeenCalledWith('test-token', 'main', {
+        proxy: {
+          kind: 'hybridai',
+          baseUrl: 'https://hybridai.one',
+          chatbotId: 'bot-research',
+          apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+          conversationScope: 'channel',
+        },
+      });
+    });
+  });
+
   it('saves HybridAI proxy mode for the selected agent', async () => {
     const mainAgent = makeAgent({ chatbotId: 'local-chatbot' });
     const savedAgent = makeAgent({
@@ -165,6 +235,9 @@ describe('GatewayPage', () => {
     fireEvent.click(await screen.findByRole('switch', { name: 'Proxy mode' }));
     fireEvent.change(screen.getByLabelText('HybridAI base URL'), {
       target: { value: 'https://hybridai.example.com' },
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Chatbot id').tagName).toBe('INPUT');
     });
     fireEvent.change(screen.getByLabelText('Chatbot id'), {
       target: { value: 'upstream-chatbot' },
@@ -198,6 +271,9 @@ describe('GatewayPage', () => {
     fireEvent.click(await screen.findByRole('switch', { name: 'Proxy mode' }));
     fireEvent.change(screen.getByLabelText('HybridAI base URL'), {
       target: { value: 'http://hybridai.example.com' },
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Chatbot id').tagName).toBe('INPUT');
     });
     fireEvent.change(screen.getByLabelText('Chatbot id'), {
       target: { value: 'upstream-chatbot' },

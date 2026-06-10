@@ -1218,6 +1218,17 @@ export interface GatewayAdminAgentsResponse {
   agents: GatewayAdminAgent[];
 }
 
+export interface GatewayAdminHybridAIBot {
+  id: string;
+  name: string;
+  description?: string;
+  model?: string;
+}
+
+export interface GatewayAdminHybridAIBotsResponse {
+  bots: GatewayAdminHybridAIBot[];
+}
+
 export interface GatewayAdminTeamStructureRevision {
   id: number;
   createdAt: string;

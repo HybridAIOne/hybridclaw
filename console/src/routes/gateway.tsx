@@ -3,12 +3,14 @@ import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   fetchAdminAgents,
+  fetchAdminHybridAIBots,
   reloadGateway,
   updateAdminAgent,
 } from '../api/client';
 import type {
   AdminAgent,
   AdminAgentProxyConversationScope,
+  AdminHybridAIBot,
 } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
@@ -35,9 +37,14 @@ import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
 
 const DEFAULT_PROXY_SECRET_ID = 'HYBRIDAI_API_KEY';
+const OFFICIAL_HYBRIDAI_BASE_URL = 'https://hybridai.one';
 
 function formatAgentLabel(agent: AdminAgent): string {
   return agent.name ? `${agent.name} (${agent.id})` : agent.id;
+}
+
+function formatHybridAIBotLabel(bot: AdminHybridAIBot): string {
+  return `${bot.name} (${bot.id})${bot.model ? ` - ${bot.model}` : ''}`;
 }
 
 function getProxyAgentFormSyncKey(agent: AdminAgent): string {
@@ -70,6 +77,14 @@ function normalizeProxyBaseUrlInput(value: string): string {
   return parsed.toString().replace(/\/+$/g, '');
 }
 
+function isOfficialHybridAIBaseUrl(value: string): boolean {
+  try {
+    return normalizeProxyBaseUrlInput(value) === OFFICIAL_HYBRIDAI_BASE_URL;
+  } catch {
+    return false;
+  }
+}
+
 export function GatewayPage() {
   const auth = useAuth();
   const toast = useToast();
@@ -79,7 +94,7 @@ export function GatewayPage() {
   const [reloadConfirmOpen, setReloadConfirmOpen] = useState(false);
   const [selectedProxyAgentId, setSelectedProxyAgentId] = useState('');
   const [proxyEnabled, setProxyEnabled] = useState(false);
-  const [proxyBaseUrl, setProxyBaseUrl] = useState('');
+  const [proxyBaseUrl, setProxyBaseUrl] = useState(OFFICIAL_HYBRIDAI_BASE_URL);
   const [proxyChatbotId, setProxyChatbotId] = useState('');
   const [proxyApiKeySecretId, setProxyApiKeySecretId] = useState(
     DEFAULT_PROXY_SECRET_ID,
@@ -95,6 +110,14 @@ export function GatewayPage() {
   const agentsQuery = useQuery({
     queryKey: ['admin-agents', auth.token],
     queryFn: () => fetchAdminAgents(auth.token),
+    refetchOnWindowFocus: false,
+  });
+  const proxyBaseUrlIsOfficial = isOfficialHybridAIBaseUrl(proxyBaseUrl);
+  const hybridAIBotsQuery = useQuery({
+    queryKey: ['admin-hybridai-bots', auth.token],
+    queryFn: () =>
+      fetchAdminHybridAIBots(auth.token, OFFICIAL_HYBRIDAI_BASE_URL),
+    enabled: proxyEnabled && proxyBaseUrlIsOfficial,
     refetchOnWindowFocus: false,
   });
   const reloadMutation = useMutation({
@@ -130,11 +153,29 @@ export function GatewayPage() {
     lastProxyAgentFormSyncKeyRef.current = syncKey;
     const proxy = nextAgent.proxy || null;
     setProxyEnabled(Boolean(proxy));
-    setProxyBaseUrl(proxy?.baseUrl || '');
+    setProxyBaseUrl(proxy?.baseUrl || OFFICIAL_HYBRIDAI_BASE_URL);
     setProxyChatbotId(proxy?.chatbotId || nextAgent.chatbotId || '');
     setProxyApiKeySecretId(proxy?.apiKey.id || DEFAULT_PROXY_SECRET_ID);
     setProxyConversationScope(proxy?.conversationScope || 'channel');
   }, [adminAgents, selectedProxyAgentId, status?.defaultAgentId]);
+
+  const hybridAIBots = hybridAIBotsQuery.data || [];
+  const hybridAIBotOptions =
+    proxyChatbotId && !hybridAIBots.some((bot) => bot.id === proxyChatbotId)
+      ? [
+          {
+            id: proxyChatbotId,
+            name: proxyChatbotId,
+          },
+          ...hybridAIBots,
+        ]
+      : hybridAIBots;
+
+  useEffect(() => {
+    if (!proxyEnabled || !proxyBaseUrlIsOfficial || proxyChatbotId) return;
+    const firstBotId = hybridAIBots[0]?.id;
+    if (firstBotId) setProxyChatbotId(firstBotId);
+  }, [hybridAIBots, proxyBaseUrlIsOfficial, proxyChatbotId, proxyEnabled]);
 
   const proxyMutation = useMutation({
     mutationFn: async () => {
@@ -357,7 +398,7 @@ export function GatewayPage() {
                         <Input
                           type="url"
                           value={proxyBaseUrl}
-                          placeholder="https://hybridai.example.com"
+                          placeholder={OFFICIAL_HYBRIDAI_BASE_URL}
                           onChange={(event) =>
                             setProxyBaseUrl(event.target.value)
                           }
@@ -365,12 +406,45 @@ export function GatewayPage() {
                       </Field>
                       <Field>
                         <FieldLabel>Chatbot id</FieldLabel>
-                        <Input
-                          value={proxyChatbotId}
-                          onChange={(event) =>
-                            setProxyChatbotId(event.target.value)
-                          }
-                        />
+                        {proxyBaseUrlIsOfficial ? (
+                          <>
+                            <NativeSelect
+                              value={proxyChatbotId}
+                              disabled={
+                                hybridAIBotsQuery.isLoading &&
+                                hybridAIBotOptions.length === 0
+                              }
+                              onChange={(event) =>
+                                setProxyChatbotId(event.target.value)
+                              }
+                            >
+                              {!proxyChatbotId ? (
+                                <NativeSelectOption value="" disabled>
+                                  {hybridAIBotsQuery.isLoading
+                                    ? 'Loading bots...'
+                                    : 'Select bot'}
+                                </NativeSelectOption>
+                              ) : null}
+                              {hybridAIBotOptions.map((bot) => (
+                                <NativeSelectOption key={bot.id} value={bot.id}>
+                                  {formatHybridAIBotLabel(bot)}
+                                </NativeSelectOption>
+                              ))}
+                            </NativeSelect>
+                            {hybridAIBotsQuery.isError ? (
+                              <p className="error-banner">
+                                {getErrorMessage(hybridAIBotsQuery.error)}
+                              </p>
+                            ) : null}
+                          </>
+                        ) : (
+                          <Input
+                            value={proxyChatbotId}
+                            onChange={(event) =>
+                              setProxyChatbotId(event.target.value)
+                            }
+                          />
+                        )}
                       </Field>
                       <Field>
                         <FieldLabel>API key SecretRef id</FieldLabel>

@@ -216,6 +216,7 @@ import {
   getGatewayAdminEmailFolder,
   getGatewayAdminEmailMailbox,
   getGatewayAdminEmailMessage,
+  getGatewayAdminHybridAIBots,
   getGatewayAdminJobsContext,
   getGatewayAdminMcp,
   getGatewayAdminModels,
@@ -4596,6 +4597,56 @@ async function handleApiAdminAgents(
   }
 }
 
+async function handleApiAdminHybridAIBots(
+  res: ServerResponse,
+  method: string,
+  url: URL,
+): Promise<void> {
+  if (method !== 'GET') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+  try {
+    sendJson(
+      res,
+      200,
+      await getGatewayAdminHybridAIBots({
+        baseUrl: normalizeApiAdminHybridAIBaseUrl(url),
+      }),
+    );
+  } catch (error) {
+    if (error instanceof GatewayRequestError) {
+      sendJson(res, error.statusCode, { error: error.message });
+      return;
+    }
+    sendJson(res, 502, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function normalizeApiAdminHybridAIBaseUrl(url: URL): string | undefined {
+  const raw = url.searchParams.get('baseUrl');
+  if (raw === null) return undefined;
+  const normalized = raw.trim();
+  if (!normalized) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new GatewayRequestError(400, 'baseUrl must be a valid HTTPS URL.');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new GatewayRequestError(400, 'baseUrl must use HTTPS.');
+  }
+  parsed.pathname = parsed.pathname.replace(/\/+$/g, '');
+  parsed.username = '';
+  parsed.password = '';
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString().replace(/\/+$/g, '');
+}
+
 async function handleApiAdminTeamStructure(
   res: ServerResponse,
   method: string,
@@ -6746,6 +6797,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname.startsWith('/api/admin/agents/')
           ) {
             await handleApiAdminAgents(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/hybridai/bots') {
+            await handleApiAdminHybridAIBots(res, method, url);
             return;
           }
           if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {

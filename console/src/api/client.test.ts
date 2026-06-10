@@ -3,6 +3,7 @@ import {
   AUTH_REQUIRED_EVENT,
   buildWebCommandRequestBody,
   dispatchAuthRequired,
+  fetchAdminHybridAIBots,
   isLoopbackHostnameForTest,
   readStoredToken,
   setAuthReloadHandlerForTest,
@@ -377,6 +378,51 @@ describe('client command helpers', () => {
       },
     });
     expect(agent.proxy?.apiKey.id).toBe('HYBRIDAI_PROXY_KEY');
+  });
+
+  it('fetches HybridAI bot options from the admin endpoint', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          bots: [
+            {
+              id: 'bot-support',
+              name: 'Support Bot',
+              description: 'Handles support requests',
+              model: 'gpt-5',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+
+    const bots = await fetchAdminHybridAIBots(
+      'test-token',
+      'https://hybridai.one',
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/admin/hybridai/bots?baseUrl=https%3A%2F%2Fhybridai.one',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+        }),
+      }),
+    );
+    expect(bots).toEqual([
+      {
+        id: 'bot-support',
+        name: 'Support Bot',
+        description: 'Handles support requests',
+        model: 'gpt-5',
+      },
+    ]);
   });
 
   it('dispatches auth-required when skill zip upload returns 401', async () => {

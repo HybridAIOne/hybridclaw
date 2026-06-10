@@ -525,6 +525,7 @@ import {
   type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
   type GatewayAdminEmailMessageResponse,
+  type GatewayAdminHybridAIBotsResponse,
   type GatewayAdminJobCard,
   type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
@@ -4610,6 +4611,23 @@ export function getGatewayAdminAgents(): GatewayAdminAgentsResponse {
           getGatewayAdminAgentMarkdownFilePresenceStats(workspacePath),
       });
     }),
+  };
+}
+
+export async function getGatewayAdminHybridAIBots(options?: {
+  baseUrl?: string;
+}): Promise<GatewayAdminHybridAIBotsResponse> {
+  const bots = await fetchHybridAIBots({
+    baseUrl: options?.baseUrl,
+    cacheTtlMs: BOT_CACHE_TTL,
+  });
+  return {
+    bots: bots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      ...(bot.description ? { description: bot.description } : {}),
+      ...(bot.model ? { model: bot.model } : {}),
+    })),
   };
 }
 

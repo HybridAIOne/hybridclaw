@@ -1256,6 +1256,20 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
+  const getGatewayAdminHybridAIBots = vi.fn(async () => ({
+    bots: [
+      {
+        id: 'bot-support',
+        name: 'Support Bot',
+        description: 'Handles support requests',
+        model: 'gpt-5',
+      },
+      {
+        id: 'bot-research',
+        name: 'Research Bot',
+      },
+    ],
+  }));
   const getGatewayAdminAgentMarkdownFile = vi.fn(
     (agentId: string, fileName: string) => ({
       agent: makeTestAdminAgent(agentId),
@@ -1918,6 +1932,7 @@ async function importFreshHealth(options?: {
     getGatewayAgentList,
     getGatewayAgents,
     getGatewayAdminAgents,
+    getGatewayAdminHybridAIBots,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
     getGatewayAdminApprovals,
@@ -2080,6 +2095,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminEmailMessage,
     getGatewayAgents,
     getGatewayAdminAgents,
+    getGatewayAdminHybridAIBots,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
     getGatewayAdminTeamStructure,
@@ -5854,6 +5870,53 @@ describe('gateway HTTP server', () => {
           ],
         },
       ],
+    });
+  });
+
+  test('returns HybridAI bots for authorized admin API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/hybridai/bots?baseUrl=https%3A%2F%2Fuser%3Apass%40hybridai.one%2F%3Fdebug%3D1%23token',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminHybridAIBots).toHaveBeenCalledWith({
+      baseUrl: 'https://hybridai.one',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      bots: [
+        {
+          id: 'bot-support',
+          name: 'Support Bot',
+          description: 'Handles support requests',
+          model: 'gpt-5',
+        },
+        {
+          id: 'bot-research',
+          name: 'Research Bot',
+        },
+      ],
+    });
+  });
+
+  test('rejects non-HTTPS HybridAI bot base URLs', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/hybridai/bots?baseUrl=http%3A%2F%2Fhybridai.one',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminHybridAIBots).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'baseUrl must use HTTPS.',
     });
   });
 

@@ -34,6 +34,8 @@ import type {
   AdminHarnessEvolutionManifestResponse,
   AdminHarnessEvolutionResponse,
   AdminHarnessEvolutionRunResponse,
+  AdminHybridAIBot,
+  AdminHybridAIBotsResponse,
   AdminInteractionResponse,
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
@@ -541,6 +543,20 @@ export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
     token,
   });
   return payload.agents;
+}
+
+export async function fetchAdminHybridAIBots(
+  token: string,
+  baseUrl?: string,
+): Promise<AdminHybridAIBot[]> {
+  const params = new URLSearchParams();
+  if (baseUrl?.trim()) params.set('baseUrl', baseUrl.trim());
+  const query = params.toString();
+  const payload = await requestJson<AdminHybridAIBotsResponse>(
+    `/api/admin/hybridai/bots${query ? `?${query}` : ''}`,
+    { token },
+  );
+  return payload.bots;
 }
 
 export async function updateAdminAgent(
