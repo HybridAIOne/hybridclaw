@@ -48,15 +48,38 @@ const OPERATION_TIERS = {
   'mandrill.send-template': 'red',
 };
 
-const MARKETING_OPERATIONS = new Set(
-  Object.keys(OPERATION_TIERS).filter(
-    (operation) =>
-      !operation.startsWith('mandrill.') &&
-      operation !== 'audience.bulk-plan' &&
-      operation !== 'oauth.metadata',
-  ),
-);
+const MARKETING_OPERATIONS = new Set([
+  'marketing.root',
+  'audience.list',
+  'audience.members',
+  'audience.member',
+  'audience.member-upsert',
+  'audience.member-update',
+  'audience.member-archive',
+  'audience.tags-update',
+  'audience.merge-fields',
+  'audience.merge-field-create',
+  'audience.merge-field-update',
+  'campaign.list',
+  'campaign.create',
+  'campaign.update',
+  'campaign.content-get',
+  'campaign.content-set',
+  'campaign.schedule',
+  'campaign.send',
+  'campaign.report',
+  'automation.list',
+  'automation.get',
+  'journey.list',
+  'journey.get',
+]);
 const GUARDED_TIERS = new Set(['amber', 'red']);
+const EMAIL_SENDING_OPERATIONS = new Set([
+  'campaign.schedule',
+  'campaign.send',
+  'mandrill.send',
+  'mandrill.send-template',
+]);
 const RESOURCE_ACTION_OPERATIONS = {
   oauth: {
     metadata: 'oauth.metadata',
@@ -154,6 +177,14 @@ function requireText(value, label) {
   return value.trim();
 }
 
+function requireEmail(value, label) {
+  const email = requireText(value, label);
+  if (!/^[^\s@]+@[^\s@]+$/u.test(email)) {
+    die(`${label} must be an email address.`);
+  }
+  return email;
+}
+
 function requireSecretName(value, label) {
   const secretName = requireText(value, label);
   if (!/^[A-Z][A-Z0-9_]{0,127}$/u.test(secretName)) {
@@ -192,6 +223,12 @@ function parseJsonObjectFlag(args, name, defaultValue) {
   return parseJsonObject(raw, name);
 }
 
+function requireBodyJson(args) {
+  const json = parseJsonObjectFlag(args, '--body-json');
+  if (json === undefined) die('--body-json is required.');
+  return json;
+}
+
 function parseOptionalJsonObjectFlag(args, name) {
   const raw = popFlag(args, name);
   if (raw === undefined) return undefined;
@@ -216,7 +253,7 @@ function appendQuery(url, query) {
 }
 
 function subscriberHash(email) {
-  return crypto.createHash('md5').update(requireText(email, '--email').toLowerCase()).digest('hex');
+  return crypto.createHash('md5').update(requireEmail(email, '--email').toLowerCase()).digest('hex');
 }
 
 function resolveSubscriberHash(args) {
@@ -243,6 +280,14 @@ function parseTags(values) {
   });
 }
 
+function parseAuthMode(args) {
+  const auth = popFlag(args, '--auth', 'api-key');
+  if (!['api-key', 'oauth'].includes(auth)) {
+    die('--auth must be api-key or oauth.');
+  }
+  return auth;
+}
+
 function marketingBaseUrl(args) {
   const serverPrefix = requireText(
     popFlag(args, '--server-prefix', `<env:${SERVER_PREFIX_ENV}>`),
@@ -262,10 +307,7 @@ function marketingBaseUrl(args) {
 }
 
 function resolveMarketingAuth(args) {
-  const auth = popFlag(args, '--auth', 'api-key');
-  if (!['api-key', 'oauth'].includes(auth)) {
-    die('--auth must be api-key or oauth.');
-  }
+  const auth = parseAuthMode(args);
   if (auth === 'api-key') {
     const secretName = requireSecretName(
       popFlag(args, '--basic-auth-secret', MARKETING_BASIC_AUTH_SECRET),
@@ -325,7 +367,7 @@ function marketingRequest(args, operation, stakesTier) {
     }
     case 'audience.member-upsert': {
       const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
-      const email = requireText(popFlag(args, '--email'), '--email');
+      const email = requireEmail(popFlag(args, '--email'), '--email');
       path = `/lists/${listId}/members/${subscriberHash(email)}`;
       common.method = 'PUT';
       json = {
@@ -337,7 +379,7 @@ function marketingRequest(args, operation, stakesTier) {
       const mergeFields = parseJsonObjectFlag(args, '--merge-fields-json');
       if (mergeFields !== undefined) json.merge_fields = mergeFields;
       const tags = popRepeatedFlag(args, '--tag');
-      if (tags.length > 0) json.tags = tags;
+      if (tags.length > 0) json.tags = parseTags(tags);
       break;
     }
     case 'audience.member-update': {
@@ -345,8 +387,7 @@ function marketingRequest(args, operation, stakesTier) {
       const hash = encodeSegment(resolveSubscriberHash(args), '--subscriber-hash');
       path = `/lists/${listId}/members/${hash}`;
       common.method = 'PATCH';
-      json = parseJsonObjectFlag(args, '--body-json');
-      if (json === undefined) die('--body-json is required.');
+      json = requireBodyJson(args);
       break;
     }
     case 'audience.member-archive': {
@@ -374,8 +415,7 @@ function marketingRequest(args, operation, stakesTier) {
       const listId = encodeSegment(popFlag(args, '--list-id'), '--list-id');
       path = `/lists/${listId}/merge-fields`;
       common.method = 'POST';
-      json = parseJsonObjectFlag(args, '--body-json');
-      if (json === undefined) die('--body-json is required.');
+      json = requireBodyJson(args);
       break;
     }
     case 'audience.merge-field-update': {
@@ -383,8 +423,7 @@ function marketingRequest(args, operation, stakesTier) {
       const mergeId = encodeSegment(popFlag(args, '--merge-id'), '--merge-id');
       path = `/lists/${listId}/merge-fields/${mergeId}`;
       common.method = 'PATCH';
-      json = parseJsonObjectFlag(args, '--body-json');
-      if (json === undefined) die('--body-json is required.');
+      json = requireBodyJson(args);
       break;
     }
     case 'campaign.list':
@@ -402,15 +441,13 @@ function marketingRequest(args, operation, stakesTier) {
     case 'campaign.create':
       path = '/campaigns';
       common.method = 'POST';
-      json = parseJsonObjectFlag(args, '--body-json');
-      if (json === undefined) die('--body-json is required.');
+      json = requireBodyJson(args);
       break;
     case 'campaign.update': {
       const campaignId = encodeSegment(popFlag(args, '--campaign-id'), '--campaign-id');
       path = `/campaigns/${campaignId}`;
       common.method = 'PATCH';
-      json = parseJsonObjectFlag(args, '--body-json');
-      if (json === undefined) die('--body-json is required.');
+      json = requireBodyJson(args);
       break;
     }
     case 'campaign.content-get': {
@@ -422,8 +459,7 @@ function marketingRequest(args, operation, stakesTier) {
       const campaignId = encodeSegment(popFlag(args, '--campaign-id'), '--campaign-id');
       path = `/campaigns/${campaignId}/content`;
       common.method = 'PUT';
-      json = parseJsonObjectFlag(args, '--body-json');
-      if (json === undefined) die('--body-json is required.');
+      json = requireBodyJson(args);
       break;
     }
     case 'campaign.schedule': {
@@ -623,13 +659,11 @@ function mandrillRequest(args, operation, stakesTier) {
       break;
     case 'mandrill.send':
       path = '/messages/send.json';
-      json = parseJsonObjectFlag(args, '--body-json');
-      if (json === undefined) die('--body-json is required.');
+      json = requireBodyJson(args);
       break;
     case 'mandrill.send-template':
       path = '/messages/send-template.json';
-      json = parseJsonObjectFlag(args, '--body-json');
-      if (json === undefined) die('--body-json is required.');
+      json = requireBodyJson(args);
       break;
     default:
       die(`Unsupported operation: ${operation}`);
@@ -686,10 +720,13 @@ function redactPreviewValue(value, key = '') {
   const redacted = {};
   for (const [entryKey, entryValue] of Object.entries(value)) {
     if (entryKey === 'key') {
-      redacted[entryKey] =
-        typeof entryValue === 'string' && /^<secret:[A-Z][A-Z0-9_]{0,127}>$/u.test(entryValue)
-          ? entryValue
-          : '<secret:MANDRILL_API_KEY>';
+      if (
+        typeof entryValue !== 'string' ||
+        !/^<secret:[A-Z][A-Z0-9_]{0,127}>$/u.test(entryValue)
+      ) {
+        die('Mandrill key preview must be a runtime secret placeholder.');
+      }
+      redacted[entryKey] = entryValue;
     } else {
       redacted[entryKey] = redactPreviewValue(entryValue, entryKey);
     }
@@ -723,7 +760,6 @@ function buildHttpRequest(operation, args, options = {}) {
   }
   const localArgs = [...args];
   const operatorGrant = popBooleanFlag(localArgs, '--operator-grant');
-  popBooleanFlag(localArgs, '--request');
   const httpRequest =
     op === 'oauth.metadata'
       ? oauthMetadataRequest(localArgs, stakesTier)
@@ -813,11 +849,7 @@ function buildApprovalPlan(operation, args, semantics) {
       method: payload.httpRequest.method,
       url: payload.httpRequest.url,
       body: redactPreviewBody(payload.httpRequest.json),
-      sendsExternalEmail:
-        operation === 'campaign.send' ||
-        operation === 'campaign.schedule' ||
-        operation === 'mandrill.send' ||
-        operation === 'mandrill.send-template',
+      sendsExternalEmail: EMAIL_SENDING_OPERATIONS.has(operation),
       subscriberMutation: operation.startsWith('audience.member') || operation === 'audience.tags-update',
     },
     approvalText: [
@@ -996,10 +1028,7 @@ async function executeLivePayload(payload, options = {}) {
 }
 
 function credentialCheck(args) {
-  const auth = popFlag(args, '--auth', 'api-key');
-  if (!['api-key', 'oauth'].includes(auth)) {
-    die('--auth must be api-key or oauth.');
-  }
+  const auth = parseAuthMode(args);
   const serverPrefix = popFlag(args, '--server-prefix', `<env:${SERVER_PREFIX_ENV}>`);
   if (
     serverPrefix !== `<env:${SERVER_PREFIX_ENV}>` &&
@@ -1157,8 +1186,7 @@ function parseGlobalArgs(argv) {
   return { args, format, requestOnly };
 }
 
-function buildRequest(argv) {
-  const { args } = parseGlobalArgs(argv);
+function buildRequestFromArgs(args) {
   if (args.length === 0 || args[0] === '--help' || args[0] === 'help') {
     return { command: 'help' };
   }
@@ -1187,14 +1215,25 @@ function buildRequest(argv) {
   return buildSemanticRequest(command, action, args);
 }
 
+function buildRequest(argv) {
+  const { args } = parseGlobalArgs(argv);
+  return buildRequestFromArgs(args);
+}
+
+function formatOutput(payload, format) {
+  return format === 'json'
+    ? `${JSON.stringify(payload)}\n`
+    : `${JSON.stringify(payload, null, 2)}\n`;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) {
     printHelp();
     return;
   }
-  const { format, requestOnly } = parseGlobalArgs(args);
-  const payload = buildRequest(args);
+  const { args: commandArgs, format, requestOnly } = parseGlobalArgs(args);
+  const payload = buildRequestFromArgs(commandArgs);
   if (payload.command === 'help') {
     printHelp();
     return;
@@ -1214,17 +1253,10 @@ async function main() {
       result,
       costMeasurement: payload.costMeasurement,
     };
-    const liveOutput =
-      format === 'json'
-        ? JSON.stringify(output, null, 2)
-        : `${JSON.stringify(output, null, 2)}\n`;
-    process.stdout.write(liveOutput);
-    if (format === 'json') process.stdout.write('\n');
+    process.stdout.write(formatOutput(output, format));
     return;
   }
-  const output = format === 'json' ? JSON.stringify(payload, null, 2) : `${JSON.stringify(payload, null, 2)}\n`;
-  process.stdout.write(output);
-  if (format === 'json') process.stdout.write('\n');
+  process.stdout.write(formatOutput(payload, format));
 }
 
 if (require.main === module) {

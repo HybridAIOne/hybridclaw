@@ -249,6 +249,11 @@ do not send mail by themselves. Red operations can send or schedule external
 email and require explicit operator approval for the named campaign or message
 target.
 
+`--operator-grant` is an approval-workflow marker for this helper, not an
+access-control boundary. The gateway approval policy, network policy, and
+credential resolver remain the actual enforcement layers for external writes
+and sends.
+
 Bulk member mutation is intentionally exposed as a preview/approval boundary,
 not as a direct batch execution command. For more than one subscriber, run
 `approval-plan audience bulk-plan` with the target list, operation, source

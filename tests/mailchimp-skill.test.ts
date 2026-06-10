@@ -96,6 +96,7 @@ test('mailchimp skill manifest declares Marketing and Mandrill credentials', () 
   expect(skill).toContain('already stored OAuth access token');
   expect(skill).toContain('permanent member deletion');
   expect(skill).toContain('Use `--request` only for dry-run/debug output');
+  expect(skill).toContain('access-control boundary');
 });
 
 test('mailchimp roadmap row links issue 1136', () => {
@@ -160,6 +161,18 @@ test('mailchimp helper reports gateway-resolved placeholders without reading sto
     ]),
   );
   expect(payload.secretVisibility).toContain('does not read runtime env or secret values');
+});
+
+test('mailchimp helper emits compact json and indented pretty output', () => {
+  const json = runHelper(['--format', 'json', 'credential-check']);
+  const pretty = runHelper(['--format', 'pretty', 'credential-check']);
+
+  expect(json.status).toBe(0);
+  expect(pretty.status).toBe(0);
+  expect(json.stdout).not.toContain('\n  "command"');
+  expect(pretty.stdout).toContain('\n  "command"');
+  expect(JSON.parse(json.stdout)).toMatchObject({ command: 'credential-check' });
+  expect(JSON.parse(pretty.stdout)).toMatchObject({ command: 'credential-check' });
 });
 
 test('mailchimp helper builds OAuth metadata request without server prefix', () => {
@@ -238,6 +251,23 @@ test('mailchimp helper builds placeholder-backed audience member lookup', () => 
   expect(JSON.stringify(payload)).not.toContain('Ada@Example.com');
   expect(JSON.stringify(payload)).not.toContain('Bearer');
   expect(payload.httpRequest).not.toHaveProperty('secretHeaders');
+});
+
+test('mailchimp helper fails fast on invalid subscriber emails', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    '--request',
+    'audience',
+    'member',
+    '--list-id',
+    'list-123',
+    '--email',
+    'notanemail',
+  ]);
+
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('--email must be an email address');
 });
 
 test('mailchimp helper supports OAuth placeholder auth for Marketing requests', () => {
@@ -454,6 +484,25 @@ test('mailchimp guarded campaign send requires approval plan and grant', () => {
   expect(approved.httpRequest.url).toBe(
     'https://us21.api.mailchimp.com/3.0/campaigns/abc123/actions/send',
   );
+});
+
+test('mailchimp helper validates upsert tags before building requests', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'approval-plan',
+    'audience',
+    'member-upsert',
+    '--list-id',
+    'list-123',
+    '--email',
+    'user@example.com',
+    '--tag',
+    'VIP:badstatus',
+  ]);
+
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('--tag status must be active or inactive');
 });
 
 test('mailchimp helper requires a red approval preview for bulk member plans', () => {
