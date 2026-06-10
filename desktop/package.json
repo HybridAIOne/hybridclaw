@@ -25,7 +25,7 @@
   },
   "devDependencies": {
     "electron": "40.10.1",
-    "electron-builder": "26.8.1"
+    "electron-builder": "26.14.0"
   },
   "build": {
     "appId": "com.hybridaione.hybridclaw.desktop",
