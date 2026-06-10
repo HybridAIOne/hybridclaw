@@ -97,8 +97,13 @@ v="$( ( curl() { printf 'abc1  node-v22.31.4-linux-x64.tar.gz\n'; }
 expect_eq "explicit HYBRIDCLAW_NODE_VERSION pin wins" "22.11.0" "$v"
 # The stubs above ignore curl's arguments; pin the actual URLs requested.
 url_log="$TEST_TMPDIR/urls"
+url_capturing_curl() { # records https URLs to $url_log, then fails the fetch
+  local a
+  for a in "$@"; do case "$a" in https://*) echo "$a" >>"$url_log" ;; esac; done
+  return 1
+}
 : >"$url_log"
-( curl() { local a; for a in "$@"; do case "$a" in https://*) echo "$a" >>"$url_log" ;; esac; done; return 1; }
+( curl() { url_capturing_curl "$@"; }
   resolve_node_version )
 expect_contains "resolve fetches the latest-v<major> SHASUMS" \
   "https://nodejs.org/dist/latest-v${REQUIRED_NODE_MAJOR}.x/SHASUMS256.txt" "$(cat "$url_log")"
@@ -176,7 +181,7 @@ expect_contains "absent checksum warns" "skipping verification" "$out"
 
 # The per-version fetch must hit the version's own SHASUMS URL.
 : >"$url_log"
-( curl() { local a; for a in "$@"; do case "$a" in https://*) echo "$a" >>"$url_log" ;; esac; done; return 1; }
+( curl() { url_capturing_curl "$@"; }
   verify_node_checksum "$tmp" 22.0.0 "$fn" ) >/dev/null 2>&1
 expect_contains "verify fetches the per-version SHASUMS" \
   "https://nodejs.org/dist/v22.0.0/SHASUMS256.txt" "$(cat "$url_log")"

@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-import { resolveInstallRoot } from './install-root.js';
+import {
+  containerBootstrapScriptPath,
+  resolveInstallRoot,
+} from './install-root.js';
 
 export interface HostRuntimeCommand {
   command: string;
@@ -85,7 +88,7 @@ function formatMissingDependencyMessage(
   const list = missingDependencies.join(', ');
   const hint = isSourceCheckout(installRoot)
     ? 'If you are running from a source checkout, run `npm run setup` first.'
-    : `Run \`node ${path.join(installRoot, 'scripts', 'postinstall-container.mjs')}\` to install them; installs that skip lifecycle scripts (--ignore-scripts, pnpm) miss this step.`;
+    : `Run \`node ${containerBootstrapScriptPath(installRoot)}\` to install them; installs that skip lifecycle scripts (--ignore-scripts, pnpm) miss this step.`;
   return [
     `${commandName}: Host runtime is not ready.`,
     `Missing runtime ${noun}: ${list}.`,

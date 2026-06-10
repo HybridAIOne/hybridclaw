@@ -394,11 +394,15 @@ add_to_path() {
   # creating it if absent — otherwise a zsh user whose only existing rc is
   # ~/.bashrc (which zsh never reads), or a fresh macOS box with no ~/.zshrc,
   # would get no usable PATH persistence.
-  local login_rc
+  local login_rc fish_conf=""
   case "${SHELL:-}" in
     *zsh)  login_rc="${ZDOTDIR:-$HOME}/.zshrc" ;;
     *bash) login_rc="$HOME/.bashrc" ;;
-    *fish) login_rc="" ;; # fish reads none of the POSIX rc files; handled below
+    *fish)
+      # fish reads none of the POSIX rc files and uses its own dialect.
+      login_rc=""
+      fish_conf="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
+      ;;
     *)     login_rc="$HOME/.profile" ;;
   esac
 
@@ -417,16 +421,13 @@ add_to_path() {
       || warn "could not update ${rc}; add '${dir}' to your PATH manually."
   done
 
-  case "${SHELL:-}" in
-    *fish)
-      local fish_conf="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
-      local fish_line="fish_add_path --prepend \"$dir\" $marker"
-      if ! grep -qsF "$fish_line" "$fish_conf" 2>/dev/null; then
-        { mkdir -p "${fish_conf%/*}" && printf '\n%s\n' "$fish_line" >> "$fish_conf"; } 2>/dev/null \
-          || warn "could not update ${fish_conf}; add '${dir}' to your PATH manually."
-      fi
-      ;;
-  esac
+  if [ -n "$fish_conf" ]; then
+    local fish_line="fish_add_path --prepend \"$dir\" $marker"
+    if ! grep -qsF "$fish_line" "$fish_conf" 2>/dev/null; then
+      { mkdir -p "${fish_conf%/*}" && printf '\n%s\n' "$fish_line" >> "$fish_conf"; } 2>/dev/null \
+        || warn "could not update ${fish_conf}; add '${dir}' to your PATH manually."
+    fi
+  fi
 }
 
 npm_global_bin() {
@@ -514,22 +515,19 @@ install_cli() {
 
   local bin_dir resolved
   bin_dir="$(npm_global_bin || true)"
-  if [ -n "$bin_dir" ]; then
-    resolved="$(command -v hybridclaw 2>/dev/null || true)"
-    case "$resolved" in
-      "$bin_dir"/*) ;; # PATH already resolves to the fresh install
-      *)
-        add_to_path "$bin_dir"
-        hash -r
-        if [ -n "$resolved" ]; then
-          # Without this, onboarding/--verify below would silently exercise the
-          # stale binary and report its old version as the install result.
-          warn "Another hybridclaw at ${resolved} was shadowing this install; ${bin_dir} now takes precedence on PATH."
-        else
-          warn "Added npm global bin (${bin_dir}) to your PATH. Open a new shell if needed."
-        fi
-        ;;
-    esac
+  [ -n "$bin_dir" ] || return 0
+  resolved="$(command -v hybridclaw 2>/dev/null || true)"
+  case "$resolved" in
+    "$bin_dir"/*) return 0 ;; # PATH already resolves to the fresh install
+  esac
+  add_to_path "$bin_dir"
+  hash -r
+  if [ -n "$resolved" ]; then
+    # Without this, onboarding/--verify below would silently exercise the
+    # stale binary and report its old version as the install result.
+    warn "Another hybridclaw at ${resolved} was shadowing this install; ${bin_dir} now takes precedence on PATH."
+  else
+    warn "Added npm global bin (${bin_dir}) to your PATH. Open a new shell if needed."
   fi
 }
 

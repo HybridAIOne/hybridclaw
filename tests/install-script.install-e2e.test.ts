@@ -4,7 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, test } from 'vitest';
-import { cleanupStaleContainers } from './helpers/docker-test-setup.js';
+import {
+  CONTAINER_PREFIX,
+  cleanupStaleContainers,
+} from './helpers/docker-test-setup.js';
 
 /**
  * End-to-end coverage for the `curl | bash` bootstrap installer
@@ -79,14 +82,14 @@ function runInContainer(opts: {
   // --init: without it the shell is PID 1 and ignores the SIGTERM that
   // spawnSync's timeout sends, so a timed-out install keeps running (and
   // --rm never fires) — orphaned containers pile up across retries.
-  // The hc-e2e-install name gives the stale-container sweeper a handle for
-  // anything that survives a SIGKILLed worker.
+  // The name gives the stale-container sweeper a handle for anything that
+  // survives a SIGKILLed worker.
   const args = [
     'run',
     '--rm',
     '--init',
     '--name',
-    `hc-e2e-install-${randomUUID()}`,
+    `${CONTAINER_PREFIX}-install-${randomUUID()}`,
   ];
   if (user) args.push('--user', user);
   args.push(
