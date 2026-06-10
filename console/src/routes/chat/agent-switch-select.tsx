@@ -3,6 +3,7 @@ import css from './chat-page.module.css';
 export interface AgentSwitchOption {
   id: string;
   name?: string | null;
+  imageUrl?: string | null;
 }
 
 function ChevronGlyph() {

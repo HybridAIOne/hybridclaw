@@ -211,6 +211,7 @@ export function Composer(props: {
             label: `@${agent.id}`,
             insertText: `@${agent.id}`,
             description: name && name !== agent.id ? name : '',
+            imageUrl: agent.imageUrl ?? null,
           };
         });
     },
@@ -550,6 +551,7 @@ export function Composer(props: {
             activeIdx={activeIdx}
             query={lastQuery}
             listboxId={listboxId}
+            token={props.token}
             onSelect={applySuggestion}
             onActiveChange={setActiveIdx}
           />

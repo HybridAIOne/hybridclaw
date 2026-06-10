@@ -157,6 +157,7 @@ export function PopoverContent({
   useLayoutEffect(() => {
     const popupEl = localRef.current;
     if (!ctx.open || !ctx.triggerEl || !popupEl) return;
+    let frame = 0;
     const updatePosition = () => {
       if (!ctx.triggerEl || !popupEl) return;
       const triggerRect = ctx.triggerEl.getBoundingClientRect();
@@ -176,10 +177,25 @@ export function PopoverContent({
       }
       setPosition({ x, y, minWidth: triggerRect.width });
     };
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updatePosition();
+      });
+    };
     updatePosition();
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(scheduleUpdate);
+    observer?.observe(ctx.triggerEl);
+    observer?.observe(popupEl);
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      observer?.disconnect();
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };

@@ -312,6 +312,7 @@ export function ChatPage() {
       (agentsQuery.data ?? []).map((agent) => ({
         id: agent.id,
         name: agent.name,
+        imageUrl: agent.imageUrl ?? null,
       })),
     [agentsQuery.data],
   );

@@ -1592,6 +1592,13 @@ aside[data-state="collapsed"] .chatSidebarContent {
   transition: background 0.1s;
 }
 
+.suggestionItemAgent {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
 .suggestionItemActive {
   background: color-mix(in srgb, var(--primary) 14%, transparent);
   border-left-color: var(--primary);
@@ -1605,9 +1612,39 @@ aside[data-state="collapsed"] .chatSidebarContent {
   font-size: 0.86rem;
   font-weight: 500;
   color: var(--text);
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.suggestionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.suggestionAvatar,
+.suggestionAvatarFallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.suggestionAvatar {
+  object-fit: cover;
+}
+
+.suggestionAvatarFallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .suggestionLabelMono {

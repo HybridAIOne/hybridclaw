@@ -83,6 +83,7 @@ export interface ChatCommandSuggestion {
   label: string;
   insertText: string;
   description: string;
+  imageUrl?: string | null;
   depth?: number;
 }
 

@@ -7752,10 +7752,14 @@ export function getGatewayHistory(
 
 export function getGatewayAgentList(): GatewayAgentListResponse {
   return {
-    agents: listAgents().map((agent) => ({
-      id: agent.id,
-      name: agent.name || null,
-    })),
+    agents: listAgents().map((agent) => {
+      const presentation = getGatewayAssistantPresentationForAgent(agent.id);
+      return {
+        id: agent.id,
+        name: agent.name || null,
+        ...(presentation.imageUrl ? { imageUrl: presentation.imageUrl } : {}),
+      };
+    }),
   };
 }
 

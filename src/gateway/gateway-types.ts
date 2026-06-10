@@ -825,6 +825,7 @@ export interface GatewayAgentsResponse {
 export interface GatewayAgentListItem {
   id: string;
   name: string | null;
+  imageUrl?: string;
 }
 
 export interface GatewayAgentListResponse {

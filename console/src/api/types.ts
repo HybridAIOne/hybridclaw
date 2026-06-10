@@ -1162,6 +1162,7 @@ export interface AgentsOverviewResponse {
 export interface AgentListItem {
   id: string;
   name: string | null;
+  imageUrl?: string | null;
 }
 
 export interface AgentListResponse {

@@ -17,8 +17,12 @@ import { Composer } from './composer';
 
 const fetchChatCommandsMock =
   vi.fn<(token: string, query?: string) => Promise<ChatCommandsResponse>>();
+const fetchAgentAvatarBlobMock =
+  vi.fn<(token: string, imageUrl: string) => Promise<Blob>>();
 
 vi.mock('../../api/chat', () => ({
+  fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
+    fetchAgentAvatarBlobMock(token, imageUrl),
   fetchChatCommands: (token: string, query?: string) =>
     fetchChatCommandsMock(token, query),
 }));
@@ -57,7 +61,18 @@ const getTextarea = () =>
 
 describe('Composer', () => {
   beforeEach(() => {
+    fetchAgentAvatarBlobMock.mockReset();
     fetchChatCommandsMock.mockReset();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => 'blob:agent-avatar'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    });
   });
 
   it('strips the leading slash before fetching command suggestions', async () => {
@@ -101,10 +116,17 @@ describe('Composer', () => {
   });
 
   it('suggests agents after @ and inserts the active mention', async () => {
+    fetchAgentAvatarBlobMock.mockResolvedValue(
+      new Blob(['avatar'], { type: 'image/png' }),
+    );
     renderComposer({
       agents: [
         { id: 'main', name: 'Assistant' },
-        { id: 'research', name: 'Research Agent' },
+        {
+          id: 'research',
+          name: 'Research Agent',
+          imageUrl: '/api/agent-avatar?agentId=research',
+        },
       ],
       selectedAgentId: 'main',
     });
@@ -114,6 +136,15 @@ describe('Composer', () => {
     const panel = await screen.findByRole('listbox', { name: 'Agents' });
     expect(panel.textContent).toContain('@research');
     expect(panel.textContent).toContain('Research Agent');
+    await waitFor(() =>
+      expect(fetchAgentAvatarBlobMock).toHaveBeenCalledWith(
+        'test-token',
+        '/api/agent-avatar?agentId=research',
+      ),
+    );
+    expect(panel.querySelector('img')?.getAttribute('src')).toBe(
+      'blob:agent-avatar',
+    );
 
     fireEvent.keyDown(textarea, { key: 'Tab' });
 

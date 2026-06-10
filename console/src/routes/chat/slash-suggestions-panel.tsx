@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { fetchAgentAvatarBlob } from '../../api/chat';
 import type { ChatCommandSuggestion } from '../../api/chat-types';
 import { PopoverContent } from '../../components/popover';
 import {
@@ -19,6 +20,7 @@ export interface SlashSuggestionsPanelProps {
   activeIdx: number;
   query: string;
   listboxId: string;
+  token?: string;
   onSelect: (item: ChatCommandSuggestion) => void;
   onActiveChange: (i: number) => void;
 }
@@ -34,6 +36,7 @@ export function SlashSuggestionsPanel({
   activeIdx,
   query,
   listboxId,
+  token,
   onSelect,
   onActiveChange,
 }: SlashSuggestionsPanelProps) {
@@ -73,6 +76,7 @@ export function SlashSuggestionsPanel({
                 id={optionIdFor(listboxId, i)}
                 className={cx(
                   css.suggestionItem,
+                  kind === 'agent' && css.suggestionItemAgent,
                   i === activeIdx && css.suggestionItemActive,
                   (item.depth ?? 1) >= 2 && css.suggestionItemSub,
                 )}
@@ -86,12 +90,19 @@ export function SlashSuggestionsPanel({
                 onMouseEnter={() => onActiveChange(i)}
                 title={item.description || undefined}
               >
-                <span className={css.suggestionLabel}>
-                  {renderLabel(item.label, q)}
-                </span>
-                {item.description ? (
-                  <span className={css.suggestionDesc}>{item.description}</span>
+                {kind === 'agent' ? (
+                  <AgentSuggestionAvatar item={item} token={token} />
                 ) : null}
+                <span className={css.suggestionText}>
+                  <span className={css.suggestionLabel}>
+                    {renderLabel(item.label, q)}
+                  </span>
+                  {item.description ? (
+                    <span className={css.suggestionDesc}>
+                      {item.description}
+                    </span>
+                  ) : null}
+                </span>
               </div>
             ))
           ) : (
@@ -105,6 +116,52 @@ export function SlashSuggestionsPanel({
         </ScrollAreaScrollbar>
       </ScrollArea>
     </PopoverContent>
+  );
+}
+
+function AgentSuggestionAvatar(props: {
+  item: ChatCommandSuggestion;
+  token?: string;
+}) {
+  const objectUrlRef = useRef<string | null>(null);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const imageUrl = props.item.imageUrl?.trim();
+
+  useEffect(() => {
+    const previous = objectUrlRef.current;
+    objectUrlRef.current = null;
+    if (previous) URL.revokeObjectURL(previous);
+    setObjectUrl(null);
+
+    if (!props.token || !imageUrl) return;
+
+    let cancelled = false;
+    void fetchAgentAvatarBlob(props.token, imageUrl)
+      .then((blob) => {
+        if (cancelled) return;
+        const next = URL.createObjectURL(blob);
+        objectUrlRef.current = next;
+        setObjectUrl(next);
+      })
+      .catch(() => {
+        if (!cancelled) setObjectUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      const next = objectUrlRef.current;
+      objectUrlRef.current = null;
+      if (next) URL.revokeObjectURL(next);
+    };
+  }, [imageUrl, props.token]);
+
+  const initial = props.item.label.replace(/^@/u, '').charAt(0).toUpperCase();
+  return objectUrl ? (
+    <img className={css.suggestionAvatar} src={objectUrl} alt="" />
+  ) : (
+    <span className={css.suggestionAvatarFallback} aria-hidden="true">
+      {initial || '@'}
+    </span>
   );
 }
 
