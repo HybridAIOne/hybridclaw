@@ -139,13 +139,27 @@ async function importFreshMessageToolActions() {
     if (sessionId === 'email:peer@example.com') {
       return { id: sessionId, channel_id: 'peer@example.com' };
     }
+    if (sessionId === 'assist-session') {
+      return {
+        id: sessionId,
+        channel_id: 'web',
+        agent_id: 'assist',
+      };
+    }
     return (
       knownTeamsSessions.find((session) => session.id === sessionId) ||
       knownSlackSessions.find((session) => session.id === sessionId) ||
       null
     );
   });
-  const resolveAgentForRequest = vi.fn(() => ({ agentId: 'main' }));
+  const resolveAgentForRequest = vi.fn((params?: { session?: { agent_id?: string | null } | null }) => ({
+    agentId: params?.session?.agent_id || 'main',
+  }));
+  const getAgentById = vi.fn((agentId: string) =>
+    agentId === 'assist'
+      ? { id: 'assist', displayName: 'assist' }
+      : { id: agentId, name: agentId === 'main' ? 'Main Agent' : agentId },
+  );
   const agentWorkspaceDir = vi.fn(() => '/tmp/hybridclaw-agent-workspace');
 
   vi.doMock('../src/channels/whatsapp/auth.js', () => ({
@@ -194,6 +208,7 @@ async function importFreshMessageToolActions() {
     getSessionById,
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
+    getAgentById,
     resolveAgentForRequest,
   }));
   vi.doMock('../src/infra/ipc.js', () => ({
@@ -205,6 +220,8 @@ async function importFreshMessageToolActions() {
     ...module,
     sendEmailAttachmentTo,
     sendToEmail,
+    getAgentById,
+    resolveAgentForRequest,
     sendToSignalChat,
     sendToSlackWebhookTarget,
     sendToDiscordWebhookTarget,
@@ -743,6 +760,27 @@ test('send action routes email targets through email transport', async () => {
   });
 });
 
+test('send action uses active agent name as email sender display name', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await state.runMessageToolAction({
+    action: 'send',
+    sessionId: 'assist-session',
+    channelId: 'ops@example.com',
+    content: '[Subject: Hello]\n\nI just hatched.',
+  });
+
+  expect(state.resolveAgentForRequest).toHaveBeenCalledWith({
+    session: expect.objectContaining({ agent_id: 'assist' }),
+  });
+  expect(state.getAgentById).toHaveBeenCalledWith('assist');
+  expect(state.sendToEmail).toHaveBeenCalledWith(
+    'ops@example.com',
+    '[Subject: Hello]\n\nI just hatched.',
+    { fromName: 'assist' },
+  );
+});
+
 test('send action routes email attachments through email delivery', async () => {
   const state = await importFreshMessageToolActions();
 
@@ -768,6 +806,7 @@ test('send action routes email attachments through email delivery', async () => 
     bcc: ['audit@example.com'],
     inReplyTo: '<msg-1@example.com>',
     references: ['<ref-1@example.com>', '<msg-1@example.com>'],
+    fromName: 'Main Agent',
   });
   expect(result).toMatchObject({
     ok: true,

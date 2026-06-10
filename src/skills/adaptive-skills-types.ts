@@ -1,3 +1,4 @@
+import type { Actor } from '../identity/actor.js';
 import type { SkillGuardVerdict } from './skills-guard.js';
 
 export type SkillExecutionOutcome = 'success' | 'failure' | 'partial';
@@ -136,6 +137,7 @@ export interface SkillObservationSummary {
 }
 
 export interface AgentSkillScore {
+  actor: Actor;
   agent_id: string;
   skill_id: string;
   skill_name: string;
@@ -157,6 +159,7 @@ export interface AgentSkillScore {
 }
 
 export interface AgentScoreboardEntry {
+  actor: Actor;
   agent_id: string;
   display_name: string;
   total_executions: number;

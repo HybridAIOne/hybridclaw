@@ -20,22 +20,21 @@ test('show none hides both activity and tools', () => {
   expect(sessionShowModeShowsThinking('none')).toBe(false);
 });
 
-// The web console relies on `commandResult` to render slash-command output as a
-// distinct console block. The show-mode filter is the one transform this flag
-// passes through before it is streamed, so it must survive in every mode —
-// both the tools-visible pass-through and the tools-hidden rewrite path.
-test('preserves the commandResult flag in every show mode', () => {
+// The web console relies on messageRole to render slash-command output as a
+// distinct console block. The show-mode filter is the one transform this value
+// passes through before it is streamed, so it must survive in every mode.
+test('preserves the message role in every show mode', () => {
   const result: GatewayChatResult = {
     status: 'success',
     result: 'Session model set to `opus`.',
     toolsUsed: [],
-    commandResult: true,
+    messageRole: 'command',
   };
 
   expect(
-    filterGatewayChatResultForSessionShowMode(result, 'tools').commandResult,
-  ).toBe(true);
+    filterGatewayChatResultForSessionShowMode(result, 'tools').messageRole,
+  ).toBe('command');
   expect(
-    filterGatewayChatResultForSessionShowMode(result, 'none').commandResult,
-  ).toBe(true);
+    filterGatewayChatResultForSessionShowMode(result, 'none').messageRole,
+  ).toBe('command');
 });

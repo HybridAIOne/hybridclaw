@@ -128,6 +128,10 @@ import type { RuntimeConfig } from '../config/runtime-config.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import {
+  startPeriodicCloudMemorySync,
+  stopPeriodicCloudMemorySync,
+} from '../memory/cloud-memory.js';
+import {
   getDreamTimezone,
   hasDreamRunToday,
   isMemoryConsolidationEnabled,
@@ -222,11 +226,11 @@ import {
   rememberPendingApproval,
 } from './pending-approvals.js';
 import {
+  hasImmediateProactiveDeliveryPath,
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
   isEmailAddress,
   isHeartbeatOkText,
-  isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
   shouldSuppressProactiveMessage,
@@ -1343,7 +1347,7 @@ async function flushQueuedProactiveMessages(): Promise<void> {
       droppedUndeliverable += 1;
       continue;
     }
-    if (!isSupportedProactiveChannelId(item.channel_id)) {
+    if (!hasImmediateProactiveDeliveryPath(item)) {
       continue;
     }
     await sendProactiveMessageNow(
@@ -3230,6 +3234,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       runManagedMediaCleanup('shutdown'),
     );
     stopHeartbeat();
+    stopPeriodicCloudMemorySync();
     stopA2AOutboxProcessor();
     stopWebhookOutboxProcessor();
     stopObservabilityIngest();
@@ -3532,6 +3537,9 @@ async function main(): Promise<void> {
   const imessageActive = await startIMessageIntegration();
 
   startOrRestartHeartbeat();
+  startPeriodicCloudMemorySync({
+    resolveAgentIds: () => listAgents().map((agent) => agent.id),
+  });
   startA2AOutboxProcessor();
   startWebhookOutboxProcessor();
   startObservabilityIngest();

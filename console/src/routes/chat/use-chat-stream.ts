@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { executeCommand } from '../../api/chat';
 import type {
+  AssistantPresentation,
   ChatMessage,
   ChatStreamApproval,
   ChatStreamResult,
@@ -10,6 +11,7 @@ import type {
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
 import { requestChatStream } from '../../lib/chat-stream';
 import { getErrorMessage } from '../../lib/error-message';
+import { addAgentAttribution } from './agent-mention-display';
 import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
@@ -19,6 +21,7 @@ import type { ChatUiMessage, ThinkingChatMessage } from './chat-ui-message';
 interface ActiveRequest {
   controller: AbortController;
   sessionId: string;
+  messageRole: ChatMessage['role'];
   assistantText: string;
   lastRenderedText: string;
   pendingApproval: ChatStreamApproval | null;
@@ -34,6 +37,9 @@ interface UseChatStreamOptions {
   refreshRecent: () => void;
   onSessionIdCorrection: (serverSessionId: string) => void;
   onModelResolved?: (modelId: string) => void;
+  resolveAddressedAgentPresentation?: (
+    content: string,
+  ) => AssistantPresentation | null;
 }
 
 export interface UseChatStreamReturn {
@@ -63,6 +69,7 @@ export function useChatStream(
     refreshRecent,
     onSessionIdCorrection,
     onModelResolved,
+    resolveAddressedAgentPresentation,
   } = options;
 
   const queryClient = useQueryClient();
@@ -89,6 +96,8 @@ export function useChatStream(
           messages: nextMessages,
           branchFamilies: prev?.branchFamilies ?? new Map(),
           resolvedSessionId: prev?.resolvedSessionId ?? sessionId,
+          agentId: prev?.agentId ?? null,
+          bootstrapAutostart: prev?.bootstrapAutostart ?? null,
         };
       });
     },
@@ -116,6 +125,8 @@ export function useChatStream(
       setError('');
 
       if (userMsgId) {
+        const addressedAgentPresentation =
+          resolveAddressedAgentPresentation?.(content) ?? null;
         const userMsg: ChatMessage = {
           id: userMsgId,
           role: 'user',
@@ -125,6 +136,7 @@ export function useChatStream(
           media,
           artifacts: [],
           replayRequest: { content, media },
+          addressedAgentPresentation,
         };
         setMessages((prev) => [...prev, userMsg]);
       }
@@ -146,6 +158,7 @@ export function useChatStream(
       const req: ActiveRequest = {
         controller: new AbortController(),
         sessionId: targetSessionId,
+        messageRole: 'assistant',
         assistantText: '',
         lastRenderedText: '',
         pendingApproval: null,
@@ -166,9 +179,6 @@ export function useChatStream(
         }
         req.lastRenderedText = req.assistantText;
 
-        const role: ChatMessage['role'] = req.pendingApproval
-          ? 'approval'
-          : 'assistant';
         const text = req.assistantText;
         const approval = req.pendingApproval;
 
@@ -178,7 +188,12 @@ export function useChatStream(
           if (existing) {
             return withoutThinking.map((m) =>
               m === existing
-                ? { ...m, role, content: text, pendingApproval: approval }
+                ? {
+                    ...m,
+                    role: req.messageRole,
+                    content: text,
+                    pendingApproval: approval,
+                  }
                 : m,
             );
           }
@@ -186,7 +201,7 @@ export function useChatStream(
             ...withoutThinking,
             {
               id: streamId,
-              role,
+              role: req.messageRole,
               content: text,
               sessionId: req.sessionId,
               artifacts: [],
@@ -229,6 +244,7 @@ export function useChatStream(
             },
             onApproval: (event) => {
               req.pendingApproval = event;
+              req.messageRole = 'approval';
               if (!req.assistantText.trim()) {
                 req.assistantText = buildApprovalSummary(event);
               }
@@ -255,16 +271,18 @@ export function useChatStream(
         const finalText = result.result ?? req.assistantText ?? '';
         const finalApproval = req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
-        const finalRole: ChatMessage['role'] = finalApproval
-          ? 'approval'
-          : result.commandResult
-            ? 'command'
-            : 'assistant';
+        const addressedAgentId =
+          typeof result.addressEnvelope?.to === 'string'
+            ? result.addressEnvelope.to
+            : null;
+        if (!result.messageRole) {
+          throw new Error('Gateway chat result is missing messageRole.');
+        }
+        const finalRole: ChatMessage['role'] = result.messageRole;
         // A slash command that produced no visible output (and no artifacts)
         // leaves no bubble — like a shell command that succeeds silently.
         const isSilentCommand =
-          Boolean(result.commandResult) &&
-          !finalApproval &&
+          finalRole === 'command' &&
           finalText.trim().length === 0 &&
           finalArtifacts.length === 0;
         const buildFinalizedMessage = (
@@ -299,6 +317,10 @@ export function useChatStream(
             if (userMsgId && m.id === userMsgId && m.role === 'user') {
               return {
                 ...m,
+                content: addAgentAttribution(m.content, addressedAgentId),
+                addressedAgentPresentation: addressedAgentId
+                  ? (result.assistantPresentation ?? null)
+                  : null,
                 messageId: m.messageId ?? result.userMessageId ?? null,
                 sessionId: result.sessionId ?? m.sessionId,
               };
@@ -356,6 +378,7 @@ export function useChatStream(
       writeMessages,
       onSessionIdCorrection,
       onModelResolved,
+      resolveAddressedAgentPresentation,
       setError,
       refreshRecent,
     ],

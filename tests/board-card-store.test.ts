@@ -396,7 +396,7 @@ describe.sequential('board card store', () => {
     expect(runtimeEvents).toHaveLength(1);
     expect(runtimeEvents[0]).toMatchObject({
       type: 'board.card_created',
-      actor: { userId: 'user_a' },
+      actor: { type: 'user', id: 'user_a' },
       cardId: 'card-event',
       diff: {
         id: { before: null, after: 'card-event' },
@@ -416,7 +416,7 @@ describe.sequential('board card store', () => {
       run_id: 'board-event-run',
     });
     expect(JSON.parse(audit[0]?.payload || '{}')).toMatchObject({
-      actor: { userId: 'user_a' },
+      actor: { type: 'user', id: 'user_a' },
       cardId: 'card-event',
       diff: expect.any(Object),
     });
@@ -443,7 +443,7 @@ describe.sequential('board card store', () => {
       fromCardId: 'blocker',
       toCardId: 'blocked',
       kind: 'blocks',
-      createdBy: { userId: 'user_a' },
+      createdBy: { type: 'user', id: 'user_a' },
     });
     expect(boardModule.listEdges('blocker')).toMatchObject([
       {
@@ -593,7 +593,7 @@ describe.sequential('board card store', () => {
     expect(runtimeEvents).toMatchObject([
       {
         type: 'board.edge_added',
-        actor: { userId: 'user_a' },
+        actor: { type: 'user', id: 'user_a' },
         edgeId: edge.id,
         fromCardId: 'event-blocker',
         toCardId: 'event-blocked',
@@ -601,7 +601,7 @@ describe.sequential('board card store', () => {
       },
       {
         type: 'board.edge_removed',
-        actor: { userId: 'user_a' },
+        actor: { type: 'user', id: 'user_a' },
         edgeId: edge.id,
         fromCardId: 'event-blocker',
         toCardId: 'event-blocked',
@@ -619,7 +619,7 @@ describe.sequential('board card store', () => {
       'board.edge_added',
     ]);
     expect(JSON.parse(audit[0]?.payload || '{}')).toMatchObject({
-      actor: { userId: 'user_a' },
+      actor: { type: 'user', id: 'user_a' },
       edgeId: edge.id,
       fromCardId: 'event-blocker',
       toCardId: 'event-blocked',

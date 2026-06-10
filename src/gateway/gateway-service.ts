@@ -11,6 +11,14 @@ import {
 } from '../../container/shared/workspace-time.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
+  approveIncomingA2APairingRequest,
+  declineIncomingA2APairingRequest,
+  fetchA2APairingProposal,
+  listIncomingA2APairingRequests,
+  type StartA2APairingResult,
+  startA2APairing,
+} from '../a2a/pairing.js';
+import {
   type A2AThreadSummary,
   listA2AThreadEnvelopes,
   listA2AThreads,
@@ -204,6 +212,10 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
+import {
+  type CloudMemoryContextFile,
+  loadCloudMemoryContextFiles,
+} from '../memory/cloud-memory.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
@@ -418,6 +430,10 @@ import {
   WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
 import {
+  resolveAgentAddressing,
+  setActiveThreadAgentId,
+} from './agent-addressing.js';
+import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
@@ -481,6 +497,10 @@ import {
 } from './gateway-tunnel-service.js';
 import {
   type GatewayAdminA2AInboxResponse,
+  type GatewayAdminA2APairingDecisionRequest,
+  type GatewayAdminA2APairingPreviewResponse,
+  type GatewayAdminA2APairingStartRequest,
+  type GatewayAdminA2APairingStartResponse,
   type GatewayAdminA2AThreadMessage,
   type GatewayAdminA2AThreadSummary,
   type GatewayAdminA2ATrustPeer,
@@ -582,14 +602,43 @@ const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
 const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
 const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
-const ADMIN_AGENT_MARKDOWN_FILES = [
+const ADMIN_AGENT_LOCAL_MARKDOWN_FILES = [
   ...WORKSPACE_BOOTSTRAP_FILES,
   'CV.md',
+] as const;
+const ADMIN_AGENT_SHARED_MEMORY_FILES = [
+  {
+    name: 'Instance Memory.md',
+    displayName: 'Instance Memory',
+    scope: 'installation',
+    cloudPath: '/MEMORY.md',
+  },
+  {
+    name: 'Organization Memory.md',
+    displayName: 'Organization Memory',
+    scope: 'company',
+    cloudPath: '/MEMORY.md',
+  },
+] as const;
+const ADMIN_AGENT_MARKDOWN_FILES = [
+  ...ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
+  ...ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => file.name),
 ] as const;
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
   ADMIN_AGENT_MARKDOWN_FILES,
 );
+const ADMIN_AGENT_LOCAL_MARKDOWN_FILE_SET = new Set<string>(
+  ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
+);
+const ADMIN_AGENT_SHARED_MEMORY_FILE_BY_NAME = new Map<
+  string,
+  (typeof ADMIN_AGENT_SHARED_MEMORY_FILES)[number]
+>(ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => [file.name, file]));
 type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
+type AdminAgentLocalMarkdownFileName =
+  (typeof ADMIN_AGENT_LOCAL_MARKDOWN_FILES)[number];
+type AdminAgentSharedMemoryFile =
+  (typeof ADMIN_AGENT_SHARED_MEMORY_FILES)[number];
 type GatewayAdminAgentMarkdownFileStats = Pick<
   GatewayAdminAgentMarkdownFile,
   'exists' | 'updatedAt' | 'sizeBytes'
@@ -599,7 +648,7 @@ type GatewayAdminAgentMarkdownFileState = GatewayAdminAgentMarkdownFileStats & {
 };
 type StoredAdminAgentMarkdownRevisionMetadata =
   GatewayAdminAgentMarkdownRevision & {
-    fileName: AdminAgentMarkdownFileName;
+    fileName: AdminAgentLocalMarkdownFileName;
   };
 type StoredAdminAgentMarkdownRevision =
   StoredAdminAgentMarkdownRevisionMetadata & {
@@ -616,6 +665,17 @@ function buildBootstrapAutostartPrompt(
     'Send a concise first message to the user.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ].join(' ');
+}
+
+function getBootstrapAutostartMarkerKey(agentId: string): string {
+  return `${BOOTSTRAP_AUTOSTART_MARKER_KEY}.${agentId}`;
+}
+
+function getBootstrapAutostartLockKey(
+  sessionId: string,
+  agentId: string,
+): string {
+  return `${sessionId}:${agentId}`;
 }
 const REQUEST_LOG_SENSITIVE_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
@@ -1160,6 +1220,28 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   return normalized as AdminAgentMarkdownFileName;
 }
 
+function isGatewayAdminLocalMarkdownFileName(
+  fileName: AdminAgentMarkdownFileName,
+): fileName is AdminAgentLocalMarkdownFileName {
+  return ADMIN_AGENT_LOCAL_MARKDOWN_FILE_SET.has(fileName);
+}
+
+function normalizeGatewayAdminAgentLocalMarkdownFileName(
+  value: string,
+): AdminAgentLocalMarkdownFileName {
+  const fileName = normalizeGatewayAdminAgentMarkdownFileName(value);
+  if (!isGatewayAdminLocalMarkdownFileName(fileName)) {
+    throw new Error(`Shared markdown file "${fileName}" is read-only.`);
+  }
+  return fileName;
+}
+
+function getGatewayAdminSharedMemoryFileSpec(
+  fileName: AdminAgentMarkdownFileName,
+): AdminAgentSharedMemoryFile | null {
+  return ADMIN_AGENT_SHARED_MEMORY_FILE_BY_NAME.get(fileName) || null;
+}
+
 function resolveGatewayAdminAgentMarkdownFile(params: {
   agentId: string;
   fileName: string;
@@ -1167,18 +1249,23 @@ function resolveGatewayAdminAgentMarkdownFile(params: {
   agent: AgentConfig;
   resolvedAgent: AgentConfig;
   fileName: AdminAgentMarkdownFileName;
+  sharedMemoryFile: AdminAgentSharedMemoryFile | null;
   workspacePath: string;
   filePath: string;
 } {
   const agent = getGatewayAdminAgentConfig(params.agentId);
   const fileName = normalizeGatewayAdminAgentMarkdownFileName(params.fileName);
+  const sharedMemoryFile = getGatewayAdminSharedMemoryFileSpec(fileName);
   const resolvedAgent = resolveAgentConfig(agent.id);
   const workspacePath = path.resolve(agentWorkspaceDir(resolvedAgent.id));
-  const filePath = path.join(workspacePath, fileName);
+  const filePath = sharedMemoryFile
+    ? `cloud-memory://${sharedMemoryFile.scope}${sharedMemoryFile.cloudPath}`
+    : path.join(workspacePath, fileName);
   return {
     agent,
     resolvedAgent,
     fileName,
+    sharedMemoryFile,
     workspacePath,
     filePath,
   };
@@ -1210,11 +1297,59 @@ function getGatewayAdminAgentMarkdownFileStats(
   }
 }
 
+function getGatewayAdminSharedMemoryFile(
+  agentId: string,
+  spec: AdminAgentSharedMemoryFile,
+): CloudMemoryContextFile | null {
+  return (
+    loadCloudMemoryContextFiles(agentId).find(
+      (file) => file.scope === spec.scope && file.name === spec.cloudPath,
+    ) || null
+  );
+}
+
+function getGatewayAdminSharedMemoryFileStats(
+  agentId: string,
+  spec: AdminAgentSharedMemoryFile,
+): GatewayAdminAgentMarkdownFileStats {
+  const file = getGatewayAdminSharedMemoryFile(agentId, spec);
+  if (!file) {
+    return {
+      exists: false,
+      updatedAt: null,
+      sizeBytes: null,
+    };
+  }
+  return {
+    exists: true,
+    updatedAt: null,
+    sizeBytes: Buffer.byteLength(file.content, 'utf-8'),
+  };
+}
+
 function mapGatewayAdminAgentMarkdownFile(params: {
+  agentId: string;
   workspacePath: string;
   fileName: AdminAgentMarkdownFileName;
   stats?: GatewayAdminAgentMarkdownFileStats;
 }): GatewayAdminAgentMarkdownFile {
+  const sharedMemoryFile = getGatewayAdminSharedMemoryFileSpec(params.fileName);
+  if (sharedMemoryFile) {
+    const stats =
+      params.stats ??
+      getGatewayAdminSharedMemoryFileStats(params.agentId, sharedMemoryFile);
+    return {
+      name: sharedMemoryFile.name,
+      displayName: sharedMemoryFile.displayName,
+      path: `cloud-memory://${sharedMemoryFile.scope}${sharedMemoryFile.cloudPath}`,
+      scope: sharedMemoryFile.scope,
+      cloudPath: sharedMemoryFile.cloudPath,
+      readOnly: true,
+      exists: stats.exists,
+      updatedAt: stats.updatedAt,
+      sizeBytes: stats.sizeBytes,
+    };
+  }
   const filePath = path.join(params.workspacePath, params.fileName);
   const stats = params.stats ?? getGatewayAdminAgentMarkdownFileStats(filePath);
   return {
@@ -1228,7 +1363,7 @@ function mapGatewayAdminAgentMarkdownFile(params: {
 
 function getGatewayAdminAgentMarkdownFilePresenceStats(
   workspacePath: string,
-): Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats> {
+): Record<AdminAgentLocalMarkdownFileName, GatewayAdminAgentMarkdownFileStats> {
   const entriesByName = new Map<string, fs.Dirent>();
   try {
     for (const entry of fs.readdirSync(workspacePath, {
@@ -1243,7 +1378,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
     }
   }
 
-  return ADMIN_AGENT_MARKDOWN_FILES.reduce(
+  return ADMIN_AGENT_LOCAL_MARKDOWN_FILES.reduce(
     (statsByName, fileName) => {
       const entry = entriesByName.get(fileName);
       statsByName[fileName] = {
@@ -1254,7 +1389,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
       return statsByName;
     },
     {} as Record<
-      AdminAgentMarkdownFileName,
+      AdminAgentLocalMarkdownFileName,
       GatewayAdminAgentMarkdownFileStats
     >,
   );
@@ -1266,7 +1401,10 @@ function mapGatewayAdminAgent(
     resolvedAgent?: AgentConfig;
     workspacePath?: string;
     markdownFileStats?: Partial<
-      Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats>
+      Record<
+        AdminAgentLocalMarkdownFileName,
+        GatewayAdminAgentMarkdownFileStats
+      >
     >;
     markdownFileOverrides?: Partial<
       Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFile>
@@ -1296,9 +1434,12 @@ function mapGatewayAdminAgent(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
+          agentId: resolved.id,
           workspacePath,
           fileName,
-          stats: options?.markdownFileStats?.[fileName],
+          stats: isGatewayAdminLocalMarkdownFileName(fileName)
+            ? options?.markdownFileStats?.[fileName]
+            : undefined,
         }),
     ),
   };
@@ -1325,6 +1466,27 @@ function readGatewayAdminAgentMarkdownFileState(
   return {
     ...stats,
     content: fs.readFileSync(filePath, 'utf-8'),
+  };
+}
+
+function readGatewayAdminSharedMemoryFileState(
+  agentId: string,
+  spec: AdminAgentSharedMemoryFile,
+): GatewayAdminAgentMarkdownFileState {
+  const file = getGatewayAdminSharedMemoryFile(agentId, spec);
+  if (!file) {
+    return {
+      exists: false,
+      updatedAt: null,
+      sizeBytes: null,
+      content: '',
+    };
+  }
+  return {
+    exists: true,
+    updatedAt: null,
+    sizeBytes: Buffer.byteLength(file.content, 'utf-8'),
+    content: file.content,
   };
 }
 
@@ -1369,8 +1531,14 @@ function buildGatewayAdminAgentMarkdownFileResponse(params: {
 }): GatewayAdminAgentMarkdownFileResponse {
   const fileState =
     params.fileState ??
-    readGatewayAdminAgentMarkdownFileState(params.resolved.filePath);
+    (params.resolved.sharedMemoryFile
+      ? readGatewayAdminSharedMemoryFileState(
+          params.resolved.resolvedAgent.id,
+          params.resolved.sharedMemoryFile,
+        )
+      : readGatewayAdminAgentMarkdownFileState(params.resolved.filePath));
   const mappedFile = mapGatewayAdminAgentMarkdownFile({
+    agentId: params.resolved.resolvedAgent.id,
     workspacePath: params.resolved.workspacePath,
     fileName: params.resolved.fileName,
     stats: fileState,
@@ -1395,17 +1563,20 @@ function buildGatewayAdminAgentMarkdownFileResponse(params: {
       content: fileState.content,
       revisions:
         params.revisions ??
-        listGatewayAdminAgentMarkdownRevisions({
-          workspacePath: params.resolved.workspacePath,
-          fileName: params.resolved.fileName,
-        }),
+        (params.resolved.sharedMemoryFile
+          ? []
+          : listGatewayAdminAgentMarkdownRevisions({
+              workspacePath: params.resolved.workspacePath,
+              fileName: params.resolved
+                .fileName as AdminAgentLocalMarkdownFileName,
+            })),
     },
   };
 }
 
 function getGatewayAdminAgentMarkdownRevisionDir(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): string {
   return path.join(
     path.dirname(params.workspacePath),
@@ -1415,7 +1586,7 @@ function getGatewayAdminAgentMarkdownRevisionDir(params: {
 }
 
 function buildGatewayAdminAgentMarkdownRevision(params: {
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
   content: string;
   source: GatewayAdminAgentMarkdownRevision['source'];
 }): StoredAdminAgentMarkdownRevision {
@@ -1453,7 +1624,7 @@ function getGatewayAdminAgentMarkdownRevisionContentPath(
 
 function writeGatewayAdminAgentMarkdownRevision(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
   content: string;
   source: GatewayAdminAgentMarkdownRevision['source'];
 }): GatewayAdminAgentMarkdownRevision {
@@ -1507,7 +1678,9 @@ function readGatewayAdminAgentMarkdownRevisionMetadataRecord(
     }
     return {
       id: parsed.id,
-      fileName: normalizeGatewayAdminAgentMarkdownFileName(parsed.fileName),
+      fileName: normalizeGatewayAdminAgentLocalMarkdownFileName(
+        parsed.fileName,
+      ),
       createdAt: parsed.createdAt,
       sizeBytes: parsed.sizeBytes,
       sha256: parsed.sha256,
@@ -1591,7 +1764,7 @@ function compareGatewayAdminAgentMarkdownRevisionEntries(
 
 function listGatewayAdminAgentMarkdownRevisionEntries(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): { revisionDir: string; entries: string[] } {
   const revisionDir = getGatewayAdminAgentMarkdownRevisionDir(params);
   let entries: string[];
@@ -1617,7 +1790,7 @@ function listGatewayAdminAgentMarkdownRevisionEntries(params: {
 
 function trimGatewayAdminAgentMarkdownRevisions(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): void {
   const { revisionDir, entries } =
     listGatewayAdminAgentMarkdownRevisionEntries(params);
@@ -1644,7 +1817,7 @@ function trimGatewayAdminAgentMarkdownRevisions(params: {
 
 function listGatewayAdminAgentMarkdownRevisions(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): GatewayAdminAgentMarkdownRevision[] {
   const { revisionDir, entries } =
     listGatewayAdminAgentMarkdownRevisionEntries(params);
@@ -1696,7 +1869,7 @@ function normalizeGatewayAdminAgentMarkdownRevisionId(value: string): string {
 
 function getGatewayAdminAgentMarkdownRevisionRecord(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
   revisionId: string;
 }): StoredAdminAgentMarkdownRevision {
   const revisionId = normalizeGatewayAdminAgentMarkdownRevisionId(
@@ -4476,9 +4649,17 @@ export function getGatewayAdminAgentMarkdownRevision(params: {
   revisionId: string;
 }): GatewayAdminAgentMarkdownRevisionResponse {
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  if (resolved.sharedMemoryFile) {
+    throw new Error(
+      `Shared markdown file "${resolved.fileName}" does not have local revisions.`,
+    );
+  }
+  const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
+    resolved.fileName,
+  );
   const revision = getGatewayAdminAgentMarkdownRevisionRecord({
     workspacePath: resolved.workspacePath,
-    fileName: resolved.fileName,
+    fileName,
     revisionId: params.revisionId,
   });
   return {
@@ -4510,6 +4691,14 @@ export function saveGatewayAdminAgentMarkdownFile(params: {
     params.content,
   );
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  if (resolved.sharedMemoryFile) {
+    throw new Error(
+      `Shared markdown file "${resolved.fileName}" is read-only.`,
+    );
+  }
+  const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
+    resolved.fileName,
+  );
   const currentState = readGatewayAdminAgentMarkdownFileState(
     resolved.filePath,
   );
@@ -4522,7 +4711,7 @@ export function saveGatewayAdminAgentMarkdownFile(params: {
   if (currentState.exists) {
     writeGatewayAdminAgentMarkdownRevision({
       workspacePath: resolved.workspacePath,
-      fileName: resolved.fileName,
+      fileName,
       content: currentState.content,
       source: 'save',
     });
@@ -4549,9 +4738,17 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
   revisionId: string;
 }): GatewayAdminAgentMarkdownFileResponse {
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  if (resolved.sharedMemoryFile) {
+    throw new Error(
+      `Shared markdown file "${resolved.fileName}" is read-only.`,
+    );
+  }
+  const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
+    resolved.fileName,
+  );
   const revision = getGatewayAdminAgentMarkdownRevisionRecord({
     workspacePath: resolved.workspacePath,
-    fileName: resolved.fileName,
+    fileName,
     revisionId: params.revisionId,
   });
   const nextSizeBytes = assertGatewayAdminAgentMarkdownContentSize(
@@ -4570,7 +4767,7 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
   if (currentState.exists) {
     writeGatewayAdminAgentMarkdownRevision({
       workspacePath: resolved.workspacePath,
-      fileName: resolved.fileName,
+      fileName,
       content: currentState.content,
       source: 'restore',
     });
@@ -5493,15 +5690,18 @@ export function getGatewayAdminA2ATrust(): GatewayAdminA2ATrustResponse {
       publicKeyJwk: identity.publicKeyJwk,
     },
     peers: listA2ATrustedPublicKeyPeers().map(mapA2ATrustPeer),
+    pairingRequests: listIncomingA2APairingRequests(),
   };
 }
 
 export function revokeGatewayAdminA2ATrustPeer(params: {
   peerId: string;
   reason?: string;
+  actor?: string;
 }): GatewayAdminA2ATrustResponse {
   revokeA2ATrustedPublicKeyPeer(params.peerId, {
     reason: params.reason,
+    actor: params.actor,
   });
   return getGatewayAdminA2ATrust();
 }
@@ -5527,6 +5727,7 @@ function normalizeOptionalA2AStringInput(
 
 export function upsertGatewayAdminA2ATrustPeer(
   input: GatewayAdminA2ATrustUpsertRequest,
+  actor?: string,
 ): GatewayAdminA2ATrustResponse {
   upsertA2ATrustedPublicKeyPeer({
     peerId: normalizeA2AStringInput(input.peerId, 'peerId'),
@@ -5544,14 +5745,132 @@ export function upsertGatewayAdminA2ATrustPeer(
     ),
     publicKeyJwk: input.publicKeyJwk,
     reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
   });
   return getGatewayAdminA2ATrust();
 }
 
 export function deleteGatewayAdminA2ATrustPeer(params: {
   peerId: string;
+  actor?: string;
 }): GatewayAdminA2ATrustResponse {
-  deleteA2ATrustedPublicKeyPeer(params.peerId);
+  deleteA2ATrustedPublicKeyPeer(params.peerId, { actor: params.actor });
+  return getGatewayAdminA2ATrust();
+}
+
+function normalizeOptionalA2ABooleanInput(
+  value: unknown,
+  label: string,
+): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'boolean') {
+    throw new GatewayRequestError(400, `Expected boolean \`${label}\`.`);
+  }
+  return value;
+}
+
+function resolveGatewayA2APublicBaseUrl(): string | null {
+  const tunnelStatus = getGatewayAdminTunnelStatus();
+  return (
+    tunnelStatus.publicUrl ||
+    getRuntimeConfig().deployment.public_url.trim() ||
+    null
+  );
+}
+
+function mapA2APairingStartResponse(
+  result: StartA2APairingResult,
+): GatewayAdminA2APairingStartResponse {
+  const trust = getGatewayAdminA2ATrust();
+  return {
+    ...trust,
+    proposal: {
+      peerId: result.proposal.peerId,
+      agentCardUrl: result.proposal.agentCardUrl,
+      deliveryUrl: result.proposal.deliveryUrl,
+      publicKeyFingerprint: result.proposal.publicKeyFingerprint,
+      name: result.proposal.name,
+    },
+    remoteNotification: result.remoteNotification,
+  };
+}
+
+function resolvePairingTargetInput(input: GatewayAdminA2APairingStartRequest): {
+  peerUrl?: string;
+  canonicalId?: string;
+} {
+  const peerUrl = normalizeOptionalA2AStringInput(input.peerUrl, 'peerUrl');
+  const canonicalId =
+    normalizeOptionalA2AStringInput(input.canonicalId, 'canonicalId') ||
+    normalizeOptionalA2AStringInput(
+      input.canonicalInstanceId,
+      'canonicalInstanceId',
+    );
+  if (!peerUrl && !canonicalId) {
+    throw new GatewayRequestError(
+      400,
+      'Expected `peerUrl`, `canonicalId`, or `canonicalInstanceId`.',
+    );
+  }
+  return { peerUrl, canonicalId };
+}
+
+export async function startGatewayAdminA2APairing(
+  input: GatewayAdminA2APairingStartRequest,
+  actor?: string,
+): Promise<GatewayAdminA2APairingStartResponse> {
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
+  const notifyPeer =
+    normalizeOptionalA2ABooleanInput(input.notifyPeer, 'notifyPeer') ?? true;
+  const result = await startA2APairing({
+    peerUrl,
+    canonicalId,
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    notifyPeer,
+    actor,
+    localBaseUrl: notifyPeer ? resolveGatewayA2APublicBaseUrl() : null,
+  });
+  return mapA2APairingStartResponse(result);
+}
+
+export async function previewGatewayAdminA2APairing(
+  input: GatewayAdminA2APairingStartRequest,
+): Promise<GatewayAdminA2APairingPreviewResponse> {
+  const { peerUrl, canonicalId } = resolvePairingTargetInput(input);
+  const proposal = await fetchA2APairingProposal({ peerUrl, canonicalId });
+  return {
+    proposal: {
+      peerId: proposal.peerId,
+      agentCardUrl: proposal.agentCardUrl,
+      deliveryUrl: proposal.deliveryUrl,
+      publicKeyFingerprint: proposal.publicKeyFingerprint,
+      publicKeyJwk: proposal.publicKeyJwk,
+      name: proposal.name,
+    },
+  };
+}
+
+export function approveGatewayAdminA2APairingRequest(
+  input: GatewayAdminA2APairingDecisionRequest,
+  actor?: string,
+): GatewayAdminA2ATrustResponse {
+  approveIncomingA2APairingRequest({
+    requestId: normalizeA2AStringInput(input.requestId, 'requestId'),
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
+  });
+  return getGatewayAdminA2ATrust();
+}
+
+export function declineGatewayAdminA2APairingRequest(
+  input: GatewayAdminA2APairingDecisionRequest,
+  actor?: string,
+): GatewayAdminA2ATrustResponse {
+  declineIncomingA2APairingRequest({
+    requestId: normalizeA2AStringInput(input.requestId, 'requestId'),
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+    actor,
+  });
   return getGatewayAdminA2ATrust();
 }
 
@@ -6929,6 +7248,7 @@ function resolveBootstrapAutostartContext(params: {
   sessionId: string;
   channelId?: string | null;
   agentId?: string | null;
+  allowExistingSessionMessages?: boolean;
 }): {
   channelId: string;
   session: ReturnType<(typeof memoryService)['getOrCreateSession']>;
@@ -6949,8 +7269,9 @@ function resolveBootstrapAutostartContext(params: {
     params.agentId ?? undefined,
   );
   if (
-    session.message_count > 0 ||
-    String(session.session_summary || '').trim().length > 0
+    !params.allowExistingSessionMessages &&
+    (session.message_count > 0 ||
+      String(session.session_summary || '').trim().length > 0)
   ) {
     return null;
   }
@@ -6977,20 +7298,23 @@ export async function ensureGatewayBootstrapAutostart(params: {
   userId?: string | null;
   username?: string | null;
   agentId?: string | null;
+  allowExistingSessionMessages?: boolean;
 }): Promise<void> {
   const context = resolveBootstrapAutostartContext(params);
   if (!context) return;
   const { channelId, session, resolved, bootstrapFile } = context;
-  if (activeBootstrapAutostartSessions.has(session.id)) {
+  const markerKey = getBootstrapAutostartMarkerKey(resolved.agentId);
+  const lockKey = getBootstrapAutostartLockKey(session.id, resolved.agentId);
+  if (activeBootstrapAutostartSessions.has(lockKey)) {
     return;
   }
-  activeBootstrapAutostartSessions.add(session.id);
+  activeBootstrapAutostartSessions.add(lockKey);
 
   try {
-    if (getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY)) {
+    if (getMemoryValue(session.id, markerKey)) {
       return;
     }
-    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+    setMemoryValue(session.id, markerKey, {
       status: 'started',
       fileName: bootstrapFile,
       at: new Date().toISOString(),
@@ -7058,7 +7382,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     const chatbotId = chatbotResolution.chatbotId;
 
     if (modelRequiresChatbotId(resolved.model) && !chatbotId) {
-      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      deleteMemoryValue(session.id, markerKey);
       const error =
         chatbotResolution.error ||
         'No chatbot configured. Set `hybridai.defaultChatbotId` in ~/.hybridclaw/config.json or select a bot for this session.';
@@ -7244,7 +7568,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
     }
 
     if (output.status !== 'success' || !resultText) {
-      deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+      deleteMemoryValue(session.id, markerKey);
       recordAuditEvent({
         sessionId: session.id,
         runId,
@@ -7287,7 +7611,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       username: null,
       content: resultText,
     });
-    setMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY, {
+    setMemoryValue(session.id, markerKey, {
       status: 'completed',
       assistantMessageId,
       completedAt: new Date().toISOString(),
@@ -7316,13 +7640,13 @@ export async function ensureGatewayBootstrapAutostart(params: {
       },
     });
   } catch (error) {
-    deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);
+    deleteMemoryValue(session.id, markerKey);
     logger.warn(
       { sessionId: session.id, agentId: resolved.agentId, channelId, error },
       'Failed to run bootstrap autostart turn',
     );
   } finally {
-    activeBootstrapAutostartSessions.delete(session.id);
+    activeBootstrapAutostartSessions.delete(lockKey);
   }
 }
 
@@ -7330,15 +7654,19 @@ export function getGatewayBootstrapAutostartState(params: {
   sessionId: string;
   channelId?: string | null;
   agentId?: string | null;
+  allowExistingSessionMessages?: boolean;
 }): {
   status: 'idle' | 'starting' | 'completed';
   fileName: 'BOOTSTRAP.md' | 'OPENING.md';
 } | null {
   const context = resolveBootstrapAutostartContext(params);
   if (!context) return null;
-  const { session, bootstrapFile } = context;
+  const { session, resolved, bootstrapFile } = context;
 
-  const marker = getMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY) as {
+  const marker = getMemoryValue(
+    session.id,
+    getBootstrapAutostartMarkerKey(resolved.agentId),
+  ) as {
     status?: unknown;
     fileName?: unknown;
   } | null;
@@ -7414,6 +7742,7 @@ export function getGatewayHistory(
     .reverse();
   return {
     sessionId: page.sessionId,
+    agentId: page.agentId,
     sessionKey: page.sessionKey,
     mainSessionKey: page.mainSessionKey,
     history,
@@ -7423,10 +7752,14 @@ export function getGatewayHistory(
 
 export function getGatewayAgentList(): GatewayAgentListResponse {
   return {
-    agents: listAgents().map((agent) => ({
-      id: agent.id,
-      name: agent.name || null,
-    })),
+    agents: listAgents().map((agent) => {
+      const presentation = getGatewayAssistantPresentationForAgent(agent.id);
+      return {
+        id: agent.id,
+        name: agent.name || null,
+        ...(presentation.imageUrl ? { imageUrl: presentation.imageUrl } : {}),
+      };
+    }),
   };
 }
 
@@ -7518,7 +7851,7 @@ function nextDelegationSessionId(
   const safeParent = parentSessionId
     .replace(/[^a-zA-Z0-9:_-]/g, '-')
     .slice(0, 48);
-  const nonce = Math.random().toString(36).slice(2, 8);
+  const nonce = randomUUID();
   return `delegate:d${nextDepth}:${safeParent}:${Date.now()}:${nonce}`;
 }
 
@@ -8504,7 +8837,7 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           .filter(Boolean)
           .join(', ') || undefined;
 
-  const jobId = `${parentSessionId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const jobId = `${parentSessionId}:${Date.now()}:${randomUUID()}`;
   enqueueDelegation({
     id: jobId,
     run: async () => {
@@ -8910,6 +9243,59 @@ export async function handleGatewayCommand(
 
       case 'agent': {
         const sub = parseLowerArg(req.args, 1);
+        const switchToAgent = (
+          targetAgent: AgentConfig,
+        ): GatewayCommandResult => {
+          updateSessionAgent(session.id, targetAgent.id);
+          setActiveThreadAgentId(session, targetAgent.id);
+          const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
+          void ensureGatewayBootstrapAutostart({
+            sessionId: session.id,
+            channelId: req.channelId,
+            userId: req.userId,
+            username: req.username,
+            agentId: targetAgent.id,
+            allowExistingSessionMessages: true,
+          }).catch((error) => {
+            logger.warn(
+              { sessionId: session.id, agentId: targetAgent.id, error },
+              'Failed to start agent hatching after switch',
+            );
+          });
+          return plainCommand(
+            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`). Hatching will start automatically if \`BOOTSTRAP.md\` is active.`,
+          );
+        };
+
+        if (
+          sub &&
+          ![
+            'info',
+            'current',
+            'list',
+            'switch',
+            'model',
+            'create',
+            'install',
+          ].includes(sub)
+        ) {
+          const rawTarget = req.args.slice(1).join(' ').trim();
+          const handle = rawTarget.replace(/^@+/, '').replace(/\s+/g, '-');
+          const resolution = resolveAgentAddressing({
+            content: `@${handle}`,
+            currentAgentId: resolveSessionAgentId(session),
+            fromAgentId: resolveSessionAgentId(session),
+          });
+          if (resolution.kind === 'agent') {
+            const targetAgent = findAgentConfig(resolution.agentId);
+            if (targetAgent) return switchToAgent(targetAgent);
+          }
+          if (resolution.kind === 'error') {
+            return badCommand('Agent Not Found', resolution.message);
+          }
+          return badCommand('Usage', 'Usage: `agent <name>`');
+        }
+
         if (!sub || sub === 'info' || sub === 'current') {
           const currentAgentId = resolveSessionAgentId(session);
           const agent = resolveAgentConfig(currentAgentId);
@@ -8959,11 +9345,7 @@ export async function handleGatewayCommand(
               `Agent \`${targetAgentId}\` was not found.`,
             );
           }
-          updateSessionAgent(session.id, targetAgent.id);
-          const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
-          return plainCommand(
-            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`).`,
-          );
+          return switchToAgent(targetAgent);
         }
 
         if (sub === 'model') {
@@ -9100,12 +9482,15 @@ export async function handleGatewayCommand(
             id: newAgentId,
             ...(modelName ? { model: modelName } : {}),
           });
+          const workspacePath = path.resolve(agentWorkspaceDir(created.id));
+          ensureBootstrapFiles(created.id);
           return infoCommand(
             'Agent Created',
             [
               `Agent: ${created.id}`,
               `Model: ${formatModelForDisplay(resolveAgentModel(created) || HYBRIDAI_MODEL)}`,
-              `Workspace: ${path.resolve(agentWorkspaceDir(created.id))}`,
+              `Workspace: ${workspacePath}`,
+              'Hatching: open or switch to a session with this agent. If BOOTSTRAP.md is active, hatching starts automatically without waiting for a user message.',
             ].join('\n'),
           );
         }

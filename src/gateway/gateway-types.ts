@@ -1,6 +1,7 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
+import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import type {
@@ -29,7 +30,7 @@ import type {
 } from '../skills/skills.js';
 import type { SkillGuardFinding } from '../skills/skills-guard.js';
 import type { TunnelState } from '../tunnel/tunnel-provider.js';
-import type { MediaContextItem } from '../types/container.js';
+import type { AddressEnvelope, MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   PendingApproval,
@@ -69,19 +70,22 @@ export interface GatewayAssistantPresentation {
   imageUrl?: string;
 }
 
+export type GatewayChatResultMessageRole = 'assistant' | 'approval' | 'command';
+export type GatewayAddressEnvelope = AddressEnvelope;
+
 export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
   /**
-   * True when this result was produced by handling a slash command rather than
-   * by the model. Lets clients (e.g. the web console) render command/system
-   * output distinctly from assistant replies.
+   * UI presentation role for the result message. This is separate from persisted
+   * history roles and avoids inferring rendering from command/approval metadata.
    */
-  commandResult?: boolean;
+  messageRole?: GatewayChatResultMessageRole;
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;
+  addressEnvelope?: GatewayAddressEnvelope;
   assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;
@@ -182,6 +186,7 @@ export interface GatewayChatRequest {
   content: GatewayChatRequestBody['content'];
   media?: GatewayChatRequestBody['media'];
   agentId?: GatewayChatRequestBody['agentId'];
+  addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
@@ -282,6 +287,7 @@ export interface GatewayHistoryBranchFamily {
 
 export interface GatewayHistoryResponse {
   sessionId: string;
+  agentId?: string | null;
   // Routing metadata for related chat session instances. These are not bearer
   // credentials and must never be used for authorization decisions.
   // If they ever become auth-relevant, remove them from web responses instead
@@ -819,6 +825,7 @@ export interface GatewayAgentsResponse {
 export interface GatewayAgentListItem {
   id: string;
   name: string | null;
+  imageUrl?: string;
 }
 
 export interface GatewayAgentListResponse {
@@ -1031,6 +1038,7 @@ export interface GatewayAdminA2ATrustPeer extends GatewayAdminA2ATrustPeerBase {
 export interface GatewayAdminA2ATrustResponse {
   identity: GatewayAdminA2AIdentity;
   peers: GatewayAdminA2ATrustPeer[];
+  pairingRequests: GatewayAdminA2APairingRequest[];
 }
 
 export interface GatewayAdminA2ATrustUpsertRequest {
@@ -1040,6 +1048,96 @@ export interface GatewayAdminA2ATrustUpsertRequest {
   publicKeyFingerprint?: unknown;
   publicKeyJwk?: unknown;
   reason?: unknown;
+}
+
+export interface GatewayAdminFleetTopologyHq {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  version: string;
+  status: 'local';
+  latencyMs: number;
+  lastSeenAt: string;
+}
+
+export type GatewayAdminFleetTopologyInstanceStatus =
+  | 'online'
+  | 'unreachable'
+  | 'unconfigured'
+  | 'revoked';
+
+export interface GatewayAdminFleetTopologyInstance {
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyFingerprint: string;
+  trustStatus: 'trusted' | 'revoked';
+  status: GatewayAdminFleetTopologyInstanceStatus;
+  version: string | null;
+  latencyMs: number | null;
+  error: string | null;
+  trustedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface GatewayAdminFleetTopologyResponse {
+  hq: GatewayAdminFleetTopologyHq;
+  instances: GatewayAdminFleetTopologyInstance[];
+}
+
+export interface GatewayAdminFleetTopologyUpsertRequest {
+  peerId?: unknown;
+  agentCardUrl?: unknown;
+  deliveryUrl?: unknown;
+  publicKeyFingerprint?: unknown;
+  publicKeyJwk?: unknown;
+  reason?: unknown;
+}
+
+export interface GatewayAdminA2APairingRequest
+  extends A2AIncomingPairingRequest {}
+
+export interface GatewayAdminA2APairingStartRequest {
+  peerUrl?: unknown;
+  canonicalId?: unknown;
+  canonicalInstanceId?: unknown;
+  reason?: unknown;
+  notifyPeer?: unknown;
+}
+
+export interface GatewayAdminA2APairingPreviewResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    publicKeyJwk: JsonWebKey;
+    name: string | null;
+  };
+}
+
+export interface GatewayAdminA2APairingDecisionRequest {
+  requestId?: unknown;
+  reason?: unknown;
+}
+
+export interface GatewayAdminA2APairingStartResponse
+  extends GatewayAdminA2ATrustResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    name: string | null;
+  };
+  remoteNotification: {
+    status: 'not_requested' | 'sent' | 'failed';
+    url: string | null;
+    error: string | null;
+  };
 }
 
 export interface GatewayAdminA2AThreadMessage {
@@ -1069,7 +1167,11 @@ export interface GatewayAdminA2AInboxResponse {
 
 export interface GatewayAdminAgentMarkdownFile {
   name: string;
+  displayName?: string;
   path: string;
+  scope?: 'agent' | 'installation' | 'company';
+  cloudPath?: string;
+  readOnly?: boolean;
   exists: boolean;
   updatedAt: string | null;
   sizeBytes: number | null;

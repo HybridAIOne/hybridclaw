@@ -7,13 +7,7 @@ import {
 
 export const DEFAULT_AGENT_ID = 'main';
 
-export type ApprovalAction =
-  | 'once'
-  | 'always'
-  | 'session'
-  | 'agent'
-  | 'all'
-  | 'deny';
+export type ApprovalAction = 'once' | 'session' | 'agent' | 'all' | 'deny';
 
 export function randomHex(bytes: number): string {
   const arr = new Uint8Array(bytes);
@@ -57,17 +51,31 @@ export function nextMsgId(): string {
   return `local-${msgCounter}-${Date.now()}`;
 }
 
-export function copyToClipboard(text: string): void {
-  void navigator.clipboard?.writeText(text).catch(() => {
+// Resolves true only when the text was actually copied, so callers can gate
+// success feedback on it. Falls back to execCommand when the async Clipboard
+// API is unavailable (insecure context / older browser) or rejects.
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the execCommand path below.
+    }
+  }
+  try {
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.style.position = 'fixed';
     ta.style.opacity = '0';
     document.body.appendChild(ta);
     ta.select();
-    document.execCommand('copy');
+    const copied = document.execCommand('copy');
     document.body.removeChild(ta);
-  });
+    return copied;
+  } catch {
+    return false;
+  }
 }
 
 export function buildApprovalSummary(
@@ -82,9 +90,8 @@ export function buildApprovalSummary(
   return lines.join('\n');
 }
 
-const APPROVAL_COMMAND_MAP: Record<string, string> = {
-  once: '/approve once',
-  always: '/approve always',
+const APPROVAL_COMMAND_MAP: Record<ApprovalAction, string> = {
+  once: '/approve yes',
   session: '/approve session',
   agent: '/approve agent',
   all: '/approve all',
@@ -96,8 +103,8 @@ export function buildApprovalCommand(
   approvalId: string,
 ): string | null {
   const base = APPROVAL_COMMAND_MAP[action];
-  if (!base) return null;
   const id = approvalId.trim();
+  if (/\s/.test(id)) return null;
   return id ? `${base} ${id}` : base;
 }
 

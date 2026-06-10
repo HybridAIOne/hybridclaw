@@ -148,4 +148,50 @@ describe('ensureHostRuntimeReady', () => {
       args: [path.join(installRoot, 'container', 'dist', 'index.js')],
     });
   });
+
+  test('accepts hoisted container dependencies whose exports map hides package.json', async () => {
+    const installRoot = createTempDir();
+    fs.writeFileSync(
+      path.join(installRoot, 'package.json'),
+      '{"name":"@hybridaione/hybridclaw"}',
+    );
+    fs.mkdirSync(path.join(installRoot, 'container', 'dist'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(installRoot, 'container', 'dist', 'index.js'),
+      '',
+    );
+    writeContainerPackage(installRoot, {
+      dompurify: '^3.4.7',
+    });
+    const hoistedDir = path.join(installRoot, 'node_modules', 'dompurify');
+    fs.mkdirSync(hoistedDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(hoistedDir, 'package.json'),
+      JSON.stringify({
+        name: 'dompurify',
+        version: '3.4.7',
+        exports: {
+          '.': {
+            default: './dist/purify.cjs.js',
+          },
+        },
+      }),
+    );
+
+    const { ensureHostRuntimeReady } = await import(
+      '../src/infra/host-runtime-setup.ts'
+    );
+
+    expect(
+      ensureHostRuntimeReady({
+        commandName: 'hybridclaw tui',
+        installRoot,
+      }),
+    ).toEqual({
+      command: process.execPath,
+      args: [path.join(installRoot, 'container', 'dist', 'index.js')],
+    });
+  });
 });

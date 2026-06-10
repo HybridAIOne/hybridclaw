@@ -85,7 +85,16 @@ import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
-import { ensureBootstrapFiles } from '../workspace.js';
+import { parseJsonObject } from '../utils/json-object.js';
+import {
+  ensureBootstrapFiles,
+  resolveStartupBootstrapFile,
+} from '../workspace.js';
+import {
+  getActiveThreadAgentId,
+  resolveAgentAddressing,
+  setActiveThreadAgentId,
+} from './agent-addressing.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
@@ -163,17 +172,6 @@ function resolveTurnRuntimeAuditLabel(
     : 'hybridclaw';
 }
 
-function parseToolResultObject(result: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(result) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function persistSpeechTranscriptsToScopedMemory(params: {
   sessionId: string;
   skillName: string | null;
@@ -184,7 +182,7 @@ function persistSpeechTranscriptsToScopedMemory(params: {
     : 'skill:speech-to-text';
   for (const execution of params.toolExecutions) {
     if (execution.name !== 'audio_transcribe' || execution.isError) continue;
-    const payload = parseToolResultObject(execution.result);
+    const payload = parseJsonObject(execution.result);
     if (!payload || payload.success !== true) continue;
     if (typeof payload.action === 'string' && payload.action !== 'transcribe') {
       continue;
@@ -626,6 +624,29 @@ function captureGatewayChatResultError(params: {
   });
 }
 
+function buildBootstrapChatTurnPrompt(fileName: 'BOOTSTRAP.md'): string {
+  return [
+    'Hatching mode is active for this agent.',
+    `A startup instruction file (${fileName}) exists and is already loaded in the system context.`,
+    'Do not answer this as a normal chat turn.',
+    `Follow ${fileName} now: introduce yourself, begin onboarding, and ask the first few useful customization questions.`,
+    'Use the user message below only as the signal that the user is present.',
+    'Do not ask a generic "what can I do for you?" question.',
+    `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
+  ].join('\n');
+}
+
+function shouldInjectBootstrapChatTurnPrompt(params: {
+  userContent: string;
+  promptMode?: PromptMode;
+  startupBootstrapFile: 'BOOTSTRAP.md' | null;
+}): boolean {
+  if (params.startupBootstrapFile !== 'BOOTSTRAP.md') return false;
+  if (params.promptMode === 'none') return false;
+  if (params.userContent.trim().startsWith('/')) return false;
+  return true;
+}
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
@@ -703,13 +724,120 @@ async function handleGatewayMessageInner(
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
   });
+  const fanoutSource = source.includes('.fanout');
+  const shouldUpdateActiveAgent =
+    source !== 'fullauto' &&
+    !fanoutSource &&
+    !isGoalContinuationSource(source) &&
+    resolveSessionResetChannelKind(req.channelId) !== 'scheduler' &&
+    resolveSessionResetChannelKind(req.channelId) !== 'heartbeat';
+  const addressed = resolveAgentAddressing({
+    content: req.content,
+    currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
+    fromAgentId: session.agent_id || DEFAULT_AGENT_ID,
+  });
+  if (addressed.kind === 'error') {
+    return attachSessionIdentity({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: addressed.message,
+    });
+  }
+  if (addressed.kind === 'fanout') {
+    if (addressed.agentIds.length === 0) {
+      return attachSessionIdentity({
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `No agents are available for @${addressed.alias}.`,
+        addressEnvelope: addressed.envelope,
+      });
+    }
+    const outputs: string[] = [];
+    try {
+      for (const targetAgentId of addressed.agentIds) {
+        const childEnvelope = {
+          ...addressed.envelope,
+          to: targetAgentId,
+        };
+        let childText: string;
+        try {
+          const childResult = await handleGatewayMessageInner({
+            ...req,
+            content: addressed.content,
+            agentId: targetAgentId,
+            addressEnvelope: childEnvelope,
+            source: `${source}.fanout`,
+            onTextDelta: undefined,
+            onThinkingDelta: undefined,
+            onToolProgress: undefined,
+            onApprovalProgress: undefined,
+          });
+          childText =
+            childResult.result ||
+            childResult.error ||
+            (childResult.status === 'success' ? '(no reply)' : 'failed');
+        } catch (error) {
+          // One unhealthy agent must not abort the rest of the fanout.
+          childText = `failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+        }
+        outputs.push(`@${targetAgentId}: ${childText}`);
+      }
+    } finally {
+      session = memoryService.getOrCreateSession(
+        req.sessionId,
+        req.guildId,
+        req.channelId,
+        session.agent_id || DEFAULT_AGENT_ID,
+        { forceNewCurrent: shouldForceNewTuiSession(req) },
+      );
+    }
+    return attachSessionIdentity({
+      status: 'success',
+      result: outputs.join('\n\n'),
+      toolsUsed: [],
+      agentId: session.agent_id || DEFAULT_AGENT_ID,
+      addressEnvelope: addressed.envelope,
+      assistantPresentation: getGatewayAssistantPresentationForMessageAgent(
+        session.agent_id || DEFAULT_AGENT_ID,
+      ),
+    });
+  }
+  if (addressed.kind === 'agent') {
+    req.content = addressed.content;
+    req.agentId = addressed.agentId;
+    req.addressEnvelope = addressed.envelope;
+    if (shouldUpdateActiveAgent) {
+      setActiveThreadAgentId(session, addressed.agentId);
+    }
+  } else if (req.agentId?.trim()) {
+    if (shouldUpdateActiveAgent) {
+      setActiveThreadAgentId(session, req.agentId.trim());
+    }
+    req.addressEnvelope ??= {
+      to: req.agentId.trim(),
+      from: session.agent_id || DEFAULT_AGENT_ID,
+    };
+  } else {
+    const activeAgentId = getActiveThreadAgentId(session);
+    if (activeAgentId) {
+      req.agentId = activeAgentId;
+      req.addressEnvelope = {
+        to: activeAgentId,
+        from: session.agent_id || DEFAULT_AGENT_ID,
+      };
+    }
+  }
   const cliSecretSetCommand = detectCliSecretSetCommand(req.content);
   if (cliSecretSetCommand) {
     return attachSessionIdentity({
       status: 'success',
       result: renderCliSecretSetCommandWarning(cliSecretSetCommand),
       toolsUsed: [],
-      commandResult: true,
+      messageRole: 'command',
     });
   }
   if (source !== 'fullauto') {
@@ -877,6 +1005,9 @@ async function handleGatewayMessageInner(
         workspaceInitialized: false,
       }
     : ensureBootstrapFiles(agentId);
+  const startupBootstrapFile = req.workspacePathOverride
+    ? null
+    : resolveStartupBootstrapFile(agentId);
   if (
     workspaceBootstrap.workspaceInitialized &&
     (session.message_count > 0 || Boolean(session.session_summary))
@@ -1044,6 +1175,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         agentId,
         model,
         provider,
@@ -1248,6 +1380,7 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: 'assistant',
       toolsUsed: [],
       agentId,
       model,
@@ -1448,6 +1581,16 @@ async function handleGatewayMessageInner(
   let agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
+  if (
+    shouldInjectBootstrapChatTurnPrompt({
+      userContent: agentUserContent,
+      promptMode: promptPartDefaults.promptMode,
+      startupBootstrapFile:
+        startupBootstrapFile === 'BOOTSTRAP.md' ? startupBootstrapFile : null,
+    })
+  ) {
+    agentUserContent = `${buildBootstrapChatTurnPrompt('BOOTSTRAP.md')}\n\nUser message:\n${agentUserContent}`;
+  }
   if (pluginManager?.hasMiddleware('pre_send')) {
     const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
       sessionId: req.sessionId,
@@ -1508,6 +1651,7 @@ async function handleGatewayMessageInner(
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
+        messageRole: 'assistant',
         toolsUsed: [],
         pluginsUsed,
         agentId,
@@ -1645,6 +1789,7 @@ async function handleGatewayMessageInner(
       executorModeOverride: req.executorModeOverride,
       model,
       agentId,
+      addressEnvelope: req.addressEnvelope,
       workspacePathOverride: req.workspacePathOverride,
       workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
       skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
@@ -2112,10 +2257,12 @@ async function handleGatewayMessageInner(
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
+      messageRole: output.pendingApproval ? 'approval' : 'assistant',
       toolsUsed: output.toolsUsed || [],
       pluginsUsed,
       skillUsed: observedSkillName ?? undefined,
       agentId,
+      addressEnvelope: req.addressEnvelope,
       model,
       provider,
       memoryCitations: output.memoryCitations,

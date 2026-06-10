@@ -2,9 +2,11 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -14,6 +16,7 @@ import { Popover, PopoverAnchor } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { pluralize } from '../../lib/format';
+import { preloadAgentAvatarUrl, useAgentAvatarUrl } from './agent-avatar-url';
 import {
   type AgentSwitchOption,
   AgentSwitchSelect,
@@ -29,6 +32,32 @@ import {
   type SlashPanelMode,
   SlashSuggestionsPanel,
 } from './slash-suggestions-panel';
+
+type SuggestionKind = 'slash' | 'agent';
+
+interface AgentMentionContext {
+  tokenStart: number;
+  query: string;
+}
+
+const AGENT_MENTION_TOKEN_RE = /@([A-Za-z0-9._-]+)(?=$|[\s:])/gu;
+
+function getAgentMentionContext(
+  value: string,
+  cursor: number,
+): AgentMentionContext | null {
+  const beforeCursor = value.slice(0, cursor);
+  const atIndex = beforeCursor.lastIndexOf('@');
+  if (atIndex === -1) return null;
+
+  const beforeAt = atIndex === 0 ? '' : value[atIndex - 1];
+  if (beforeAt && !/[\s([{]/u.test(beforeAt)) return null;
+
+  const query = value.slice(atIndex + 1, cursor);
+  if (!/^[A-Za-z0-9._-]*$/u.test(query)) return null;
+
+  return { tokenStart: atIndex, query };
+}
 
 export function Composer(props: {
   isStreaming: boolean;
@@ -49,19 +78,26 @@ export function Composer(props: {
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(0);
   const [suggestions, setSuggestions] = useState<ChatCommandSuggestion[]>([]);
+  const [suggestionKind, setSuggestionKind] = useState<SuggestionKind>('slash');
   const [activeIdx, setActiveIdx] = useState(0);
   const [panelMode, setPanelMode] = useState<SlashPanelMode>('closed');
   const [lastQuery, setLastQuery] = useState('');
+  const [composerValue, setComposerValue] = useState('');
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestSeqRef = useRef(0);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
   const isOpen = panelMode !== 'closed';
   const liveMessage =
-    panelMode === 'list'
-      ? `${pluralize(suggestions.length, 'command')} available`
-      : panelMode === 'empty'
-        ? `No commands match /${lastQuery}`
-        : '';
+    panelMode === 'closed'
+      ? ''
+      : suggestionKind === 'agent'
+        ? panelMode === 'list'
+          ? `${pluralize(suggestions.length, 'agent')} available`
+          : `No agents match @${lastQuery}`
+        : panelMode === 'list'
+          ? `${pluralize(suggestions.length, 'command')} available`
+          : `No commands match /${lastQuery}`;
 
   useEffect(() => {
     return () => {
@@ -111,8 +147,8 @@ export function Composer(props: {
   const resize = () => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = '24px';
-    ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
+    ta.style.height = '36px';
+    ta.style.height = `${Math.max(36, Math.min(ta.scrollHeight, 180))}px`;
   };
 
   // The fetch itself can't be aborted, so the seq bump is what makes a
@@ -158,18 +194,69 @@ export function Composer(props: {
     [props.token],
   );
 
+  const buildAgentSuggestions = useCallback(
+    (query: string): ChatCommandSuggestion[] => {
+      const q = query.trim().toLowerCase();
+      return (props.agents ?? [])
+        .filter((agent) => {
+          if (!q) return true;
+          return (
+            agent.id.toLowerCase().includes(q) ||
+            (agent.name ?? '').toLowerCase().includes(q)
+          );
+        })
+        .map((agent) => {
+          const name = agent.name?.trim();
+          return {
+            id: `agent:${agent.id}`,
+            label: `@${agent.id}`,
+            insertText: `@${agent.id}`,
+            description: name && name !== agent.id ? name : '',
+            imageUrl: agent.imageUrl ?? null,
+          };
+        });
+    },
+    [props.agents],
+  );
+
+  useEffect(() => {
+    for (const agent of props.agents ?? []) {
+      void preloadAgentAvatarUrl(props.token, agent.imageUrl);
+    }
+  }, [props.agents, props.token]);
+
   const handleInput = () => {
     resize();
     const ta = textareaRef.current;
     if (!ta) return;
+    setComposerValue(ta.value);
     const cursor = ta.selectionStart ?? ta.value.length;
     const ctx = getSlashContext(ta.value, cursor);
     if (ctx) {
       const query = ctx.query.trim();
+      setSuggestionKind('slash');
       cancelPendingFetch();
       suggestTimerRef.current = setTimeout(() => {
         void fetchSuggestions(query);
       }, 150);
+      return;
+    }
+
+    const agentCtx = getAgentMentionContext(ta.value, cursor);
+    if (agentCtx && (props.agents?.length ?? 0) > 0) {
+      cancelPendingFetch();
+      const agentSuggestions = buildAgentSuggestions(agentCtx.query);
+      setSuggestions(agentSuggestions);
+      setSuggestionKind('agent');
+      setActiveIdx(0);
+      setLastQuery(agentCtx.query);
+      setPanelMode(
+        agentSuggestions.length > 0
+          ? 'list'
+          : agentCtx.query !== ''
+            ? 'empty'
+            : 'closed',
+      );
     } else {
       closePanel();
     }
@@ -180,8 +267,28 @@ export function Composer(props: {
     if (!ta) return;
     const value = ta.value;
     const cursor = ta.selectionStart ?? value.length;
-    const ctx = getSlashContext(value, cursor);
     const insertCore = item.insertText.replace(/\s+$/, '');
+    if (suggestionKind === 'agent') {
+      const ctx = getAgentMentionContext(value, cursor);
+      if (ctx) {
+        const before = value.slice(0, ctx.tokenStart);
+        const after = value.slice(cursor);
+        const insert = after.startsWith(' ') ? insertCore : `${insertCore} `;
+        ta.value = before + insert + after;
+        const newCursor = before.length + insert.length;
+        ta.setSelectionRange(newCursor, newCursor);
+      } else {
+        ta.value = `${insertCore} `;
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      }
+      setComposerValue(ta.value);
+      closePanel();
+      resize();
+      ta.focus();
+      return;
+    }
+
+    const ctx = getSlashContext(value, cursor);
     if (ctx) {
       const before = value.slice(0, ctx.tokenStart);
       const after = value.slice(cursor);
@@ -193,6 +300,7 @@ export function Composer(props: {
       ta.value = `${insertCore} `;
       ta.setSelectionRange(ta.value.length, ta.value.length);
     }
+    setComposerValue(ta.value);
     closePanel();
     resize();
     ta.focus();
@@ -208,9 +316,18 @@ export function Composer(props: {
     if (uploading > 0) return;
     props.onSend(val, pendingMedia);
     if (textareaRef.current) textareaRef.current.value = '';
+    setComposerValue('');
     setPendingMedia([]);
     closePanel();
     resize();
+  };
+
+  const handleScroll = () => {
+    const ta = textareaRef.current;
+    const overlay = overlayRef.current;
+    if (!ta || !overlay) return;
+    overlay.scrollTop = ta.scrollTop;
+    overlay.scrollLeft = ta.scrollLeft;
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -240,7 +357,7 @@ export function Composer(props: {
         setActiveIdx(suggestions.length - 1);
         return;
       }
-      if (e.key === 'Tab' || e.key === 'Enter') {
+      if (e.key === 'Tab') {
         e.preventDefault();
         applySuggestion(suggestions[activeIdx]);
         return;
@@ -293,6 +410,10 @@ export function Composer(props: {
   };
 
   const agentOptions = props.agents ?? [];
+  const agentById = useMemo(
+    () => new Map(agentOptions.map((agent) => [agent.id, agent])),
+    [agentOptions],
+  );
   const selectedAgentId = props.selectedAgentId ?? '';
   const modelOptions = props.models ?? [];
   const selectedModelId = props.selectedModelId ?? '';
@@ -305,7 +426,7 @@ export function Composer(props: {
           if (!next) closePanel();
         }}
       >
-        <PopoverAnchor className={css.composer}>
+        <div className={css.composer}>
           {pendingMedia.length > 0 || uploading > 0 ? (
             <div className={css.pendingMediaRow}>
               {pendingMedia.map((m, i) => (
@@ -325,27 +446,46 @@ export function Composer(props: {
               ) : null}
             </div>
           ) : null}
-          <textarea
-            ref={textareaRef}
-            className={css.composerInput}
-            rows={1}
-            placeholder="Message HybridClaw"
-            disabled={props.isStreaming}
-            onInput={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            aria-label="Message input"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-haspopup="listbox"
-            aria-controls={listboxId}
-            aria-expanded={isOpen}
-            aria-activedescendant={
-              panelMode === 'list' && suggestions.length > 0
-                ? optionIdFor(listboxId, activeIdx)
-                : undefined
-            }
-          />
+          <PopoverAnchor className={css.composerInputWrap}>
+            {composerValue ? (
+              <div
+                ref={overlayRef}
+                className={css.composerInputOverlay}
+                aria-hidden="true"
+              >
+                <ComposerInputPreview
+                  value={composerValue}
+                  agents={agentById}
+                  token={props.token}
+                />
+              </div>
+            ) : null}
+            <textarea
+              ref={textareaRef}
+              className={cx(
+                css.composerInput,
+                composerValue && css.composerInputHasOverlay,
+              )}
+              rows={1}
+              placeholder="Message HybridClaw"
+              disabled={props.isStreaming}
+              onInput={handleInput}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onScroll={handleScroll}
+              aria-label="Message input"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-haspopup="listbox"
+              aria-controls={listboxId}
+              aria-expanded={isOpen}
+              aria-activedescendant={
+                panelMode === 'list' && suggestions.length > 0
+                  ? optionIdFor(listboxId, activeIdx)
+                  : undefined
+              }
+            />
+          </PopoverAnchor>
           <div className={css.composerActions}>
             <div className={css.composerLeftActions}>
               <button
@@ -359,6 +499,7 @@ export function Composer(props: {
               <AgentSwitchSelect
                 agents={agentOptions}
                 selectedAgentId={selectedAgentId}
+                token={props.token}
                 disabled={props.isStreaming}
                 onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
               />
@@ -410,14 +551,16 @@ export function Composer(props: {
               onChange={handleFileChange}
             />
           </div>
-        </PopoverAnchor>
+        </div>
         {panelMode !== 'closed' ? (
           <SlashSuggestionsPanel
             mode={panelMode}
+            kind={suggestionKind}
             suggestions={suggestions}
             activeIdx={activeIdx}
             query={lastQuery}
             listboxId={listboxId}
+            token={props.token}
             onSelect={applySuggestion}
             onActiveChange={setActiveIdx}
           />
@@ -431,5 +574,60 @@ export function Composer(props: {
         {liveMessage}
       </div>
     </div>
+  );
+}
+
+function ComposerInputPreview(props: {
+  value: string;
+  agents: ReadonlyMap<string, AgentSwitchOption>;
+  token: string;
+}) {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+
+  for (const match of props.value.matchAll(AGENT_MENTION_TOKEN_RE)) {
+    const mention = match[0];
+    const agentId = match[1] ?? '';
+    const index = match.index ?? 0;
+    const agent = props.agents.get(agentId);
+    if (!agent) continue;
+    if (index > last) parts.push(props.value.slice(last, index));
+    parts.push(
+      <ComposerMentionPill
+        key={`mention-${key++}`}
+        mention={mention}
+        imageUrl={agent.imageUrl ?? null}
+        token={props.token}
+      />,
+    );
+    last = index + mention.length;
+  }
+
+  if (last < props.value.length) parts.push(props.value.slice(last));
+  return parts.length > 0 ? parts : props.value;
+}
+
+function ComposerMentionPill(props: {
+  mention: string;
+  imageUrl?: string | null;
+  token: string;
+}) {
+  const avatar = useAgentAvatarUrl({
+    token: props.token,
+    imageUrl: props.imageUrl,
+  });
+
+  return (
+    <span className={css.composerMentionPill}>
+      {avatar.objectUrl ? (
+        <img
+          className={css.composerMentionAvatar}
+          src={avatar.objectUrl}
+          alt=""
+        />
+      ) : null}
+      <span>{props.mention}</span>
+    </span>
   );
 }

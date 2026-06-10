@@ -4,7 +4,133 @@
 
 ### Added
 
-- **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables optional gateway Sentry reporting for startup failures, uncaught exceptions, unhandled rejections, and errors recorded through shared gateway/agent spans, with default `production` environment, automatic `hybridclaw@<package-version>` release naming, secret redaction, and graceful shutdown flushes.
+- **Cloud memory sync**: Agents now sync local memory files (`MEMORY.md`,
+  `USER.md`, and recent daily memory notes) with the HybridAI cloud and receive
+  shared installation- and company-scoped memory back for prompt context. Sync
+  runs at conversation start and periodically every five minutes with
+  per-agent rate limiting, requires `HYBRIDAI_API_KEY`, `HYBRIDAI_BASE_URL`
+  (HTTPS only), and `HYBRIDAI_CHATBOT_ID`, and stays disabled when those are
+  unset. Shared memory appears read-only in the agent file editor under a
+  "Shared memory" group.
+- **A2A operator pairing**: Added `/admin/a2a-trust` for pairing two HybridClaw
+  instances: operators fetch a peer Agent Card by URL or canonical DNS
+  identifier, preview its identity and key fingerprint, and trust it with an
+  optional peer-side approval prompt. Incoming pairing requests arrive through
+  a rate-limited `/a2a/pairing/requests` endpoint and can be approved or
+  declined from the console with audit-trail decision reasons.
+- **`byd-battery` skill**: Added read-only monitoring for BYD Battery-Box
+  Premium HVS/HVM/LVS/LVL home-storage systems over local Modbus TCP or
+  Fronius inverter delegation, covering state of charge, pack telemetry, cell
+  extremes, tower/module inventory, decoded alarms, firmware info, and energy
+  counters, with allowlisted register ranges and no write operations.
+- **Amber approval cards**: Web chat approval prompts now render as structured
+  confirmation cards with an approval-tier badge, parsed action/tool/reason
+  detail rows, and separated confirm/deny and trust-scope button groups.
+- **Response rating forwarding**: Thumbs up/down ratings on web chat responses
+  are forwarded to the HybridAI feedback API when HybridAI authentication is
+  active, alongside the existing local rating store and audit events.
+  Forwarding is non-blocking and skips silently when auth is unavailable.
+
+### Changed
+
+- **Provider request payloads**: Empty tool definitions are omitted from
+  HybridAI, OpenAI-compatible, Codex, and Ollama provider requests instead of
+  sending empty `tools` arrays.
+- **Coworker liveness scan**: Skill scans during coworker liveness checks use
+  set-based agent filtering, speeding up gateways with many agents.
+- **Dependency updates**: Routine minor and patch dependency updates across the
+  gateway, console, container, and desktop packages, plus overrides that lift
+  transitive `shell-quote` and `tmp` to patched releases flagged by npm audit.
+
+### Fixed
+
+- **Gateway token timing safety**: Gateway API and bearer token checks use
+  constant-time comparison to avoid timing side channels.
+- **Delegation identifiers**: Delegation session and batch job identifiers use
+  cryptographic UUIDs instead of seeded pseudo-random strings.
+- **Containment check stalls**: Media and artifact path containment checks
+  resolve real paths asynchronously so large directory validation no longer
+  blocks the gateway event loop.
+- **TUI ANSI truncation**: Terminal output truncation handles incomplete ANSI
+  escape sequences and wide glyphs without corrupting styled text.
+- **Duplicate hatching after onboarding**: Switching agents after onboarding
+  no longer re-triggers the workspace bootstrap kickoff, and bootstrap job
+  detection recognizes both bulleted and numbered job lists.
+- **Host runtime dependency detection**: Source-checkout host runtime checks
+  no longer misreport container dependencies as missing when npm hoists a
+  package whose `exports` map does not expose `package.json` (e.g.
+  `dompurify`).
+
+## [0.23.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.23.0) - 2026-06-09
+
+### Added
+
+- **`blink` skill**: Added Blink camera and video-doorbell workflows for
+  OAuth v2 login with PIN handoff, device/network/camera inventory, motion
+  clip listing and artifact-backed downloads, guarded arm/disarm and motion
+  control plans, and fresh-thumbnail refresh handling that keeps Blink media
+  bytes out of model context.
+- **`hue` skill**: Added Philips Hue Bridge support for local CLIP v2 reads,
+  bridge-link credential capture, self-signed bridge TLS handling, guarded
+  light/group/scene/behavior changes, Remote API token refresh support, and
+  LAN policy diagnostics for Hue Bridge requests.
+- **Fleet topology admin UI**: Added `/admin/fleet-topology` for viewing the
+  local A2A instance identity, checking trusted child instances through their
+  Agent Card URLs, and adding, editing, or removing A2A trust-ledger peers from
+  the console.
+- **Admin secrets console**: Added `/admin/secrets` as a write-only secret
+  manager that lists set and declared-but-empty secrets by metadata, supports
+  overwrite and unset actions, and never returns cleartext secret values to the
+  browser.
+- **Chat code rendering**: Web chat now syntax-highlights completed code
+  blocks, shows language labels, and provides a touch-reachable copy button
+  with success feedback while skipping highlighter work for actively streaming
+  messages.
+- **Sentry error reporting**: `hybridclaw env set SENTRY_DSN <dsn>` enables
+  optional gateway Sentry reporting for startup failures, uncaught exceptions,
+  unhandled rejections, and errors recorded through shared gateway/agent spans,
+  with default `production` environment, automatic
+  `hybridclaw@<package-version>` release naming, secret redaction, and graceful
+  shutdown flushes.
+- **Scheduler heartbeat polling action**: Config-backed scheduler jobs can use
+  the explicit `heartbeat_poll` action kind so empty `HEARTBEAT.md` files are
+  skipped before any model turn is started.
+
+### Changed
+
+- **Installer and npm policy alignment**: The bootstrap installer works more
+  cleanly on fresh Debian/Ubuntu hosts and no-sudo system Node setups, while
+  contributor docs, CI, Docker, and package metadata pin npm 11.10+ without
+  forcing consumer-facing `engines.npm` warnings.
+- **Second-opinion TUI formatting**: `/second-opinion` output in the terminal
+  wraps long model-comparison and validation responses instead of spilling past
+  the viewport.
+- **Skill setup guidance**: Skill authoring docs now require chat-friendly
+  `/env` and `/secret` setup alternatives alongside local `hybridclaw env` and
+  `hybridclaw secret` commands.
+- **Web agent hatching kickoff**: Switching to an agent with an active
+  `BOOTSTRAP.md` in web chat now sends a hidden kickoff turn so hatching starts
+  immediately while the visible slash-command response remains local command
+  output.
+
+### Fixed
+
+- **Interrupted agent shutdown output**: Container/runtime shutdown output now
+  distinguishes expected interrupted-run signal errors from real runtime
+  failures.
+- **Slash autocomplete flags**: TUI slash-command autocomplete keeps literal
+  argument and flag completions instead of rewriting them.
+- **Chat delete guard**: Deleting browser chat sessions is blocked while a run
+  is still active for that session.
+- **Malformed Unicode in prompts**: Container utilities sanitize malformed
+  Unicode so provider prompts and local OpenAI-compatible requests do not fail
+  on invalid surrogate data.
+- **Trace export identity preservation**: Session trace exports preserve trace
+  hash identifiers while applying secret redaction.
+- **Web approval buttons**: Approval buttons now emit gateway-supported
+  commands: `Allow once` sends `/approve yes`, `Allow always` sends
+  `/approve all`, and scoped buttons send their matching `session` or `agent`
+  approvals.
 
 ## [0.22.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.22.0) - 2026-06-05
 

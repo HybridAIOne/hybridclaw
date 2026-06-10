@@ -8,6 +8,7 @@ import {
 import { listRuntimeConfigRevisions } from '../config/runtime-config-revisions.js';
 import { logger } from '../logger.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { isRecord } from '../utils/type-guards.js';
 import { reloadPluginRuntime } from './gateway-plugin-service.js';
 import type {
   GatewayAdminOutputGuardModelConfig,
@@ -94,10 +95,6 @@ interface ClassifierVerdict {
 // mirrors plugins/output-guard/src/{config,guard,llm,rules}. Keep provider
 // defaults, prompts, verdict parsing, and rule summaries aligned with the
 // plugin runtime when either side changes.
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
-}
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';

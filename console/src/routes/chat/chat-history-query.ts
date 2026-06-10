@@ -5,12 +5,15 @@ import type {
   ChatMessage,
 } from '../../api/chat-types';
 import { nextMsgId } from '../../lib/chat-helpers';
+import { addAgentAttribution } from './agent-mention-display';
 import type { ChatUiMessage } from './chat-ui-message';
 
 export interface ChatHistoryUiData {
   messages: ChatUiMessage[];
   branchFamilies: Map<string, BranchVariant[]>;
   resolvedSessionId: string;
+  agentId: string | null;
+  bootstrapAutostart: ChatHistoryResponse['bootstrapAutostart'];
 }
 
 export const EMPTY_BRANCH_FAMILIES: Map<string, BranchVariant[]> = new Map();
@@ -39,7 +42,22 @@ export function buildChatHistoryUiData(
 
   const history = raw.history ?? [];
   let lastUserContent: string | null = null;
-  const messages: ChatMessage[] = history.map((msg) => {
+  const messages: ChatMessage[] = history.map((msg, index) => {
+    const nextAssistant = history
+      .slice(index + 1)
+      .find((candidate) => candidate.role !== 'system');
+    const displayContent =
+      msg.role === 'user' && nextAssistant?.role === 'assistant'
+        ? addAgentAttribution(
+            msg.content,
+            nextAssistant.agent_id ??
+              nextAssistant.assistantPresentation?.agentId,
+          )
+        : msg.content;
+    const addressedAgentPresentation =
+      msg.role === 'user' && nextAssistant?.role === 'assistant'
+        ? (nextAssistant.assistantPresentation ?? null)
+        : null;
     if (msg.role === 'user') lastUserContent = msg.content;
     const replayContent =
       msg.role === 'user'
@@ -50,7 +68,7 @@ export function buildChatHistoryUiData(
     return {
       id: nextMsgId(),
       role: msg.role,
-      content: msg.content,
+      content: displayContent,
       rawContent: msg.content,
       sessionId: resolvedSessionId,
       messageId: msg.id ?? null,
@@ -59,6 +77,7 @@ export function buildChatHistoryUiData(
       replayRequest:
         replayContent !== null ? { content: replayContent, media: [] } : null,
       assistantPresentation: msg.assistantPresentation ?? null,
+      addressedAgentPresentation,
       responseRating: msg.response_rating ?? null,
       branchKey:
         msg.id !== undefined && msg.id !== null
@@ -67,7 +86,13 @@ export function buildChatHistoryUiData(
     };
   });
 
-  return { messages, branchFamilies, resolvedSessionId };
+  return {
+    messages,
+    branchFamilies,
+    resolvedSessionId,
+    agentId: raw.agentId?.trim() || null,
+    bootstrapAutostart: raw.bootstrapAutostart ?? null,
+  };
 }
 
 export function chatHistoryQueryKey(

@@ -524,6 +524,7 @@ async function importFreshHealth(options?: {
   const loggerWarn = vi.fn();
   const getGatewayHistory = vi.fn((sessionId: string) => ({
     sessionId,
+    agentId: 'research',
     sessionKey: null,
     mainSessionKey: null,
     branchFamilies: [],
@@ -748,6 +749,7 @@ async function importFreshHealth(options?: {
       },
     ],
     total: 2,
+    actions: ['secret.list_metadata' as const],
   }));
   const overwriteGatewayAdminSecret = vi.fn(
     (params: { name: string; value: unknown }) => ({
@@ -982,6 +984,55 @@ async function importFreshHealth(options?: {
         },
       ],
     }),
+  );
+  const getGatewayAdminA2ATrust = vi.fn(() => ({
+    identity: {
+      instanceId: 'local-dev',
+      publicKeyFingerprint: 'local-fingerprint',
+      publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'local-key' },
+    },
+    peers: [],
+    pairingRequests: [],
+  }));
+  const upsertGatewayAdminA2ATrustPeer = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const revokeGatewayAdminA2ATrustPeer = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const deleteGatewayAdminA2ATrustPeer = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const startGatewayAdminA2APairing = vi.fn(async () => ({
+    ...getGatewayAdminA2ATrust(),
+    proposal: {
+      peerId: 'peer-prod',
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://peer.example.com/a2a',
+      publicKeyFingerprint: 'peer-fingerprint',
+      name: 'Peer',
+    },
+    remoteNotification: {
+      status: 'sent' as const,
+      url: 'https://peer.example.com/a2a/pairing/requests',
+      error: null,
+    },
+  }));
+  const previewGatewayAdminA2APairing = vi.fn(async () => ({
+    proposal: {
+      peerId: 'peer-prod',
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://peer.example.com/a2a',
+      publicKeyFingerprint: 'peer-fingerprint',
+      publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'peer-key' },
+      name: 'Peer',
+    },
+  }));
+  const approveGatewayAdminA2APairingRequest = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
+  );
+  const declineGatewayAdminA2APairingRequest = vi.fn(() =>
+    getGatewayAdminA2ATrust(),
   );
   const getGatewayAdminPlugins = vi.fn(async () => ({
     totals: {
@@ -1839,8 +1890,11 @@ async function importFreshHealth(options?: {
     GatewayRequestError,
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
+    approveGatewayAdminA2APairingRequest,
     createGatewayAdminAgent,
     createGatewayAdminSkill,
+    declineGatewayAdminA2APairingRequest,
+    deleteGatewayAdminA2ATrustPeer,
     deleteGatewayAdminAgent,
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
@@ -1852,6 +1906,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgentMarkdownRevision,
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
+    getGatewayAdminA2ATrust,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
@@ -1880,6 +1935,7 @@ async function importFreshHealth(options?: {
     getGatewayStatus,
     handleGatewayCommand,
     reconnectGatewayAdminTunnel,
+    previewGatewayAdminA2APairing,
     readSystemPromptMessage,
     renderGatewayCommand,
     resolveGatewayChatbotId,
@@ -1887,6 +1943,7 @@ async function importFreshHealth(options?: {
     removeGatewayAdminMcpServer,
     restoreGatewayAdminAgentMarkdownRevision,
     restoreGatewayAdminTeamStructureRevision,
+    revokeGatewayAdminA2ATrustPeer,
     saveGatewayAdminConfig,
     saveGatewayAdminSlackWebhookTarget,
     saveGatewayAdminAgentMarkdownFile,
@@ -1895,8 +1952,10 @@ async function importFreshHealth(options?: {
     saveGatewayAdminPolicyRule,
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
+    startGatewayAdminA2APairing,
     updateGatewayAdminAgent,
     uploadGatewayAdminSkillZip,
+    upsertGatewayAdminA2ATrustPeer,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
   }));
@@ -2011,6 +2070,14 @@ async function importFreshHealth(options?: {
     getGatewayAdminTeamStructureRevision,
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
+    getGatewayAdminA2ATrust,
+    previewGatewayAdminA2APairing,
+    upsertGatewayAdminA2ATrustPeer,
+    revokeGatewayAdminA2ATrustPeer,
+    deleteGatewayAdminA2ATrustPeer,
+    startGatewayAdminA2APairing,
+    approveGatewayAdminA2APairingRequest,
+    declineGatewayAdminA2APairingRequest,
     saveGatewayAdminPolicyDefault,
     saveGatewayAdminPolicyLanHttpAccess,
     applyGatewayAdminPolicyPreset,
@@ -4181,6 +4248,7 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       sessionId: 's1',
+      agentId: 'research',
       sessionKey: undefined,
       mainSessionKey: undefined,
       bootstrapAutostart: null,
@@ -5031,6 +5099,10 @@ describe('gateway HTTP server', () => {
         actor: 'admin-user',
         sourceIp: '127.0.0.1',
       },
+      sessionPayload: expect.objectContaining({
+        actor: 'admin-user',
+        actions: ['secret.list_metadata'],
+      }),
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
@@ -5056,6 +5128,7 @@ describe('gateway HTTP server', () => {
         },
       ],
       total: 2,
+      actions: ['secret.list_metadata'],
     });
     expect(res.body).not.toContain('super-secret');
   });
@@ -5423,6 +5496,92 @@ describe('gateway HTTP server', () => {
       selectedThreadId: 'thread-b',
       threads: [{ id: 'thread-b', messageCount: 1 }],
       messages: [{ id: 'msg-b', threadId: 'thread-b' }],
+    });
+  });
+
+  test('allows admin A2A trust upserts', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/a2a/trust',
+      body: JSON.stringify({
+        peerId: 'peer-prod',
+        publicKeyFingerprint:
+          'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO_',
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.upsertGatewayAdminA2ATrustPeer).toHaveBeenCalledWith(
+      {
+        peerId: 'peer-prod',
+        publicKeyFingerprint:
+          'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO_',
+      },
+      'admin-console',
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('starts admin A2A pairing from the console endpoint', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/a2a/pairing',
+      body: JSON.stringify({
+        peerUrl: 'https://peer.example.com',
+        notifyPeer: true,
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.startGatewayAdminA2APairing).toHaveBeenCalledWith(
+      {
+        peerUrl: 'https://peer.example.com',
+        notifyPeer: true,
+      },
+      'admin-console',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      proposal: { peerId: 'peer-prod' },
+      remoteNotification: { status: 'sent' },
+    });
+  });
+
+  test('previews admin A2A pairing before trust approval', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/a2a/pairing/preview',
+      body: JSON.stringify({
+        canonicalInstanceId: 'peer-prod',
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.previewGatewayAdminA2APairing).toHaveBeenCalledWith({
+      canonicalInstanceId: 'peer-prod',
+    });
+    expect(state.startGatewayAdminA2APairing).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      proposal: {
+        peerId: 'peer-prod',
+        publicKeyFingerprint: 'peer-fingerprint',
+      },
     });
   });
 
@@ -7675,7 +7834,7 @@ describe('gateway HTTP server', () => {
     const body = JSON.parse(res.body);
     expect(body).toMatchObject({
       status: 'success',
-      commandResult: true,
+      messageRole: 'command',
       sessionId: 'session-secret-cli-guard',
     });
     expect(body.result).toContain('did not run or send');
@@ -7945,7 +8104,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
-          commandResult: true,
+          messageRole: 'command',
           sessionId: 'session-secret-cli-guard-stream',
           result: expect.stringContaining('/secret set API_TOKEN <value>'),
         }),
@@ -8041,11 +8200,11 @@ describe('gateway HTTP server', () => {
 
     // No visible output -> empty result (the web console renders no bubble for
     // it) rather than a "Done." placeholder. Success is still signalled by
-    // status, and the flag still marks it as command output.
+    // status, and messageRole still marks it as command output.
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
       result: '',
-      commandResult: true,
+      messageRole: 'command',
       sessionId: 'session-web-empty',
     });
     expect(state.loggerDebug).toHaveBeenCalledWith(
@@ -8090,6 +8249,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
+      messageRole: 'command',
       result: '**Pending Approval**\nI need approval before continuing.',
       sessionId: 'session-web-approve',
     });
@@ -8136,6 +8296,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
+      messageRole: 'command',
       result: expect.stringContaining('/approve'),
       sessionId: 'session-web-approve',
     });
@@ -8207,6 +8368,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
+          messageRole: 'approval',
           sessionId: 'session-web-approve',
           pendingApproval: {
             approvalId: 'be945bbf',
@@ -8219,6 +8381,69 @@ describe('gateway HTTP server', () => {
             allowAll: true,
             expiresAt: 1_710_000_000_000,
           },
+        }),
+      },
+    ]);
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
+  test('does not mark /approve yes assistant output as command output on the web chat stream path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Onboarding complete — BOOTSTRAP.md deleted.',
+      sessionId: 'session-web-approve',
+      toolsUsed: ['delete', 'read'],
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve yes',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-approve',
+        content: 'yes approve-123',
+      }),
+    );
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          messageRole: 'assistant',
+          result:
+            'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: delete, read*',
+          sessionId: 'session-web-approve',
         }),
       },
     ]);
@@ -8295,7 +8520,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8339,7 +8564,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8411,7 +8636,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
@@ -12377,7 +12602,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body)).toEqual({

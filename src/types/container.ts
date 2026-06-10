@@ -33,6 +33,12 @@ export interface MediaContextItem {
 
 export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
+export interface AddressEnvelope {
+  to: string | string[];
+  from?: string | null;
+  fanoutAlias?: 'team' | 'all';
+}
+
 export interface ProviderCredential {
   apiKey?: string;
   baseUrl?: string;
@@ -75,6 +81,7 @@ export interface ContainerInput {
   browserProvider?: string;
   browserAllowPrivateNetwork?: boolean;
   model: string;
+  addressEnvelope?: AddressEnvelope;
   codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;

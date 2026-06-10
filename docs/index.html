@@ -1427,7 +1427,7 @@
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Proactive Scheduler Jobs</h3>
-      <p>SQLite-backed scheduler jobs support <code>cron</code>/<code>every</code>/<code>at</code> schedules plus immediate <code>one_shot</code> jobs, with <code>agent_turn</code> or <code>system_event</code> actions and delivery to fixed channels, last-active channels, or webhooks. Metadata persists atomically, one-shot runs keep review state, and jobs auto-disable after repeated failures.</p>
+      <p>SQLite-backed scheduler jobs support <code>cron</code>/<code>every</code>/<code>at</code> schedules plus immediate <code>one_shot</code> jobs, with <code>agent_turn</code>, <code>heartbeat_poll</code>, or <code>system_event</code> actions and delivery to fixed channels, last-active channels, or webhooks. Metadata persists atomically, one-shot runs keep review state, and jobs auto-disable after repeated failures.</p>
     </div>
     <div class="feature-card">
       <h3 style="color: var(--accent-1);">Skills Engine</h3>
@@ -1790,7 +1790,7 @@ window.switchQsTab = (tab) => {
     </div>
     <div class="faq-item">
       <div class="faq-q">How does scheduling work?</div>
-      <div class="faq-a">Scheduled work lives in SQLite jobs. Prompt-created jobs (<code>schedule add</code>) and admin-created jobs support cron, one-shot <code>at</code>, interval, and immediate <code>one_shot</code> semantics. Jobs can use <code>agent_turn</code>/<code>system_event</code> actions plus <code>channel</code>/<code>last-channel</code>/<code>webhook</code> delivery, with persisted metadata, review-state tracking for one-shot jobs, and auto-disable after repeated failures.</div>
+      <div class="faq-a">Scheduled work lives in SQLite jobs. Prompt-created jobs (<code>schedule add</code>) and admin-created jobs support cron, one-shot <code>at</code>, interval, and immediate <code>one_shot</code> semantics. Jobs can use <code>agent_turn</code>/<code>heartbeat_poll</code>/<code>system_event</code> actions plus <code>channel</code>/<code>last-channel</code>/<code>webhook</code> delivery, with persisted metadata, review-state tracking for one-shot jobs, and auto-disable after repeated failures.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q">What is HybridAI?</div>

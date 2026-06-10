@@ -965,7 +965,11 @@ export interface AdminSchedulerResponse {
 
 export interface AdminAgentMarkdownFile {
   name: string;
+  displayName?: string;
   path: string;
+  scope?: 'agent' | 'installation' | 'company';
+  cloudPath?: string;
+  readOnly?: boolean;
   exists: boolean;
   updatedAt: string | null;
   sizeBytes: number | null;
@@ -1158,6 +1162,7 @@ export interface AgentsOverviewResponse {
 export interface AgentListItem {
   id: string;
   name: string | null;
+  imageUrl?: string | null;
 }
 
 export interface AgentListResponse {
@@ -1312,6 +1317,7 @@ export interface AdminA2ATrustPeer {
 export interface AdminA2ATrustResponse {
   identity: AdminA2AIdentity;
   peers: AdminA2ATrustPeer[];
+  pairingRequests: AdminA2APairingRequest[];
 }
 
 export interface AdminA2ATrustUpsertRequest {
@@ -1321,6 +1327,108 @@ export interface AdminA2ATrustUpsertRequest {
   publicKeyFingerprint?: string;
   publicKeyJwk?: JsonWebKey;
   reason?: string;
+}
+
+export interface AdminFleetTopologyHq {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  version: string;
+  status: 'local';
+  latencyMs: number;
+  lastSeenAt: string;
+}
+
+export type AdminFleetTopologyInstanceStatus =
+  | 'online'
+  | 'unreachable'
+  | 'unconfigured'
+  | 'revoked';
+
+export interface AdminFleetTopologyInstance {
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyFingerprint: string;
+  trustStatus: 'trusted' | 'revoked';
+  status: AdminFleetTopologyInstanceStatus;
+  version: string | null;
+  latencyMs: number | null;
+  error: string | null;
+  trustedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface AdminFleetTopologyResponse {
+  hq: AdminFleetTopologyHq;
+  instances: AdminFleetTopologyInstance[];
+}
+
+export interface AdminFleetTopologyUpsertRequest {
+  peerId: string;
+  agentCardUrl?: string;
+  deliveryUrl?: string;
+  publicKeyFingerprint?: string;
+  publicKeyJwk?: JsonWebKey;
+  reason?: string;
+}
+
+export interface AdminA2APairingRequest {
+  schemaVersion: 1;
+  requestId: string;
+  status: 'pending' | 'approved' | 'declined';
+  pairingId: string | null;
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyJwk: JsonWebKey;
+  publicKeyFingerprint: string;
+  name: string | null;
+  requestedBy: string | null;
+  requestedAt: string;
+  updatedAt: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  declinedAt?: string;
+  declinedBy?: string;
+  reason?: string;
+}
+
+export interface AdminA2APairingStartRequest {
+  peerUrl?: string;
+  canonicalId?: string;
+  canonicalInstanceId?: string;
+  reason?: string;
+  notifyPeer?: boolean;
+}
+
+export interface AdminA2APairingPreviewResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    publicKeyJwk: JsonWebKey;
+    name: string | null;
+  };
+}
+
+export interface AdminA2APairingStartResponse extends AdminA2ATrustResponse {
+  proposal: {
+    peerId: string;
+    agentCardUrl: string;
+    deliveryUrl: string;
+    publicKeyFingerprint: string;
+    name: string | null;
+  };
+  remoteNotification: {
+    status: 'not_requested' | 'sent' | 'failed';
+    url: string | null;
+    error: string | null;
+  };
 }
 
 export interface AdminA2AThreadMessage {
@@ -1849,6 +1957,35 @@ export interface AdminToolsResponse {
   };
   groups: AdminToolGroup[];
   recentExecutions: AdminToolExecution[];
+}
+
+export type AdminSecretAction =
+  | 'secret.list_metadata'
+  | 'secret.overwrite'
+  | 'secret.unset';
+
+export interface AdminSecretFingerprint {
+  length: number;
+  sha256_prefix: string;
+}
+
+export interface AdminSecretEntry {
+  name: string;
+  state: 'set' | 'unset';
+  created_at: string | null;
+  last_rotated_at: string | null;
+  length: number | null;
+  fingerprint: AdminSecretFingerprint | null;
+}
+
+export interface AdminSecretsResponse {
+  secrets: AdminSecretEntry[];
+  total: number;
+  actions: AdminSecretAction[];
+}
+
+export interface AdminSecretMutationResponse {
+  secret: AdminSecretEntry;
 }
 
 export interface DeleteSessionResult {

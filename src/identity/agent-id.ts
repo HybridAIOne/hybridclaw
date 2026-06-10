@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   formatUserId,
   parseUserId,
@@ -58,10 +58,6 @@ export class LocalInstanceIdAllocationError extends Error {
 const AGENT_IDENTITY_COMPONENT_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function normalizeAgentIdentityComponent(value: string): string {
   return value.trim().toLowerCase();
