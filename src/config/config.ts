@@ -331,6 +331,11 @@ syncRuntimeSecretExports();
 export function refreshRuntimeSecretsFromEnv(): void {
   loadRuntimeSecrets();
   syncRuntimeSecretExports();
+  // Re-derive config that mixes in a runtime secret. The connector gateway
+  // injects HYBRIDAI_API_KEY into MCP_SERVERS, so a key supplied AFTER startup
+  // (`claw login`, onboarding, `/secret set HYBRIDAI_API_KEY`, config reload)
+  // wires the gateway without a restart instead of leaving MCP_SERVERS stale.
+  applyRuntimeConfig(getRuntimeConfig());
 }
 
 export let DISCORD_PREFIX = '!claw';
