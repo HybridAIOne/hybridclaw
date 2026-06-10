@@ -32,7 +32,7 @@ import {
 } from './envelope.js';
 import { resolveA2AAgentId } from './identity.js';
 import { acceptA2AInboundEnvelope } from './inbound-pipeline.js';
-import { findA2AEnvelopeByIdempotencyKey } from './store.js';
+import { getA2AEnvelope } from './store.js';
 import {
   type A2AAgentCardTrustLevel,
   type A2ATrustedA2APeer,
@@ -46,8 +46,7 @@ import { isRecord } from './utils.js';
 
 export const A2A_JSON_RPC_INBOUND_PATH = '/a2a';
 export const A2A_HTTP_ENVELOPE_INBOUND_PATH = '/a2a/envelopes';
-export const A2A_JSON_RPC_INBOUND_MAX_BODY_BYTES = 1_000_000;
-export const A2A_HTTP_ENVELOPE_INBOUND_MAX_BODY_BYTES = 1_000_000;
+export const A2A_INBOUND_MAX_BODY_BYTES = 1_000_000;
 
 export type A2AJsonRpcInboundSignatureOutcome =
   | 'passed'
@@ -62,16 +61,21 @@ export type A2AJsonRpcInboundDownstreamDisposition =
   | 'error';
 export type A2AAgentCardPeerTrustLevel = A2AAgentCardTrustLevel;
 type A2AInboundAuthMode = 'signed_bearer' | 'peer_public_key';
+type A2AAuthenticatedPeer = {
+  peer: A2ATrustedA2APeer;
+  authMode: A2AInboundAuthMode;
+};
+type A2AInboundHandler = (params: {
+  rawBody: string;
+  authorization: string | null | undefined;
+  audience: string;
+  mtlsPublicKeyPem?: string | null;
+}) => A2AInboundResult;
 
 export type { A2ATrustedA2APeer, UpsertA2ATrustedA2APeerInput };
 export { listA2ATrustedA2APeers, upsertA2ATrustedA2APeer };
 
-export interface A2AJsonRpcInboundResult {
-  statusCode: number;
-  body: Record<string, unknown>;
-}
-
-export interface A2AHttpEnvelopeInboundResult {
+export interface A2AInboundResult {
   statusCode: number;
   body: Record<string, unknown>;
 }
@@ -149,20 +153,19 @@ function normalizeAudience(url: URL): string {
   return new URL(url.pathname, url.origin).toString();
 }
 
-function localCanonicalRecipientCacheKey(): string {
-  return listAgents()
-    .map((agent) => `${agent.id}\0${agent.owner || ''}`)
-    .join('\n');
+function localCanonicalRecipientCacheKey(agents = listAgents()): string {
+  return agents.map((agent) => `${agent.id}\0${agent.owner || ''}`).join('\n');
 }
 
 function localCanonicalRecipientIds(): Set<string> {
-  const key = localCanonicalRecipientCacheKey();
+  const agents = listAgents();
+  const key = localCanonicalRecipientCacheKey(agents);
   if (localCanonicalRecipientCache?.key === key) {
     return localCanonicalRecipientCache.canonicalAgentIds;
   }
 
   const canonicalAgentIds = new Set<string>();
-  for (const agent of listAgents()) {
+  for (const agent of agents) {
     try {
       canonicalAgentIds.add(resolveA2AAgentId(agent.id));
     } catch {
@@ -262,15 +265,6 @@ function assertEnvelopeSenderMatchesPeer(
     ]);
   }
   const authenticatedPeerInstanceId = peerInstanceId(peer);
-  const envelopeSenderInstanceId = parseCanonicalEnvelopeAgentId(
-    'sender_agent_id',
-    envelope.sender_agent_id,
-  ).instanceId;
-  if (envelopeSenderInstanceId !== authenticatedPeerInstanceId) {
-    throw new A2AEnvelopeValidationError([
-      'sender_agent_id instance-id does not match authenticated A2A peer',
-    ]);
-  }
   if (envelope.sender_instance_id !== authenticatedPeerInstanceId) {
     throw new A2AEnvelopeValidationError([
       'sender_instance_id does not match authenticated A2A peer',
@@ -365,12 +359,9 @@ function jsonRpcErrorMessage(error: unknown): string {
 
 function resolveTrustedPeerForToken(params: {
   token: string;
-  peer?: A2ATrustedA2APeer;
 }): A2ATrustedA2APeer {
   const unverifiedClaims = decodeA2ADelegationTokenClaims(params.token);
-  const peer =
-    params.peer ??
-    getA2ATrustedA2APeerBySender(unverifiedClaims.sender_agent_id);
+  const peer = getA2ATrustedA2APeerBySender(unverifiedClaims.sender_agent_id);
   if (!peer) {
     throw new A2AMissingTrustedPeerError();
   }
@@ -380,10 +371,8 @@ function resolveTrustedPeerForToken(params: {
 function resolveTrustedPeerForMtls(params: {
   senderAgentId: string;
   mtlsPublicKeyPem: string;
-  peer?: A2ATrustedA2APeer;
 }): A2ATrustedA2APeer {
-  const peer =
-    params.peer ?? getA2ATrustedA2APeerBySender(params.senderAgentId);
+  const peer = getA2ATrustedA2APeerBySender(params.senderAgentId);
   if (!peer) {
     throw new A2AMissingTrustedPeerError('No trusted A2A peer for mTLS sender');
   }
@@ -406,7 +395,7 @@ function resolveTrustedPeerForMtlsPublicKey(
 function verifySignedRequest(params: {
   token: string;
   envelope: A2AEnvelope;
-  method: 'message/send' | 'tasks/send';
+  method?: 'message/send' | 'tasks/send';
   audience: string;
   now?: Date;
   peer: A2ATrustedA2APeer;
@@ -433,22 +422,39 @@ function signatureOutcomeForError(
   return 'failed';
 }
 
-function verifySignedHttpEnvelopeRequest(params: {
-  token: string;
+function resolveAuthenticatedPeer(params: {
+  rawAuthorization: string | null | undefined;
+  mtlsPublicKeyPem?: string | null;
   envelope: A2AEnvelope;
   audience: string;
+  method?: 'message/send' | 'tasks/send';
+  // Test-only clock hook for direct unit tests; HTTP handlers always use wall time.
   now?: Date;
-  peer: A2ATrustedA2APeer;
-}): void {
-  verifyA2ADelegationToken({
-    token: params.token,
-    publicKeyPem: params.peer.publicKeyPem,
-    audience: params.audience,
-    requiredScope: A2A_MESSAGE_SEND_SCOPE,
-    senderAgentId: params.envelope.sender_agent_id,
-    targetAgentId: params.envelope.recipient_agent_id,
-    now: params.now,
-  });
+}): A2AAuthenticatedPeer {
+  const authorization = String(params.rawAuthorization || '').trim();
+  if (authorization) {
+    const token = extractBearerToken(params.rawAuthorization);
+    const peer = resolveTrustedPeerForToken({ token });
+    verifySignedRequest({
+      token,
+      envelope: params.envelope,
+      method: params.method,
+      audience: params.audience,
+      now: params.now,
+      peer,
+    });
+    return { peer, authMode: 'signed_bearer' };
+  }
+  if (params.mtlsPublicKeyPem) {
+    const peer = resolveTrustedPeerForMtls({
+      senderAgentId: params.envelope.sender_agent_id,
+      mtlsPublicKeyPem: params.mtlsPublicKeyPem,
+    });
+    return { peer, authMode: 'peer_public_key' };
+  }
+  throw new A2ADelegationTokenError(
+    'Authorization bearer token or mTLS client certificate is required',
+  );
 }
 
 function httpEnvelopeErrorStatusCode(error: unknown): number {
@@ -490,45 +496,25 @@ export function acceptA2AHttpEnvelopeInboundRequest(params: {
   authorization: string | null | undefined;
   audience: string;
   mtlsPublicKeyPem?: string | null;
+  // Test-only clock hook for direct unit tests; HTTP handlers always use wall time.
   now?: Date;
-  peer?: A2ATrustedA2APeer;
-}): A2AHttpEnvelopeInboundResult {
+}): A2AInboundResult {
   const runId = makeAuditRunId('a2a-http-inbound');
   let envelope: A2AEnvelope | null = null;
-  let peer: A2ATrustedA2APeer | null = params.peer ?? null;
+  let peer: A2ATrustedA2APeer | null = null;
   let authMode: A2AInboundAuthMode | null = null;
 
   try {
     envelope = parseHttpEnvelopePayload(params.rawBody);
-    const authorization = String(params.authorization || '').trim();
-    if (authorization) {
-      authMode = 'signed_bearer';
-      const token = extractBearerToken(params.authorization);
-      peer = resolveTrustedPeerForToken({
-        token,
-        peer: params.peer,
-      });
-      verifySignedHttpEnvelopeRequest({
-        token,
-        envelope,
-        audience: params.audience,
-        now: params.now,
-        peer,
-      });
-    } else if (params.mtlsPublicKeyPem) {
-      authMode = 'peer_public_key';
-      peer =
-        params.peer ?? getA2ATrustedA2APeerBySender(envelope.sender_agent_id);
-      peer = resolveTrustedPeerForMtls({
-        senderAgentId: envelope.sender_agent_id,
-        mtlsPublicKeyPem: params.mtlsPublicKeyPem,
-        peer: peer ?? undefined,
-      });
-    } else {
-      throw new A2ADelegationTokenError(
-        'Authorization bearer token or mTLS client certificate is required',
-      );
-    }
+    const authenticated = resolveAuthenticatedPeer({
+      rawAuthorization: params.authorization,
+      mtlsPublicKeyPem: params.mtlsPublicKeyPem,
+      envelope,
+      audience: params.audience,
+      now: params.now,
+    });
+    peer = authenticated.peer;
+    authMode = authenticated.authMode;
     assertEnvelopeSenderMatchesPeer(envelope, peer);
     assertCanonicalLocalRecipient(envelope);
   } catch (error) {
@@ -564,15 +550,10 @@ export function acceptA2AHttpEnvelopeInboundRequest(params: {
     };
   }
 
-  if (!peer || !envelope) {
-    return {
-      statusCode: 500,
-      body: { error: 'Internal server error' },
-    };
-  }
   const authenticatedPeer = peer;
   const authenticatedPeerInstanceId = peerInstanceId(authenticatedPeer);
-  const existing = findA2AEnvelopeByIdempotencyKey(
+  const existing = getA2AEnvelope(
+    envelope.thread_id,
     envelope.id,
     authenticatedPeerInstanceId,
   );
@@ -662,12 +643,12 @@ export function acceptA2AJsonRpcInboundRequest(params: {
   authorization: string | null | undefined;
   audience: string;
   mtlsPublicKeyPem?: string | null;
+  // Test-only clock hook for direct unit tests; HTTP handlers always use wall time.
   now?: Date;
-  peer?: A2ATrustedA2APeer;
-}): A2AJsonRpcInboundResult {
+}): A2AInboundResult {
   const runId = makeAuditRunId('a2a-inbound');
   let envelope: A2AEnvelope | null = null;
-  let peer: A2ATrustedA2APeer | null = params.peer ?? null;
+  let peer: A2ATrustedA2APeer | null = null;
   let method: 'message/send' | 'tasks/send' | null = null;
   let requestId: JsonRpcId = null;
   let authMode: A2AInboundAuthMode | null = null;
@@ -678,36 +659,16 @@ export function acceptA2AJsonRpcInboundRequest(params: {
     method = meta.method;
     requestId = meta.id;
     envelope = decodeA2AJsonRpcRequest(parsed);
-    const authorization = String(params.authorization || '').trim();
-    if (authorization) {
-      authMode = 'signed_bearer';
-      const token = extractBearerToken(params.authorization);
-      peer = resolveTrustedPeerForToken({
-        token,
-        peer: params.peer,
-      });
-      verifySignedRequest({
-        token,
-        envelope,
-        method,
-        audience: params.audience,
-        now: params.now,
-        peer,
-      });
-    } else if (params.mtlsPublicKeyPem) {
-      authMode = 'peer_public_key';
-      peer =
-        params.peer ?? getA2ATrustedA2APeerBySender(envelope.sender_agent_id);
-      peer = resolveTrustedPeerForMtls({
-        senderAgentId: envelope.sender_agent_id,
-        mtlsPublicKeyPem: params.mtlsPublicKeyPem,
-        peer: peer ?? undefined,
-      });
-    } else {
-      throw new A2ADelegationTokenError(
-        'Authorization bearer token or mTLS client certificate is required',
-      );
-    }
+    const authenticated = resolveAuthenticatedPeer({
+      rawAuthorization: params.authorization,
+      mtlsPublicKeyPem: params.mtlsPublicKeyPem,
+      envelope,
+      audience: params.audience,
+      method,
+      now: params.now,
+    });
+    peer = authenticated.peer;
+    authMode = authenticated.authMode;
     if (!localRecipientResolves(envelope.recipient_agent_id)) {
       throw new A2AEnvelopeValidationError([
         'recipient_agent_id does not resolve to a local agent',
@@ -805,6 +766,7 @@ export function resolveA2AAgentCardPeerTrust(params: {
   authorization: string | null | undefined;
   audience: string;
   mtlsPublicKeyPem?: string | null;
+  // Test-only clock hook for direct unit tests; HTTP handlers always use wall time.
   now?: Date;
 }): A2AAgentCardPeerTrustResult {
   if (String(params.authorization || '').trim()) {
@@ -842,15 +804,12 @@ export function resolveA2AAgentCardPeerTrust(params: {
   return { trustLevel: 'public' };
 }
 
-export async function handleA2AJsonRpcInbound(
+async function handleA2AInbound(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  accept: A2AInboundHandler,
 ): Promise<void> {
-  if (url.pathname !== A2A_JSON_RPC_INBOUND_PATH) {
-    sendJson(res, 404, { error: 'Not Found' });
-    return;
-  }
   if (req.method !== 'POST') {
     sendJson(res, 405, { error: 'Method Not Allowed' });
     return;
@@ -858,9 +817,9 @@ export async function handleA2AJsonRpcInbound(
 
   try {
     const rawBody = (
-      await readRequestBody(req, A2A_JSON_RPC_INBOUND_MAX_BODY_BYTES)
+      await readRequestBody(req, A2A_INBOUND_MAX_BODY_BYTES)
     ).toString('utf-8');
-    const result = acceptA2AJsonRpcInboundRequest({
+    const result = accept({
       rawBody,
       authorization: readHeader(req.headers, 'authorization'),
       audience: normalizeAudience(url),
@@ -876,36 +835,18 @@ export async function handleA2AJsonRpcInbound(
   }
 }
 
+export async function handleA2AJsonRpcInbound(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  await handleA2AInbound(req, res, url, acceptA2AJsonRpcInboundRequest);
+}
+
 export async function handleA2AHttpEnvelopeInbound(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
 ): Promise<void> {
-  if (url.pathname !== A2A_HTTP_ENVELOPE_INBOUND_PATH) {
-    sendJson(res, 404, { error: 'Not Found' });
-    return;
-  }
-  if (req.method !== 'POST') {
-    sendJson(res, 405, { error: 'Method Not Allowed' });
-    return;
-  }
-
-  try {
-    const rawBody = (
-      await readRequestBody(req, A2A_HTTP_ENVELOPE_INBOUND_MAX_BODY_BYTES)
-    ).toString('utf-8');
-    const result = acceptA2AHttpEnvelopeInboundRequest({
-      rawBody,
-      authorization: readHeader(req.headers, 'authorization'),
-      audience: normalizeAudience(url),
-      mtlsPublicKeyPem: extractA2AMtlsPublicKeyPem(req),
-    });
-    sendJson(res, result.statusCode, result.body);
-  } catch (error) {
-    if (error instanceof GatewayRequestError) {
-      sendJson(res, error.statusCode, { error: error.message });
-      return;
-    }
-    sendJson(res, 500, { error: 'Internal server error' });
-  }
+  await handleA2AInbound(req, res, url, acceptA2AHttpEnvelopeInboundRequest);
 }

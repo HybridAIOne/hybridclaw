@@ -327,10 +327,6 @@ function threadIdFromAssetPath(assetPath: string): string | null {
   }
 }
 
-function a2aThreadAssetPathPrefix(): string {
-  return path.join(DEFAULT_RUNTIME_HOME_DIR, 'a2a', 'threads') + path.sep;
-}
-
 export function listA2AThreads(): A2AThreadSummary[] {
   const threads: A2AThreadSummary[] = [];
   for (const state of listRuntimeAssetRevisionStates('a2a')) {
@@ -418,31 +414,6 @@ export function getA2AEnvelope(
     ]);
   }
   return matches[0] ?? null;
-}
-
-export function findA2AEnvelopeByIdempotencyKey(
-  envelopeId: string,
-  senderInstanceId: string,
-): A2AEnvelope | null {
-  const normalizedEnvelopeId = normalizeEnvelopeId(envelopeId);
-  const normalizedSenderInstanceId =
-    normalizeSenderInstanceId(senderInstanceId);
-  for (const state of listRuntimeAssetRevisionStates('a2a', {
-    assetPathPrefix: a2aThreadAssetPathPrefix(),
-  })) {
-    const threadId = threadIdFromAssetPath(state.assetPath);
-    if (!threadId) continue;
-    const match = parsePersistedThreadState(
-      state.content,
-      threadId,
-    ).envelopes.find(
-      (entry) =>
-        entry.id === normalizedEnvelopeId &&
-        entry.sender_instance_id === normalizedSenderInstanceId,
-    );
-    if (match) return match;
-  }
-  return null;
 }
 
 export function saveA2AEnvelope(
