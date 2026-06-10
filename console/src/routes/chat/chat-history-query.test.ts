@@ -31,6 +31,48 @@ describe('buildChatHistoryUiData', () => {
     expect(byRole('user', 'first question')?.sessionId).toBe('session-a');
   });
 
+  it('restores addressed agent attribution on reloaded user bubbles', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        { id: 1, role: 'user', content: 'summarize this' },
+        {
+          id: 2,
+          role: 'assistant',
+          agent_id: 'research',
+          content: 'summary',
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+    const user = ui.messages.find((message) => message.role === 'user');
+    const assistant = ui.messages.find(
+      (message) => message.role === 'assistant',
+    );
+
+    expect(user?.content).toBe('@research summarize this');
+    expect(user?.rawContent).toBe('summarize this');
+    expect(user?.replayRequest?.content).toBe('summarize this');
+    expect(assistant?.replayRequest?.content).toBe('summarize this');
+  });
+
+  it('does not add main-agent attribution on reload', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        { id: 1, role: 'user', content: 'hello' },
+        { id: 2, role: 'assistant', agent_id: 'main', content: 'hi' },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(
+      ui.messages.find((message) => message.role === 'user')?.content,
+    ).toBe('hello');
+  });
+
   it('resolves branchKey only for messages whose id belongs to a variant in the current session', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-a',

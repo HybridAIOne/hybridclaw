@@ -93,6 +93,34 @@ describe('MessageBlock artifacts', () => {
     expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
   });
 
+  it('renders a leading user agent mention as a pill', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          role: 'user',
+          content: '@research summarize this',
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const mention = screen.getByText('@research');
+    const bubble = screen.getByText(
+      (_text, element) => element?.textContent === '@research summarize this',
+    );
+
+    expect(mention.classList.contains(css.userAgentMentionPill)).toBe(true);
+    expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
+  });
+
   it('renders image previews from blob URLs instead of tokenized artifact URLs', async () => {
     fetchArtifactBlobMock.mockResolvedValue(
       new Blob(['image-bytes'], { type: 'image/png' }),

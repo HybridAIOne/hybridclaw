@@ -10,6 +10,7 @@ import type {
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
 import { requestChatStream } from '../../lib/chat-stream';
 import { getErrorMessage } from '../../lib/error-message';
+import { addAgentAttribution } from './agent-mention-display';
 import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
@@ -262,6 +263,10 @@ export function useChatStream(
         const finalText = result.result ?? req.assistantText ?? '';
         const finalApproval = req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
+        const addressedAgentId =
+          typeof result.addressEnvelope?.to === 'string'
+            ? result.addressEnvelope.to
+            : null;
         if (!result.messageRole) {
           throw new Error('Gateway chat result is missing messageRole.');
         }
@@ -304,6 +309,7 @@ export function useChatStream(
             if (userMsgId && m.id === userMsgId && m.role === 'user') {
               return {
                 ...m,
+                content: addAgentAttribution(m.content, addressedAgentId),
                 messageId: m.messageId ?? result.userMessageId ?? null,
                 sessionId: result.sessionId ?? m.sessionId,
               };

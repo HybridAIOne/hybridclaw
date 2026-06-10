@@ -18,6 +18,7 @@ import { ThumbsDown, ThumbsUp } from '../../components/icons';
 import { type ApprovalAction, copyToClipboard } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { renderMarkdown } from '../../lib/markdown';
+import { parseLeadingAgentMention } from './agent-mention-display';
 import { ApprovalCard } from './approval-card';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
@@ -495,6 +496,8 @@ export const MessageBlock = memo(function MessageBlock(props: {
               // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
               dangerouslySetInnerHTML={{ __html: renderedHtml }}
             />
+          ) : isUser ? (
+            <UserMessageContent content={msg.content} />
           ) : (
             msg.content
           )}
@@ -646,6 +649,18 @@ export const MessageBlock = memo(function MessageBlock(props: {
     </div>
   );
 });
+
+function UserMessageContent(props: { content: string }) {
+  const mention = parseLeadingAgentMention(props.content);
+  if (!mention) return props.content;
+
+  return (
+    <>
+      <span className={css.userAgentMentionPill}>{mention.mention}</span>
+      {mention.rest}
+    </>
+  );
+}
 
 export function EditInline(props: {
   initial: string;

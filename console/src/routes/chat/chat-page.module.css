@@ -600,6 +600,26 @@ aside[data-state="collapsed"] .chatSidebarContent {
   white-space: pre-wrap;
 }
 
+.userAgentMentionPill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5em;
+  max-width: 180px;
+  padding: 0 0.45em;
+  margin-right: 0.25em;
+  border: 1px solid
+    color-mix(in srgb, var(--primary-foreground) 52%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-foreground) 18%, transparent);
+  color: var(--primary-foreground);
+  font-weight: 700;
+  line-height: 1.3;
+  vertical-align: baseline;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .bubbleAssistant {
   background: var(--card);
   color: var(--card-foreground);
