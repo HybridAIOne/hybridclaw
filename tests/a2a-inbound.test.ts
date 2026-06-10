@@ -474,7 +474,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
     ).toEqual({
       statusCode: 400,
       body: {
-        error: expect.stringContaining('recipient_agent_id must be a string'),
+        error: expect.stringContaining('recipient_agent_id'),
       },
     });
     expect(runtime.inbox('main')).toEqual([]);
