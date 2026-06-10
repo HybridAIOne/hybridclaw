@@ -1,5 +1,4 @@
 import type { AgentConfig, AgentProxyConfig } from '../agents/agent-types.js';
-import { makeAuditRunId } from '../audit/audit-events.js';
 import { logger } from '../logger.js';
 import { resolveSecretInputUnsafe } from '../security/secret-refs.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -75,7 +74,7 @@ function resolveProxyApiKey(params: {
   agentId: string;
   sessionId: string;
   runId: string;
-  url: string;
+  upstreamHost: string;
 }): string {
   const secret = resolveSecretInputUnsafe(params.proxy.apiKey, {
     path: `agents.${params.agentId}.proxy.apiKey`,
@@ -89,7 +88,7 @@ function resolveProxyApiKey(params: {
         secretSource: handle.ref.source,
         secretId: handle.ref.id,
         sinkKind: 'http',
-        host: new URL(params.url).host,
+        host: params.upstreamHost,
         selector: 'Authorization',
         reason,
       }),
@@ -131,20 +130,41 @@ function readWithIdleTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   signal: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (signal.aborted) {
+    reader.cancel().catch(() => {});
+    return Promise.reject(
+      new ProxyAgentError('HybridAI proxy request was aborted.', {
+        code: 'network',
+        status: 0,
+        cause: signal.reason,
+      }),
+    );
+  }
+
   return new Promise((resolve, reject) => {
+    let settled = false;
     const timer = setTimeout(() => {
-      reader.cancel().catch(() => {});
-      reject(
+      fail(
         new ProxyAgentError('HybridAI proxy stream timed out.', {
           code: 'network',
           status: 0,
         }),
       );
     }, HYBRIDAI_PROXY_STREAM_IDLE_TIMEOUT_MS);
-    const onAbort = () => {
+
+    const cleanup = () => {
       clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       reader.cancel().catch(() => {});
-      reject(
+      reject(error);
+    };
+    const onAbort = () => {
+      fail(
         new ProxyAgentError('HybridAI proxy request was aborted.', {
           code: 'network',
           status: 0,
@@ -152,99 +172,29 @@ function readWithIdleTimeout(
         }),
       );
     };
+
     signal.addEventListener('abort', onAbort, { once: true });
     reader.read().then(
       (result) => {
-        clearTimeout(timer);
-        signal.removeEventListener('abort', onAbort);
+        if (settled) return;
+        settled = true;
+        cleanup();
         resolve(result);
       },
       (error) => {
-        clearTimeout(timer);
-        signal.removeEventListener('abort', onAbort);
-        reject(error);
+        fail(error);
       },
     );
   });
 }
 
-function extractOpenAIChoiceText(payload: Record<string, unknown>): string {
-  const choice = Array.isArray(payload.choices) ? payload.choices[0] : null;
-  if (!isRecord(choice)) return '';
-  const delta = isRecord(choice.delta) ? choice.delta : null;
-  if (typeof delta?.content === 'string') return delta.content;
-  const message = isRecord(choice.message) ? choice.message : null;
-  if (typeof message?.content === 'string') return message.content;
-  return '';
-}
-
-function readStringField(
-  payload: Record<string, unknown>,
-  fields: string[],
-): string {
-  for (const field of fields) {
-    const value = payload[field];
-    if (typeof value === 'string') return value;
-  }
-  return '';
-}
-
-function extractResponseText(payload: unknown): string {
-  if (typeof payload === 'string') return payload;
-  if (!isRecord(payload)) return '';
-  const direct = readStringField(payload, [
-    'text',
-    'message',
-    'answer',
-    'response',
-    'result',
-    'content',
-  ]);
-  if (direct) return direct;
-  const data = payload.data;
-  if (isRecord(data)) return extractResponseText(data);
-  return extractOpenAIChoiceText(payload);
-}
-
-function extractStreamDelta(params: {
-  payload: unknown;
-  currentText: string;
-}): string {
-  if (typeof params.payload === 'string') return params.payload;
-  if (!isRecord(params.payload)) return '';
-
-  const explicitDelta = readStringField(params.payload, ['delta', 'chunk']);
-  if (explicitDelta) return explicitDelta;
-
-  const openAIText = extractOpenAIChoiceText(params.payload);
-  if (openAIText) return openAIText;
-
-  const fullText = readStringField(params.payload, [
-    'text',
-    'message',
-    'answer',
-    'response',
-    'result',
-    'content',
-  ]);
-  if (!fullText) {
-    const data = params.payload.data;
-    return isRecord(data)
-      ? extractStreamDelta({ payload: data, currentText: params.currentText })
-      : '';
-  }
-  return fullText.startsWith(params.currentText)
-    ? fullText.slice(params.currentText.length)
-    : fullText;
-}
-
-function parseStreamPayload(raw: string): unknown {
+function parseHybridAIStreamPayload(raw: string): unknown {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   try {
     return JSON.parse(trimmed) as unknown;
   } catch {
-    return trimmed;
+    return null;
   }
 }
 
@@ -257,67 +207,66 @@ function parseSseBlock(block: string): string[] {
   return dataLines.length > 0 ? [dataLines.join('\n').trim()] : [];
 }
 
-function parseDelimitedStreamPayloads(buffer: string): {
+function parseHybridAISsePayloads(buffer: string): {
   payloads: string[];
   remaining: string;
 } {
-  if (buffer.includes('\n\n') || buffer.includes('\r\n\r\n')) {
-    const blocks = buffer.split(/\r?\n\r?\n/);
-    return {
-      payloads: blocks.slice(0, -1).flatMap(parseSseBlock),
-      remaining: blocks.at(-1) || '',
-    };
-  }
-
-  const lines = buffer.split(/\r?\n/);
-  const remaining = lines.pop() || '';
+  const blocks = buffer.split(/\r?\n\r?\n/);
   return {
-    payloads: lines
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => (line.startsWith('data:') ? line.slice(5).trim() : line)),
-    remaining,
+    payloads: blocks.slice(0, -1).flatMap(parseSseBlock),
+    remaining: blocks.at(-1) || '',
   };
 }
 
-async function readStreamingResponse(params: {
+function extractHybridAIStreamDelta(payload: unknown): string {
+  if (!isRecord(payload)) return '';
+  const delta = payload.delta;
+  return typeof delta === 'string' ? delta : '';
+}
+
+function extractHybridAIJsonText(payload: unknown): string {
+  if (!isRecord(payload)) return '';
+  const text = payload.text;
+  return typeof text === 'string' ? text : '';
+}
+
+async function readHybridAISseResponse(params: {
   response: Response;
   signal: AbortSignal;
   onTextDelta?: (delta: string) => void;
 }): Promise<string> {
   if (!params.response.body) {
-    return extractResponseText(await params.response.json().catch(() => null));
+    return '';
   }
 
   const reader = params.response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let resultText = '';
+  const resultParts: string[] = [];
   try {
     while (true) {
       const next = await readWithIdleTimeout(reader, params.signal);
       if (next.done) break;
-      buffer += decoder.decode(next.value, { stream: true });
-      const parsed = parseDelimitedStreamPayloads(buffer);
+      const parsed = parseHybridAISsePayloads(
+        [buffer, decoder.decode(next.value, { stream: true })].join(''),
+      );
       buffer = parsed.remaining;
       for (const payloadText of parsed.payloads) {
         if (!payloadText || payloadText === '[DONE]') continue;
-        const delta = extractStreamDelta({
-          payload: parseStreamPayload(payloadText),
-          currentText: resultText,
-        });
+        const delta = extractHybridAIStreamDelta(
+          parseHybridAIStreamPayload(payloadText),
+        );
         if (!delta) continue;
-        resultText += delta;
+        resultParts.push(delta);
         params.onTextDelta?.(delta);
       }
     }
     if (buffer.trim() && buffer.trim() !== '[DONE]') {
-      const delta = extractStreamDelta({
-        payload: parseStreamPayload(buffer),
-        currentText: resultText,
-      });
+      const delta = extractHybridAIStreamDelta(
+        parseHybridAIStreamPayload(parseSseBlock(buffer)[0] || buffer),
+      );
       if (delta) {
-        resultText += delta;
+        resultParts.push(delta);
         params.onTextDelta?.(delta);
       }
     }
@@ -325,7 +274,7 @@ async function readStreamingResponse(params: {
     reader.releaseLock();
     decoder.decode();
   }
-  return resultText;
+  return resultParts.join('');
 }
 
 async function readHybridAIProxyResponse(params: {
@@ -338,14 +287,13 @@ async function readHybridAIProxyResponse(params: {
   ).toLowerCase();
   if (
     contentType.includes('application/json') &&
-    !contentType.includes('event-stream') &&
-    !contentType.includes('ndjson')
+    !contentType.includes('event-stream')
   ) {
-    const text = extractResponseText(await params.response.json());
+    const text = extractHybridAIJsonText(await params.response.json());
     if (text) params.onTextDelta?.(text);
     return text;
   }
-  return readStreamingResponse(params);
+  return readHybridAISseResponse(params);
 }
 
 function mapProxyErrorToReply(error: unknown): string {
@@ -368,7 +316,7 @@ function logProxyFailure(params: {
   agentId: string;
   sessionId: string;
   channelId: string;
-  url: string;
+  upstreamHost: string;
   error: unknown;
 }): void {
   const status =
@@ -379,7 +327,7 @@ function logProxyFailure(params: {
       agentId: params.agentId,
       sessionId: params.sessionId,
       channelId: params.channelId,
-      upstreamHost: new URL(params.url).host,
+      upstreamHost: params.upstreamHost,
       status,
       code,
       error:
@@ -393,26 +341,21 @@ function logProxyFailure(params: {
 
 export async function forwardGatewayMessageToProxyAgent(params: {
   req: GatewayChatRequest;
-  agent: AgentConfig;
-  runId?: string;
+  agent: AgentConfig & { proxy: AgentProxyConfig };
+  runId: string;
   abortSignal?: AbortSignal;
 }): Promise<GatewayChatResult> {
   const proxy = params.agent.proxy;
-  if (!proxy) {
-    throw new Error(
-      `Agent "${params.agent.id}" is not configured for proxying.`,
-    );
-  }
-  const runId = params.runId || makeAuditRunId('proxy-agent');
   const url = resolveProxyUrl(proxy);
+  const upstreamHost = new URL(url).host;
 
   try {
     const apiKey = resolveProxyApiKey({
       proxy,
       agentId: params.agent.id,
       sessionId: params.req.sessionId,
-      runId,
-      url,
+      runId: params.runId,
+      upstreamHost,
     });
     const externalUserId = buildExternalUserId(params.req);
     const body = {
@@ -433,7 +376,7 @@ export async function forwardGatewayMessageToProxyAgent(params: {
       response = await fetch(url, {
         method: 'POST',
         headers: {
-          Accept: 'text/event-stream, application/x-ndjson, application/json',
+          Accept: 'text/event-stream, application/json',
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
@@ -480,7 +423,7 @@ export async function forwardGatewayMessageToProxyAgent(params: {
       agentId: params.agent.id,
       sessionId: params.req.sessionId,
       channelId: params.req.channelId,
-      url,
+      upstreamHost,
       error,
     });
     return {

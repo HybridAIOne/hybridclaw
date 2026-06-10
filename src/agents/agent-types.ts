@@ -46,15 +46,13 @@ export interface AgentWebSearchConfig {
 
 export type AgentProxyConversationScope = 'channel' | 'user';
 
-export interface AgentHybridAIProxyConfig {
+export interface AgentProxyConfig {
   kind: 'hybridai';
   baseUrl: string;
   chatbotId: string;
   apiKey: SecretRef;
   conversationScope?: AgentProxyConversationScope;
 }
-
-export type AgentProxyConfig = AgentHybridAIProxyConfig;
 
 export type AgentBudgetCurrency = 'USD' | 'EUR';
 export type AgentBudgetUnit = AgentBudgetCurrency | 'tokens';
@@ -226,6 +224,22 @@ export function cloneAgentProxyConfig(
   };
 }
 
+export function agentProxyConfigEquals(
+  a: AgentProxyConfig | undefined,
+  b: AgentProxyConfig | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.kind === b.kind &&
+    a.baseUrl === b.baseUrl &&
+    a.chatbotId === b.chatbotId &&
+    a.apiKey.source === b.apiKey.source &&
+    a.apiKey.id === b.apiKey.id &&
+    a.conversationScope === b.conversationScope
+  );
+}
+
 export function cloneAgentBudgetConfig(
   value: AgentBudgetConfig | undefined,
 ): AgentBudgetConfig | undefined {
@@ -390,6 +404,8 @@ export function normalizeAgentProxyConfig(
     throw new Error(`${path}.baseUrl must use HTTPS.`);
   }
   parsedBaseUrl.pathname = parsedBaseUrl.pathname.replace(/\/+$/g, '');
+  parsedBaseUrl.username = '';
+  parsedBaseUrl.password = '';
   parsedBaseUrl.search = '';
   parsedBaseUrl.hash = '';
 

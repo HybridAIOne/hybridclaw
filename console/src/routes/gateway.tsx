@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   fetchAdminAgents,
   reloadGateway,
@@ -40,6 +40,36 @@ function formatAgentLabel(agent: AdminAgent): string {
   return agent.name ? `${agent.name} (${agent.id})` : agent.id;
 }
 
+function getProxyAgentFormSyncKey(agent: AdminAgent): string {
+  return JSON.stringify({
+    id: agent.id,
+    chatbotId: agent.chatbotId,
+    proxy: agent.proxy || null,
+  });
+}
+
+function normalizeProxyBaseUrlInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error('HybridAI base URL is required.');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error('HybridAI base URL must be a valid HTTPS URL.');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('HybridAI base URL must use HTTPS.');
+  }
+  parsed.pathname = parsed.pathname.replace(/\/+$/g, '');
+  parsed.username = '';
+  parsed.password = '';
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString().replace(/\/+$/g, '');
+}
+
 export function GatewayPage() {
   const auth = useAuth();
   const toast = useToast();
@@ -56,6 +86,7 @@ export function GatewayPage() {
   );
   const [proxyConversationScope, setProxyConversationScope] =
     useState<AdminAgentProxyConversationScope>('channel');
+  const lastProxyAgentFormSyncKeyRef = useRef('');
   const status = live.status || auth.gatewayStatus;
   const providerEntries = Object.entries(
     status?.providerHealth || status?.localBackends || {},
@@ -80,28 +111,30 @@ export function GatewayPage() {
   const adminAgents = agentsQuery.data || [];
   const selectedProxyAgent =
     adminAgents.find((agent) => agent.id === selectedProxyAgentId) ||
+    adminAgents.find((agent) => agent.id === status?.defaultAgentId) ||
     adminAgents[0] ||
     null;
 
   useEffect(() => {
     if (adminAgents.length === 0) return;
-    if (adminAgents.some((agent) => agent.id === selectedProxyAgentId)) return;
-    const nextAgentId =
-      adminAgents.find((agent) => agent.id === status?.defaultAgentId)?.id ||
-      adminAgents[0]?.id ||
-      '';
-    setSelectedProxyAgentId(nextAgentId);
-  }, [adminAgents, selectedProxyAgentId, status?.defaultAgentId]);
-
-  useEffect(() => {
-    if (!selectedProxyAgent) return;
-    const proxy = selectedProxyAgent.proxy || null;
+    const nextAgent =
+      adminAgents.find((agent) => agent.id === selectedProxyAgentId) ||
+      adminAgents.find((agent) => agent.id === status?.defaultAgentId) ||
+      adminAgents[0];
+    if (!nextAgent) return;
+    const syncKey = getProxyAgentFormSyncKey(nextAgent);
+    if (nextAgent.id !== selectedProxyAgentId) {
+      setSelectedProxyAgentId(nextAgent.id);
+    }
+    if (lastProxyAgentFormSyncKeyRef.current === syncKey) return;
+    lastProxyAgentFormSyncKeyRef.current = syncKey;
+    const proxy = nextAgent.proxy || null;
     setProxyEnabled(Boolean(proxy));
     setProxyBaseUrl(proxy?.baseUrl || '');
-    setProxyChatbotId(proxy?.chatbotId || selectedProxyAgent.chatbotId || '');
+    setProxyChatbotId(proxy?.chatbotId || nextAgent.chatbotId || '');
     setProxyApiKeySecretId(proxy?.apiKey.id || DEFAULT_PROXY_SECRET_ID);
     setProxyConversationScope(proxy?.conversationScope || 'channel');
-  }, [selectedProxyAgent]);
+  }, [adminAgents, selectedProxyAgentId, status?.defaultAgentId]);
 
   const proxyMutation = useMutation({
     mutationFn: async () => {
@@ -112,7 +145,7 @@ export function GatewayPage() {
       const proxy = proxyEnabled
         ? {
             kind: 'hybridai' as const,
-            baseUrl: proxyBaseUrl.trim(),
+            baseUrl: normalizeProxyBaseUrlInput(proxyBaseUrl),
             chatbotId: proxyChatbotId.trim(),
             apiKey: {
               source: 'store' as const,

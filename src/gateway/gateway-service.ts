@@ -1452,6 +1452,7 @@ function mapGatewayAdminAgentProxyConfig(
   proxy: AgentConfig['proxy'],
 ): GatewayAdminAgent['proxy'] {
   if (!proxy) return null;
+  if (proxy.apiKey.source !== 'store') return null;
   return {
     kind: 'hybridai',
     baseUrl: proxy.baseUrl,

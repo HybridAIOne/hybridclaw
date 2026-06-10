@@ -953,11 +953,12 @@ async function handleGatewayMessageInner(
       req.sessionId = session.id;
     }
   }
-  if (resolvedAgent.proxy) {
+  const proxy = resolvedAgent.proxy;
+  if (proxy) {
     try {
       const result = await forwardGatewayMessageToProxyAgent({
         req,
-        agent: resolvedAgent,
+        agent: { ...resolvedAgent, proxy },
         runId,
         abortSignal: activeGatewayRequest.signal,
       });

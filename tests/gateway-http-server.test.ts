@@ -6031,7 +6031,7 @@ describe('gateway HTTP server', () => {
       body: {
         proxy: {
           kind: 'hybridai',
-          baseUrl: 'https://hybridai.example.com///',
+          baseUrl: 'https://user:pass@hybridai.example.com///?debug=true#token',
           chatbotId: 'support-bot',
           apiKey: '<secret:HYBRIDAI_PROXY_KEY>',
           conversationScope: 'user',

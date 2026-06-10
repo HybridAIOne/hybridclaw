@@ -8,7 +8,11 @@ import type {
   AgentModelConfig,
   AgentsConfig,
 } from './agent-types.js';
-import { agentCvEquals, agentEscalationTargetEquals } from './agent-types.js';
+import {
+  agentCvEquals,
+  agentEscalationTargetEquals,
+  agentProxyConfigEquals,
+} from './agent-types.js';
 
 function sameStringArray(a?: string[], b?: string[]): boolean {
   if (a === b) return true;
@@ -20,22 +24,6 @@ function sameModelConfig(a?: AgentModelConfig, b?: AgentModelConfig): boolean {
   if (a === b) return true;
   if (typeof a === 'string' || typeof b === 'string' || !a || !b) return false;
   return a.primary === b.primary && sameStringArray(a.fallbacks, b.fallbacks);
-}
-
-function sameProxyConfig(
-  a?: AgentConfig['proxy'],
-  b?: AgentConfig['proxy'],
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.kind === b.kind &&
-    a.baseUrl === b.baseUrl &&
-    a.chatbotId === b.chatbotId &&
-    a.apiKey.source === b.apiKey.source &&
-    a.apiKey.id === b.apiKey.id &&
-    a.conversationScope === b.conversationScope
-  );
 }
 
 function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
@@ -57,7 +45,7 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     sameStringArray(a.peers, b.peers) &&
     agentCvEquals(a.cv, b.cv) &&
     agentEscalationTargetEquals(a.escalationTarget, b.escalationTarget) &&
-    sameProxyConfig(a.proxy, b.proxy)
+    agentProxyConfigEquals(a.proxy, b.proxy)
   );
 }
 

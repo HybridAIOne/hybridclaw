@@ -70,7 +70,7 @@ test('agent registry normalizes and persists HybridAI proxy config', async () =>
         id: 'support',
         name: 'Support Proxy',
         proxy: proxyConfig({
-          baseUrl: 'https://app.hybridai.one///',
+          baseUrl: 'https://user:pass@app.hybridai.one///?debug=true#token',
           conversationScope: 'user',
         }),
       },
@@ -82,7 +82,7 @@ test('agent registry normalizes and persists HybridAI proxy config', async () =>
         id: 'support',
         name: 'Support Proxy',
         proxy: proxyConfig({
-          baseUrl: 'https://app.hybridai.one///',
+          baseUrl: 'https://user:pass@app.hybridai.one///?debug=true#token',
           conversationScope: 'user',
         }),
       },

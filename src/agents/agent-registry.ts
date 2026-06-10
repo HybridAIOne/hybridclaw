@@ -280,15 +280,8 @@ function fingerprintWebSearch(webSearch: AgentConfig['webSearch']): string {
 }
 
 function fingerprintProxy(proxy: AgentConfig['proxy']): string {
-  if (!proxy) return '';
-  return [
-    fingerprintString(proxy.kind),
-    fingerprintString(proxy.baseUrl),
-    fingerprintString(proxy.chatbotId),
-    fingerprintString(proxy.apiKey.source),
-    fingerprintString(proxy.apiKey.id),
-    fingerprintString(proxy.conversationScope),
-  ].join(':');
+  const clone = cloneAgentProxyConfig(proxy);
+  return clone ? fingerprintString(JSON.stringify(clone)) : '';
 }
 
 function fingerprintBudget(budget: AgentConfig['budget']): string {

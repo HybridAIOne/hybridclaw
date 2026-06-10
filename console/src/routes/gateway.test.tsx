@@ -189,4 +189,27 @@ describe('GatewayPage', () => {
       });
     });
   });
+
+  it('validates proxy base URL before saving', async () => {
+    fetchAdminAgentsMock.mockResolvedValue([makeAgent()]);
+
+    renderGatewayPage();
+
+    fireEvent.click(await screen.findByRole('switch', { name: 'Proxy mode' }));
+    fireEvent.change(screen.getByLabelText('HybridAI base URL'), {
+      target: { value: 'http://hybridai.example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Chatbot id'), {
+      target: { value: 'upstream-chatbot' },
+    });
+    fireEvent.change(screen.getByLabelText('API key SecretRef id'), {
+      target: { value: 'HYBRIDAI_PROXY_KEY' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Proxy Mode' }));
+
+    expect(
+      await screen.findByText('HybridAI base URL must use HTTPS.'),
+    ).toBeTruthy();
+    expect(updateAdminAgentMock).not.toHaveBeenCalled();
+  });
 });
