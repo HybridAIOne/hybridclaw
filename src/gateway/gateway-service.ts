@@ -430,6 +430,10 @@ import {
   WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
 import {
+  resolveAgentAddressing,
+  setActiveThreadAgentId,
+} from './agent-addressing.js';
+import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
@@ -7748,10 +7752,14 @@ export function getGatewayHistory(
 
 export function getGatewayAgentList(): GatewayAgentListResponse {
   return {
-    agents: listAgents().map((agent) => ({
-      id: agent.id,
-      name: agent.name || null,
-    })),
+    agents: listAgents().map((agent) => {
+      const presentation = getGatewayAssistantPresentationForAgent(agent.id);
+      return {
+        id: agent.id,
+        name: agent.name || null,
+        ...(presentation.imageUrl ? { imageUrl: presentation.imageUrl } : {}),
+      };
+    }),
   };
 }
 
@@ -9235,6 +9243,59 @@ export async function handleGatewayCommand(
 
       case 'agent': {
         const sub = parseLowerArg(req.args, 1);
+        const switchToAgent = (
+          targetAgent: AgentConfig,
+        ): GatewayCommandResult => {
+          updateSessionAgent(session.id, targetAgent.id);
+          setActiveThreadAgentId(session, targetAgent.id);
+          const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
+          void ensureGatewayBootstrapAutostart({
+            sessionId: session.id,
+            channelId: req.channelId,
+            userId: req.userId,
+            username: req.username,
+            agentId: targetAgent.id,
+            allowExistingSessionMessages: true,
+          }).catch((error) => {
+            logger.warn(
+              { sessionId: session.id, agentId: targetAgent.id, error },
+              'Failed to start agent hatching after switch',
+            );
+          });
+          return plainCommand(
+            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`). Hatching will start automatically if \`BOOTSTRAP.md\` is active.`,
+          );
+        };
+
+        if (
+          sub &&
+          ![
+            'info',
+            'current',
+            'list',
+            'switch',
+            'model',
+            'create',
+            'install',
+          ].includes(sub)
+        ) {
+          const rawTarget = req.args.slice(1).join(' ').trim();
+          const handle = rawTarget.replace(/^@+/, '').replace(/\s+/g, '-');
+          const resolution = resolveAgentAddressing({
+            content: `@${handle}`,
+            currentAgentId: resolveSessionAgentId(session),
+            fromAgentId: resolveSessionAgentId(session),
+          });
+          if (resolution.kind === 'agent') {
+            const targetAgent = findAgentConfig(resolution.agentId);
+            if (targetAgent) return switchToAgent(targetAgent);
+          }
+          if (resolution.kind === 'error') {
+            return badCommand('Agent Not Found', resolution.message);
+          }
+          return badCommand('Usage', 'Usage: `agent <name>`');
+        }
+
         if (!sub || sub === 'info' || sub === 'current') {
           const currentAgentId = resolveSessionAgentId(session);
           const agent = resolveAgentConfig(currentAgentId);
@@ -9284,24 +9345,7 @@ export async function handleGatewayCommand(
               `Agent \`${targetAgentId}\` was not found.`,
             );
           }
-          updateSessionAgent(session.id, targetAgent.id);
-          const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
-          void ensureGatewayBootstrapAutostart({
-            sessionId: session.id,
-            channelId: req.channelId,
-            userId: req.userId,
-            username: req.username,
-            agentId: targetAgent.id,
-            allowExistingSessionMessages: true,
-          }).catch((error) => {
-            logger.warn(
-              { sessionId: session.id, agentId: targetAgent.id, error },
-              'Failed to start agent hatching after switch',
-            );
-          });
-          return plainCommand(
-            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`). Hatching will start automatically if \`BOOTSTRAP.md\` is active.`,
-          );
+          return switchToAgent(targetAgent);
         }
 
         if (sub === 'model') {

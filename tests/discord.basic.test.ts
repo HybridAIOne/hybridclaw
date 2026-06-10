@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import { buildResponseText } from '../src/channels/discord/delivery.js';
 import {
+  cleanIncomingContent,
   hasLooseBotMention,
   isAddressedToChannel,
   isAuthorizedCommandUser,
@@ -54,6 +55,12 @@ test('buildResponseText appends tool footer when tools were used', () => {
 test('buildResponseText leaves text unchanged when no tools were used', () => {
   const output = buildResponseText('Done.');
   expect(output).toBe('Done.');
+});
+
+test('cleanIncomingContent maps native agent labels to @slug addressing', () => {
+  expect(cleanIncomingContent('@"Research Agent" review this', null, '!claw')).toBe(
+    '@Research-Agent review this',
+  );
 });
 
 test('isTrigger blocks non-command chatter when channel mode is off', () => {

@@ -104,9 +104,11 @@ export function PopoverAnchor({
 }
 
 export type PopoverAlign = 'start' | 'center' | 'end';
+export type PopoverSide = 'bottom' | 'top';
 
 export interface PopoverContentProps extends HTMLAttributes<HTMLDivElement> {
   align?: PopoverAlign;
+  side?: PopoverSide;
   sideOffset?: number;
   /**
    * How to focus content when the popover opens.
@@ -124,6 +126,7 @@ export interface PopoverContentProps extends HTMLAttributes<HTMLDivElement> {
 
 export function PopoverContent({
   align = 'start',
+  side = 'bottom',
   sideOffset = 4,
   focusOnOpen = 'first-button',
   closeOnEscape = true,
@@ -157,6 +160,7 @@ export function PopoverContent({
   useLayoutEffect(() => {
     const popupEl = localRef.current;
     if (!ctx.open || !ctx.triggerEl || !popupEl) return;
+    let frame = 0;
     const updatePosition = () => {
       if (!ctx.triggerEl || !popupEl) return;
       const triggerRect = ctx.triggerEl.getBoundingClientRect();
@@ -167,23 +171,42 @@ export function PopoverContent({
       if (align === 'end') x = triggerRect.right - contentRect.width;
       else if (align === 'center')
         x = triggerRect.left + (triggerRect.width - contentRect.width) / 2;
-      let y = triggerRect.bottom + sideOffset;
+      let y =
+        side === 'top'
+          ? triggerRect.top - contentRect.height - sideOffset
+          : triggerRect.bottom + sideOffset;
       if (x + contentRect.width > vw - 8) x = vw - contentRect.width - 8;
       if (x < 8) x = 8;
-      if (y + contentRect.height > vh - 8) {
+      if (side === 'bottom' && y + contentRect.height > vh - 8) {
         const flipped = triggerRect.top - contentRect.height - sideOffset;
         if (flipped >= 8) y = flipped;
       }
+      if (side === 'top' && y < 8) y = 8;
       setPosition({ x, y, minWidth: triggerRect.width });
     };
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updatePosition();
+      });
+    };
     updatePosition();
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(scheduleUpdate);
+    observer?.observe(ctx.triggerEl);
+    observer?.observe(popupEl);
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      observer?.disconnect();
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [ctx.open, ctx.triggerEl, align, sideOffset]);
+  }, [ctx.open, ctx.triggerEl, align, side, sideOffset]);
 
   useEffect(() => {
     const popupEl = localRef.current;

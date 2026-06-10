@@ -8,16 +8,19 @@ import {
   ScrollAreaViewport,
 } from '../../components/scroll-area';
 import { cx } from '../../lib/cx';
+import { useAgentAvatarUrl } from './agent-avatar-url';
 import css from './chat-page.module.css';
 
 export type SlashPanelMode = 'closed' | 'list' | 'empty';
 
 export interface SlashSuggestionsPanelProps {
   mode: Exclude<SlashPanelMode, 'closed'>;
+  kind?: 'slash' | 'agent';
   suggestions: ChatCommandSuggestion[];
   activeIdx: number;
   query: string;
   listboxId: string;
+  token?: string;
   onSelect: (item: ChatCommandSuggestion) => void;
   onActiveChange: (i: number) => void;
 }
@@ -28,10 +31,12 @@ export function optionIdFor(listboxId: string, i: number): string {
 
 export function SlashSuggestionsPanel({
   mode,
+  kind = 'slash',
   suggestions,
   activeIdx,
   query,
   listboxId,
+  token,
   onSelect,
   onActiveChange,
 }: SlashSuggestionsPanelProps) {
@@ -42,9 +47,16 @@ export function SlashSuggestionsPanel({
   }, [activeIdx, mode, suggestions.length, listboxId]);
 
   const q = query.trim().toLowerCase();
+  const trigger = kind === 'agent' ? '@' : '/';
+  const listLabel = kind === 'agent' ? 'Agents' : 'Slash commands';
+  const emptyLabel =
+    kind === 'agent'
+      ? `No agents match ${trigger}${query}`
+      : `No commands match ${trigger}${query}`;
 
   return (
     <PopoverContent
+      side="top"
       focusOnOpen="none"
       closeOnEscape={false}
       closeOnOutsideClick
@@ -55,7 +67,7 @@ export function SlashSuggestionsPanel({
         <ScrollAreaViewport
           id={listboxId}
           role="listbox"
-          aria-label="Slash commands"
+          aria-label={listLabel}
           className={css.slashSuggestionsList}
         >
           {mode === 'list' ? (
@@ -65,6 +77,7 @@ export function SlashSuggestionsPanel({
                 id={optionIdFor(listboxId, i)}
                 className={cx(
                   css.suggestionItem,
+                  kind === 'agent' && css.suggestionItemAgent,
                   i === activeIdx && css.suggestionItemActive,
                   (item.depth ?? 1) >= 2 && css.suggestionItemSub,
                 )}
@@ -78,17 +91,24 @@ export function SlashSuggestionsPanel({
                 onMouseEnter={() => onActiveChange(i)}
                 title={item.description || undefined}
               >
-                <span className={css.suggestionLabel}>
-                  {renderLabel(item.label, q)}
-                </span>
-                {item.description ? (
-                  <span className={css.suggestionDesc}>{item.description}</span>
+                {kind === 'agent' ? (
+                  <AgentSuggestionAvatar item={item} token={token} />
                 ) : null}
+                <span className={css.suggestionText}>
+                  <span className={css.suggestionLabel}>
+                    {renderLabel(item.label, q)}
+                  </span>
+                  {item.description ? (
+                    <span className={css.suggestionDesc}>
+                      {item.description}
+                    </span>
+                  ) : null}
+                </span>
               </div>
             ))
           ) : (
             <div className={css.suggestionEmpty} role="status">
-              No commands match /{query}
+              {emptyLabel}
             </div>
           )}
         </ScrollAreaViewport>
@@ -98,6 +118,23 @@ export function SlashSuggestionsPanel({
       </ScrollArea>
     </PopoverContent>
   );
+}
+
+function AgentSuggestionAvatar(props: {
+  item: ChatCommandSuggestion;
+  token?: string;
+}) {
+  const imageUrl = props.item.imageUrl?.trim();
+  const avatar = useAgentAvatarUrl({
+    token: props.token ?? '',
+    imageUrl,
+  });
+
+  return avatar.objectUrl ? (
+    <img className={css.suggestionAvatar} src={avatar.objectUrl} alt="" />
+  ) : imageUrl ? (
+    <span className={css.suggestionAvatarLoading} aria-hidden="true" />
+  ) : null;
 }
 
 const PLACEHOLDER_RE = /<[^>]+>|\[[^\]]+\]/g;
