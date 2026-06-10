@@ -224,7 +224,7 @@ test('handleGatewayMessage reads HybridAI plain text SSE proxy chunks', async ()
       'data: Hello\n\n',
       'data: !\n\n',
       'data:  It works\n\n',
-      'data: [DONE]\n\n',
+      'data: [END]\n\n',
     ]),
   );
   vi.stubGlobal('fetch', fetchMock);

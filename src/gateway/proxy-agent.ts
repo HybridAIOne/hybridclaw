@@ -229,6 +229,8 @@ function extractHybridAIStreamDelta(payload: unknown): string {
 function isHybridAIStreamControlPayload(payloadText: string): boolean {
   return (
     payloadText === '[DONE]' ||
+    payloadText === '[END]' ||
+    payloadText === '[ADMIN][END]' ||
     payloadText.startsWith('[LANGFUSE_META]') ||
     payloadText.startsWith('[SESSION_TOKEN]')
   );
