@@ -220,10 +220,14 @@ function parseHybridAISsePayloads(buffer: string): {
   };
 }
 
-function extractHybridAIStreamDelta(payload: unknown): string {
-  if (!isRecord(payload)) return '';
+function extractHybridAIStreamDelta(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
   const delta = payload.delta;
-  return typeof delta === 'string' ? delta : '';
+  return typeof delta === 'string' ? delta : null;
+}
+
+function unescapeHybridAISseText(text: string): string {
+  return text.replace(/\\n/g, '\n').replace(/\\r/g, '\r');
 }
 
 function isHybridAIStreamControlPayload(payloadText: string): boolean {
@@ -240,8 +244,8 @@ function extractHybridAISseText(payloadText: string): string {
   if (!payloadText || isHybridAIStreamControlPayload(payloadText)) return '';
   const parsed = parseHybridAIStreamPayload(payloadText);
   const delta = extractHybridAIStreamDelta(parsed);
-  if (delta) return delta;
-  return parsed === null ? payloadText : '';
+  if (delta !== null) return delta;
+  return unescapeHybridAISseText(payloadText);
 }
 
 function extractHybridAIJsonText(payload: unknown): string {

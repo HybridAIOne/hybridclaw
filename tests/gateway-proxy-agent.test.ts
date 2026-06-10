@@ -221,9 +221,11 @@ test('handleGatewayMessage reads HybridAI plain text SSE proxy chunks', async ()
     streamResponse([
       'data: [LANGFUSE_META]{"langfuseTraceId":"trace","messageId":"msg"}\n\n',
       'data: [SESSION_TOKEN]session-token\n\n',
-      'data: Hello\n\n',
-      'data: !\n\n',
-      'data:  It works\n\n',
+      'data: Am \n\n',
+      'data: 20\n\n',
+      'data: . Januar \n\n',
+      'data: 2025\n\n',
+      'data: \\n\\nIt works\n\n',
       'data: [END]\n\n',
     ]),
   );
@@ -278,8 +280,8 @@ test('handleGatewayMessage reads HybridAI plain text SSE proxy chunks', async ()
   });
 
   expect(result.status).toBe('success');
-  expect(result.result).toBe('Hello! It works');
-  expect(deltas).toEqual(['Hello', '!', ' It works']);
+  expect(result.result).toBe('Am 20. Januar 2025\n\nIt works');
+  expect(deltas).toEqual(['Am ', '20', '. Januar ', '2025', '\n\nIt works']);
   expect(runAgentMock).not.toHaveBeenCalled();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
