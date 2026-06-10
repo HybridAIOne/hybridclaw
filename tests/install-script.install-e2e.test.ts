@@ -18,9 +18,8 @@ import { describe, expect, test } from 'vitest';
  *      .tar.gz and extracted with `tar -xzf`, so a minimal Debian/Ubuntu box
  *      (no xz-utils) installs cleanly instead of dying in `tar -xJf`.
  *   2. System-Node + root-owned global prefix installs with no sudo: the
- *      EACCES fallback repoints npm at ~/.hybridclaw/npm-global, and the npm
- *      self-upgrade there actually takes effect (the shell's command-hash must
- *      be cleared, or the version check sees the stale system npm and fails).
+ *      EACCES fallback repoints npm at ~/.hybridclaw/npm-global without ever
+ *      escalating or mutating the system prefix.
  *   3. musl libc (Alpine) is refused up front with an actionable hint rather
  *      than downloading an incompatible glibc Node.
  *
@@ -75,7 +74,10 @@ function runInContainer(opts: {
   timeoutMs?: number;
 }): ContainerRun {
   const { image, script, user, shell = 'bash', timeoutMs } = opts;
-  const args = ['run', '--rm'];
+  // --init: without it the shell is PID 1 and ignores the SIGTERM that
+  // spawnSync's timeout sends, so a timed-out install keeps running (and
+  // --rm never fires) — orphaned containers pile up across retries.
+  const args = ['run', '--rm', '--init'];
   if (user) args.push('--user', user);
   args.push(
     '--volume',
@@ -168,11 +170,9 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
         /not writable; using .*npm-global instead \(no sudo\)/,
       );
       expect(output).toContain('PREFIX=/home/node/.hybridclaw/npm-global');
-      // The npm self-upgrade must actually take effect: the old failure printed
-      // "npm is still <old> after the upgrade" because the shell's command-hash
-      // still resolved the stale system npm.
-      expect(output).not.toMatch(/is still .* after the upgrade/);
-      expect(output).toMatch(/npm \d+\.\d+\.\d+ ready/);
+      // The bundled npm is used as-is (no forced upgrade — the published
+      // shrinkwrap pins the tree, so any Node 22 npm installs it correctly).
+      expect(output).toMatch(/npm \d+\.\d+\.\d+ detected/);
       expect(output).toMatch(/hybridclaw --version -> \d+\.\d+\.\d+/);
       expect(status).toBe(0);
     },

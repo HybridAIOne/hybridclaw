@@ -96,6 +96,8 @@ test('prefers npm_execpath when npm exposes it during install', () => {
       'install',
       '--ignore-scripts',
       '--omit=dev',
+      '--no-audit',
+      '--fund=false',
       '--workspaces=false',
     ],
   });
@@ -120,9 +122,25 @@ test('falls back to npm when installed through pnpm', () => {
       'install',
       '--ignore-scripts',
       '--omit=dev',
+      '--no-audit',
+      '--fund=false',
       '--workspaces=false',
     ],
   });
+});
+
+test('falls back to npm when installed through yarn', () => {
+  const packageRoot = makeTempDir();
+  const yarnCliPath = path.join(packageRoot, 'yarn.js');
+  fs.writeFileSync(yarnCliPath, '', 'utf-8');
+
+  expect(
+    resolveNpmCommand('/tmp/hybridclaw-container', {
+      ...process.env,
+      npm_config_user_agent: 'yarn/1.22.22 npm/? node/v22.15.1 linux x64',
+      npm_execpath: yarnCliPath,
+    }),
+  ).toMatchObject({ command: 'npm' });
 });
 
 test('scrubs outer npm lifecycle variables before bootstrapping container deps', () => {

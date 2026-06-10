@@ -42,14 +42,28 @@ expect_contains() { # desc needle haystack
   esac
 }
 
-echo "== version_ge =="
-for case in "11.10.0 11.10.0 0" "11.10.1 11.10.0 0" "12.0.0 11.10.0 0" \
-            "10.9.0 11.10.0 1" "11.9.9 11.10.0 1" "22.22.3 22.20.0 0"; do
-  # shellcheck disable=SC2086 # intentional split of the space-separated triple
-  set -- $case
-  version_ge "$1" "$2"
-  expect_rc "version_ge $1 >= $2" "$3" "$?"
-done
+echo "== package.json consistency =="
+engines_node="$(tr -d ' \t\n' < "$HERE/../package.json" | sed -n 's/.*"engines":{"node":"\([^"]*\)".*/\1/p')"
+expect_eq "REQUIRED_NODE_MAJOR matches engines.node" "${engines_node%%.*}" "$REQUIRED_NODE_MAJOR"
+
+echo "== resolve_node_version =="
+v="$( ( curl() { return 1; }; resolve_node_version; echo "$NODE_VERSION" ) )"
+expect_eq "offline -> pinned fallback" "$NODE_VERSION_FALLBACK" "$v"
+v="$( ( curl() { printf 'abc1  node-v22.31.4-linux-x64.tar.gz\nabc2  node-v22.31.4-darwin-arm64.tar.gz\n'; }
+        resolve_node_version; echo "$NODE_VERSION" ) )"
+expect_eq "parses latest from SHASUMS256.txt" "22.31.4" "$v"
+v="$( ( curl() { printf 'abc1  node-v22.31.4-linux-x64.tar.gz\n'; }
+        HYBRIDCLAW_NODE_VERSION=22.11.0 resolve_node_version; echo "$NODE_VERSION" ) )"
+expect_eq "explicit HYBRIDCLAW_NODE_VERSION pin wins" "22.11.0" "$v"
+
+echo "== install_managed_node (dry-run) =="
+# Pins the .tar.gz download contract: a regression back to .tar.xz would break
+# minimal Debian/Ubuntu images without xz (previously caught only by the
+# Docker e2e suite).
+out="$( ( curl() { return 1; }
+        DRY_RUN=1; PLATFORM_OS=linux; PLATFORM_ARCH=x64; PLATFORM_LIBC=glibc
+        install_managed_node ) 2>&1 )"
+expect_contains "managed-node URL uses .tar.gz" "node-v${NODE_VERSION_FALLBACK}-linux-x64.tar.gz" "$out"
 
 echo "== sha256_of =="
 tmp="$(mktemp)"; printf 'hybridclaw' >"$tmp"
@@ -63,7 +77,7 @@ echo "== detect_platform =="
 plat() { # stubs uname, runs detect_platform in a subshell, echoes result
   local s="$1" m="$2"
   ( uname() { case "$1" in -s) echo "$s" ;; -m) echo "$m" ;; esac; }
-    detect_platform
+    detect_platform 2>/dev/null # silence the armv7l limited-support warning
     echo "$PLATFORM_OS $PLATFORM_ARCH $PLATFORM_LIBC" )
 }
 expect_eq "linux/x86_64 -> x64 glibc"  "linux x64 glibc"    "$(plat Linux x86_64)"
@@ -94,7 +108,7 @@ expect_contains "windows -> WSL2 hint" "WSL2" "$out"
 echo "== verify_node_checksum =="
 tmp="$(mktemp)"; printf 'pretend-node-tarball' >"$tmp"
 good="$(sha256_of "$tmp")"
-fn="node-vTEST-linux-x64.tar.xz"
+fn="node-vTEST-linux-x64.tar.gz"
 
 # Matching checksum -> succeeds quietly.
 ( curl() { printf '%s  %s\n' "$good" "$fn"; }

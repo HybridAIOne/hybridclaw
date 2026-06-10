@@ -103,7 +103,7 @@ export function formatWarmRunnerTerminalError(
     return [
       `${runtimeLabel} exited before producing output (${status}).`,
       `Missing runtime dependency: ${missingPackageMatch[1]}.`,
-      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
+      'Run `node "$(npm root -g)/@hybridaione/hybridclaw/scripts/postinstall-container.mjs"` to repair the install, or `npm run setup` from a source checkout.',
     ].join('\n');
   }
 

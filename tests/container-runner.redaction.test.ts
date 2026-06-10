@@ -1127,7 +1127,7 @@ test('ContainerExecutor surfaces missing packaged runtime dependencies as immedi
   expect(output.error).toContain(
     'Missing runtime dependency: @modelcontextprotocol/sdk.',
   );
-  expect(output.error).toContain('Reinstall HybridClaw.');
+  expect(output.error).toContain('postinstall-container.mjs');
 });
 
 test('ContainerExecutor forwards maxWallClockMs to the IPC output reader', async () => {

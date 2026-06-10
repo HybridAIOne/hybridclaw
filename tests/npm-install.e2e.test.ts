@@ -85,7 +85,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     fs.mkdirSync(npmPrefix(), { recursive: true });
     fs.mkdirSync(dataDir(), { recursive: true });
 
-    const packOutput = execSync(`npm pack --pack-destination ${tempDir}`, {
+    const packOutput = execSync(`npm pack --pack-destination "${tempDir}"`, {
       encoding: 'utf-8',
       timeout: 120_000,
     }).trim();
@@ -141,6 +141,9 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     gatewayProcess.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
+    // Drain stdout too: an unread pipe blocks the gateway once its ~64KB
+    // buffer fills, deadlocking the suite on chatty startups.
+    gatewayProcess.stdout?.resume();
     gatewayProcess.on('exit', (code) => {
       if (code !== 0 && code !== null) {
         console.error('--- npm-installed gateway stderr ---\n', stderr);

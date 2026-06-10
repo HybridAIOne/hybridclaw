@@ -6,15 +6,15 @@
 #   curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash
 #
 # Or with options (note the extra `-s --` to pass flags through the pipe):
-#   curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash -s -- --version 0.21.0 --no-onboarding
+#   curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash -s -- --version 0.22.0 --no-onboarding
 #
 # What it does:
 #   1. Detects your OS/arch (Linux + macOS; Windows users are pointed at WSL2).
-#   2. Ensures Node.js 22 and npm >= 11.10.0 are available, installing a
+#   2. Ensures Node.js 22 (with its bundled npm) is available, installing a
 #      user-local Node 22 into ~/.hybridclaw/node when no compatible one exists.
 #      Downloaded Node tarballs are verified against nodejs.org's published
-#      SHA-256 checksum. Alpine/musl needs a system Node (apk add nodejs npm)
-#      plus --skip-node, since nodejs.org ships glibc builds only.
+#      SHA-256 checksum. Alpine/musl needs a system Node 22 (apk add nodejs npm,
+#      Alpine 3.21+) plus --skip-node, since nodejs.org ships glibc builds only.
 #   3. Installs the `hybridclaw` CLI globally from npm.
 #   4. Checks for Docker (recommended for the default container sandbox).
 #   5. Runs `hybridclaw onboarding` when attached to a terminal.
@@ -39,6 +39,13 @@ fi
 
 set -euo pipefail
 
+# Everything below installs into $HOME-derived paths; fail with a clear
+# message instead of an opaque `set -u` abort when HOME is missing.
+if [ -z "${HOME:-}" ]; then
+  printf 'error: HOME is not set; the installer needs a home directory to install into.\n' >&2
+  exit 1
+fi
+
 # --- Configuration (override via environment) --------------------------------
 
 HYBRIDCLAW_HOME="${HYBRIDCLAW_HOME:-$HOME/.hybridclaw}"
@@ -47,19 +54,26 @@ NPM_USER_PREFIX="$HYBRIDCLAW_HOME/npm-global"
 PKG_NAME="@hybridaione/hybridclaw"
 INSTALL_VERSION="${HYBRIDCLAW_INSTALL_VERSION:-latest}"
 REQUIRED_NODE_MAJOR=22
-REQUIRED_NPM="11.10.0"
-# Fallback used only when nodejs.org is unreachable for version discovery.
-NODE_VERSION_FALLBACK="${HYBRIDCLAW_NODE_VERSION:-22.20.0}"
+# Used when nodejs.org is unreachable for latest-version discovery and no
+# explicit HYBRIDCLAW_NODE_VERSION pin is set.
+NODE_VERSION_FALLBACK="22.22.3"
+# Set by ensure_writable_npm_prefix so later steps skip re-asking npm.
+NPM_PREFIX=""
 
 # --- Flags (env vars provide defaults; CLI flags override below) -------------
+
+# Truthy for env-derived flags: 1/true/yes/on (any case). Avoids the arithmetic
+# `-eq` test, which errors (and is then treated as false) on values like "true".
+is_truthy() { case "${1:-}" in [Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]|1) return 0 ;; *) return 1 ;; esac; }
 
 RUN_ONBOARDING=1
 CHECK_DOCKER=1
 MANAGE_NODE=1
 DRY_RUN="${HYBRIDCLAW_DRY_RUN:-0}"
 VERIFY="${HYBRIDCLAW_VERIFY_INSTALL:-0}"
-# Headless when HYBRIDCLAW_NO_PROMPT, the conventional NO_PROMPT, or CI is set.
-if [ -n "${HYBRIDCLAW_NO_PROMPT:-}" ] || [ -n "${NO_PROMPT:-}" ] || [ -n "${CI:-}" ]; then
+# Headless when HYBRIDCLAW_NO_PROMPT, the conventional NO_PROMPT, or CI is
+# truthy. Value-aware on purpose: CI=false or NO_PROMPT=0 must not go headless.
+if is_truthy "${HYBRIDCLAW_NO_PROMPT:-}" || is_truthy "${NO_PROMPT:-}" || is_truthy "${CI:-}"; then
   NO_PROMPT=1
 else
   NO_PROMPT=0
@@ -80,9 +94,6 @@ warn()  { printf '%s warn:%s %s\n' "$C_WARN" "$C_RESET" "$*" >&2; }
 err()   { printf '%serror:%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2; }
 die()   { err "$@"; exit 1; }
 
-# Truthy for env-derived flags: 1/true/yes/on (any case). Avoids the arithmetic
-# `-eq` test, which errors (and is then treated as false) on values like "true".
-is_truthy() { case "${1:-}" in [Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]|1) return 0 ;; *) return 1 ;; esac; }
 is_dry() { is_truthy "$DRY_RUN"; }
 have()   { command -v "$1" >/dev/null 2>&1; }
 
@@ -103,7 +114,8 @@ Options:
 Environment:
   HYBRIDCLAW_HOME             Install root for managed Node (default: ~/.hybridclaw)
   HYBRIDCLAW_INSTALL_VERSION  Version to install (default: latest)
-  HYBRIDCLAW_NODE_VERSION     Node version to fetch if one must be installed
+  HYBRIDCLAW_NODE_VERSION     Exact Node version to install when Node must be
+                              downloaded (default: newest 22.x)
   HYBRIDCLAW_NO_PROMPT=1      Same as --no-prompt (also honors NO_PROMPT / CI)
   HYBRIDCLAW_DRY_RUN=1        Same as --dry-run
   HYBRIDCLAW_VERIFY_INSTALL=1 Same as --verify
@@ -146,7 +158,10 @@ detect_platform() {
   case "$arch" in
     x86_64|amd64) PLATFORM_ARCH="x64" ;;
     arm64|aarch64) PLATFORM_ARCH="arm64" ;;
-    armv7l) PLATFORM_ARCH="armv7l" ;;
+    armv7l)
+      PLATFORM_ARCH="armv7l"
+      warn "32-bit ARM has limited support: browser automation and local transformers embeddings are unavailable."
+      ;;
     *) die "unsupported architecture: $arch" ;;
   esac
 
@@ -168,23 +183,26 @@ detect_platform() {
 # in one place. Callers append --max-time/--retry/-o and the URL.
 fetch() { curl -fsSL --proto '=https' --tlsv1.2 "$@"; }
 
-version_ge() {
-  # version_ge A B  -> true when A >= B (dotted numeric compare)
-  [ "$1" = "$2" ] && return 0
-  local lower
-  lower="$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)"
-  [ "$lower" = "$2" ]
-}
-
+# Sets NODE_VERSION (and caches the release's SHASUMS256.txt body in
+# NODE_SHASUMS when the latest-version lookup succeeded, so the checksum step
+# needs no second fetch). An explicit HYBRIDCLAW_NODE_VERSION pin always wins.
 resolve_node_version() {
-  local v major="$REQUIRED_NODE_MAJOR"
-  v="$(fetch --max-time 15 https://nodejs.org/dist/index.json 2>/dev/null \
-        | grep -o "\"version\":\"v${major}[^\"]*\"" | head -1 \
-        | sed "s/.*\"v\(${major}[^\"]*\)\".*/\1/")" || true
-  if [ -n "$v" ]; then
-    printf '%s' "$v"
-  else
-    printf '%s' "$NODE_VERSION_FALLBACK"
+  NODE_SHASUMS=""
+  if [ -n "${HYBRIDCLAW_NODE_VERSION:-}" ]; then
+    NODE_VERSION="$HYBRIDCLAW_NODE_VERSION"
+    return 0
+  fi
+  # One small fetch yields both the newest 22.x version (from the filenames)
+  # and its checksums; the full dist/index.json is ~85x larger.
+  NODE_SHASUMS="$(fetch --max-time 15 \
+      "https://nodejs.org/dist/latest-v${REQUIRED_NODE_MAJOR}.x/SHASUMS256.txt" 2>/dev/null)" \
+    || NODE_SHASUMS=""
+  NODE_VERSION="$(printf '%s\n' "$NODE_SHASUMS" \
+    | sed -n "s/.*node-v\(${REQUIRED_NODE_MAJOR}[0-9.]*\)-linux-x64\.tar\.gz\$/\1/p" \
+    | head -1)" || NODE_VERSION=""
+  if [ -z "$NODE_VERSION" ]; then
+    NODE_SHASUMS=""
+    NODE_VERSION="$NODE_VERSION_FALLBACK"
   fi
 }
 
@@ -200,10 +218,14 @@ sha256_of() {
 
 # Verify a downloaded Node tarball against nodejs.org's per-release SHASUMS256.
 verify_node_checksum() {
-  local file="$1" version="$2" filename="$3" expected actual
+  local file="$1" version="$2" filename="$3" expected="" actual
+  # Reuse the SHASUMS body resolve_node_version already fetched when available.
+  if [ -n "${NODE_SHASUMS:-}" ]; then
+    expected="$(printf '%s\n' "$NODE_SHASUMS" | awk -v f="$filename" '$2 == f {print $1}')" || true
+  fi
   # `|| true`: under `set -o pipefail` a failed fetch (offline/404/proxy) would
   # otherwise abort the whole installer here instead of the graceful skip below.
-  expected="$(fetch --max-time 30 \
+  [ -n "$expected" ] || expected="$(fetch --max-time 30 \
       "https://nodejs.org/dist/v${version}/SHASUMS256.txt" 2>/dev/null \
       | awk -v f="$filename" '$2 == f {print $1}')" || true
   if [ -z "$expected" ]; then
@@ -228,11 +250,12 @@ install_managed_node() {
   if [ "${PLATFORM_LIBC:-glibc}" = "musl" ]; then
     die "Detected musl libc (e.g. Alpine). nodejs.org publishes glibc builds only.
 Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --skip-node:
-    apk add --no-cache nodejs npm
+    apk add --no-cache nodejs npm   # needs Alpine 3.21+ (older releases ship Node 20)
     curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash -s -- --skip-node"
   fi
 
-  version="$(resolve_node_version)"
+  resolve_node_version
+  version="$NODE_VERSION"
   dir="$HYBRIDCLAW_HOME/node"
   # Use the gzip tarball, not .tar.xz: `tar -xzf` only needs gzip (universally
   # present), whereas `tar -xJf` shells out to an `xz` binary that minimal
@@ -259,14 +282,22 @@ Install Node ${REQUIRED_NODE_MAJOR} with your package manager and re-run with --
   fetch --retry 3 --retry-delay 2 -o "$tarball" "$url" \
     || die "failed to download Node.js from $url"
   verify_node_checksum "$tarball" "$version" "$filename"
-  tar -xzf "$tarball" -C "$dir" --strip-components=1
+  # --no-same-owner: when run as root, GNU tar would otherwise preserve the
+  # tarball's build-user ownership (uid 1000), leaving the install tree
+  # writable by an unrelated local user.
+  tar -xzf "$tarball" -C "$dir" --strip-components=1 --no-same-owner
   rm -f "$tarball"
   trap - EXIT
 
   NODE_BIN_DIR="$dir/bin"
-  export PATH="$NODE_BIN_DIR:$PATH"
-  persist_path "$NODE_BIN_DIR"
-  ok "Node.js $("$NODE_BIN_DIR/node" --version) ready"
+  # Smoke-test before declaring success: a command substitution that fails
+  # inside an `ok` argument would not trip `set -e`, silently printing a green
+  # checkmark for a binary that cannot run (e.g. glibc older than Node needs).
+  local node_v
+  node_v="$("$NODE_BIN_DIR/node" --version 2>/dev/null)" \
+    || die "the downloaded Node.js binary does not run on this system (Node ${REQUIRED_NODE_MAJOR} needs glibc 2.28+; check 'ldd --version')."
+  add_to_path "$NODE_BIN_DIR"
+  ok "Node.js ${node_v} ready"
 }
 
 ensure_node() {
@@ -288,7 +319,8 @@ ensure_node() {
     die "Node.js not found on PATH and --skip-node was set."
   fi
 
-  if have fnm || have nvm; then
+  # nvm is a shell function, never on PATH; probe its env/install dir instead.
+  if have fnm || [ -n "${NVM_DIR:-}" ] || [ -s "$HOME/.nvm/nvm.sh" ]; then
     warn "A Node version manager (fnm/nvm) is installed. You may prefer:"
     warn "    fnm install 22 && fnm use 22    # or: nvm install 22 && nvm use 22"
     warn "Continuing with a HybridClaw-managed Node 22 in ${HYBRIDCLAW_HOME}/node."
@@ -313,54 +345,47 @@ ensure_writable_npm_prefix() {
   local prefix
   prefix="$(npm prefix -g 2>/dev/null)" || return 0
   if dir_writable "$prefix/lib/node_modules" && dir_writable "$prefix/bin"; then
+    NPM_PREFIX="$prefix"
     return 0
   fi
   warn "npm global prefix ${prefix} is not writable; using ${NPM_USER_PREFIX} instead (no sudo)."
+  warn "This persists 'prefix=${NPM_USER_PREFIX}' in ~/.npmrc so future global installs and 'hybridclaw update' keep working; undo with 'npm config delete prefix'."
+  warn "Note: nvm refuses to run while a prefix is set in ~/.npmrc."
   mkdir -p "$NPM_USER_PREFIX/bin"
   npm config set prefix "$NPM_USER_PREFIX" >/dev/null 2>&1 \
     || die "could not point npm at a user-writable prefix (${NPM_USER_PREFIX})."
-  export PATH="$NPM_USER_PREFIX/bin:$PATH"
-  persist_path "$NPM_USER_PREFIX/bin"
+  NPM_PREFIX="$NPM_USER_PREFIX"
+  add_to_path "$NPM_USER_PREFIX/bin"
 }
 
+# The npm version itself is deliberately not gated here: the published package
+# ships a fully pinned npm-shrinkwrap.json, so any npm bundled with Node 22
+# installs it correctly (the npm 11.10+ requirement is a dev/build concern;
+# see SECURITY.md). Mutating the user's global npm would be all downside.
 ensure_npm() {
   local npm_version
   if is_dry; then
-    info "[dry-run] would ensure a user-writable npm prefix, then npm >= ${REQUIRED_NPM} (upgrading via 'npm install -g npm@^11' if needed)"
+    info "[dry-run] would check npm is available and the global prefix is user-writable"
     return 0
   fi
   have npm || die "npm not found alongside Node.js; reinstall Node 22."
-  # Make the prefix writable before any global install (the npm upgrade below
-  # and the later CLI install both write there).
+  # Make the prefix writable before the global CLI install writes there.
   ensure_writable_npm_prefix
   npm_version="$(npm --version 2>/dev/null)" \
     || die "'npm --version' failed; your npm install looks broken — reinstall Node ${REQUIRED_NODE_MAJOR}."
-  if version_ge "$npm_version" "$REQUIRED_NPM"; then
-    ok "npm ${npm_version} detected"
-    return
-  fi
-  info "Upgrading npm ${npm_version} -> >=${REQUIRED_NPM}"
-  npm install -g "npm@^11" >/dev/null 2>&1 \
-    || die "could not upgrade npm to >= ${REQUIRED_NPM} (have ${npm_version}). Upgrade it manually ('npm install -g npm@^11') and re-run."
-  # Forget the cached path to the old npm: when the prefix fallback installed
-  # the new npm into a different bin dir (e.g. ~/.hybridclaw/npm-global/bin), the
-  # shell's command hash still resolves `npm` to the old system binary, so the
-  # version check below would see the pre-upgrade version and wrongly fail.
-  hash -r
-  npm_version="$(npm --version)"
-  version_ge "$npm_version" "$REQUIRED_NPM" \
-    || die "npm is still ${npm_version} after the upgrade; HybridClaw requires >= ${REQUIRED_NPM}."
-  ok "npm ${npm_version} ready"
+  ok "npm ${npm_version} detected"
 }
 
 # --- PATH persistence --------------------------------------------------------
 
-persist_path() {
+# Prepend a directory to this process's PATH and persist it in shell rc files.
+add_to_path() {
   local dir="$1"
   if is_dry; then
     info "[dry-run] would add ${dir} to PATH in your shell rc files"
     return 0
   fi
+  export PATH="$dir:$PATH"
   # Append an idempotent PATH export to the user's shell rc files.
   local marker="# added by HybridClaw installer"
   local line="export PATH=\"$dir:\$PATH\" $marker"
@@ -373,11 +398,15 @@ persist_path() {
   case "${SHELL:-}" in
     *zsh)  login_rc="${ZDOTDIR:-$HOME}/.zshrc" ;;
     *bash) login_rc="$HOME/.bashrc" ;;
+    *fish) login_rc="" ;; # fish reads none of the POSIX rc files; handled below
     *)     login_rc="$HOME/.profile" ;;
   esac
 
   local rc
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile" "$login_rc"; do
+  # ~/.bash_profile is included because a bash login shell that has one never
+  # reads ~/.profile (and usually not ~/.bashrc) — the macOS bash default.
+  for rc in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.profile" "$login_rc"; do
+    [ -n "$rc" ] || continue
     # Touch existing rc files; the login shell's rc is created even if absent.
     [ -e "$rc" ] || [ "$rc" = "$login_rc" ] || continue
     # Match the exact line so re-runs (and revisiting login_rc) don't duplicate.
@@ -387,11 +416,23 @@ persist_path() {
     printf '\n%s\n' "$line" >> "$rc" \
       || warn "could not update ${rc}; add '${dir}' to your PATH manually."
   done
+
+  case "${SHELL:-}" in
+    *fish)
+      local fish_conf="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
+      local fish_line="fish_add_path --prepend \"$dir\" $marker"
+      if ! grep -qsF "$fish_line" "$fish_conf" 2>/dev/null; then
+        { mkdir -p "${fish_conf%/*}" && printf '\n%s\n' "$fish_line" >> "$fish_conf"; } 2>/dev/null \
+          || warn "could not update ${fish_conf}; add '${dir}' to your PATH manually."
+      fi
+      ;;
+  esac
 }
 
 npm_global_bin() {
   local prefix
-  prefix="$(npm prefix -g 2>/dev/null)" || return 1
+  prefix="${NPM_PREFIX:-}"
+  [ -n "$prefix" ] || prefix="$(npm prefix -g 2>/dev/null)" || return 1
   printf '%s/bin' "$prefix"
 }
 
@@ -454,27 +495,41 @@ install_cli() {
   [ "$INSTALL_VERSION" != "latest" ] && spec="${PKG_NAME}@${INSTALL_VERSION}"
   info "Installing ${spec} globally via npm"
   if is_dry; then
-    info "[dry-run] would run: npm install -g ${spec}"
+    info "[dry-run] would run: npm install -g --no-audit --no-fund ${spec}"
     return 0
   fi
-  if ! npm install -g "$spec"; then
-    err "Global npm install failed. Two common causes:"
+  if ! npm install -g --no-audit --no-fund "$spec"; then
+    err "Global npm install failed. Common causes:"
     err "  1) Missing build tools for native modules (node-gyp needs python3,"
     err "     make, and a C/C++ compiler). Install them, e.g.:"
     build_tool_hint err
     err "  2) A non-writable npm global prefix that the automatic fallback to"
     err "     ${NPM_USER_PREFIX} did not catch. Check 'npm config get prefix'"
     err "     and ensure that directory is writable (no sudo needed)."
+    err "  3) A transient network/registry failure (the package bootstraps its"
+    err "     container dependencies during install); re-running often fixes it."
     err "Then re-run this installer. (HybridClaw never needs sudo.)"
     exit 1
   fi
 
-  local bin_dir
+  local bin_dir resolved
   bin_dir="$(npm_global_bin || true)"
-  if [ -n "$bin_dir" ] && ! have hybridclaw; then
-    export PATH="$bin_dir:$PATH"
-    persist_path "$bin_dir"
-    warn "Added npm global bin (${bin_dir}) to your PATH. Open a new shell if needed."
+  if [ -n "$bin_dir" ]; then
+    resolved="$(command -v hybridclaw 2>/dev/null || true)"
+    case "$resolved" in
+      "$bin_dir"/*) ;; # PATH already resolves to the fresh install
+      *)
+        add_to_path "$bin_dir"
+        hash -r
+        if [ -n "$resolved" ]; then
+          # Without this, onboarding/--verify below would silently exercise the
+          # stale binary and report its old version as the install result.
+          warn "Another hybridclaw at ${resolved} was shadowing this install; ${bin_dir} now takes precedence on PATH."
+        else
+          warn "Added npm global bin (${bin_dir}) to your PATH. Open a new shell if needed."
+        fi
+        ;;
+    esac
   fi
 }
 
@@ -500,8 +555,10 @@ maybe_onboard() {
   fi
 
   # When piped through `curl | bash`, stdin is the script, so read the wizard
-  # from the controlling terminal if one is available.
-  if [ ! -t 0 ] && [ ! -r /dev/tty ]; then
+  # from the controlling terminal if one is available. Probe by actually
+  # opening /dev/tty: `-r` only checks permission bits and passes even with no
+  # controlling terminal, where the redirect below would fail with ENXIO.
+  if [ ! -t 0 ] && ! { : </dev/tty; } 2>/dev/null; then
     info "Non-interactive shell: run 'hybridclaw onboarding' when ready."
     return
   fi
@@ -509,8 +566,13 @@ maybe_onboard() {
   info "Starting onboarding (Ctrl-C to skip and run it later)"
   local onboard_in=/dev/stdin
   [ -t 0 ] || onboard_in=/dev/tty
+  # `trap : INT`: when the wizard dies of Ctrl-C, bash would otherwise kill the
+  # whole installer, skipping the || fallback and every remaining step. The
+  # no-op trap keeps this shell alive while the child still gets the SIGINT.
+  trap : INT
   hybridclaw onboarding <"$onboard_in" \
     || warn "onboarding did not complete; run 'hybridclaw onboarding' later"
+  trap - INT
 }
 
 run_verify() {

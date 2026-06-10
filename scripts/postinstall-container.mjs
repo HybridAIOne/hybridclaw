@@ -1,10 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const require = createRequire(import.meta.url);
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(scriptPath);
 
@@ -39,12 +37,19 @@ export function findMissingContainerDependencies(containerDir) {
   const dependencies = readContainerDependencyNames(containerDir);
   const missing = [];
 
+  // Check container/node_modules directly. require.resolve is wrong in both
+  // directions here: it walks up to the outer package's node_modules (a dep
+  // missing from the container tree counts as "present"), and it throws
+  // ERR_PACKAGE_PATH_NOT_EXPORTED for deps whose exports map hides
+  // package.json (an installed dompurify counts as "missing").
   for (const dependency of dependencies) {
-    try {
-      require.resolve(`${dependency}/package.json`, {
-        paths: [containerDir],
-      });
-    } catch {
+    const packageJsonPath = path.join(
+      containerDir,
+      'node_modules',
+      ...dependency.split('/'),
+      'package.json',
+    );
+    if (!fs.existsSync(packageJsonPath)) {
       missing.push(dependency);
     }
   }
@@ -96,19 +101,26 @@ export function resolveNpmCommand(containerDir, env = process.env) {
   const npmExecPath = String(env.npm_execpath || '').trim();
   const npmUserAgent = String(env.npm_config_user_agent || '').toLowerCase();
   const npmExecName = path.basename(npmExecPath).toLowerCase();
-  const invokedByPnpm =
-    npmUserAgent.startsWith('pnpm/') || npmExecName.includes('pnpm');
+  // Reuse npm_execpath only when it is actually npm: pnpm, yarn, and bun set
+  // it too, and running their CLIs with npm-only flags fails the install.
+  const invokedByNpm =
+    npmUserAgent.startsWith('npm/') ||
+    npmExecName === 'npm' ||
+    npmExecName === 'npm.cmd' ||
+    npmExecName.startsWith('npm-cli');
   const installArgs = [
     '--prefix',
     containerDir,
     'install',
     '--ignore-scripts',
     '--omit=dev',
+    '--no-audit',
+    '--fund=false',
     '--workspaces=false',
   ];
 
   if (
-    !invokedByPnpm &&
+    invokedByNpm &&
     npmExecPath &&
     path.isAbsolute(npmExecPath) &&
     fs.existsSync(npmExecPath)
