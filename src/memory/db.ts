@@ -221,6 +221,7 @@ type AgentRow = {
 };
 
 interface ConversationHistoryPageRow {
+  session_agent_id: string | null;
   session_key: string | null;
   main_session_key: string | null;
   id: number | null;
@@ -254,6 +255,9 @@ export interface ResponseRatingTarget {
   role: string;
   model: string | null;
   provider: string | null;
+  chatbot_id: string | null;
+  user_content: string | null;
+  assistant_content: string;
   skill_observation_id: number | null;
   skill_run_id: string | null;
   skill_name: string | null;
@@ -7456,6 +7460,9 @@ export function getResponseRatingTarget(params: {
       agent_id: string | null;
       role: string;
       model: string | null;
+      chatbot_id: string | null;
+      user_content: string | null;
+      assistant_content: string;
       skill_observation_id: number | null;
       skill_run_id: string | null;
       skill_name: string | null;
@@ -7469,8 +7476,19 @@ export function getResponseRatingTarget(params: {
          m.id AS message_id,
          m.agent_id,
          m.role,
+         COALESCE(m.content, '') AS assistant_content,
          m.created_at,
+         s.chatbot_id,
          s.model,
+         (
+           SELECT previous_user_message.content
+           FROM messages previous_user_message
+           WHERE previous_user_message.session_id = m.session_id
+             AND previous_user_message.id < m.id
+             AND previous_user_message.role = 'user'
+           ORDER BY previous_user_message.id DESC
+           LIMIT 1
+         ) AS user_content,
          (
            SELECT julianday(MAX(previous_user_message.created_at))
            FROM messages previous_user_message
@@ -7506,6 +7524,9 @@ export function getResponseRatingTarget(params: {
        target_message.agent_id,
        target_message.role,
        target_message.model,
+       target_message.chatbot_id,
+       target_message.user_content,
+       target_message.assistant_content,
        attributed_skill.id AS skill_observation_id,
        attributed_skill.run_id AS skill_run_id,
        attributed_skill.skill_name
@@ -7744,6 +7765,7 @@ export function getConversationHistoryPage(
   const rows = db
     .prepare(
       `SELECT
+         s.agent_id AS session_agent_id,
          s.session_key,
          s.main_session_key,
          m.id,
@@ -7775,6 +7797,7 @@ export function getConversationHistoryPage(
   if (rows.length === 0) {
     return {
       sessionId: resolvedSessionId,
+      agentId: null,
       sessionKey: null,
       mainSessionKey: null,
       history: [],
@@ -7809,6 +7832,7 @@ export function getConversationHistoryPage(
 
   return {
     sessionId: resolvedSessionId,
+    agentId: rows[0]?.session_agent_id || null,
     sessionKey: rows[0]?.session_key || null,
     mainSessionKey: rows[0]?.main_session_key || null,
     history,

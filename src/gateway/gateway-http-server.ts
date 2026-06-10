@@ -11,6 +11,7 @@ import {
   handleA2AJsonRpcInbound,
   resolveA2AAgentCardPeerTrust,
 } from '../a2a/a2a-inbound.js';
+import { handleA2APairingRequestInbound } from '../a2a/pairing.js';
 import {
   handleA2AWebhookInbound,
   parseA2AWebhookInboundPath,
@@ -136,6 +137,7 @@ import {
   getSessionAuthPayload,
   hasLocalWebSessionAuth,
   hasSessionAuth,
+  safeEqualToken,
   setLocalWebSessionCookie,
   setSessionCookie,
   verifyLaunchToken,
@@ -159,6 +161,11 @@ import {
   unsetGatewayAdminSecret,
 } from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import {
+  deleteGatewayAdminFleetTopologyInstance,
+  getGatewayAdminFleetTopology,
+  upsertGatewayAdminFleetTopologyInstance,
+} from './gateway-fleet-topology.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
   parsePositiveInteger,
@@ -182,8 +189,10 @@ import {
 import { handleApiSecretInject } from './gateway-secret-injection.js';
 import {
   applyGatewayAdminPolicyPreset,
+  approveGatewayAdminA2APairingRequest,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
+  declineGatewayAdminA2APairingRequest,
   deleteGatewayAdminA2ATrustPeer,
   deleteGatewayAdminAgent,
   deleteGatewayAdminEmailMessage,
@@ -223,6 +232,7 @@ import {
   getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
+  previewGatewayAdminA2APairing,
   reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
@@ -238,6 +248,7 @@ import {
   saveGatewayAdminPolicyRule,
   saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
+  startGatewayAdminA2APairing,
   unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
@@ -246,13 +257,17 @@ import {
   upsertGatewayAdminMcpServer,
 } from './gateway-service.js';
 import type {
+  GatewayAdminA2APairingDecisionRequest,
+  GatewayAdminA2APairingStartRequest,
   GatewayAdminA2ATrustUpsertRequest,
   GatewayAdminDiscordWebhookTargetRequest,
+  GatewayAdminFleetTopologyUpsertRequest,
   GatewayAdminSlackWebhookTargetRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
   GatewayChatRequestBody,
   GatewayChatResult,
+  GatewayChatResultMessageRole,
   GatewayCommandRequest,
 } from './gateway-types.js';
 import {
@@ -313,7 +328,9 @@ const HARNESS_EVOLUTION_ALLOWED_ROOTS = [
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean),
-].map((entry) => resolveHarnessEvolutionAccessPath(entry));
+].map((entry) => path.resolve(entry));
+let resolvedHarnessEvolutionAllowedRootsPromise: Promise<string[]> | null =
+  null;
 const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
@@ -1732,6 +1749,7 @@ async function resolveApiChatSlashCommandResult(
   let sessionKey: string | undefined;
   let mainSessionKey: string | undefined;
   let handledApprovalCommand = false;
+  let messageRole: GatewayChatResultMessageRole = 'command';
 
   for (const args of slashCommands) {
     if (parseLowerArg(args, 0) === 'approve') {
@@ -1745,6 +1763,7 @@ async function resolveApiChatSlashCommandResult(
       });
       if (!handled) continue;
       handledApprovalCommand = true;
+      messageRole = handled.messageRole;
       sessionId = handled.sessionId || sessionId;
       sessionKey = handled.sessionKey || sessionKey;
       mainSessionKey = handled.mainSessionKey || mainSessionKey;
@@ -1760,7 +1779,7 @@ async function resolveApiChatSlashCommandResult(
       continue;
     }
 
-    const commandResult = await handleGatewayCommand({
+    const gatewayCommandResult = await handleGatewayCommand({
       sessionId,
       sessionMode: chatRequest.sessionMode,
       guildId: chatRequest.guildId,
@@ -1769,10 +1788,10 @@ async function resolveApiChatSlashCommandResult(
       userId: chatRequest.userId,
       username: chatRequest.username,
     });
-    sessionId = commandResult.sessionId || sessionId;
-    sessionKey = commandResult.sessionKey || sessionKey;
-    mainSessionKey = commandResult.mainSessionKey || mainSessionKey;
-    const text = renderTextChannelCommandResult(commandResult).trim();
+    sessionId = gatewayCommandResult.sessionId || sessionId;
+    sessionKey = gatewayCommandResult.sessionKey || sessionKey;
+    mainSessionKey = gatewayCommandResult.mainSessionKey || mainSessionKey;
+    const text = renderTextChannelCommandResult(gatewayCommandResult).trim();
     if (text) {
       textParts.push(text);
     }
@@ -1801,7 +1820,7 @@ async function resolveApiChatSlashCommandResult(
     result:
       renderedText || (handledApprovalCommand ? 'Approval submitted.' : ''),
     toolsUsed: [],
-    commandResult: true,
+    messageRole,
     sessionId,
     ...(resolvedModel ? { model: resolvedModel } : {}),
     ...(sessionKey ? { sessionKey } : {}),
@@ -1820,7 +1839,7 @@ function resolveApiChatSecretCommandGuardResult(
     status: 'success',
     result: renderCliSecretSetCommandWarning(command),
     toolsUsed: [],
-    commandResult: true,
+    messageRole: 'command',
     sessionId: chatRequest.sessionId,
   };
 }
@@ -1905,8 +1924,12 @@ function isRuntimeMSTeamsChannelConfig(
 function hasQueryToken(url: URL): boolean {
   const token = (url.searchParams.get('token') || '').trim();
   if (!token) return false;
-  if (WEB_API_TOKEN && token === WEB_API_TOKEN) return true;
-  return token === GATEWAY_API_TOKEN;
+  if (WEB_API_TOKEN && safeEqualToken(token, WEB_API_TOKEN)) return true;
+  return Boolean(GATEWAY_API_TOKEN) && safeEqualToken(token, GATEWAY_API_TOKEN);
+}
+
+function hasBearerToken(authHeader: string, token: string): boolean {
+  return Boolean(token) && safeEqualToken(authHeader, `Bearer ${token}`);
 }
 
 function isLoopbackSocketAddress(address: string | undefined): boolean {
@@ -2011,11 +2034,10 @@ function hasApiAuth(
   },
 ): boolean {
   const authHeader = req.headers.authorization || '';
-  const gatewayTokenMatch =
-    Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
+  const gatewayTokenMatch = hasBearerToken(authHeader, GATEWAY_API_TOKEN);
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
-  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
+  if (hasBearerToken(authHeader, WEB_API_TOKEN)) return true;
   if (
     opts?.allowLocalWebSession &&
     isLocalWebSessionAllowed(req) &&
@@ -2029,16 +2051,16 @@ function hasApiAuth(
 
 function hasGatewayApiAuth(req: IncomingMessage): boolean {
   const authHeader = req.headers.authorization || '';
-  return (
-    Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`
-  );
+  return hasBearerToken(authHeader, GATEWAY_API_TOKEN);
 }
 
 function hasApiTokenValue(token: string): boolean {
   const trimmed = token.trim();
   if (!trimmed) return false;
-  if (WEB_API_TOKEN && trimmed === WEB_API_TOKEN) return true;
-  return Boolean(GATEWAY_API_TOKEN) && trimmed === GATEWAY_API_TOKEN;
+  if (WEB_API_TOKEN && safeEqualToken(trimmed, WEB_API_TOKEN)) return true;
+  return (
+    Boolean(GATEWAY_API_TOKEN) && safeEqualToken(trimmed, GATEWAY_API_TOKEN)
+  );
 }
 
 function readRecordProperty(
@@ -2099,10 +2121,10 @@ function resolveAdminSecretAuditContext(
 
 function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   const authHeader = req.headers.authorization || '';
-  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
+  if (hasBearerToken(authHeader, WEB_API_TOKEN)) {
     return 'web-token';
   }
-  if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
+  if (hasBearerToken(authHeader, GATEWAY_API_TOKEN)) {
     return 'gateway-token';
   }
   return 'authenticated';
@@ -2355,9 +2377,11 @@ function isWithinRoot(candidate: string, root: string): boolean {
   );
 }
 
-function resolvePathForContainmentCheck(filePath: string): string {
+async function resolvePathForContainmentCheck(
+  filePath: string,
+): Promise<string> {
   try {
-    return fs.realpathSync(filePath);
+    return await fs.promises.realpath(filePath);
   } catch {
     return path.resolve(filePath);
   }
@@ -2435,7 +2459,9 @@ function resolveArtifactRequestPath(rawPath: string): string | null {
   );
 }
 
-function resolveValidatedApiChatMediaHostPath(rawPath: string): string | null {
+async function resolveValidatedApiChatMediaHostPath(
+  rawPath: string,
+): Promise<string | null> {
   const trimmed = rawPath.trim();
   if (!trimmed) return null;
 
@@ -2445,7 +2471,7 @@ function resolveValidatedApiChatMediaHostPath(rawPath: string): string | null {
       DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
       DISCORD_MEDIA_CACHE_DIR,
     );
-    return resolved ? resolvePathForContainmentCheck(resolved) : null;
+    return resolved ? await resolvePathForContainmentCheck(resolved) : null;
   }
 
   const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
@@ -2458,7 +2484,7 @@ function resolveValidatedApiChatMediaHostPath(rawPath: string): string | null {
       UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
       uploadedMediaCacheDir,
     );
-    return resolved ? resolvePathForContainmentCheck(resolved) : null;
+    return resolved ? await resolvePathForContainmentCheck(resolved) : null;
   }
 
   if (!path.isAbsolute(trimmed)) {
@@ -2468,28 +2494,32 @@ function resolveValidatedApiChatMediaHostPath(rawPath: string): string | null {
   return resolvePathForContainmentCheck(trimmed);
 }
 
-function isAllowedApiChatMediaHostPath(hostPath: string): boolean {
-  const normalizedHostPath = resolvePathForContainmentCheck(hostPath);
-  if (
-    isWithinRoot(
-      normalizedHostPath,
+async function isAllowedApiChatMediaHostPath(
+  hostPath: string,
+): Promise<boolean> {
+  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
+  const [normalizedHostPath, discordMediaCacheDir, uploadedMediaCacheRoot] =
+    await Promise.all([
+      resolvePathForContainmentCheck(hostPath),
       resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
-    )
-  ) {
+      uploadedMediaCacheDir
+        ? resolvePathForContainmentCheck(uploadedMediaCacheDir)
+        : Promise.resolve(null),
+    ]);
+
+  if (isWithinRoot(normalizedHostPath, discordMediaCacheDir)) {
     return true;
   }
 
-  const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
-  if (!uploadedMediaCacheDir) {
+  if (!uploadedMediaCacheRoot) {
     return false;
   }
-  return isWithinRoot(
-    normalizedHostPath,
-    resolvePathForContainmentCheck(uploadedMediaCacheDir),
-  );
+  return isWithinRoot(normalizedHostPath, uploadedMediaCacheRoot);
 }
 
-function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
+async function normalizeApiChatMediaItems(
+  raw: unknown,
+): Promise<MediaContextItem[]> {
   if (raw == null) return [];
   if (!Array.isArray(raw)) {
     throw new GatewayRequestError(400, 'Invalid `media` in request body.');
@@ -2526,8 +2556,12 @@ function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
       );
     }
 
-    const resolvedHostPath = resolveValidatedApiChatMediaHostPath(pathValue);
-    if (!resolvedHostPath || !isAllowedApiChatMediaHostPath(resolvedHostPath)) {
+    const resolvedHostPath =
+      await resolveValidatedApiChatMediaHostPath(pathValue);
+    if (
+      !resolvedHostPath ||
+      !(await isAllowedApiChatMediaHostPath(resolvedHostPath))
+    ) {
       throw new GatewayRequestError(
         400,
         `Invalid \`media[${index}].path\`. Only uploaded or Discord media cache files are accepted.`,
@@ -2574,7 +2608,7 @@ function normalizeApiChatMediaItems(raw: unknown): MediaContextItem[] {
   return normalized;
 }
 
-function resolveArtifactFile(url: URL): string | null {
+async function resolveArtifactFile(url: URL): Promise<string | null> {
   const raw = (url.searchParams.get('path') || '').trim();
   if (!raw) return null;
   const resolved = resolveArtifactRequestPath(raw);
@@ -2582,31 +2616,31 @@ function resolveArtifactFile(url: URL): string | null {
   const uploadedMediaCacheDir = getUploadedMediaCacheDirOrNull();
   let realFilePath: string;
   try {
-    realFilePath = fs.realpathSync(resolved);
+    realFilePath = await fs.promises.realpath(resolved);
   } catch {
     return null;
   }
+  const allowedRoots = [
+    AGENT_ARTIFACT_ROOT,
+    DISCORD_MEDIA_CACHE_DIR,
+    ...(uploadedMediaCacheDir ? [uploadedMediaCacheDir] : []),
+  ];
+  const allowedRootPaths = await Promise.all(
+    allowedRoots.map((root) => resolvePathForContainmentCheck(root)),
+  );
   if (
-    !isWithinRoot(
-      realFilePath,
-      resolvePathForContainmentCheck(AGENT_ARTIFACT_ROOT),
-    ) &&
-    !isWithinRoot(
-      realFilePath,
-      resolvePathForContainmentCheck(DISCORD_MEDIA_CACHE_DIR),
-    ) &&
-    !(
-      uploadedMediaCacheDir &&
-      isWithinRoot(
-        realFilePath,
-        resolvePathForContainmentCheck(uploadedMediaCacheDir),
-      )
+    !allowedRootPaths.some((allowedRoot) =>
+      isWithinRoot(realFilePath, allowedRoot),
     )
   ) {
     return null;
   }
-  if (!fs.existsSync(realFilePath) || !fs.statSync(realFilePath).isFile())
+  try {
+    const stats = await fs.promises.stat(realFilePath);
+    if (!stats.isFile()) return null;
+  } catch {
     return null;
+  }
   return realFilePath;
 }
 
@@ -2800,7 +2834,7 @@ async function handleApiChat(
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
-  const media = normalizeApiChatMediaItems(body.media);
+  const media = await normalizeApiChatMediaItems(body.media);
 
   const content = body.content?.trim() || buildMediaOnlyPromptContent(media);
   if (!content) {
@@ -3383,7 +3417,9 @@ async function handleApiHistory(
     10,
   );
   const limit = Number.isNaN(parsedLimit) ? 40 : parsedLimit;
-  void ensureGatewayBootstrapAutostart({ sessionId }).catch((error) => {
+  void ensureGatewayBootstrapAutostart({
+    sessionId,
+  }).catch((error) => {
     logger.warn(
       { sessionId, error },
       'Failed to start gateway bootstrap autostart',
@@ -3401,13 +3437,17 @@ async function handleApiHistory(
   const summary = getGatewayHistorySummary(sessionId, {
     sinceMs: Number.isNaN(parsedSummarySinceMs) ? null : parsedSummarySinceMs,
   });
-  const bootstrapAutostart = getGatewayBootstrapAutostartState({ sessionId });
+  const bootstrapAutostart = getGatewayBootstrapAutostartState({
+    sessionId,
+    allowExistingSessionMessages: true,
+  });
   // These keys are returned only as chat-routing metadata for the web client.
   // Auth stays anchored to the existing API/session auth checks above, never to
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
   // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
     sessionId: historyPage.sessionId,
+    agentId: historyPage.agentId || undefined,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
@@ -3874,6 +3914,7 @@ function handleApiAdminSecrets(
     200,
     getGatewayAdminSecrets({
       audit: resolveAdminSecretAuditContext(req, sessionPayload),
+      sessionPayload,
     }),
   );
 }
@@ -4715,6 +4756,12 @@ async function handleApiAdminA2ATrust(
   url: URL,
 ): Promise<void> {
   const method = req.method || 'GET';
+  const actor =
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      fallbackUserId: 'admin-console',
+    }) || 'admin-console';
   if (method === 'GET') {
     sendJson(res, 200, getGatewayAdminA2ATrust());
     return;
@@ -4725,7 +4772,7 @@ async function handleApiAdminA2ATrust(
       | GatewayAdminA2ATrustUpsertRequest
       | undefined;
     try {
-      sendJson(res, 200, upsertGatewayAdminA2ATrustPeer(body || {}));
+      sendJson(res, 200, upsertGatewayAdminA2ATrustPeer(body || {}, actor));
     } catch (error) {
       sendJson(
         res,
@@ -4755,8 +4802,8 @@ async function handleApiAdminA2ATrust(
       res,
       200,
       action === 'delete'
-        ? deleteGatewayAdminA2ATrustPeer({ peerId })
-        : revokeGatewayAdminA2ATrustPeer({ peerId, reason }),
+        ? deleteGatewayAdminA2ATrustPeer({ peerId, actor })
+        : revokeGatewayAdminA2ATrustPeer({ peerId, reason, actor }),
     );
   } catch (error) {
     sendJson(
@@ -4765,6 +4812,106 @@ async function handleApiAdminA2ATrust(
       {
         error: error instanceof Error ? error.message : String(error),
       },
+    );
+  }
+}
+
+async function handleApiAdminFleetTopology(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  try {
+    if (method === 'GET') {
+      sendJson(res, 200, await getGatewayAdminFleetTopology());
+      return;
+    }
+
+    if (method === 'POST' || method === 'PUT') {
+      const body = (await readJsonBody(req).catch(() => ({}))) as
+        | GatewayAdminFleetTopologyUpsertRequest
+        | undefined;
+      sendJson(
+        res,
+        200,
+        await upsertGatewayAdminFleetTopologyInstance(body || {}),
+      );
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const peerId = (url.searchParams.get('peerId') || '').trim();
+      if (!peerId) {
+        sendJson(res, 400, { error: 'Missing `peerId` query parameter.' });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        await deleteGatewayAdminFleetTopologyInstance({ peerId }),
+      );
+      return;
+    }
+
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
+async function handleApiAdminA2APairing(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+  const actor =
+    resolveGatewayRequestUserId({
+      req,
+      channelId: 'web',
+      fallbackUserId: 'admin-console',
+    }) || 'admin-console';
+  const body = (await readJsonBody(req).catch(() => ({}))) as
+    | GatewayAdminA2APairingStartRequest
+    | GatewayAdminA2APairingDecisionRequest
+    | undefined;
+  try {
+    if (pathname === '/api/admin/a2a/pairing/approve') {
+      sendJson(
+        res,
+        200,
+        approveGatewayAdminA2APairingRequest(body || {}, actor),
+      );
+      return;
+    }
+    if (pathname === '/api/admin/a2a/pairing/decline') {
+      sendJson(
+        res,
+        200,
+        declineGatewayAdminA2APairingRequest(body || {}, actor),
+      );
+      return;
+    }
+    if (pathname === '/api/admin/a2a/pairing/preview') {
+      sendJson(res, 200, await previewGatewayAdminA2APairing(body || {}));
+      return;
+    }
+    sendJson(res, 200, await startGatewayAdminA2APairing(body || {}, actor));
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      { error: error instanceof Error ? error.message : String(error) },
     );
   }
 }
@@ -5923,7 +6070,7 @@ async function handleApiAdminHarnessEvolution(
   }
 
   const root = path.resolve(targetRoot);
-  if (!isAllowedHarnessEvolutionRoot(root)) {
+  if (!(await isAllowedHarnessEvolutionRoot(root))) {
     sendJson(res, 403, {
       error:
         'targetRoot is not under an allowed harness evolution root. Set HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS or use the runtime data harness-evolution directory.',
@@ -5933,14 +6080,14 @@ async function handleApiAdminHarnessEvolution(
   try {
     const evolution = await import('../evolution/harness-evolution.js');
     if (manifestPath) {
-      assertPathInsideRoot(root, manifestPath);
+      await assertPathInsideRoot(root, manifestPath);
       sendJson(res, 200, {
         manifest: evolution.readHarnessEvolutionManifest(manifestPath),
       });
       return;
     }
     if (summaryPath) {
-      assertPathInsideRoot(root, summaryPath);
+      await assertPathInsideRoot(root, summaryPath);
       sendJson(res, 200, {
         run: evolution.readHarnessEvolutionSummary(summaryPath),
       });
@@ -5958,28 +6105,53 @@ async function handleApiAdminHarnessEvolution(
   }
 }
 
-function assertPathInsideRoot(root: string, candidate: string): void {
-  const rootReal = fs.realpathSync(root);
+async function assertPathInsideRoot(
+  root: string,
+  candidate: string,
+): Promise<void> {
+  const rootReal = await fs.promises.realpath(root);
   const candidatePath = path.resolve(candidate);
-  if (!fs.existsSync(candidatePath)) {
+  try {
+    await fs.promises.access(candidatePath);
+  } catch {
     throw new GatewayRequestError(400, 'Requested path does not exist.');
   }
-  const candidateReal = fs.realpathSync(candidatePath);
+  const candidateReal = await fs.promises.realpath(candidatePath);
   if (!isPathInsideRoot(rootReal, candidateReal)) {
     throw new GatewayRequestError(400, 'Requested path is outside targetRoot.');
   }
 }
 
-function isAllowedHarnessEvolutionRoot(targetRoot: string): boolean {
-  const resolvedTargetRoot = resolveHarnessEvolutionAccessPath(targetRoot);
-  return HARNESS_EVOLUTION_ALLOWED_ROOTS.some((root) =>
+async function isAllowedHarnessEvolutionRoot(
+  targetRoot: string,
+): Promise<boolean> {
+  const [resolvedTargetRoot, allowedRoots] = await Promise.all([
+    resolveHarnessEvolutionAccessPathForRequest(targetRoot),
+    getResolvedHarnessEvolutionAllowedRoots(),
+  ]);
+  return allowedRoots.some((root) =>
     isPathInsideRoot(root, resolvedTargetRoot),
   );
 }
 
-function resolveHarnessEvolutionAccessPath(candidate: string): string {
+function getResolvedHarnessEvolutionAllowedRoots(): Promise<string[]> {
+  resolvedHarnessEvolutionAllowedRootsPromise ??= Promise.all(
+    HARNESS_EVOLUTION_ALLOWED_ROOTS.map((root) =>
+      resolveHarnessEvolutionAccessPathForRequest(root),
+    ),
+  );
+  return resolvedHarnessEvolutionAllowedRootsPromise;
+}
+
+async function resolveHarnessEvolutionAccessPathForRequest(
+  candidate: string,
+): Promise<string> {
   const resolved = path.resolve(candidate);
-  return fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+  try {
+    return await fs.promises.realpath(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 function isPathInsideRoot(root: string, candidate: string): boolean {
@@ -6031,11 +6203,11 @@ function handleApiEvents(
   });
 }
 
-function handleApiArtifact(
+async function handleApiArtifact(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
-): void {
+): Promise<void> {
   if (
     !hasApiAuth(req, url, {
       allowLocalWebSession: true,
@@ -6049,7 +6221,7 @@ function handleApiArtifact(
     return;
   }
 
-  const filePath = resolveArtifactFile(url);
+  const filePath = await resolveArtifactFile(url);
   if (!filePath) {
     sendJson(res, 404, { error: 'Artifact not found.' });
     return;
@@ -6384,6 +6556,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/a2a/pairing/requests') {
+      dispatchWebhookRoute(res, () =>
+        handleA2APairingRequestInbound(req, res, url),
+      );
+      return;
+    }
+
     if (parseA2AWebhookInboundPath(pathname)) {
       dispatchWebhookRoute(res, () => handleA2AWebhookInbound(req, res, url));
       return;
@@ -6414,9 +6593,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         return;
       }
       if (pathname === '/api/artifact' && method === 'GET') {
-        try {
-          handleApiArtifact(req, res, url);
-        } catch (err) {
+        void handleApiArtifact(req, res, url).catch((err: unknown) => {
+          if (res.writableEnded) return;
           const errorText = err instanceof Error ? err.message : String(err);
           const statusCode =
             err instanceof GatewayRequestError ||
@@ -6424,7 +6602,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               ? err.statusCode
               : 500;
           sendJson(res, statusCode, { error: errorText });
-        }
+        });
         return;
       }
       if (pathname === '/api/agent-avatar' && method === 'GET') {
@@ -6625,9 +6803,32 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (
             pathname === '/api/admin/a2a/trust' &&
-            (method === 'GET' || method === 'DELETE')
+            (method === 'GET' ||
+              method === 'POST' ||
+              method === 'PUT' ||
+              method === 'DELETE')
           ) {
             await handleApiAdminA2ATrust(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/fleet-topology' &&
+            (method === 'GET' ||
+              method === 'POST' ||
+              method === 'PUT' ||
+              method === 'DELETE')
+          ) {
+            await handleApiAdminFleetTopology(req, res, url);
+            return;
+          }
+          if (
+            (pathname === '/api/admin/a2a/pairing' ||
+              pathname === '/api/admin/a2a/pairing/preview' ||
+              pathname === '/api/admin/a2a/pairing/approve' ||
+              pathname === '/api/admin/a2a/pairing/decline') &&
+            method === 'POST'
+          ) {
+            await handleApiAdminA2APairing(req, res, pathname);
             return;
           }
           if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {

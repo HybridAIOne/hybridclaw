@@ -4,6 +4,7 @@ import {
   readString,
 } from '../../container/shared/primitive-values.js';
 import type { ToolExecution } from '../types/execution.js';
+import { isRecord } from '../utils/type-guards.js';
 import type { TokenUsageEvent } from './token-usage-buffer.js';
 
 interface MediaUsageEventInput {
@@ -11,10 +12,6 @@ interface MediaUsageEventInput {
   agentId: string;
   auditRunId: string;
   toolExecutions: ToolExecution[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function readNonNegativeNumber(value: unknown): number | null {

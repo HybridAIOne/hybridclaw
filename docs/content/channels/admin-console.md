@@ -13,6 +13,8 @@ agent prompt-file editor lives at `/admin/agents`. The approvals page at
 `/admin/approvals` shows live pending approvals and lets operators add, edit,
 and delete the current workspace network policy rules for a selected agent.
 The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message threads and uses the same web-console authentication as the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local web access.
+The fleet page at `/admin/fleet-topology` shows the local A2A instance identity
+and trusted child instances from the A2A trust ledger.
 
 ## What The Admin Console Can Do
 
@@ -49,6 +51,12 @@ The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message t
   browser
 - `/admin/a2a-inbox` lists A2A threads by most recent message and opens each thread with sender, recipient, timestamp, intent, and content
 - `/admin/a2a-inbox` is read-only
+- `/admin/fleet-topology` shows the local instance id, version, public-key
+  fingerprint, child instance reachability, Agent Card latency, and peer
+  version when the child is reachable
+- `/admin/fleet-topology` can add, edit, and remove trusted A2A child
+  instances by peer id, Agent Card URL, delivery URL, public-key fingerprint or
+  JWK, and trust reason
 - `/admin/gateway` can reload runtime config and refresh secrets from the
   browser without tearing down the enclosing workspace container
 - `/admin/gateway` shows the configured public URL and current tunnel provider
@@ -87,6 +95,8 @@ The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message t
   renders assistant message blocks with better structured content handling
 - the web chat route renders slash-command results distinctly and lets
   operators apply persisted thumbs-up/down ratings to assistant responses
+- the web chat route syntax-highlights completed code blocks, shows language
+  labels, and keeps copy controls reachable on hover and touch devices
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 
@@ -115,6 +125,8 @@ scoped to the built-in allowlist and is not a general workspace file browser.
   network policy without switching to `/chat` or opening the workspace files
 - you want to add, edit, or remove network policy rules from the browser
 - you want to inspect A2A coordination threads without impersonating a recipient agent
+- you want to check child-instance reachability or update A2A trust-ledger peers
+  from a browser
 - you want to search and filter audit events without writing SQL or reading
   JSONL logs directly
 - you want to adjust output guard behavior or inspect blocked-skill state

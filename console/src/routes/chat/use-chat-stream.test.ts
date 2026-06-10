@@ -49,6 +49,8 @@ function makeHarness(initialMessages: ChatUiMessage[] = []) {
       messages: [...initialMessages],
       branchFamilies: new Map(),
       resolvedSessionId: SESSION_ID,
+      agentId: null,
+      bootstrapAutostart: null,
     },
   );
   let error = '';
@@ -120,6 +122,7 @@ describe('useChatStream', () => {
           status: 'ok',
           assistantMessageId: 'assistant-1',
           result: 'Approval requested',
+          messageRole: 'approval',
         };
       },
     );
@@ -187,6 +190,7 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-2',
           assistantMessageId: 'assistant-2',
           result: 'Answer',
+          messageRole: 'assistant',
           assistantPresentation: {
             agentId: 'charly',
             displayName: 'Charly',
@@ -260,6 +264,7 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-1',
           assistantMessageId: 'assistant-1',
           result: 'Answer',
+          messageRole: 'assistant',
         };
       },
     );
@@ -302,7 +307,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: null,
       result: 'Session agent set to `research` (model: `gpt-5`).',
-      commandResult: true,
+      messageRole: 'command',
       toolsUsed: [],
     });
 
@@ -356,7 +361,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: null,
       result: '',
-      commandResult: true,
+      messageRole: 'command',
       toolsUsed: [],
     });
 
@@ -422,7 +427,7 @@ describe('useChatStream', () => {
     expect(harness.messages.some((msg) => msg.role === 'command')).toBe(false);
   });
 
-  it('keeps a plain model reply as an assistant message when commandResult is absent', async () => {
+  it('keeps a plain model reply as an assistant message', async () => {
     const harness = makeHarness();
 
     requestChatStreamMock.mockImplementation(
@@ -437,6 +442,7 @@ describe('useChatStream', () => {
           userMessageId: 'server-user-1',
           assistantMessageId: 'assistant-1',
           result: 'A normal answer',
+          messageRole: 'assistant',
         };
       },
     );
@@ -477,6 +483,7 @@ describe('useChatStream', () => {
       userMessageId: 'server-user-1',
       assistantMessageId: 'assistant-1',
       result: 'Answer',
+      messageRole: 'assistant',
       model: 'hybridai/grok-4.20-0309-non-reasoning',
     });
 
@@ -593,6 +600,7 @@ describe('useChatStream', () => {
         userMessageId: 'server-user-1',
         assistantMessageId: 'assistant-1',
         result: 'Answer',
+        messageRole: 'assistant',
       });
       await firstSend;
     });
@@ -608,6 +616,7 @@ describe('useChatStream', () => {
         userMessageId: 'server-user-1',
         assistantMessageId: 'assistant-1',
         result: 'Answer',
+        messageRole: 'assistant',
       }),
     );
 
@@ -682,6 +691,7 @@ describe('useChatStream', () => {
         userMessageId: 'server-user-1',
         assistantMessageId: 'assistant-1',
         result: 'Reply from A',
+        messageRole: 'assistant',
       });
       await sendPromise;
     });

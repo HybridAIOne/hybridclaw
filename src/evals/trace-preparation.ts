@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-
 import {
   type RuntimeConfigChangeMeta,
   syncRuntimeAssetRevisionState,
@@ -21,6 +20,7 @@ import {
 import { redactSecrets } from '../security/redact.js';
 import { estimateTokenCountFromText } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
+import { isRecord } from '../utils/type-guards.js';
 
 export const DEFAULT_TRACE_PREPARE_MAX_TOOL_CALLS = 40;
 export const DEFAULT_TRACE_PREPARE_MAX_TRACE_TOKENS = 16_000;
@@ -128,10 +128,6 @@ const DEFAULT_TRACE_JUDGE_TEMPLATE: TracePromptTemplate = {
     'Judge trace against criteria.',
   ].join('\n'),
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
-}
 
 export function serializeTracePreparationInput(value: unknown): string {
   if (typeof value === 'string') return value.trim();

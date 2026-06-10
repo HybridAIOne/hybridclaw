@@ -17,6 +17,7 @@ import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
 import { DashboardPage } from './routes/dashboard';
 import { EmailPage } from './routes/email';
+import { FleetTopologyPage } from './routes/fleet-topology';
 import { GatewayPage } from './routes/gateway';
 import { HarnessEvolutionPage } from './routes/harness-evolution';
 import { JobsPage } from './routes/jobs';
@@ -25,6 +26,7 @@ import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
 import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
+import { SecretsPage } from './routes/secrets';
 import { SessionsPage } from './routes/sessions';
 import { SkillsPage } from './routes/skills';
 import { StatisticsPage } from './routes/statistics';
@@ -138,6 +140,12 @@ const gatewayRoute = createRoute({
   component: GatewayPage,
 });
 
+const fleetTopologyRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/fleet-topology',
+  component: FleetTopologyPage,
+});
+
 const sessionsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/sessions',
@@ -232,6 +240,12 @@ const toolsRoute = createRoute({
   component: ToolsPage,
 });
 
+const secretsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/secrets',
+  component: SecretsPage,
+});
+
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
@@ -254,6 +268,7 @@ const routeTree = rootRoute.addChildren([
     agentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
+    fleetTopologyRoute,
     sessionsRoute,
     channelsRoute,
     emailRoute,
@@ -268,6 +283,7 @@ const routeTree = rootRoute.addChildren([
     pluginsRoute,
     outputGuardRoute,
     toolsRoute,
+    secretsRoute,
   ]),
   agentsOverviewRoute,
   chatRoute.addChildren([chatSessionRoute]),

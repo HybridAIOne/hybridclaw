@@ -83,6 +83,15 @@ export function summarizeExit(
   return 'unknown exit status';
 }
 
+function isInternalProgressLine(line: string): boolean {
+  return (
+    line === '[stream-activity]' ||
+    line.startsWith('[stream] ') ||
+    line.startsWith('[thinking] ') ||
+    line.startsWith('[approval] ')
+  );
+}
+
 export function formatWarmRunnerTerminalError(
   entry: Pick<WarmRunnerHealthEntry, 'process' | 'stderrHistory'>,
   runtimeLabel: string,
@@ -109,6 +118,7 @@ export function formatWarmRunnerTerminalError(
   }
 
   const detail = entry.stderrHistory
+    .filter((line) => !isInternalProgressLine(line))
     .slice(-4)
     .join(' ')
     .replace(/\s+/g, ' ')

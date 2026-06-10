@@ -1,12 +1,12 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@hybridaione/hybridclaw",
-      "version": "0.22.0",
+      "version": "0.23.0",
       "hasInstallScript": true,
       "workspaces": [
         "desktop",
@@ -89,6 +89,7 @@
         "@tanstack/react-router": "1.167.4",
         "@xterm/addon-fit": "0.11.0",
         "@xterm/xterm": "5.5.0",
+        "highlight.js": "11.11.1",
         "marked": "17.0.4",
         "react": "19.2.4",
         "react-dom": "19.2.4",
@@ -107,7 +108,7 @@
     },
     "container": {
       "name": "hybridclaw-agent",
-      "version": "0.22.0",
+      "version": "0.23.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.27.1",
         "@mozilla/readability": "0.6.0",
@@ -411,7 +412,7 @@
     },
     "desktop": {
       "name": "@hybridaione/hybridclaw-desktop",
-      "version": "0.22.0",
+      "version": "0.23.0",
       "dependencies": {
         "@hybridaione/hybridclaw-desktop-packaging-anchor": "file:./support/packaging-anchor"
       },
@@ -11857,6 +11858,15 @@
       "integrity": "sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==",
       "license": "MIT"
     },
+    "node_modules/highlight.js": {
+      "version": "11.11.1",
+      "resolved": "https://registry.npmjs.org/highlight.js/-/highlight.js-11.11.1.tgz",
+      "integrity": "sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==",
+      "license": "BSD-3-Clause",
+      "engines": {
+        "node": ">=12.0.0"
+      }
+    },
     "node_modules/hono": {
       "version": "4.12.23",
       "resolved": "https://registry.npmjs.org/hono/-/hono-4.12.23.tgz",
@@ -13239,6 +13249,7 @@
       "os": [
         "android"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13260,6 +13271,7 @@
       "os": [
         "darwin"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13281,6 +13293,7 @@
       "os": [
         "darwin"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13302,6 +13315,7 @@
       "os": [
         "freebsd"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13323,6 +13337,7 @@
       "os": [
         "linux"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13344,6 +13359,7 @@
       "os": [
         "linux"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13365,6 +13381,7 @@
       "os": [
         "linux"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13386,6 +13403,7 @@
       "os": [
         "linux"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13407,6 +13425,7 @@
       "os": [
         "linux"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13428,6 +13447,7 @@
       "os": [
         "win32"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },
@@ -13449,6 +13469,7 @@
       "os": [
         "win32"
       ],
+      "peer": true,
       "engines": {
         "node": ">= 12.0.0"
       },

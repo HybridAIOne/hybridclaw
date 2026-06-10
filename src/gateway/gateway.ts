@@ -128,6 +128,10 @@ import type { RuntimeConfig } from '../config/runtime-config.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import {
+  startPeriodicCloudMemorySync,
+  stopPeriodicCloudMemorySync,
+} from '../memory/cloud-memory.js';
+import {
   getDreamTimezone,
   hasDreamRunToday,
   isMemoryConsolidationEnabled,
@@ -3230,6 +3234,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       runManagedMediaCleanup('shutdown'),
     );
     stopHeartbeat();
+    stopPeriodicCloudMemorySync();
     stopA2AOutboxProcessor();
     stopWebhookOutboxProcessor();
     stopObservabilityIngest();
@@ -3532,6 +3537,9 @@ async function main(): Promise<void> {
   const imessageActive = await startIMessageIntegration();
 
   startOrRestartHeartbeat();
+  startPeriodicCloudMemorySync({
+    resolveAgentIds: () => listAgents().map((agent) => agent.id),
+  });
   startA2AOutboxProcessor();
   startWebhookOutboxProcessor();
   startObservabilityIngest();

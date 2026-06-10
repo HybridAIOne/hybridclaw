@@ -1,10 +1,4 @@
 import path from 'node:path';
-import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
-import {
-  type ApprovalPrelude,
-  type ToolApprovalEvaluation,
-  TrustedAgentApprovalRuntime,
-} from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
   cleanupAllBrowserSessions,
@@ -53,6 +47,7 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import { buildInterruptedShutdownOutput } from './shutdown-output.js';
 import {
   advanceStalledTurnCount,
   MAX_STALLED_MODEL_TURNS,
@@ -72,6 +67,16 @@ import {
   readChatCompletionUsageTokens,
   recordPerformanceSample,
 } from './token-usage.js';
+import {
+  type ApprovalPrelude,
+  approvalRuntime,
+  buildApprovalDeniedToolExecution,
+  buildApprovalRequiredToolExecution,
+  buildPendingApproval,
+  createToolApprovalResolver,
+  emitApprovalProgress,
+  type ToolApprovalEvaluation,
+} from './tool-approval.js';
 import { parseToolArgsJson } from './tool-args.js';
 import { validateStructuredToolCalls } from './tool-call-validation.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
@@ -113,7 +118,6 @@ import {
   type ContainerInput,
   type ContainerOutput,
   type EscalationTarget,
-  type PendingApproval,
   TASK_MODEL_KEYS,
   type ToolCall,
   type ToolDefinition,
@@ -158,17 +162,6 @@ function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
   }
 }
 
-const approvalRuntime = new TrustedAgentApprovalRuntime();
-approvalRuntime.setApprovalRuleHookEmitter((event) =>
-  emitRuntimeEvent({
-    event: event.hook,
-    kind: event.kind,
-    approvalRule: event.ruleName,
-    toolName: event.toolName,
-    ...(event.actionKey ? { actionKey: event.actionKey } : {}),
-    ...(event.decision ? { decision: event.decision } : {}),
-  }),
-);
 let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
@@ -178,6 +171,7 @@ let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
 let shutdownPromise: Promise<never> | null = null;
+let requestInFlight = false;
 
 function cloneTaskModels(
   taskModels: ContainerInput['taskModels'],
@@ -298,6 +292,16 @@ async function shutdownAgentProcess(
   return shutdownPromise;
 }
 
+function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
+  if (!requestInFlight) return;
+  requestInFlight = false;
+  try {
+    writeOutput(buildInterruptedShutdownOutput(reason));
+  } catch (error) {
+    console.error('[hybridclaw-agent] shutdown output write failed:', error);
+  }
+}
+
 function normalizePathSlashes(raw: string): string {
   return raw.replace(/\\/g, '/');
 }
@@ -384,13 +388,6 @@ function emitStreamThinkingDelta(delta: string): void {
 
 function emitStreamActivity(): void {
   console.error('[stream-activity]');
-}
-
-function emitApprovalProgress(approval: PendingApproval): void {
-  const payload = Buffer.from(JSON.stringify(approval), 'utf-8').toString(
-    'base64',
-  );
-  console.error(`[approval] ${payload}`);
 }
 
 function latestUserPrompt(messages: ChatMessage[]): string {
@@ -1092,60 +1089,29 @@ async function processRequest(
     return output;
   }
 
-  const resolveToolApproval = async (input: {
-    toolName: string;
-    argsJson: string;
-  }): Promise<ToolApprovalEvaluation> => {
-    const approvalEvaluatedAt = new Date();
-    let evaluation = approvalRuntime.evaluateToolCall({
-      toolName: input.toolName,
-      argsJson: input.argsJson,
-      latestUserPrompt: effectiveUserPrompt,
-      channelId,
-      escalationTarget,
-      now: approvalEvaluatedAt,
-    });
-    const resolved = await resolveBorderlineAnomalyWithTraceJudge({
-      evaluation,
-      toolName: input.toolName,
-      argsJson: input.argsJson,
-      latestUserPrompt: effectiveUserPrompt,
-      taskModels,
-      fallbackContext: {
-        provider,
-        providerMethod,
-        baseUrl,
-        apiKey,
-        model,
-        chatbotId,
-        requestHeaders,
-        isLocal,
-        contextWindow,
-        thinkingFormat,
-        debugModelResponses,
-      },
-    });
-    if (resolved.response) {
+  const resolveToolApproval = createToolApprovalResolver({
+    latestUserPrompt: effectiveUserPrompt,
+    channelId,
+    escalationTarget,
+    taskModels,
+    fallbackContext: {
+      provider,
+      providerMethod,
+      baseUrl,
+      apiKey,
+      model,
+      chatbotId,
+      requestHeaders,
+      isLocal,
+      contextWindow,
+      thinkingFormat,
+      debugModelResponses,
+    },
+    onModelResponse: (response) => {
       tokenUsage.modelCalls += 1;
-      accumulateApiUsage(tokenUsage, resolved.response);
-    }
-    const traceJudge = resolved.evaluation.anomaly?.traceJudge;
-    if (evaluation.anomaly?.tuple && traceJudge) {
-      approvalRuntime.recordAnomalyTraceJudgeResult(
-        evaluation.anomaly.tuple,
-        traceJudge,
-      );
-      evaluation = approvalRuntime.evaluateToolCall({
-        toolName: input.toolName,
-        argsJson: input.argsJson,
-        latestUserPrompt: effectiveUserPrompt,
-        channelId,
-        escalationTarget,
-        now: approvalEvaluatedAt,
-      });
-    }
-    return evaluation;
-  };
+      accumulateApiUsage(tokenUsage, response);
+    },
+  });
 
   if (approvedToolCall) {
     const approval = await resolveToolApproval({
@@ -1154,54 +1120,24 @@ async function processRequest(
     });
     if (approval.decision === 'required') {
       const prompt = approvalRuntime.formatApprovalRequest(approval);
+      const pendingApproval = buildPendingApproval(
+        approval,
+        prompt,
+        approvedToolCall.toolName,
+      );
       return {
         status: 'success',
         result: prompt,
         toolsUsed: [approvedToolCall.toolName],
         toolExecutions: [
-          {
-            name: approvedToolCall.toolName,
-            arguments: approvedToolCall.argsJson,
-            result: prompt,
-            durationMs: 0,
-            isError: false,
-            blocked: true,
-            blockedReason: approval.reason,
-            approvalTier: approval.tier,
-            approvalBaseTier: approval.baseTier,
-            autonomyLevel: approval.autonomyLevel,
-            stakes: approval.stakes,
-            stakesScore: approval.stakesScore,
-            anomaly: approval.anomaly,
-            escalationRoute: approval.escalationRoute,
-            escalationTarget: approval.escalationTarget,
-            approvalDecision: approval.decision,
-            approvalActionKey: approval.actionKey,
-            approvalIntent: approval.intent,
-            approvalReason: approval.reason,
-            approvalRequestId: approval.requestId,
-            approvalExpiresAt: approval.expiresAtMs,
-          },
+          buildApprovalRequiredToolExecution({
+            toolName: approvedToolCall.toolName,
+            argsJson: approvedToolCall.argsJson,
+            prompt,
+            approval,
+          }),
         ],
-        pendingApproval: approval.requestId
-          ? {
-              approvalId: approval.requestId,
-              prompt,
-              intent: approval.intent,
-              reason: approval.reason,
-              allowSession: !approval.pinned,
-              allowAgent: !approval.pinned,
-              allowAll: !approval.pinned,
-              expiresAt:
-                typeof approval.expiresAtMs === 'number' &&
-                Number.isFinite(approval.expiresAtMs)
-                  ? approval.expiresAtMs
-                  : null,
-              ...(approval.escalationTarget
-                ? { escalationTarget: approval.escalationTarget }
-                : {}),
-            }
-          : undefined,
+        pendingApproval,
         tokenUsage: finalizeTokenUsage(tokenUsage),
         effectiveUserPrompt,
       };
@@ -1741,56 +1677,21 @@ async function processRequest(
 
       if (approval.decision === 'required') {
         toolsUsed.push(toolName);
-        if (!approval.requestId) {
-          throw new Error(
-            'Approval-required tool call is missing a request id.',
-          );
-        }
         const prompt = approvalRuntime.formatApprovalRequest(approval);
-        const pendingApproval: PendingApproval = {
-          approvalId: approval.requestId,
+        const pendingApproval = buildPendingApproval(
+          approval,
           prompt,
-          intent: approval.intent,
-          reason: approval.reason,
-          allowSession: !approval.pinned,
-          allowAgent: !approval.pinned,
-          allowAll: !approval.pinned,
-          expiresAt:
-            typeof approval.expiresAtMs === 'number' &&
-            Number.isFinite(approval.expiresAtMs)
-              ? approval.expiresAtMs
-              : null,
-          ...(approval.escalationTarget
-            ? { escalationTarget: approval.escalationTarget }
-            : {}),
-        };
+          toolName,
+        );
         emitApprovalProgress(pendingApproval);
-        toolExecutions.push({
-          name: toolName,
-          arguments: call.function.arguments,
-          result: prompt,
-          durationMs: 0,
-          isError: false,
-          blocked: true,
-          blockedReason: approval.reason,
-          approvalTier: approval.tier,
-          approvalBaseTier: approval.baseTier,
-          autonomyLevel: approval.autonomyLevel,
-          stakes: approval.stakes,
-          stakesScore: approval.stakesScore,
-          anomaly: approval.anomaly,
-          escalationRoute: approval.escalationRoute,
-          escalationTarget: approval.escalationTarget,
-          approvalDecision: approval.decision,
-          approvalActionKey: approval.actionKey,
-          approvalIntent: approval.intent,
-          approvalReason: approval.reason,
-          approvalRequestId: approval.requestId,
-          approvalExpiresAt: approval.expiresAtMs,
-          approvalAllowSession: !approval.pinned,
-          approvalAllowAgent: !approval.pinned,
-          approvalAllowAll: !approval.pinned,
-        });
+        toolExecutions.push(
+          buildApprovalRequiredToolExecution({
+            toolName,
+            argsJson: call.function.arguments,
+            prompt,
+            approval,
+          }),
+        );
         const waitingForApproval: ContainerOutput = {
           status: 'success',
           result: prompt,
@@ -1812,31 +1713,14 @@ async function processRequest(
       if (approval.decision === 'denied') {
         toolsUsed.push(toolName);
         const denialText = `Approval denied: ${approval.reason}`;
-        toolExecutions.push({
-          name: toolName,
-          arguments: call.function.arguments,
-          result: denialText,
-          durationMs: 0,
-          isError: true,
-          blocked: true,
-          blockedReason: approval.reason,
-          approvalTier: approval.tier,
-          approvalBaseTier: approval.baseTier,
-          autonomyLevel: approval.autonomyLevel,
-          stakes: approval.stakes,
-          stakesScore: approval.stakesScore,
-          anomaly: approval.anomaly,
-          escalationRoute: approval.escalationRoute,
-          escalationTarget: approval.escalationTarget,
-          approvalDecision: approval.decision,
-          approvalActionKey: approval.actionKey,
-          approvalIntent: approval.intent,
-          approvalReason: approval.reason,
-          approvalRequestId: approval.requestId,
-          approvalExpiresAt: approval.expiresAtMs,
-          approvalAllowSession: !approval.pinned,
-          approvalAllowAgent: !approval.pinned,
-        });
+        toolExecutions.push(
+          buildApprovalDeniedToolExecution({
+            toolName,
+            argsJson: call.function.arguments,
+            denialText,
+            approval,
+          }),
+        );
         const denied: ContainerOutput = {
           status: 'success',
           result: denialText,
@@ -1952,15 +1836,18 @@ async function main(): Promise<void> {
   // media, and model setup still runs after input and before agent start.
   console.error('[hybridclaw-agent] ready for input');
   process.once('SIGINT', () => {
+    writeInterruptedShutdownOutput('SIGINT');
     void shutdownAgentProcess(0, 'SIGINT');
   });
   process.once('SIGTERM', () => {
+    writeInterruptedShutdownOutput('SIGTERM');
     void shutdownAgentProcess(0, 'SIGTERM');
   });
 
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
   const firstInput: ContainerInput = JSON.parse(stdinData);
+  requestInFlight = true;
   applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
@@ -2115,6 +2002,7 @@ async function main(): Promise<void> {
 
   firstOutput.sideEffects = getPendingSideEffects();
   writeOutput(firstOutput);
+  requestInFlight = false;
   console.error(
     `[hybridclaw-agent] first request complete: ${firstOutput.status}`,
   );
@@ -2138,6 +2026,7 @@ async function main(): Promise<void> {
       continue;
     }
 
+    requestInFlight = true;
     applyRuntimeEnv(input.runtimeEnv);
 
     // Use stored apiKey — IPC file no longer contains it
@@ -2222,6 +2111,7 @@ async function main(): Promise<void> {
       };
       immediate.sideEffects = getPendingSideEffects();
       writeOutput(immediate);
+      requestInFlight = false;
       console.error('[approval] resolved user response without model run');
       continue;
     }
@@ -2300,6 +2190,7 @@ async function main(): Promise<void> {
 
     output.sideEffects = getPendingSideEffects();
     writeOutput(output);
+    requestInFlight = false;
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }
 }

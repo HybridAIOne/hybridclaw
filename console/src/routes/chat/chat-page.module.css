@@ -608,6 +608,19 @@ aside[data-state="collapsed"] .chatSidebarContent {
   box-shadow: var(--shadow-card);
 }
 
+.bubbleApproval {
+  --approval-amber: #d97706;
+  --approval-amber-strong: #92400e;
+  --approval-amber-bg: #f59e0b;
+  --approval-amber-dark: #fbbf24;
+  width: min(640px, 100%);
+  max-width: 92%;
+  padding: 0;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--approval-amber) 44%, var(--line));
+  background: color-mix(in srgb, var(--approval-amber-bg) 8%, var(--card));
+}
+
 /* System notices (e.g. error messages): a centered, low-emphasis pill. */
 .bubbleSystem {
   background: var(--accent-soft);
@@ -706,9 +719,10 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .markdownContent pre {
+  position: relative;
   margin: 0.5em 0;
   padding: 12px 14px;
-  background: var(--terminal);
+  background: var(--code-bg);
   color: var(--terminal-foreground);
   border-radius: var(--radius-sm);
   overflow-x: auto;
@@ -722,6 +736,152 @@ aside[data-state="collapsed"] .chatSidebarContent {
   padding: 0;
   border-radius: 0;
   font-size: inherit;
+}
+
+/* Always-visible bare icon button injected into each code block
+   (see message-block.tsx) — no background, brightens on hover. */
+.codeCopyButton {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: color-mix(in srgb, var(--terminal-foreground) 55%, transparent);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.codeCopyButton:hover {
+  color: var(--terminal-foreground);
+}
+
+.codeCopyButton:focus-visible {
+  outline: 1px solid
+    color-mix(in srgb, var(--terminal-foreground) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.codeCopyButtonDone,
+.codeCopyButtonDone:hover {
+  color: var(--success);
+}
+
+/* Language tag in a header strip; extra top padding is only added to blocks
+   that have a label, so unlabeled blocks keep their original spacing. The
+   `pre` qualifier is needed to outrank the `.markdownContent pre` padding. */
+.markdownContent pre.codeBlockLabeled {
+  padding-top: 28px;
+}
+
+.codeLangLabel {
+  position: absolute;
+  top: 7px;
+  left: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--terminal-foreground) 65%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+
+.codeLangLabel svg {
+  opacity: 0.8;
+}
+
+/*
+ * Syntax highlighting tokens emitted by highlight.js. The hljs-* classes are
+ * global (injected into sanitized HTML), so they're referenced via :global().
+ * Code blocks always render on the dark --terminal background in both themes,
+ * so a single palette tuned for that surface works everywhere.
+ */
+.markdownContent :global(.hljs-comment),
+.markdownContent :global(.hljs-quote) {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+
+.markdownContent :global(.hljs-keyword),
+.markdownContent :global(.hljs-selector-tag),
+.markdownContent :global(.hljs-meta .hljs-keyword) {
+  color: var(--syntax-keyword);
+}
+
+.markdownContent :global(.hljs-built_in),
+.markdownContent :global(.hljs-type) {
+  color: var(--syntax-builtin);
+}
+
+.markdownContent :global(.hljs-string),
+.markdownContent :global(.hljs-regexp),
+.markdownContent :global(.hljs-doctag) {
+  color: var(--syntax-string);
+}
+
+.markdownContent :global(.hljs-number),
+.markdownContent :global(.hljs-literal) {
+  color: var(--syntax-number);
+}
+
+.markdownContent :global(.hljs-title),
+.markdownContent :global(.hljs-section) {
+  color: var(--syntax-function);
+}
+
+.markdownContent :global(.hljs-name),
+.markdownContent :global(.hljs-tag),
+.markdownContent :global(.hljs-selector-id),
+.markdownContent :global(.hljs-selector-class) {
+  color: var(--syntax-tag);
+}
+
+.markdownContent :global(.hljs-attr),
+.markdownContent :global(.hljs-attribute),
+.markdownContent :global(.hljs-property),
+.markdownContent :global(.hljs-variable),
+.markdownContent :global(.hljs-template-variable) {
+  color: var(--syntax-attr);
+}
+
+.markdownContent :global(.hljs-symbol),
+.markdownContent :global(.hljs-bullet),
+.markdownContent :global(.hljs-link) {
+  color: var(--syntax-builtin);
+}
+
+.markdownContent :global(.hljs-meta) {
+  color: var(--syntax-comment);
+}
+
+.markdownContent :global(.hljs-addition) {
+  color: var(--syntax-string);
+  background: color-mix(in srgb, var(--syntax-string) 14%, transparent);
+}
+
+.markdownContent :global(.hljs-deletion) {
+  color: var(--syntax-tag);
+  background: color-mix(in srgb, var(--syntax-tag) 14%, transparent);
+}
+
+.markdownContent :global(.hljs-emphasis) {
+  font-style: italic;
+}
+
+.markdownContent :global(.hljs-strong) {
+  font-weight: 600;
 }
 
 .markdownContent hr {
@@ -841,11 +1001,94 @@ aside[data-state="collapsed"] .chatSidebarContent {
   cursor: default;
 }
 
-.approvalActions {
+.approvalCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.approvalHeader {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.approvalTier {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--approval-amber) 55%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--approval-amber-bg) 16%, var(--card));
+  color: var(--approval-amber-strong);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+:global(html[data-theme="dark"]) .approvalTier {
+  color: var(--approval-amber-dark);
+}
+
+.approvalTitle {
+  color: var(--foreground);
+  font-size: 0.94rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.approvalIntro {
+  margin: 0;
+  color: var(--foreground);
+  line-height: 1.45;
+}
+
+.approvalDetails {
+  display: grid;
   gap: 6px;
-  margin-top: 8px;
+  margin: 0;
+}
+
+.approvalDetailRow {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.28fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.approvalDetailRow dt {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.approvalDetailRow dd {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 0.84rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.approvalPrimaryActions,
+.approvalTrustActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.approvalPrimaryActions {
+  padding-top: 2px;
+}
+
+.approvalTrustActions {
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
 }
 
 .approvalAllow {
@@ -1330,6 +1573,11 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 @media (max-width: 768px) {
+  .approvalDetailRow {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
   .suggestionItem {
     min-height: 48px;
     padding: 12px 14px;

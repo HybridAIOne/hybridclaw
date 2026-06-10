@@ -47,8 +47,13 @@ export interface BranchVariant {
 
 export interface ChatHistoryResponse {
   sessionId?: string;
+  agentId?: string | null;
   history: ChatHistoryMessage[];
   assistantPresentation?: AssistantPresentation | null;
+  bootstrapAutostart?: {
+    status: 'idle' | 'starting' | 'completed';
+    fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+  } | null;
   branchFamilies?: BranchFamily[];
 }
 
@@ -104,7 +109,9 @@ export interface ChatStreamApproval {
   summary?: string;
   intent?: string;
   reason?: string;
+  approvalTier?: 'green' | 'yellow' | 'red';
   toolName?: string;
+  commandPreview?: string;
   args?: unknown;
   allowSession?: boolean;
   allowAgent?: boolean;
@@ -114,12 +121,13 @@ export interface ChatStreamApproval {
 
 export type ChatStreamEvent = ChatStreamTextDelta | ChatStreamApproval;
 
+export type ChatResultMessageRole = 'assistant' | 'approval' | 'command';
+
 export interface ChatStreamResult {
   status?: string;
   error?: string;
-  /** True when the gateway handled the message as a slash command, so the
-   * result is system/command output rather than a model reply. */
-  commandResult?: boolean;
+  /** UI role for the result message. */
+  messageRole?: ChatResultMessageRole;
   sessionId?: string;
   userMessageId?: number | string | null;
   assistantMessageId?: number | string | null;

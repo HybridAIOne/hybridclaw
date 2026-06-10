@@ -1,3 +1,4 @@
+import { isRecord } from '../utils/type-guards.js';
 /**
  * Scheduler — timer-based, arms for exact next-fire time.
  *
@@ -30,6 +31,8 @@ import {
   updateJob,
 } from '../memory/jobs.js';
 import type { ScheduledTask } from '../types/scheduler.js';
+import { hasActionableHeartbeatFile } from '../workspace.js';
+import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
 
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift
@@ -158,10 +161,6 @@ function defaultConfigJobMeta(): ConfigJobMeta {
     disabled: false,
     oneShotCompleted: false,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeConfigJobMeta(value: unknown): ConfigJobMeta {
@@ -688,19 +687,38 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
     return;
   }
 
+  if (job.action.kind === 'heartbeat_poll') {
+    if (!job.agentId) {
+      logger.warn(
+        { jobId: job.id },
+        'Scheduler heartbeat poll skipped — missing agentId',
+      );
+      return;
+    }
+    if (!hasActionableHeartbeatFile(job.agentId)) {
+      logger.debug(
+        { jobId: job.id, agentId: job.agentId },
+        'Scheduler heartbeat poll skipped — no actionable HEARTBEAT.md',
+      );
+      return;
+    }
+  }
+
   if (!taskRunner) return;
   const jobLabel = resolveConfigJobLabel(job);
   const contextChannelId =
     job.delivery.kind === 'channel' ? job.delivery.to : 'scheduler';
   const prompt =
-    job.action.kind === 'agent_turn'
-      ? wrapCronPrompt(
+    job.action.kind === 'system_event'
+      ? job.action.message
+      : wrapCronPrompt(
           jobLabel,
-          job.action.message,
+          job.action.kind === 'heartbeat_poll'
+            ? HEARTBEAT_POLL_PROMPT
+            : job.action.message,
           job.schedule.tz || undefined,
           job.delivery.kind === 'channel' ? job.delivery.to : undefined,
-        )
-      : job.action.message;
+        );
   await taskRunner({
     source: 'scheduler-job',
     jobId: job.id,
@@ -708,7 +726,8 @@ async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
     sessionId: `scheduler:${job.id}`,
     channelId: contextChannelId,
     prompt,
-    actionKind: job.action.kind,
+    actionKind:
+      job.action.kind === 'system_event' ? 'system_event' : 'agent_turn',
     delivery:
       job.delivery.kind === 'channel'
         ? { kind: 'channel', channelId: job.delivery.to }

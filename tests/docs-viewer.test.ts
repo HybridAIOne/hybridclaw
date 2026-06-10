@@ -88,6 +88,11 @@ describe('docs viewer helpers', () => {
     expect(
       guides?.pages.some((page) => page.path === 'guides/remote-access.md'),
     ).toBe(true);
+    expect(
+      guides?.pages.some(
+        (page) => page.path === 'guides/hatching-task-ideas.md',
+      ),
+    ).toBe(true);
   });
 
   test('exposes tutorials as a top-level docs section', () => {

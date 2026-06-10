@@ -75,6 +75,7 @@ describe('local container providers', () => {
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(body.model).toBe('llava:7b');
       expect(body.stream).toBe(false);
+      expect(body.tools).toEqual(tools);
       expect(body.options).toEqual({ num_predict: 64 });
       expect(messages[0]?.images).toEqual(['ZmFrZQ==']);
       return new Response(
@@ -131,14 +132,19 @@ describe('local container providers', () => {
     const deltas: string[] = [];
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        makeNdjsonResponse([
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.tools).toBeUndefined();
+        return makeNdjsonResponse([
           '{"model":"deepseek-r1","message":{"role":"assistant","content":"<think>plan"},"done":false}\n',
           '{"model":"deepseek-r1","message":{"role":"assistant","content":"</think>Hello"},"done":false}\n',
           '{"model":"deepseek-r1","message":{"role":"assistant","content":" world"},"done":false}\n',
           '{"model":"deepseek-r1","done":true,"done_reason":"stop","prompt_eval_count":10,"eval_count":4}\n',
-        ]),
-      ),
+        ]);
+      }),
     );
 
     const result = await callOllamaProviderStream({
@@ -458,6 +464,8 @@ describe('local container providers', () => {
         string,
         unknown
       >;
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(messages).toEqual([
         { role: 'user', content: 'hello' },
@@ -546,6 +554,8 @@ describe('local container providers', () => {
         string,
         unknown
       >;
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(messages).toEqual([
         { role: 'user', content: 'hello' },
@@ -633,6 +643,8 @@ describe('local container providers', () => {
         string,
         unknown
       >;
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
       const messages = body.messages as Array<Record<string, unknown>>;
       expect(messages).toEqual([
         {

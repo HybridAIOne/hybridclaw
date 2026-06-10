@@ -128,9 +128,11 @@ function buildRequestBody(
   const request: Record<string, unknown> = {
     model: normalizeOllamaModelName(args.model),
     messages: args.messages.map(convertMessage),
-    tools: convertTools(args.tools),
     stream,
   };
+  if (args.tools.length > 0) {
+    request.tools = convertTools(args.tools);
+  }
   if (
     typeof args.maxTokens === 'number' &&
     Number.isFinite(args.maxTokens) &&

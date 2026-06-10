@@ -282,6 +282,82 @@ test('lists admin agents with one workspace directory scan instead of per-file s
   }
 });
 
+test('lists shared cloud memory cache files in admin agent markdown files', async () => {
+  setupHome();
+
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const {
+    getGatewayAdminAgentMarkdownFile,
+    getGatewayAdminAgents,
+    saveGatewayAdminAgentMarkdownFile,
+  } = await import('../src/gateway/gateway-service.ts');
+
+  const workspacePath = agentWorkspaceDir('main');
+  fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspacePath, '.hybridclaw', 'cloud-memory.json'),
+    JSON.stringify({
+      files: [
+        {
+          scope: 'installation',
+          name: '/MEMORY.md',
+          content: '# Instance Memory\n\n- Shared by this installation.',
+        },
+        {
+          scope: 'company',
+          name: '/MEMORY.md',
+          content: '# Organization Memory\n\n- Shared by this organization.',
+        },
+      ],
+    }),
+    'utf-8',
+  );
+
+  const response = getGatewayAdminAgents();
+  const mainAgent = response.agents.find((agent) => agent.id === 'main');
+  const instanceFile = mainAgent?.markdownFiles.find(
+    (file) => file.name === 'Instance Memory.md',
+  );
+  const organizationFile = mainAgent?.markdownFiles.find(
+    (file) => file.name === 'Organization Memory.md',
+  );
+
+  expect(instanceFile).toMatchObject({
+    name: 'Instance Memory.md',
+    displayName: 'Instance Memory',
+    path: 'cloud-memory://installation/MEMORY.md',
+    scope: 'installation',
+    cloudPath: '/MEMORY.md',
+    readOnly: true,
+    exists: true,
+  });
+  expect(organizationFile).toMatchObject({
+    name: 'Organization Memory.md',
+    displayName: 'Organization Memory',
+    path: 'cloud-memory://company/MEMORY.md',
+    scope: 'company',
+    cloudPath: '/MEMORY.md',
+    readOnly: true,
+    exists: true,
+  });
+
+  const loaded = getGatewayAdminAgentMarkdownFile(
+    'main',
+    'Organization Memory.md',
+  );
+  expect(loaded.file.content).toBe(
+    '# Organization Memory\n\n- Shared by this organization.',
+  );
+  expect(loaded.file.revisions).toEqual([]);
+  expect(() =>
+    saveGatewayAdminAgentMarkdownFile({
+      agentId: 'main',
+      fileName: 'Organization Memory.md',
+      content: '# Changed\n',
+    }),
+  ).toThrow('Shared markdown file "Organization Memory.md" is read-only.');
+});
+
 test('reads only the newest 50 markdown revision files when listing versions', async () => {
   setupHome();
 
