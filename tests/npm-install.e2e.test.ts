@@ -171,6 +171,12 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
           '[cleanup] Gateway did not exit after SIGTERM, sending SIGKILL',
         );
         proc.kill('SIGKILL');
+        // Wait for the kill to land before rmSync below races a process that
+        // is still writing under tempDir (HOME, npm prefix, data dir).
+        await Promise.race([
+          new Promise<void>((resolve) => proc.on('exit', () => resolve())),
+          new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+        ]);
       }
     }
     if (tempDir) {

@@ -10,6 +10,9 @@ const requiredExactPaths = [
   'dist/cli.js',
   'console/dist/index.html',
   'scripts/postinstall-container.mjs',
+  // Without this manifest the container bootstrap silently no-ops
+  // ('missing-container-package'), shipping an empty container runtime.
+  'container/package.json',
   'container/npm-shrinkwrap.json',
 ];
 

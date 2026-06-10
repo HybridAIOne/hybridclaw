@@ -10,14 +10,14 @@ const enginesNode = pkg.engines?.node ?? '';
 const requiredMajor = Number.parseInt(/\d+/.exec(enginesNode)?.[0] ?? '', 10);
 const actualMajor = Number(process.versions.node.split('.')[0]);
 
+// process.exitCode (not process.exit) so the async stderr writes below are
+// flushed even when piped.
 if (!Number.isInteger(requiredMajor)) {
   console.error(
     `Could not determine the required Node.js major from engines.node ("${enginesNode}").`,
   );
   process.exitCode = 1;
 } else if (actualMajor !== requiredMajor) {
-  // exitCode (not process.exit) so the async stderr write above is flushed
-  // even when piped.
   console.error(
     [
       `HybridClaw requires Node.js ${requiredMajor}.x, but this process is running ${process.version}.`,

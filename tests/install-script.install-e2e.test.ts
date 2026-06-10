@@ -1,8 +1,10 @@
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, test } from 'vitest';
+import { beforeAll, describe, expect, test } from 'vitest';
+import { cleanupStaleContainers } from './helpers/docker-test-setup.js';
 
 /**
  * End-to-end coverage for the `curl | bash` bootstrap installer
@@ -54,7 +56,7 @@ const QUICK_TIMEOUT_MS = 150_000;
 // container run a bounded number of times — but only on a network signature, so
 // a genuine logic failure still fails fast on the first attempt.
 const NETWORK_ERROR =
-  /ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|network (?:read|connectivity|request)/i;
+  /ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|EINTEGRITY|ERR_SOCKET_TIMEOUT|fetch failed|503 Service Unavailable|Temporary failure|Hash Sum mismatch|network (?:read|connectivity|request)/i;
 
 interface ContainerRun {
   status: number;
@@ -77,7 +79,15 @@ function runInContainer(opts: {
   // --init: without it the shell is PID 1 and ignores the SIGTERM that
   // spawnSync's timeout sends, so a timed-out install keeps running (and
   // --rm never fires) — orphaned containers pile up across retries.
-  const args = ['run', '--rm', '--init'];
+  // The hc-e2e-install name gives the stale-container sweeper a handle for
+  // anything that survives a SIGKILLed worker.
+  const args = [
+    'run',
+    '--rm',
+    '--init',
+    '--name',
+    `hc-e2e-install-${randomUUID()}`,
+  ];
   if (user) args.push('--user', user);
   args.push(
     '--volume',
@@ -113,17 +123,35 @@ function runInstall(
   let last: ContainerRun | undefined;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     last = runInContainer(opts);
-    if (last.status === 0 || !NETWORK_ERROR.test(last.output)) return last;
+    // status -1 is the spawnSync timeout kill: usually a slow network, and the
+    // truncated output rarely contains a network signature — retry it too.
+    const transient = NETWORK_ERROR.test(last.output) || last.status === -1;
+    if (last.status === 0 || !transient) return last;
     if (attempt < attempts) {
       console.warn(
-        `[install-e2e] transient network failure on ${opts.image} (attempt ${attempt}/${attempts}); retrying`,
+        `[install-e2e] transient failure on ${opts.image} (attempt ${attempt}/${attempts}); retrying`,
       );
     }
   }
   return last as ContainerRun;
 }
 
+// In CI this suite is the only thing exercising the installer matrix; a
+// Docker outage must fail the job loudly instead of skipping it green.
+if (!ENABLED && process.env.CI) {
+  test('docker daemon is required for the installer e2e suite in CI', () => {
+    throw new Error(
+      'docker info failed: the installer bootstrap matrix cannot run. ' +
+        'Fix the runner Docker daemon rather than letting this suite skip silently.',
+    );
+  });
+}
+
 describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
+  beforeAll(() => {
+    cleanupStaleContainers('install');
+  });
+
   test(
     'clean Debian/Ubuntu without xz: managed Node via gzip tarball, then CLI install',
     () => {
@@ -131,11 +159,14 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
         image: 'ubuntu:24.04',
         script: [
           'set -e',
-          'apt-get update -qq >/dev/null 2>&1',
+          // stdout silenced for noise, stderr kept: an apt mirror flake must
+          // surface its own diagnostics (and match the transient-retry regex)
+          // instead of failing the later assertions with no clue.
+          'apt-get update -qq >/dev/null',
           // curl + ca-certificates is the floor a `curl | bash` user already
           // meets; python3/make/g++ let native modules compile. We pointedly do
           // NOT install xz-utils — the managed-Node path must not need it.
-          'apt-get install -y -qq curl ca-certificates python3 make g++ >/dev/null 2>&1',
+          'apt-get install -y -qq curl ca-certificates python3 make g++ >/dev/null',
           'export npm_config_fetch_retries=5',
           `bash /tmp/install.sh --no-prompt --verify --version ${INSTALL_VERSION}`,
         ].join('\n'),
@@ -153,7 +184,7 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
   );
 
   test(
-    'system Node 22, non-root, root-owned prefix: no-sudo fallback + effective npm upgrade',
+    'system Node 22, non-root, root-owned prefix: no-sudo fallback, bundled npm as-is',
     () => {
       const { status, output } = runInstall({
         image: 'node:22',
@@ -162,6 +193,7 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
           'export npm_config_fetch_retries=5',
           'bash /tmp/install.sh --no-prompt --verify',
           'echo "PREFIX=$(npm config get prefix)"',
+          'grep -qs "added by HybridClaw installer" "$HOME/.bashrc" "$HOME/.profile" && echo RC_PERSISTED=yes || echo RC_PERSISTED=no',
         ].join('\n'),
       });
 
@@ -174,6 +206,9 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
       // shrinkwrap pins the tree, so any Node 22 npm installs it correctly).
       expect(output).toMatch(/npm \d+\.\d+\.\d+ detected/);
       expect(output).toMatch(/hybridclaw --version -> \d+\.\d+\.\d+/);
+      // PATH persistence must land in an rc file, not just this process's env
+      // (the in-process --verify above cannot see a broken rc write).
+      expect(output).toContain('RC_PERSISTED=yes');
       expect(status).toBe(0);
     },
     INSTALL_TEST_MS,
@@ -187,13 +222,19 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
         shell: 'sh',
         timeoutMs: QUICK_TIMEOUT_MS,
         script: [
-          'apk add --no-cache bash curl >/dev/null 2>&1',
+          // stderr kept so an apk/CDN flake explains itself in the output.
+          'apk add --no-cache bash curl >/dev/null',
           'bash /tmp/install.sh --no-prompt',
+          'rc=$?',
+          'echo "HOME_EXISTS=$([ -e "$HOME/.hybridclaw" ] && echo yes || echo no)"',
+          'exit $rc',
         ].join('\n'),
       });
 
       expect(output).toMatch(/musl/i);
       expect(output).toContain('--skip-node');
+      // The title's promise: the musl refusal must leave nothing behind.
+      expect(output).toContain('HOME_EXISTS=no');
       expect(status).not.toBe(0);
     },
     QUICK_TIMEOUT_MS,

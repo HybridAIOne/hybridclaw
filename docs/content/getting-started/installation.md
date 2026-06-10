@@ -70,6 +70,7 @@ automatically during `npm install -g`. Installs that skip lifecycle scripts
 by default) miss that step; complete it afterwards with:
 
 ```bash
+# npm installs (pnpm: substitute "$(pnpm root -g)"):
 node "$(npm root -g)/@hybridaione/hybridclaw/scripts/postinstall-container.mjs"
 ```
 

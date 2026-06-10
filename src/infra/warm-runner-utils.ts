@@ -1,8 +1,10 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
+import path from 'node:path';
 import type { ExecutorSessionHealthSnapshot } from '../agent/executor-types.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
+import { resolveInstallRoot } from './install-root.js';
 import {
   cleanupHealthIpc,
   ensureSessionDirs,
@@ -103,7 +105,7 @@ export function formatWarmRunnerTerminalError(
     return [
       `${runtimeLabel} exited before producing output (${status}).`,
       `Missing runtime dependency: ${missingPackageMatch[1]}.`,
-      'Run `node "$(npm root -g)/@hybridaione/hybridclaw/scripts/postinstall-container.mjs"` to repair the install, or `npm run setup` from a source checkout.',
+      `Run \`node ${path.join(resolveInstallRoot(), 'scripts', 'postinstall-container.mjs')}\` to repair the install, or \`npm run setup\` from a source checkout.`,
     ].join('\n');
   }
 

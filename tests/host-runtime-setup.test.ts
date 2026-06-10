@@ -49,7 +49,7 @@ describe('ensureHostRuntimeReady', () => {
         installRoot,
       }),
     ).toThrow(
-      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Run `node "$(npm root -g)/@hybridaione/hybridclaw/scripts/postinstall-container.mjs"` to install them; installs that skip lifecycle scripts (--ignore-scripts, pnpm) miss this step.',
+      `hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Run \`node ${path.join(installRoot, 'scripts', 'postinstall-container.mjs')}\` to install them; installs that skip lifecycle scripts (--ignore-scripts, pnpm) miss this step.`,
     );
   });
 
