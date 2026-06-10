@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+### Added
+
+- **Cloud memory sync**: Agents now sync local memory files (`MEMORY.md`,
+  `USER.md`, and recent daily memory notes) with the HybridAI cloud and receive
+  shared installation- and company-scoped memory back for prompt context. Sync
+  runs at conversation start and periodically every five minutes with
+  per-agent rate limiting, requires `HYBRIDAI_API_KEY`, `HYBRIDAI_BASE_URL`
+  (HTTPS only), and `HYBRIDAI_CHATBOT_ID`, and stays disabled when those are
+  unset. Shared memory appears read-only in the agent file editor under a
+  "Shared memory" group.
+- **A2A operator pairing**: Added `/admin/a2a-trust` for pairing two HybridClaw
+  instances: operators fetch a peer Agent Card by URL or canonical DNS
+  identifier, preview its identity and key fingerprint, and trust it with an
+  optional peer-side approval prompt. Incoming pairing requests arrive through
+  a rate-limited `/a2a/pairing/requests` endpoint and can be approved or
+  declined from the console with audit-trail decision reasons.
+- **`byd-battery` skill**: Added read-only monitoring for BYD Battery-Box
+  Premium HVS/HVM/LVS/LVL home-storage systems over local Modbus TCP or
+  Fronius inverter delegation, covering state of charge, pack telemetry, cell
+  extremes, tower/module inventory, decoded alarms, firmware info, and energy
+  counters, with allowlisted register ranges and no write operations.
+- **Amber approval cards**: Web chat approval prompts now render as structured
+  confirmation cards with an approval-tier badge, parsed action/tool/reason
+  detail rows, and separated confirm/deny and trust-scope button groups.
+- **Response rating forwarding**: Thumbs up/down ratings on web chat responses
+  are forwarded to the HybridAI feedback API when HybridAI authentication is
+  active, alongside the existing local rating store and audit events.
+  Forwarding is non-blocking and skips silently when auth is unavailable.
+
+### Changed
+
+- **Provider request payloads**: Empty tool definitions are omitted from
+  HybridAI, OpenAI-compatible, Codex, and Ollama provider requests instead of
+  sending empty `tools` arrays.
+- **Coworker liveness scan**: Skill scans during coworker liveness checks use
+  set-based agent filtering, speeding up gateways with many agents.
+- **Dependency updates**: Routine minor and patch dependency updates across the
+  gateway, console, container, and desktop packages, plus overrides that lift
+  transitive `shell-quote` and `tmp` to patched releases flagged by npm audit.
+
+### Fixed
+
+- **Gateway token timing safety**: Gateway API and bearer token checks use
+  constant-time comparison to avoid timing side channels.
+- **Delegation identifiers**: Delegation session and batch job identifiers use
+  cryptographic UUIDs instead of seeded pseudo-random strings.
+- **Containment check stalls**: Media and artifact path containment checks
+  resolve real paths asynchronously so large directory validation no longer
+  blocks the gateway event loop.
+- **TUI ANSI truncation**: Terminal output truncation handles incomplete ANSI
+  escape sequences and wide glyphs without corrupting styled text.
+- **Duplicate hatching after onboarding**: Switching agents after onboarding
+  no longer re-triggers the workspace bootstrap kickoff, and bootstrap job
+  detection recognizes both bulleted and numbered job lists.
+- **Host runtime dependency detection**: Source-checkout host runtime checks
+  no longer misreport container dependencies as missing when npm hoists a
+  package whose `exports` map does not expose `package.json` (e.g.
+  `dompurify`).
+
 ## [0.23.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.23.0) - 2026-06-09
 
 ### Added
