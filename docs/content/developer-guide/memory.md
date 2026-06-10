@@ -15,8 +15,7 @@ problems:
 - `session_summary` compresses older current-session history
 - semantic memory stores query-recallable interaction summaries
 - canonical memory preserves cross-session and cross-channel continuity
-- cloud memory sync shares installation- and company-scoped memory through the
-  HybridAI cloud when configured
+- cloud memory sync shares installation- and company-scoped memory through the HybridAI cloud when configured
 
 On a normal turn, HybridClaw does not inject every stored artifact wholesale.
 Some layers are loaded through the static bootstrap prompt, some are appended
@@ -215,12 +214,9 @@ the layer stays disabled and nothing leaves the host.
 
 When enabled, each sync:
 
-- uploads the agent's `MEMORY.md`, `USER.md`, and recent daily notes (up to the
-  last `14` `memory/YYYY-MM-DD.md` files) to the HybridAI memory sync endpoint
-- receives back shared memory files scoped to `installation` (this HybridClaw
-  install) or `company` (the whole organization)
-- caches the shared files in the agent workspace under
-  `.hybridclaw/cloud-memory.json`
+- uploads the agent's `MEMORY.md`, `USER.md`, and recent daily notes (up to the last `14` `memory/YYYY-MM-DD.md` files) to the HybridAI memory sync endpoint
+- receives back shared memory files scoped to `installation` (this HybridClaw install) or `company` (the whole organization)
+- caches the shared files in the agent workspace under `.hybridclaw/cloud-memory.json`
 
 Cached shared memory is injected into prompt assembly alongside the local
 bootstrap files, with per-file truncation. Syncs run when a conversation

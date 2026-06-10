@@ -748,13 +748,9 @@ allowlisted register ranges with no arbitrary Modbus passthrough.
 
 **Troubleshooting**
 
-- **BMU host missing** — set `BYD_BMU_HOST` (and port/unit id if non-default)
-  or use `--via fronius` with a paired inverter.
-- **Connect timeout or comms lost** — the helper stops after the first failure
-  and emits an incident payload; check the BMU LAN address and port instead of
-  retrying.
-- **Gateway policy denial** — allow only the BMU LAN host and Modbus port;
-  local reads need no internet endpoints.
+- **BMU host missing** — set `BYD_BMU_HOST` (and port/unit id if non-default) or use `--via fronius` with a paired inverter.
+- **Connect timeout or comms lost** — the helper stops after the first failure and emits an incident payload; check the BMU LAN address and port instead of retrying.
+- **Gateway policy denial** — allow only the BMU LAN host and Modbus port; local reads need no internet endpoints.
 
 ---
 
