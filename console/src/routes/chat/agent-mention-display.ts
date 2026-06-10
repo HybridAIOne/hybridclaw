@@ -1,9 +1,23 @@
-const LEADING_AGENT_MENTION_RE = /^@([A-Za-z0-9._-]+)(?=$|[\s:])/u;
+const MENTION_BOUNDARY = String.raw`(?=$|[\s:.,!?;)\]}])`;
+const LEADING_AGENT_MENTION_RE = new RegExp(
+  `^@([A-Za-z0-9._-]+)${MENTION_BOUNDARY}`,
+  'u',
+);
+const AGENT_MENTION_RE = new RegExp(
+  `@([A-Za-z0-9._-]+)${MENTION_BOUNDARY}`,
+  'gu',
+);
 
 export interface LeadingAgentMention {
   mention: string;
   agentId: string;
   rest: string;
+}
+
+export interface AgentMentionMatch {
+  mention: string;
+  agentId: string;
+  index: number;
 }
 
 export function parseLeadingAgentMention(
@@ -19,6 +33,20 @@ export function parseLeadingAgentMention(
     agentId,
     rest: content.slice(mention.length),
   };
+}
+
+export function findAgentMentions(content: string): AgentMentionMatch[] {
+  const matches: AgentMentionMatch[] = [];
+  for (const match of content.matchAll(AGENT_MENTION_RE)) {
+    const mention = match[0];
+    const agentId = match[1] ?? '';
+    const index = match.index ?? 0;
+    if (!agentId) continue;
+    const previous = index === 0 ? '' : content[index - 1];
+    if (previous && !/[\s([{]/u.test(previous)) continue;
+    matches.push({ mention, agentId, index });
+  }
+  return matches;
 }
 
 export function normalizeAgentAttributionTarget(

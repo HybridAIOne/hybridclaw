@@ -1,5 +1,6 @@
 import {
   memo,
+  type ReactNode,
   startTransition,
   useCallback,
   useEffect,
@@ -18,7 +19,7 @@ import { ThumbsDown, ThumbsUp } from '../../components/icons';
 import { type ApprovalAction, copyToClipboard } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { renderMarkdown } from '../../lib/markdown';
-import { parseLeadingAgentMention } from './agent-mention-display';
+import { findAgentMentions } from './agent-mention-display';
 import { ApprovalCard } from './approval-card';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
@@ -659,23 +660,51 @@ function UserMessageContent(props: {
   presentation?: ChatMessage['addressedAgentPresentation'];
   token: string;
 }) {
-  const mention = parseLeadingAgentMention(props.content);
+  const mentions = findAgentMentions(props.content);
+  if (mentions.length === 0) return props.content;
+
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const [i, mention] of mentions.entries()) {
+    if (mention.index > last)
+      parts.push(props.content.slice(last, mention.index));
+    const presentation =
+      props.presentation?.agentId?.toLowerCase() ===
+      mention.agentId.toLowerCase()
+        ? props.presentation
+        : null;
+    parts.push(
+      <UserAgentMentionPill
+        key={`${mention.index}-${i}`}
+        mention={mention.mention}
+        imageUrl={presentation?.imageUrl ?? null}
+        token={props.token}
+      />,
+    );
+    last = mention.index + mention.mention.length;
+  }
+  if (last < props.content.length) parts.push(props.content.slice(last));
+
+  return <>{parts}</>;
+}
+
+function UserAgentMentionPill(props: {
+  mention: string;
+  imageUrl?: string | null;
+  token: string;
+}) {
   const avatarUrl = useAuthenticatedImageUrl({
     token: props.token,
-    imageUrl: mention ? props.presentation?.imageUrl : null,
+    imageUrl: props.imageUrl,
   });
-  if (!mention) return props.content;
 
   return (
-    <>
-      <span className={css.userAgentMentionPill}>
-        {avatarUrl ? (
-          <img className={css.userAgentMentionAvatar} src={avatarUrl} alt="" />
-        ) : null}
-        <span>{mention.mention}</span>
-      </span>
-      {mention.rest}
-    </>
+    <span className={css.userAgentMentionPill}>
+      {avatarUrl ? (
+        <img className={css.userAgentMentionAvatar} src={avatarUrl} alt="" />
+      ) : null}
+      <span>{props.mention}</span>
+    </span>
   );
 }
 

@@ -607,7 +607,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   min-height: 1.5em;
   max-width: 180px;
   padding: 0 0.45em;
-  margin-right: 0.25em;
+  margin: 0 0.12em;
   border: 1px solid
     color-mix(in srgb, var(--primary-foreground) 52%, transparent);
   border-radius: 999px;
