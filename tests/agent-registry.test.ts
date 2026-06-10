@@ -151,6 +151,48 @@ test('resolveAgentForRequest prefers request, then session, then configured defa
   });
 });
 
+test('listAgents refreshes externally updated database-backed registry', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const {
+    initDatabase,
+    listAgents: listDatabaseAgents,
+    upsertAgentWithTeamRevision,
+  } = await import('../src/memory/db.ts');
+  const { initAgentRegistry, listAgents } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+
+  initDatabase({ quiet: true });
+  initAgentRegistry({
+    list: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+      },
+    ],
+  });
+
+  expect(listAgents().map((agent) => agent.id)).toEqual(['main']);
+
+  const externalAgent = {
+    id: 'external',
+    name: 'External Agent',
+  };
+  upsertAgentWithTeamRevision({
+    agent: externalAgent,
+    finalAgents: [...listDatabaseAgents(), externalAgent],
+    meta: {
+      route: 'test.agent.external',
+      source: 'agent-registry-test',
+    },
+  });
+
+  expect(listAgents().map((agent) => agent.id)).toEqual(['main', 'external']);
+});
+
 test('agent skill allowlists persist through runtime config normalization and the registry', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
