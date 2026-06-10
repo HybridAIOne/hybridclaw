@@ -14,6 +14,7 @@ import {
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
+  normalizeAgentProxyConfig,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
 import {
@@ -160,7 +161,7 @@ let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 43;
+export const DATABASE_SCHEMA_VERSION = 44;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -227,6 +228,7 @@ type AgentRow = {
   cv: string | null;
   escalation_target: string | null;
   a2a: string | null;
+  proxy: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -555,6 +557,13 @@ function agentSkillScoresNeedMigration(database: Database.Database): boolean {
 function agentA2ANeedMigration(database: Database.Database): boolean {
   return (
     tableExists(database, 'agents') && !columnExists(database, 'agents', 'a2a')
+  );
+}
+
+function agentProxyNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'agents') &&
+    !columnExists(database, 'agents', 'proxy')
   );
 }
 
@@ -3050,6 +3059,20 @@ function migrateV43(database: Database.Database): void {
   recordMigration(database, 43, 'Index structured audit events by Actor');
 }
 
+function migrateV44(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'proxy',
+    ddl: 'proxy TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 44, 'Persist per-agent proxy backend metadata');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3158,6 +3181,9 @@ function runMigrations(
   }
   if (currentVersion < 43 || auditEventsNeedActorMigration(database)) {
     migrateV43(database);
+  }
+  if (currentVersion < 44 || agentProxyNeedMigration(database)) {
+    migrateV44(database, opts);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -3423,6 +3449,25 @@ function parseAgentA2AConfig(rawConfig: string | null): AgentConfig['a2a'] {
   }
 }
 
+function serializeAgentProxyConfig(proxy: AgentConfig['proxy']): string | null {
+  return proxy ? JSON.stringify(proxy) : null;
+}
+
+function parseAgentProxyConfig(rawConfig: string | null): AgentConfig['proxy'] {
+  const normalized = rawConfig?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentProxyConfig(JSON.parse(normalized), 'agents.proxy');
+  } catch {
+    logger.warn(
+      { configLength: normalized.length },
+      'Failed to parse persisted agent proxy configuration',
+    );
+    return undefined;
+  }
+}
+
 function normalizeStoredIdentityField(
   value: string | null,
   parseIdentity: (normalized: string) => { id: string },
@@ -3591,6 +3636,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const cv = parseAgentCv(row.cv);
   const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
   const a2a = parseAgentA2AConfig(row.a2a);
+  const proxy = parseAgentProxyConfig(row.proxy);
   return {
     id: row.id,
     ...(canonicalId ? { canonicalId } : {}),
@@ -3613,11 +3659,12 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
+    ...(proxy ? { proxy } : {}),
   };
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, canonical_id, owner_user_id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, created_at, updated_at';
+  'id, canonical_id, owner_user_id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -3666,6 +3713,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     agent.escalationTarget,
   );
   const normalizedA2A = serializeAgentA2AConfig(agent.a2a);
+  const normalizedProxy = serializeAgentProxyConfig(agent.proxy);
   const explicitIdentity = normalizeAgentIdentityFields({
     canonicalId: agent.canonicalId,
     ownerUserId: agent.ownerUserId,
@@ -3729,9 +3777,10 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        cv,
        escalation_target,
        a2a,
+       proxy,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        canonical_id = excluded.canonical_id,
        owner_user_id = excluded.owner_user_id,
@@ -3751,6 +3800,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        cv = excluded.cv,
        escalation_target = excluded.escalation_target,
        a2a = excluded.a2a,
+       proxy = excluded.proxy,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -3772,6 +3822,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedCv,
     normalizedEscalationTarget,
     normalizedA2A,
+    normalizedProxy,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {

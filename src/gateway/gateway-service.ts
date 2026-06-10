@@ -525,6 +525,7 @@ import {
   type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
   type GatewayAdminEmailMessageResponse,
+  type GatewayAdminHybridAIBotsResponse,
   type GatewayAdminJobCard,
   type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
@@ -1422,6 +1423,9 @@ function mapGatewayAdminAgent(
     chatbotId: resolved.chatbotId || null,
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
+    ...(resolved.proxy
+      ? { proxy: mapGatewayAdminAgentProxyConfig(resolved.proxy) }
+      : {}),
     role: resolved.role || null,
     reportsTo: resolved.reportsTo || null,
     delegatesTo: Array.isArray(resolved.delegatesTo)
@@ -1442,6 +1446,25 @@ function mapGatewayAdminAgent(
             : undefined,
         }),
     ),
+  };
+}
+
+function mapGatewayAdminAgentProxyConfig(
+  proxy: AgentConfig['proxy'],
+): GatewayAdminAgent['proxy'] {
+  if (!proxy) return null;
+  if (proxy.apiKey.source !== 'store') return null;
+  return {
+    kind: 'hybridai',
+    baseUrl: proxy.baseUrl,
+    chatbotId: proxy.chatbotId,
+    apiKey: {
+      source: 'store',
+      id: proxy.apiKey.id,
+    },
+    ...(proxy.conversationScope
+      ? { conversationScope: proxy.conversationScope }
+      : {}),
   };
 }
 
@@ -4591,6 +4614,23 @@ export function getGatewayAdminAgents(): GatewayAdminAgentsResponse {
   };
 }
 
+export async function getGatewayAdminHybridAIBots(options?: {
+  baseUrl?: string;
+}): Promise<GatewayAdminHybridAIBotsResponse> {
+  const bots = await fetchHybridAIBots({
+    baseUrl: options?.baseUrl,
+    cacheTtlMs: BOT_CACHE_TTL,
+  });
+  return {
+    bots: bots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      ...(bot.description ? { description: bot.description } : {}),
+      ...(bot.model ? { model: bot.model } : {}),
+    })),
+  };
+}
+
 function mapGatewayAdminTeamStructureRevision(
   revision: ReturnType<
     typeof listRegisteredAgentTeamStructureRevisions
@@ -4831,6 +4871,7 @@ export function createGatewayAdminAgent(params: {
   skills?: string[] | null;
   chatbotId?: string | null;
   enableRag?: boolean | null;
+  proxy?: AgentConfig['proxy'] | null;
   role?: string | null;
   reportsTo?: string | null;
   delegatesTo?: string[] | null;
@@ -4848,6 +4889,7 @@ export function createGatewayAdminAgent(params: {
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
+    ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
     ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
   });
@@ -4864,6 +4906,7 @@ export function updateGatewayAdminAgent(
     skills?: string[] | null;
     chatbotId?: string | null;
     enableRag?: boolean | null;
+    proxy?: AgentConfig['proxy'] | null;
     role?: string | null;
     reportsTo?: string | null;
     delegatesTo?: string[] | null;
@@ -4895,6 +4938,7 @@ export function updateGatewayAdminAgent(
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
+    ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
   });
   return {
@@ -11394,9 +11438,25 @@ export async function handleGatewayCommand(
 
       case 'status': {
         const status = await getGatewayStatus();
-        const delegationStatus = delegationQueueStatus();
         const commitShort = resolveGitCommitShort();
         const runtime = resolveSessionRuntimeTarget(session);
+        const activeAgent = resolveAgentConfig(runtime.agentId);
+        if (activeAgent.proxy) {
+          const proxyScope = activeAgent.proxy.conversationScope ?? 'channel';
+          const lines = [
+            `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
+            '🔁 Mode: HybridAI proxy',
+            `🤖 Agent: ${runtime.agentId}`,
+            `🌐 Upstream: ${activeAgent.proxy.baseUrl}`,
+            `💬 Chatbot: ${activeAgent.proxy.chatbotId}`,
+            `🧵 Conversation scope: ${proxyScope}`,
+            `🧵 Session: ${session.id} • updated ${formatRelativeTime(session.last_active)}`,
+            `📊 Gateway: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions}`,
+          ];
+          return infoCommand('Status', lines.join('\n'));
+        }
+
+        const delegationStatus = delegationQueueStatus();
         const containerImageStatus =
           status.sandbox?.mode === 'container' && status.sandbox.image
             ? await resolveContainerImageStatus(status.sandbox.image)
