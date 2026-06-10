@@ -141,7 +141,9 @@ function runInstall(
 
 // In CI this suite is the only thing exercising the installer matrix; a
 // Docker outage must fail the job loudly instead of skipping it green.
-if (!ENABLED && process.env.CI) {
+// Value-aware like install.sh's own CI parsing: CI=false/0 is not CI.
+const IN_CI = !!process.env.CI && !/^(false|no|off|0)$/i.test(process.env.CI);
+if (!ENABLED && IN_CI) {
   test('docker daemon is required for the installer e2e suite in CI', () => {
     throw new Error(
       'docker info failed: the installer bootstrap matrix cannot run. ' +

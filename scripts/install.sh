@@ -6,7 +6,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash
 #
 # Or with options (note the extra `-s --` to pass flags through the pipe):
-#   curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash -s -- --version 0.22.0 --no-onboarding
+#   curl -fsSL https://raw.githubusercontent.com/HybridAIOne/hybridclaw/main/scripts/install.sh | bash -s -- --no-onboarding
 #
 # What it does:
 #   1. Detects your OS/arch (Linux + macOS; Windows users are pointed at WSL2).
@@ -65,15 +65,19 @@ NPM_PREFIX=""
 # Truthy for env-derived flags: 1/true/yes/on (any case). Avoids the arithmetic
 # `-eq` test, which errors (and is then treated as false) on values like "true".
 is_truthy() { case "${1:-}" in [Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]|1) return 0 ;; *) return 1 ;; esac; }
+is_falsy() { case "${1:-}" in [Ff][Aa][Ll][Ss][Ee]|[Nn][Oo]|[Oo][Ff][Ff]|0) return 0 ;; *) return 1 ;; esac; }
 
 RUN_ONBOARDING=1
 CHECK_DOCKER=1
 MANAGE_NODE=1
 DRY_RUN="${HYBRIDCLAW_DRY_RUN:-0}"
 VERIFY="${HYBRIDCLAW_VERIFY_INSTALL:-0}"
-# Headless when HYBRIDCLAW_NO_PROMPT, the conventional NO_PROMPT, or CI is
-# truthy. Value-aware on purpose: CI=false or NO_PROMPT=0 must not go headless.
-if is_truthy "${HYBRIDCLAW_NO_PROMPT:-}" || is_truthy "${NO_PROMPT:-}" || is_truthy "${CI:-}"; then
+# Headless when HYBRIDCLAW_NO_PROMPT or the conventional NO_PROMPT is truthy,
+# or when CI is set to anything but an explicit opt-out: CI systems often set
+# a product name (CI=woodpecker), but CI=false or NO_PROMPT=0 must not go
+# headless.
+if is_truthy "${HYBRIDCLAW_NO_PROMPT:-}" || is_truthy "${NO_PROMPT:-}" \
+  || { [ -n "${CI:-}" ] && ! is_falsy "${CI:-}"; }; then
   NO_PROMPT=1
 else
   NO_PROMPT=0
@@ -189,20 +193,28 @@ fetch() { curl -fsSL --proto '=https' --tlsv1.2 "$@"; }
 resolve_node_version() {
   NODE_SHASUMS=""
   if [ -n "${HYBRIDCLAW_NODE_VERSION:-}" ]; then
-    NODE_VERSION="$HYBRIDCLAW_NODE_VERSION"
+    # Accept the natural `node --version` form (v22.x.y) and refuse majors the
+    # CLI's engines guard would reject right after a green install.
+    NODE_VERSION="${HYBRIDCLAW_NODE_VERSION#v}"
+    case "$NODE_VERSION" in
+      "${REQUIRED_NODE_MAJOR}".*) ;;
+      *) die "HYBRIDCLAW_NODE_VERSION='${HYBRIDCLAW_NODE_VERSION}' is not a ${REQUIRED_NODE_MAJOR}.x version; HybridClaw requires Node ${REQUIRED_NODE_MAJOR}." ;;
+    esac
     return 0
   fi
   # One small fetch yields both the newest 22.x version (from the filenames)
-  # and its checksums; the full dist/index.json is ~85x larger.
+  # and its checksums; the full dist/index.json is ~85x larger. Matching this
+  # platform's own tarball name also proves the release ships a build for it.
   NODE_SHASUMS="$(fetch --max-time 15 \
       "https://nodejs.org/dist/latest-v${REQUIRED_NODE_MAJOR}.x/SHASUMS256.txt" 2>/dev/null)" \
     || NODE_SHASUMS=""
   NODE_VERSION="$(printf '%s\n' "$NODE_SHASUMS" \
-    | sed -n "s/.*node-v\(${REQUIRED_NODE_MAJOR}[0-9.]*\)-linux-x64\.tar\.gz\$/\1/p" \
+    | sed -n "s/.*node-v\(${REQUIRED_NODE_MAJOR}[0-9.]*\)-${PLATFORM_OS}-${PLATFORM_ARCH}\.tar\.gz\$/\1/p" \
     | head -1)" || NODE_VERSION=""
   if [ -z "$NODE_VERSION" ]; then
     NODE_SHASUMS=""
     NODE_VERSION="$NODE_VERSION_FALLBACK"
+    warn "Could not discover the newest Node ${REQUIRED_NODE_MAJOR}.x for ${PLATFORM_OS}-${PLATFORM_ARCH} from nodejs.org; using v${NODE_VERSION_FALLBACK}."
   fi
 }
 
@@ -354,25 +366,40 @@ ensure_writable_npm_prefix() {
   mkdir -p "$NPM_USER_PREFIX/bin"
   npm config set prefix "$NPM_USER_PREFIX" >/dev/null 2>&1 \
     || die "could not point npm at a user-writable prefix (${NPM_USER_PREFIX})."
+  # An exported npm_config_prefix/NPM_CONFIG_PREFIX overrides the ~/.npmrc
+  # entry just written, so npm would keep installing into the unwritable
+  # prefix. Override it for this process and tell the user about their shell.
+  if [ -n "${npm_config_prefix:-}" ] || [ -n "${NPM_CONFIG_PREFIX:-}" ]; then
+    warn "npm_config_prefix/NPM_CONFIG_PREFIX is exported and overrides ~/.npmrc; unset it (or point it at ${NPM_USER_PREFIX}) so future global installs keep working."
+    export npm_config_prefix="$NPM_USER_PREFIX" NPM_CONFIG_PREFIX="$NPM_USER_PREFIX"
+  fi
   NPM_PREFIX="$NPM_USER_PREFIX"
   add_to_path "$NPM_USER_PREFIX/bin"
 }
 
-# The npm version itself is deliberately not gated here: the published package
-# ships a fully pinned npm-shrinkwrap.json, so any npm bundled with Node 22
-# installs it correctly (the npm 11.10+ requirement is a dev/build concern;
-# see SECURITY.md). Mutating the user's global npm would be all downside.
+# Only a compatibility floor is enforced — no pin, no upgrade: the published
+# package ships a fully pinned npm-shrinkwrap.json, which any npm >= 7 installs
+# correctly (the npm 11.10+ requirement is a dev/build concern; see
+# SECURITY.md). Mutating the user's global npm would be all downside.
 ensure_npm() {
-  local npm_version
+  local npm_version npm_major
   if is_dry; then
     info "[dry-run] would check npm is available and the global prefix is user-writable"
     return 0
   fi
   have npm || die "npm not found alongside Node.js; reinstall Node 22."
-  # Make the prefix writable before the global CLI install writes there.
-  ensure_writable_npm_prefix
   npm_version="$(npm --version 2>/dev/null)" \
     || die "'npm --version' failed; your npm install looks broken — reinstall Node ${REQUIRED_NODE_MAJOR}."
+  # npm <= 6 silently ignores the lockfileVersion-3 shrinkwrap, installing an
+  # unpinned tree; such an npm can only be a stale standalone install shadowing
+  # the one bundled with Node 22.
+  npm_major="${npm_version%%.*}"
+  if [ "$npm_major" -lt 7 ] 2>/dev/null; then
+    die "npm ${npm_version} is too old to honor this package's npm-shrinkwrap.json (npm 7+ required).
+A stale npm is shadowing the one bundled with Node ${REQUIRED_NODE_MAJOR}; remove it or reinstall Node ${REQUIRED_NODE_MAJOR}."
+  fi
+  # Make the prefix writable before the global CLI install writes there.
+  ensure_writable_npm_prefix
   ok "npm ${npm_version} detected"
 }
 
@@ -422,7 +449,9 @@ add_to_path() {
   done
 
   if [ -n "$fish_conf" ]; then
-    local fish_line="fish_add_path --prepend \"$dir\" $marker"
+    # `contains`/`set` instead of fish_add_path, which only exists in
+    # fish >= 3.2 and would error on every startup of older shells.
+    local fish_line="contains -- \"$dir\" \$PATH; or set -gx PATH \"$dir\" \$PATH $marker"
     if ! grep -qsF "$fish_line" "$fish_conf" 2>/dev/null; then
       { mkdir -p "${fish_conf%/*}" && printf '\n%s\n' "$fish_line" >> "$fish_conf"; } 2>/dev/null \
         || warn "could not update ${fish_conf}; add '${dir}' to your PATH manually."

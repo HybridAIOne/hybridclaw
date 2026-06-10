@@ -99,15 +99,12 @@ export function inspectContainerBootstrap(packageRoot) {
 
 export function resolveNpmCommand(containerDir, env = process.env) {
   const npmExecPath = String(env.npm_execpath || '').trim();
-  const npmUserAgent = String(env.npm_config_user_agent || '').toLowerCase();
   const npmExecName = path.basename(npmExecPath).toLowerCase();
-  // Reuse npm_execpath only when it is actually npm: pnpm, yarn, and bun set
-  // it too, and running their CLIs with npm-only flags fails the install.
-  const invokedByNpm =
-    npmUserAgent.startsWith('npm/') ||
-    npmExecName === 'npm' ||
-    npmExecName === 'npm.cmd' ||
-    npmExecName.startsWith('npm-cli');
+  // Reuse npm_execpath only when it is npm's JS entrypoint (npm-cli.js):
+  // pnpm, yarn, and bun set npm_execpath too (running their CLIs with
+  // npm-only flags fails the install), and npm's own `npm`/`npm.cmd` shell
+  // wrappers are not JavaScript, so process.execPath cannot run them.
+  const invokedByNpm = npmExecName.startsWith('npm-cli');
   const installArgs = [
     '--prefix',
     containerDir,

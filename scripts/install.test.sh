@@ -66,7 +66,10 @@ no_prompt_for() { # [VAR=val ...] -> echoes the derived NO_PROMPT
     "$HERE/install.sh"
 }
 expect_eq "CI=false stays interactive"          "0" "$(no_prompt_for CI=false)"
+expect_eq "CI=0 stays interactive"              "0" "$(no_prompt_for CI=0)"
 expect_eq "CI=true goes headless"               "1" "$(no_prompt_for CI=true)"
+# CI systems often set a product name rather than "true" (Woodpecker, Drone).
+expect_eq "CI=woodpecker goes headless"         "1" "$(no_prompt_for CI=woodpecker)"
 expect_eq "NO_PROMPT=0 stays interactive"       "0" "$(no_prompt_for NO_PROMPT=0)"
 expect_eq "HYBRIDCLAW_NO_PROMPT=yes goes headless" "1" "$(no_prompt_for HYBRIDCLAW_NO_PROMPT=yes)"
 expect_eq "no env stays interactive"            "0" "$(no_prompt_for)"
@@ -87,14 +90,30 @@ expect_rc "--help exits 0" 0 "$?"
 expect_contains "--help prints usage" "HybridClaw installer" "$out"
 
 echo "== resolve_node_version =="
-v="$( ( curl() { return 1; }; resolve_node_version; echo "$NODE_VERSION" ) )"
+v="$( ( curl() { return 1; }; PLATFORM_OS=linux; PLATFORM_ARCH=x64
+        resolve_node_version 2>/dev/null; echo "$NODE_VERSION" ) )"
 expect_eq "offline -> pinned fallback" "$NODE_VERSION_FALLBACK" "$v"
+out="$( ( curl() { return 1; }; PLATFORM_OS=linux; PLATFORM_ARCH=x64
+          resolve_node_version ) 2>&1 )"
+expect_contains "offline fallback warns" "using v${NODE_VERSION_FALLBACK}" "$out"
 v="$( ( curl() { printf 'abc1  node-v22.31.4-linux-x64.tar.gz\nabc2  node-v22.31.4-darwin-arm64.tar.gz\n'; }
+        PLATFORM_OS=linux; PLATFORM_ARCH=x64
         resolve_node_version; echo "$NODE_VERSION" ) )"
 expect_eq "parses latest from SHASUMS256.txt" "22.31.4" "$v"
+# The platform's own tarball line is the sentinel: a release without a build
+# for this platform must not be selected.
+v="$( ( curl() { printf 'abc1  node-v22.31.4-linux-x64.tar.gz\n'; }
+        PLATFORM_OS=darwin; PLATFORM_ARCH=arm64
+        resolve_node_version 2>/dev/null; echo "$NODE_VERSION" ) )"
+expect_eq "release without this platform's build -> fallback" "$NODE_VERSION_FALLBACK" "$v"
 v="$( ( curl() { printf 'abc1  node-v22.31.4-linux-x64.tar.gz\n'; }
         HYBRIDCLAW_NODE_VERSION=22.11.0 resolve_node_version; echo "$NODE_VERSION" ) )"
 expect_eq "explicit HYBRIDCLAW_NODE_VERSION pin wins" "22.11.0" "$v"
+v="$( ( HYBRIDCLAW_NODE_VERSION=v22.11.0 resolve_node_version; echo "$NODE_VERSION" ) )"
+expect_eq "pin tolerates a leading v" "22.11.0" "$v"
+out="$( ( HYBRIDCLAW_NODE_VERSION=20.11.1 resolve_node_version ) 2>&1 )"
+expect_rc "pin with the wrong major dies" 1 "$?"
+expect_contains "wrong-major pin message" "not a ${REQUIRED_NODE_MAJOR}.x version" "$out"
 # The stubs above ignore curl's arguments; pin the actual URLs requested.
 url_log="$TEST_TMPDIR/urls"
 url_capturing_curl() { # records https URLs to $url_log, then fails the fetch
@@ -122,7 +141,6 @@ tmp="$(mktemp "$TEST_TMPDIR/f.XXXXXX")"; printf 'hybridclaw' >"$tmp"
 expect_eq "sha256_of known string" \
   "c1b0e433aa7b46071b1c5a5e6470a2e473a7dbc4d9909a38ca16cca9732beac0" \
   "$(sha256_of "$tmp")"
-rm -f "$tmp"
 
 echo "== detect_platform =="
 # desc | uname -s | uname -m | expected "os arch libc"
@@ -202,7 +220,6 @@ expect_rc "cached mismatch dies" 1 "$?"
   NODE_SHASUMS="aaaa  some-other-file.tar.gz"
   verify_node_checksum "$tmp" CACHE "$fn" ) >/dev/null 2>&1
 expect_rc "cache miss falls through to fetch" 0 "$?"
-rm -f "$tmp"
 
 echo "== dir_writable =="
 writable_dir="$(mktemp -d "$TEST_TMPDIR/d.XXXXXX")"
@@ -220,7 +237,6 @@ if [ "$(id -u)" != 0 ] && [ ! -w "$ro_dir" ]; then
 else
   ok "non-writable parent rejected (skipped: running as root bypasses perms)"
 fi
-chmod u+w "$ro_dir" 2>/dev/null; rm -rf "$writable_dir"
 
 echo "== check_build_prereqs =="
 out="$( ( have() { return 0; } # all tools present
@@ -269,6 +285,34 @@ out="$( ( have() { [ "$1" = node ]; }
           ensure_node ) 2>&1 )"
 expect_contains "broken node falls through to managed install" "MANAGED_INSTALL_CALLED" "$out"
 
+echo "== ensure_npm =="
+# npm <= 6 cannot honor the lockfileVersion-3 shrinkwrap and must die.
+out="$( ( have() { return 0; }
+          npm() { echo 6.14.18; }
+          ensure_writable_npm_prefix() { :; }
+          ensure_npm ) 2>&1 )"
+expect_rc "npm 6 dies" 1 "$?"
+expect_contains "npm 6 die names the floor" "npm 7+ required" "$out"
+out="$( ( have() { return 0; }
+          npm() { echo 11.6.0; }
+          ensure_writable_npm_prefix() { :; }
+          ensure_npm ) 2>&1 )"
+expect_rc "modern npm passes" 0 "$?"
+expect_contains "modern npm reported" "npm 11.6.0 detected" "$out"
+
+echo "== ensure_writable_npm_prefix =="
+# An exported NPM_CONFIG_PREFIX overrides the ~/.npmrc write; the fallback must
+# redirect it for this process so the install lands in the user prefix.
+out="$( ( npm() { case "$1" in prefix) echo /usr/local ;; config) : ;; esac; }
+          dir_writable() { return 1; }
+          add_to_path() { :; }
+          NPM_USER_PREFIX="$TEST_TMPDIR/npm-global"
+          NPM_CONFIG_PREFIX=/usr/local
+          ensure_writable_npm_prefix
+          echo "redirected=$NPM_CONFIG_PREFIX" ) 2>&1 )"
+expect_contains "env prefix override redirected" "redirected=$TEST_TMPDIR/npm-global" "$out"
+expect_contains "env prefix override warns" "overrides ~/.npmrc" "$out"
+
 echo "== npm_global_bin =="
 out="$( ( NPM_PREFIX="/cached/prefix"
           npm() { echo /wrong; }
@@ -296,11 +340,12 @@ touch "$fake_home/.bash_profile"
 ( HOME="$fake_home"; SHELL=/bin/bash; add_to_path /opt/hc/bin )
 grep -q 'added by HybridClaw installer' "$fake_home/.bash_profile"
 expect_rc "existing .bash_profile updated" 0 "$?"
-# fish gets fish syntax in config.fish and no POSIX rc files.
+# fish gets fish syntax in config.fish and no POSIX rc files. `contains`/`set`
+# rather than fish_add_path, which fish < 3.2 does not have.
 fake_home="$(mktemp -d "$TEST_TMPDIR/home.XXXXXX")"
 ( HOME="$fake_home"; SHELL=/usr/bin/fish; XDG_CONFIG_HOME=""; add_to_path /opt/hc/bin )
-expect_contains "fish config gets fish_add_path" \
-  'fish_add_path --prepend "/opt/hc/bin"' \
+expect_contains "fish config gets a PATH line" \
+  'contains -- "/opt/hc/bin" $PATH; or set -gx PATH "/opt/hc/bin" $PATH' \
   "$(cat "$fake_home/.config/fish/config.fish" 2>/dev/null)"
 [ ! -e "$fake_home/.profile" ]
 expect_rc "fish writes no POSIX rc file" 0 "$?"

@@ -59,10 +59,7 @@ describe('ensureHostRuntimeReady', () => {
       path.join(installRoot, 'package.json'),
       '{"name":"@hybridaione/hybridclaw"}',
     );
-    fs.writeFileSync(
-      path.join(installRoot, '.git'),
-      'gitdir: ./.git/worktrees/dev\n',
-    );
+    fs.mkdirSync(path.join(installRoot, 'src'), { recursive: true });
     fs.mkdirSync(path.join(installRoot, 'container', 'dist'), {
       recursive: true,
     });

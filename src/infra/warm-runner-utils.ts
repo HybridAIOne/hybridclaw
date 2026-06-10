@@ -98,6 +98,9 @@ export function formatWarmRunnerTerminalError(
   params?: {
     code?: number | null;
     signal?: NodeJS.Signals | null;
+    // Overrides the host-install repair hint for runtimes (e.g. the Docker
+    // sandbox) where the host-side bootstrap script cannot fix anything.
+    repairHint?: string;
   },
 ): string {
   const stderrText = entry.stderrHistory.join('\n');
@@ -113,7 +116,8 @@ export function formatWarmRunnerTerminalError(
     return [
       `${runtimeLabel} exited before producing output (${status}).`,
       `Missing runtime dependency: ${missingPackageMatch[1]}.`,
-      `Run \`node ${containerBootstrapScriptPath()}\` to repair the install, or \`npm run setup\` from a source checkout.`,
+      params?.repairHint ??
+        `Run \`node ${containerBootstrapScriptPath()}\` to repair the install, or \`npm run setup\` from a source checkout.`,
     ].join('\n');
   }
 

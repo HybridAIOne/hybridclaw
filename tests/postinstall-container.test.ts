@@ -126,6 +126,22 @@ test('prefers npm_execpath when npm exposes it during install', () => {
   });
 });
 
+test('falls back to npm when npm_execpath is the npm shell wrapper', () => {
+  // npm's bin/npm is a bash script (npm.cmd a batch file); handing it to
+  // process.execPath would make node throw a SyntaxError and fail the install.
+  const packageRoot = makeTempDir();
+  const npmWrapperPath = path.join(packageRoot, 'npm');
+  fs.writeFileSync(npmWrapperPath, '#!/bin/sh\nexec npm-cli.js "$@"\n', 'utf-8');
+
+  expect(
+    resolveNpmCommand('/tmp/hybridclaw-container', {
+      ...process.env,
+      npm_config_user_agent: 'npm/11.10.0 node/v22.15.1 linux x64',
+      npm_execpath: npmWrapperPath,
+    }),
+  ).toMatchObject({ command: 'npm' });
+});
+
 test('falls back to npm when installed through pnpm', () => {
   const packageRoot = makeTempDir();
   const pnpmCliPath = path.join(packageRoot, 'pnpm.cjs');

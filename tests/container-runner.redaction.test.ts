@@ -1127,7 +1127,9 @@ test('ContainerExecutor surfaces missing packaged runtime dependencies as immedi
   expect(output.error).toContain(
     'Missing runtime dependency: @modelcontextprotocol/sdk.',
   );
-  expect(output.error).toContain('postinstall-container.mjs');
+  // Docker images bake their own node_modules; the hint must point at an
+  // image rebuild, not the host-side bootstrap script.
+  expect(output.error).toContain('npm run build:container');
 });
 
 test('ContainerExecutor forwards maxWallClockMs to the IPC output reader', async () => {
