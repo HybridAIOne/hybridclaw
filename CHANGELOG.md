@@ -21,7 +21,8 @@
   and revision snapshots as one identifier set. Includes a leakage/fidelity
   eval (`coworker eval`), conversational corrections (`coworker correct`),
   and one-bundle multi-host export/install for Claude Code, Codex, OpenClaw,
-  and HybridClaw.
+  and HybridClaw. Manifesto: Principle VII - A coworker you can trust with
+  real responsibility.
 - **Cloud memory sync**: Agents now sync local memory files (`MEMORY.md`,
   `USER.md`, and recent daily memory notes) with the HybridAI cloud and receive
   shared installation- and company-scoped memory back for prompt context. Sync
