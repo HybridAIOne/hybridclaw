@@ -132,12 +132,15 @@ message lookup or sends.
    Do not run `hybridclaw secret list`, `hybridclaw env list`, `grep`, or local
    file inspection from the agent sandbox to decide whether Mailchimp values
    are configured; those checks can see the wrong runtime surface.
-   For stored OAuth access tokens, use `oauth.metadata --auth oauth` to retrieve the
+   For stored OAuth access tokens, use `oauth metadata --auth oauth` to retrieve the
    account-specific API endpoint and set `MAILCHIMP_SERVER_PREFIX` from the
    returned API endpoint host.
-2. Use `mailchimp.cjs` to build allowlisted `http_request` payloads. Pass the
-   emitted `httpRequest` object unchanged to the built-in `http_request` tool
-   when a live Mailchimp call is required.
+2. Use `mailchimp.cjs` noun/verb commands for live work. Normal commands send
+   the helper-built request through the HybridClaw gateway `/api/http/request`
+   path, so the gateway resolves `<env:...>` and `<secret:...>` placeholders
+   server-side. Use `--request` only for dry-run/debug output; do not normally
+   reconstruct or relay `httpRequest` objects with the built-in `http_request`
+   tool.
 3. Treat `MAILCHIMP_MARKETING_BASIC_AUTH`, `MAILCHIMP_MARKETING_OAUTH_TOKEN`,
    and `MANDRILL_API_KEY` as SecretRefs only. Never ask the operator to paste
    tokens into chat, never print raw `Authorization` headers, and never include
@@ -158,70 +161,77 @@ message lookup or sends.
 
 ## Command Contract
 
+Use the standard helper shape:
+
+```text
+node skills/mailchimp/mailchimp.cjs [--format json|pretty] [--request] <resource> <action> [flags]
+node skills/mailchimp/mailchimp.cjs [--format json|pretty] approval-plan <resource> <action> [flags]
+```
+
 ```bash
 node skills/mailchimp/mailchimp.cjs --help
 node skills/mailchimp/mailchimp.cjs --format json credential-check
-node skills/mailchimp/mailchimp.cjs --format json http-request oauth.metadata
-node skills/mailchimp/mailchimp.cjs --format json http-request oauth.metadata --auth oauth
+node skills/mailchimp/mailchimp.cjs --format json oauth metadata --auth oauth
+node skills/mailchimp/mailchimp.cjs --format json --request oauth metadata --auth oauth
 ```
 
-Build Marketing read requests:
+Run Marketing reads:
 
 ```bash
-node skills/mailchimp/mailchimp.cjs --format json http-request marketing.root
-node skills/mailchimp/mailchimp.cjs --format json http-request audience.list --count 25
-node skills/mailchimp/mailchimp.cjs --format json http-request audience.members --list-id <list-id> --status subscribed
-node skills/mailchimp/mailchimp.cjs --format json http-request audience.member --list-id <list-id> --email user@example.com
-node skills/mailchimp/mailchimp.cjs --format json http-request audience.merge-fields --list-id <list-id>
+node skills/mailchimp/mailchimp.cjs --format json marketing root
+node skills/mailchimp/mailchimp.cjs --format json audience list --count 25
+node skills/mailchimp/mailchimp.cjs --format json audience members --list-id <list-id> --status subscribed
+node skills/mailchimp/mailchimp.cjs --format json audience member --list-id <list-id> --email user@example.com
+node skills/mailchimp/mailchimp.cjs --format json audience merge-fields --list-id <list-id>
 ```
 
-Build guarded audience mutation requests only after approval:
+Run guarded audience mutations only after approval:
 
 ```bash
-node skills/mailchimp/mailchimp.cjs --format json approval-plan audience.member-upsert \
+node skills/mailchimp/mailchimp.cjs --format json approval-plan audience member-upsert \
   --list-id <list-id> --email user@example.com --status-if-new pending \
   --merge-fields-json '{"FNAME":"Ada"}' --tag customer:active
 
-node skills/mailchimp/mailchimp.cjs --format json approval-plan audience.tags-update \
+node skills/mailchimp/mailchimp.cjs --format json approval-plan audience tags-update \
   --list-id <list-id> --email user@example.com --tag vip:active --tag stale:inactive
 
-node skills/mailchimp/mailchimp.cjs --format json approval-plan audience.member-archive \
+node skills/mailchimp/mailchimp.cjs --format json approval-plan audience member-archive \
   --list-id <list-id> --email user@example.com
 
-node skills/mailchimp/mailchimp.cjs --format json approval-plan audience.bulk-plan \
+node skills/mailchimp/mailchimp.cjs --format json approval-plan audience bulk-plan \
   --list-id <list-id> --operation member-upsert --count 2500 \
   --source-label imports/2026-06-newsletter.csv \
   --sample-json '{"email":"user@example.com","status_if_new":"pending","FNAME":"Ada"}'
 ```
 
-Build campaign requests:
+Run campaign requests:
 
 ```bash
-node skills/mailchimp/mailchimp.cjs --format json http-request campaign.list --status save
-node skills/mailchimp/mailchimp.cjs --format json approval-plan campaign.create --body-json '{"type":"regular","recipients":{"list_id":"<list-id>"},"settings":{"subject_line":"Subject","title":"Draft","from_name":"Team","reply_to":"team@example.com"}}'
-node skills/mailchimp/mailchimp.cjs --format json approval-plan campaign.content-set --campaign-id <campaign-id> --body-json '{"html":"<p>Hello</p>"}'
-node skills/mailchimp/mailchimp.cjs --format json approval-plan campaign.schedule --campaign-id <campaign-id> --schedule-time 2026-06-01T09:00:00+00:00
-node skills/mailchimp/mailchimp.cjs --format json approval-plan campaign.send --campaign-id <campaign-id>
+node skills/mailchimp/mailchimp.cjs --format json campaign list --status save
+node skills/mailchimp/mailchimp.cjs --format json approval-plan campaign create --body-json '{"type":"regular","recipients":{"list_id":"<list-id>"},"settings":{"subject_line":"Subject","title":"Draft","from_name":"Team","reply_to":"team@example.com"}}'
+node skills/mailchimp/mailchimp.cjs --format json approval-plan campaign content-set --campaign-id <campaign-id> --body-json '{"html":"<p>Hello</p>"}'
+node skills/mailchimp/mailchimp.cjs --format json approval-plan campaign schedule --campaign-id <campaign-id> --schedule-time 2026-06-01T09:00:00+00:00
+node skills/mailchimp/mailchimp.cjs --format json approval-plan campaign send --campaign-id <campaign-id>
 ```
 
-Build report and read-only automation/journey requests:
+Run report and read-only automation/journey requests:
 
 ```bash
-node skills/mailchimp/mailchimp.cjs --format json http-request campaign.report --campaign-id <campaign-id> --kind overview
-node skills/mailchimp/mailchimp.cjs --format json http-request campaign.report --campaign-id <campaign-id> --kind bounces
-node skills/mailchimp/mailchimp.cjs --format json http-request campaign.report --campaign-id <campaign-id> --kind opens
-node skills/mailchimp/mailchimp.cjs --format json http-request campaign.report --campaign-id <campaign-id> --kind clicks
-node skills/mailchimp/mailchimp.cjs --format json http-request campaign.report --campaign-id <campaign-id> --kind email-activity
-node skills/mailchimp/mailchimp.cjs --format json http-request automation.list
-node skills/mailchimp/mailchimp.cjs --format json http-request journey.list
+node skills/mailchimp/mailchimp.cjs --format json campaign report --campaign-id <campaign-id> --kind overview
+node skills/mailchimp/mailchimp.cjs --format json campaign report --campaign-id <campaign-id> --kind bounces
+node skills/mailchimp/mailchimp.cjs --format json campaign report --campaign-id <campaign-id> --kind opens
+node skills/mailchimp/mailchimp.cjs --format json campaign report --campaign-id <campaign-id> --kind clicks
+node skills/mailchimp/mailchimp.cjs --format json campaign report --campaign-id <campaign-id> --kind email-activity
+node skills/mailchimp/mailchimp.cjs --format json automation list
+node skills/mailchimp/mailchimp.cjs --format json journey list
 ```
 
-Build Mandrill transactional requests:
+Run Mandrill transactional requests:
 
 ```bash
-node skills/mailchimp/mailchimp.cjs --format json http-request mandrill.message-info --id <message-id>
-node skills/mailchimp/mailchimp.cjs --format json approval-plan mandrill.send --body-json '{"message":{"from_email":"ops@example.com","to":[{"email":"user@example.com","type":"to"}],"subject":"Receipt","text":"Thanks"}}'
-node skills/mailchimp/mailchimp.cjs --format json approval-plan mandrill.send-template --body-json '{"template_name":"receipt","template_content":[],"message":{"to":[{"email":"user@example.com","type":"to"}],"merge":true}}'
+node skills/mailchimp/mailchimp.cjs --format json mandrill message-info --id <message-id>
+node skills/mailchimp/mailchimp.cjs --format json approval-plan mandrill send --body-json '{"message":{"from_email":"ops@example.com","to":[{"email":"user@example.com","type":"to"}],"subject":"Receipt","text":"Thanks"}}'
+node skills/mailchimp/mailchimp.cjs --format json approval-plan mandrill send-template --body-json '{"template_name":"receipt","template_content":[],"message":{"to":[{"email":"user@example.com","type":"to"}],"merge":true}}'
 ```
 
 Classify a saved or live error:
@@ -241,7 +251,7 @@ target.
 
 Bulk member mutation is intentionally exposed as a preview/approval boundary,
 not as a direct batch execution command. For more than one subscriber, run
-`approval-plan audience.bulk-plan` with the target list, operation, source
+`approval-plan audience bulk-plan` with the target list, operation, source
 label, count, and a redacted sample row. After approval, generate exact
 per-member helper commands and run them with `--operator-grant`. Do not call
 Mailchimp batch endpoints from this skill.
@@ -263,7 +273,7 @@ encoding of `anystring:<api-key>`, not the raw API key in prompt text.
 OAuth access tokens are supported with `--auth oauth` and
 `Authorization: OAuth <secret:MAILCHIMP_MARKETING_OAUTH_TOKEN>`. This skill
 uses an already stored OAuth access token; it does not perform the browser OAuth
-authorization flow itself. Use `oauth.metadata --auth oauth` to read the OAuth
+authorization flow itself. Use `oauth metadata --auth oauth` to read the OAuth
 token metadata endpoint and derive the account-specific data-center prefix
 before calling Marketing API endpoints.
 

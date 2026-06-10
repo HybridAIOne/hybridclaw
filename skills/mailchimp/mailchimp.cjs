@@ -8,6 +8,8 @@ const MARKETING_OAUTH_TOKEN_SECRET = 'MAILCHIMP_MARKETING_OAUTH_TOKEN';
 const MANDRILL_API_KEY_SECRET = 'MANDRILL_API_KEY';
 const SERVER_PREFIX_ENV = 'MAILCHIMP_SERVER_PREFIX';
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
+const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
 const DEFAULT_COUNT = 25;
 const MAX_COUNT = 1000;
 const COST_MEASUREMENT = {
@@ -55,6 +57,54 @@ const MARKETING_OPERATIONS = new Set(
   ),
 );
 const GUARDED_TIERS = new Set(['amber', 'red']);
+const RESOURCE_ACTION_OPERATIONS = {
+  oauth: {
+    metadata: 'oauth.metadata',
+  },
+  marketing: {
+    root: 'marketing.root',
+  },
+  audience: {
+    list: 'audience.list',
+    members: 'audience.members',
+    member: 'audience.member',
+    'member-upsert': 'audience.member-upsert',
+    upsert: 'audience.member-upsert',
+    'member-update': 'audience.member-update',
+    update: 'audience.member-update',
+    'member-archive': 'audience.member-archive',
+    archive: 'audience.member-archive',
+    'tags-update': 'audience.tags-update',
+    tags: 'audience.tags-update',
+    'bulk-plan': 'audience.bulk-plan',
+    'merge-fields': 'audience.merge-fields',
+    'merge-field-create': 'audience.merge-field-create',
+    'merge-field-update': 'audience.merge-field-update',
+  },
+  campaign: {
+    list: 'campaign.list',
+    create: 'campaign.create',
+    update: 'campaign.update',
+    'content-get': 'campaign.content-get',
+    'content-set': 'campaign.content-set',
+    schedule: 'campaign.schedule',
+    send: 'campaign.send',
+    report: 'campaign.report',
+  },
+  automation: {
+    list: 'automation.list',
+    get: 'automation.get',
+  },
+  journey: {
+    list: 'journey.list',
+    get: 'journey.get',
+  },
+  mandrill: {
+    'message-info': 'mandrill.message-info',
+    send: 'mandrill.send',
+    'send-template': 'mandrill.send-template',
+  },
+};
 
 function die(message) {
   process.stderr.write(`${message}\n`);
@@ -472,7 +522,7 @@ function oauthMetadataRequest(args, stakesTier) {
   };
 }
 
-function bulkMemberPlan(args) {
+function bulkMemberPlan(args, semantics) {
   const listId = requireText(popFlag(args, '--list-id'), '--list-id');
   const operation = requireText(popFlag(args, '--operation'), '--operation');
   if (
@@ -499,7 +549,10 @@ function bulkMemberPlan(args) {
     '--format',
     'json',
     'approval-plan',
-    'audience.bulk-plan',
+    semantics?.resource || 'audience.bulk-plan',
+  ];
+  if (semantics) approvedHelperCommand.push(semantics.action);
+  approvedHelperCommand.push(
     '--list-id',
     listId,
     '--operation',
@@ -508,7 +561,7 @@ function bulkMemberPlan(args) {
     String(count),
     '--source-label',
     source,
-  ];
+  );
   if (sample) {
     approvedHelperCommand.push('--sample-json', JSON.stringify(sample));
   }
@@ -644,6 +697,23 @@ function redactPreviewValue(value, key = '') {
   return redacted;
 }
 
+function operationFromResourceAction(resource, action) {
+  const resourceName = requireText(resource, 'resource').toLowerCase();
+  const actionName = requireText(action, 'action').toLowerCase();
+  const operation = RESOURCE_ACTION_OPERATIONS[resourceName]?.[actionName];
+  if (!operation) die(`Unsupported Mailchimp action: ${resourceName} ${actionName}`);
+  return operation;
+}
+
+function operationToResourceAction(operation) {
+  for (const [resource, actions] of Object.entries(RESOURCE_ACTION_OPERATIONS)) {
+    for (const [action, candidate] of Object.entries(actions)) {
+      if (candidate === operation) return { resource, action };
+    }
+  }
+  return null;
+}
+
 function buildHttpRequest(operation, args, options = {}) {
   const op = requireText(operation, 'operation');
   const stakesTier = OPERATION_TIERS[op];
@@ -696,22 +766,36 @@ function buildHttpRequest(operation, args, options = {}) {
   return payload;
 }
 
-function buildApprovalPlan(operation, args) {
+function buildSemanticRequest(resource, action, args) {
+  const operation = operationFromResourceAction(resource, action);
+  const payload = buildHttpRequest(operation, args);
+  return {
+    ...payload,
+    command: 'operation',
+    resource: resource.toLowerCase(),
+    action: action.toLowerCase(),
+  };
+}
+
+function buildApprovalPlan(operation, args, semantics) {
   if (operation === 'audience.bulk-plan') {
-    return bulkMemberPlan(args);
+    return bulkMemberPlan(args, semantics);
   }
   const cleanArgs = args.filter((entry) => entry !== '--operator-grant');
   const payload = buildHttpRequest(operation, cleanArgs, { allowGuarded: true });
   if (!payload.approvalRequired) {
     die(`${operation} is read-only and does not need approval-plan.`);
   }
+  const semanticTarget = semantics || operationToResourceAction(operation);
+  const approvedTarget = semanticTarget
+    ? [semanticTarget.resource, semanticTarget.action]
+    : ['http-request', operation];
   const approvedHelperCommand = [
     'node',
     'skills/mailchimp/mailchimp.cjs',
     '--format',
     'json',
-    'http-request',
-    operation,
+    ...approvedTarget,
     ...cleanArgs,
     '--operator-grant',
   ];
@@ -747,6 +831,168 @@ function buildApprovalPlan(operation, args) {
 function shellQuote(value) {
   if (/^[A-Za-z0-9_./:@=-]+$/u.test(value)) return value;
   return `'${String(value).replace(/'/gu, `'\\''`)}'`;
+}
+
+function resolveGatewayUrl() {
+  return String(
+    process.env.HYBRIDCLAW_GATEWAY_URL ||
+      process.env.GATEWAY_BASE_URL ||
+      DEFAULT_GATEWAY_URL,
+  ).replace(/\/+$/u, '');
+}
+
+function resolveGatewayToken() {
+  return String(
+    process.env.HYBRIDCLAW_GATEWAY_TOKEN || process.env.GATEWAY_API_TOKEN || '',
+  ).trim();
+}
+
+function parseJsonMaybe(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGatewayResult(wrapper, fallbackStatus) {
+  const status = Number(wrapper.status || fallbackStatus || 0);
+  const body = typeof wrapper.body === 'string' ? wrapper.body : '';
+  return {
+    command: 'live-result',
+    ok: wrapper.ok !== false,
+    status,
+    statusText: wrapper.statusText || '',
+    headers: wrapper.headers || {},
+    body,
+    bodyJson: parseJsonMaybe(body),
+    bodyTruncated: wrapper.bodyTruncated === true,
+    maxResponseBytes: wrapper.maxResponseBytes,
+  };
+}
+
+function gatewayErrorMessage(response, text) {
+  const parsed = parseJsonMaybe(text);
+  const errorText =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? String(parsed.error || parsed.text || text).trim()
+      : String(text || '').trim();
+  const prefix = `Gateway proxy returned HTTP ${response.status} for Mailchimp request`;
+  if (
+    response.status === 400 &&
+    /not allowlisted by workspace network policy/u.test(errorText)
+  ) {
+    return `${prefix}: workspace network policy denied this helper-emitted target. ${errorText}`;
+  }
+  if (
+    response.status === 502 &&
+    /Outbound HTTP request failed/u.test(errorText)
+  ) {
+    return `${prefix}: gateway policy accepted the request, but the gateway process could not open the outbound connection. ${errorText}`;
+  }
+  return `${prefix}: ${errorText || text}`;
+}
+
+function formatErrorCause(error) {
+  if (!error || typeof error !== 'object') return '';
+  const cause = error.cause;
+  if (!cause) return '';
+  if (cause instanceof Error) {
+    const nested = formatErrorCause(cause);
+    return nested && !cause.message.includes(nested)
+      ? `${cause.message} (${nested})`
+      : cause.message;
+  }
+  if (typeof cause === 'object') {
+    const code = typeof cause.code === 'string' ? cause.code : '';
+    const message = typeof cause.message === 'string' ? cause.message : '';
+    return [code, message].filter(Boolean).join(' ');
+  }
+  return String(cause);
+}
+
+function formatTransportError(error) {
+  if (!(error instanceof Error)) return String(error);
+  const cause = formatErrorCause(error);
+  if (!cause || error.message.includes(cause)) return error.message;
+  return `${error.message} (${cause})`;
+}
+
+async function executeGatewayRequest(httpRequest, options = {}) {
+  const fetchImpl = options.fetch || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch is not available for Mailchimp requests.');
+  }
+  const gatewayUrl = String(options.gatewayUrl || resolveGatewayUrl()).replace(
+    /\/+$/u,
+    '',
+  );
+  const gatewayToken = options.gatewayToken || resolveGatewayToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (gatewayToken) headers.Authorization = `Bearer ${gatewayToken}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    (httpRequest.timeoutMs || DEFAULT_TIMEOUT_MS) + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  let text = '';
+  try {
+    try {
+      response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(httpRequest),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw new Error(
+        `Gateway proxy request failed before Mailchimp request was sent: ${formatTransportError(
+          error,
+        )}. Check that the HybridClaw gateway is running and reachable at ${gatewayUrl}.`,
+      );
+    }
+    text = await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(gatewayErrorMessage(response, text));
+  }
+  const parsed = parseJsonMaybe(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      command: 'live-result',
+      ok: true,
+      status: response.status,
+      statusText: response.statusText || '',
+      headers: {},
+      body: text,
+      bodyJson: null,
+    };
+  }
+  const normalized = normalizeGatewayResult(parsed, response.status);
+  if (normalized.bodyTruncated) {
+    throw new Error(
+      `Mailchimp response was truncated by the gateway at ${normalized.maxResponseBytes || 'the configured'} bytes.`,
+    );
+  }
+  if (!normalized.ok) {
+    throw new Error(
+      `Mailchimp returned HTTP ${normalized.status || 'error'}: ${
+        normalized.body || normalized.statusText
+      }`,
+    );
+  }
+  return normalized;
+}
+
+async function executeLivePayload(payload, options = {}) {
+  return {
+    result: await executeGatewayRequest(payload.httpRequest, options),
+  };
 }
 
 function credentialCheck(args) {
@@ -870,28 +1116,29 @@ function printHelp() {
 
 Usage:
   node skills/mailchimp/mailchimp.cjs --format json credential-check [--server-prefix us21]
-  node skills/mailchimp/mailchimp.cjs --format json http-request <operation> [flags]
-  node skills/mailchimp/mailchimp.cjs --format json approval-plan <operation> [flags]
+  node skills/mailchimp/mailchimp.cjs --format json [--request] <resource> <action> [flags]
+  node skills/mailchimp/mailchimp.cjs --format json approval-plan <resource> <action> [flags]
   node skills/mailchimp/mailchimp.cjs --format json classify-response --status 401 --body-json '{}'
 
 Marketing read operations:
-  oauth.metadata
-  marketing.root
-  audience.list | audience.members | audience.member
-  audience.merge-fields
-  campaign.list | campaign.content-get | campaign.report
-  automation.list | automation.get | journey.list | journey.get
+  oauth metadata
+  marketing root
+  audience list | audience members | audience member
+  audience merge-fields
+  campaign list | campaign content-get | campaign report
+  automation list | automation get | journey list | journey get
 
 Guarded Marketing writes:
-  audience.member-upsert | audience.member-update | audience.member-archive
-  audience.tags-update | audience.bulk-plan | audience.merge-field-create | audience.merge-field-update
-  campaign.create | campaign.update | campaign.content-set | campaign.schedule | campaign.send
+  audience member-upsert | audience member-update | audience member-archive
+  audience tags-update | audience bulk-plan | audience merge-field-create | audience merge-field-update
+  campaign create | campaign update | campaign content-set | campaign schedule | campaign send
 
 Transactional operations:
-  mandrill.message-info
-  mandrill.send | mandrill.send-template
+  mandrill message-info
+  mandrill send | mandrill send-template
 
 Common flags:
+  --request                    Emit the gateway-ready request without executing it
   --server-prefix us21          Mailchimp data center prefix or MAILCHIMP_SERVER_PREFIX
   --auth api-key|oauth          Marketing auth mode (default api-key)
   --basic-auth-secret NAME      Runtime secret containing base64 username:api-key (default MAILCHIMP_MARKETING_BASIC_AUTH)
@@ -906,7 +1153,8 @@ function parseGlobalArgs(argv) {
   const args = [...argv];
   const format = popFlag(args, '--format', 'pretty');
   if (!['json', 'pretty'].includes(format)) die('--format must be json or pretty.');
-  return { args, format };
+  const requestOnly = popBooleanFlag(args, '--request');
+  return { args, format, requestOnly };
 }
 
 function buildRequest(argv) {
@@ -917,22 +1165,61 @@ function buildRequest(argv) {
   const command = args.shift();
   if (command === 'credential-check') return credentialCheck(args);
   if (command === 'classify-response') return classifyResponse(args);
-  const operation = args.shift();
-  if (!operation) die(`${command} requires an operation.`);
-  if (command === 'http-request') return buildHttpRequest(operation, args);
-  if (command === 'approval-plan') return buildApprovalPlan(operation, args);
-  die(`Unknown command: ${command}`);
+  if (command === 'http-request') {
+    const operation = args.shift();
+    if (!operation) die('http-request requires an operation.');
+    return buildHttpRequest(operation, args);
+  }
+  if (command === 'approval-plan') {
+    const first = args.shift();
+    if (!first) die('approval-plan requires a resource and action.');
+    const second = args.shift();
+    if (second) {
+      return buildApprovalPlan(operationFromResourceAction(first, second), args, {
+        resource: first.toLowerCase(),
+        action: second.toLowerCase(),
+      });
+    }
+    return buildApprovalPlan(first, args);
+  }
+  const action = args.shift();
+  if (!action) die(`${command} requires an action.`);
+  return buildSemanticRequest(command, action, args);
 }
 
 async function main() {
-  if (process.argv.includes('--help')) {
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
     printHelp();
     return;
   }
-  const { format } = parseGlobalArgs(process.argv.slice(2));
-  const payload = buildRequest(process.argv.slice(2));
+  const { format, requestOnly } = parseGlobalArgs(args);
+  const payload = buildRequest(args);
   if (payload.command === 'help') {
     printHelp();
+    return;
+  }
+  if (!requestOnly && payload.httpRequest && payload.command !== 'http-request') {
+    const { result } = await executeLivePayload(payload);
+    const output = {
+      command: 'live',
+      operation: payload.operation,
+      resource: payload.resource,
+      action: payload.action,
+      stakesTier: payload.stakesTier,
+      request: {
+        url: payload.httpRequest.url,
+        method: payload.httpRequest.method,
+      },
+      result,
+      costMeasurement: payload.costMeasurement,
+    };
+    const liveOutput =
+      format === 'json'
+        ? JSON.stringify(output, null, 2)
+        : `${JSON.stringify(output, null, 2)}\n`;
+    process.stdout.write(liveOutput);
+    if (format === 'json') process.stdout.write('\n');
     return;
   }
   const output = format === 'json' ? JSON.stringify(payload, null, 2) : `${JSON.stringify(payload, null, 2)}\n`;
@@ -948,5 +1235,8 @@ module.exports = {
   buildRequest,
   classifyResponse,
   credentialCheck,
+  executeGatewayRequest,
+  executeLivePayload,
+  operationFromResourceAction,
   subscriberHash,
 };

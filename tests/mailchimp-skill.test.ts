@@ -13,6 +13,23 @@ const roadmapPath = path.join(process.cwd(), 'docs', 'content', 'internal', 'roa
 const require = createRequire(import.meta.url);
 const mailchimp = require('../skills/mailchimp/mailchimp.cjs') as {
   buildRequest: (args: string[]) => Record<string, any>;
+  executeGatewayRequest: (
+    request: Record<string, any>,
+    options: {
+      fetch?: typeof fetch;
+      gatewayToken?: string;
+      gatewayUrl?: string;
+    },
+  ) => Promise<Record<string, any>>;
+  executeLivePayload: (
+    payload: Record<string, any>,
+    options: {
+      fetch?: typeof fetch;
+      gatewayToken?: string;
+      gatewayUrl?: string;
+    },
+  ) => Promise<{ result: Record<string, any> }>;
+  operationFromResourceAction: (resource: string, action: string) => string;
   subscriberHash: (email: string) => string;
 };
 
@@ -71,12 +88,14 @@ test('mailchimp skill manifest declares Marketing and Mandrill credentials', () 
       required: true,
     }),
   ]);
-  expect(skill).toContain('approval-plan campaign.send');
-  expect(skill).toContain('approval-plan audience.bulk-plan');
+  expect(skill).toContain('approval-plan <resource> <action>');
+  expect(skill).toContain('approval-plan campaign send');
+  expect(skill).toContain('approval-plan audience bulk-plan');
   expect(skill).toContain('MAILCHIMP_MARKETING_BASIC_AUTH');
   expect(skill).toContain('Authorization: Basic');
   expect(skill).toContain('already stored OAuth access token');
   expect(skill).toContain('permanent member deletion');
+  expect(skill).toContain('Use `--request` only for dry-run/debug output');
 });
 
 test('mailchimp roadmap row links issue 1136', () => {
@@ -92,11 +111,12 @@ test('mailchimp helper --help lists audience campaign and transactional surfaces
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Mailchimp skill helper');
-  expect(result.stdout).toContain('oauth.metadata');
-  expect(result.stdout).toContain('audience.member-upsert');
-  expect(result.stdout).toContain('campaign.send');
-  expect(result.stdout).toContain('mandrill.send-template');
-  expect(result.stdout).toContain('approval-plan <operation>');
+  expect(result.stdout).toContain('oauth metadata');
+  expect(result.stdout).toContain('audience member-upsert');
+  expect(result.stdout).toContain('campaign send');
+  expect(result.stdout).toContain('mandrill send-template');
+  expect(result.stdout).toContain('approval-plan <resource> <action>');
+  expect(result.stdout).toContain('--request');
 });
 
 test('mailchimp helper reports gateway-resolved placeholders without reading stores', () => {
@@ -143,10 +163,12 @@ test('mailchimp helper reports gateway-resolved placeholders without reading sto
 });
 
 test('mailchimp helper builds OAuth metadata request without server prefix', () => {
-  const payload = build(['http-request', 'oauth.metadata', '--auth', 'oauth']);
+  const payload = build(['--request', 'oauth', 'metadata', '--auth', 'oauth']);
 
   expect(payload).toMatchObject({
-    command: 'http-request',
+    command: 'operation',
+    resource: 'oauth',
+    action: 'metadata',
     operation: 'oauth.metadata',
     stakesTier: 'green',
     httpRequest: {
@@ -162,11 +184,27 @@ test('mailchimp helper builds OAuth metadata request without server prefix', () 
   expect(payload.httpRequest).not.toHaveProperty('bearerSecretName');
 });
 
+test('mailchimp helper keeps http-request operation mode as a dry-run compatibility path', () => {
+  const payload = build(['http-request', 'oauth.metadata', '--auth', 'oauth']);
+
+  expect(payload).toMatchObject({
+    command: 'http-request',
+    operation: 'oauth.metadata',
+    httpRequest: {
+      url: 'https://login.mailchimp.com/oauth2/metadata',
+      headers: {
+        Authorization: 'OAuth <secret:MAILCHIMP_MARKETING_OAUTH_TOKEN>',
+      },
+    },
+  });
+});
+
 test('mailchimp helper builds placeholder-backed audience member lookup', () => {
   const hash = mailchimp.subscriberHash('Ada@Example.com');
   const payload = build([
-    'http-request',
-    'audience.member',
+    '--request',
+    'audience',
+    'member',
     '--server-prefix',
     'us21',
     '--list-id',
@@ -177,7 +215,9 @@ test('mailchimp helper builds placeholder-backed audience member lookup', () => 
 
   expect(hash).toBe('3e3417d7ef77d5932a6734b916515ed5');
   expect(payload).toMatchObject({
-    command: 'http-request',
+    command: 'operation',
+    resource: 'audience',
+    action: 'member',
     operation: 'audience.member',
     stakesTier: 'green',
     httpRequest: {
@@ -202,8 +242,9 @@ test('mailchimp helper builds placeholder-backed audience member lookup', () => 
 
 test('mailchimp helper supports OAuth placeholder auth for Marketing requests', () => {
   const payload = build([
-    'http-request',
-    'audience.list',
+    '--request',
+    'audience',
+    'list',
     '--auth',
     'oauth',
     '--server-prefix',
@@ -223,7 +264,7 @@ test('mailchimp helper supports OAuth placeholder auth for Marketing requests', 
 });
 
 test('mailchimp helper uses env placeholder for default Marketing host', () => {
-  const payload = build(['http-request', 'audience.list']);
+  const payload = build(['--request', 'audience', 'list']);
 
   expect(payload.httpRequest).toMatchObject({
     url: 'https://<env:MAILCHIMP_SERVER_PREFIX>.api.mailchimp.com/3.0/lists?count=25',
@@ -234,18 +275,87 @@ test('mailchimp helper uses env placeholder for default Marketing host', () => {
   });
 });
 
+test('mailchimp helper executes semantic operations through the gateway proxy', async () => {
+  const payload = build(['audience', 'list']);
+  let capturedUrl = '';
+  let capturedInit: RequestInit | undefined;
+  const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+    capturedUrl = String(url);
+    capturedInit = init;
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'application/json' },
+        body: '{"lists":[]}',
+      }),
+      { status: 200, statusText: 'OK' },
+    );
+  };
+
+  const live = await mailchimp.executeLivePayload(payload, {
+    fetch: fetchImpl as typeof fetch,
+    gatewayToken: 'gateway-token',
+    gatewayUrl: 'http://gateway.local/',
+  });
+
+  expect(capturedUrl).toBe('http://gateway.local/api/http/request');
+  expect(capturedInit?.method).toBe('POST');
+  expect(capturedInit?.headers).toMatchObject({
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer gateway-token',
+  });
+  expect(JSON.parse(String(capturedInit?.body))).toMatchObject({
+    url: 'https://<env:MAILCHIMP_SERVER_PREFIX>.api.mailchimp.com/3.0/lists?count=25',
+    headers: {
+      Authorization: 'Basic <secret:MAILCHIMP_MARKETING_BASIC_AUTH>',
+    },
+    skillName: 'mailchimp',
+  });
+  expect(live.result).toMatchObject({
+    command: 'live-result',
+    ok: true,
+    status: 200,
+    bodyJson: { lists: [] },
+  });
+});
+
+test('mailchimp helper fails live execution on upstream authentication errors', async () => {
+  const payload = build(['audience', 'list']);
+  const fetchImpl = async () =>
+    new Response(
+      JSON.stringify({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        body: '{"title":"API Key Invalid"}',
+      }),
+      { status: 200, statusText: 'OK' },
+    );
+
+  await expect(
+    mailchimp.executeLivePayload(payload, {
+      fetch: fetchImpl as typeof fetch,
+      gatewayUrl: 'http://gateway.local',
+    }),
+  ).rejects.toThrow('Mailchimp returned HTTP 401');
+});
+
 test('mailchimp helper builds automation and journey status reads', () => {
   const automation = build([
-    'http-request',
-    'automation.get',
+    '--request',
+    'automation',
+    'get',
     '--server-prefix',
     'us21',
     '--workflow-id',
     'workflow/id',
   ]);
   const journey = build([
-    'http-request',
-    'journey.get',
+    '--request',
+    'journey',
+    'get',
     '--server-prefix',
     'us21',
     '--journey-id',
@@ -264,8 +374,9 @@ test('mailchimp helper builds automation and journey status reads', () => {
 
 test('mailchimp helper exposes explicit campaign bounce report summary', () => {
   const payload = build([
-    'http-request',
-    'campaign.report',
+    '--request',
+    'campaign',
+    'report',
     '--server-prefix',
     'us21',
     '--campaign-id',
@@ -292,8 +403,8 @@ test('mailchimp guarded campaign send requires approval plan and grant', () => {
   const denied = runHelper([
     '--format',
     'json',
-    'http-request',
-    'campaign.send',
+    'campaign',
+    'send',
     '--server-prefix',
     'us21',
     '--campaign-id',
@@ -305,7 +416,8 @@ test('mailchimp guarded campaign send requires approval plan and grant', () => {
 
   const plan = build([
     'approval-plan',
-    'campaign.send',
+    'campaign',
+    'send',
     '--server-prefix',
     'us21',
     '--campaign-id',
@@ -324,10 +436,15 @@ test('mailchimp guarded campaign send requires approval plan and grant', () => {
   });
   expect(plan.approval.requiredGrant).toContain('mailchimp:campaign.send');
   expect(plan.approval.approvedHelperCommand).toContain('--operator-grant');
+  expect(plan.approval.approvedHelperCommand).toEqual(
+    expect.arrayContaining(['campaign', 'send']),
+  );
+  expect(plan.approval.approvedHelperCommand).not.toContain('http-request');
 
   const approved = build([
-    'http-request',
-    'campaign.send',
+    '--request',
+    'campaign',
+    'send',
     '--server-prefix',
     'us21',
     '--campaign-id',
@@ -343,8 +460,8 @@ test('mailchimp helper requires a red approval preview for bulk member plans', (
   const direct = runHelper([
     '--format',
     'json',
-    'http-request',
-    'audience.bulk-plan',
+    'audience',
+    'bulk-plan',
     '--list-id',
     'list-123',
     '--operation',
@@ -360,7 +477,8 @@ test('mailchimp helper requires a red approval preview for bulk member plans', (
 
   const plan = build([
     'approval-plan',
-    'audience.bulk-plan',
+    'audience',
+    'bulk-plan',
     '--list-id',
     'list-123',
     '--operation',
@@ -390,12 +508,16 @@ test('mailchimp helper requires a red approval preview for bulk member plans', (
   expect(plan.preview.sample.FNAME).toBe('<redacted:FNAME>');
   expect(plan.preview.execution).toContain('does not expose Mailchimp batch endpoints');
   expect(plan.approval.requiredGrant).toContain('mailchimp:audience.bulk-plan');
+  expect(plan.approval.approvedHelperCommand).toEqual(
+    expect.arrayContaining(['approval-plan', 'audience', 'bulk-plan']),
+  );
 });
 
 test('mailchimp approval previews redact subscriber fields and campaign content bodies', () => {
   const member = build([
     'approval-plan',
-    'audience.member-upsert',
+    'audience',
+    'member-upsert',
     '--server-prefix',
     'us21',
     '--list-id',
@@ -415,7 +537,8 @@ test('mailchimp approval previews redact subscriber fields and campaign content 
 
   const campaignContent = build([
     'approval-plan',
-    'campaign.content-set',
+    'campaign',
+    'content-set',
     '--server-prefix',
     'us21',
     '--campaign-id',
@@ -432,9 +555,11 @@ test('mailchimp approval previews redact subscriber fields and campaign content 
 });
 
 test('mailchimp helper injects Mandrill key as placeholder and rejects raw key bodies', () => {
-  const info = build(['http-request', 'mandrill.message-info', '--id', 'msg-123']);
+  const info = build(['--request', 'mandrill', 'message-info', '--id', 'msg-123']);
   expect(info).toMatchObject({
-    command: 'http-request',
+    command: 'operation',
+    resource: 'mandrill',
+    action: 'message-info',
     operation: 'mandrill.message-info',
     stakesTier: 'green',
     httpRequest: {
@@ -449,7 +574,8 @@ test('mailchimp helper injects Mandrill key as placeholder and rejects raw key b
 
   const plan = build([
     'approval-plan',
-    'mandrill.send-template',
+    'mandrill',
+    'send-template',
     '--body-json',
     '{"template_name":"receipt","template_content":[],"message":{"to":[{"email":"user@example.com","type":"to"}]}}',
   ]);
@@ -469,7 +595,8 @@ test('mailchimp helper injects Mandrill key as placeholder and rejects raw key b
 
   const customSecretPlan = build([
     'approval-plan',
-    'mandrill.send',
+    'mandrill',
+    'send',
     '--mandrill-secret',
     'CUSTOM_MANDRILL_SECRET',
     '--body-json',
@@ -483,7 +610,8 @@ test('mailchimp helper injects Mandrill key as placeholder and rejects raw key b
     '--format',
     'json',
     'approval-plan',
-    'mandrill.send',
+    'mandrill',
+    'send',
     '--body-json',
     '{"key":"raw","message":{"text":"nope"}}',
   ]);
