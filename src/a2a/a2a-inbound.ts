@@ -368,22 +368,6 @@ function resolveTrustedPeerForToken(params: {
   return peer;
 }
 
-function resolveTrustedPeerForMtls(params: {
-  senderAgentId: string;
-  mtlsPublicKeyPem: string;
-}): A2ATrustedA2APeer {
-  const peer = getA2ATrustedA2APeerBySender(params.senderAgentId);
-  if (!peer) {
-    throw new A2AMissingTrustedPeerError('No trusted A2A peer for mTLS sender');
-  }
-  if (!publicKeysMatch(params.mtlsPublicKeyPem, peer.publicKeyPem)) {
-    throw new A2ADelegationTokenError(
-      'mTLS certificate public key does not match trusted A2A peer',
-    );
-  }
-  return peer;
-}
-
 function resolveTrustedPeerForMtlsPublicKey(
   mtlsPublicKeyPem: string,
 ): A2ATrustedA2APeer | null {
@@ -430,11 +414,13 @@ function resolveAuthenticatedPeer(params: {
   method?: 'message/send' | 'tasks/send';
   // Test-only clock hook for direct unit tests; HTTP handlers always use wall time.
   now?: Date;
+  onPeerResolved?: (peer: A2ATrustedA2APeer) => void;
 }): A2AAuthenticatedPeer {
   const authorization = String(params.rawAuthorization || '').trim();
   if (authorization) {
     const token = extractBearerToken(params.rawAuthorization);
     const peer = resolveTrustedPeerForToken({ token });
+    params.onPeerResolved?.(peer);
     verifySignedRequest({
       token,
       envelope: params.envelope,
@@ -446,10 +432,18 @@ function resolveAuthenticatedPeer(params: {
     return { peer, authMode: 'signed_bearer' };
   }
   if (params.mtlsPublicKeyPem) {
-    const peer = resolveTrustedPeerForMtls({
-      senderAgentId: params.envelope.sender_agent_id,
-      mtlsPublicKeyPem: params.mtlsPublicKeyPem,
-    });
+    const peer = getA2ATrustedA2APeerBySender(params.envelope.sender_agent_id);
+    if (!peer) {
+      throw new A2AMissingTrustedPeerError(
+        'No trusted A2A peer for mTLS sender',
+      );
+    }
+    params.onPeerResolved?.(peer);
+    if (!publicKeysMatch(params.mtlsPublicKeyPem, peer.publicKeyPem)) {
+      throw new A2ADelegationTokenError(
+        'mTLS certificate public key does not match trusted A2A peer',
+      );
+    }
     return { peer, authMode: 'peer_public_key' };
   }
   throw new A2ADelegationTokenError(
@@ -512,6 +506,9 @@ export function acceptA2AHttpEnvelopeInboundRequest(params: {
       envelope,
       audience: params.audience,
       now: params.now,
+      onPeerResolved: (resolvedPeer) => {
+        peer = resolvedPeer;
+      },
     });
     peer = authenticated.peer;
     authMode = authenticated.authMode;
@@ -666,6 +663,9 @@ export function acceptA2AJsonRpcInboundRequest(params: {
       audience: params.audience,
       method,
       now: params.now,
+      onPeerResolved: (resolvedPeer) => {
+        peer = resolvedPeer;
+      },
     });
     peer = authenticated.peer;
     authMode = authenticated.authMode;
