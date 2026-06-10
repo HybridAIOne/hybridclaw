@@ -99,24 +99,44 @@ test('mailchimp helper --help lists audience campaign and transactional surfaces
   expect(result.stdout).toContain('approval-plan <operation>');
 });
 
-test('mailchimp helper reports missing non-secret setup without reading secrets', () => {
+test('mailchimp helper reports gateway-resolved placeholders without reading stores', () => {
   const payload = build(['credential-check']);
 
   expect(payload).toMatchObject({
     command: 'credential-check',
-    ok: false,
-    missing: ['MAILCHIMP_SERVER_PREFIX'],
+    ok: true,
+    missing: [],
+    gatewayResolution: expect.stringContaining('<env:...> and <secret:...>'),
   });
+  expect(payload.requiredPlaceholders).toEqual([
+    '<env:MAILCHIMP_SERVER_PREFIX>',
+    '<secret:MAILCHIMP_MARKETING_BASIC_AUTH>',
+  ]);
+  expect(payload.requiredConfigVariables).toEqual([
+    expect.objectContaining({
+      name: 'MAILCHIMP_SERVER_PREFIX',
+      placeholder: '<env:MAILCHIMP_SERVER_PREFIX>',
+    }),
+  ]);
   expect(payload.requiredRuntimeSecrets).toEqual([
-    expect.objectContaining({ name: 'MAILCHIMP_MARKETING_BASIC_AUTH' }),
+    expect.objectContaining({
+      name: 'MAILCHIMP_MARKETING_BASIC_AUTH',
+      placeholder: '<secret:MAILCHIMP_MARKETING_BASIC_AUTH>',
+    }),
   ]);
   expect(payload.optionalRuntimeSecrets).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ name: 'MAILCHIMP_MARKETING_OAUTH_TOKEN' }),
-      expect.objectContaining({ name: 'MANDRILL_API_KEY' }),
+      expect.objectContaining({
+        name: 'MAILCHIMP_MARKETING_OAUTH_TOKEN',
+        placeholder: '<secret:MAILCHIMP_MARKETING_OAUTH_TOKEN>',
+      }),
+      expect.objectContaining({
+        name: 'MANDRILL_API_KEY',
+        placeholder: '<secret:MANDRILL_API_KEY>',
+      }),
     ]),
   );
-  expect(payload.secretVisibility).toContain('does not read runtime secret values');
+  expect(payload.secretVisibility).toContain('does not read runtime env or secret values');
 });
 
 test('mailchimp helper builds OAuth metadata request without server prefix', () => {
@@ -129,15 +149,17 @@ test('mailchimp helper builds OAuth metadata request without server prefix', () 
     httpRequest: {
       url: 'https://login.mailchimp.com/oauth2/metadata',
       method: 'GET',
-      bearerSecretName: 'MAILCHIMP_MARKETING_OAUTH_TOKEN',
+      headers: {
+        Authorization: 'OAuth <secret:MAILCHIMP_MARKETING_OAUTH_TOKEN>',
+      },
       skillName: 'mailchimp',
       stakesTier: 'green',
     },
   });
-  expect(JSON.stringify(payload)).not.toContain('Authorization');
+  expect(payload.httpRequest).not.toHaveProperty('bearerSecretName');
 });
 
-test('mailchimp helper builds SecretRef-backed audience member lookup', () => {
+test('mailchimp helper builds placeholder-backed audience member lookup', () => {
   const hash = mailchimp.subscriberHash('Ada@Example.com');
   const payload = build([
     'http-request',
@@ -159,13 +181,9 @@ test('mailchimp helper builds SecretRef-backed audience member lookup', () => {
       url: `https://us21.api.mailchimp.com/3.0/lists/list%2Fid/members/${hash}`,
       method: 'GET',
       authMode: 'api-key',
-      secretHeaders: [
-        {
-          name: 'Authorization',
-          secretName: 'MAILCHIMP_MARKETING_BASIC_AUTH',
-          prefix: 'Basic',
-        },
-      ],
+      headers: {
+        Authorization: 'Basic <secret:MAILCHIMP_MARKETING_BASIC_AUTH>',
+      },
       skillName: 'mailchimp',
       stakesTier: 'green',
     },
@@ -176,9 +194,10 @@ test('mailchimp helper builds SecretRef-backed audience member lookup', () => {
   });
   expect(JSON.stringify(payload)).not.toContain('Ada@Example.com');
   expect(JSON.stringify(payload)).not.toContain('Bearer');
+  expect(payload.httpRequest).not.toHaveProperty('secretHeaders');
 });
 
-test('mailchimp helper supports OAuth bearer auth for Marketing requests', () => {
+test('mailchimp helper supports OAuth placeholder auth for Marketing requests', () => {
   const payload = build([
     'http-request',
     'audience.list',
@@ -192,9 +211,24 @@ test('mailchimp helper supports OAuth bearer auth for Marketing requests', () =>
     url: 'https://us21.api.mailchimp.com/3.0/lists?count=25',
     method: 'GET',
     authMode: 'oauth',
-    bearerSecretName: 'MAILCHIMP_MARKETING_OAUTH_TOKEN',
+    headers: {
+      Authorization: 'OAuth <secret:MAILCHIMP_MARKETING_OAUTH_TOKEN>',
+    },
   });
   expect(payload.httpRequest).not.toHaveProperty('secretHeaders');
+  expect(payload.httpRequest).not.toHaveProperty('bearerSecretName');
+});
+
+test('mailchimp helper uses env placeholder for default Marketing host', () => {
+  const payload = build(['http-request', 'audience.list']);
+
+  expect(payload.httpRequest).toMatchObject({
+    url: 'https://<env:MAILCHIMP_SERVER_PREFIX>.api.mailchimp.com/3.0/lists?count=25',
+    method: 'GET',
+    headers: {
+      Authorization: 'Basic <secret:MAILCHIMP_MARKETING_BASIC_AUTH>',
+    },
+  });
 });
 
 test('mailchimp helper builds automation and journey status reads', () => {

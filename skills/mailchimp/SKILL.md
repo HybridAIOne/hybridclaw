@@ -16,7 +16,9 @@ credentials:
     how_to_obtain: |
       Create a Mailchimp Marketing API key with the narrowest useful role for
       the account. Locally base64-encode `anystring:<api-key>` and store only
-      that encoded credential with
+      that encoded credential in chat with
+      `/secret set MAILCHIMP_MARKETING_BASIC_AUTH "<base64-user-colon-api-key>"`.
+      From a local terminal, use
       `hybridclaw secret set MAILCHIMP_MARKETING_BASIC_AUTH "<base64-user-colon-api-key>"`.
       Set `MAILCHIMP_SERVER_PREFIX` to the data-center suffix after the last
       hyphen, for example `us21` from a key ending in `-us21`.
@@ -29,7 +31,9 @@ credentials:
     scope: "Mailchimp Marketing OAuth bearer token for https://login.mailchimp.com/oauth2/metadata and https://<dc>.api.mailchimp.com/3.0"
     how_to_obtain: |
       Complete Mailchimp's OAuth authorization flow outside this helper and
-      store the resulting access token with
+      store the resulting access token in chat with
+      `/secret set MAILCHIMP_MARKETING_OAUTH_TOKEN "<oauth-token>"`.
+      From a local terminal, use
       `hybridclaw secret set MAILCHIMP_MARKETING_OAUTH_TOKEN "<oauth-token>"`.
       Use helper commands with `--auth oauth`.
   - id: mandrill-api-key
@@ -41,7 +45,9 @@ credentials:
     scope: "Mailchimp Transactional / Mandrill API key for https://mandrillapp.com/api/1.0"
     how_to_obtain: |
       In a Mailchimp account with Transactional Email provisioned, create a
-      Transactional API key and store it with
+      Transactional API key and store it in chat with
+      `/secret set MANDRILL_API_KEY "<mandrill-key>"`.
+      From a local terminal, use
       `hybridclaw secret set MANDRILL_API_KEY "<mandrill-key>"`.
 config_variables:
   - id: mailchimp-server-prefix
@@ -51,7 +57,9 @@ config_variables:
     how_to_obtain: |
       Use the suffix after the last hyphen in a Mailchimp Marketing API key,
       such as `us21`, or the data-center prefix returned by the OAuth metadata
-      flow. Store it with `hybridclaw env set MAILCHIMP_SERVER_PREFIX us21`.
+      flow. Store it in chat with `/env set MAILCHIMP_SERVER_PREFIX us21`.
+      From a local terminal, use
+      `hybridclaw env set MAILCHIMP_SERVER_PREFIX us21`.
 metadata:
   hybridclaw:
     category: marketing
@@ -115,11 +123,12 @@ message lookup or sends.
 
 ## Default Workflow
 
-1. Start with `credential-check` when setup is uncertain. The helper can verify
-   `MAILCHIMP_SERVER_PREFIX`, but it cannot read runtime secret values; missing
+1. Start with `credential-check` when setup is uncertain. The helper emits
+   gateway-resolved `<env:...>` and `<secret:...>` placeholders; it does not
+   read runtime env or secret values itself. Missing `MAILCHIMP_SERVER_PREFIX`,
    `MAILCHIMP_MARKETING_BASIC_AUTH`, `MAILCHIMP_MARKETING_OAUTH_TOKEN`, or
-   `MANDRILL_API_KEY` is surfaced by the gateway or by a 401/403 upstream
-   response.
+   `MANDRILL_API_KEY` is surfaced by the gateway placeholder resolver or by a
+   401/403 upstream response.
    For stored OAuth access tokens, use `oauth.metadata --auth oauth` to retrieve the
    account-specific API endpoint and set `MAILCHIMP_SERVER_PREFIX` from the
    returned API endpoint host.
@@ -243,14 +252,14 @@ helper exposes archive and tag changes, not irreversible data deletion.
 Mailchimp Marketing uses `https://<dc>.api.mailchimp.com/3.0`, where `<dc>` is
 the data-center subdomain for the account. API keys usually include this as the
 suffix after the last hyphen. The helper defaults to `--auth api-key`, which
-uses `secretHeaders` so the gateway injects
-`Authorization: Basic <MAILCHIMP_MARKETING_BASIC_AUTH>` server-side. Store the
-secret value as the base64 encoding of `anystring:<api-key>`, not the raw API
-key in prompt text.
+uses `Authorization: Basic <secret:MAILCHIMP_MARKETING_BASIC_AUTH>` and
+`https://<env:MAILCHIMP_SERVER_PREFIX>.api.mailchimp.com/3.0/...` so the
+gateway resolves both values server-side. Store the secret value as the base64
+encoding of `anystring:<api-key>`, not the raw API key in prompt text.
 
 OAuth access tokens are supported with `--auth oauth` and
-`bearerSecretName: "MAILCHIMP_MARKETING_OAUTH_TOKEN"`. This skill uses an
-already stored OAuth access token; it does not perform the browser OAuth
+`Authorization: OAuth <secret:MAILCHIMP_MARKETING_OAUTH_TOKEN>`. This skill
+uses an already stored OAuth access token; it does not perform the browser OAuth
 authorization flow itself. Use `oauth.metadata --auth oauth` to read the OAuth
 token metadata endpoint and derive the account-specific data-center prefix
 before calling Marketing API endpoints.

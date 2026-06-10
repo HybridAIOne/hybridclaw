@@ -195,13 +195,20 @@ function parseTags(values) {
 
 function marketingBaseUrl(args) {
   const serverPrefix = requireText(
-    popFlag(args, '--server-prefix', process.env[SERVER_PREFIX_ENV]),
-    '--server-prefix or MAILCHIMP_SERVER_PREFIX',
-  ).toLowerCase();
-  if (!/^[a-z0-9-]+$/u.test(serverPrefix)) {
+    popFlag(args, '--server-prefix', `<env:${SERVER_PREFIX_ENV}>`),
+    '--server-prefix or <env:MAILCHIMP_SERVER_PREFIX>',
+  );
+  if (
+    serverPrefix !== `<env:${SERVER_PREFIX_ENV}>` &&
+    !/^[a-z0-9-]+$/u.test(serverPrefix.toLowerCase())
+  ) {
     die('--server-prefix must contain only lowercase letters, digits, or hyphens.');
   }
-  return `https://${serverPrefix}.api.mailchimp.com/3.0`;
+  const normalizedPrefix =
+    serverPrefix === `<env:${SERVER_PREFIX_ENV}>`
+      ? serverPrefix
+      : serverPrefix.toLowerCase();
+  return `https://${normalizedPrefix}.api.mailchimp.com/3.0`;
 }
 
 function resolveMarketingAuth(args) {
@@ -210,26 +217,26 @@ function resolveMarketingAuth(args) {
     die('--auth must be api-key or oauth.');
   }
   if (auth === 'api-key') {
+    const secretName = requireSecretName(
+      popFlag(args, '--basic-auth-secret', MARKETING_BASIC_AUTH_SECRET),
+      '--basic-auth-secret',
+    );
     return {
       mode: 'api-key',
-      secretHeaders: [
-        {
-          name: 'Authorization',
-          secretName: requireSecretName(
-            popFlag(args, '--basic-auth-secret', MARKETING_BASIC_AUTH_SECRET),
-            '--basic-auth-secret',
-          ),
-          prefix: 'Basic',
-        },
-      ],
+      headers: {
+        Authorization: `Basic <secret:${secretName}>`,
+      },
     };
   }
+  const secretName = requireSecretName(
+    popFlag(args, '--token-secret', MARKETING_OAUTH_TOKEN_SECRET),
+    '--token-secret',
+  );
   return {
     mode: 'oauth',
-    bearerSecretName: requireSecretName(
-      popFlag(args, '--token-secret', MARKETING_OAUTH_TOKEN_SECRET),
-      '--token-secret',
-    ),
+    headers: {
+      Authorization: `OAuth <secret:${secretName}>`,
+    },
   };
 }
 
@@ -430,18 +437,15 @@ function marketingRequest(args, operation, stakesTier) {
   const httpRequest = {
     url: appendQuery(`${base}${path}`, query),
     method: common.method,
-    headers: common.headers,
+    headers: {
+      ...common.headers,
+      ...auth.headers,
+    },
     timeoutMs: DEFAULT_TIMEOUT_MS,
     skillName: 'mailchimp',
     stakesTier,
     authMode: auth.mode,
   };
-  if (auth.bearerSecretName) {
-    httpRequest.bearerSecretName = auth.bearerSecretName;
-  }
-  if (auth.secretHeaders) {
-    httpRequest.secretHeaders = auth.secretHeaders;
-  }
   if (json !== undefined) httpRequest.json = json;
   return httpRequest;
 }
@@ -459,8 +463,9 @@ function oauthMetadataRequest(args, stakesTier) {
   return {
     url: 'https://login.mailchimp.com/oauth2/metadata',
     method: 'GET',
-    headers: {},
-    bearerSecretName: tokenSecret,
+    headers: {
+      Authorization: `OAuth <secret:${tokenSecret}>`,
+    },
     timeoutMs: DEFAULT_TIMEOUT_MS,
     skillName: 'mailchimp',
     stakesTier,
@@ -749,10 +754,14 @@ function credentialCheck(args) {
   if (!['api-key', 'oauth'].includes(auth)) {
     die('--auth must be api-key or oauth.');
   }
-  const serverPrefix = popFlag(args, '--server-prefix', process.env[SERVER_PREFIX_ENV]);
+  const serverPrefix = popFlag(args, '--server-prefix', `<env:${SERVER_PREFIX_ENV}>`);
+  if (
+    serverPrefix !== `<env:${SERVER_PREFIX_ENV}>` &&
+    !/^[a-z0-9-]+$/u.test(serverPrefix.toLowerCase())
+  ) {
+    die('--server-prefix must contain only lowercase letters, digits, or hyphens.');
+  }
   assertNoUnexpectedArgs(args);
-  const missing = [];
-  if (!serverPrefix) missing.push(SERVER_PREFIX_ENV);
   const requiredSecret =
     auth === 'oauth' ? MARKETING_OAUTH_TOKEN_SECRET : MARKETING_BASIC_AUTH_SECRET;
   const optionalMarketingSecret =
@@ -760,11 +769,18 @@ function credentialCheck(args) {
   return {
     command: 'credential-check',
     authMode: auth,
-    ok: missing.length === 0,
-    missing,
+    ok: true,
+    missing: [],
+    gatewayResolution:
+      'The helper emits <env:...> and <secret:...> placeholders. The gateway resolves them from the runtime env and secret stores when the http_request runs.',
+    requiredPlaceholders: [
+      `<env:${SERVER_PREFIX_ENV}>`,
+      `<secret:${requiredSecret}>`,
+    ],
     requiredConfigVariables: [
       {
         name: SERVER_PREFIX_ENV,
+        placeholder: `<env:${SERVER_PREFIX_ENV}>`,
         reason:
           'Marketing API host prefix, normally the suffix after the last hyphen in a Mailchimp API key such as us21.',
       },
@@ -772,6 +788,7 @@ function credentialCheck(args) {
     requiredRuntimeSecrets: [
       {
         name: requiredSecret,
+        placeholder: `<secret:${requiredSecret}>`,
         requiredFor:
           'Mailchimp Marketing API audiences, campaigns, automations, journeys, and reports.',
       },
@@ -779,16 +796,18 @@ function credentialCheck(args) {
     optionalRuntimeSecrets: [
       {
         name: optionalMarketingSecret,
+        placeholder: `<secret:${optionalMarketingSecret}>`,
         requiredFor:
           'Alternative Mailchimp Marketing auth mode selected with --auth api-key or --auth oauth.',
       },
       {
         name: MANDRILL_API_KEY_SECRET,
+        placeholder: `<secret:${MANDRILL_API_KEY_SECRET}>`,
         requiredFor: 'Mailchimp Transactional / Mandrill message send and lookup operations.',
       },
     ],
     secretVisibility:
-      'This helper does not read runtime secret values. Missing secret values are reported by the HybridClaw gateway or by a 401/403 upstream response.',
+      'This helper does not read runtime env or secret values. Missing values are reported by the HybridClaw gateway placeholder resolver or by a 401/403 upstream response.',
   };
 }
 
