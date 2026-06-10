@@ -492,6 +492,7 @@ export function Composer(props: {
               <AgentSwitchSelect
                 agents={agentOptions}
                 selectedAgentId={selectedAgentId}
+                token={props.token}
                 disabled={props.isStreaming}
                 onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
               />

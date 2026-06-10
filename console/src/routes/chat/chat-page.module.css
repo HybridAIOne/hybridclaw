@@ -1396,8 +1396,9 @@ aside[data-state="collapsed"] .chatSidebarContent {
   max-width: 180px;
   min-height: 1.5em;
   padding: 0 0.45em;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
   color: var(--text);
   font-weight: 650;
   line-height: inherit;
@@ -1479,9 +1480,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--text);
 }
 
-/* Shared pill chrome used by the agent <select> wrapper and the model
-   <SelectTrigger> so the two switchers sitting side-by-side in the composer
-   stay visually in lockstep. */
+/* Shared pill chrome used by the agent and model switchers sitting side-by-side
+   in the composer. */
 .composerPill {
   position: relative;
   display: inline-flex;
@@ -1522,29 +1522,43 @@ aside[data-state="collapsed"] .chatSidebarContent {
   cursor: default;
 }
 
-/* The agent component is a native <select> wrapped in this pill. The select
-   itself stays transparent and inherits the pill's typography. */
-.agentSelect {
-  max-width: 180px;
-  height: 36px;
-  border: none;
-  appearance: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: 36px;
-  padding: 0;
-  outline: none;
-  cursor: pointer;
+.agentSelectPopup {
+  width: min(280px, calc(100vw - 16px));
+  height: auto;
+  max-height: min(360px, calc(100vh - 32px));
+}
+
+.agentSelectItem {
+  min-height: 44px;
+}
+
+.agentSelectItemText {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.agentSelect:disabled {
-  cursor: default;
+.agentSelectAvatar,
+.agentSelectAvatarFallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.agentSelectAvatar {
+  object-fit: cover;
+}
+
+.agentSelectAvatarFallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .composerPillChevron {

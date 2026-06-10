@@ -87,19 +87,38 @@ describe('Composer', () => {
     );
   });
 
-  it('renders a compact agent switcher beside the attach button', () => {
+  it('renders a compact agent switcher beside the attach button', async () => {
     const onAgentSwitch = vi.fn();
+    fetchAgentAvatarBlobMock.mockResolvedValue(
+      new Blob(['avatar'], { type: 'image/png' }),
+    );
     renderComposer({
       agents: [
         { id: 'main', name: 'Assistant' },
-        { id: 'charly', name: 'Charly' },
+        {
+          id: 'charly',
+          name: 'Charly',
+          imageUrl: '/api/agent-avatar?agentId=charly',
+        },
       ],
       selectedAgentId: 'main',
       onAgentSwitch,
     });
-    fireEvent.change(screen.getByLabelText('Switch agent'), {
-      target: { value: 'charly' },
-    });
+    fireEvent.click(screen.getByLabelText('Switch agent'));
+    const listbox = screen.getByRole('listbox');
+    expect(
+      within(listbox).getByRole('option', { name: 'Charly' }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(fetchAgentAvatarBlobMock).toHaveBeenCalledWith(
+        'test-token',
+        '/api/agent-avatar?agentId=charly',
+      ),
+    );
+    expect(listbox.querySelector('img')?.getAttribute('src')).toBe(
+      'blob:agent-avatar',
+    );
+    fireEvent.click(within(listbox).getByRole('option', { name: 'Charly' }));
     expect(onAgentSwitch).toHaveBeenCalledWith('charly');
   });
 
