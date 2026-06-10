@@ -56,6 +56,7 @@ export function SlashSuggestionsPanel({
 
   return (
     <PopoverContent
+      side="top"
       focusOnOpen="none"
       closeOnEscape={false}
       closeOnOutsideClick
