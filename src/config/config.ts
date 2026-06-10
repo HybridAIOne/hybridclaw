@@ -1113,7 +1113,8 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CONTAINER_WARM_POOL = structuredClone(config.container.warmPool);
   // Auto-wire the HybridAI connector gateway when the HybridAI provider is
   // configured, so self-hosted installs need no manual mcpServers entry. Kept
-  // in-memory only (the API key is never written back to config.json).
+  // in-memory only, and the entry carries no credential — the bearer is
+  // attached per agent run via withConnectorGatewayAuth in the runners.
   MCP_SERVERS = injectHybridAIConnectorGateway(
     structuredClone(config.mcpServers || {}),
     HYBRIDAI_BASE_URL,

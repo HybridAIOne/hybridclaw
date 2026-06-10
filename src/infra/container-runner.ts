@@ -40,6 +40,7 @@ import {
   DISCORD_SEND_ALLOWED_CHANNEL_IDS,
   GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
+  HYBRIDAI_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
@@ -56,6 +57,7 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import { withConnectorGatewayAuth } from '../config/connector-gateway.js';
 import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
@@ -1138,7 +1140,13 @@ async function runContainerInner(
     media,
     audioTranscriptsPrepended,
     pluginTools,
-    mcpServers: MCP_SERVERS,
+    // The gateway bearer is attached per run, so the long-lived MCP_SERVERS
+    // map never holds the API key (it would leak via listings/logs).
+    mcpServers: withConnectorGatewayAuth(
+      MCP_SERVERS,
+      HYBRIDAI_BASE_URL,
+      HYBRIDAI_API_KEY,
+    ),
     taskModels,
     runtimeEnv,
     contextGuard: {

@@ -27,6 +27,18 @@ import type {
 
 const MCP_CONNECT_TIMEOUT_MS = 60_000;
 const MCP_TOOL_CALL_TIMEOUT_MS = 120_000;
+/* Remote (http/sse) servers can grow or lose tools while we stay connected —
+   e.g. the HybridAI connector gateway's tool list changes when the user
+   connects a service on the platform. Re-discover on a TTL so long-lived
+   agents pick that up, and retry once shortly after a connect that returned
+   zero tools (a transient upstream hiccup would otherwise mute the server
+   for the agent's whole lifetime). */
+const MCP_REMOTE_TOOLS_REFRESH_INTERVAL_MS = 5 * 60_000;
+const MCP_EMPTY_TOOLS_RETRY_DELAY_MS = 30_000;
+
+function isRemoteTransport(config: McpServerConfig): boolean {
+  return config.transport === 'http' || config.transport === 'sse';
+}
 const MCP_CLIENT_INFO = {
   name: 'hybridclaw-agent',
   version: process.env.npm_package_version || '0.0.0',
@@ -160,6 +172,11 @@ export class McpClientManager {
   private readonly toolIndex = new Map<string, ToolIndexEntry>();
   private readonly closingServers = new Set<string>();
   private readonly replaceLocks = new Map<string, Promise<void>>();
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly emptyToolsRetryTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
 
   async initFromConfig(
     servers: Record<string, McpServerConfig>,
@@ -201,6 +218,10 @@ export class McpClientManager {
         toolCount: nextHandle.tools.length,
       });
       if (existing) await this.closeHandle(existing);
+      if (isRemoteTransport(config)) {
+        this.ensurePeriodicRefresh();
+        if (nextHandle.tools.length === 0) this.scheduleEmptyToolsRetry(name);
+      }
     });
   }
 
@@ -251,10 +272,66 @@ export class McpClientManager {
   }
 
   async shutdown(): Promise<void> {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    for (const timer of this.emptyToolsRetryTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.emptyToolsRetryTimers.clear();
     for (const name of [...this.clients.keys()]) {
       await this.disconnectClient(name);
     }
     this.configs.clear();
+  }
+
+  /** Re-list tools on a connected handle without tearing the session down. */
+  private async refreshServerTools(name: string): Promise<void> {
+    await this.runWithLock(name, async () => {
+      const handle = this.clients.get(name);
+      if (!handle || !handle.healthy) return;
+      try {
+        handle.tools = await this.discoverTools(handle);
+        this.rebuildToolIndex();
+      } catch (error) {
+        this.markServerUnhealthy(name, error);
+      }
+    });
+  }
+
+  private async refreshRemoteServers(): Promise<void> {
+    for (const [name, config] of this.configs) {
+      if (config.enabled === false || !isRemoteTransport(config)) continue;
+      const handle = this.clients.get(name);
+      if (!handle || !handle.healthy) {
+        // Connection died (or never came up) — a reconnect also re-lists.
+        await this.reconnectClient(name).catch(() => {
+          /* still down; the next tick tries again */
+        });
+      } else {
+        await this.refreshServerTools(name);
+      }
+    }
+  }
+
+  private ensurePeriodicRefresh(): void {
+    if (this.refreshTimer) return;
+    this.refreshTimer = setInterval(() => {
+      void this.refreshRemoteServers();
+    }, MCP_REMOTE_TOOLS_REFRESH_INTERVAL_MS);
+    // Never keep the worker process alive just for refreshes.
+    this.refreshTimer.unref?.();
+  }
+
+  private scheduleEmptyToolsRetry(name: string): void {
+    if (this.emptyToolsRetryTimers.has(name)) return;
+    const timer = setTimeout(() => {
+      this.emptyToolsRetryTimers.delete(name);
+      void this.refreshServerTools(name);
+    }, MCP_EMPTY_TOOLS_RETRY_DELAY_MS);
+    timer.unref?.();
+    this.emptyToolsRetryTimers.set(name, timer);
   }
 
   private async buildClient(
@@ -480,6 +557,11 @@ export class McpClientManager {
   }
 
   private async disconnectClient(name: string): Promise<void> {
+    const retryTimer = this.emptyToolsRetryTimers.get(name);
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      this.emptyToolsRetryTimers.delete(name);
+    }
     const handle = this.clients.get(name);
     if (!handle) return;
     this.clients.delete(name);
