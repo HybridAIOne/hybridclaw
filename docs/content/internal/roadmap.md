@@ -310,7 +310,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.64 | Skill | QuickBooks Online skill (customers, invoices, payments, bills, journal entries, OAuth) | ⬜ To be filed |
 | R21.65 | Skill | Xero skill (contacts, invoices, bills, bank transactions, tracking categories, OAuth) | ⬜ To be filed |
 | R21.66 | Skill | PayPal skill (transactions search, refunds, invoices, payouts — pairs with the stripe skill) | ⬜ To be filed |
-| R21.67 | Skill | Mailchimp skill (audiences, campaigns, transactional via Mandrill — peer to brevo-email plugin) | ⬜ To be filed |
+| R21.67 | Skill | Mailchimp skill (audiences, campaigns, transactional via Mandrill — peer to brevo-email plugin) | ✅ #1136 |
 | R21.68 | Skill + Tool | Native `image_generate` tool plus image-generation skill shipped with multi-provider support and managed media output. | ✅ #936 via PR #938 |
 | R21.69 | Skill | Provider-agnostic speech-to-text shipped through native `audio_transcribe`, `speech.transcribe`, and `speech.detect-language` surfaces. | ✅ #999 via PR #1010 |
 | R21.70 | Skill | Text-to-speech skill (provider-agnostic — ElevenLabs, OpenAI TTS, Cartesia — voice selection, SSML, streaming). Tool layer `text_to_speech` + skill layer + multi-provider expansion all open; tracked under R21.95 (tool) + #1001 (skill). | ⬜ #1001 |
