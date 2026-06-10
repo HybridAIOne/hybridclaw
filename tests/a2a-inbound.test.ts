@@ -528,7 +528,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
         statusCode: 500,
         body: { error: 'Internal server error' },
       });
-      expect(runtime.inbox('remote')).toEqual([]);
+      expect(runtime.inbox('main')).toEqual([]);
       const audit = getRecentStructuredAuditForSession(
         'a2a:inbound:instance-x',
         10,
