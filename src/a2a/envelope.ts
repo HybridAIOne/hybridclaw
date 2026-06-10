@@ -50,8 +50,6 @@ export type CreateA2AEnvelopeInput = Omit<A2AEnvelope, 'id' | 'created_at'> & {
 export interface A2AEnvelopeAuditSummary {
   messageId: string | null;
   threadId: string | null;
-  from: Actor | null;
-  to: Actor | null;
   senderAgentId: string | null;
   recipientAgentId: string | null;
   senderInstanceId: string | null;
@@ -582,7 +580,7 @@ export function parseA2AEnvelopeJson(raw: string): A2AEnvelope {
 }
 
 export function serializeA2AEnvelope(envelope: A2AEnvelope): string {
-  return `${JSON.stringify(envelope, null, 2)}\n`;
+  return `${JSON.stringify(envelope)}\n`;
 }
 
 export function summarizeA2AEnvelopeForAudit(
@@ -591,8 +589,6 @@ export function summarizeA2AEnvelopeForAudit(
   return {
     messageId: envelope.id,
     threadId: envelope.thread_id,
-    from: envelope.from ?? null,
-    to: envelope.to ?? null,
     senderAgentId: envelope.sender_agent_id,
     recipientAgentId: envelope.recipient_agent_id,
     senderInstanceId: envelope.sender_instance_id ?? null,

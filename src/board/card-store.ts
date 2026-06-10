@@ -323,11 +323,11 @@ function normalizeActor(actor?: BoardCardActorInput | null): BoardCardActor {
   throw new Error('Unsupported board card actor.');
 }
 
-function serializeActor(actor: BoardCardActor): string {
+function serializeBoardActor(actor: BoardCardActor): string {
   return JSON.stringify(normalizeActor(actor));
 }
 
-function parseActor(raw: string): BoardCardActor {
+function parseBoardActor(raw: string): BoardCardActor {
   const parsed = parseJsonObject(raw, 'Board edge actor');
   return normalizeActor(parsed as BoardCardActor);
 }
@@ -403,7 +403,7 @@ function mapStoredEdgeRow(row: BoardEdgeRow): StoredBoardCardEdge {
     toCardId: row.to_card_id,
     kind: normalizeStoredEdgeKind(row.kind),
     createdAt: row.created_at,
-    createdBy: parseActor(row.created_by),
+    createdBy: parseBoardActor(row.created_by),
   });
 }
 
@@ -881,7 +881,7 @@ function insertOrReplaceStoredEdge(
       normalized.toCardId,
       normalized.kind,
       normalized.createdAt,
-      serializeActor(normalized.createdBy),
+      serializeBoardActor(normalized.createdBy),
     );
   return normalized;
 }

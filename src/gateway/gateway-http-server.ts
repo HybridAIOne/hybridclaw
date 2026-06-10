@@ -3741,12 +3741,9 @@ function normalizeBoardEdgeActor(
   const agentId = normalizeBoardActorField(record, 'agentId');
   const type = normalizeBoardActorField(record, 'type');
   const id = normalizeBoardActorField(record, 'id');
-  const actorCount = [
-    system,
-    userId,
-    agentId,
-    type || id ? `${type}:${id}` : '',
-  ].filter(Boolean).length;
+  const hasTypedActor = Boolean(type || id);
+  const actorCount =
+    [system, userId, agentId].filter(Boolean).length + (hasTypedActor ? 1 : 0);
   if (actorCount !== 1) {
     throw new GatewayRequestError(
       400,
@@ -3759,8 +3756,18 @@ function normalizeBoardEdgeActor(
     }
     return { system };
   }
-  if (userId) return { userId };
-  if (agentId) return { agentId };
+  if (userId) {
+    logger.warn(
+      'Deprecated board actor shape `userId` used; send `{ type: "user", id }` instead',
+    );
+    return { userId };
+  }
+  if (agentId) {
+    logger.warn(
+      'Deprecated board actor shape `agentId` used; send `{ type: "agent", id }` instead',
+    );
+    return { agentId };
+  }
   if (type !== 'user' && type !== 'agent') {
     throw new GatewayRequestError(400, '`actor.type` must be user or agent.');
   }

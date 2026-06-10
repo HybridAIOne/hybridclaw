@@ -255,9 +255,9 @@ test('migrateV43 backfills structured audit actors from legacy payload fields', 
   expect(JSON.parse(entry?.payload || '{}')).toEqual(
     expect.objectContaining({
       userId: ' Lena@HybridAI ',
-      actor: { type: 'user', id: 'lena@hybridai' },
     }),
   );
+  expect(JSON.parse(entry?.payload || '{}')).not.toHaveProperty('actor');
 
   const [partialEntry] = getRecentStructuredAuditForSession(
     'session-partial-actor',
@@ -267,7 +267,7 @@ test('migrateV43 backfills structured audit actors from legacy payload fields', 
   expect(partialEntry?.actor_id).toBe('support@lena@inst-1');
 });
 
-test('structured audit hydration replaces mismatched payload actors', async () => {
+test('structured audit hydration preserves signed payload actors', async () => {
   const homeDir = setupHome();
   const dbPath = path.join(homeDir, 'hybridclaw.db');
 
@@ -314,7 +314,7 @@ test('structured audit hydration replaces mismatched payload actors', async () =
   expect(entry?.actor_id).toBe('lena@hybridai');
   expect(JSON.parse(entry?.payload || '{}')).toEqual(
     expect.objectContaining({
-      actor: { type: 'user', id: 'lena@hybridai' },
+      actor: { type: 'user', id: 'ada@hybridai' },
     }),
   );
 });
@@ -373,7 +373,9 @@ test('actor data discovery returns sessions and audit rows for one Actor', async
   expect(JSON.parse(result.auditEvents[0]?.payload || '{}')).toEqual(
     expect.objectContaining({
       userId: 'lena@hybridai',
-      actor: { type: 'user', id: 'lena@hybridai' },
     }),
+  );
+  expect(JSON.parse(result.auditEvents[0]?.payload || '{}')).not.toHaveProperty(
+    'actor',
   );
 });

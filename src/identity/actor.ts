@@ -1,5 +1,8 @@
-import { parseAgentIdentity } from './agent-id.js';
-import { parseUserId } from './user-id.js';
+import {
+  AgentIdentityValidationError,
+  parseAgentIdentity,
+} from './agent-id.js';
+import { parseUserId, UserIdValidationError } from './user-id.js';
 
 export type ActorType = 'user' | 'agent';
 
@@ -71,23 +74,25 @@ export function normalizeActor(value: unknown): Actor {
 
 export function isUserActor(value: unknown): value is UserActor {
   if (!isRecord(value) || value.type !== 'user') return false;
+  if (typeof value.id !== 'string' || !value.id.trim()) return false;
   try {
-    if (typeof value.id !== 'string') return false;
-    createUserActor(value.id);
+    parseUserId(value.id);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof UserIdValidationError) return false;
+    throw error;
   }
 }
 
 export function isAgentActor(value: unknown): value is AgentActor {
   if (!isRecord(value) || value.type !== 'agent') return false;
+  if (typeof value.id !== 'string' || !value.id.trim()) return false;
   try {
-    if (typeof value.id !== 'string') return false;
-    createAgentActor(value.id);
+    parseAgentIdentity(value.id);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof AgentIdentityValidationError) return false;
+    throw error;
   }
 }
 

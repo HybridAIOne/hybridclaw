@@ -35,6 +35,7 @@ import {
 } from '../config/runtime-config-revisions.js';
 import {
   type Actor,
+  ActorValidationError,
   actorFromLegacyFields,
   normalizeActor,
 } from '../identity/actor.js';
@@ -164,6 +165,8 @@ const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const DEFAULT_LOCAL_OWNER_USER_ID = formatLocalOwnerUserId('');
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
+const ACTOR_ID_MAX_LENGTH =
+  AGENT_IDENTITY_COMPONENT_MAX_LENGTH * 3 + '@'.length * 2;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
   'messages_recent_chat_search_ai';
@@ -362,6 +365,16 @@ function queryAll<Row>(
   ...params: unknown[]
 ): Row[] {
   return database.prepare<unknown[], Row>(sql).all(...params);
+}
+
+function queryHydratedAuditEntries<Bind extends unknown[] = []>(
+  database: Database.Database,
+  sql: string,
+  ...params: Bind
+): StructuredAuditEntry[] {
+  return queryAll<StructuredAuditEntry, Bind>(database, sql, ...params).map(
+    hydrateStructuredAuditEntry,
+  );
 }
 
 function tableExists(database: Database.Database, table: string): boolean {
@@ -851,7 +864,7 @@ function migrateV1(database: Database.Database): void {
       run_id TEXT NOT NULL,
       parent_run_id TEXT,
       actor_type TEXT CHECK (actor_type IN ('user', 'agent')),
-      actor_id TEXT,
+      actor_id TEXT CHECK (actor_id IS NULL OR length(actor_id) <= ${ACTOR_ID_MAX_LENGTH}),
       payload TEXT NOT NULL,
       wire_hash TEXT NOT NULL,
       wire_prev_hash TEXT NOT NULL,
@@ -2985,7 +2998,7 @@ function migrateV43(database: Database.Database): void {
     database,
     table: 'audit_events',
     column: 'actor_id',
-    ddl: 'actor_id TEXT',
+    ddl: `actor_id TEXT CHECK (actor_id IS NULL OR length(actor_id) <= ${ACTOR_ID_MAX_LENGTH})`,
     quiet: true,
   });
 
@@ -3002,23 +3015,34 @@ function migrateV43(database: Database.Database): void {
      SET actor_type = ?, actor_id = ?
      WHERE id = ?`,
   );
-  database.transaction(() => {
-    let lastId = 0;
-    while (true) {
-      const rows = selectBatch.all(
-        lastId,
-        AUDIT_ACTOR_MIGRATION_BATCH_SIZE,
-      ) as Array<{ id: number; payload: string }>;
-      if (rows.length === 0) break;
+  let lastId = 0;
+  let skippedRows = 0;
+  while (true) {
+    const rows = selectBatch.all(
+      lastId,
+      AUDIT_ACTOR_MIGRATION_BATCH_SIZE,
+    ) as Array<{ id: number; payload: string }>;
+    if (rows.length === 0) break;
 
+    database.transaction(() => {
       for (const row of rows) {
         lastId = row.id;
         const actor = readAuditActorFromPayloadText(row.payload);
-        if (!actor) continue;
+        if (!actor) {
+          skippedRows += 1;
+          continue;
+        }
         update.run(actor.type, actor.id, row.id);
       }
-    }
-  })();
+    })();
+  }
+
+  if (skippedRows > 0) {
+    logger.warn(
+      { skippedRows },
+      'Structured audit actor migration skipped rows without a recoverable actor',
+    );
+  }
 
   database.exec(
     'CREATE INDEX IF NOT EXISTS idx_audit_events_actor_timestamp ON audit_events(actor_type, actor_id, timestamp)',
@@ -7352,7 +7376,7 @@ export function discoverActorData(params: {
     1,
     Math.min(Math.trunc(params.auditLimit ?? 200), 1_000),
   );
-  const auditEvents = queryAll<StructuredAuditEntry, [string, string, number]>(
+  const auditEvents = queryHydratedAuditEntries<[string, string, number]>(
     db,
     `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM audit_events
@@ -7363,7 +7387,7 @@ export function discoverActorData(params: {
     params.actor.type,
     params.actor.id,
     auditLimit,
-  ).map(hydrateStructuredAuditEntry);
+  );
 
   return {
     actor: params.actor,
@@ -10371,12 +10395,35 @@ function readPayloadBooleanValue(
   return typeof value === 'boolean' ? value : null;
 }
 
-function readPayloadActor(payload: Record<string, unknown>): Actor | null {
+interface ReadPayloadActorOptions {
+  warnInvalidLegacy?: boolean;
+  context?: Record<string, unknown>;
+}
+
+function warnInvalidAuditActor(
+  error: unknown,
+  options?: ReadPayloadActorOptions,
+): void {
+  if (!(error instanceof ActorValidationError)) throw error;
+  if (!options?.warnInvalidLegacy) return;
+  logger.warn(
+    { ...options.context, error: error.message },
+    'Structured audit event has invalid actor fields',
+  );
+}
+
+function readPayloadActor(
+  payload: Record<string, unknown>,
+  options?: ReadPayloadActorOptions,
+): Actor | null {
   const actor = payload.actor;
   if (actor && typeof actor === 'object' && !Array.isArray(actor)) {
+    const actorRecord = actor as Record<string, unknown>;
+    if (!('type' in actorRecord) && !('id' in actorRecord)) return null;
     try {
       return normalizeActor(actor);
-    } catch {
+    } catch (error) {
+      warnInvalidAuditActor(error, options);
       return null;
     }
   }
@@ -10386,7 +10433,8 @@ function readPayloadActor(payload: Record<string, unknown>): Actor | null {
       userId: readPayloadStringValue(payload, 'userId'),
       agentId: readPayloadStringValue(payload, 'agentId'),
     });
-  } catch {
+  } catch (error) {
+    warnInvalidAuditActor(error, options);
     return null;
   }
 }
@@ -10403,58 +10451,31 @@ function readAuditActorFromPayloadText(payloadText: string): Actor | null {
   }
 }
 
-function normalizeAuditEventPayload(
-  payload: Record<string, unknown>,
-  actor: Actor | null,
-): Record<string, unknown> {
-  if (!actor || payload.actor !== undefined) return payload;
-  return { ...payload, actor };
-}
-
-function payloadActorMatches(
-  payload: Record<string, unknown>,
-  actor: Actor,
-): boolean {
-  try {
-    const payloadActor = normalizeActor(payload.actor);
-    return payloadActor.type === actor.type && payloadActor.id === actor.id;
-  } catch {
-    return false;
-  }
-}
-
 function hydrateStructuredAuditEntry(
   entry: StructuredAuditEntry,
 ): StructuredAuditEntry {
+  if (entry.actor_type && entry.actor_id) return entry;
+
   const actor =
     entry.actor_type && entry.actor_id
       ? ({ type: entry.actor_type, id: entry.actor_id } as Actor)
       : readAuditActorFromPayloadText(entry.payload);
   if (!actor) return entry;
 
-  const payload = readPayloadObject(entry.payload);
-  if (payloadActorMatches(payload, actor)) {
-    return {
-      ...entry,
-      actor_type: actor.type,
-      actor_id: actor.id,
-    };
-  }
-
   return {
     ...entry,
     actor_type: actor.type,
     actor_id: actor.id,
-    payload: JSON.stringify({ ...payload, actor }),
   };
 }
 
 export function logStructuredAuditEvent(record: WireRecord): void {
   const eventType = record.event.type || 'unknown';
-  const actor = readPayloadActor(record.event);
-  const payloadText = JSON.stringify(
-    normalizeAuditEventPayload(record.event, actor),
-  );
+  const actor = readPayloadActor(record.event, {
+    warnInvalidLegacy: true,
+    context: { eventType, seq: record.seq, sessionId: record.sessionId },
+  });
+  const payloadText = JSON.stringify(record.event);
 
   db.prepare(
     `INSERT OR IGNORE INTO audit_events (
@@ -10506,14 +10527,14 @@ export function logStructuredAuditEvent(record: WireRecord): void {
 export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
   ensureDatabaseReady();
   const bounded = Math.max(1, Math.min(limit, 1_000));
-  return queryAll<StructuredAuditEntry, [number]>(
+  return queryHydratedAuditEntries<[number]>(
     db,
     `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM audit_events
      ORDER BY id DESC
      LIMIT ?`,
     bounded,
-  ).map(hydrateStructuredAuditEntry);
+  );
 }
 
 export interface AgentAnomalyRollup {
@@ -10733,19 +10754,19 @@ function queryStructuredAuditEntries(params?: {
   `;
 
   if (limit == null) {
-    return queryAll<StructuredAuditEntry, Array<string | number>>(
+    return queryHydratedAuditEntries<Array<string | number>>(
       db,
       sql,
       ...values,
-    ).map(hydrateStructuredAuditEntry);
+    );
   }
 
-  return queryAll<StructuredAuditEntry, Array<string | number>>(
+  return queryHydratedAuditEntries<Array<string | number>>(
     db,
     sql,
     ...values,
     limit,
-  ).map(hydrateStructuredAuditEntry);
+  );
 }
 
 export function getRecentStructuredAuditForSession(
@@ -10771,7 +10792,7 @@ export function getRecentStructuredAuditForSessions(
   if (normalizedSessionIds.length === 0) return [];
   const limit = Math.max(1, Math.min(200, Math.trunc(perSessionLimit || 20)));
   const placeholders = normalizedSessionIds.map(() => '?').join(', ');
-  return queryAll<StructuredAuditEntry, Array<string | number>>(
+  return queryHydratedAuditEntries<Array<string | number>>(
     db,
     `WITH ranked_events AS (
        SELECT
@@ -10786,10 +10807,10 @@ export function getRecentStructuredAuditForSessions(
      SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM ranked_events
      WHERE liveness_rank <= ?
-     ORDER BY session_id ASC, seq DESC`,
+    ORDER BY session_id ASC, seq DESC`,
     ...normalizedSessionIds,
     limit,
-  ).map(hydrateStructuredAuditEntry);
+  );
 }
 
 export function listStructuredAuditSessionIdsByPrefix(
@@ -10870,16 +10891,16 @@ export function getStructuredAuditAfterId(
 ): StructuredAuditEntry[] {
   const boundedAfterId = Math.max(0, Math.floor(afterId));
   const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 5_000));
-  return queryAll<StructuredAuditEntry, [number, number]>(
+  return queryHydratedAuditEntries<[number, number]>(
     db,
     `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM audit_events
      WHERE id > ?
      ORDER BY id ASC
-     LIMIT ?`,
+    LIMIT ?`,
     boundedAfterId,
     boundedLimit,
-  ).map(hydrateStructuredAuditEntry);
+  );
 }
 
 export function searchStructuredAudit(
@@ -10891,10 +10912,7 @@ export function searchStructuredAudit(
   if (!normalized) return [];
   const bounded = Math.max(1, Math.min(limit, 1_000));
   const like = `%${normalized}%`;
-  return queryAll<
-    StructuredAuditEntry,
-    [string, string, string, string, number]
-  >(
+  return queryHydratedAuditEntries<[string, string, string, string, number]>(
     db,
     `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM audit_events
@@ -10909,7 +10927,7 @@ export function searchStructuredAudit(
     like,
     like,
     bounded,
-  ).map(hydrateStructuredAuditEntry);
+  );
 }
 
 export function getRecentApprovals(

@@ -116,8 +116,6 @@ describe('A2A envelope schema', () => {
     expect(summarizeA2AEnvelopeForAudit(envelope)).toEqual({
       messageId: 'msg-delegate-1',
       threadId: 'thread-delegate',
-      from: null,
-      to: null,
       senderAgentId: 'researcher@team-a@inst-source',
       recipientAgentId: 'writer@team-b@inst-target',
       senderInstanceId: 'inst-source',
@@ -147,8 +145,8 @@ describe('A2A envelope schema', () => {
       recipient_agent_id: 'writer@team-b@inst-target',
     });
     expect(summarizeA2AEnvelopeForAudit(envelope)).toMatchObject({
-      from: { type: 'user', id: 'lena@hybridai' },
-      to: { type: 'agent', id: 'writer@team-b@inst-target' },
+      senderAgentId: 'researcher@team-a@inst-source',
+      recipientAgentId: 'writer@team-b@inst-target',
     });
   });
 
