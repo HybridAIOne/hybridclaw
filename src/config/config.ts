@@ -17,6 +17,7 @@ import {
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
+import { injectHybridAIConnectorGateway } from './connector-gateway.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
@@ -1105,7 +1106,14 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CONTAINER_PERSIST_BASH_STATE = config.container.persistBashState;
   warnIfWarmPoolMinIdleIsClamped(config.container.warmPool);
   CONTAINER_WARM_POOL = structuredClone(config.container.warmPool);
-  MCP_SERVERS = structuredClone(config.mcpServers || {});
+  // Auto-wire the HybridAI connector gateway when the HybridAI provider is
+  // configured, so self-hosted installs need no manual mcpServers entry. Kept
+  // in-memory only (the API key is never written back to config.json).
+  MCP_SERVERS = injectHybridAIConnectorGateway(
+    structuredClone(config.mcpServers || {}),
+    HYBRIDAI_BASE_URL,
+    HYBRIDAI_API_KEY,
+  );
   BROWSER_PROVIDER = config.browser.provider;
   BROWSER_ALLOW_PRIVATE_NETWORK = config.browser.allowPrivateNetwork;
   WEB_SEARCH_PROVIDER = config.web.search.provider;
