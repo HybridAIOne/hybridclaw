@@ -8,16 +8,16 @@
       "name": "hybridclaw-agent",
       "version": "0.23.0",
       "dependencies": {
-        "@modelcontextprotocol/sdk": "1.27.1",
+        "@modelcontextprotocol/sdk": "1.29.0",
         "@mozilla/readability": "0.6.0",
         "agent-browser": "0.15.1",
-        "dompurify": "3.4.5",
+        "dompurify": "3.4.7",
         "jszip": "3.10.1",
         "linkedom": "0.18.12",
         "mermaid": "11.15.0",
         "pdf-lib": "1.17.1",
         "pdfjs-dist": "5.5.207",
-        "playwright": "1.58.2",
+        "playwright": "1.60.0",
         "yaml": "2.8.3"
       },
       "devDependencies": {
@@ -137,9 +137,9 @@
       }
     },
     "node_modules/@modelcontextprotocol/sdk": {
-      "version": "1.27.1",
-      "resolved": "https://registry.npmjs.org/@modelcontextprotocol/sdk/-/sdk-1.27.1.tgz",
-      "integrity": "sha512-sr6GbP+4edBwFndLbM60gf07z0FQ79gaExpnsjMGePXqFcSSb7t6iscpjk9DhFhwd+mTEQrzNafGP8/iGGFYaA==",
+      "version": "1.29.0",
+      "resolved": "https://registry.npmjs.org/@modelcontextprotocol/sdk/-/sdk-1.29.0.tgz",
+      "integrity": "sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==",
       "license": "MIT",
       "dependencies": {
         "@hono/node-server": "^1.19.9",
@@ -2431,9 +2431,9 @@
       }
     },
     "node_modules/dompurify": {
-      "version": "3.4.5",
-      "resolved": "https://registry.npmjs.org/dompurify/-/dompurify-3.4.5.tgz",
-      "integrity": "sha512-OrwIBKsdNSVEeubdJ1HBv/wNENRM9ytAVCv7YXt//A3vPdVMNuACRqK9mXCGCBW2ln7BT/A4X0jXHo2Gu89miA==",
+      "version": "3.4.7",
+      "resolved": "https://registry.npmjs.org/dompurify/-/dompurify-3.4.7.tgz",
+      "integrity": "sha512-2jBxDJY4RR06tQNy4w5FlFH7kfxsQZlufd0sbv+chfHCxeJwrFw2baUDsSwvBISD4K4RDbd0PTfy3uNXsR6siA==",
       "license": "(MPL-2.0 OR Apache-2.0)",
       "optionalDependencies": {
         "@types/trusted-types": "^2.0.7"
@@ -4165,12 +4165,12 @@
       }
     },
     "node_modules/playwright": {
-      "version": "1.58.2",
-      "resolved": "https://registry.npmjs.org/playwright/-/playwright-1.58.2.tgz",
-      "integrity": "sha512-vA30H8Nvkq/cPBnNw4Q8TWz1EJyqgpuinBcHET0YVJVFldr8JDNiU9LaWAE1KqSkRYazuaBhTpB5ZzShOezQ6A==",
+      "version": "1.60.0",
+      "resolved": "https://registry.npmjs.org/playwright/-/playwright-1.60.0.tgz",
+      "integrity": "sha512-hheHdokM8cdqCb0lcE3s+zT4t4W+vvjpGxsZlDnikarzx8tSzMebh3UiFtgqwFwnTnjYQcsyMF8ei2mCO/tpeA==",
       "license": "Apache-2.0",
       "dependencies": {
-        "playwright-core": "1.58.2"
+        "playwright-core": "1.60.0"
       },
       "bin": {
         "playwright": "cli.js"
@@ -4183,9 +4183,9 @@
       }
     },
     "node_modules/playwright-core": {
-      "version": "1.58.2",
-      "resolved": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.58.2.tgz",
-      "integrity": "sha512-yZkEtftgwS8CsfYo7nm0KE8jsvm6i/PTgVtB8DL726wNf6H2IMsDuxCpJj59KDaxCtSnrWan2AeDqM7JBaultg==",
+      "version": "1.60.0",
+      "resolved": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.60.0.tgz",
+      "integrity": "sha512-9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA==",
       "license": "Apache-2.0",
       "bin": {
         "playwright-core": "cli.js"
@@ -4664,9 +4664,9 @@
       }
     },
     "node_modules/shell-quote": {
-      "version": "1.8.3",
-      "resolved": "https://registry.npmjs.org/shell-quote/-/shell-quote-1.8.3.tgz",
-      "integrity": "sha512-ObmnIF4hXNg1BqhnHmgbDETF8dLPCggZWBjkQfhZpbszZnYur5DUljTcCHii5LC3J5E0yeO/1LIMyH+UvHQgyw==",
+      "version": "1.8.4",
+      "resolved": "https://registry.npmjs.org/shell-quote/-/shell-quote-1.8.4.tgz",
+      "integrity": "sha512-VsC6n6vz1ihYYyZZwX7YZSF5l5x36ca17OC+a69h94YqB7X6XLwf+5MOgynYir2SLFUbl8gIYvBo8K8RoNQ6bQ==",
       "license": "MIT",
       "engines": {
         "node": ">= 0.4"

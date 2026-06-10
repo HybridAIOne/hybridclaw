@@ -226,11 +226,11 @@ import {
   rememberPendingApproval,
 } from './pending-approvals.js';
 import {
+  hasImmediateProactiveDeliveryPath,
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
   isEmailAddress,
   isHeartbeatOkText,
-  isSupportedProactiveChannelId,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
   shouldSuppressProactiveMessage,
@@ -1347,7 +1347,7 @@ async function flushQueuedProactiveMessages(): Promise<void> {
       droppedUndeliverable += 1;
       continue;
     }
-    if (!isSupportedProactiveChannelId(item.channel_id)) {
+    if (!hasImmediateProactiveDeliveryPath(item)) {
       continue;
     }
     await sendProactiveMessageNow(

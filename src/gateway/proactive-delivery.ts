@@ -11,6 +11,10 @@ import type { QueuedProactiveMessage } from '../memory/db.js';
 const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
 const LOCAL_PROACTIVE_PULL_CHANNEL_IDS = new Set(['tui']);
 
+export function isLocalProactivePullChannelId(channelId: string): boolean {
+  return LOCAL_PROACTIVE_PULL_CHANNEL_IDS.has(channelId.trim());
+}
+
 export function isDiscordChannelId(channelId: string): boolean {
   return DISCORD_CHANNEL_ID_RE.test(channelId);
 }
@@ -31,13 +35,22 @@ export function isSupportedProactiveChannelId(channelId: string): boolean {
   if (isTelegramChannelId(trimmed)) return true;
   if (isThreemaChannelId(trimmed)) return true;
   if (isEmailAddress(trimmed)) return true;
-  return LOCAL_PROACTIVE_PULL_CHANNEL_IDS.has(trimmed);
+  return isLocalProactivePullChannelId(trimmed);
 }
 
 export function hasQueuedProactiveDeliveryPath(
   item: Pick<QueuedProactiveMessage, 'channel_id'>,
 ): boolean {
   return isSupportedProactiveChannelId(item.channel_id);
+}
+
+export function hasImmediateProactiveDeliveryPath(
+  item: Pick<QueuedProactiveMessage, 'channel_id'>,
+): boolean {
+  return (
+    isSupportedProactiveChannelId(item.channel_id) &&
+    !isLocalProactivePullChannelId(item.channel_id)
+  );
 }
 
 export function resolveHeartbeatDeliveryChannelId(params: {

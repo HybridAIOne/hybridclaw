@@ -204,6 +204,12 @@ export interface ProviderCredentials {
 
 export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
 
+export interface AddressEnvelope {
+  to: string | string[];
+  from?: string | null;
+  fanoutAlias?: 'team' | 'all';
+}
+
 export interface ContainerInput {
   healthCheck?: {
     nonce: string;
@@ -236,6 +242,7 @@ export interface ContainerInput {
   browserProvider?: string;
   browserAllowPrivateNetwork?: boolean;
   model: string;
+  addressEnvelope?: AddressEnvelope;
   codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;

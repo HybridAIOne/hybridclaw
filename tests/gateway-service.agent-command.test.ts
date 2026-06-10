@@ -155,3 +155,43 @@ test('agent switch starts active BOOTSTRAP hatching in a reused session', async 
     ]),
   );
 });
+
+test('agent shorthand switches by display name', async () => {
+  setupHome();
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'research',
+    displayName: 'Research Agent',
+  });
+
+  const switched = await handleGatewayCommand({
+    sessionId: 'session-agent-shorthand',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    args: ['agent', '@Research', 'Agent'],
+  });
+  const current = await handleGatewayCommand({
+    sessionId: 'session-agent-shorthand',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    args: ['agent', 'current'],
+  });
+
+  expect(switched.kind).toBe('plain');
+  expect(switched.text).toContain('Session agent set to `research`');
+  expect(current.kind).toBe('info');
+  expect(current.text).toContain('Current agent: research');
+});

@@ -30,7 +30,7 @@ import type {
 } from '../skills/skills.js';
 import type { SkillGuardFinding } from '../skills/skills-guard.js';
 import type { TunnelState } from '../tunnel/tunnel-provider.js';
-import type { MediaContextItem } from '../types/container.js';
+import type { AddressEnvelope, MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   PendingApproval,
@@ -71,6 +71,7 @@ export interface GatewayAssistantPresentation {
 }
 
 export type GatewayChatResultMessageRole = 'assistant' | 'approval' | 'command';
+export type GatewayAddressEnvelope = AddressEnvelope;
 
 export interface GatewayChatResult {
   status: 'success' | 'error';
@@ -84,6 +85,7 @@ export interface GatewayChatResult {
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;
+  addressEnvelope?: GatewayAddressEnvelope;
   assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;
@@ -184,6 +186,7 @@ export interface GatewayChatRequest {
   content: GatewayChatRequestBody['content'];
   media?: GatewayChatRequestBody['media'];
   agentId?: GatewayChatRequestBody['agentId'];
+  addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];
   enableRag?: GatewayChatRequestBody['enableRag'];
@@ -822,6 +825,7 @@ export interface GatewayAgentsResponse {
 export interface GatewayAgentListItem {
   id: string;
   name: string | null;
+  imageUrl?: string;
 }
 
 export interface GatewayAgentListResponse {

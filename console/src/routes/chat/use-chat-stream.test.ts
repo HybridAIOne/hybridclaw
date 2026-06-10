@@ -159,6 +159,64 @@ describe('useChatStream', () => {
     });
   });
 
+  it('adds addressed presentation to optimistic mentioned user messages', async () => {
+    const harness = makeHarness();
+    let resolveStream!: (result: ChatStreamResult) => void;
+    requestChatStreamMock.mockReturnValue(
+      new Promise<ChatStreamResult>((resolve) => {
+        resolveStream = resolve;
+      }),
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+          resolveAddressedAgentPresentation: (content) =>
+            content.includes('@stephan')
+              ? {
+                  agentId: 'stephan',
+                  displayName: 'Stephan Noller',
+                  imageUrl: '/api/agent-avatar?agentId=stephan',
+                }
+              : null,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    let sendPromise!: Promise<boolean>;
+    await act(async () => {
+      sendPromise = result.current.sendMessage('@stephan Läuft bei dir?', []);
+    });
+
+    const user = harness.messages.find((msg) => msg.role === 'user');
+    expect(user).toMatchObject({
+      content: '@stephan Läuft bei dir?',
+      addressedAgentPresentation: {
+        agentId: 'stephan',
+        displayName: 'Stephan Noller',
+        imageUrl: '/api/agent-avatar?agentId=stephan',
+      },
+    });
+
+    await act(async () => {
+      resolveStream({
+        status: 'ok',
+        sessionId: SESSION_ID,
+        userMessageId: 'server-user-1',
+        assistantMessageId: 'assistant-1',
+        result: 'Answer',
+        messageRole: 'assistant',
+      });
+      await sendPromise;
+    });
+  });
+
   it('backfills the created user message by local id instead of matching on content', async () => {
     const harness = makeHarness([
       {
@@ -243,6 +301,93 @@ describe('useChatStream', () => {
         media: [],
       },
     });
+  });
+
+  it('adds display attribution to finalized addressed user messages', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: 'assistant-1',
+      result: 'Answer',
+      messageRole: 'assistant',
+      addressEnvelope: { to: 'research', from: 'main' },
+      assistantPresentation: {
+        agentId: 'research',
+        displayName: 'Research Agent',
+        imageUrl: '/api/agent-avatar?agentId=research',
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('summarize this', []);
+    });
+
+    const user = harness.messages.find((msg) => msg.role === 'user');
+
+    expect(user).toMatchObject({
+      content: '@research summarize this',
+      rawContent: 'summarize this',
+      replayRequest: {
+        content: 'summarize this',
+        media: [],
+      },
+      addressedAgentPresentation: {
+        agentId: 'research',
+        displayName: 'Research Agent',
+        imageUrl: '/api/agent-avatar?agentId=research',
+      },
+    });
+  });
+
+  it('does not duplicate an existing addressed mention on finalize', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: 'assistant-1',
+      result: 'Answer',
+      messageRole: 'assistant',
+      addressEnvelope: { to: 'research', from: 'main' },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('@research summarize this', []);
+    });
+
+    const user = harness.messages.find((msg) => msg.role === 'user');
+
+    expect(user?.content).toBe('@research summarize this');
   });
 
   it('allocates a separate local id for the streamed assistant message', async () => {

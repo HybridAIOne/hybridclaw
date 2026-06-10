@@ -83,6 +83,7 @@ export interface ChatCommandSuggestion {
   label: string;
   insertText: string;
   description: string;
+  imageUrl?: string | null;
   depth?: number;
 }
 
@@ -132,6 +133,11 @@ export interface ChatStreamResult {
   userMessageId?: number | string | null;
   assistantMessageId?: number | string | null;
   result?: string;
+  addressEnvelope?: {
+    to: string | string[];
+    from?: string | null;
+    fanoutAlias?: 'team' | 'all';
+  };
   assistantPresentation?: AssistantPresentation | null;
   model?: string;
   provider?: string;
@@ -180,6 +186,7 @@ export interface ChatMessage {
   replayRequest?: { content: string; media: MediaItem[] } | null;
   pendingApproval?: ChatStreamApproval | null;
   assistantPresentation?: AssistantPresentation | null;
+  addressedAgentPresentation?: AssistantPresentation | null;
   responseRating?: ResponseRatingValue | null;
   branchKey?: string | null;
 }

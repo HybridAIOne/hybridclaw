@@ -705,6 +705,55 @@ server-side as request headers.
 
 ---
 
+## byd-battery
+
+Read BYD Battery-Box Premium HVS/HVM/LVS/LVL home-storage telemetry through
+local Modbus TCP or paired Fronius inverter delegation. Read-only v1: remote
+shutdown, BMU resets, capacity reconfiguration, and all write operations are
+out of scope.
+
+**Prerequisites** — LAN access to the BYD BMU Modbus endpoint, or a Fronius
+pairing for delegated reads.
+
+```bash
+hybridclaw secret set BYD_BMU_HOST "192.168.1.50"
+hybridclaw secret set BYD_BMU_MODBUS_PORT "8080"
+hybridclaw secret set BYD_BMU_UNIT_ID "1"
+hybridclaw secret set BYD_BMU_MODEL "Premium HVS"
+```
+
+All connection values stay in encrypted secrets; the helper never prints the
+configured host, port, unit id, or model in normal results, and only reads
+allowlisted register ranges with no arbitrary Modbus passthrough.
+
+> 💡 **Tips & Tricks**
+>
+> Use `state-of-charge` and `pack-telemetry` for live SoC, SoH, power direction, voltage, current, and temperature.
+>
+> Use `cell-extremes` and `module-telemetry` for cell voltage spread and per-module diagnostics.
+>
+> Use `inventory`, `firmware`, and `be-connect-metadata` for service handoff details; use `alarms` and `energy-counters` for decoded alarm codes and kWh rollups.
+>
+> If local Modbus is not configured but the battery is paired to a Fronius inverter, append `--via fronius` to delegate the read.
+
+> 🎯 **Try it yourself**
+>
+> `What is my BYD battery's current state of charge and state of health?`
+>
+> `Show pack telemetry and cell voltage spread for my Battery-Box`
+>
+> `Decode any active BYD battery alarms and summarize them as an incident`
+>
+> `List my battery tower and module topology with firmware versions`
+
+**Troubleshooting**
+
+- **BMU host missing** — set `BYD_BMU_HOST` (and port/unit id if non-default) or use `--via fronius` with a paired inverter.
+- **Connect timeout or comms lost** — the helper stops after the first failure and emits an incident payload; check the BMU LAN address and port instead of retrying.
+- **Gateway policy denial** — allow only the BMU LAN host and Modbus port; local reads need no internet endpoints.
+
+---
+
 ## warehouse-sql
 
 Review and run read-only natural-language SQL against a customer data

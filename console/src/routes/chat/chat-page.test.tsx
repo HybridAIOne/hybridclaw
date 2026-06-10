@@ -79,6 +79,8 @@ const executeCommandMock =
       args: string[],
     ) => Promise<AdminCommandResult>
   >();
+const fetchAgentAvatarBlobMock =
+  vi.fn<(token: string, imageUrl: string) => Promise<Blob>>();
 const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
 const fetchModelsMock =
   vi.fn<(token: string) => Promise<AdminModelsResponse>>();
@@ -118,6 +120,8 @@ vi.mock('../../api/chat', () => ({
     userId: string,
     args: string[],
   ) => executeCommandMock(token, sessionId, userId, args),
+  fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
+    fetchAgentAvatarBlobMock(token, imageUrl),
 }));
 
 vi.mock('../../api/client', () => ({
@@ -205,6 +209,14 @@ function renderChatPage() {
   return queryClient;
 }
 
+async function switchAgentOption(name: string) {
+  const agentSelect = await screen.findByRole('combobox', {
+    name: 'Switch agent',
+  });
+  fireEvent.click(agentSelect);
+  fireEvent.click(await screen.findByRole('option', { name }));
+}
+
 describe('ChatPage', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -232,6 +244,7 @@ describe('ChatPage', () => {
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
     executeCommandMock.mockReset();
+    fetchAgentAvatarBlobMock.mockReset();
     fetchAgentListMock.mockReset();
     fetchModelsMock.mockReset();
     fetchModelsMock.mockResolvedValue({
@@ -427,11 +440,10 @@ describe('ChatPage', () => {
     renderChatPage();
 
     expect(await screen.findByText('Opened research session')).not.toBeNull();
-    const agentSelect = await screen.findByLabelText('Switch agent');
-    expect(agentSelect).toBeInstanceOf(HTMLSelectElement);
-    await waitFor(() =>
-      expect((agentSelect as HTMLSelectElement).value).toBe('research'),
-    );
+    const agentSelect = await screen.findByRole('combobox', {
+      name: 'Switch agent',
+    });
+    await waitFor(() => expect(agentSelect.textContent).toContain('research'));
   });
 
   it('refetches history while bootstrap autostart is starting', async () => {
@@ -491,9 +503,7 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
     await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
 
-    fireEvent.change(screen.getByLabelText('Switch agent'), {
-      target: { value: 'charly' },
-    });
+    await switchAgentOption('Charly');
 
     await waitFor(() =>
       expect(executeCommandMock).toHaveBeenCalledWith(
@@ -527,9 +537,7 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
     await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
 
-    fireEvent.change(screen.getByLabelText('Switch agent'), {
-      target: { value: 'charly' },
-    });
+    await switchAgentOption('Charly');
 
     await waitFor(() =>
       expect(sendMessageMock).toHaveBeenCalledWith('Start hatching.', [], {
@@ -553,9 +561,7 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Opened session A')).not.toBeNull();
     await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
 
-    fireEvent.change(screen.getByLabelText('Switch agent'), {
-      target: { value: 'charly' },
-    });
+    await switchAgentOption('Charly');
 
     await waitFor(() =>
       expect(executeCommandMock).toHaveBeenCalledWith(
@@ -589,10 +595,7 @@ describe('ChatPage', () => {
 
     renderChatPage();
 
-    const agentSelect = await screen.findByLabelText('Switch agent');
-    fireEvent.change(agentSelect, {
-      target: { value: 'charly' },
-    });
+    await switchAgentOption('Charly');
 
     await waitFor(() =>
       expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),

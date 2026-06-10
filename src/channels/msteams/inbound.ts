@@ -3,6 +3,7 @@ import type { Activity } from 'botframework-schema';
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { isRegisteredTextCommandName } from '../../command-registry.js';
 import { buildSessionKey } from '../../session/session-key.js';
+import { formatNativeAgentMention } from '../agent-addressing.js';
 import { isRecord, normalizeValue } from './utils.js';
 
 export interface ParsedCommand {
@@ -31,26 +32,33 @@ const CARD_TEXT_KEYS = new Set([
 
 function stripHtml(text: string): string {
   const blockTags = new Set(['br', 'div', 'p', 'li', 'tr', 'ul', 'ol']);
+  const normalizedText = text.replace(
+    /<at\b[^>]*>([^<]+)<\/at>/gi,
+    (_match, label: string) => ` ${formatNativeAgentMention(label)} `,
+  );
   let result = '';
   let index = 0;
   let mentionDepth = 0;
 
-  while (index < text.length) {
-    if (text.startsWith('<!--', index)) {
-      const end = text.indexOf('-->', index + 4);
-      index = end === -1 ? text.length : end + 3;
+  while (index < normalizedText.length) {
+    if (normalizedText.startsWith('<!--', index)) {
+      const end = normalizedText.indexOf('-->', index + 4);
+      index = end === -1 ? normalizedText.length : end + 3;
       continue;
     }
-    if (text.startsWith('<![CDATA[', index)) {
-      const end = text.indexOf(']]>', index + 9);
+    if (normalizedText.startsWith('<![CDATA[', index)) {
+      const end = normalizedText.indexOf(']]>', index + 9);
       if (mentionDepth === 0) {
-        result += text.slice(index + 9, end === -1 ? text.length : end);
+        result += normalizedText.slice(
+          index + 9,
+          end === -1 ? normalizedText.length : end,
+        );
       }
-      index = end === -1 ? text.length : end + 3;
+      index = end === -1 ? normalizedText.length : end + 3;
       continue;
     }
 
-    const current = text[index];
+    const current = normalizedText[index];
     if (current !== '<') {
       if (mentionDepth === 0) {
         result += current;
@@ -59,7 +67,7 @@ function stripHtml(text: string): string {
       continue;
     }
 
-    const closeIndex = text.indexOf('>', index + 1);
+    const closeIndex = normalizedText.indexOf('>', index + 1);
     if (closeIndex === -1) {
       if (mentionDepth === 0) {
         result += current;
@@ -68,7 +76,7 @@ function stripHtml(text: string): string {
       continue;
     }
 
-    const rawTag = text.slice(index + 1, closeIndex).trim();
+    const rawTag = normalizedText.slice(index + 1, closeIndex).trim();
     const isClosingTag = rawTag.startsWith('/');
     const tagName = normalizeValue(
       rawTag.replace(/^\//, '').split(/\s+/, 1)[0],

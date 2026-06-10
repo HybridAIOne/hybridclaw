@@ -1,5 +1,6 @@
 import { isRegisteredTextCommandName } from '../../command-registry.js';
 import { buildSessionKey } from '../../session/session-key.js';
+import { normalizeNativeAgentAddressingText } from '../agent-addressing.js';
 
 export interface ParsedCommand {
   isCommand: boolean;
@@ -78,7 +79,7 @@ export function cleanIncomingContent(
   if (text.startsWith(prefix)) {
     text = text.slice(prefix.length).trim();
   }
-  return text;
+  return normalizeNativeAgentAddressingText(text);
 }
 
 export function hasPrefixInvocation(
