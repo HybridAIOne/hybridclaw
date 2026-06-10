@@ -90,7 +90,7 @@ export function buildApprovalSummary(
   return lines.join('\n');
 }
 
-const APPROVAL_COMMAND_MAP: Record<string, string> = {
+const APPROVAL_COMMAND_MAP: Record<ApprovalAction, string> = {
   once: '/approve yes',
   session: '/approve session',
   agent: '/approve agent',
@@ -103,8 +103,8 @@ export function buildApprovalCommand(
   approvalId: string,
 ): string | null {
   const base = APPROVAL_COMMAND_MAP[action];
-  if (!base) return null;
   const id = approvalId.trim();
+  if (/\s/.test(id)) return null;
   return id ? `${base} ${id}` : base;
 }
 

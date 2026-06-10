@@ -42,6 +42,15 @@ afterEach(() => {
 });
 
 describe('gateway auth token helpers', () => {
+  test('compares tokens without throwing on length mismatches', async () => {
+    const { safeEqualToken } = await import('../src/gateway/auth-token.ts');
+
+    expect(safeEqualToken('test-token', 'test-token')).toBe(true);
+    expect(safeEqualToken('test-token', 'test-token-extra')).toBe(false);
+    expect(safeEqualToken('test-token-extra', 'test-token')).toBe(false);
+    expect(safeEqualToken('test-token', 'test-tokex')).toBe(false);
+  });
+
   test('verifies a valid launch token signed with the shared secret', async () => {
     process.env.HYBRIDCLAW_AUTH_SECRET = 'unit-secret';
     const { verifyLaunchToken } = await import('../src/gateway/auth-token.ts');

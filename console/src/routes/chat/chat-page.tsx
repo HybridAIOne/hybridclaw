@@ -742,7 +742,7 @@ export function ChatPage() {
           commandArgs[0] === 'agent' &&
           commandArgs[1] === 'switch' &&
           switchHistory?.bootstrapAutostart?.fileName === 'BOOTSTRAP.md' &&
-          switchHistory.bootstrapAutostart.status !== 'completed';
+          switchHistory.bootstrapAutostart.status === 'idle';
         if (shouldStartHatching) {
           jumpToBottom();
           void stream.sendMessage(BOOTSTRAP_HATCHING_KICKOFF, [], {

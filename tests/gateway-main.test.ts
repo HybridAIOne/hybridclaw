@@ -314,6 +314,8 @@ function createGatewayMainTestState(options?: {
     startWebhookOutboxProcessor: vi.fn(),
     stopWebhookOutboxProcessor: vi.fn(),
     startDiscoveryLoop: vi.fn(),
+    startPeriodicCloudMemorySync: vi.fn(),
+    stopPeriodicCloudMemorySync: vi.fn(),
     hybridAIProbeGet: vi.fn(async () => ({})),
     localBackendsProbeGet: vi.fn(async () => new Map()),
     initSentry: vi.fn(async () => {}),
@@ -614,6 +616,10 @@ async function importFreshGatewayMain(options?: {
       setConsolidationLanguage: state.memoryServiceSetLanguage,
     },
   }));
+  vi.doMock('../src/memory/cloud-memory.js', () => ({
+    startPeriodicCloudMemorySync: state.startPeriodicCloudMemorySync,
+    stopPeriodicCloudMemorySync: state.stopPeriodicCloudMemorySync,
+  }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
     listAgents: state.listAgents,
     resolveAgentForRequest: state.resolveAgentForRequest,
@@ -809,6 +815,9 @@ describe('gateway bootstrap', () => {
     );
     expect(state.startWebhookOutboxProcessor).toHaveBeenCalledTimes(1);
     expect(state.startDiscoveryLoop).toHaveBeenCalledTimes(1);
+    expect(state.startPeriodicCloudMemorySync).toHaveBeenCalledWith({
+      resolveAgentIds: expect.any(Function),
+    });
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(1);
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
@@ -2830,6 +2839,7 @@ describe('gateway bootstrap', () => {
     expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
     expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
     expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
+    expect(state.stopPeriodicCloudMemorySync).toHaveBeenCalledTimes(1);
     expect(state.shutdownSentry).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });

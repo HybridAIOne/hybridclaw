@@ -360,6 +360,11 @@ test('delegation batch queues status updates and a synthesized final answer for 
   inspect.close();
 
   expect(childRows).toHaveLength(2);
+  for (const row of childRows) {
+    expect(row.session_id).toMatch(
+      /^delegate:d1:parent-session:\d+:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  }
   const parsedChildRows = childRows.map((row) => ({
     session_id: row.session_id,
     messages: JSON.parse(row.messages_json || '[]') as Array<{

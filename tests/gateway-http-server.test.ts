@@ -4238,7 +4238,6 @@ describe('gateway HTTP server', () => {
 
     expect(state.ensureGatewayBootstrapAutostart).toHaveBeenCalledWith({
       sessionId: 's1',
-      allowExistingSessionMessages: true,
     });
     expect(state.getGatewayHistory).toHaveBeenCalledWith('s1', 2, {
       operatorUserId: 'web',
@@ -7835,7 +7834,7 @@ describe('gateway HTTP server', () => {
     const body = JSON.parse(res.body);
     expect(body).toMatchObject({
       status: 'success',
-      commandResult: true,
+      messageRole: 'command',
       sessionId: 'session-secret-cli-guard',
     });
     expect(body.result).toContain('did not run or send');
@@ -8105,7 +8104,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
-          commandResult: true,
+          messageRole: 'command',
           sessionId: 'session-secret-cli-guard-stream',
           result: expect.stringContaining('/secret set API_TOKEN <value>'),
         }),
@@ -8201,11 +8200,11 @@ describe('gateway HTTP server', () => {
 
     // No visible output -> empty result (the web console renders no bubble for
     // it) rather than a "Done." placeholder. Success is still signalled by
-    // status, and the flag still marks it as command output.
+    // status, and messageRole still marks it as command output.
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
       result: '',
-      commandResult: true,
+      messageRole: 'command',
       sessionId: 'session-web-empty',
     });
     expect(state.loggerDebug).toHaveBeenCalledWith(
@@ -8250,6 +8249,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
+      messageRole: 'command',
       result: '**Pending Approval**\nI need approval before continuing.',
       sessionId: 'session-web-approve',
     });
@@ -8296,6 +8296,7 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(JSON.parse(res.body)).toMatchObject({
       status: 'success',
+      messageRole: 'command',
       result: expect.stringContaining('/approve'),
       sessionId: 'session-web-approve',
     });
@@ -8367,6 +8368,7 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
+          messageRole: 'approval',
           sessionId: 'session-web-approve',
           pendingApproval: {
             approvalId: 'be945bbf',
@@ -8379,6 +8381,69 @@ describe('gateway HTTP server', () => {
             allowAll: true,
             expiresAt: 1_710_000_000_000,
           },
+        }),
+      },
+    ]);
+
+    await pendingApprovals.clearPendingApproval('session-web-approve');
+  });
+
+  test('does not mark /approve yes assistant output as command output on the web chat stream path', async () => {
+    const state = await importFreshHealth();
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-web-approve', {
+      approvalId: 'approve-123',
+      prompt: 'I need approval before continuing.',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      userId: 'user-web',
+    });
+    state.handleGatewayMessage.mockResolvedValue({
+      status: 'success',
+      result: 'Onboarding complete — BOOTSTRAP.md deleted.',
+      sessionId: 'session-web-approve',
+      toolsUsed: ['delete', 'read'],
+      artifacts: [],
+    });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        sessionId: 'session-web-approve',
+        channelId: 'web',
+        userId: 'user-web',
+        username: 'web',
+        content: '/approve yes',
+        stream: true,
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-web-approve',
+        content: 'yes approve-123',
+      }),
+    );
+    const events = res.body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual([
+      {
+        type: 'result',
+        result: expect.objectContaining({
+          status: 'success',
+          messageRole: 'assistant',
+          result:
+            'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: delete, read*',
+          sessionId: 'session-web-approve',
         }),
       },
     ]);
@@ -8455,7 +8520,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8499,7 +8564,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8571,7 +8636,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
@@ -12537,7 +12602,7 @@ describe('gateway HTTP server', () => {
     const res = makeResponse();
 
     state.handler(req as never, res as never);
-    await settle();
+    await waitForResponse(res, (response) => response.statusCode !== 0);
 
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body)).toEqual({

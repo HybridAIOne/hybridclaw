@@ -46,6 +46,8 @@ test('callRoutedModel forwards max_tokens when provided', async () => {
       unknown
     >;
     expect(body.max_tokens).toBe(4096);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
     return new Response(JSON.stringify(okResponse), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -296,8 +298,9 @@ test('callRoutedModelStream parses Codex SSE text deltas and tool calls', async 
     expect(body.store).toBe(false);
     expect(body.instructions).toBe('You are a focused coding assistant.');
     expect(body.input).toEqual([{ role: 'user', content: 'hello' }]);
-    expect(body.tool_choice).toBe('auto');
-    expect(body.parallel_tool_calls).toBe(true);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+    expect(body.parallel_tool_calls).toBeUndefined();
     expect(body.max_output_tokens).toBeUndefined();
     expect(String((init?.headers as Record<string, string>).Accept)).toContain(
       'text/event-stream',
@@ -421,8 +424,9 @@ test('callRoutedModel sends Codex instructions and omits system messages from in
     expect(body.stream).toBe(true);
     expect(body.instructions).toBe('Follow repository conventions exactly.');
     expect(body.input).toEqual([{ role: 'user', content: 'hello' }]);
-    expect(body.tool_choice).toBe('auto');
-    expect(body.parallel_tool_calls).toBe(true);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+    expect(body.parallel_tool_calls).toBeUndefined();
     expect(body.max_output_tokens).toBeUndefined();
     expect(String((init?.headers as Record<string, string>).Accept)).toContain(
       'text/event-stream',

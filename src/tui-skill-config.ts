@@ -7,6 +7,7 @@ import type {
   GatewayAdminSkill,
   GatewayAdminSkillsResponse,
 } from './gateway/gateway-types.js';
+import { truncateAnsi } from './utils/ansi.js';
 import { normalizeTrimmedStringSet } from './utils/normalized-strings.js';
 
 export type TuiSkillConfigScope = 'global' | SkillConfigChannelKind;
@@ -79,23 +80,6 @@ function resolveTuiSkillConfigPalette(
     ...DEFAULT_TUI_SKILL_CONFIG_PALETTE,
     ...palette,
   };
-}
-
-function getAnsiSequenceLength(value: string, index: number): number {
-  if (value.charCodeAt(index) !== 27 || value[index + 1] !== '[') {
-    return 0;
-  }
-
-  let cursor = index + 2;
-  while (cursor < value.length) {
-    const code = value.charCodeAt(cursor);
-    if (code >= 64 && code <= 126) {
-      return cursor - index + 1;
-    }
-    cursor += 1;
-  }
-
-  return 0;
 }
 
 export function getTuiSkillConfigChannel(
@@ -192,43 +176,12 @@ function countChangedScopes(mutations: TuiSkillConfigMutation[]): number {
 }
 
 function truncateLine(value: string, width: number): string {
-  if (width <= 0) return '';
-  let visibleLength = 0;
-  for (let index = 0; index < value.length; ) {
-    const ansiSequenceLength = getAnsiSequenceLength(value, index);
-    if (ansiSequenceLength > 0) {
-      index += ansiSequenceLength;
-      continue;
-    }
-    visibleLength += 1;
-    index += 1;
-  }
-  if (visibleLength <= width) return value;
-
-  const targetVisibleLength = width === 1 ? 1 : width - 1;
-  let output = '';
-  let writtenVisibleLength = 0;
-  const hasAnsi = value.includes('\x1b[');
-
-  for (
-    let index = 0;
-    index < value.length && writtenVisibleLength < targetVisibleLength;
-  ) {
-    const ansiSequenceLength = getAnsiSequenceLength(value, index);
-    if (ansiSequenceLength > 0) {
-      output += value.slice(index, index + ansiSequenceLength);
-      index += ansiSequenceLength;
-      continue;
-    }
-    output += value[index] || '';
-    writtenVisibleLength += 1;
-    index += 1;
-  }
-
-  if (width === 1) {
-    return hasAnsi ? `${output}\x1b[0m` : output;
-  }
-  return hasAnsi ? `${output}…\x1b[0m` : `${output}…`;
+  return truncateAnsi(value, width, {
+    ellipsis: '…',
+    includeEllipsis: width > 1,
+    reset: DEFAULT_TUI_SKILL_CONFIG_PALETTE.reset,
+    resetMode: 'ansi',
+  });
 }
 
 function scopeTab(

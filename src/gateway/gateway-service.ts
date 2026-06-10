@@ -212,6 +212,10 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
+import {
+  type CloudMemoryContextFile,
+  loadCloudMemoryContextFiles,
+} from '../memory/cloud-memory.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
@@ -594,14 +598,43 @@ const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
 const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
 const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
-const ADMIN_AGENT_MARKDOWN_FILES = [
+const ADMIN_AGENT_LOCAL_MARKDOWN_FILES = [
   ...WORKSPACE_BOOTSTRAP_FILES,
   'CV.md',
+] as const;
+const ADMIN_AGENT_SHARED_MEMORY_FILES = [
+  {
+    name: 'Instance Memory.md',
+    displayName: 'Instance Memory',
+    scope: 'installation',
+    cloudPath: '/MEMORY.md',
+  },
+  {
+    name: 'Organization Memory.md',
+    displayName: 'Organization Memory',
+    scope: 'company',
+    cloudPath: '/MEMORY.md',
+  },
+] as const;
+const ADMIN_AGENT_MARKDOWN_FILES = [
+  ...ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
+  ...ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => file.name),
 ] as const;
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
   ADMIN_AGENT_MARKDOWN_FILES,
 );
+const ADMIN_AGENT_LOCAL_MARKDOWN_FILE_SET = new Set<string>(
+  ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
+);
+const ADMIN_AGENT_SHARED_MEMORY_FILE_BY_NAME = new Map<
+  string,
+  (typeof ADMIN_AGENT_SHARED_MEMORY_FILES)[number]
+>(ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => [file.name, file]));
 type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
+type AdminAgentLocalMarkdownFileName =
+  (typeof ADMIN_AGENT_LOCAL_MARKDOWN_FILES)[number];
+type AdminAgentSharedMemoryFile =
+  (typeof ADMIN_AGENT_SHARED_MEMORY_FILES)[number];
 type GatewayAdminAgentMarkdownFileStats = Pick<
   GatewayAdminAgentMarkdownFile,
   'exists' | 'updatedAt' | 'sizeBytes'
@@ -611,7 +644,7 @@ type GatewayAdminAgentMarkdownFileState = GatewayAdminAgentMarkdownFileStats & {
 };
 type StoredAdminAgentMarkdownRevisionMetadata =
   GatewayAdminAgentMarkdownRevision & {
-    fileName: AdminAgentMarkdownFileName;
+    fileName: AdminAgentLocalMarkdownFileName;
   };
 type StoredAdminAgentMarkdownRevision =
   StoredAdminAgentMarkdownRevisionMetadata & {
@@ -1183,6 +1216,28 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   return normalized as AdminAgentMarkdownFileName;
 }
 
+function isGatewayAdminLocalMarkdownFileName(
+  fileName: AdminAgentMarkdownFileName,
+): fileName is AdminAgentLocalMarkdownFileName {
+  return ADMIN_AGENT_LOCAL_MARKDOWN_FILE_SET.has(fileName);
+}
+
+function normalizeGatewayAdminAgentLocalMarkdownFileName(
+  value: string,
+): AdminAgentLocalMarkdownFileName {
+  const fileName = normalizeGatewayAdminAgentMarkdownFileName(value);
+  if (!isGatewayAdminLocalMarkdownFileName(fileName)) {
+    throw new Error(`Shared markdown file "${fileName}" is read-only.`);
+  }
+  return fileName;
+}
+
+function getGatewayAdminSharedMemoryFileSpec(
+  fileName: AdminAgentMarkdownFileName,
+): AdminAgentSharedMemoryFile | null {
+  return ADMIN_AGENT_SHARED_MEMORY_FILE_BY_NAME.get(fileName) || null;
+}
+
 function resolveGatewayAdminAgentMarkdownFile(params: {
   agentId: string;
   fileName: string;
@@ -1190,18 +1245,23 @@ function resolveGatewayAdminAgentMarkdownFile(params: {
   agent: AgentConfig;
   resolvedAgent: AgentConfig;
   fileName: AdminAgentMarkdownFileName;
+  sharedMemoryFile: AdminAgentSharedMemoryFile | null;
   workspacePath: string;
   filePath: string;
 } {
   const agent = getGatewayAdminAgentConfig(params.agentId);
   const fileName = normalizeGatewayAdminAgentMarkdownFileName(params.fileName);
+  const sharedMemoryFile = getGatewayAdminSharedMemoryFileSpec(fileName);
   const resolvedAgent = resolveAgentConfig(agent.id);
   const workspacePath = path.resolve(agentWorkspaceDir(resolvedAgent.id));
-  const filePath = path.join(workspacePath, fileName);
+  const filePath = sharedMemoryFile
+    ? `cloud-memory://${sharedMemoryFile.scope}${sharedMemoryFile.cloudPath}`
+    : path.join(workspacePath, fileName);
   return {
     agent,
     resolvedAgent,
     fileName,
+    sharedMemoryFile,
     workspacePath,
     filePath,
   };
@@ -1233,11 +1293,59 @@ function getGatewayAdminAgentMarkdownFileStats(
   }
 }
 
+function getGatewayAdminSharedMemoryFile(
+  agentId: string,
+  spec: AdminAgentSharedMemoryFile,
+): CloudMemoryContextFile | null {
+  return (
+    loadCloudMemoryContextFiles(agentId).find(
+      (file) => file.scope === spec.scope && file.name === spec.cloudPath,
+    ) || null
+  );
+}
+
+function getGatewayAdminSharedMemoryFileStats(
+  agentId: string,
+  spec: AdminAgentSharedMemoryFile,
+): GatewayAdminAgentMarkdownFileStats {
+  const file = getGatewayAdminSharedMemoryFile(agentId, spec);
+  if (!file) {
+    return {
+      exists: false,
+      updatedAt: null,
+      sizeBytes: null,
+    };
+  }
+  return {
+    exists: true,
+    updatedAt: null,
+    sizeBytes: Buffer.byteLength(file.content, 'utf-8'),
+  };
+}
+
 function mapGatewayAdminAgentMarkdownFile(params: {
+  agentId: string;
   workspacePath: string;
   fileName: AdminAgentMarkdownFileName;
   stats?: GatewayAdminAgentMarkdownFileStats;
 }): GatewayAdminAgentMarkdownFile {
+  const sharedMemoryFile = getGatewayAdminSharedMemoryFileSpec(params.fileName);
+  if (sharedMemoryFile) {
+    const stats =
+      params.stats ??
+      getGatewayAdminSharedMemoryFileStats(params.agentId, sharedMemoryFile);
+    return {
+      name: sharedMemoryFile.name,
+      displayName: sharedMemoryFile.displayName,
+      path: `cloud-memory://${sharedMemoryFile.scope}${sharedMemoryFile.cloudPath}`,
+      scope: sharedMemoryFile.scope,
+      cloudPath: sharedMemoryFile.cloudPath,
+      readOnly: true,
+      exists: stats.exists,
+      updatedAt: stats.updatedAt,
+      sizeBytes: stats.sizeBytes,
+    };
+  }
   const filePath = path.join(params.workspacePath, params.fileName);
   const stats = params.stats ?? getGatewayAdminAgentMarkdownFileStats(filePath);
   return {
@@ -1251,7 +1359,7 @@ function mapGatewayAdminAgentMarkdownFile(params: {
 
 function getGatewayAdminAgentMarkdownFilePresenceStats(
   workspacePath: string,
-): Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats> {
+): Record<AdminAgentLocalMarkdownFileName, GatewayAdminAgentMarkdownFileStats> {
   const entriesByName = new Map<string, fs.Dirent>();
   try {
     for (const entry of fs.readdirSync(workspacePath, {
@@ -1266,7 +1374,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
     }
   }
 
-  return ADMIN_AGENT_MARKDOWN_FILES.reduce(
+  return ADMIN_AGENT_LOCAL_MARKDOWN_FILES.reduce(
     (statsByName, fileName) => {
       const entry = entriesByName.get(fileName);
       statsByName[fileName] = {
@@ -1277,7 +1385,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
       return statsByName;
     },
     {} as Record<
-      AdminAgentMarkdownFileName,
+      AdminAgentLocalMarkdownFileName,
       GatewayAdminAgentMarkdownFileStats
     >,
   );
@@ -1289,7 +1397,10 @@ function mapGatewayAdminAgent(
     resolvedAgent?: AgentConfig;
     workspacePath?: string;
     markdownFileStats?: Partial<
-      Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFileStats>
+      Record<
+        AdminAgentLocalMarkdownFileName,
+        GatewayAdminAgentMarkdownFileStats
+      >
     >;
     markdownFileOverrides?: Partial<
       Record<AdminAgentMarkdownFileName, GatewayAdminAgentMarkdownFile>
@@ -1319,9 +1430,12 @@ function mapGatewayAdminAgent(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
+          agentId: resolved.id,
           workspacePath,
           fileName,
-          stats: options?.markdownFileStats?.[fileName],
+          stats: isGatewayAdminLocalMarkdownFileName(fileName)
+            ? options?.markdownFileStats?.[fileName]
+            : undefined,
         }),
     ),
   };
@@ -1348,6 +1462,27 @@ function readGatewayAdminAgentMarkdownFileState(
   return {
     ...stats,
     content: fs.readFileSync(filePath, 'utf-8'),
+  };
+}
+
+function readGatewayAdminSharedMemoryFileState(
+  agentId: string,
+  spec: AdminAgentSharedMemoryFile,
+): GatewayAdminAgentMarkdownFileState {
+  const file = getGatewayAdminSharedMemoryFile(agentId, spec);
+  if (!file) {
+    return {
+      exists: false,
+      updatedAt: null,
+      sizeBytes: null,
+      content: '',
+    };
+  }
+  return {
+    exists: true,
+    updatedAt: null,
+    sizeBytes: Buffer.byteLength(file.content, 'utf-8'),
+    content: file.content,
   };
 }
 
@@ -1392,8 +1527,14 @@ function buildGatewayAdminAgentMarkdownFileResponse(params: {
 }): GatewayAdminAgentMarkdownFileResponse {
   const fileState =
     params.fileState ??
-    readGatewayAdminAgentMarkdownFileState(params.resolved.filePath);
+    (params.resolved.sharedMemoryFile
+      ? readGatewayAdminSharedMemoryFileState(
+          params.resolved.resolvedAgent.id,
+          params.resolved.sharedMemoryFile,
+        )
+      : readGatewayAdminAgentMarkdownFileState(params.resolved.filePath));
   const mappedFile = mapGatewayAdminAgentMarkdownFile({
+    agentId: params.resolved.resolvedAgent.id,
     workspacePath: params.resolved.workspacePath,
     fileName: params.resolved.fileName,
     stats: fileState,
@@ -1418,17 +1559,20 @@ function buildGatewayAdminAgentMarkdownFileResponse(params: {
       content: fileState.content,
       revisions:
         params.revisions ??
-        listGatewayAdminAgentMarkdownRevisions({
-          workspacePath: params.resolved.workspacePath,
-          fileName: params.resolved.fileName,
-        }),
+        (params.resolved.sharedMemoryFile
+          ? []
+          : listGatewayAdminAgentMarkdownRevisions({
+              workspacePath: params.resolved.workspacePath,
+              fileName: params.resolved
+                .fileName as AdminAgentLocalMarkdownFileName,
+            })),
     },
   };
 }
 
 function getGatewayAdminAgentMarkdownRevisionDir(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): string {
   return path.join(
     path.dirname(params.workspacePath),
@@ -1438,7 +1582,7 @@ function getGatewayAdminAgentMarkdownRevisionDir(params: {
 }
 
 function buildGatewayAdminAgentMarkdownRevision(params: {
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
   content: string;
   source: GatewayAdminAgentMarkdownRevision['source'];
 }): StoredAdminAgentMarkdownRevision {
@@ -1476,7 +1620,7 @@ function getGatewayAdminAgentMarkdownRevisionContentPath(
 
 function writeGatewayAdminAgentMarkdownRevision(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
   content: string;
   source: GatewayAdminAgentMarkdownRevision['source'];
 }): GatewayAdminAgentMarkdownRevision {
@@ -1530,7 +1674,9 @@ function readGatewayAdminAgentMarkdownRevisionMetadataRecord(
     }
     return {
       id: parsed.id,
-      fileName: normalizeGatewayAdminAgentMarkdownFileName(parsed.fileName),
+      fileName: normalizeGatewayAdminAgentLocalMarkdownFileName(
+        parsed.fileName,
+      ),
       createdAt: parsed.createdAt,
       sizeBytes: parsed.sizeBytes,
       sha256: parsed.sha256,
@@ -1614,7 +1760,7 @@ function compareGatewayAdminAgentMarkdownRevisionEntries(
 
 function listGatewayAdminAgentMarkdownRevisionEntries(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): { revisionDir: string; entries: string[] } {
   const revisionDir = getGatewayAdminAgentMarkdownRevisionDir(params);
   let entries: string[];
@@ -1640,7 +1786,7 @@ function listGatewayAdminAgentMarkdownRevisionEntries(params: {
 
 function trimGatewayAdminAgentMarkdownRevisions(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): void {
   const { revisionDir, entries } =
     listGatewayAdminAgentMarkdownRevisionEntries(params);
@@ -1667,7 +1813,7 @@ function trimGatewayAdminAgentMarkdownRevisions(params: {
 
 function listGatewayAdminAgentMarkdownRevisions(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
 }): GatewayAdminAgentMarkdownRevision[] {
   const { revisionDir, entries } =
     listGatewayAdminAgentMarkdownRevisionEntries(params);
@@ -1719,7 +1865,7 @@ function normalizeGatewayAdminAgentMarkdownRevisionId(value: string): string {
 
 function getGatewayAdminAgentMarkdownRevisionRecord(params: {
   workspacePath: string;
-  fileName: AdminAgentMarkdownFileName;
+  fileName: AdminAgentLocalMarkdownFileName;
   revisionId: string;
 }): StoredAdminAgentMarkdownRevision {
   const revisionId = normalizeGatewayAdminAgentMarkdownRevisionId(
@@ -4499,9 +4645,17 @@ export function getGatewayAdminAgentMarkdownRevision(params: {
   revisionId: string;
 }): GatewayAdminAgentMarkdownRevisionResponse {
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  if (resolved.sharedMemoryFile) {
+    throw new Error(
+      `Shared markdown file "${resolved.fileName}" does not have local revisions.`,
+    );
+  }
+  const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
+    resolved.fileName,
+  );
   const revision = getGatewayAdminAgentMarkdownRevisionRecord({
     workspacePath: resolved.workspacePath,
-    fileName: resolved.fileName,
+    fileName,
     revisionId: params.revisionId,
   });
   return {
@@ -4533,6 +4687,14 @@ export function saveGatewayAdminAgentMarkdownFile(params: {
     params.content,
   );
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  if (resolved.sharedMemoryFile) {
+    throw new Error(
+      `Shared markdown file "${resolved.fileName}" is read-only.`,
+    );
+  }
+  const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
+    resolved.fileName,
+  );
   const currentState = readGatewayAdminAgentMarkdownFileState(
     resolved.filePath,
   );
@@ -4545,7 +4707,7 @@ export function saveGatewayAdminAgentMarkdownFile(params: {
   if (currentState.exists) {
     writeGatewayAdminAgentMarkdownRevision({
       workspacePath: resolved.workspacePath,
-      fileName: resolved.fileName,
+      fileName,
       content: currentState.content,
       source: 'save',
     });
@@ -4572,9 +4734,17 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
   revisionId: string;
 }): GatewayAdminAgentMarkdownFileResponse {
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
+  if (resolved.sharedMemoryFile) {
+    throw new Error(
+      `Shared markdown file "${resolved.fileName}" is read-only.`,
+    );
+  }
+  const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
+    resolved.fileName,
+  );
   const revision = getGatewayAdminAgentMarkdownRevisionRecord({
     workspacePath: resolved.workspacePath,
-    fileName: resolved.fileName,
+    fileName,
     revisionId: params.revisionId,
   });
   const nextSizeBytes = assertGatewayAdminAgentMarkdownContentSize(
@@ -4593,7 +4763,7 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
   if (currentState.exists) {
     writeGatewayAdminAgentMarkdownRevision({
       workspacePath: resolved.workspacePath,
-      fileName: resolved.fileName,
+      fileName,
       content: currentState.content,
       source: 'restore',
     });
@@ -7673,7 +7843,7 @@ function nextDelegationSessionId(
   const safeParent = parentSessionId
     .replace(/[^a-zA-Z0-9:_-]/g, '-')
     .slice(0, 48);
-  const nonce = Math.random().toString(36).slice(2, 8);
+  const nonce = randomUUID();
   return `delegate:d${nextDepth}:${safeParent}:${Date.now()}:${nonce}`;
 }
 
@@ -8659,7 +8829,7 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           .filter(Boolean)
           .join(', ') || undefined;
 
-  const jobId = `${parentSessionId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const jobId = `${parentSessionId}:${Date.now()}:${randomUUID()}`;
   enqueueDelegation({
     id: jobId,
     run: async () => {

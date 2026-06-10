@@ -11,6 +11,7 @@ import {
   runtimeSecretsPath,
 } from '../security/runtime-secrets.js';
 import type { AnthropicMethod } from '../types/models.js';
+import { isRecord } from '../utils/type-guards.js';
 
 const CLAUDE_CLI_CREDENTIALS_RELATIVE_PATH = '.claude/.credentials.json';
 const CLAUDE_CLI_KEYCHAIN_SERVICE = 'Claude Code-credentials';
@@ -66,10 +67,6 @@ export function claudeCliCredentialsPath(): string {
 
 export function claudeCliKeychainLabel(): string {
   return `macOS Keychain (${CLAUDE_CLI_KEYCHAIN_SERVICE})`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeString(value: unknown): string {

@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-
 import { APP_VERSION, CONTAINER_IMAGE } from '../config/config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { isRecord } from '../utils/type-guards.js';
 import { startProgressIndicator } from './progress-indicator.js';
 
 export type ContainerRebuildPolicy = 'if-stale' | 'always' | 'never';
@@ -166,10 +166,6 @@ export async function containerImageExists(
 ): Promise<boolean> {
   const result = await runCommand('docker', ['image', 'inspect', imageName]);
   return result.code === 0;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeContainerVersion(value: string | undefined): string | null {
