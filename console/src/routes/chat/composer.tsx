@@ -10,12 +10,13 @@ import {
   useRef,
   useState,
 } from 'react';
-import { fetchAgentAvatarBlob, fetchChatCommands } from '../../api/chat';
+import { fetchChatCommands } from '../../api/chat';
 import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
 import { Popover, PopoverAnchor } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { pluralize } from '../../lib/format';
+import { preloadAgentAvatarUrl, useAgentAvatarUrl } from './agent-avatar-url';
 import {
   type AgentSwitchOption,
   AgentSwitchSelect,
@@ -217,6 +218,12 @@ export function Composer(props: {
     },
     [props.agents],
   );
+
+  useEffect(() => {
+    for (const agent of props.agents ?? []) {
+      void preloadAgentAvatarUrl(props.token, agent.imageUrl);
+    }
+  }, [props.agents, props.token]);
 
   const handleInput = () => {
     resize();
@@ -606,42 +613,19 @@ function ComposerMentionPill(props: {
   imageUrl?: string | null;
   token: string;
 }) {
-  const objectUrlRef = useRef<string | null>(null);
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const imageUrl = props.imageUrl?.trim();
-
-  useEffect(() => {
-    const previous = objectUrlRef.current;
-    objectUrlRef.current = null;
-    if (previous) URL.revokeObjectURL(previous);
-    setObjectUrl(null);
-
-    if (!imageUrl) return;
-
-    let cancelled = false;
-    void fetchAgentAvatarBlob(props.token, imageUrl)
-      .then((blob) => {
-        if (cancelled) return;
-        const next = URL.createObjectURL(blob);
-        objectUrlRef.current = next;
-        setObjectUrl(next);
-      })
-      .catch(() => {
-        if (!cancelled) setObjectUrl(null);
-      });
-
-    return () => {
-      cancelled = true;
-      const next = objectUrlRef.current;
-      objectUrlRef.current = null;
-      if (next) URL.revokeObjectURL(next);
-    };
-  }, [imageUrl, props.token]);
+  const avatar = useAgentAvatarUrl({
+    token: props.token,
+    imageUrl: props.imageUrl,
+  });
 
   return (
     <span className={css.composerMentionPill}>
-      {objectUrl ? (
-        <img className={css.composerMentionAvatar} src={objectUrl} alt="" />
+      {avatar.objectUrl ? (
+        <img
+          className={css.composerMentionAvatar}
+          src={avatar.objectUrl}
+          alt=""
+        />
       ) : null}
       <span>{props.mention}</span>
     </span>

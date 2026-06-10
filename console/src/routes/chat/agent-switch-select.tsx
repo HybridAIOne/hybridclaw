@@ -1,5 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
-import { fetchAgentAvatarBlob } from '../../api/chat';
 import {
   Select,
   SelectContent,
@@ -8,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../components/select';
+import { useAgentAvatarUrl } from './agent-avatar-url';
 import css from './chat-page.module.css';
 
 export interface AgentSwitchOption {
@@ -91,44 +90,18 @@ function AgentSelectAvatar(props: {
   agent: AgentSwitchOption;
   token?: string;
 }) {
-  const objectUrlRef = useRef<string | null>(null);
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const imageUrl = props.agent.imageUrl?.trim();
+  const avatar = useAgentAvatarUrl({
+    token: props.token ?? '',
+    imageUrl,
+  });
 
-  useEffect(() => {
-    const previous = objectUrlRef.current;
-    objectUrlRef.current = null;
-    if (previous) URL.revokeObjectURL(previous);
-    setObjectUrl(null);
-
-    if (!props.token || !imageUrl) return;
-
-    let cancelled = false;
-    void fetchAgentAvatarBlob(props.token, imageUrl)
-      .then((blob) => {
-        if (cancelled) return;
-        const next = URL.createObjectURL(blob);
-        objectUrlRef.current = next;
-        setObjectUrl(next);
-      })
-      .catch(() => {
-        if (!cancelled) setObjectUrl(null);
-      });
-
-    return () => {
-      cancelled = true;
-      const next = objectUrlRef.current;
-      objectUrlRef.current = null;
-      if (next) URL.revokeObjectURL(next);
-    };
-  }, [imageUrl, props.token]);
-
-  const initial = props.agent.id.charAt(0).toUpperCase();
-  return objectUrl ? (
-    <img className={css.agentSelectAvatar} src={objectUrl} alt="" />
-  ) : (
-    <span className={css.agentSelectAvatarFallback} aria-hidden="true">
-      {initial || '?'}
-    </span>
-  );
+  if (avatar.objectUrl) {
+    return (
+      <img className={css.agentSelectAvatar} src={avatar.objectUrl} alt="" />
+    );
+  }
+  return imageUrl ? (
+    <span className={css.agentSelectAvatarLoading} aria-hidden="true" />
+  ) : null;
 }

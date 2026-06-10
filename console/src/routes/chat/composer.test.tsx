@@ -12,6 +12,7 @@ import type {
   ChatCommandsResponse,
   MediaItem,
 } from '../../api/chat-types';
+import { clearAgentAvatarUrlCacheForTest } from './agent-avatar-url';
 import css from './chat-page.module.css';
 import { Composer } from './composer';
 
@@ -73,6 +74,7 @@ describe('Composer', () => {
       writable: true,
       value: vi.fn(),
     });
+    clearAgentAvatarUrlCacheForTest();
   });
 
   it('strips the leading slash before fetching command suggestions', async () => {
@@ -177,6 +179,71 @@ describe('Composer', () => {
       ),
     );
     expect(fetchChatCommandsMock).not.toHaveBeenCalled();
+  });
+
+  it('shows a neutral loading avatar until the agent image loads', async () => {
+    let resolveAvatar!: (blob: Blob) => void;
+    fetchAgentAvatarBlobMock.mockReturnValue(
+      new Promise<Blob>((resolve) => {
+        resolveAvatar = resolve;
+      }),
+    );
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'stephan',
+          name: 'Stephan Noller',
+          imageUrl: '/api/agent-avatar?agentId=stephan',
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@steph' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+    expect(
+      panel.querySelector(`.${css.suggestionAvatarLoading}`),
+    ).not.toBeNull();
+
+    resolveAvatar(new Blob(['avatar'], { type: 'image/png' }));
+    await waitFor(() =>
+      expect(panel.querySelector('img')?.getAttribute('src')).toBe(
+        'blob:agent-avatar',
+      ),
+    );
+  });
+
+  it('loads agent avatars in local web sessions without a bearer token', async () => {
+    fetchAgentAvatarBlobMock.mockResolvedValue(
+      new Blob(['avatar'], { type: 'image/png' }),
+    );
+    renderComposer({
+      token: '',
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        {
+          id: 'stephan',
+          name: 'Stephan Noller',
+          imageUrl: '/api/agent-avatar?agentId=stephan',
+        },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@steph' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+    await waitFor(() =>
+      expect(fetchAgentAvatarBlobMock).toHaveBeenCalledWith(
+        '',
+        '/api/agent-avatar?agentId=stephan',
+      ),
+    );
+    expect(panel.querySelector('img')?.getAttribute('src')).toBe(
+      'blob:agent-avatar',
+    );
   });
 
   it('renders typed complete agent mentions as prompt pills', () => {

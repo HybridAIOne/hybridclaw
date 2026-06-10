@@ -1541,7 +1541,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .agentSelectAvatar,
-.agentSelectAvatarFallback {
+.agentSelectAvatarLoading {
   width: 28px;
   height: 28px;
   border-radius: 999px;
@@ -1552,14 +1552,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   object-fit: cover;
 }
 
-.agentSelectAvatarFallback {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-size: 0.78rem;
-  font-weight: 700;
+.agentSelectAvatarLoading {
+  background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
 }
 
 .composerPillChevron {
@@ -1662,7 +1656,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .suggestionAvatar,
-.suggestionAvatarFallback {
+.suggestionAvatarLoading {
   width: 28px;
   height: 28px;
   border-radius: 999px;
@@ -1673,14 +1667,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   object-fit: cover;
 }
 
-.suggestionAvatarFallback {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-size: 0.78rem;
-  font-weight: 700;
+.suggestionAvatarLoading {
+  background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
 }
 
 .suggestionLabelMono {

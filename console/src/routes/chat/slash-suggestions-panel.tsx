@@ -1,5 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { fetchAgentAvatarBlob } from '../../api/chat';
+import { type ReactNode, useEffect } from 'react';
 import type { ChatCommandSuggestion } from '../../api/chat-types';
 import { PopoverContent } from '../../components/popover';
 import {
@@ -9,6 +8,7 @@ import {
   ScrollAreaViewport,
 } from '../../components/scroll-area';
 import { cx } from '../../lib/cx';
+import { useAgentAvatarUrl } from './agent-avatar-url';
 import css from './chat-page.module.css';
 
 export type SlashPanelMode = 'closed' | 'list' | 'empty';
@@ -124,46 +124,17 @@ function AgentSuggestionAvatar(props: {
   item: ChatCommandSuggestion;
   token?: string;
 }) {
-  const objectUrlRef = useRef<string | null>(null);
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const imageUrl = props.item.imageUrl?.trim();
+  const avatar = useAgentAvatarUrl({
+    token: props.token ?? '',
+    imageUrl,
+  });
 
-  useEffect(() => {
-    const previous = objectUrlRef.current;
-    objectUrlRef.current = null;
-    if (previous) URL.revokeObjectURL(previous);
-    setObjectUrl(null);
-
-    if (!props.token || !imageUrl) return;
-
-    let cancelled = false;
-    void fetchAgentAvatarBlob(props.token, imageUrl)
-      .then((blob) => {
-        if (cancelled) return;
-        const next = URL.createObjectURL(blob);
-        objectUrlRef.current = next;
-        setObjectUrl(next);
-      })
-      .catch(() => {
-        if (!cancelled) setObjectUrl(null);
-      });
-
-    return () => {
-      cancelled = true;
-      const next = objectUrlRef.current;
-      objectUrlRef.current = null;
-      if (next) URL.revokeObjectURL(next);
-    };
-  }, [imageUrl, props.token]);
-
-  const initial = props.item.label.replace(/^@/u, '').charAt(0).toUpperCase();
-  return objectUrl ? (
-    <img className={css.suggestionAvatar} src={objectUrl} alt="" />
-  ) : (
-    <span className={css.suggestionAvatarFallback} aria-hidden="true">
-      {initial || '@'}
-    </span>
-  );
+  return avatar.objectUrl ? (
+    <img className={css.suggestionAvatar} src={avatar.objectUrl} alt="" />
+  ) : imageUrl ? (
+    <span className={css.suggestionAvatarLoading} aria-hidden="true" />
+  ) : null;
 }
 
 const PLACEHOLDER_RE = /<[^>]+>|\[[^\]]+\]/g;
