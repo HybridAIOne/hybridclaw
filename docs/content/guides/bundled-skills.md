@@ -6,7 +6,7 @@ sidebar_position: 4
 
 # Bundled Skills
 
-HybridClaw ships with 73 bundled skills. A few notable categories:
+HybridClaw ships with 74 bundled skills. A few notable categories:
 
 - office workflows: `pdf`, `xlsx`, `docx`, `pptx`, `office-workflows`
 - planning and engineering: `project-manager`, `feature-planning`, `code-review`, `code-simplification`, `gh-issues`, `warehouse-sql`
@@ -14,8 +14,8 @@ HybridClaw ships with 73 bundled skills. A few notable categories:
 - platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`, `download-platform-invoices`, `wordpress`, `gog`, `google-workspace`, `google-ads`, `ga4`, `airtable`, `fastbill`, `hubspot`, `lexware-office`, `firecrawl`, `heygen`, `hermes3000-writing`, `discord`
 - infrastructure, production ops, home automation, and energy monitoring:
   `hetzner-cloud`, `hetzner-dns`, `hetzner-storage-box`, `mittwald`,
-  `t-cloud-public`, `zabbix`, `shelly`, `homematic`, `fronius`, `alexa`,
-  `blink`, `hue`, `warehouse-sql`
+  `t-cloud-public`, `zabbix`, `shelly`, `homematic`, `fronius`, `byd-battery`,
+  `alexa`, `blink`, `hue`, `warehouse-sql`
 - security and privacy: `distil-pii-redactor`
 - knowledge workflows: `llm-wiki`, `obsidian`, `zettelkasten`
 - search workflows: `search.web`, `search.news`, `search.images`

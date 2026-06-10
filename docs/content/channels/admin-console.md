@@ -14,7 +14,9 @@ agent prompt-file editor lives at `/admin/agents`. The approvals page at
 and delete the current workspace network policy rules for a selected agent.
 The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message threads and uses the same web-console authentication as the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local web access.
 The fleet page at `/admin/fleet-topology` shows the local A2A instance identity
-and trusted child instances from the A2A trust ledger.
+and trusted child instances from the A2A trust ledger. The A2A trust page at
+`/admin/a2a-trust` pairs this instance with peer instances and reviews incoming
+pairing requests.
 
 ## What The Admin Console Can Do
 
@@ -40,6 +42,9 @@ and trusted child instances from the A2A trust ledger.
   budget, prompt-file, workspace, and channel metadata for quick comparison
 - `/admin/agents` shows saved revisions for those markdown files and can
   restore an earlier version without opening the workspace directory manually
+- `/admin/agents` lists synced installation- and company-scoped cloud memory
+  under a separate "Shared memory" group as read-only cache views without save
+  or revision actions
 - `/admin/agents` also shows org-chart/team-structure revisions, per-revision diffs, and a restore action for rolling back role, reporting, delegation, and peer relationships
 - `/admin/approvals` shows unresolved approval prompts across sessions and the
   selected agent workspace's current `policy.yaml` network rules in one place
@@ -57,6 +62,13 @@ and trusted child instances from the A2A trust ledger.
 - `/admin/fleet-topology` can add, edit, and remove trusted A2A child
   instances by peer id, Agent Card URL, delivery URL, public-key fingerprint or
   JWK, and trust reason
+- `/admin/a2a-trust` initiates operator pairing with a peer instance: fetch the
+  peer Agent Card by URL or canonical DNS identifier, preview its identity and
+  public-key fingerprint, then trust the peer with an optional peer-side
+  approval prompt and audit-trail reason
+- `/admin/a2a-trust` lists incoming pairing requests received through the
+  rate-limited `/a2a/pairing/requests` endpoint and lets operators approve or
+  decline each request with a decision reason
 - `/admin/gateway` can reload runtime config and refresh secrets from the
   browser without tearing down the enclosing workspace container
 - `/admin/gateway` shows the configured public URL and current tunnel provider
@@ -127,6 +139,8 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want to inspect A2A coordination threads without impersonating a recipient agent
 - you want to check child-instance reachability or update A2A trust-ledger peers
   from a browser
+- you want to pair this instance with a peer instance or review incoming
+  pairing requests without editing the trust ledger by hand
 - you want to search and filter audit events without writing SQL or reading
   JSONL logs directly
 - you want to adjust output guard behavior or inspect blocked-skill state
