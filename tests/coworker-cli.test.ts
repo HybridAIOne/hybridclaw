@@ -154,6 +154,49 @@ test('coworker interview writes a gap-driven questionnaire and status reports co
   expect(statusOutput).toContain('Corpus: 1 documents');
 });
 
+test('numeric flags fail fast on invalid values instead of propagating NaN', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  const source = writeSource(homeDir, 'memo.md', '# Memo\n\nNote.');
+  await expect(
+    cli.main([
+      'coworker',
+      'distill',
+      '--alias',
+      'nova',
+      '--fictional',
+      '--source',
+      source,
+      '--holdout',
+      'lots',
+    ]),
+  ).rejects.toThrow(/Invalid `--holdout` value/);
+  await expect(
+    cli.main([
+      'coworker',
+      'distill',
+      '--alias',
+      'nova',
+      '--fictional',
+      '--source',
+      source,
+      '--holdout',
+      '0.9',
+    ]),
+  ).rejects.toThrow(/Invalid `--holdout` value/);
+  await expect(
+    cli.main([
+      'coworker',
+      'interview',
+      '--alias',
+      'nova',
+      '--count',
+      'many',
+    ]),
+  ).rejects.toThrow(/Invalid `--count` value/);
+});
+
 test('coworker forget requires --confirm and unknown subcommands fail with usage', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);

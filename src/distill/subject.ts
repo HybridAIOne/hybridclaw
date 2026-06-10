@@ -33,16 +33,22 @@ export function ensureSubjectProfile(
 ): { profile: SubjectProfile; created: boolean } {
   const existing = loadSubjectProfile(paths);
   if (existing) {
+    const displayName = input.displayName?.trim() || existing.displayName;
     const updated: SubjectProfile = {
       ...existing,
-      displayName: input.displayName?.trim() || existing.displayName,
+      displayName,
       role: input.role?.trim() || existing.role,
       relationship: input.relationship?.trim() || existing.relationship,
       personalityTags: mergeUnique(
         existing.personalityTags,
         input.personalityTags,
       ),
-      matchAliases: mergeUnique(existing.matchAliases, input.matchAliases),
+      // A display name set after creation must also match authorship, or
+      // chat-export author resolution would miss the subject's own messages.
+      matchAliases: mergeUnique(existing.matchAliases, [
+        displayName,
+        ...(input.matchAliases || []),
+      ]),
     };
     if (input.realPerson !== undefined) {
       updated.realPerson = input.realPerson;

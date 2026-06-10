@@ -122,7 +122,7 @@ function parseCoworkerFlags(args: string[]): CoworkerFlags {
       ['--source', (value) => flags.sources.push(value)],
       ['--kind', (value) => (flags.kind = value)],
       ['--resume', (value) => (flags.resume = value)],
-      ['--holdout', (value) => (flags.holdout = Number(value))],
+      ['--holdout', (value) => (flags.holdout = parseHoldoutRatio(value))],
       ['--granted-by', (value) => (flags.grantedBy = value)],
       ['--method', (value) => (flags.method = value)],
       ['--statement', (value) => (flags.statement = value)],
@@ -135,7 +135,7 @@ function parseCoworkerFlags(args: string[]): CoworkerFlags {
       ['--host', (value) => (flags.host = value)],
       ['--bundle', (value) => (flags.bundle = value)],
       ['--audience', (value) => (flags.audience = value)],
-      ['--count', (value) => (flags.count = Number(value))],
+      ['--count', (value) => (flags.count = parseQuestionCount(value))],
     ];
     let matched = false;
     for (const [name, assign] of valueFlags) {
@@ -172,6 +172,26 @@ function resolveSubjectContext(flags: CoworkerFlags): {
   const paths = resolveDistillPaths(flags.agent || flags.alias, flags.alias);
   const profile = requireSubjectProfile(paths);
   return { paths, profile };
+}
+
+function parseHoldoutRatio(value: string): number {
+  const ratio = Number(value);
+  if (!Number.isFinite(ratio) || ratio < 0 || ratio > 0.5) {
+    throw new Error(
+      `Invalid \`--holdout\` value: ${value}. Use a fraction between 0 and 0.5 (e.g. 0.1).`,
+    );
+  }
+  return ratio;
+}
+
+function parseQuestionCount(value: string): number {
+  const count = Number(value);
+  if (!Number.isInteger(count) || count < 1 || count > 20) {
+    throw new Error(
+      `Invalid \`--count\` value: ${value}. Use a whole number between 1 and 20.`,
+    );
+  }
+  return count;
 }
 
 function parseSourceKind(value: string): CorpusSourceKind | 'auto' {

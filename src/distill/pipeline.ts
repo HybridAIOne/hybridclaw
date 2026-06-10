@@ -117,7 +117,15 @@ export function runDistillPipeline(
   }
 
   const packet = readJsonFile<AnalysisPacket>(runPaths.packetJsonPath);
-  const deltaIds = packet?.deltaDocuments.map((doc) => doc.id) || [];
+  if (!packet || !Array.isArray(packet.deltaDocuments)) {
+    // A completed analyse stage without a readable packet means the run
+    // directory was tampered with or partially lost — fail loudly instead of
+    // silently treating it as "no new material".
+    throw new Error(
+      `Analysis packet missing or unreadable: ${runPaths.packetJsonPath}. Start a fresh run with \`hybridclaw coworker distill --alias ${paths.subject} --source <path>\` to rebuild it.`,
+    );
+  }
+  const deltaIds = packet.deltaDocuments.map((doc) => doc.id);
 
   if (run.stages.build.status !== 'completed') {
     if (deltaIds.length === 0) {

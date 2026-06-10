@@ -14,16 +14,9 @@ skill carrying their workflows, output preferences, and worked examples.
 
 Three properties make the result trustworthy rather than vibes-based:
 
-1. **Citations are structural.** Model judgment enters the pipeline through
-   one validated artefact (`extraction.json`); every claim must cite corpus
-   document ids, and uncited claims are flagged into the run report instead
-   of written into the persona.
-2. **Merges are reversible.** Every generated file is snapshotted into the
-   F4 revision database; conflicting evidence opens a review item the
-   operator resolves explicitly — nothing standing is silently overwritten.
-3. **Consent is a hard gate.** A run that names a real human is blocked
-   until a consent artefact is recorded, the block is audited, and the
-   subject can be erased as one identifier set later.
+1. **Citations are structural.** Model judgment enters the pipeline through one validated artefact (`extraction.json`); every claim must cite corpus document ids, and uncited claims are flagged into the run report instead of written into the persona.
+2. **Merges are reversible.** Every generated file is snapshotted into the F4 revision database; conflicting evidence opens a review item the operator resolves explicitly — nothing standing is silently overwritten.
+3. **Consent is a hard gate.** A run that names a real human is blocked until a consent artefact is recorded, the block is audited, and the subject can be erased as one identifier set later.
 
 ## Quickstart
 
@@ -83,30 +76,16 @@ answers and corrections rank highest.
 
 ## Corrections, reviews, and re-distillation
 
-- `hybridclaw coworker correct --alias maya --note "she'd never open with a
-  greeting"` records a maximum-weight correction promoted into the persona
-  on the next run, as a `correction`-dimension claim that overrides
-  conflicting inferences.
-- New source material later re-runs analysis on the delta only. When new
-  evidence contradicts a standing claim, the merge opens a review item:
-  `hybridclaw coworker review resolve --alias maya --id <review-id> --keep
-  standing|incoming|both`. The decision is recorded and reversible.
-- `hybridclaw config revisions` surfaces the F4 history of every generated
-  file.
+- `hybridclaw coworker correct --alias maya --note "she'd never open with a greeting"` records a maximum-weight correction promoted into the persona on the next run, as a `correction`-dimension claim that overrides conflicting inferences.
+- New source material later re-runs analysis on the delta only. When new evidence contradicts a standing claim, the merge opens a review item: `hybridclaw coworker review resolve --alias maya --id <review-id> --keep standing|incoming|both`. The decision is recorded and reversible.
+- `hybridclaw config revisions` surfaces the F4 history of every generated file.
 
 ## Privacy and trust
 
-- **Consent artefact** (`consent.json`): who granted it, how, the statement
-  itself, and an integrity digest. `consent revoke` blocks future runs.
-- **Masking**: third-party PII is masked before material lands in the
-  corpus; the leakage eval fails if any reaches generated output.
-- **Audit**: every lifecycle action — including blocked runs and each merged
-  claim — is a `distill.*` event in the hash-chained audit trail under the
-  `distill:<alias>` session.
-- **Right to be forgotten**: `hybridclaw coworker forget --alias maya
-  --confirm` removes the corpus, persona files, work module, run artefacts,
-  and their revision snapshots as one set. The erasure event itself stays in
-  the append-only audit trail.
+- **Consent artefact** (`consent.json`): who granted it, how, the statement itself, and an integrity digest. `consent revoke` blocks future runs.
+- **Masking**: third-party PII is masked before material lands in the corpus; the leakage eval fails if any reaches generated output.
+- **Audit**: every lifecycle action — including blocked runs and each merged claim — is a `distill.*` event in the hash-chained audit trail under the `distill:<alias>` session.
+- **Right to be forgotten**: `hybridclaw coworker forget --alias maya --confirm` removes the corpus, persona files, work module, run artefacts, and their revision snapshots as one set. The erasure event itself stays in the append-only audit trail.
 
 ## Eval
 
@@ -130,7 +109,5 @@ bundle into a fresh agent workspace without re-distillation.
 
 ## See also
 
-- The bundled [`human-distill` skill](../extensibility/skills.md) drives the
-  agent half of the pipeline: intake, interviews, mirroring sessions, and
-  writing the extraction contract.
+- The bundled [`human-distill` skill](../extensibility/skills.md) drives the agent half of the pipeline: intake, interviews, mirroring sessions, and writing the extraction contract.
 - Roadmap: R72 in `docs/content/internal/roadmap.md`.

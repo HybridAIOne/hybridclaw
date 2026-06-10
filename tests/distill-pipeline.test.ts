@@ -264,6 +264,36 @@ async function buildMergedSubject(modules: Modules) {
   return { paths, profile, docId, run: resumed.run };
 }
 
+test('a completed analyse stage with a missing packet fails loudly instead of merging nothing', async () => {
+  const modules = await loadModules();
+  const { paths, profile } = setupSubject(modules, { realPerson: false });
+  const source = writeSource('memo.md', '# Memo\n\nBoring options win.');
+  const first = modules.pipeline.runDistillPipeline(paths, profile, {
+    sources: [{ path: source, kind: 'auto' }],
+    holdoutRatio: 0,
+  });
+  expect(first.status).toBe('awaiting-extraction');
+  fs.rmSync(first.runPaths.packetJsonPath);
+  expect(() =>
+    modules.pipeline.runDistillPipeline(paths, profile, {
+      sources: [],
+      resumeRunId: first.run.runId,
+    }),
+  ).toThrow(/Analysis packet missing or unreadable/);
+});
+
+test('setting a display name after creation merges it into the authorship aliases', async () => {
+  const modules = await loadModules();
+  const paths = modules.paths.resolveDistillPaths('maya', 'maya');
+  modules.subject.ensureSubjectProfile(paths, { alias: 'maya' });
+  const { profile } = modules.subject.ensureSubjectProfile(paths, {
+    alias: 'maya',
+    displayName: 'Maya Lindqvist',
+  });
+  expect(profile.displayName).toBe('Maya Lindqvist');
+  expect(profile.matchAliases).toContain('Maya Lindqvist');
+});
+
 test('conflicting evidence opens a review item; resolution supersedes and re-renders', async () => {
   const modules = await loadModules();
   const { paths, profile } = await buildMergedSubject(modules);
