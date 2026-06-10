@@ -8,6 +8,7 @@ import {
 } from '../../container/shared/two-factor-detection.js';
 import {
   extractA2AMtlsPublicKeyPem,
+  handleA2AHttpEnvelopeInbound,
   handleA2AJsonRpcInbound,
   resolveA2AAgentCardPeerTrust,
 } from '../a2a/a2a-inbound.js';
@@ -6526,6 +6527,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
     if (pathname === '/a2a') {
       dispatchWebhookRoute(res, () => handleA2AJsonRpcInbound(req, res, url));
+      return;
+    }
+    if (pathname === '/a2a/envelopes') {
+      dispatchWebhookRoute(res, () =>
+        handleA2AHttpEnvelopeInbound(req, res, url),
+      );
       return;
     }
 

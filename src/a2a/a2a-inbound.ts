@@ -5,6 +5,11 @@ import { getAgentById, listAgents } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { readRequestBody, sendJson } from '../gateway/gateway-http-utils.js';
+import {
+  AgentIdentityValidationError,
+  parseAgentIdentity,
+  resolveLocalInstanceId,
+} from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import { decodeA2AJsonRpcRequest, type JsonRpcId } from './a2a-json-rpc.js';
 import {
@@ -23,9 +28,11 @@ import {
   A2AEnvelopeDuplicateError,
   A2AEnvelopeValidationError,
   summarizeA2AEnvelopeForAudit,
+  validateA2AEnvelope,
 } from './envelope.js';
 import { resolveA2AAgentId } from './identity.js';
 import { acceptA2AInboundEnvelope } from './inbound-pipeline.js';
+import { findA2AEnvelopeByIdempotencyKey } from './store.js';
 import {
   type A2AAgentCardTrustLevel,
   type A2ATrustedA2APeer,
@@ -38,7 +45,9 @@ import {
 import { isRecord } from './utils.js';
 
 export const A2A_JSON_RPC_INBOUND_PATH = '/a2a';
+export const A2A_HTTP_ENVELOPE_INBOUND_PATH = '/a2a/envelopes';
 export const A2A_JSON_RPC_INBOUND_MAX_BODY_BYTES = 1_000_000;
+export const A2A_HTTP_ENVELOPE_INBOUND_MAX_BODY_BYTES = 1_000_000;
 
 export type A2AJsonRpcInboundSignatureOutcome =
   | 'passed'
@@ -58,6 +67,11 @@ export type { A2ATrustedA2APeer, UpsertA2ATrustedA2APeerInput };
 export { listA2ATrustedA2APeers, upsertA2ATrustedA2APeer };
 
 export interface A2AJsonRpcInboundResult {
+  statusCode: number;
+  body: Record<string, unknown>;
+}
+
+export interface A2AHttpEnvelopeInboundResult {
   statusCode: number;
   body: Record<string, unknown>;
 }
@@ -170,6 +184,17 @@ function parseJsonRpcPayload(rawBody: string): unknown {
   return JSON.parse(rawBody) as unknown;
 }
 
+function parseHttpEnvelopePayload(rawBody: string): A2AEnvelope {
+  try {
+    return validateA2AEnvelope(JSON.parse(rawBody) as unknown);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new A2AEnvelopeValidationError([error.message]);
+    }
+    throw error;
+  }
+}
+
 function jsonRpcRequestMeta(parsed: unknown): {
   method: 'message/send' | 'tasks/send';
   id: JsonRpcId;
@@ -205,6 +230,69 @@ function peerInstanceIdFromEnvelope(
 ): string | null {
   const parts = envelope?.sender_agent_id.split('@') ?? [];
   return parts.length === 3 && parts[2] ? parts[2] : null;
+}
+
+function peerInstanceId(peer: A2ATrustedA2APeer): string {
+  return parseAgentIdentity(peer.senderAgentId).instanceId;
+}
+
+function parseCanonicalEnvelopeAgentId(
+  field: 'sender_agent_id' | 'recipient_agent_id',
+  value: string,
+) {
+  try {
+    return parseAgentIdentity(value);
+  } catch (error) {
+    if (error instanceof AgentIdentityValidationError) {
+      throw new A2AEnvelopeValidationError([
+        `${field} must be canonical (agent-slug@user@instance-id)`,
+      ]);
+    }
+    throw error;
+  }
+}
+
+function assertEnvelopeSenderMatchesPeer(
+  envelope: A2AEnvelope,
+  peer: A2ATrustedA2APeer,
+): void {
+  if (envelope.sender_agent_id !== peer.senderAgentId) {
+    throw new A2AEnvelopeValidationError([
+      'sender_agent_id does not match authenticated A2A peer',
+    ]);
+  }
+  const authenticatedPeerInstanceId = peerInstanceId(peer);
+  const envelopeSenderInstanceId = parseCanonicalEnvelopeAgentId(
+    'sender_agent_id',
+    envelope.sender_agent_id,
+  ).instanceId;
+  if (envelopeSenderInstanceId !== authenticatedPeerInstanceId) {
+    throw new A2AEnvelopeValidationError([
+      'sender_agent_id instance-id does not match authenticated A2A peer',
+    ]);
+  }
+  if (envelope.sender_instance_id !== authenticatedPeerInstanceId) {
+    throw new A2AEnvelopeValidationError([
+      'sender_instance_id does not match authenticated A2A peer',
+    ]);
+  }
+}
+
+function assertCanonicalLocalRecipient(envelope: A2AEnvelope): void {
+  const recipient = parseCanonicalEnvelopeAgentId(
+    'recipient_agent_id',
+    envelope.recipient_agent_id,
+  );
+  if (recipient.instanceId !== resolveLocalInstanceId()) {
+    throw new A2AEnvelopeValidationError([
+      'recipient_agent_id instance-id does not match this instance',
+    ]);
+  }
+  if (!localRecipientResolves(envelope.recipient_agent_id)) {
+    throw new A2AEnvelopeValidationError([
+      'recipient_agent_id does not resolve to a local agent',
+    ]);
+  }
 }
 
 function recordInboundAudit(params: {
@@ -343,6 +431,218 @@ function signatureOutcomeForError(
   if (error instanceof A2AMissingTrustedPeerError) return 'missing_peer';
   if (error instanceof A2ARevokedDelegationTokenError) return 'revoked';
   return 'failed';
+}
+
+function verifySignedHttpEnvelopeRequest(params: {
+  token: string;
+  envelope: A2AEnvelope;
+  audience: string;
+  now?: Date;
+  peer: A2ATrustedA2APeer;
+}): void {
+  verifyA2ADelegationToken({
+    token: params.token,
+    publicKeyPem: params.peer.publicKeyPem,
+    audience: params.audience,
+    requiredScope: A2A_MESSAGE_SEND_SCOPE,
+    senderAgentId: params.envelope.sender_agent_id,
+    targetAgentId: params.envelope.recipient_agent_id,
+    now: params.now,
+  });
+}
+
+function httpEnvelopeErrorStatusCode(error: unknown): number {
+  if (error instanceof A2ADelegationTokenError) return 401;
+  if (error instanceof A2AEnvelopeDuplicateError) return 200;
+  if (error instanceof A2AEnvelopeValidationError) return 400;
+  return 500;
+}
+
+function httpEnvelopeErrorResponse(error: unknown): Record<string, unknown> {
+  if (error instanceof A2ADelegationTokenError) {
+    return { error: 'Unauthorized', reason: extractErrorReason(error) };
+  }
+  if (error instanceof A2AEnvelopeValidationError) {
+    return { error: extractErrorReason(error) };
+  }
+  return { error: 'Internal server error' };
+}
+
+function alreadyDeliveredBody(envelope: A2AEnvelope): Record<string, unknown> {
+  return {
+    delivered: true,
+    already_delivered: true,
+    message_id: envelope.id,
+    thread_id: envelope.thread_id,
+    recipient_agent_id: envelope.recipient_agent_id,
+  };
+}
+
+export function acceptA2AHttpEnvelopeInboundRequest(params: {
+  rawBody: string;
+  authorization: string | null | undefined;
+  audience: string;
+  mtlsPublicKeyPem?: string | null;
+  now?: Date;
+  peer?: A2ATrustedA2APeer;
+}): A2AHttpEnvelopeInboundResult {
+  const runId = makeAuditRunId('a2a-http-inbound');
+  let envelope: A2AEnvelope | null = null;
+  let peer: A2ATrustedA2APeer | null = params.peer ?? null;
+  let authMode: A2AInboundAuthMode | null = null;
+
+  try {
+    envelope = parseHttpEnvelopePayload(params.rawBody);
+    const authorization = String(params.authorization || '').trim();
+    if (authorization) {
+      authMode = 'signed_bearer';
+      const token = extractBearerToken(params.authorization);
+      peer = resolveTrustedPeerForToken({
+        token,
+        peer: params.peer,
+      });
+      verifySignedHttpEnvelopeRequest({
+        token,
+        envelope,
+        audience: params.audience,
+        now: params.now,
+        peer,
+      });
+    } else if (params.mtlsPublicKeyPem) {
+      authMode = 'peer_public_key';
+      peer =
+        params.peer ?? getA2ATrustedA2APeerBySender(envelope.sender_agent_id);
+      peer = resolveTrustedPeerForMtls({
+        senderAgentId: envelope.sender_agent_id,
+        mtlsPublicKeyPem: params.mtlsPublicKeyPem,
+        peer: peer ?? undefined,
+      });
+    } else {
+      throw new A2ADelegationTokenError(
+        'Authorization bearer token or mTLS client certificate is required',
+      );
+    }
+    assertEnvelopeSenderMatchesPeer(envelope, peer);
+    assertCanonicalLocalRecipient(envelope);
+  } catch (error) {
+    const reason = extractErrorReason(error);
+    const statusCode = error instanceof A2ADelegationTokenError ? 401 : 400;
+    recordInboundAudit({
+      runId,
+      peerId: peer?.peerId || null,
+      peerInstanceId: peer
+        ? peerInstanceId(peer)
+        : peerInstanceIdFromEnvelope(envelope),
+      authMode,
+      method: null,
+      agentId: envelope?.recipient_agent_id || null,
+      signatureOutcome: signatureOutcomeForError(error),
+      intent: envelope?.intent || null,
+      downstreamDisposition:
+        error instanceof A2ADelegationTokenError
+          ? 'rejected'
+          : 'validation_failed',
+      envelope,
+      statusCode,
+      reason,
+    });
+    return {
+      statusCode,
+      body: httpEnvelopeErrorResponse(error),
+    };
+  }
+
+  if (!peer || !envelope) {
+    return {
+      statusCode: 500,
+      body: { error: 'Internal server error' },
+    };
+  }
+  const authenticatedPeer = peer;
+  const authenticatedPeerInstanceId = peerInstanceId(authenticatedPeer);
+  const existing = findA2AEnvelopeByIdempotencyKey(
+    envelope.id,
+    authenticatedPeerInstanceId,
+  );
+  if (existing) {
+    recordInboundAudit({
+      runId,
+      peerId: authenticatedPeer.peerId,
+      peerInstanceId: authenticatedPeerInstanceId,
+      authMode,
+      method: null,
+      agentId: envelope.recipient_agent_id,
+      signatureOutcome: 'passed',
+      intent: envelope.intent,
+      downstreamDisposition: 'duplicate',
+      envelope,
+      statusCode: 200,
+      reason: 'already delivered',
+    });
+    return {
+      statusCode: 200,
+      body: alreadyDeliveredBody(existing),
+    };
+  }
+
+  try {
+    const confirmation = acceptA2AInboundEnvelope(envelope, {
+      source: 'a2a',
+      actor: authenticatedPeerInstanceId,
+      sessionId: `a2a:inbound:${authenticatedPeer.peerId}`,
+      auditRunId: runId,
+    });
+    const statusCode =
+      'statusCode' in confirmation &&
+      typeof confirmation.statusCode === 'number'
+        ? confirmation.statusCode
+        : 202;
+    recordInboundAudit({
+      runId,
+      peerId: authenticatedPeer.peerId,
+      peerInstanceId: authenticatedPeerInstanceId,
+      authMode,
+      method: null,
+      agentId: envelope.recipient_agent_id,
+      signatureOutcome: 'passed',
+      intent: envelope.intent,
+      downstreamDisposition: statusCode === 202 ? 'delivered' : 'rejected',
+      envelope,
+      statusCode,
+    });
+    return {
+      statusCode,
+      body: { ...confirmation },
+    };
+  } catch (error) {
+    const isDuplicate = error instanceof A2AEnvelopeDuplicateError;
+    const statusCode = isDuplicate ? 200 : httpEnvelopeErrorStatusCode(error);
+    const reason = extractErrorReason(error);
+    recordInboundAudit({
+      runId,
+      peerId: authenticatedPeer.peerId,
+      peerInstanceId: authenticatedPeerInstanceId,
+      authMode,
+      method: null,
+      agentId: envelope.recipient_agent_id,
+      signatureOutcome: 'passed',
+      intent: envelope.intent,
+      downstreamDisposition: isDuplicate ? 'duplicate' : 'error',
+      envelope,
+      statusCode,
+      reason,
+    });
+    if (isDuplicate) {
+      return {
+        statusCode,
+        body: alreadyDeliveredBody(envelope),
+      };
+    }
+    return {
+      statusCode,
+      body: httpEnvelopeErrorResponse(error),
+    };
+  }
 }
 
 export function acceptA2AJsonRpcInboundRequest(params: {
@@ -549,6 +849,40 @@ export async function handleA2AJsonRpcInbound(
       await readRequestBody(req, A2A_JSON_RPC_INBOUND_MAX_BODY_BYTES)
     ).toString('utf-8');
     const result = acceptA2AJsonRpcInboundRequest({
+      rawBody,
+      authorization: readHeader(req.headers, 'authorization'),
+      audience: normalizeAudience(url),
+      mtlsPublicKeyPem: extractA2AMtlsPublicKeyPem(req),
+    });
+    sendJson(res, result.statusCode, result.body);
+  } catch (error) {
+    if (error instanceof GatewayRequestError) {
+      sendJson(res, error.statusCode, { error: error.message });
+      return;
+    }
+    sendJson(res, 500, { error: 'Internal server error' });
+  }
+}
+
+export async function handleA2AHttpEnvelopeInbound(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (url.pathname !== A2A_HTTP_ENVELOPE_INBOUND_PATH) {
+    sendJson(res, 404, { error: 'Not Found' });
+    return;
+  }
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+
+  try {
+    const rawBody = (
+      await readRequestBody(req, A2A_HTTP_ENVELOPE_INBOUND_MAX_BODY_BYTES)
+    ).toString('utf-8');
+    const result = acceptA2AHttpEnvelopeInboundRequest({
       rawBody,
       authorization: readHeader(req.headers, 'authorization'),
       audience: normalizeAudience(url),

@@ -1,5 +1,9 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { describe, expect, test } from 'vitest';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, expect, test, vi } from 'vitest';
 
 import { encodeA2AJsonRpcRequest } from '../src/a2a/a2a-json-rpc.ts';
 import { setupA2AWebhookTestEnv } from './helpers/a2a-webhook-fixtures.ts';
@@ -16,6 +20,26 @@ function inboundEnvelope(id: string) {
     content: `Inbound A2A payload ${id}`,
     created_at: '2026-05-01T10:00:00.000Z',
   };
+}
+
+function listen(server: http.Server): Promise<number> {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('A2A peer did not bind to a TCP port'));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+}
+
+function closeServer(server: http.Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
 }
 
 async function loadInboundTestModules() {
@@ -44,6 +68,82 @@ async function loadInboundTestModules() {
     inbound,
     outbound,
   };
+}
+
+async function loadHttpEnvelopeInstance(params: {
+  home: string;
+  instanceId: string;
+  agentId: string;
+}) {
+  process.env.HYBRIDCLAW_DATA_DIR = params.home;
+  process.env.HOME = params.home;
+  process.env.HYBRIDCLAW_INSTANCE_ID = params.instanceId;
+  vi.resetModules();
+  const [
+    { initDatabase, getRecentStructuredAuditForSession },
+    runtimeConfig,
+    runtime,
+    inbound,
+    outbound,
+  ] = await Promise.all([
+    import('../src/memory/db.ts'),
+    import('../src/config/runtime-config.ts'),
+    import('../src/a2a/runtime.ts'),
+    import('../src/a2a/a2a-inbound.ts'),
+    import('../src/a2a/a2a-outbound.ts'),
+  ]);
+
+  initDatabase({ quiet: true });
+  runtimeConfig.updateRuntimeConfig((draft) => {
+    draft.agents.list = [
+      {
+        id: params.agentId,
+        canonicalId: `${params.agentId}@team@${params.instanceId}`,
+        owner: 'team',
+        role: 'lead',
+      },
+    ];
+  });
+
+  return {
+    home: params.home,
+    instanceId: params.instanceId,
+    getRecentStructuredAuditForSession,
+    runtime,
+    inbound,
+    outbound,
+  };
+}
+
+function activateHttpEnvelopeInstance(
+  instance: Pick<
+    Awaited<ReturnType<typeof loadHttpEnvelopeInstance>>,
+    'home' | 'instanceId'
+  >,
+): void {
+  process.env.HYBRIDCLAW_DATA_DIR = instance.home;
+  process.env.HOME = instance.home;
+  process.env.HYBRIDCLAW_INSTANCE_ID = instance.instanceId;
+}
+
+function createHttpEnvelopeServer(
+  instance: Awaited<ReturnType<typeof loadHttpEnvelopeInstance>>,
+): http.Server {
+  return http.createServer(async (request, response) => {
+    activateHttpEnvelopeInstance(instance);
+    const origin = `http://${request.headers.host}`;
+    const url = new URL(request.url || '/', origin);
+    if (url.pathname === '/a2a/envelopes') {
+      await instance.inbound.handleA2AHttpEnvelopeInbound(
+        request,
+        response,
+        url,
+      );
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
 }
 
 describe('A2A JSON-RPC inbound adapter', () => {
@@ -150,6 +250,234 @@ describe('A2A JSON-RPC inbound adapter', () => {
       (event) => event.type === 'a2a.inbound_post' && event.statusCode === 202,
     );
     expect(deliveredAudit).not.toHaveProperty('outcome');
+  });
+
+  test('accepts an HTTP envelope from an authenticated peer and preserves idempotency', async () => {
+    const homeX = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-a2a-http-x-'));
+    const homeY = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-a2a-http-y-'));
+    let server: http.Server | null = null;
+
+    try {
+      const instanceX = await loadHttpEnvelopeInstance({
+        home: homeX,
+        instanceId: 'inst-x',
+        agentId: 'main',
+      });
+      const keyPair =
+        instanceX.outbound.getOrCreateA2ADelegationTokenKeyPair({
+          now: new Date('2030-01-01T00:00:00.000Z'),
+        });
+
+      const instanceY = await loadHttpEnvelopeInstance({
+        home: homeY,
+        instanceId: 'inst-y',
+        agentId: 'remote',
+      });
+      instanceY.inbound.upsertA2ATrustedA2APeer({
+        peerId: 'instance-x',
+        senderAgentId: 'main@team@inst-x',
+        publicKeyPem: keyPair.publicKeyPem,
+      });
+      server = createHttpEnvelopeServer(instanceY);
+      const port = await listen(server);
+      const audience = `http://127.0.0.1:${port}/a2a/envelopes`;
+      const envelope = {
+        id: 'msg-http-a2a',
+        sender_agent_id: 'main@team@inst-x',
+        sender_instance_id: 'inst-x',
+        recipient_agent_id: 'remote@team@inst-y',
+        thread_id: 'thread-http-a2a',
+        intent: 'chat' as const,
+        content: 'HTTP envelope delivery.',
+        created_at: '2026-05-01T10:00:00.000Z',
+      };
+      const token = instanceX.outbound.signA2ADelegationToken({
+        keyPair,
+        senderAgentId: envelope.sender_agent_id,
+        targetAgentId: envelope.recipient_agent_id,
+        audience,
+        scope: instanceX.outbound.A2A_MESSAGE_SEND_SCOPE,
+        parentRunId: 'run-http-envelope-parent',
+        jwtId: envelope.id,
+        messageId: envelope.id,
+        threadId: envelope.thread_id,
+      });
+
+      const first = await fetch(audience, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(envelope),
+      });
+      await expect(first.json()).resolves.toMatchObject({
+        delivered: true,
+        message_id: 'msg-http-a2a',
+        thread_id: 'thread-http-a2a',
+      });
+      expect(first.status).toBe(202);
+
+      const second = await fetch(audience, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(envelope),
+      });
+      await expect(second.json()).resolves.toMatchObject({
+        delivered: true,
+        already_delivered: true,
+        message_id: 'msg-http-a2a',
+        thread_id: 'thread-http-a2a',
+      });
+      expect(second.status).toBe(200);
+
+      activateHttpEnvelopeInstance(instanceY);
+      expect(instanceY.runtime.inbox('remote')).toEqual([
+        expect.objectContaining({
+          id: 'msg-http-a2a',
+          sender_agent_id: 'main@team@inst-x',
+          sender_instance_id: 'inst-x',
+          recipient_agent_id: 'remote@team@inst-y',
+        }),
+      ]);
+      const audit = instanceY
+        .getRecentStructuredAuditForSession('a2a:inbound:instance-x', 20)
+        .map((event) => JSON.parse(event.payload || '{}'));
+      expect(audit).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'a2a.inbound_post',
+            peerId: 'instance-x',
+            peerInstanceId: 'inst-x',
+            downstreamDisposition: 'duplicate',
+            statusCode: 200,
+          }),
+          expect.objectContaining({
+            type: 'a2a.deliver',
+            actor: 'a2a:inst-x',
+            source: 'a2a-runtime',
+          }),
+        ]),
+      );
+    } finally {
+      if (server) await closeServer(server);
+      fs.rmSync(homeX, { recursive: true, force: true });
+      fs.rmSync(homeY, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects HTTP envelopes addressed to a different instance', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'inst-y';
+    const { runtime, inbound, outbound } = await loadInboundTestModules();
+    const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    inbound.upsertA2ATrustedA2APeer({
+      peerId: 'instance-x',
+      senderAgentId: 'main@team@inst-x',
+      publicKeyPem: keyPair.publicKeyPem,
+    });
+    const envelope = {
+      id: 'msg-http-misroute-a2a',
+      sender_agent_id: 'main@team@inst-x',
+      sender_instance_id: 'inst-x',
+      recipient_agent_id: 'main@team@other-instance',
+      thread_id: 'thread-http-misroute-a2a',
+      intent: 'chat' as const,
+      content: 'Wrong instance.',
+      created_at: '2026-05-01T10:00:00.000Z',
+    };
+    const token = outbound.signA2ADelegationToken({
+      keyPair,
+      senderAgentId: envelope.sender_agent_id,
+      targetAgentId: envelope.recipient_agent_id,
+      audience: 'http://localhost/a2a/envelopes',
+      scope: outbound.A2A_MESSAGE_SEND_SCOPE,
+      parentRunId: 'run-http-envelope-parent',
+      jwtId: envelope.id,
+      messageId: envelope.id,
+      threadId: envelope.thread_id,
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+
+    expect(
+      inbound.acceptA2AHttpEnvelopeInboundRequest({
+        rawBody: JSON.stringify(envelope),
+        authorization: `Bearer ${token}`,
+        audience: 'http://localhost/a2a/envelopes',
+        now: new Date('2030-01-01T00:00:30.000Z'),
+      }),
+    ).toEqual({
+      statusCode: 400,
+      body: {
+        error: 'recipient_agent_id instance-id does not match this instance',
+      },
+    });
+    expect(runtime.inbox('main')).toEqual([]);
+  });
+
+  test('rejects HTTP envelopes without a canonical recipient instance id', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'inst-y';
+    const { runtime, inbound, outbound } = await loadInboundTestModules();
+    const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    inbound.upsertA2ATrustedA2APeer({
+      peerId: 'instance-x',
+      senderAgentId: 'main@team@inst-x',
+      publicKeyPem: keyPair.publicKeyPem,
+    });
+
+    expect(
+      inbound.acceptA2AHttpEnvelopeInboundRequest({
+        rawBody: JSON.stringify({
+          id: 'msg-http-local-recipient-a2a',
+          sender_agent_id: 'main@team@inst-x',
+          sender_instance_id: 'inst-x',
+          recipient_agent_id: 'main',
+          thread_id: 'thread-http-local-recipient-a2a',
+          intent: 'chat',
+          content: 'Local recipient ids are not accepted at the peer boundary.',
+          created_at: '2026-05-01T10:00:00.000Z',
+        }),
+        authorization: null,
+        mtlsPublicKeyPem: keyPair.publicKeyPem,
+        audience: 'http://localhost/a2a/envelopes',
+        now: new Date('2030-01-01T00:00:30.000Z'),
+      }),
+    ).toEqual({
+      statusCode: 400,
+      body: {
+        error:
+          'recipient_agent_id must be canonical (agent-slug@user@instance-id)',
+      },
+    });
+    expect(runtime.inbox('main')).toEqual([]);
+  });
+
+  test('rejects malformed HTTP envelopes before delivery', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'inst-y';
+    const { runtime, inbound } = await loadInboundTestModules();
+
+    expect(
+      inbound.acceptA2AHttpEnvelopeInboundRequest({
+        rawBody: JSON.stringify({
+          id: 'msg-http-malformed-a2a',
+          sender_agent_id: 'main@team@inst-x',
+        }),
+        authorization: null,
+        audience: 'http://localhost/a2a/envelopes',
+      }),
+    ).toEqual({
+      statusCode: 400,
+      body: {
+        error: expect.stringContaining('recipient_agent_id must be a string'),
+      },
+    });
+    expect(runtime.inbox('main')).toEqual([]);
   });
 
   test('does not reveal local recipient existence before authentication', async () => {
