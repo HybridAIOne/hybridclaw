@@ -53,6 +53,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
         label: 'Harness Evolution',
         icon: Skills,
       },
+      { to: '/admin/distill', label: 'Distill', icon: Skills },
     ],
   },
   {

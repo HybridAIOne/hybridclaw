@@ -1779,6 +1779,144 @@ export interface AdminAgentScoreboardResponse {
   agents: AdminAgentScoreboardEntry[];
 }
 
+export type AdminDistillStageName =
+  | 'ingest'
+  | 'analyse'
+  | 'build'
+  | 'merge'
+  | 'correct';
+
+export type AdminDistillStageStatus =
+  | 'pending'
+  | 'completed'
+  | 'failed'
+  | 'awaiting-extraction';
+
+export type AdminDistillSourceKind =
+  | 'auto'
+  | 'slack-export'
+  | 'email-mbox'
+  | 'transcript'
+  | 'chat-jsonl'
+  | 'markdown'
+  | 'text'
+  | 'interview'
+  | 'correction';
+
+export interface AdminDistillStageState {
+  status: AdminDistillStageStatus;
+  startedAt?: string;
+  completedAt?: string;
+  detail?: string;
+}
+
+export interface AdminDistillSubjectProfile {
+  version: 1;
+  alias: string;
+  displayName: string;
+  realPerson: boolean;
+  role?: string;
+  relationship?: string;
+  personalityTags: string[];
+  matchAliases: string[];
+  createdAt: string;
+}
+
+export interface AdminDistillConsentSummary {
+  present: boolean;
+  valid: boolean;
+  revokedAt: string | null;
+  recordedAt: string | null;
+  grantedBy: string | null;
+  method: string | null;
+  scope: string | null;
+  sha256: string | null;
+}
+
+export interface AdminDistillRunSummary {
+  runId: string;
+  status: 'pending' | 'awaiting-extraction' | 'failed' | 'completed';
+  createdAt: string;
+  updatedAt: string;
+  stages: Record<AdminDistillStageName, AdminDistillStageState>;
+  stats: {
+    documentsAdded: number;
+    documentsTotal: number;
+    deltaDocuments: number;
+    claimsAdded: number;
+    claimsFlagged: number;
+    reviewsOpened: number;
+  };
+  sources: Array<{ path: string; kind: AdminDistillSourceKind }>;
+  reportPath: string;
+  packetMarkdownPath: string;
+  extractionPath: string;
+}
+
+export interface AdminDistillSubjectSummary {
+  agentId: string;
+  alias: string;
+  registeredAgent: boolean;
+  profile: AdminDistillSubjectProfile;
+  consent: AdminDistillConsentSummary;
+  corpusDocuments: number;
+  openReviews: number;
+  runs: AdminDistillRunSummary[];
+  latestRun: AdminDistillRunSummary | null;
+}
+
+export interface AdminDistillResponse {
+  sourceKinds: AdminDistillSourceKind[];
+  subjects: AdminDistillSubjectSummary[];
+}
+
+export interface AdminDistillSubjectPayload {
+  agentId?: string;
+  alias: string;
+  displayName?: string;
+  realPerson?: boolean;
+  role?: string;
+  relationship?: string;
+  personalityTags?: string[];
+  matchAliases?: string[];
+}
+
+export interface AdminDistillConsentPayload {
+  agentId?: string;
+  alias: string;
+  subjectName?: string;
+  grantedBy: string;
+  method: string;
+  statement: string;
+  scope?: string;
+  note?: string;
+}
+
+export interface AdminDistillRunPayload extends AdminDistillSubjectPayload {
+  sources?: Array<{ path: string; kind: AdminDistillSourceKind }>;
+  resumeRunId?: string;
+  holdoutRatio?: number;
+  kind?: AdminDistillSourceKind;
+}
+
+export interface AdminDistillSubjectResponse {
+  subject: AdminDistillSubjectSummary;
+}
+
+export interface AdminDistillRunResponse {
+  subject: AdminDistillSubjectSummary;
+  run: AdminDistillRunSummary;
+  warnings: string[];
+  flagged: string[];
+}
+
+export interface AdminDistillUploadResponse {
+  source: { path: string; kind: AdminDistillSourceKind };
+  path: string;
+  filename: string;
+  sizeBytes: number;
+}
+
 export interface AdminHarnessEvolutionMetrics {
   taskCount: number;
   rolloutCount: number;

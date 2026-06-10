@@ -872,6 +872,7 @@ export function printAgentUsage(): void {
 
 Commands:
   hybridclaw agent list
+  hybridclaw agent create <id> [--name <name>] [--model <model>] [--workspace <path-or-id>] [--activate]
   hybridclaw agent config <json|--json <json>> [--activate]
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
@@ -881,6 +882,8 @@ Commands:
 
 Notes:
   - \`list\` prints registered agents in a script-friendly tab-separated format.
+  - \`create\` registers a new agent and fills missing bootstrap files in its managed workspace.
+  - Use \`--workspace\` with \`create\` to attach an existing managed workspace path such as \`~/.hybridclaw/data/agents/ben/workspace\`, or a managed workspace id.
   - \`config\` upserts an agent from a quoted JSON payload. The payload may be an agent object directly, or \`{"agent": {...}, "markdown": {"IDENTITY.md": "..."}}\`.
   - \`config\` writes \`markdown\` or \`files\` entries as top-level \`.md\` files in the agent workspace, overwriting existing files.
   - \`config\` imports \`imageAsset\` URLs or local file paths into the agent workspace \`assets/\` directory.
