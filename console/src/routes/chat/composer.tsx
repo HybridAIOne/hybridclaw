@@ -30,6 +30,30 @@ import {
   SlashSuggestionsPanel,
 } from './slash-suggestions-panel';
 
+type SuggestionKind = 'slash' | 'agent';
+
+interface AgentMentionContext {
+  tokenStart: number;
+  query: string;
+}
+
+function getAgentMentionContext(
+  value: string,
+  cursor: number,
+): AgentMentionContext | null {
+  const beforeCursor = value.slice(0, cursor);
+  const atIndex = beforeCursor.lastIndexOf('@');
+  if (atIndex === -1) return null;
+
+  const beforeAt = atIndex === 0 ? '' : value[atIndex - 1];
+  if (beforeAt && !/[\s([{]/u.test(beforeAt)) return null;
+
+  const query = value.slice(atIndex + 1, cursor);
+  if (!/^[A-Za-z0-9._-]*$/u.test(query)) return null;
+
+  return { tokenStart: atIndex, query };
+}
+
 export function Composer(props: {
   isStreaming: boolean;
   onSend: (content: string, media: MediaItem[]) => void;
@@ -49,6 +73,7 @@ export function Composer(props: {
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(0);
   const [suggestions, setSuggestions] = useState<ChatCommandSuggestion[]>([]);
+  const [suggestionKind, setSuggestionKind] = useState<SuggestionKind>('slash');
   const [activeIdx, setActiveIdx] = useState(0);
   const [panelMode, setPanelMode] = useState<SlashPanelMode>('closed');
   const [lastQuery, setLastQuery] = useState('');
@@ -57,11 +82,15 @@ export function Composer(props: {
   const listboxId = useId();
   const isOpen = panelMode !== 'closed';
   const liveMessage =
-    panelMode === 'list'
-      ? `${pluralize(suggestions.length, 'command')} available`
-      : panelMode === 'empty'
-        ? `No commands match /${lastQuery}`
-        : '';
+    panelMode === 'closed'
+      ? ''
+      : suggestionKind === 'agent'
+        ? panelMode === 'list'
+          ? `${pluralize(suggestions.length, 'agent')} available`
+          : `No agents match @${lastQuery}`
+        : panelMode === 'list'
+          ? `${pluralize(suggestions.length, 'command')} available`
+          : `No commands match /${lastQuery}`;
 
   useEffect(() => {
     return () => {
@@ -158,6 +187,30 @@ export function Composer(props: {
     [props.token],
   );
 
+  const buildAgentSuggestions = useCallback(
+    (query: string): ChatCommandSuggestion[] => {
+      const q = query.trim().toLowerCase();
+      return (props.agents ?? [])
+        .filter((agent) => {
+          if (!q) return true;
+          return (
+            agent.id.toLowerCase().includes(q) ||
+            (agent.name ?? '').toLowerCase().includes(q)
+          );
+        })
+        .map((agent) => {
+          const name = agent.name?.trim();
+          return {
+            id: `agent:${agent.id}`,
+            label: `@${agent.id}`,
+            insertText: `@${agent.id}`,
+            description: name && name !== agent.id ? name : '',
+          };
+        });
+    },
+    [props.agents],
+  );
+
   const handleInput = () => {
     resize();
     const ta = textareaRef.current;
@@ -166,10 +219,29 @@ export function Composer(props: {
     const ctx = getSlashContext(ta.value, cursor);
     if (ctx) {
       const query = ctx.query.trim();
+      setSuggestionKind('slash');
       cancelPendingFetch();
       suggestTimerRef.current = setTimeout(() => {
         void fetchSuggestions(query);
       }, 150);
+      return;
+    }
+
+    const agentCtx = getAgentMentionContext(ta.value, cursor);
+    if (agentCtx && (props.agents?.length ?? 0) > 0) {
+      cancelPendingFetch();
+      const agentSuggestions = buildAgentSuggestions(agentCtx.query);
+      setSuggestions(agentSuggestions);
+      setSuggestionKind('agent');
+      setActiveIdx(0);
+      setLastQuery(agentCtx.query);
+      setPanelMode(
+        agentSuggestions.length > 0
+          ? 'list'
+          : agentCtx.query !== ''
+            ? 'empty'
+            : 'closed',
+      );
     } else {
       closePanel();
     }
@@ -180,8 +252,27 @@ export function Composer(props: {
     if (!ta) return;
     const value = ta.value;
     const cursor = ta.selectionStart ?? value.length;
-    const ctx = getSlashContext(value, cursor);
     const insertCore = item.insertText.replace(/\s+$/, '');
+    if (suggestionKind === 'agent') {
+      const ctx = getAgentMentionContext(value, cursor);
+      if (ctx) {
+        const before = value.slice(0, ctx.tokenStart);
+        const after = value.slice(cursor);
+        const insert = after.startsWith(' ') ? insertCore : `${insertCore} `;
+        ta.value = before + insert + after;
+        const newCursor = before.length + insert.length;
+        ta.setSelectionRange(newCursor, newCursor);
+      } else {
+        ta.value = `${insertCore} `;
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      }
+      closePanel();
+      resize();
+      ta.focus();
+      return;
+    }
+
+    const ctx = getSlashContext(value, cursor);
     if (ctx) {
       const before = value.slice(0, ctx.tokenStart);
       const after = value.slice(cursor);
@@ -292,23 +383,6 @@ export function Composer(props: {
     setPendingMedia((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const prefixAgentMention = (agentId: string) => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const mention = `@${agentId}`;
-    const trimmed = ta.value.trimStart();
-    if (trimmed.startsWith(`${mention} `) || trimmed === mention) {
-      ta.focus();
-      return;
-    }
-    ta.value = `${mention} ${trimmed}`;
-    const cursor = ta.value.length;
-    ta.setSelectionRange(cursor, cursor);
-    closePanel();
-    resize();
-    ta.focus();
-  };
-
   const agentOptions = props.agents ?? [];
   const selectedAgentId = props.selectedAgentId ?? '';
   const modelOptions = props.models ?? [];
@@ -340,25 +414,6 @@ export function Composer(props: {
               {uploading > 0 ? (
                 <span className={css.mediaChip}>Uploading…</span>
               ) : null}
-            </div>
-          ) : null}
-          {agentOptions.length > 1 ? (
-            <div className={css.agentMentionRow}>
-              {agentOptions.map((agent) => (
-                <button
-                  key={agent.id}
-                  type="button"
-                  className={cx(
-                    css.agentMentionChip,
-                    agent.id === selectedAgentId && css.isActive,
-                  )}
-                  disabled={props.isStreaming}
-                  title={`Address ${agent.name?.trim() || agent.id}`}
-                  onClick={() => prefixAgentMention(agent.id)}
-                >
-                  @{agent.id}
-                </button>
-              ))}
             </div>
           ) : null}
           <textarea
@@ -450,6 +505,7 @@ export function Composer(props: {
         {panelMode !== 'closed' ? (
           <SlashSuggestionsPanel
             mode={panelMode}
+            kind={suggestionKind}
             suggestions={suggestions}
             activeIdx={activeIdx}
             query={lastQuery}

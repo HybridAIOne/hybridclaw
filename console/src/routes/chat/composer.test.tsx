@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -86,7 +87,19 @@ describe('Composer', () => {
     expect(onAgentSwitch).toHaveBeenCalledWith('charly');
   });
 
-  it('prefixes the next message when an agent chip is selected', () => {
+  it('does not render persistent agent mention chips', () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'research', name: 'Research Agent' },
+      ],
+      selectedAgentId: 'main',
+    });
+
+    expect(screen.queryByRole('button', { name: '@research' })).toBeNull();
+  });
+
+  it('suggests agents after @ and inserts the active mention', async () => {
     renderComposer({
       agents: [
         { id: 'main', name: 'Assistant' },
@@ -95,11 +108,54 @@ describe('Composer', () => {
       selectedAgentId: 'main',
     });
     const textarea = getTextarea();
-    fireEvent.input(textarea, { target: { value: 'summarize this' } });
+    fireEvent.input(textarea, { target: { value: '@re' } });
 
-    fireEvent.click(screen.getByRole('button', { name: '@research' }));
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+    expect(panel.textContent).toContain('@research');
+    expect(panel.textContent).toContain('Research Agent');
 
-    expect(textarea.value).toBe('@research summarize this');
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    expect(textarea.value).toBe('@research ');
+    expect(fetchChatCommandsMock).not.toHaveBeenCalled();
+  });
+
+  it('replaces only the active @ token when accepting a mid-line agent mention', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'research', name: 'Research Agent' },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    textarea.value = 'ask @res later';
+    textarea.setSelectionRange('ask @res'.length, 'ask @res'.length);
+    fireEvent.input(textarea);
+
+    await screen.findByRole('listbox', { name: 'Agents' });
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    expect(textarea.value).toBe('ask @research later');
+    expect(textarea.selectionStart).toBe('ask @research'.length);
+  });
+
+  it('shows a no-match empty state for agent mentions', async () => {
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'research', name: 'Research Agent' },
+      ],
+      selectedAgentId: 'main',
+    });
+    const textarea = getTextarea();
+    fireEvent.input(textarea, { target: { value: '@nobody' } });
+
+    const panel = await screen.findByRole('listbox', { name: 'Agents' });
+
+    expect(panel.textContent).toContain('No agents match @nobody');
+    expect(within(panel).queryByRole('option')).toBeNull();
+    expect(fetchChatCommandsMock).not.toHaveBeenCalled();
   });
 
   it('preserves internal newlines when sending a multiline message', () => {

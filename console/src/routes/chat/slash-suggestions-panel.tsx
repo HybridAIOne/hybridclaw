@@ -14,6 +14,7 @@ export type SlashPanelMode = 'closed' | 'list' | 'empty';
 
 export interface SlashSuggestionsPanelProps {
   mode: Exclude<SlashPanelMode, 'closed'>;
+  kind?: 'slash' | 'agent';
   suggestions: ChatCommandSuggestion[];
   activeIdx: number;
   query: string;
@@ -28,6 +29,7 @@ export function optionIdFor(listboxId: string, i: number): string {
 
 export function SlashSuggestionsPanel({
   mode,
+  kind = 'slash',
   suggestions,
   activeIdx,
   query,
@@ -42,6 +44,12 @@ export function SlashSuggestionsPanel({
   }, [activeIdx, mode, suggestions.length, listboxId]);
 
   const q = query.trim().toLowerCase();
+  const trigger = kind === 'agent' ? '@' : '/';
+  const listLabel = kind === 'agent' ? 'Agents' : 'Slash commands';
+  const emptyLabel =
+    kind === 'agent'
+      ? `No agents match ${trigger}${query}`
+      : `No commands match ${trigger}${query}`;
 
   return (
     <PopoverContent
@@ -55,7 +63,7 @@ export function SlashSuggestionsPanel({
         <ScrollAreaViewport
           id={listboxId}
           role="listbox"
-          aria-label="Slash commands"
+          aria-label={listLabel}
           className={css.slashSuggestionsList}
         >
           {mode === 'list' ? (
@@ -88,7 +96,7 @@ export function SlashSuggestionsPanel({
             ))
           ) : (
             <div className={css.suggestionEmpty} role="status">
-              No commands match /{query}
+              {emptyLabel}
             </div>
           )}
         </ScrollAreaViewport>
