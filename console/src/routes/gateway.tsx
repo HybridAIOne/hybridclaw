@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import { fetchAdminAgents, reloadGateway, updateAdminAgent } from '../api/client';
+import {
+  fetchAdminAgents,
+  reloadGateway,
+  updateAdminAgent,
+} from '../api/client';
 import type {
   AdminAgent,
   AdminAgentProxyConversationScope,
@@ -20,10 +24,7 @@ import {
 } from '../components/dialog';
 import { Field, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from '../components/native-select';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { ProviderHealthPanel } from '../components/provider-health';
 import { Switch } from '../components/switch';
 import { useToast } from '../components/toast';
@@ -100,14 +101,7 @@ export function GatewayPage() {
     setProxyChatbotId(proxy?.chatbotId || selectedProxyAgent.chatbotId || '');
     setProxyApiKeySecretId(proxy?.apiKey.id || DEFAULT_PROXY_SECRET_ID);
     setProxyConversationScope(proxy?.conversationScope || 'channel');
-  }, [
-    selectedProxyAgent?.id,
-    selectedProxyAgent?.chatbotId,
-    selectedProxyAgent?.proxy?.baseUrl,
-    selectedProxyAgent?.proxy?.chatbotId,
-    selectedProxyAgent?.proxy?.apiKey.id,
-    selectedProxyAgent?.proxy?.conversationScope,
-  ]);
+  }, [selectedProxyAgent]);
 
   const proxyMutation = useMutation({
     mutationFn: async () => {

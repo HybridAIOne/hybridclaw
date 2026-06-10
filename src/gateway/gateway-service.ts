@@ -4870,9 +4870,7 @@ export function createGatewayAdminAgent(params: {
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
-    ...(params.proxy !== undefined
-      ? { proxy: params.proxy ?? undefined }
-      : {}),
+    ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
     ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
   });
@@ -4921,9 +4919,7 @@ export function updateGatewayAdminAgent(
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
-    ...(params.proxy !== undefined
-      ? { proxy: params.proxy ?? undefined }
-      : {}),
+    ...(params.proxy !== undefined ? { proxy: params.proxy ?? undefined } : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
   });
   return {
