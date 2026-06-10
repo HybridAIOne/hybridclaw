@@ -17,6 +17,7 @@ import {
   hasSnakeCamelAlias,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
 } from './agent-types.js';
@@ -286,6 +287,19 @@ function applyAgentConfigFieldUpdates(
         );
       }
       next.webSearch = webSearch;
+    }
+  }
+  if (Object.hasOwn(updates, 'proxy')) {
+    if (updates.proxy === null) {
+      delete next.proxy;
+    } else {
+      const proxy = normalizeAgentProxyConfig(updates.proxy, 'proxy');
+      if (!proxy) {
+        throw new Error(
+          '`proxy` must include kind, baseUrl, chatbotId, and apiKey fields, or null.',
+        );
+      }
+      next.proxy = proxy;
     }
   }
   return next;

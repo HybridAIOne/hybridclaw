@@ -20,7 +20,9 @@ import {
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import {
+  type AgentProxyConfig,
   DEFAULT_AGENT_ID,
+  normalizeAgentProxyConfig,
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
@@ -214,6 +216,7 @@ import {
   getGatewayAdminEmailFolder,
   getGatewayAdminEmailMailbox,
   getGatewayAdminEmailMessage,
+  getGatewayAdminHybridAIBots,
   getGatewayAdminJobsContext,
   getGatewayAdminMcp,
   getGatewayAdminModels,
@@ -4151,6 +4154,7 @@ type ApiAdminAgentPayloadBody = {
   skills?: unknown;
   chatbotId?: unknown;
   enableRag?: unknown;
+  proxy?: unknown;
   role?: unknown;
   reportsTo?: unknown;
   reports_to?: unknown;
@@ -4167,6 +4171,7 @@ type ApiAdminAgentPayload = {
   skills?: string[] | null;
   chatbotId?: string;
   enableRag?: boolean;
+  proxy?: AgentProxyConfig | null;
   role?: string;
   reportsTo?: string | null;
   delegatesTo?: string[] | null;
@@ -4321,6 +4326,14 @@ function normalizeApiAdminNullableStringAlias(
   return input === null ? null : undefined;
 }
 
+function normalizeApiAdminAgentProxy(
+  value: unknown,
+): AgentProxyConfig | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return normalizeAgentProxyConfig(value, 'proxy') ?? null;
+}
+
 async function readApiAdminAgentPayload(
   req: IncomingMessage,
   options?: { requireId?: boolean },
@@ -4338,6 +4351,7 @@ async function readApiAdminAgentPayload(
     skills: normalizeApiAdminAgentSkills(body.skills),
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
+    proxy: normalizeApiAdminAgentProxy(body.proxy),
     role: typeof body.role === 'string' ? body.role : undefined,
     reportsTo: normalizeApiAdminNullableStringAlias(
       body,
@@ -4382,6 +4396,7 @@ async function handleApiAdminAgentCollectionResource(
           skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
+          proxy: payload.proxy,
           role: payload.role,
           reportsTo: payload.reportsTo,
           delegatesTo: payload.delegatesTo,
@@ -4420,6 +4435,7 @@ async function handleApiAdminAgentResource(
           skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
+          proxy: payload.proxy,
           role: payload.role,
           reportsTo: payload.reportsTo,
           delegatesTo: payload.delegatesTo,
@@ -4579,6 +4595,56 @@ async function handleApiAdminAgents(
       });
       return;
   }
+}
+
+async function handleApiAdminHybridAIBots(
+  res: ServerResponse,
+  method: string,
+  url: URL,
+): Promise<void> {
+  if (method !== 'GET') {
+    sendMethodNotAllowed(res);
+    return;
+  }
+  try {
+    sendJson(
+      res,
+      200,
+      await getGatewayAdminHybridAIBots({
+        baseUrl: normalizeApiAdminHybridAIBaseUrl(url),
+      }),
+    );
+  } catch (error) {
+    if (error instanceof GatewayRequestError) {
+      sendJson(res, error.statusCode, { error: error.message });
+      return;
+    }
+    sendJson(res, 502, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function normalizeApiAdminHybridAIBaseUrl(url: URL): string | undefined {
+  const raw = url.searchParams.get('baseUrl');
+  if (raw === null) return undefined;
+  const normalized = raw.trim();
+  if (!normalized) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new GatewayRequestError(400, 'baseUrl must be a valid HTTPS URL.');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new GatewayRequestError(400, 'baseUrl must use HTTPS.');
+  }
+  parsed.pathname = parsed.pathname.replace(/\/+$/g, '');
+  parsed.username = '';
+  parsed.password = '';
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString().replace(/\/+$/g, '');
 }
 
 async function handleApiAdminTeamStructure(
@@ -6731,6 +6797,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname.startsWith('/api/admin/agents/')
           ) {
             await handleApiAdminAgents(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/hybridai/bots') {
+            await handleApiAdminHybridAIBots(res, method, url);
             return;
           }
           if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {

@@ -4,6 +4,7 @@ import { logger } from '../logger.js';
 import type { HybridAIBot } from '../types/hybridai.js';
 
 interface BotCacheEntry {
+  baseUrl: string;
   bots: HybridAIBot[];
   fetchedAtMs: number;
 }
@@ -155,8 +156,13 @@ export function normalizeBots(payload: unknown): HybridAIBot[] {
 
 async function fetchHybridAIBotManagementPayload(
   route: string,
+  options?: { baseUrl?: string },
 ): Promise<unknown> {
-  const url = `${HYBRIDAI_BASE_URL}${route}`;
+  const baseUrl =
+    String(options?.baseUrl || HYBRIDAI_BASE_URL)
+      .trim()
+      .replace(/\/+$/g, '') || HYBRIDAI_BASE_URL;
+  const url = `${baseUrl}${route}`;
   let res: Response;
   try {
     res = await fetch(url, {
@@ -233,20 +239,30 @@ export function normalizeHybridAIAccountChatbotId(payload: unknown): string {
 }
 
 export async function fetchHybridAIBots(options?: {
+  baseUrl?: string;
   cacheTtlMs?: number;
 }): Promise<HybridAIBot[]> {
   const cacheTtlMs = Math.max(0, options?.cacheTtlMs ?? 0);
+  const baseUrl =
+    String(options?.baseUrl || HYBRIDAI_BASE_URL)
+      .trim()
+      .replace(/\/+$/g, '') || HYBRIDAI_BASE_URL;
   const now = Date.now();
 
-  if (cacheTtlMs > 0 && botCache && now - botCache.fetchedAtMs < cacheTtlMs) {
+  if (
+    cacheTtlMs > 0 &&
+    botCache &&
+    botCache.baseUrl === baseUrl &&
+    now - botCache.fetchedAtMs < cacheTtlMs
+  ) {
     return botCache.bots;
   }
 
   const bots = normalizeBots(
-    await fetchHybridAIBotManagementPayload(BOT_LIST_PATH),
+    await fetchHybridAIBotManagementPayload(BOT_LIST_PATH, { baseUrl }),
   );
   if (cacheTtlMs > 0) {
-    botCache = { bots, fetchedAtMs: now };
+    botCache = { baseUrl, bots, fetchedAtMs: now };
   } else {
     botCache = null;
   }

@@ -1024,6 +1024,68 @@ test('status command includes the current session agent', async () => {
   );
 });
 
+test('status command reports proxy mode for HybridAI proxy agents', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'proxy-support',
+    model: 'openai-codex/gpt-5.3-codex',
+    proxy: {
+      kind: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      chatbotId: '051df245-3f6e-459e-a890-c7e28e094a71',
+      apiKey: { source: 'store', id: 'HYBRIDAI_API_KEY' },
+      conversationScope: 'user',
+    },
+  });
+
+  await handleGatewayCommand({
+    sessionId: 'session-status-proxy-agent',
+    guildId: null,
+    channelId: 'channel-status-proxy-agent',
+    args: ['agent', 'switch', 'proxy-support'],
+  });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-proxy-agent',
+    guildId: null,
+    channelId: 'channel-status-proxy-agent',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Status');
+  expect(result.text).toContain('Mode: HybridAI proxy');
+  expect(result.text).toContain('Agent: proxy-support');
+  expect(result.text).toContain('Upstream: https://hybridai.one');
+  expect(result.text).toContain(
+    'Chatbot: 051df245-3f6e-459e-a890-c7e28e094a71',
+  );
+  expect(result.text).toContain('Conversation scope: user');
+  expect(result.text).not.toContain('Model:');
+  expect(result.text).not.toContain('Tokens:');
+  expect(result.text).not.toContain('Cache:');
+  expect(result.text).not.toContain('Context:');
+  expect(result.text).not.toContain('CWD:');
+  expect(result.text).not.toContain('Runtime:');
+  expect(result.text).not.toContain('Sandbox:');
+  expect(result.text).not.toContain('RAG:');
+  expect(result.text).not.toContain('Ralph:');
+});
+
 test('status command labels Codex app-server turn runtime separately from sandbox', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

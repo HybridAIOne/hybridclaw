@@ -15,6 +15,7 @@ import {
   cloneAgentA2AConfig,
   cloneAgentBudgetConfig,
   cloneAgentCv,
+  cloneAgentProxyConfig,
   cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
@@ -23,6 +24,7 @@ import {
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentIdentityFields,
+  normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
@@ -2823,6 +2825,9 @@ function normalizeAgentConfig(
         fallback?.webSearch,
       )
     : cloneAgentWebSearchConfig(fallback?.webSearch);
+  const proxy = Object.hasOwn(value, 'proxy')
+    ? normalizeAgentProxyConfig(value.proxy, 'agents.list[].proxy')
+    : cloneAgentProxyConfig(fallback?.proxy);
   const budget = Object.hasOwn(value, 'budget')
     ? normalizeAgentBudgetConfig(value.budget, fallback?.budget)
     : cloneAgentBudgetConfig(fallback?.budget);
@@ -2845,6 +2850,7 @@ function normalizeAgentConfig(
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
     ...(webSearch ? { webSearch } : {}),
+    ...(proxy ? { proxy } : {}),
     ...(budget ? { budget } : {}),
   };
 }
