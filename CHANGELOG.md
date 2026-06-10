@@ -4,6 +4,24 @@
 
 ### Added
 
+- **Human distillation (R72)**: New `hybridclaw coworker` command group and
+  bundled `human-distill` skill that distill a real person's source material
+  into a coworker agent. Collectors normalise Slack exports, mbox email,
+  meeting transcripts, chat JSONL, documents, and gap-driven interview
+  questionnaires into an agent-scoped corpus with quality weighting, stable
+  provenance ids, and third-party PII masking at ingest. A resumable
+  ingest → analyse → build → merge → correct pipeline writes the persona into
+  the standard identity files (`IDENTITY.md`, `SOUL.md`, `USER.md`, `CV.md`)
+  and a generated work-module skill, with every claim citing corpus documents
+  (uncited claims are flagged, not written), every merge an F4-versioned
+  reversible edit, and conflicting evidence surfaced as operator review
+  items. Distilling a real, named human is hard-blocked until a consent
+  artefact is recorded; all lifecycle actions emit hash-chained `distill.*`
+  audit events; `coworker forget` erases corpus, persona, work module, runs,
+  and revision snapshots as one identifier set. Includes a leakage/fidelity
+  eval (`coworker eval`), conversational corrections (`coworker correct`),
+  and one-bundle multi-host export/install for Claude Code, Codex, OpenClaw,
+  and HybridClaw.
 - **Cloud memory sync**: Agents now sync local memory files (`MEMORY.md`,
   `USER.md`, and recent daily memory notes) with the HybridAI cloud and receive
   shared installation- and company-scoped memory back for prompt context. Sync
