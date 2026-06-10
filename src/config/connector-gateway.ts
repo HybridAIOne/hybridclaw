@@ -8,7 +8,7 @@ export const CONNECTOR_GATEWAY_SERVER_NAME = 'hybridai-connectors';
 
 function connectorGatewayUrl(baseUrl: string): string {
   const trimmedBase = baseUrl.trim().replace(/\/+$/, '');
-  return trimmedBase ? `${trimmedBase}/connectors/mcp` : '';
+  return trimmedBase ? `${trimmedBase}/api/v1/connectors/mcp` : '';
 }
 
 /**

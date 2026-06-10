@@ -9,7 +9,7 @@ import type { McpServerConfig } from '../src/types/models.ts';
 
 const BASE = 'https://hybridai.one';
 const KEY = 'hai-secret-key';
-const GATEWAY_URL = 'https://hybridai.one/connectors/mcp';
+const GATEWAY_URL = 'https://hybridai.one/api/v1/connectors/mcp';
 
 describe('injectHybridAIConnectorGateway', () => {
   test('injects the connector gateway without embedding the API key', () => {
