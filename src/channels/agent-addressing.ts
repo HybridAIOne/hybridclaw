@@ -1,3 +1,6 @@
+// Unlike the gateway-side slugify, this keeps the label's original case so
+// channel text stays readable; the gateway resolver lowercases handles before
+// alias matching, so case never affects routing.
 function slugifyAgentLabel(value: string): string {
   return value
     .normalize('NFKD')
@@ -15,7 +18,7 @@ export function formatNativeAgentMention(label: string): string {
 }
 
 export function normalizeNativeAgentAddressingText(text: string): string {
-  if (!text) return text;
+  if (!text.startsWith('@')) return text;
   return text
     .replace(/^@["']([^"']+)["'](?=\s|$)/u, (_match, label: string) => {
       return formatNativeAgentMention(label);

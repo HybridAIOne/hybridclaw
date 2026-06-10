@@ -131,6 +131,7 @@ export function resolveAgentAddressing(params: {
   fromAgentId?: string | null;
 }): AgentAddressResolution {
   const content = params.content;
+  if (!content.includes('@')) return { kind: 'none', content };
   const currentAgentId = params.currentAgentId?.trim() || DEFAULT_AGENT_ID;
   const fromAgentId = params.fromAgentId?.trim() || currentAgentId;
   const agents = listAgents();

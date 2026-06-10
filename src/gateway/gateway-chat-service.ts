@@ -761,21 +761,29 @@ async function handleGatewayMessageInner(
           ...addressed.envelope,
           to: targetAgentId,
         };
-        const childResult = await handleGatewayMessageInner({
-          ...req,
-          content: addressed.content,
-          agentId: targetAgentId,
-          addressEnvelope: childEnvelope,
-          source: `${source}.fanout`,
-          onTextDelta: undefined,
-          onThinkingDelta: undefined,
-          onToolProgress: undefined,
-          onApprovalProgress: undefined,
-        });
-        const childText =
-          childResult.result ||
-          childResult.error ||
-          (childResult.status === 'success' ? '(no reply)' : 'failed');
+        let childText: string;
+        try {
+          const childResult = await handleGatewayMessageInner({
+            ...req,
+            content: addressed.content,
+            agentId: targetAgentId,
+            addressEnvelope: childEnvelope,
+            source: `${source}.fanout`,
+            onTextDelta: undefined,
+            onThinkingDelta: undefined,
+            onToolProgress: undefined,
+            onApprovalProgress: undefined,
+          });
+          childText =
+            childResult.result ||
+            childResult.error ||
+            (childResult.status === 'success' ? '(no reply)' : 'failed');
+        } catch (error) {
+          // One unhealthy agent must not abort the rest of the fanout.
+          childText = `failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+        }
         outputs.push(`@${targetAgentId}: ${childText}`);
       }
     } finally {

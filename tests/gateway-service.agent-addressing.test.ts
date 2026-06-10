@@ -188,3 +188,44 @@ test('@team fans out with child to fields without making the last agent sticky',
     agentId: 'main',
   });
 });
+
+test('@team fanout continues past an agent whose run throws', async () => {
+  setupHome();
+
+  runAgentMock.mockImplementation(async (request: { agentId?: string }) => {
+    if (request.agentId === 'research') {
+      throw new Error('research runtime crashed');
+    }
+    return {
+      status: 'success',
+      result: `reply from ${request.agentId}`,
+      toolsUsed: [],
+      toolExecutions: [],
+    };
+  });
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({ id: 'research' });
+  upsertRegisteredAgent({ id: 'writer' });
+
+  const fanout = await handleGatewayMessage({
+    sessionId: 'session-team-agent-failure',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'User',
+    content: '@team status',
+  });
+
+  expect(fanout.status).toBe('success');
+  expect(fanout.result).toMatch(/@research: .*(failed|crashed|error)/i);
+  expect(fanout.result).toContain('@writer: reply from writer');
+});
