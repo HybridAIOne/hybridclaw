@@ -54,6 +54,10 @@ export function buildChatHistoryUiData(
               nextAssistant.assistantPresentation?.agentId,
           )
         : msg.content;
+    const addressedAgentPresentation =
+      msg.role === 'user' && nextAssistant?.role === 'assistant'
+        ? (nextAssistant.assistantPresentation ?? null)
+        : null;
     if (msg.role === 'user') lastUserContent = msg.content;
     const replayContent =
       msg.role === 'user'
@@ -73,6 +77,7 @@ export function buildChatHistoryUiData(
       replayRequest:
         replayContent !== null ? { content: replayContent, media: [] } : null,
       assistantPresentation: msg.assistantPresentation ?? null,
+      addressedAgentPresentation,
       responseRating: msg.response_rating ?? null,
       branchKey:
         msg.id !== undefined && msg.id !== null

@@ -603,6 +603,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .userAgentMentionPill {
   display: inline-flex;
   align-items: center;
+  gap: 0.28em;
   min-height: 1.5em;
   max-width: 180px;
   padding: 0 0.45em;
@@ -618,6 +619,14 @@ aside[data-state="collapsed"] .chatSidebarContent {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.userAgentMentionAvatar {
+  width: 1.05em;
+  height: 1.05em;
+  border-radius: 999px;
+  object-fit: cover;
+  flex: 0 0 auto;
 }
 
 .bubbleAssistant {

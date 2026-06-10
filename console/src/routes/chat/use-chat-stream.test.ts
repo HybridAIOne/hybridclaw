@@ -256,6 +256,11 @@ describe('useChatStream', () => {
       result: 'Answer',
       messageRole: 'assistant',
       addressEnvelope: { to: 'research', from: 'main' },
+      assistantPresentation: {
+        agentId: 'research',
+        displayName: 'Research Agent',
+        imageUrl: '/api/agent-avatar?agentId=research',
+      },
     });
 
     const { result } = renderHook(
@@ -283,6 +288,11 @@ describe('useChatStream', () => {
       replayRequest: {
         content: 'summarize this',
         media: [],
+      },
+      addressedAgentPresentation: {
+        agentId: 'research',
+        displayName: 'Research Agent',
+        imageUrl: '/api/agent-avatar?agentId=research',
       },
     });
   });

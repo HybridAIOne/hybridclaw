@@ -497,7 +497,11 @@ export const MessageBlock = memo(function MessageBlock(props: {
               dangerouslySetInnerHTML={{ __html: renderedHtml }}
             />
           ) : isUser ? (
-            <UserMessageContent content={msg.content} />
+            <UserMessageContent
+              content={msg.content}
+              presentation={msg.addressedAgentPresentation}
+              token={token}
+            />
           ) : (
             msg.content
           )}
@@ -650,13 +654,26 @@ export const MessageBlock = memo(function MessageBlock(props: {
   );
 });
 
-function UserMessageContent(props: { content: string }) {
+function UserMessageContent(props: {
+  content: string;
+  presentation?: ChatMessage['addressedAgentPresentation'];
+  token: string;
+}) {
   const mention = parseLeadingAgentMention(props.content);
+  const avatarUrl = useAuthenticatedImageUrl({
+    token: props.token,
+    imageUrl: mention ? props.presentation?.imageUrl : null,
+  });
   if (!mention) return props.content;
 
   return (
     <>
-      <span className={css.userAgentMentionPill}>{mention.mention}</span>
+      <span className={css.userAgentMentionPill}>
+        {avatarUrl ? (
+          <img className={css.userAgentMentionAvatar} src={avatarUrl} alt="" />
+        ) : null}
+        <span>{mention.mention}</span>
+      </span>
       {mention.rest}
     </>
   );

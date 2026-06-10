@@ -93,12 +93,21 @@ describe('MessageBlock artifacts', () => {
     expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
   });
 
-  it('renders a leading user agent mention as a pill', () => {
+  it('renders a leading user agent mention as a pill with its avatar', async () => {
+    fetchAgentAvatarBlobMock.mockResolvedValue(
+      new Blob(['avatar'], { type: 'image/png' }),
+    );
+
     render(
       <MessageBlock
         message={makeMessage([], {
           role: 'user',
           content: '@research summarize this',
+          addressedAgentPresentation: {
+            agentId: 'research',
+            displayName: 'Research Agent',
+            imageUrl: '/api/agent-avatar?agentId=research',
+          },
         })}
         token="test-token"
         isStreaming={false}
@@ -113,11 +122,21 @@ describe('MessageBlock artifacts', () => {
     );
 
     const mention = screen.getByText('@research');
+    const pill = mention.closest(`.${css.userAgentMentionPill}`);
     const bubble = screen.getByText(
       (_text, element) => element?.textContent === '@research summarize this',
     );
 
-    expect(mention.classList.contains(css.userAgentMentionPill)).toBe(true);
+    expect(pill).not.toBeNull();
+    await waitFor(() =>
+      expect(pill?.querySelector('img')?.getAttribute('src')).toBe(
+        'blob:artifact',
+      ),
+    );
+    expect(fetchAgentAvatarBlobMock).toHaveBeenCalledWith(
+      'test-token',
+      '/api/agent-avatar?agentId=research',
+    );
     expect(bubble.classList.contains(css.bubbleUser)).toBe(true);
   });
 

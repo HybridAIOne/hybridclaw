@@ -41,6 +41,11 @@ describe('buildChatHistoryUiData', () => {
           role: 'assistant',
           agent_id: 'research',
           content: 'summary',
+          assistantPresentation: {
+            agentId: 'research',
+            displayName: 'Research Agent',
+            imageUrl: '/api/agent-avatar?agentId=research',
+          },
         },
       ],
     };
@@ -53,6 +58,11 @@ describe('buildChatHistoryUiData', () => {
 
     expect(user?.content).toBe('@research summarize this');
     expect(user?.rawContent).toBe('summarize this');
+    expect(user?.addressedAgentPresentation).toMatchObject({
+      agentId: 'research',
+      displayName: 'Research Agent',
+      imageUrl: '/api/agent-avatar?agentId=research',
+    });
     expect(user?.replayRequest?.content).toBe('summarize this');
     expect(assistant?.replayRequest?.content).toBe('summarize this');
   });

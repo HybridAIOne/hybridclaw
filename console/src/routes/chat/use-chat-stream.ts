@@ -310,6 +310,9 @@ export function useChatStream(
               return {
                 ...m,
                 content: addAgentAttribution(m.content, addressedAgentId),
+                addressedAgentPresentation: addressedAgentId
+                  ? (result.assistantPresentation ?? null)
+                  : null,
                 messageId: m.messageId ?? result.userMessageId ?? null,
                 sessionId: result.sessionId ?? m.sessionId,
               };

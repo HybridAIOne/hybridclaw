@@ -185,6 +185,7 @@ export interface ChatMessage {
   replayRequest?: { content: string; media: MediaItem[] } | null;
   pendingApproval?: ChatStreamApproval | null;
   assistantPresentation?: AssistantPresentation | null;
+  addressedAgentPresentation?: AssistantPresentation | null;
   responseRating?: ResponseRatingValue | null;
   branchKey?: string | null;
 }
