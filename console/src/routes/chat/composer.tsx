@@ -146,8 +146,8 @@ export function Composer(props: {
   const resize = () => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = '24px';
-    ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
+    ta.style.height = '36px';
+    ta.style.height = `${Math.max(36, Math.min(ta.scrollHeight, 180))}px`;
   };
 
   // The fetch itself can't be aborted, so the seq bump is what makes a
@@ -418,7 +418,7 @@ export function Composer(props: {
           if (!next) closePanel();
         }}
       >
-        <PopoverAnchor className={css.composer}>
+        <div className={css.composer}>
           {pendingMedia.length > 0 || uploading > 0 ? (
             <div className={css.pendingMediaRow}>
               {pendingMedia.map((m, i) => (
@@ -438,7 +438,7 @@ export function Composer(props: {
               ) : null}
             </div>
           ) : null}
-          <div className={css.composerInputWrap}>
+          <PopoverAnchor className={css.composerInputWrap}>
             {composerValue ? (
               <div
                 ref={overlayRef}
@@ -476,7 +476,7 @@ export function Composer(props: {
                   : undefined
               }
             />
-          </div>
+          </PopoverAnchor>
           <div className={css.composerActions}>
             <div className={css.composerLeftActions}>
               <button
@@ -541,7 +541,7 @@ export function Composer(props: {
               onChange={handleFileChange}
             />
           </div>
-        </PopoverAnchor>
+        </div>
         {panelMode !== 'closed' ? (
           <SlashSuggestionsPanel
             mode={panelMode}
