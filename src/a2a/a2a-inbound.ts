@@ -458,6 +458,13 @@ function httpEnvelopeErrorStatusCode(error: unknown): number {
   return 500;
 }
 
+function isHttpEnvelopeAuthOrValidationError(error: unknown): boolean {
+  return (
+    error instanceof A2ADelegationTokenError ||
+    error instanceof A2AEnvelopeValidationError
+  );
+}
+
 function httpEnvelopeErrorResponse(error: unknown): Record<string, unknown> {
   if (error instanceof A2ADelegationTokenError) {
     return { error: 'Unauthorized', reason: extractErrorReason(error) };
@@ -526,7 +533,10 @@ export function acceptA2AHttpEnvelopeInboundRequest(params: {
     assertCanonicalLocalRecipient(envelope);
   } catch (error) {
     const reason = extractErrorReason(error);
-    const statusCode = error instanceof A2ADelegationTokenError ? 401 : 400;
+    const isExpectedError = isHttpEnvelopeAuthOrValidationError(error);
+    const statusCode = isExpectedError
+      ? httpEnvelopeErrorStatusCode(error)
+      : 500;
     recordInboundAudit({
       runId,
       peerId: peer?.peerId || null,
@@ -541,7 +551,9 @@ export function acceptA2AHttpEnvelopeInboundRequest(params: {
       downstreamDisposition:
         error instanceof A2ADelegationTokenError
           ? 'rejected'
-          : 'validation_failed',
+          : isExpectedError
+            ? 'validation_failed'
+            : 'error',
       envelope,
       statusCode,
       reason,

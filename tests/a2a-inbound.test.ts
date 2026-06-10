@@ -480,6 +480,77 @@ describe('A2A JSON-RPC inbound adapter', () => {
     expect(runtime.inbox('main')).toEqual([]);
   });
 
+  test('reports unexpected HTTP envelope auth failures as server errors', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'inst-y';
+    vi.doMock('../src/identity/agent-id.ts', async (importOriginal) => {
+      const actual =
+        await importOriginal<typeof import('../src/identity/agent-id.ts')>();
+      return {
+        ...actual,
+        resolveLocalInstanceId: () => {
+          throw new Error('local instance state unavailable');
+        },
+      };
+    });
+    const { getRecentStructuredAuditForSession, runtime, inbound } =
+      await loadInboundTestModules();
+    const keyPair = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+
+    inbound.upsertA2ATrustedA2APeer({
+      peerId: 'instance-x',
+      senderAgentId: 'main@team@inst-x',
+      publicKeyPem: keyPair.publicKeyPem,
+    });
+
+    try {
+      expect(
+        inbound.acceptA2AHttpEnvelopeInboundRequest({
+          rawBody: JSON.stringify({
+            id: 'msg-http-unexpected-auth-a2a',
+            sender_agent_id: 'main@team@inst-x',
+            sender_instance_id: 'inst-x',
+            recipient_agent_id: 'remote@team@inst-y',
+            thread_id: 'thread-http-unexpected-auth-a2a',
+            intent: 'chat',
+            content: 'Unexpected auth-path failures are server errors.',
+            created_at: '2026-05-01T10:00:00.000Z',
+          }),
+          authorization: null,
+          mtlsPublicKeyPem: keyPair.publicKeyPem,
+          audience: 'http://localhost/a2a/envelopes',
+          now: new Date('2030-01-01T00:00:30.000Z'),
+        }),
+      ).toEqual({
+        statusCode: 500,
+        body: { error: 'Internal server error' },
+      });
+      expect(runtime.inbox('remote')).toEqual([]);
+      const audit = getRecentStructuredAuditForSession(
+        'a2a:inbound:instance-x',
+        10,
+      ).map((event) => JSON.parse(event.payload || '{}'));
+      expect(audit).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'a2a.inbound_post',
+            peerId: 'instance-x',
+            peerInstanceId: 'inst-x',
+            downstreamDisposition: 'error',
+            statusCode: 500,
+            reason: 'local instance state unavailable',
+          }),
+        ]),
+      );
+    } finally {
+      vi.doUnmock('../src/identity/agent-id.ts');
+      vi.resetModules();
+    }
+  });
+
   test('does not reveal local recipient existence before authentication', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
     const { inbound } = await loadInboundTestModules();
