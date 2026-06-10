@@ -7,6 +7,7 @@ import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import type {
   AgentBudgetCurrency,
   AgentBudgetUnit,
+  AgentProxyConversationScope,
 } from '../agents/agent-types.js';
 import type {
   AgentTeamStructureDiff,
@@ -1185,6 +1186,17 @@ export interface GatewayAdminAgentMarkdownRevision {
   source: 'save' | 'restore';
 }
 
+export interface GatewayAdminAgentProxyConfig {
+  kind: 'hybridai';
+  baseUrl: string;
+  chatbotId: string;
+  apiKey: {
+    source: 'store';
+    id: string;
+  };
+  conversationScope?: AgentProxyConversationScope;
+}
+
 export interface GatewayAdminAgent {
   id: string;
   name: string | null;
@@ -1192,6 +1204,7 @@ export interface GatewayAdminAgent {
   skills: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
+  proxy?: GatewayAdminAgentProxyConfig | null;
   role: string | null;
   reportsTo: string | null;
   delegatesTo: string[] | null;

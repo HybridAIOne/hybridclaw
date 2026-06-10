@@ -1,15 +1,20 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AdminAgent } from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { GatewayPage } from './gateway';
 
+const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
 const reloadGatewayMock = vi.fn();
+const updateAdminAgentMock = vi.fn();
 const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
 const useLiveEventsMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchAdminAgents: () => fetchAdminAgentsMock(),
   reloadGateway: (...args: unknown[]) => reloadGatewayMock(...args),
+  updateAdminAgent: (...args: unknown[]) => updateAdminAgentMock(...args),
 }));
 
 vi.mock('../auth', () => ({
@@ -76,13 +81,34 @@ function makeStatus(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function makeAgent(overrides: Partial<AdminAgent> = {}): AdminAgent {
+  return {
+    id: 'main',
+    name: 'Main Agent',
+    model: 'gpt-5',
+    skills: null,
+    chatbotId: null,
+    enableRag: true,
+    role: null,
+    reportsTo: null,
+    delegatesTo: null,
+    peers: null,
+    workspace: null,
+    workspacePath: '/tmp/main/workspace',
+    markdownFiles: [],
+    ...overrides,
+  };
+}
+
 function renderGatewayPage(): void {
   renderWithProviders(<GatewayPage />);
 }
 
 describe('GatewayPage', () => {
   beforeEach(() => {
+    fetchAdminAgentsMock.mockReset();
     reloadGatewayMock.mockReset();
+    updateAdminAgentMock.mockReset();
     navigateMock.mockReset();
     useAuthMock.mockReset();
     useLiveEventsMock.mockReset();
@@ -97,6 +123,7 @@ describe('GatewayPage', () => {
       status: null,
       lastEventAt: Date.now(),
     });
+    fetchAdminAgentsMock.mockResolvedValue([makeAgent()]);
   });
 
   afterEach(() => {
@@ -116,6 +143,50 @@ describe('GatewayPage', () => {
 
     await waitFor(() => {
       expect(reloadGatewayMock).toHaveBeenCalledWith('test-token');
+    });
+  });
+
+  it('saves HybridAI proxy mode for the selected agent', async () => {
+    const mainAgent = makeAgent({ chatbotId: 'local-chatbot' });
+    const savedAgent = makeAgent({
+      proxy: {
+        kind: 'hybridai',
+        baseUrl: 'https://hybridai.example.com',
+        chatbotId: 'upstream-chatbot',
+        apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+        conversationScope: 'user',
+      },
+    });
+    fetchAdminAgentsMock.mockResolvedValue([mainAgent]);
+    updateAdminAgentMock.mockResolvedValue(savedAgent);
+
+    renderGatewayPage();
+
+    fireEvent.click(await screen.findByRole('switch', { name: 'Proxy mode' }));
+    fireEvent.change(screen.getByLabelText('HybridAI base URL'), {
+      target: { value: 'https://hybridai.example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Chatbot id'), {
+      target: { value: 'upstream-chatbot' },
+    });
+    fireEvent.change(screen.getByLabelText('API key SecretRef id'), {
+      target: { value: 'HYBRIDAI_PROXY_KEY' },
+    });
+    fireEvent.change(screen.getByLabelText('Conversation scope'), {
+      target: { value: 'user' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Proxy Mode' }));
+
+    await waitFor(() => {
+      expect(updateAdminAgentMock).toHaveBeenCalledWith('test-token', 'main', {
+        proxy: {
+          kind: 'hybridai',
+          baseUrl: 'https://hybridai.example.com',
+          chatbotId: 'upstream-chatbot',
+          apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+          conversationScope: 'user',
+        },
+      });
     });
   });
 });

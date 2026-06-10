@@ -1590,6 +1590,13 @@ async function importFreshHealth(options?: {
       skills?: string[] | null;
       chatbotId?: string | null;
       enableRag?: boolean | null;
+      proxy?: {
+        kind: 'hybridai';
+        baseUrl: string;
+        chatbotId: string;
+        apiKey: { source: 'store'; id: string };
+        conversationScope?: 'channel' | 'user';
+      } | null;
       workspace?: string | null;
     }) => ({
       agent: {
@@ -1600,6 +1607,7 @@ async function importFreshHealth(options?: {
         chatbotId: payload.chatbotId || null,
         enableRag:
           typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        ...(payload.proxy ? { proxy: payload.proxy } : {}),
         workspace: payload.workspace || null,
         workspacePath: '/tmp/main/workspace',
         markdownFiles: mainAdminAgentMarkdownFiles,
@@ -1615,6 +1623,13 @@ async function importFreshHealth(options?: {
         skills?: string[] | null;
         chatbotId?: string | null;
         enableRag?: boolean | null;
+        proxy?: {
+          kind: 'hybridai';
+          baseUrl: string;
+          chatbotId: string;
+          apiKey: { source: 'store'; id: string };
+          conversationScope?: 'channel' | 'user';
+        } | null;
         workspace?: string | null;
       },
     ) => ({
@@ -1626,6 +1641,7 @@ async function importFreshHealth(options?: {
         chatbotId: payload.chatbotId || null,
         enableRag:
           typeof payload.enableRag === 'boolean' ? payload.enableRag : null,
+        ...(payload.proxy ? { proxy: payload.proxy } : {}),
         workspace: payload.workspace || null,
         workspacePath: `/tmp/${agentId}/workspace`,
         markdownFiles:
@@ -5880,6 +5896,7 @@ describe('gateway HTTP server', () => {
       skills: ['draft-outline', 'copy-edit'],
       chatbotId: undefined,
       enableRag: undefined,
+      proxy: undefined,
       role: undefined,
       reportsTo: undefined,
       delegatesTo: undefined,
@@ -5965,6 +5982,7 @@ describe('gateway HTTP server', () => {
       skills: null,
       chatbotId: undefined,
       enableRag: undefined,
+      proxy: undefined,
       role: undefined,
       reportsTo: undefined,
       delegatesTo: undefined,
@@ -5999,6 +6017,87 @@ describe('gateway HTTP server', () => {
           },
         ],
       },
+    });
+  });
+
+  test('passes HybridAI proxy config through admin agent update requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/agents/writer',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        proxy: {
+          kind: 'hybridai',
+          baseUrl: 'https://hybridai.example.com///',
+          chatbotId: 'support-bot',
+          apiKey: '<secret:HYBRIDAI_PROXY_KEY>',
+          conversationScope: 'user',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.updateGatewayAdminAgent).toHaveBeenCalledWith('writer', {
+      name: undefined,
+      model: undefined,
+      skills: undefined,
+      chatbotId: undefined,
+      enableRag: undefined,
+      proxy: {
+        kind: 'hybridai',
+        baseUrl: 'https://hybridai.example.com',
+        chatbotId: 'support-bot',
+        apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+        conversationScope: 'user',
+      },
+      role: undefined,
+      reportsTo: undefined,
+      delegatesTo: undefined,
+      peers: undefined,
+      workspace: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).agent.proxy).toEqual({
+      kind: 'hybridai',
+      baseUrl: 'https://hybridai.example.com',
+      chatbotId: 'support-bot',
+      apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+      conversationScope: 'user',
+    });
+  });
+
+  test('rejects non-HTTPS HybridAI proxy URLs in admin agent updates', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'PUT',
+      url: '/api/admin/agents/writer',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: {
+        proxy: {
+          kind: 'hybridai',
+          baseUrl: 'http://hybridai.example.com',
+          chatbotId: 'support-bot',
+          apiKey: '<secret:HYBRIDAI_PROXY_KEY>',
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.updateGatewayAdminAgent).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'proxy.baseUrl must use HTTPS.',
     });
   });
 

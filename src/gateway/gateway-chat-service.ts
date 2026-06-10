@@ -151,6 +151,7 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
+import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
 import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
@@ -870,15 +871,6 @@ async function handleGatewayMessageInner(
   const resolvedAgent = resolveAgentConfig(agentId);
   let model = resolvedModel;
   let chatbotId = resolvedChatbotId;
-  let chatbotResolution = await resolveGatewayChatbotId({
-    model,
-    chatbotId,
-    sessionId: req.sessionId,
-    channelId: req.channelId,
-    agentId,
-    trigger: 'chat',
-  });
-  chatbotId = chatbotResolution.chatbotId;
   const channelType =
     resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
   const channel =
@@ -961,6 +953,32 @@ async function handleGatewayMessageInner(
       req.sessionId = session.id;
     }
   }
+  if (resolvedAgent.proxy) {
+    try {
+      const result = await forwardGatewayMessageToProxyAgent({
+        req,
+        agent: resolvedAgent,
+        runId,
+        abortSignal: activeGatewayRequest.signal,
+      });
+      return attachSessionIdentity({
+        ...result,
+        assistantPresentation:
+          getGatewayAssistantPresentationForMessageAgent(agentId),
+      });
+    } finally {
+      activeGatewayRequest.release();
+    }
+  }
+  let chatbotResolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId,
+    sessionId: req.sessionId,
+    channelId: req.channelId,
+    agentId,
+    trigger: 'chat',
+  });
+  chatbotId = chatbotResolution.chatbotId;
   const sessionContext = buildSessionContext({
     source: {
       channelKind: channelType || channel?.kind,

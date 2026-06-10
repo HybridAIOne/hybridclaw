@@ -19,7 +19,9 @@ import {
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import {
+  type AgentProxyConfig,
   DEFAULT_AGENT_ID,
+  normalizeAgentProxyConfig,
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
@@ -4150,6 +4152,7 @@ type ApiAdminAgentPayloadBody = {
   skills?: unknown;
   chatbotId?: unknown;
   enableRag?: unknown;
+  proxy?: unknown;
   role?: unknown;
   reportsTo?: unknown;
   reports_to?: unknown;
@@ -4166,6 +4169,7 @@ type ApiAdminAgentPayload = {
   skills?: string[] | null;
   chatbotId?: string;
   enableRag?: boolean;
+  proxy?: AgentProxyConfig | null;
   role?: string;
   reportsTo?: string | null;
   delegatesTo?: string[] | null;
@@ -4320,6 +4324,14 @@ function normalizeApiAdminNullableStringAlias(
   return input === null ? null : undefined;
 }
 
+function normalizeApiAdminAgentProxy(
+  value: unknown,
+): AgentProxyConfig | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return normalizeAgentProxyConfig(value, 'proxy') ?? null;
+}
+
 async function readApiAdminAgentPayload(
   req: IncomingMessage,
   options?: { requireId?: boolean },
@@ -4337,6 +4349,7 @@ async function readApiAdminAgentPayload(
     skills: normalizeApiAdminAgentSkills(body.skills),
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
+    proxy: normalizeApiAdminAgentProxy(body.proxy),
     role: typeof body.role === 'string' ? body.role : undefined,
     reportsTo: normalizeApiAdminNullableStringAlias(
       body,
@@ -4381,6 +4394,7 @@ async function handleApiAdminAgentCollectionResource(
           skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
+          proxy: payload.proxy,
           role: payload.role,
           reportsTo: payload.reportsTo,
           delegatesTo: payload.delegatesTo,
@@ -4419,6 +4433,7 @@ async function handleApiAdminAgentResource(
           skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
+          proxy: payload.proxy,
           role: payload.role,
           reportsTo: payload.reportsTo,
           delegatesTo: payload.delegatesTo,

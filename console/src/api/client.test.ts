@@ -9,6 +9,7 @@ import {
   setRuntimeSecret,
   TOKEN_STORAGE_KEY,
   unblockSkill,
+  updateAdminAgent,
   uploadSkillZip,
 } from './client';
 
@@ -307,6 +308,75 @@ describe('client command helpers', () => {
     expect(JSON.parse(String(request?.body))).toEqual({
       name: 'rp26-schedule',
     });
+  });
+
+  it('updates admin agent proxy config through the agent endpoint', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          agent: {
+            id: 'support',
+            name: null,
+            model: null,
+            skills: null,
+            chatbotId: null,
+            enableRag: null,
+            proxy: {
+              kind: 'hybridai',
+              baseUrl: 'https://hybridai.example.com',
+              chatbotId: 'support-bot',
+              apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+              conversationScope: 'user',
+            },
+            role: null,
+            reportsTo: null,
+            delegatesTo: null,
+            peers: null,
+            workspace: null,
+            workspacePath: '/tmp/support/workspace',
+            markdownFiles: [],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+
+    const agent = await updateAdminAgent('test-token', 'support', {
+      proxy: {
+        kind: 'hybridai',
+        baseUrl: 'https://hybridai.example.com',
+        chatbotId: 'support-bot',
+        apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+        conversationScope: 'user',
+      },
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/admin/agents/support',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+          'Content-Type': 'application/json',
+        }),
+      }),
+    );
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      proxy: {
+        kind: 'hybridai',
+        baseUrl: 'https://hybridai.example.com',
+        chatbotId: 'support-bot',
+        apiKey: { source: 'store', id: 'HYBRIDAI_PROXY_KEY' },
+        conversationScope: 'user',
+      },
+    });
+    expect(agent.proxy?.apiKey.id).toBe('HYBRIDAI_PROXY_KEY');
   });
 
   it('dispatches auth-required when skill zip upload returns 401', async () => {

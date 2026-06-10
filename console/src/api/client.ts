@@ -10,6 +10,7 @@ import type {
   AdminAgent,
   AdminAgentMarkdownFileResponse,
   AdminAgentMarkdownRevisionResponse,
+  AdminAgentProxyConfig,
   AdminAgentScoreboardResponse,
   AdminAgentsResponse,
   AdminApprovalsResponse,
@@ -540,6 +541,24 @@ export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
     token,
   });
   return payload.agents;
+}
+
+export async function updateAdminAgent(
+  token: string,
+  agentId: string,
+  payload: {
+    proxy?: AdminAgentProxyConfig | null;
+  },
+): Promise<AdminAgent> {
+  const response = await requestJson<{ agent: AdminAgent }>(
+    `/api/admin/agents/${encodeURIComponent(agentId)}`,
+    {
+      token,
+      method: 'PUT',
+      body: payload,
+    },
+  );
+  return response.agent;
 }
 
 export function fetchAdminTeamStructure(

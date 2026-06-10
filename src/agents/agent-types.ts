@@ -44,6 +44,18 @@ export interface AgentWebSearchConfig {
   searxngBearerTokenRef?: SecretRef;
 }
 
+export type AgentProxyConversationScope = 'channel' | 'user';
+
+export interface AgentHybridAIProxyConfig {
+  kind: 'hybridai';
+  baseUrl: string;
+  chatbotId: string;
+  apiKey: SecretRef;
+  conversationScope?: AgentProxyConversationScope;
+}
+
+export type AgentProxyConfig = AgentHybridAIProxyConfig;
+
 export type AgentBudgetCurrency = 'USD' | 'EUR';
 export type AgentBudgetUnit = AgentBudgetCurrency | 'tokens';
 
@@ -74,6 +86,7 @@ export interface AgentConfig {
   escalationTarget?: EscalationTarget;
   a2a?: AgentA2AConfig;
   webSearch?: AgentWebSearchConfig;
+  proxy?: AgentProxyConfig;
   budget?: AgentBudgetConfig;
 }
 
@@ -198,6 +211,21 @@ export function cloneAgentWebSearchConfig(
   return Object.keys(clone).length > 0 ? clone : undefined;
 }
 
+export function cloneAgentProxyConfig(
+  value: AgentProxyConfig | undefined,
+): AgentProxyConfig | undefined {
+  if (!value) return undefined;
+  return {
+    kind: value.kind,
+    baseUrl: value.baseUrl,
+    chatbotId: value.chatbotId,
+    apiKey: { ...value.apiKey },
+    ...(value.conversationScope
+      ? { conversationScope: value.conversationScope }
+      : {}),
+  };
+}
+
 export function cloneAgentBudgetConfig(
   value: AgentBudgetConfig | undefined,
 ): AgentBudgetConfig | undefined {
@@ -299,6 +327,91 @@ export function normalizeAgentWebSearchConfig(
     ...(searxngBearerTokenRef ? { searxngBearerTokenRef } : {}),
   };
   return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function parseStoredSecretPlaceholder(
+  value: unknown,
+  path: string,
+): SecretRef | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  const match = normalized.match(/^<secret:([A-Z][A-Z0-9_]{0,127})>$/);
+  if (!match?.[1]) return undefined;
+  return parseSecretRefInput(
+    {
+      source: 'store',
+      id: match[1],
+    },
+    path,
+  );
+}
+
+function parseAgentProxySecretRef(value: unknown, path: string): SecretRef {
+  return (
+    parseStoredSecretPlaceholder(value, path) ??
+    parseSecretRefInput(value, path)
+  );
+}
+
+function normalizeProxyConversationScope(
+  value: unknown,
+): AgentProxyConversationScope | undefined {
+  const normalized = normalizeTrimmedString(value).toLowerCase();
+  if (normalized === 'channel' || normalized === 'user') return normalized;
+  return undefined;
+}
+
+export function normalizeAgentProxyConfig(
+  value: unknown,
+  path = 'agents.list[].proxy',
+): AgentProxyConfig | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${path} must be an object or null.`);
+  }
+
+  const raw = value as Record<string, unknown>;
+  const kind = normalizeTrimmedString(raw.kind).toLowerCase();
+  if (kind !== 'hybridai') {
+    throw new Error(`${path}.kind must be "hybridai".`);
+  }
+
+  const baseUrl = normalizeTrimmedString(raw.baseUrl ?? raw.base_url);
+  if (!baseUrl) {
+    throw new Error(`${path}.baseUrl is required for HybridAI proxy agents.`);
+  }
+  let parsedBaseUrl: URL;
+  try {
+    parsedBaseUrl = new URL(baseUrl);
+  } catch {
+    throw new Error(`${path}.baseUrl must be a valid HTTPS URL.`);
+  }
+  if (parsedBaseUrl.protocol !== 'https:') {
+    throw new Error(`${path}.baseUrl must use HTTPS.`);
+  }
+  parsedBaseUrl.pathname = parsedBaseUrl.pathname.replace(/\/+$/g, '');
+  parsedBaseUrl.search = '';
+  parsedBaseUrl.hash = '';
+
+  const chatbotId = normalizeTrimmedString(raw.chatbotId ?? raw.chatbot_id);
+  if (!chatbotId) {
+    throw new Error(`${path}.chatbotId is required for HybridAI proxy agents.`);
+  }
+
+  const apiKeyInput =
+    raw.apiKey ?? raw.api_key ?? raw.apiKeyRef ?? raw.api_key_ref;
+  const apiKey = parseAgentProxySecretRef(apiKeyInput, `${path}.apiKey`);
+  const conversationScope = normalizeProxyConversationScope(
+    raw.conversationScope ?? raw.conversation_scope,
+  );
+
+  return {
+    kind: 'hybridai',
+    baseUrl: parsedBaseUrl.toString().replace(/\/+$/g, ''),
+    chatbotId,
+    apiKey,
+    ...(conversationScope ? { conversationScope } : {}),
+  };
 }
 
 function normalizeAgentA2AExposureValue(

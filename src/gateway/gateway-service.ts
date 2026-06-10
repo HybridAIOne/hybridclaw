@@ -1422,6 +1422,9 @@ function mapGatewayAdminAgent(
     chatbotId: resolved.chatbotId || null,
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
+    ...(resolved.proxy
+      ? { proxy: mapGatewayAdminAgentProxyConfig(resolved.proxy) }
+      : {}),
     role: resolved.role || null,
     reportsTo: resolved.reportsTo || null,
     delegatesTo: Array.isArray(resolved.delegatesTo)
@@ -1442,6 +1445,24 @@ function mapGatewayAdminAgent(
             : undefined,
         }),
     ),
+  };
+}
+
+function mapGatewayAdminAgentProxyConfig(
+  proxy: AgentConfig['proxy'],
+): GatewayAdminAgent['proxy'] {
+  if (!proxy) return null;
+  return {
+    kind: 'hybridai',
+    baseUrl: proxy.baseUrl,
+    chatbotId: proxy.chatbotId,
+    apiKey: {
+      source: 'store',
+      id: proxy.apiKey.id,
+    },
+    ...(proxy.conversationScope
+      ? { conversationScope: proxy.conversationScope }
+      : {}),
   };
 }
 
@@ -4831,6 +4852,7 @@ export function createGatewayAdminAgent(params: {
   skills?: string[] | null;
   chatbotId?: string | null;
   enableRag?: boolean | null;
+  proxy?: AgentConfig['proxy'] | null;
   role?: string | null;
   reportsTo?: string | null;
   delegatesTo?: string[] | null;
@@ -4848,6 +4870,9 @@ export function createGatewayAdminAgent(params: {
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
+    ...(params.proxy !== undefined
+      ? { proxy: params.proxy ?? undefined }
+      : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
     ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
   });
@@ -4864,6 +4889,7 @@ export function updateGatewayAdminAgent(
     skills?: string[] | null;
     chatbotId?: string | null;
     enableRag?: boolean | null;
+    proxy?: AgentConfig['proxy'] | null;
     role?: string | null;
     reportsTo?: string | null;
     delegatesTo?: string[] | null;
@@ -4894,6 +4920,9 @@ export function updateGatewayAdminAgent(
       : {}),
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
+      : {}),
+    ...(params.proxy !== undefined
+      ? { proxy: params.proxy ?? undefined }
       : {}),
     ...buildGatewayAdminAgentOrgChartPatch(params),
   });

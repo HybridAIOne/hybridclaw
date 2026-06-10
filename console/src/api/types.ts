@@ -983,6 +983,19 @@ export interface AdminAgentMarkdownRevision {
   source: 'save' | 'restore';
 }
 
+export type AdminAgentProxyConversationScope = 'channel' | 'user';
+
+export interface AdminAgentProxyConfig {
+  kind: 'hybridai';
+  baseUrl: string;
+  chatbotId: string;
+  apiKey: {
+    source: 'store';
+    id: string;
+  };
+  conversationScope?: AdminAgentProxyConversationScope;
+}
+
 export interface AdminAgent {
   id: string;
   name: string | null;
@@ -990,6 +1003,7 @@ export interface AdminAgent {
   skills: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
+  proxy?: AdminAgentProxyConfig | null;
   role: string | null;
   reportsTo: string | null;
   delegatesTo: string[] | null;
