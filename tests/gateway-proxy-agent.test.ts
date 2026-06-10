@@ -214,6 +214,76 @@ test('handleGatewayMessage forwards proxy agents to HybridAI without running loc
   );
 });
 
+test('handleGatewayMessage reads HybridAI plain text SSE proxy chunks', async () => {
+  setupHome();
+
+  const fetchMock = vi.fn(async () =>
+    streamResponse([
+      'data: [LANGFUSE_META]{"langfuseTraceId":"trace","messageId":"msg"}\n\n',
+      'data: [SESSION_TOKEN]session-token\n\n',
+      'data: Hello\n\n',
+      'data: !\n\n',
+      'data:  It works\n\n',
+      'data: [DONE]\n\n',
+    ]),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { saveNamedRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.ts'
+  );
+  const { initAgentRegistry } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  saveNamedRuntimeSecrets({
+    HYBRIDAI_API_KEY: 'hai-proxy-test-key-1234567890',
+  });
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = [
+      {
+        id: 'support',
+        proxy: proxyConfig(),
+      },
+    ];
+  });
+  initAgentRegistry({
+    list: [
+      {
+        id: 'support',
+        proxy: proxyConfig(),
+      },
+    ],
+  });
+
+  const deltas: string[] = [];
+  const result = await handleGatewayMessage({
+    sessionId: 'session-proxy-plain-sse',
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    userId: '248135798132',
+    username: 'ben#1234',
+    content: 'Help me',
+    agentId: 'support',
+    source: 'discord',
+    onTextDelta: (delta) => deltas.push(delta),
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.result).toBe('Hello! It works');
+  expect(deltas).toEqual(['Hello', '!', ' It works']);
+  expect(runAgentMock).not.toHaveBeenCalled();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 test('handleGatewayMessage hides upstream proxy auth failure bodies from the channel', async () => {
   setupHome();
 

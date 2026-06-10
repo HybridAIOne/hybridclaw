@@ -201,10 +201,12 @@ function parseHybridAIStreamPayload(raw: string): unknown {
 function parseSseBlock(block: string): string[] {
   const lines = block.split(/\r?\n/);
   const dataLines = lines
-    .map((line) => line.trim())
     .filter((line) => line.startsWith('data:'))
-    .map((line) => line.slice(5).trim());
-  return dataLines.length > 0 ? [dataLines.join('\n').trim()] : [];
+    .map((line) => {
+      const value = line.slice(5);
+      return value.startsWith(' ') ? value.slice(1) : value;
+    });
+  return dataLines.length > 0 ? [dataLines.join('\n')] : [];
 }
 
 function parseHybridAISsePayloads(buffer: string): {
@@ -222,6 +224,22 @@ function extractHybridAIStreamDelta(payload: unknown): string {
   if (!isRecord(payload)) return '';
   const delta = payload.delta;
   return typeof delta === 'string' ? delta : '';
+}
+
+function isHybridAIStreamControlPayload(payloadText: string): boolean {
+  return (
+    payloadText === '[DONE]' ||
+    payloadText.startsWith('[LANGFUSE_META]') ||
+    payloadText.startsWith('[SESSION_TOKEN]')
+  );
+}
+
+function extractHybridAISseText(payloadText: string): string {
+  if (!payloadText || isHybridAIStreamControlPayload(payloadText)) return '';
+  const parsed = parseHybridAIStreamPayload(payloadText);
+  const delta = extractHybridAIStreamDelta(parsed);
+  if (delta) return delta;
+  return parsed === null ? payloadText : '';
 }
 
 function extractHybridAIJsonText(payload: unknown): string {
@@ -252,19 +270,14 @@ async function readHybridAISseResponse(params: {
       );
       buffer = parsed.remaining;
       for (const payloadText of parsed.payloads) {
-        if (!payloadText || payloadText === '[DONE]') continue;
-        const delta = extractHybridAIStreamDelta(
-          parseHybridAIStreamPayload(payloadText),
-        );
+        const delta = extractHybridAISseText(payloadText);
         if (!delta) continue;
         resultParts.push(delta);
         params.onTextDelta?.(delta);
       }
     }
-    if (buffer.trim() && buffer.trim() !== '[DONE]') {
-      const delta = extractHybridAIStreamDelta(
-        parseHybridAIStreamPayload(parseSseBlock(buffer)[0] || buffer),
-      );
+    if (buffer.trim()) {
+      const delta = extractHybridAISseText(parseSseBlock(buffer)[0] || buffer);
       if (delta) {
         resultParts.push(delta);
         params.onTextDelta?.(delta);
