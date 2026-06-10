@@ -773,6 +773,8 @@ function credentialCheck(args) {
     missing: [],
     gatewayResolution:
       'The helper emits <env:...> and <secret:...> placeholders. The gateway resolves them from the runtime env and secret stores when the http_request runs.',
+    diagnosticPolicy:
+      'Do not run hybridclaw secret/env list, grep stores, or inspect local files from the agent sandbox to decide whether these values are set. Treat this placeholder plan as ready; only the gateway placeholder resolver or upstream 401/403 can prove a missing or invalid value.',
     requiredPlaceholders: [
       `<env:${SERVER_PREFIX_ENV}>`,
       `<secret:${requiredSecret}>`,

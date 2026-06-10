@@ -107,6 +107,9 @@ test('mailchimp helper reports gateway-resolved placeholders without reading sto
     ok: true,
     missing: [],
     gatewayResolution: expect.stringContaining('<env:...> and <secret:...>'),
+    diagnosticPolicy: expect.stringContaining(
+      'Do not run hybridclaw secret/env list',
+    ),
   });
   expect(payload.requiredPlaceholders).toEqual([
     '<env:MAILCHIMP_SERVER_PREFIX>',

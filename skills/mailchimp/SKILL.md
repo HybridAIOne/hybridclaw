@@ -129,6 +129,9 @@ message lookup or sends.
    `MAILCHIMP_MARKETING_BASIC_AUTH`, `MAILCHIMP_MARKETING_OAUTH_TOKEN`, or
    `MANDRILL_API_KEY` is surfaced by the gateway placeholder resolver or by a
    401/403 upstream response.
+   Do not run `hybridclaw secret list`, `hybridclaw env list`, `grep`, or local
+   file inspection from the agent sandbox to decide whether Mailchimp values
+   are configured; those checks can see the wrong runtime surface.
    For stored OAuth access tokens, use `oauth.metadata --auth oauth` to retrieve the
    account-specific API endpoint and set `MAILCHIMP_SERVER_PREFIX` from the
    returned API endpoint host.
