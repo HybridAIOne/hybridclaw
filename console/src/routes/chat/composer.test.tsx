@@ -150,7 +150,13 @@ describe('Composer', () => {
 
     expect(textarea.value).toBe('@research ');
     const mention = screen.getByText('@research');
-    expect(mention.classList.contains(css.composerMentionPill)).toBe(true);
+    const pill = mention.closest(`.${css.composerMentionPill}`);
+    expect(pill).not.toBeNull();
+    await waitFor(() =>
+      expect(pill?.querySelector('img')?.getAttribute('src')).toBe(
+        'blob:agent-avatar',
+      ),
+    );
     expect(fetchChatCommandsMock).not.toHaveBeenCalled();
   });
 
@@ -167,7 +173,8 @@ describe('Composer', () => {
 
     const mention = screen
       .getAllByText('@research')
-      .find((node) => node.classList.contains(css.composerMentionPill));
+      .map((node) => node.closest(`.${css.composerMentionPill}`))
+      .find(Boolean);
 
     expect(textarea.value).toBe('@research summarize');
     expect(mention).toBeTruthy();

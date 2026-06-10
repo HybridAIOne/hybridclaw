@@ -1379,19 +1379,40 @@ aside[data-state="collapsed"] .chatSidebarContent {
   padding: 6px 0;
 }
 
+.composerInputWrap:focus-within .composerInputOverlay::after {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 1.25em;
+  margin-left: 1px;
+  background: var(--text);
+  vertical-align: -0.18em;
+}
+
 .composerMentionPill {
-  display: inline;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28em;
   max-width: 180px;
-  padding: 0;
+  min-height: 1.5em;
+  padding: 0 0.45em;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--text);
-  font-weight: inherit;
+  font-weight: 650;
   line-height: inherit;
   vertical-align: baseline;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.composerMentionAvatar {
+  width: 1.05em;
+  height: 1.05em;
+  border-radius: 999px;
+  object-fit: cover;
+  flex: 0 0 auto;
 }
 
 .composerInput {
@@ -1413,7 +1434,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .composerInputHasOverlay {
   color: transparent;
-  caret-color: var(--text);
+  caret-color: transparent;
 }
 
 .composerInput:not(:placeholder-shown) {

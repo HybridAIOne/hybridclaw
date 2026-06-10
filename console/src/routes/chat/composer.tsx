@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { fetchChatCommands } from '../../api/chat';
+import { fetchAgentAvatarBlob, fetchChatCommands } from '../../api/chat';
 import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
 import { Popover, PopoverAnchor } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
@@ -403,8 +403,8 @@ export function Composer(props: {
   };
 
   const agentOptions = props.agents ?? [];
-  const agentIds = useMemo(
-    () => new Set(agentOptions.map((agent) => agent.id)),
+  const agentById = useMemo(
+    () => new Map(agentOptions.map((agent) => [agent.id, agent])),
     [agentOptions],
   );
   const selectedAgentId = props.selectedAgentId ?? '';
@@ -448,7 +448,8 @@ export function Composer(props: {
               >
                 <ComposerInputPreview
                   value={composerValue}
-                  agentIds={agentIds}
+                  agents={agentById}
+                  token={props.token}
                 />
               </div>
             ) : null}
@@ -570,7 +571,8 @@ export function Composer(props: {
 
 function ComposerInputPreview(props: {
   value: string;
-  agentIds: ReadonlySet<string>;
+  agents: ReadonlyMap<string, AgentSwitchOption>;
+  token: string;
 }) {
   const parts: ReactNode[] = [];
   let last = 0;
@@ -580,16 +582,67 @@ function ComposerInputPreview(props: {
     const mention = match[0];
     const agentId = match[1] ?? '';
     const index = match.index ?? 0;
-    if (!props.agentIds.has(agentId)) continue;
+    const agent = props.agents.get(agentId);
+    if (!agent) continue;
     if (index > last) parts.push(props.value.slice(last, index));
     parts.push(
-      <span key={`mention-${key++}`} className={css.composerMentionPill}>
-        {mention}
-      </span>,
+      <ComposerMentionPill
+        key={`mention-${key++}`}
+        mention={mention}
+        imageUrl={agent.imageUrl ?? null}
+        token={props.token}
+      />,
     );
     last = index + mention.length;
   }
 
   if (last < props.value.length) parts.push(props.value.slice(last));
   return parts.length > 0 ? parts : props.value;
+}
+
+function ComposerMentionPill(props: {
+  mention: string;
+  imageUrl?: string | null;
+  token: string;
+}) {
+  const objectUrlRef = useRef<string | null>(null);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const imageUrl = props.imageUrl?.trim();
+
+  useEffect(() => {
+    const previous = objectUrlRef.current;
+    objectUrlRef.current = null;
+    if (previous) URL.revokeObjectURL(previous);
+    setObjectUrl(null);
+
+    if (!imageUrl) return;
+
+    let cancelled = false;
+    void fetchAgentAvatarBlob(props.token, imageUrl)
+      .then((blob) => {
+        if (cancelled) return;
+        const next = URL.createObjectURL(blob);
+        objectUrlRef.current = next;
+        setObjectUrl(next);
+      })
+      .catch(() => {
+        if (!cancelled) setObjectUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      const next = objectUrlRef.current;
+      objectUrlRef.current = null;
+      if (next) URL.revokeObjectURL(next);
+    };
+  }, [imageUrl, props.token]);
+
+  return (
+    <span className={css.composerMentionPill}>
+      {objectUrl ? (
+        <img className={css.composerMentionAvatar} src={objectUrl} alt="" />
+      ) : null}
+      <span>{props.mention}</span>
+    </span>
+  );
 }
