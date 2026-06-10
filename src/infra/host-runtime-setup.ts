@@ -65,8 +65,13 @@ function detectMissingContainerDependencies(installRoot: string): string[] {
 
     try {
       resolveFromContainer.resolve(`${dependency}/package.json`);
-    } catch {
-      missing.push(dependency);
+    } catch (error) {
+      // ERR_PACKAGE_PATH_NOT_EXPORTED means the package is installed but its
+      // exports map does not expose ./package.json (e.g. hoisted dompurify).
+      const code = (error as NodeJS.ErrnoException | null)?.code;
+      if (code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+        missing.push(dependency);
+      }
     }
   }
   return missing;
