@@ -51,6 +51,66 @@ test('admin distill service registers a distill subject as an agent', async () =
   });
 });
 
+test('admin distill registration backfills MEMORY.md from distilled state', async () => {
+  const service = await loadService({ initDatabase: true });
+  const { resolveDistillPaths } = await import('../src/distill/paths.js');
+  const { saveDistillState } = await import('../src/distill/state.js');
+  const now = new Date().toISOString();
+
+  service.upsertGatewayAdminDistillSubject({
+    alias: 'maya',
+    displayName: 'Maya Lindqvist',
+    role: 'Architect',
+    realPerson: false,
+  });
+  const paths = resolveDistillPaths('maya', 'maya');
+  saveDistillState(paths, {
+    version: 1,
+    subject: 'maya',
+    analysedDocIds: ['doc_abc123abc123'],
+    identity: {
+      name: 'Maya',
+      creature: 'Distilled coworker',
+      vibe: 'calm and direct',
+      emoji: '',
+    },
+    userNotes: ['Expects pushback to come with workload numbers.'],
+    skillName: 'maya-playbook',
+    claims: [
+      {
+        id: 'claim_1',
+        dimension: 'decision-making',
+        claim: 'Prefers boring options until measurements demand otherwise.',
+        evidence: ['doc_abc123abc123'],
+        confidence: 0.9,
+        status: 'standing',
+        firstSeenRunId: 'dst_test',
+        updatedAt: now,
+      },
+    ],
+    mergeHistory: [
+      {
+        runId: 'dst_test',
+        mergedAt: now,
+        claimsAdded: 1,
+        claimsSuperseded: 0,
+        reviewsOpened: 0,
+      },
+    ],
+  });
+
+  service.registerGatewayAdminDistillAgent({ alias: 'maya' });
+
+  const memory = fs.readFileSync(
+    path.join(paths.workspaceDir, 'MEMORY.md'),
+    'utf-8',
+  );
+  expect(memory).toContain('Distilled subject: Maya Lindqvist.');
+  expect(memory).toContain('Prefers boring options');
+  expect(memory).toContain('<!-- doc_abc123abc123 -->');
+  expect(memory).toContain('skills/maya-playbook/SKILL.md');
+});
+
 test('admin distill service creates a consented subject, uploads a source, and starts a run', async () => {
   const service = await loadService();
 

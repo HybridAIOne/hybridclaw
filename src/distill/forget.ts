@@ -33,6 +33,7 @@ export function forgetDistilledSubject(
     { file: path.join(paths.workspaceDir, 'IDENTITY.md'), asset: 'template' },
     { file: path.join(paths.workspaceDir, 'SOUL.md'), asset: 'template' },
     { file: path.join(paths.workspaceDir, 'USER.md'), asset: 'template' },
+    { file: path.join(paths.workspaceDir, 'MEMORY.md'), asset: 'template' },
     { file: path.join(paths.workspaceDir, 'CV.md'), asset: 'cv' },
   ];
   const skillDir = state.skillName

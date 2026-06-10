@@ -68,6 +68,7 @@ export function runLeakageScan(
     path.join(paths.workspaceDir, 'IDENTITY.md'),
     path.join(paths.workspaceDir, 'SOUL.md'),
     path.join(paths.workspaceDir, 'USER.md'),
+    path.join(paths.workspaceDir, 'MEMORY.md'),
     path.join(paths.workspaceDir, 'CV.md'),
   ];
   if (state.skillName) {

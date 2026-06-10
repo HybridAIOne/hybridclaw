@@ -30,7 +30,13 @@ export interface CoworkerBundleManifest {
   includesCorpus: boolean;
 }
 
-const PERSONA_FILES = ['IDENTITY.md', 'SOUL.md', 'USER.md', 'CV.md'] as const;
+const PERSONA_FILES = [
+  'IDENTITY.md',
+  'SOUL.md',
+  'USER.md',
+  'MEMORY.md',
+  'CV.md',
+] as const;
 
 /**
  * One canonical bundle (R72.8): persona files + the generated skill +

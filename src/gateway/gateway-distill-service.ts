@@ -11,7 +11,10 @@ import {
   recordConsentArtefact,
 } from '../distill/consent.js';
 import { listCorpusDocuments } from '../distill/corpus.js';
-import { listReviewItems } from '../distill/merge.js';
+import {
+  ensureDistilledMemoryFile,
+  listReviewItems,
+} from '../distill/merge.js';
 import {
   type DistillPaths,
   normalizeSubjectAlias,
@@ -489,6 +492,7 @@ export function registerGatewayAdminDistillAgent(
     });
     ensureBootstrapFiles(saved.id);
   }
+  ensureDistilledMemoryFile(paths, profile);
   return summarizeSubject(agentId, alias, profile);
 }
 

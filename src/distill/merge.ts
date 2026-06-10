@@ -2,21 +2,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { RuntimeRevisionAssetType } from '../config/runtime-config-revisions.js';
 import { syncRuntimeAssetRevisionState } from '../config/runtime-config-revisions.js';
+import { resolveInstallPath } from '../infra/install-root.js';
 import type { ExtractionValidationResult } from './analysis.js';
 import { emitDistillAuditEvent } from './audit.js';
 import type { DistillPaths } from './paths.js';
 import { readJsonFile, sha256Hex, writeJsonFile } from './paths.js';
 import {
+  DISTILL_GENERATED_NOTE,
   renderCvFile,
   renderIdentityFile,
+  renderMemoryFile,
   renderSoulFile,
   renderUserFile,
   renderWorkModule,
 } from './render.js';
 import { loadDistillState, makeClaimId, saveDistillState } from './state.js';
 import type {
+  DistillExtraction,
   DistillReviewItem,
   DistillState,
+  ExtractionWorkModule,
   PersonaClaim,
   SubjectProfile,
 } from './types.js';
@@ -139,13 +144,15 @@ export function applyDistillMerge(
     reviewsOpened: reviews.length,
   });
 
-  const filesWritten = renderPersonaFiles(paths, profile, state, runId);
   const workModule = renderWorkModule(
     profile,
     validation.extraction,
     `0.${state.mergeHistory.length}.0`,
   );
   state.skillName = workModule.skillName;
+  const filesWritten = renderPersonaFiles(paths, profile, state, runId, {
+    extraction: validation.extraction,
+  });
   const skillDir = path.join(
     paths.workspaceDir,
     'skills',
@@ -180,36 +187,117 @@ export function applyDistillMerge(
   };
 }
 
+const EMPTY_WORK_MODULE: ExtractionWorkModule = {
+  skillName: '',
+  description: '',
+  scope: [],
+  workflows: [],
+  outputPreferences: [],
+  knowHow: [],
+  workedExamples: [],
+};
+
+function buildExtractionShape(
+  paths: DistillPaths,
+  profile: SubjectProfile,
+  state: DistillState,
+  runId: string,
+  extraction?: DistillExtraction,
+): DistillExtraction {
+  if (extraction) return { ...extraction, runId };
+  return {
+    version: 1,
+    subject: paths.subject,
+    runId,
+    identity: state.identity || {
+      name: profile.displayName,
+      creature: '',
+      vibe: '',
+      emoji: '',
+    },
+    claims: [],
+    workModule: {
+      ...EMPTY_WORK_MODULE,
+      skillName: state.skillName || '',
+    },
+    userNotes: state.userNotes || [],
+    openQuestions: [],
+  };
+}
+
+function normalizeTemplateComparison(content: string): string {
+  return content.replace(/\r\n/g, '\n').trim();
+}
+
+function isDefaultMemoryTemplate(content: string): boolean {
+  try {
+    const template = fs.readFileSync(
+      resolveInstallPath('templates', 'MEMORY.md'),
+      'utf-8',
+    );
+    return (
+      normalizeTemplateComparison(content) ===
+      normalizeTemplateComparison(template)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function shouldWriteDistilledMemory(filePath: string): boolean {
+  try {
+    const existing = fs.readFileSync(filePath, 'utf-8');
+    return (
+      !existing.trim() ||
+      existing.includes(DISTILL_GENERATED_NOTE) ||
+      isDefaultMemoryTemplate(existing)
+    );
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    return err.code === 'ENOENT';
+  }
+}
+
+export function ensureDistilledMemoryFile(
+  paths: DistillPaths,
+  profile: SubjectProfile,
+  runId = 'register',
+): string | null {
+  const state = loadDistillState(paths);
+  if (
+    state.mergeHistory.length === 0 &&
+    state.claims.length === 0 &&
+    !state.identity &&
+    (state.userNotes || []).length === 0
+  ) {
+    return null;
+  }
+  const memoryPath = path.join(paths.workspaceDir, 'MEMORY.md');
+  if (!shouldWriteDistilledMemory(memoryPath)) return null;
+  const extractionShape = buildExtractionShape(paths, profile, state, runId);
+  writeVersionedDistillFile(
+    memoryPath,
+    renderMemoryFile(profile, state.claims, extractionShape, state.skillName),
+    'template',
+    runId,
+  );
+  return memoryPath;
+}
+
 function renderPersonaFiles(
   paths: DistillPaths,
   profile: SubjectProfile,
   state: DistillState,
   runId: string,
+  options: { extraction?: DistillExtraction } = {},
 ): string[] {
-  const identity = state.identity || {
-    name: profile.displayName,
-    creature: '',
-    vibe: '',
-    emoji: '',
-  };
-  const extractionShape = {
-    version: 1 as const,
-    subject: paths.subject,
+  const extractionShape = buildExtractionShape(
+    paths,
+    profile,
+    state,
     runId,
-    identity,
-    claims: [],
-    workModule: {
-      skillName: state.skillName || '',
-      description: '',
-      scope: [],
-      workflows: [],
-      outputPreferences: [],
-      knowHow: [],
-      workedExamples: [],
-    },
-    userNotes: state.userNotes || [],
-    openQuestions: [],
-  };
+    options.extraction,
+  );
   const targets: {
     file: string;
     content: string;
@@ -231,6 +319,16 @@ function renderPersonaFiles(
       asset: 'template',
     },
     {
+      file: path.join(paths.workspaceDir, 'MEMORY.md'),
+      content: renderMemoryFile(
+        profile,
+        state.claims,
+        extractionShape,
+        state.skillName,
+      ),
+      asset: 'template',
+    },
+    {
       file: path.join(paths.workspaceDir, 'CV.md'),
       content: renderCvFile(profile, state.claims),
       asset: 'cv',
@@ -238,6 +336,12 @@ function renderPersonaFiles(
   ];
   const written: string[] = [];
   for (const target of targets) {
+    if (
+      path.basename(target.file) === 'MEMORY.md' &&
+      !shouldWriteDistilledMemory(target.file)
+    ) {
+      continue;
+    }
     writeVersionedDistillFile(target.file, target.content, target.asset, runId);
     written.push(target.file);
   }
