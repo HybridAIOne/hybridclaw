@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  deleteDistillCorpusDocument,
+  downloadDistillCorpusDocument,
   fetchDistill,
   recordDistillConsent,
   registerDistillAgent,
@@ -333,9 +335,25 @@ function QueuedUploadRows({
 }
 
 function CorpusRows({
+  subject,
   documents,
+  deletingDocumentId,
+  downloadingDocumentId,
+  onDelete,
+  onDownload,
 }: {
+  subject: AdminDistillSubjectSummary;
   documents: AdminDistillCorpusDocumentSummary[];
+  deletingDocumentId: string | null;
+  downloadingDocumentId: string | null;
+  onDelete: (
+    subject: AdminDistillSubjectSummary,
+    document: AdminDistillCorpusDocumentSummary,
+  ) => void;
+  onDownload: (
+    subject: AdminDistillSubjectSummary,
+    document: AdminDistillCorpusDocumentSummary,
+  ) => void;
 }) {
   if (documents.length === 0) {
     return <div className="empty-state">No corpus documents ingested yet.</div>;
@@ -344,13 +362,37 @@ function CorpusRows({
     <ul className="distill-data-list">
       {documents.map((document) => (
         <li className="distill-data-row" key={document.id}>
+          <div className="distill-data-row-header">
+            <div>
+              <strong>{document.id}</strong>
+              <small>
+                {document.source} · {document.wordCount} words ·{' '}
+                {document.holdout ? 'holdout' : 'analysis'} · {document.author}
+              </small>
+              <code className="path-text">{document.origin}</code>
+            </div>
+            <div className="distill-row-actions">
+              <Button
+                variant="outline"
+                size="sm"
+                loading={downloadingDocumentId === document.id}
+                aria-label={`Download ${document.id}`}
+                onClick={() => onDownload(subject, document)}
+              >
+                Download
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                loading={deletingDocumentId === document.id}
+                aria-label={`Delete ${document.id}`}
+                onClick={() => onDelete(subject, document)}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
           <div>
-            <strong>{document.id}</strong>
-            <small>
-              {document.source} · {document.wordCount} words ·{' '}
-              {document.holdout ? 'holdout' : 'analysis'} · {document.author}
-            </small>
-            <code className="path-text">{document.origin}</code>
             <EmbeddedTextDisclosure
               title="Content Preview"
               artifact={document.contentPreview}
@@ -365,9 +407,23 @@ function CorpusRows({
 function SourceDataPanel({
   subject,
   queuedUploads,
+  deletingDocumentId,
+  downloadingDocumentId,
+  onDeleteCorpusDocument,
+  onDownloadCorpusDocument,
 }: {
   subject: AdminDistillSubjectSummary | null;
   queuedUploads: AdminDistillUploadResponse[];
+  deletingDocumentId: string | null;
+  downloadingDocumentId: string | null;
+  onDeleteCorpusDocument: (
+    subject: AdminDistillSubjectSummary,
+    document: AdminDistillCorpusDocumentSummary,
+  ) => void;
+  onDownloadCorpusDocument: (
+    subject: AdminDistillSubjectSummary,
+    document: AdminDistillCorpusDocumentSummary,
+  ) => void;
 }) {
   if (!subject) {
     return <div className="empty-state">No subject selected.</div>;
@@ -394,7 +450,14 @@ function SourceDataPanel({
 
       <section className="distill-data-section">
         <h5>Corpus Documents</h5>
-        <CorpusRows documents={subject.corpus} />
+        <CorpusRows
+          subject={subject}
+          documents={subject.corpus}
+          deletingDocumentId={deletingDocumentId}
+          downloadingDocumentId={downloadingDocumentId}
+          onDelete={onDeleteCorpusDocument}
+          onDownload={onDownloadCorpusDocument}
+        />
       </section>
     </div>
   );
@@ -413,6 +476,9 @@ export function DistillPage() {
   const [uploadedSources, setUploadedSources] = useState<
     AdminDistillUploadResponse[]
   >([]);
+  const [downloadingDocumentId, setDownloadingDocumentId] = useState<
+    string | null
+  >(null);
   const [manualSources, setManualSources] = useState('');
   const [holdoutRatio, setHoldoutRatio] = useState('0.1');
   const [consent, setConsent] = useState({
@@ -563,6 +629,69 @@ export function DistillPage() {
     onError: (error) =>
       toast.error('Distillation failed', getErrorMessage(error)),
   });
+
+  const deleteCorpusMutation = useMutation({
+    mutationFn: ({
+      subject,
+      document,
+    }: {
+      subject: AdminDistillSubjectSummary;
+      document: AdminDistillCorpusDocumentSummary;
+    }) =>
+      deleteDistillCorpusDocument(auth.token, {
+        agentId: subject.agentId,
+        alias: subject.alias,
+        documentId: document.id,
+      }),
+    onSuccess: async (result) => {
+      setSelectedKey(subjectKey(result.subject));
+      toast.success('Corpus document deleted');
+      await invalidate();
+    },
+    onError: (error) => toast.error('Delete failed', getErrorMessage(error)),
+  });
+
+  const handleDownloadCorpusDocument = async (
+    subject: AdminDistillSubjectSummary,
+    document: AdminDistillCorpusDocumentSummary,
+  ) => {
+    if (downloadingDocumentId) return;
+    setDownloadingDocumentId(document.id);
+    try {
+      const blob = await downloadDistillCorpusDocument(auth.token, {
+        agentId: subject.agentId,
+        alias: subject.alias,
+        documentId: document.id,
+      });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = window.document.createElement('a');
+      link.href = objectUrl;
+      link.download = `${document.id}.txt`;
+      link.rel = 'noopener noreferrer';
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (error) {
+      toast.error('Download failed', getErrorMessage(error));
+    } finally {
+      setDownloadingDocumentId(null);
+    }
+  };
+
+  const handleDeleteCorpusDocument = (
+    subject: AdminDistillSubjectSummary,
+    document: AdminDistillCorpusDocumentSummary,
+  ) => {
+    if (
+      !window.confirm(
+        `Delete ${document.id} from the distillation corpus? The original source file is not deleted.`,
+      )
+    ) {
+      return;
+    }
+    deleteCorpusMutation.mutate({ subject, document });
+  };
 
   if (query.isLoading) {
     return <div className="empty-state">Loading distillation workspace...</div>;
@@ -1024,6 +1153,16 @@ export function DistillPage() {
               <SourceDataPanel
                 subject={selectedSubject}
                 queuedUploads={uploadedSources}
+                deletingDocumentId={
+                  deleteCorpusMutation.isPending
+                    ? deleteCorpusMutation.variables?.document.id || null
+                    : null
+                }
+                downloadingDocumentId={downloadingDocumentId}
+                onDeleteCorpusDocument={handleDeleteCorpusDocument}
+                onDownloadCorpusDocument={(subject, document) => {
+                  void handleDownloadCorpusDocument(subject, document);
+                }}
               />
             </CardContent>
           </Card>

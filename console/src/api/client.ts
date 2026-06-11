@@ -438,6 +438,51 @@ export function uploadDistillSource(
   );
 }
 
+function distillCorpusDocumentPath(params: {
+  alias: string;
+  agentId?: string;
+  documentId: string;
+}): string {
+  const search = new URLSearchParams({ alias: params.alias });
+  if (params.agentId?.trim()) search.set('agentId', params.agentId.trim());
+  return `/api/admin/distill/corpus/${encodeURIComponent(params.documentId)}?${search.toString()}`;
+}
+
+export async function downloadDistillCorpusDocument(
+  token: string,
+  params: {
+    alias: string;
+    agentId?: string;
+    documentId: string;
+  },
+): Promise<Blob> {
+  const response = await fetch(distillCorpusDocumentPath(params), {
+    headers: requestHeaders(token),
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+  return response.blob();
+}
+
+export function deleteDistillCorpusDocument(
+  token: string,
+  params: {
+    alias: string;
+    agentId?: string;
+    documentId: string;
+  },
+): Promise<AdminDistillSubjectResponse> {
+  return requestJson<AdminDistillSubjectResponse>(
+    distillCorpusDocumentPath(params),
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
+}
+
 export function upsertFleetTopologyInstance(
   token: string,
   body: AdminFleetTopologyUpsertRequest,

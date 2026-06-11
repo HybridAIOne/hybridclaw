@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '../test-utils';
 import { DistillPage } from './distill';
 
+const deleteDistillCorpusDocumentMock = vi.fn();
+const downloadDistillCorpusDocumentMock = vi.fn();
 const fetchDistillMock = vi.fn();
 const recordDistillConsentMock = vi.fn();
 const registerDistillAgentMock = vi.fn();
@@ -12,6 +14,10 @@ const uploadDistillSourceMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  deleteDistillCorpusDocument: (...args: unknown[]) =>
+    deleteDistillCorpusDocumentMock(...args),
+  downloadDistillCorpusDocument: (...args: unknown[]) =>
+    downloadDistillCorpusDocumentMock(...args),
   fetchDistill: (...args: unknown[]) => fetchDistillMock(...args),
   recordDistillConsent: (...args: unknown[]) =>
     recordDistillConsentMock(...args),
@@ -93,6 +99,8 @@ function makeSubject() {
 
 describe('DistillPage', () => {
   beforeEach(() => {
+    deleteDistillCorpusDocumentMock.mockReset();
+    downloadDistillCorpusDocumentMock.mockReset();
     fetchDistillMock.mockReset();
     recordDistillConsentMock.mockReset();
     registerDistillAgentMock.mockReset();
@@ -107,6 +115,12 @@ describe('DistillPage', () => {
     registerDistillAgentMock.mockResolvedValue({
       subject: makeSubject(),
     });
+    deleteDistillCorpusDocumentMock.mockResolvedValue({
+      subject: { ...makeSubject(), corpusDocuments: 0, corpus: [] },
+    });
+    downloadDistillCorpusDocumentMock.mockResolvedValue(
+      new Blob(['# Memo\n\nBoring options win.'], { type: 'text/plain' }),
+    );
     runDistillMock.mockResolvedValue({
       subject: makeSubject(),
       run: {
@@ -258,5 +272,75 @@ describe('DistillPage', () => {
         '/tmp/hybridclaw/agents/maya/workspace/distill/maya/uploads/2026-06-10/memo.md',
       ).length,
     ).toBeGreaterThan(0);
+  });
+
+  it('downloads and deletes corpus documents', async () => {
+    if (typeof URL.createObjectURL !== 'function') {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: vi.fn(),
+      });
+    }
+    if (typeof URL.revokeObjectURL !== 'function') {
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: vi.fn(),
+      });
+    }
+    const createObjectUrl = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:distill-document');
+    const revokeObjectUrl = vi
+      .spyOn(URL, 'revokeObjectURL')
+      .mockImplementation(() => {});
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    renderWithProviders(<DistillPage />);
+
+    await screen.findByText('Maya Lindqvist');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Download doc_abc123abc123' }),
+    );
+
+    await waitFor(() => {
+      expect(downloadDistillCorpusDocumentMock).toHaveBeenCalledWith(
+        'test-token',
+        {
+          agentId: 'maya',
+          alias: 'maya',
+          documentId: 'doc_abc123abc123',
+        },
+      );
+    });
+    await waitFor(() => {
+      expect(createObjectUrl).toHaveBeenCalled();
+      expect(click).toHaveBeenCalled();
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete doc_abc123abc123' }),
+    );
+
+    await waitFor(() => {
+      expect(deleteDistillCorpusDocumentMock).toHaveBeenCalledWith(
+        'test-token',
+        {
+          agentId: 'maya',
+          alias: 'maya',
+          documentId: 'doc_abc123abc123',
+        },
+      );
+    });
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining('Delete doc_abc123abc123'),
+    );
+
+    createObjectUrl.mockRestore();
+    revokeObjectUrl.mockRestore();
+    click.mockRestore();
+    confirm.mockRestore();
   });
 });

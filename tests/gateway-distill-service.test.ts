@@ -175,3 +175,57 @@ test('admin distill service creates a consented subject, uploads a source, and s
   );
   expect(result.warnings).toEqual([]);
 });
+
+test('admin distill service downloads and deletes corpus documents', async () => {
+  const service = await loadService();
+  const { listCorpusDocuments } = await import('../src/distill/corpus.js');
+  const { resolveDistillPaths } = await import('../src/distill/paths.js');
+
+  service.upsertGatewayAdminDistillSubject({
+    alias: 'maya',
+    displayName: 'Maya Lindqvist',
+    matchAliases: ['maya@example.com'],
+    realPerson: false,
+  });
+
+  const upload = await service.uploadGatewayAdminDistillSource({
+    alias: 'maya',
+    filename: 'memo.md',
+    kind: 'markdown',
+    buffer: Buffer.from(
+      '# Decisions\n\nBoring options win until measurements demand otherwise.',
+      'utf-8',
+    ),
+  });
+  const result = service.runGatewayAdminDistillPipeline({
+    alias: 'maya',
+    sources: [upload.source],
+    holdoutRatio: 0,
+  });
+  const documentId = result.subject.corpus[0]?.id;
+  expect(documentId).toBeTruthy();
+
+  const download = service.getGatewayAdminDistillCorpusDocument({
+    alias: 'maya',
+    documentId,
+  });
+  expect(download.filename).toContain(`${documentId}-Decisions.txt`);
+  expect(download.content).toContain('Boring options win');
+
+  const updated = service.deleteGatewayAdminDistillCorpusDocument({
+    alias: 'maya',
+    documentId,
+  });
+  expect(updated.corpusDocuments).toBe(0);
+  expect(updated.corpus).toEqual([]);
+  expect(
+    listCorpusDocuments(resolveDistillPaths('maya', 'maya')),
+  ).toHaveLength(0);
+
+  expect(() =>
+    service.getGatewayAdminDistillCorpusDocument({
+      alias: 'maya',
+      documentId,
+    }),
+  ).toThrow(/Corpus document not found/);
+});

@@ -70,6 +70,41 @@ export function getCorpusDocument(
   return listCorpusDocuments(paths).find((doc) => doc.id === docId) || null;
 }
 
+export function removeCorpusDocument(
+  paths: DistillPaths,
+  docId: string,
+): CorpusDocument | null {
+  const documents = listCorpusDocuments(paths);
+  const index = documents.findIndex((doc) => doc.id === docId);
+  if (index < 0) return null;
+
+  const [removed] = documents.splice(index, 1);
+  if (!removed) return null;
+
+  fs.mkdirSync(paths.corpusDir, { recursive: true });
+  const lines = documents.map((doc) => JSON.stringify(doc)).join('\n');
+  fs.writeFileSync(
+    paths.corpusDocumentsPath,
+    lines ? `${lines}\n` : '',
+    'utf-8',
+  );
+  syncRuntimeAssetRevisionState('knowledge', paths.corpusDocumentsPath, {
+    actor: 'distill',
+    route: 'admin',
+    source: removed.runId || 'manual-delete',
+  });
+  emitDistillAuditEvent({
+    subject: paths.subject,
+    runId: removed.runId || 'manual-delete',
+    type: 'distill.corpus.deleted',
+    fields: {
+      documentId: removed.id,
+      origin: removed.origin,
+    },
+  });
+  return removed;
+}
+
 /**
  * Append-only ingestion: existing documents are never rewritten, duplicates
  * (same provenance id) are skipped, and every append lands as an F4-versioned

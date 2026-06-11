@@ -165,7 +165,9 @@ import {
 } from './gateway-admin-secrets.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import {
+  deleteGatewayAdminDistillCorpusDocument,
   getGatewayAdminDistill,
+  getGatewayAdminDistillCorpusDocument,
   recordGatewayAdminDistillConsent,
   registerGatewayAdminDistillAgent,
   runGatewayAdminDistillPipeline,
@@ -6002,6 +6004,7 @@ function handleApiAdminAgentScoreboard(res: ServerResponse): void {
 }
 
 const MAX_DISTILL_SOURCE_UPLOAD_BYTES = 20 * 1024 * 1024;
+const ADMIN_DISTILL_CORPUS_PATH_PREFIX = '/api/admin/distill/corpus/';
 
 async function handleApiAdminDistill(
   req: IncomingMessage,
@@ -6010,6 +6013,51 @@ async function handleApiAdminDistill(
 ): Promise<void> {
   const method = req.method || 'GET';
   const pathname = url.pathname;
+
+  if (pathname.startsWith(ADMIN_DISTILL_CORPUS_PATH_PREFIX)) {
+    const rawDocumentId = pathname.slice(
+      ADMIN_DISTILL_CORPUS_PATH_PREFIX.length,
+    );
+    let documentId = rawDocumentId;
+    try {
+      documentId = decodeURIComponent(rawDocumentId);
+    } catch {
+      sendJson(res, 400, { error: 'Invalid corpus document id.' });
+      return;
+    }
+
+    if (method === 'GET') {
+      const download = getGatewayAdminDistillCorpusDocument({
+        agentId: url.searchParams.get('agentId') || undefined,
+        alias: url.searchParams.get('alias') || undefined,
+        documentId,
+      });
+      const body = Buffer.from(download.content, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${download.filename.replace(/"/g, '')}"`,
+        'Cache-Control': 'no-store',
+        'Content-Length': String(body.length),
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end(body);
+      return;
+    }
+
+    if (method === 'DELETE') {
+      sendJson(res, 200, {
+        subject: deleteGatewayAdminDistillCorpusDocument({
+          agentId: url.searchParams.get('agentId') || undefined,
+          alias: url.searchParams.get('alias') || undefined,
+          documentId,
+        }),
+      });
+      return;
+    }
+
+    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
+    return;
+  }
 
   if (pathname === '/api/admin/distill' && method === 'GET') {
     sendJson(res, 200, getGatewayAdminDistill());

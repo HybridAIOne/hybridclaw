@@ -10,7 +10,11 @@ import {
   loadConsentArtefact,
   recordConsentArtefact,
 } from '../distill/consent.js';
-import { listCorpusDocuments } from '../distill/corpus.js';
+import {
+  getCorpusDocument,
+  listCorpusDocuments,
+  removeCorpusDocument,
+} from '../distill/corpus.js';
 import {
   ensureDistilledMemoryFile,
   listReviewItems,
@@ -173,6 +177,18 @@ export interface GatewayAdminDistillRegisterInput {
   alias?: unknown;
 }
 
+export interface GatewayAdminDistillCorpusDocumentInput {
+  agentId?: unknown;
+  alias?: unknown;
+  documentId?: unknown;
+}
+
+export interface GatewayAdminDistillCorpusDocumentDownload {
+  documentId: string;
+  filename: string;
+  content: string;
+}
+
 export interface GatewayAdminDistillUploadResult {
   source: DistillRunSource;
   path: string;
@@ -224,6 +240,17 @@ function normalizeAlias(value: unknown): string {
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+function normalizeCorpusDocumentId(value: unknown): string {
+  const raw = normalizeOptionalText(value);
+  if (!raw) {
+    throw new GatewayRequestError(400, '`documentId` is required.');
+  }
+  if (!/^doc_[a-zA-Z0-9_-]+$/.test(raw)) {
+    throw new GatewayRequestError(400, 'Invalid corpus document id.');
+  }
+  return raw;
 }
 
 function normalizeHoldoutRatio(value: unknown): number | undefined {
@@ -636,6 +663,54 @@ export function registerGatewayAdminDistillAgent(
     ensureBootstrapFiles(saved.id);
   }
   ensureDistilledMemoryFile(paths, profile);
+  return summarizeSubject(agentId, alias, profile);
+}
+
+function requireGatewayAdminDistillCorpusDocument(
+  input: GatewayAdminDistillCorpusDocumentInput,
+): {
+  agentId: string;
+  alias: string;
+  paths: DistillPaths;
+  profile: SubjectProfile;
+  documentId: string;
+  document: CorpusDocument;
+} {
+  const alias = normalizeAlias(input.alias);
+  const agentId = normalizeAgentId(input.agentId, alias);
+  const paths = resolveDistillPaths(agentId, alias);
+  const profile = requireAdminSubjectProfile(paths);
+  const documentId = normalizeCorpusDocumentId(input.documentId);
+  const document = getCorpusDocument(paths, documentId);
+  if (!document) {
+    throw new GatewayRequestError(404, 'Corpus document not found.');
+  }
+  return { agentId, alias, paths, profile, documentId, document };
+}
+
+function corpusDocumentDownloadFilename(document: CorpusDocument): string {
+  const label = document.title || document.source;
+  return sanitizeDistillUploadFilename(`${document.id}-${label}.txt`);
+}
+
+export function getGatewayAdminDistillCorpusDocument(
+  input: GatewayAdminDistillCorpusDocumentInput,
+): GatewayAdminDistillCorpusDocumentDownload {
+  const { document, documentId } =
+    requireGatewayAdminDistillCorpusDocument(input);
+  return {
+    documentId,
+    filename: corpusDocumentDownloadFilename(document),
+    content: document.content,
+  };
+}
+
+export function deleteGatewayAdminDistillCorpusDocument(
+  input: GatewayAdminDistillCorpusDocumentInput,
+): GatewayAdminDistillSubjectSummary {
+  const { agentId, alias, paths, profile, documentId } =
+    requireGatewayAdminDistillCorpusDocument(input);
+  removeCorpusDocument(paths, documentId);
   return summarizeSubject(agentId, alias, profile);
 }
 
