@@ -14,6 +14,7 @@ export { Dashboard } from './Dashboard';
 export { Docs } from './Docs';
 export { Email } from './Email';
 export { Files } from './Files';
+export { Flask } from './Flask';
 export { Gateway } from './Gateway';
 export { Github } from './Github';
 export { Harness } from './Harness';

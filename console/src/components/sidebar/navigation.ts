@@ -9,6 +9,7 @@ import {
   Dashboard,
   Email,
   Files,
+  Flask,
   Gateway,
   Harness,
   Jobs,
@@ -54,7 +55,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
         label: 'Harness Evolution',
         icon: Harness,
       },
-      { to: '/admin/distill', label: 'Distill', icon: Skills },
+      { to: '/admin/distill', label: 'Distill', icon: Flask },
     ],
   },
   {
