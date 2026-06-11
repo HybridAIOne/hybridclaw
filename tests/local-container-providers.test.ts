@@ -67,14 +67,14 @@ afterEach(() => {
 });
 
 describe('local container providers', () => {
-  test('Gemma prompt tool overhead is inferred from model family', () => {
+  test('Gemma models do not add prompt tool overhead', () => {
     expect(
       estimateLocalOpenAICompatPromptOverheadTokens({
         provider: 'vllm',
         model: 'vllm/google/gemma-4-e4b-it',
         tools,
       }),
-    ).toBeGreaterThan(0);
+    ).toBe(0);
     expect(
       estimateLocalOpenAICompatPromptOverheadTokens({
         provider: 'vllm',
@@ -663,32 +663,33 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
-  test('vLLM Gemma provider uses Gemma tool declarations without native tools', async () => {
+  test('vLLM Gemma provider uses native tools', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as Record<
         string,
         unknown
       >;
       expect(body.model).toBe('google/gemma-4-e4b-it');
-      expect(body.tools).toBeUndefined();
-      expect(body.tool_choice).toBeUndefined();
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
       const messages = body.messages as Array<Record<string, unknown>>;
-      expect(messages[0]?.role).toBe('system');
-      expect(String(messages[0]?.content || '')).toContain(
-        '<|tool>declaration:shell',
-      );
-      expect(String(messages[0]?.content || '')).toContain(
-        '<|tool_call>call:TOOL_NAME',
-      );
-      expect(String(messages[0]?.content || '')).toContain(
-        'type:<|"|>OBJECT<|"|>',
-      );
-      expect(String(messages[0]?.content || '')).toContain(
-        'command:{type:<|"|>STRING<|"|>}',
-      );
-      expect(String(messages[0]?.content || '')).toContain(
-        'Use tool calls only when using tools.',
-      );
+      expect(messages.some((message) => message.role === 'tool')).toBe(true);
+      expect(messages[1]?.role).toBe('assistant');
+      expect(messages[1]?.tool_calls).toEqual([
+        {
+          id: '',
+          type: 'function',
+          function: {
+            name: 'shell',
+            arguments: '{"command":"pwd"}',
+          },
+        },
+      ]);
+      expect(messages[2]).toMatchObject({
+        role: 'tool',
+        content: '{"ok":true}',
+        tool_call_id: '',
+      });
       return new Response(
         JSON.stringify({
           id: 'resp_1',
@@ -752,80 +753,11 @@ describe('local container providers', () => {
       String(fetchMock.mock.calls[0]?.[1]?.body || '{}'),
     ) as Record<string, unknown>;
     const messages = body.messages as Array<Record<string, unknown>>;
-    expect(messages.some((message) => message.role === 'tool')).toBe(false);
-    expect(messages[2]?.role).toBe('assistant');
-    expect(String(messages[2]?.content || '')).toContain(
-      '<|tool_call>call:shell{command:<|"|>pwd<|"|>}<tool_call|>',
-    );
-    expect(String(messages[2]?.content || '')).toContain(
-      '<|tool_response>response:shell{ok:true}<tool_response|>',
-    );
-    expect(messages[2]).not.toHaveProperty('tool_calls');
-    expect(messages[2]).not.toHaveProperty('tool_responses');
+    expect(messages.some((message) => message.role === 'tool')).toBe(true);
+    expect(messages[1]).toHaveProperty('tool_calls');
   });
 
-  test('vLLM Gemma provider normalizes call-prefix tool calls', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              id: 'resp_1',
-              model: 'google/gemma-4-e4b-it',
-              choices: [
-                {
-                  message: {
-                    role: 'assistant',
-                    content:
-                      'Yes, list of running servers\ncall:hetzner-cloud{action:"list_servers",filters:{status:"running"}}',
-                  },
-                  finish_reason: 'stop',
-                },
-              ],
-            }),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            },
-          ),
-      ),
-    );
-
-    const result = await callLocalOpenAICompatProvider({
-      provider: 'vllm',
-      baseUrl: 'http://haigpu2:8000/v1',
-      apiKey: '',
-      model: 'vllm/google/gemma-4-e4b-it',
-      chatbotId: '',
-      enableRag: false,
-      requestHeaders: undefined,
-      messages: baseMessages,
-      tools: [],
-      maxTokens: 128,
-      isLocal: true,
-      contextWindow: 32_768,
-      modelBehavior: { toolCallFormat: 'gemma' },
-    });
-
-    expect(result.choices[0]?.message.content).toBe(
-      'Yes, list of running servers',
-    );
-    expect(result.choices[0]?.message.tool_calls).toEqual([
-      {
-        id: '',
-        type: 'function',
-        function: {
-          name: 'hetzner-cloud',
-          arguments:
-            '{"action":"list_servers","filters":{"status":"running"}}',
-        },
-      },
-    ]);
-    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
-  });
-
-  test('vLLM provider does not retry without tools when no prompt tool format is configured', async () => {
+  test('vLLM provider surfaces native tool config errors without retry', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -863,133 +795,7 @@ describe('local container providers', () => {
     expect(body.tool_choice).toBe('auto');
   });
 
-  test('vLLM Gemma provider normalizes call-prefix tool calls after markdown code spans', async () => {
-    const command =
-      'node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-servers --project acme';
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              id: 'resp_1',
-              model: 'google/gemma-4-e4b-it',
-              choices: [
-                {
-                  message: {
-                    role: 'assistant',
-                    content: [
-                      'The required command is:',
-                      `\`${command}\`call:bash{command:${command}}`,
-                    ].join('\n'),
-                  },
-                  finish_reason: 'stop',
-                },
-              ],
-            }),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            },
-          ),
-      ),
-    );
-
-    const result = await callLocalOpenAICompatProvider({
-      provider: 'vllm',
-      baseUrl: 'http://haigpu2:8000/v1',
-      apiKey: '',
-      model: 'vllm/google/gemma-4-e4b-it',
-      chatbotId: '',
-      enableRag: false,
-      requestHeaders: undefined,
-      messages: baseMessages,
-      tools: [],
-      maxTokens: 128,
-      isLocal: true,
-      contextWindow: 32_768,
-      modelBehavior: { toolCallFormat: 'gemma' },
-    });
-
-    expect(result.choices[0]?.message.content).toBe(
-      ['The required command is:', `\`${command}\``].join('\n'),
-    );
-    expect(result.choices[0]?.message.content).not.toContain('call:bash');
-    expect(result.choices[0]?.message.tool_calls).toEqual([
-      {
-        id: '',
-        type: 'function',
-        function: {
-          name: 'bash',
-          arguments: JSON.stringify({ command }),
-        },
-      },
-    ]);
-    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
-  });
-
-  test('vLLM Gemma provider normalizes documented tool-call markers', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              id: 'resp_1',
-              model: 'google/gemma-4-e4b-it',
-              choices: [
-                {
-                  message: {
-                    role: 'assistant',
-                    content:
-                      'Yes, list of running servers\n<|tool_call>call:hetzner-cloud{action:<|"|>list_servers<|"|>,filters:{status:<|"|>running<|"|>}}<tool_call|><|tool_response>',
-                  },
-                  finish_reason: 'stop',
-                },
-              ],
-            }),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            },
-          ),
-      ),
-    );
-
-    const result = await callLocalOpenAICompatProvider({
-      provider: 'vllm',
-      baseUrl: 'http://haigpu2:8000/v1',
-      apiKey: '',
-      model: 'vllm/google/gemma-4-e4b-it',
-      chatbotId: '',
-      enableRag: false,
-      requestHeaders: undefined,
-      messages: baseMessages,
-      tools: [],
-      maxTokens: 128,
-      isLocal: true,
-      contextWindow: 32_768,
-      modelBehavior: { toolCallFormat: 'gemma' },
-    });
-
-    expect(result.choices[0]?.message.content).toBe(
-      'Yes, list of running servers',
-    );
-    expect(result.choices[0]?.message.tool_calls).toEqual([
-      {
-        id: '',
-        type: 'function',
-        function: {
-          name: 'hetzner-cloud',
-          arguments:
-            '{"action":"list_servers","filters":{"status":"running"}}',
-        },
-      },
-    ]);
-    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
-  });
-
-  test('vLLM Gemma stream uses Gemma tool declarations without native tools', async () => {
+  test('vLLM Gemma stream uses native tools', async () => {
     const deltas: string[] = [];
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as Record<
@@ -998,19 +804,8 @@ describe('local container providers', () => {
       >;
       expect(body.model).toBe('google/gemma-4-e4b-it');
       expect(body.stream).toBe(true);
-      expect(body.tools).toBeUndefined();
-      expect(body.tool_choice).toBeUndefined();
-      const messages = body.messages as Array<Record<string, unknown>>;
-      expect(messages[0]?.role).toBe('system');
-      expect(String(messages[0]?.content || '')).toContain(
-        '<|tool>declaration:shell',
-      );
-      expect(String(messages[0]?.content || '')).toContain(
-        '<|tool_call>call:TOOL_NAME',
-      );
-      expect(String(messages[0]?.content || '')).toContain(
-        'type:<|"|>OBJECT<|"|>',
-      );
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
       return makeEventStreamResponse([
         'data: {"id":"resp_1","model":"google/gemma-4-e4b-it","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
         'data: [DONE]\n\n',
@@ -1032,214 +827,11 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
-      modelBehavior: { toolCallFormat: 'gemma' },
     });
 
     expect(deltas).toEqual(['ok']);
     expect(result.choices[0]?.message.content).toBe('ok');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  test('vLLM Gemma stream normalizes and hides call-prefix tool calls', async () => {
-    const deltas: string[] = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        makeEventStreamResponse([
-          'data: {"id":"resp_1","model":"google/gemma-4-e4b-it","choices":[{"delta":{"content":"Yes, list of running servers"}}]}\n\n',
-          'data: {"choices":[{"delta":{"content":"\\ncall:hetzner-cloud{action:\\"list_servers\\",filters:{status:\\"running\\"}}"}}]}\n\n',
-          'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
-          'data: [DONE]\n\n',
-        ]),
-      ),
-    );
-
-    const result = await callLocalOpenAICompatProviderStream({
-      provider: 'vllm',
-      baseUrl: 'http://haigpu2:8000/v1',
-      apiKey: '',
-      model: 'vllm/google/gemma-4-e4b-it',
-      chatbotId: '',
-      enableRag: false,
-      requestHeaders: undefined,
-      messages: baseMessages,
-      tools: [],
-      onTextDelta: (delta) => deltas.push(delta),
-      maxTokens: 128,
-      isLocal: true,
-      contextWindow: 32_768,
-      modelBehavior: { toolCallFormat: 'gemma' },
-    });
-
-    expect(deltas).toEqual(['Yes, list of running servers']);
-    expect(result.choices[0]?.message.content).toBe(
-      'Yes, list of running servers',
-    );
-    expect(result.choices[0]?.message.tool_calls).toEqual([
-      {
-        id: '',
-        type: 'function',
-        function: {
-          name: 'hetzner-cloud',
-          arguments:
-            '{"action":"list_servers","filters":{"status":"running"}}',
-        },
-      },
-    ]);
-    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
-  });
-
-  test('vLLM Gemma stream hides call-prefix tool calls after markdown code spans', async () => {
-    const command =
-      'node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-servers --project acme';
-    const visibleContent = ['The required command is:', `\`${command}\``].join(
-      '\n',
-    );
-    const deltas: string[] = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        makeEventStreamResponse([
-          `data: ${JSON.stringify({
-            id: 'resp_1',
-            model: 'google/gemma-4-e4b-it',
-            choices: [
-              {
-                delta: {
-                  content: visibleContent,
-                },
-              },
-            ],
-          })}\n\n`,
-          `data: ${JSON.stringify({
-            choices: [
-              {
-                delta: {
-                  content: `call:bash{command:${command}}`,
-                },
-              },
-            ],
-          })}\n\n`,
-          `data: ${JSON.stringify({
-            choices: [
-              {
-                finish_reason: 'stop',
-              },
-            ],
-          })}\n\n`,
-          'data: [DONE]\n\n',
-        ]),
-      ),
-    );
-
-    const result = await callLocalOpenAICompatProviderStream({
-      provider: 'vllm',
-      baseUrl: 'http://haigpu2:8000/v1',
-      apiKey: '',
-      model: 'vllm/google/gemma-4-e4b-it',
-      chatbotId: '',
-      enableRag: false,
-      requestHeaders: undefined,
-      messages: baseMessages,
-      tools: [],
-      onTextDelta: (delta) => deltas.push(delta),
-      maxTokens: 128,
-      isLocal: true,
-      contextWindow: 32_768,
-      modelBehavior: { toolCallFormat: 'gemma' },
-    });
-
-    expect(deltas).toEqual([visibleContent]);
-    expect(result.choices[0]?.message.content).toBe(visibleContent);
-    expect(result.choices[0]?.message.content).not.toContain('call:bash');
-    expect(result.choices[0]?.message.tool_calls).toEqual([
-      {
-        id: '',
-        type: 'function',
-        function: {
-          name: 'bash',
-          arguments: JSON.stringify({ command }),
-        },
-      },
-    ]);
-    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
-  });
-
-  test('vLLM Gemma stream normalizes and hides documented tool-call markers', async () => {
-    const deltas: string[] = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        makeEventStreamResponse([
-          `data: ${JSON.stringify({
-            id: 'resp_1',
-            model: 'google/gemma-4-e4b-it',
-            choices: [
-              {
-                delta: {
-                  content: 'Yes, list of running servers',
-                },
-              },
-            ],
-          })}\n\n`,
-          `data: ${JSON.stringify({
-            choices: [
-              {
-                delta: {
-                  content:
-                    '\n<|tool_call>call:hetzner-cloud{action:<|"|>list_servers<|"|>,filters:{status:<|"|>running<|"|>}}',
-                },
-              },
-            ],
-          })}\n\n`,
-          `data: ${JSON.stringify({
-            choices: [
-              {
-                delta: {
-                  content: '<tool_call|><|tool_response>',
-                },
-                finish_reason: 'stop',
-              },
-            ],
-          })}\n\n`,
-          'data: [DONE]\n\n',
-        ]),
-      ),
-    );
-
-    const result = await callLocalOpenAICompatProviderStream({
-      provider: 'vllm',
-      baseUrl: 'http://haigpu2:8000/v1',
-      apiKey: '',
-      model: 'vllm/google/gemma-4-e4b-it',
-      chatbotId: '',
-      enableRag: false,
-      requestHeaders: undefined,
-      messages: baseMessages,
-      tools: [],
-      onTextDelta: (delta) => deltas.push(delta),
-      maxTokens: 128,
-      isLocal: true,
-      contextWindow: 32_768,
-      modelBehavior: { toolCallFormat: 'gemma' },
-    });
-
-    expect(deltas).toEqual(['Yes, list of running servers']);
-    expect(result.choices[0]?.message.content).toBe(
-      'Yes, list of running servers',
-    );
-    expect(result.choices[0]?.message.tool_calls).toEqual([
-      {
-        id: '',
-        type: 'function',
-        function: {
-          name: 'hetzner-cloud',
-          arguments:
-            '{"action":"list_servers","filters":{"status":"running"}}',
-        },
-      },
-    ]);
-    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
   test('Qwen-compatible local provider collapses multiple system messages into one', async () => {

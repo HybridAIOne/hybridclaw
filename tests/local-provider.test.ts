@@ -255,8 +255,8 @@ describe('local providers', () => {
       baseUrl: 'http://haigpu2:8000/v1',
       isLocal: true,
       contextWindow: 32_768,
-      modelBehavior: { toolCallFormat: 'gemma' },
     });
+    expect(credentials.modelBehavior).toBeUndefined();
   });
 
   test('local discovery lists named endpoint model prefixes', async () => {
@@ -302,8 +302,11 @@ describe('local providers', () => {
       backend: 'vllm',
       contextWindow: 32_768,
       endpointName: 'haigpu2',
-      modelBehavior: { toolCallFormat: 'gemma' },
     });
+    expect(
+      discovery.getLocalModelInfo('haigpu2/google/gemma-3-27b-it')
+        ?.modelBehavior,
+    ).toBeUndefined();
   });
 
   test('unknown models still fall back to HybridAI', async () => {

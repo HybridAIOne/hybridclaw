@@ -967,8 +967,6 @@ test('local configure vllm with name stores a named endpoint secret ref', async 
     'http://haigpu2:8000',
     '--api-key',
     'gemma-secret-key',
-    '--tool-call-format',
-    'gemma',
     '--no-default',
   ]);
 
@@ -991,7 +989,6 @@ test('local configure vllm with name stores a named endpoint secret ref', async 
     enabled: true,
     baseUrl: 'http://haigpu2:8000/v1',
     apiKey: 'gemma-secret-key',
-    modelBehavior: { toolCallFormat: 'gemma' },
   });
   expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
   expect(rawEndpoint?.apiKey).toEqual({

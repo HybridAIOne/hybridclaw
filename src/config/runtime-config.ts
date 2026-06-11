@@ -4802,12 +4802,6 @@ function normalizeModelBehaviorConfig(
   if (thinkingFormat === 'qwen') {
     behavior.thinkingFormat = 'qwen';
   }
-  const toolCallFormat = normalizeString(value.toolCallFormat, '', {
-    allowEmpty: true,
-  }).toLowerCase();
-  if (toolCallFormat === 'gemma') {
-    behavior.toolCallFormat = 'gemma';
-  }
   return Object.keys(behavior).length > 0 ? behavior : undefined;
 }
 

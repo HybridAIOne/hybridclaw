@@ -12,7 +12,6 @@ interface WorkerSignatureTaskModel {
   contextWindow?: number;
   modelBehavior?: {
     thinkingFormat?: string;
-    toolCallFormat?: string;
   };
   thinkingFormat?: string;
   model: string;
@@ -31,7 +30,6 @@ export interface WorkerSignatureInput {
   requestHeaders: Record<string, string> | undefined;
   modelBehavior?: {
     thinkingFormat?: string;
-    toolCallFormat?: string;
   };
   thinkingFormat?: string;
   browserProvider?: string;
@@ -76,7 +74,6 @@ function normalizeTaskModel(
       typeof input.contextWindow === 'number' ? input.contextWindow : null,
     modelBehavior: {
       thinkingFormat: String(input.modelBehavior?.thinkingFormat || '').trim(),
-      toolCallFormat: String(input.modelBehavior?.toolCallFormat || '').trim(),
     },
     thinkingFormat: String(input.thinkingFormat || '').trim(),
     model: String(input.model || '').trim(),
@@ -144,7 +141,6 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     requestHeaders: normalizedHeaders,
     modelBehavior: {
       thinkingFormat: String(input.modelBehavior?.thinkingFormat || '').trim(),
-      toolCallFormat: String(input.modelBehavior?.toolCallFormat || '').trim(),
     },
     thinkingFormat: String(input.thinkingFormat || '').trim(),
     browserProvider: String(input.browserProvider || '').trim(),

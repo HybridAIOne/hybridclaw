@@ -186,11 +186,9 @@ function finalizeToolCalls(
     configured: modelBehavior,
   });
   const parser =
-    behavior?.toolCallFormat === 'gemma'
-      ? 'call_prefix'
-      : behavior?.thinkingFormat === 'qwen'
-        ? 'qwen'
-        : resolveToolCallTextParser(model);
+    behavior?.thinkingFormat === 'qwen'
+      ? 'qwen'
+      : resolveToolCallTextParser(model);
   return normalizeToolCalls(rawToolCalls as ToolCall[] | undefined, content, {
     parser,
     recoverBlankStructuredNameFromContent: parser === 'mistral',

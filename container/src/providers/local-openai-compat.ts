@@ -72,12 +72,6 @@ interface StreamChunkPayload {
       };
 }
 
-const vllmModelsWithoutNativeTools = new Set<string>();
-const CALL_PREFIX_TOOL_CALL_OPEN = '<|tool_call>';
-const CALL_PREFIX_TOOL_CALL_CLOSE = '<tool_call|>';
-const CALL_PREFIX_TOOL_RESPONSE_OPEN = '<|tool_response>';
-const CALL_PREFIX_TOOL_RESPONSE_CLOSE = '<tool_response|>';
-
 function buildHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -169,29 +163,6 @@ function usesLiquidCompat(args: {
   );
 }
 
-function usesCallPrefixToolCompat(args: {
-  provider?: string;
-  model?: string;
-  modelBehavior?: NormalizedCallArgs['modelBehavior'];
-}): boolean {
-  return (
-    resolveModelBehavior({
-      model: args.model
-        ? normalizeLocalModelName(args.provider, args.model)
-        : undefined,
-      configured: args.modelBehavior,
-    })?.toolCallFormat === 'gemma'
-  );
-}
-
-function usesPromptToolCompat(args: {
-  provider: string | undefined;
-  model: string;
-  modelBehavior?: NormalizedCallArgs['modelBehavior'];
-}): boolean {
-  return usesCallPrefixToolCompat(args) || usesLiquidCompat(args);
-}
-
 function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
   const toolList = tools.map((tool) => ({
     name: tool.function.name,
@@ -199,48 +170,6 @@ function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
     parameters: tool.function.parameters,
   }));
   return `List of tools: ${JSON.stringify(toolList)}`;
-}
-
-function gemmaToolString(value: string): string {
-  return `<|"|>${String(value || '').replace(/<\|"\|>/g, '"')}<|"|>`;
-}
-
-function gemmaToolLiteral(value: unknown, key = ''): string {
-  if (value == null) return 'null';
-  if (typeof value === 'string') {
-    return gemmaToolString(key === 'type' ? value.toUpperCase() : value);
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => gemmaToolLiteral(item, key)).join(',')}]`;
-  }
-  if (isRecord(value)) {
-    return `{${Object.entries(value)
-      .map(
-        ([entryKey, entry]) =>
-          `${entryKey}:${gemmaToolLiteral(entry, entryKey)}`,
-      )
-      .join(',')}}`;
-  }
-  return gemmaToolString(String(value));
-}
-
-function buildCallPrefixToolCallInstruction(tools: ToolDefinition[]): string {
-  const declarations = tools
-    .map(
-      (tool) =>
-        `<|tool>declaration:${tool.function.name}{description:${gemmaToolString(
-          tool.function.description,
-        )},parameters:${gemmaToolLiteral(tool.function.parameters)}}<tool|>`,
-    )
-    .join('\n');
-  return [
-    declarations,
-    'When a tool is needed, emit only a Gemma tool call in this form: <|tool_call>call:TOOL_NAME{ARGUMENT_NAME:ARGUMENT_VALUE}<tool_call|><|tool_response>',
-    'Use tool calls only when using tools.',
-  ].join('\n');
 }
 
 function estimatePromptToolInstructionTokens(instruction: string): number {
@@ -256,11 +185,6 @@ export function estimateLocalOpenAICompatPromptOverheadTokens(args: {
 }): number {
   const tools = Array.isArray(args.tools) ? args.tools : [];
   if (tools.length === 0) return 0;
-  if (usesCallPrefixToolCompat(args)) {
-    return estimatePromptToolInstructionTokens(
-      buildCallPrefixToolCallInstruction(tools),
-    );
-  }
   if (usesLiquidCompat(args)) {
     return estimatePromptToolInstructionTokens(
       buildLiquidToolCallInstruction(tools),
@@ -305,110 +229,6 @@ function buildQwenRequestMessages(
     ...message,
     content: normalizeMessageContent(message.content),
   }));
-}
-
-function parseJsonObject(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-
-function contentToCallPrefixText(content: ChatMessage['content']): string {
-  if (typeof content === 'string') return replaceUnpairedSurrogates(content);
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part) => part.type === 'text' && part.text)
-    .map((part) =>
-      part.type === 'text' ? replaceUnpairedSurrogates(part.text) : '',
-    )
-    .join('\n');
-}
-
-function renderCallPrefixToolCall(toolCall: ToolCall): string {
-  return `${CALL_PREFIX_TOOL_CALL_OPEN}call:${toolCall.function.name}${gemmaToolLiteral(
-    parseJsonObject(toolCall.function.arguments),
-  )}${CALL_PREFIX_TOOL_CALL_CLOSE}`;
-}
-
-function renderCallPrefixToolResponse(name: string, response: unknown): string {
-  return `${CALL_PREFIX_TOOL_RESPONSE_OPEN}response:${name}${gemmaToolLiteral(
-    response,
-  )}${CALL_PREFIX_TOOL_RESPONSE_CLOSE}`;
-}
-
-function buildCallPrefixRequestMessages(
-  messages: ChatMessage[],
-): Array<Record<string, unknown>> {
-  const collapsed = collapseSystemMessages(messages);
-  const result: Array<Record<string, unknown>> = [];
-  let pendingAssistant: { role: 'assistant'; content: string } | null = null;
-  let pendingCalls: Array<{
-    id: string;
-    name: string;
-    used: boolean;
-  }> = [];
-  const flushPendingAssistant = (): void => {
-    if (pendingAssistant) result.push(pendingAssistant);
-    pendingAssistant = null;
-    pendingCalls = [];
-  };
-
-  for (const message of collapsed) {
-    if (
-      message.role === 'assistant' &&
-      Array.isArray(message.tool_calls) &&
-      message.tool_calls.length > 0
-    ) {
-      flushPendingAssistant();
-      pendingCalls = message.tool_calls.map((toolCall) => ({
-        id: toolCall.id || '',
-        name: toolCall.function.name,
-        used: false,
-      }));
-      pendingAssistant = {
-        role: 'assistant',
-        content: [
-          contentToCallPrefixText(message.content).trim(),
-          message.tool_calls.map(renderCallPrefixToolCall).join(''),
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      };
-      continue;
-    }
-
-    if (message.role === 'tool' && pendingAssistant) {
-      const responseCall =
-        pendingCalls.find(
-          (call) =>
-            !call.used &&
-            call.id &&
-            message.tool_call_id &&
-            call.id === message.tool_call_id,
-        ) || pendingCalls.find((call) => !call.used);
-      if (responseCall) {
-        responseCall.used = true;
-        pendingAssistant.content += renderCallPrefixToolResponse(
-          responseCall.name,
-          typeof message.content === 'string'
-            ? parseJsonObject(message.content)
-            : normalizeMessageContent(message.content),
-        );
-        continue;
-      }
-    }
-
-    flushPendingAssistant();
-    result.push({
-      ...message,
-      content: normalizeMessageContent(message.content),
-    });
-  }
-
-  flushPendingAssistant();
-  return result;
 }
 
 function shortHash(text: string, length: number): string {
@@ -489,15 +309,12 @@ function sanitizeMistralToolCallIds(
 function buildRequestMessages(
   args: NormalizedCallArgs,
 ): Array<Record<string, unknown>> {
-  const useCallPrefixToolCompat = usesCallPrefixToolCompat(args);
-  let messages = useCallPrefixToolCompat
-    ? buildCallPrefixRequestMessages(args.messages)
-    : usesQwenCompat(args)
-      ? buildQwenRequestMessages(args.messages)
-      : collapseSystemMessages(args.messages).map((message) => ({
-          ...message,
-          content: normalizeMessageContent(message.content),
-        }));
+  let messages = usesQwenCompat(args)
+    ? buildQwenRequestMessages(args.messages)
+    : collapseSystemMessages(args.messages).map((message) => ({
+        ...message,
+        content: normalizeMessageContent(message.content),
+      }));
   if (
     usesLiquidCompat(args) &&
     Array.isArray(args.tools) &&
@@ -511,35 +328,17 @@ function buildRequestMessages(
       content: normalizeMessageContent(message.content),
     }));
   }
-  if (
-    useCallPrefixToolCompat &&
-    Array.isArray(args.tools) &&
-    args.tools.length
-  ) {
-    messages = mergeSystemMessage(
-      messages as ChatMessage[],
-      buildCallPrefixToolCallInstruction(args.tools),
-    ).map((message) => ({
-      ...message,
-      content: normalizeMessageContent(message.content),
-    }));
-  }
   return isMistralCompatModel(args.provider, args.model)
     ? sanitizeMistralToolCallIds(messages)
     : messages;
 }
 
-function buildRequestBody(
-  args: NormalizedCallArgs,
-  options: { includeTools?: boolean } = {},
-): Record<string, unknown> {
-  const includeTools =
-    (options.includeTools ?? true) && !usesCallPrefixToolCompat(args);
+function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
     messages: buildRequestMessages(args),
   };
-  if (includeTools && args.tools.length > 0) {
+  if (args.tools.length > 0) {
     request.tools = args.tools;
     request.tool_choice = 'auto';
   }
@@ -553,50 +352,17 @@ function buildRequestBody(
   return request;
 }
 
-function vllmNativeToolCacheKey(args: {
-  provider: string | undefined;
-  baseUrl: string;
-  model: string;
-}): string | null {
-  if (args.provider !== 'vllm') return null;
-  return `${normalizeBaseUrl(args.baseUrl)}\n${normalizeLocalModelName(
-    args.provider,
-    args.model,
-  )}`;
-}
-
-function shouldRetryVllmWithoutNativeTools(params: {
-  provider: string | undefined;
-  tools: ToolDefinition[];
-  status: number;
-  errorText: string;
-  nativeToolsSent: boolean;
-}): boolean {
-  if (!params.nativeToolsSent) return false;
-  if (params.provider !== 'vllm') return false;
-  if (params.tools.length === 0) return false;
-  if (params.status !== 400) return false;
-  const normalized = params.errorText.toLowerCase();
-  return (
-    normalized.includes('enable-auto-tool-choice') ||
-    normalized.includes('tool-call-parser') ||
-    normalized.includes('"auto" tool choice')
-  );
-}
-
 function buildToolCallNormalizationOptions(params: {
   provider: string | undefined;
   model: string;
   modelBehavior?: NormalizedCallArgs['modelBehavior'];
 }) {
   const parser =
-    params.modelBehavior?.toolCallFormat === 'gemma'
-      ? 'call_prefix'
-      : params.modelBehavior?.thinkingFormat === 'qwen'
-        ? 'qwen'
-        : resolveToolCallTextParser(
-            normalizeLocalModelName(params.provider, params.model),
-          );
+    params.modelBehavior?.thinkingFormat === 'qwen'
+      ? 'qwen'
+      : resolveToolCallTextParser(
+          normalizeLocalModelName(params.provider, params.model),
+        );
   return {
     parser,
     recoverBlankStructuredNameFromContent: parser === 'mistral',
@@ -891,230 +657,10 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
   };
 }
 
-function createCallPrefixStreamFilter(onTextDelta: (delta: string) => void): {
-  push: (delta: string) => void;
-  close: () => void;
-} {
-  const gemmaToolCallOpen = '<|tool_call>';
-  const gemmaToolCallClose = '<tool_call|>';
-  const gemmaToolResponseOpen = '<|tool_response>';
-  let buffer = '';
-  let insideToolCall = false;
-  let markerToolCallClose: string | null = null;
-  let braceDepth = 0;
-  let quote: '"' | "'" | null = null;
-  let escaped = false;
-
-  const emit = (text: string): void => {
-    if (text) onTextDelta(text);
-  };
-
-  const emitBeforeToolCall = (text: string): void => {
-    emit(text.trim() ? text.replace(/\s+$/g, '') : '');
-  };
-
-  const isCallPrefixBoundary = (index: number): boolean => {
-    if (index <= 0) return true;
-    const previous = buffer[index - 1] || '';
-    return /\s/.test(previous) || !/[A-Za-z0-9_]/.test(previous);
-  };
-
-  const findCallPrefixStart = (): number => {
-    const lower = buffer.toLowerCase();
-    let index = lower.indexOf('call:');
-    while (index >= 0) {
-      if (isCallPrefixBoundary(index)) return index;
-      index = lower.indexOf('call:', index + 1);
-    }
-    return -1;
-  };
-
-  const findNextSuppressedStart = (): {
-    index: number;
-    kind: 'call' | 'tool_call_marker' | 'tool_response_marker';
-  } | null => {
-    const lower = buffer.toLowerCase();
-    const candidates: Array<{
-      index: number;
-      kind: 'call' | 'tool_call_marker' | 'tool_response_marker';
-    }> = [];
-    const callIndex = findCallPrefixStart();
-    if (callIndex >= 0) candidates.push({ index: callIndex, kind: 'call' });
-    const toolCallMarkerIndex = lower.indexOf(gemmaToolCallOpen);
-    if (toolCallMarkerIndex >= 0) {
-      candidates.push({
-        index: toolCallMarkerIndex,
-        kind: 'tool_call_marker',
-      });
-    }
-    const responseMarkerIndex = lower.indexOf(gemmaToolResponseOpen);
-    if (responseMarkerIndex >= 0) {
-      candidates.push({
-        index: responseMarkerIndex,
-        kind: 'tool_response_marker',
-      });
-    }
-    return (
-      candidates.sort((left, right) => left.index - right.index)[0] || null
-    );
-  };
-
-  const findPartialCallPrefixSuffixLength = (): number => {
-    const lower = buffer.toLowerCase();
-    const markers = ['call:', gemmaToolCallOpen, gemmaToolResponseOpen];
-    let longest = 0;
-    for (const marker of markers) {
-      const maxLength = Math.min(marker.length - 1, lower.length);
-      for (let length = maxLength; length > longest; length -= 1) {
-        if (lower.endsWith(marker.slice(0, length))) {
-          longest = length;
-          break;
-        }
-      }
-    }
-    return longest;
-  };
-
-  const consumeToolCallBuffer = (): void => {
-    if (markerToolCallClose) {
-      const lower = buffer.toLowerCase();
-      const end = lower.indexOf(markerToolCallClose);
-      if (end < 0) {
-        buffer = '';
-        return;
-      }
-      let nextStart = end + markerToolCallClose.length;
-      if (lower.startsWith(gemmaToolResponseOpen, nextStart)) {
-        nextStart += gemmaToolResponseOpen.length;
-      }
-      buffer = buffer.slice(nextStart);
-      insideToolCall = false;
-      markerToolCallClose = null;
-      return;
-    }
-
-    let index = 0;
-    while (index < buffer.length) {
-      const char = buffer[index];
-      if (quote) {
-        if (escaped) {
-          escaped = false;
-        } else if (char === '\\') {
-          escaped = true;
-        } else if (char === quote) {
-          quote = null;
-        }
-        index += 1;
-        continue;
-      }
-
-      if (char === '"' || char === "'") {
-        quote = char;
-        index += 1;
-        continue;
-      }
-      if (char === '{') {
-        braceDepth += 1;
-      } else if (char === '}') {
-        braceDepth -= 1;
-        if (braceDepth <= 0) {
-          buffer = buffer.slice(index + 1);
-          insideToolCall = false;
-          braceDepth = 0;
-          quote = null;
-          escaped = false;
-          return;
-        }
-      }
-      index += 1;
-    }
-
-    buffer = '';
-  };
-
-  const flush = (final = false): void => {
-    while (buffer) {
-      if (insideToolCall) {
-        consumeToolCallBuffer();
-        if (insideToolCall) return;
-        continue;
-      }
-
-      const start = findNextSuppressedStart();
-      if (!start) {
-        const holdbackChars = final ? 0 : findPartialCallPrefixSuffixLength();
-        if (!final && buffer.length <= holdbackChars) return;
-        const emitLength = buffer.length - holdbackChars;
-        emit(buffer.slice(0, emitLength));
-        buffer = buffer.slice(emitLength);
-        if (!final) return;
-        continue;
-      }
-
-      const beforeCall = buffer.slice(0, start.index);
-      const candidate = buffer.slice(start.index);
-      if (start.kind === 'tool_response_marker') {
-        emitBeforeToolCall(beforeCall);
-        buffer = candidate.slice(gemmaToolResponseOpen.length);
-        continue;
-      }
-      if (start.kind === 'tool_call_marker') {
-        emitBeforeToolCall(beforeCall);
-        buffer = candidate.slice(gemmaToolCallOpen.length);
-        insideToolCall = true;
-        markerToolCallClose = gemmaToolCallClose;
-        continue;
-      }
-
-      const callMatch = candidate.match(
-        /^call:\s*[A-Za-z_][A-Za-z0-9_.-]*\s*\{/i,
-      );
-      if (callMatch) {
-        emitBeforeToolCall(beforeCall);
-        buffer = candidate.slice(callMatch[0].length);
-        insideToolCall = true;
-        braceDepth = 1;
-        quote = null;
-        escaped = false;
-        continue;
-      }
-
-      if (!final && /^call:\s*[A-Za-z_][A-Za-z0-9_.-]*\s*$/i.test(candidate)) {
-        emitBeforeToolCall(beforeCall);
-        buffer = candidate;
-        return;
-      }
-
-      emit(buffer.slice(0, start.index + 'call:'.length));
-      buffer = buffer.slice(start.index + 'call:'.length);
-      if (!final) return;
-    }
-  };
-
-  return {
-    push(delta: string): void {
-      if (!delta) return;
-      buffer += delta;
-      flush();
-    },
-    close(): void {
-      flush(true);
-    },
-  };
-}
-
 export async function callLocalOpenAICompatProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const nativeToolCacheKey = vllmNativeToolCacheKey(args);
-  const promptToolCompat = usesPromptToolCompat(args);
-  const includeNativeTools =
-    !nativeToolCacheKey ||
-    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey) ||
-    !promptToolCompat;
-  let requestBody = buildRequestBody(args, {
-    includeTools: includeNativeTools,
-  });
+  const requestBody = buildRequestBody(args);
   const url = `${normalizeBaseUrl(args.baseUrl)}/chat/completions`;
   if (args.debugModelResponses) {
     logLastPrompt({
@@ -1129,7 +675,7 @@ export async function callLocalOpenAICompatProvider(
       },
     });
   }
-  let response = await fetch(url, {
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       ...buildHeaders(args.apiKey),
@@ -1137,48 +683,6 @@ export async function callLocalOpenAICompatProvider(
     },
     body: JSON.stringify(requestBody),
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (
-      shouldRetryVllmWithoutNativeTools({
-        provider: args.provider,
-        tools: args.tools,
-        status: response.status,
-        errorText,
-        nativeToolsSent: includeNativeTools,
-      }) &&
-      promptToolCompat
-    ) {
-      if (nativeToolCacheKey) {
-        vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
-      }
-      requestBody = buildRequestBody(args, { includeTools: false });
-      if (args.debugModelResponses) {
-        logLastPrompt({
-          sessionId: args.sessionId,
-          provider: args.provider,
-          model: args.model,
-          kind: 'openai_compatible_non_streaming_request',
-          request: {
-            method: 'POST',
-            url,
-            body: requestBody,
-          },
-        });
-      }
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          ...buildHeaders(args.apiKey),
-          ...(args.requestHeaders || {}),
-        },
-        body: JSON.stringify(requestBody),
-      });
-    } else {
-      throw new ProviderRequestError(response.status, errorText);
-    }
-  }
 
   if (!response.ok) {
     throw new ProviderRequestError(response.status, await response.text());
@@ -1204,20 +708,13 @@ export async function callLocalOpenAICompatProvider(
 export async function callLocalOpenAICompatProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const buildStreamRequestBody = (includeTools: boolean) => ({
-    ...buildRequestBody(args, { includeTools }),
+  const requestBody = {
+    ...buildRequestBody(args),
     stream: true,
     stream_options: {
       include_usage: true,
     },
-  });
-  const nativeToolCacheKey = vllmNativeToolCacheKey(args);
-  const promptToolCompat = usesPromptToolCompat(args);
-  const includeNativeTools =
-    !nativeToolCacheKey ||
-    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey) ||
-    !promptToolCompat;
-  let requestBody = buildStreamRequestBody(includeNativeTools);
+  };
   const url = `${normalizeBaseUrl(args.baseUrl)}/chat/completions`;
   if (args.debugModelResponses) {
     logLastPrompt({
@@ -1232,7 +729,7 @@ export async function callLocalOpenAICompatProviderStream(
       },
     });
   }
-  let response = await fetch(url, {
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       ...buildHeaders(args.apiKey),
@@ -1241,49 +738,6 @@ export async function callLocalOpenAICompatProviderStream(
     },
     body: JSON.stringify(requestBody),
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (
-      shouldRetryVllmWithoutNativeTools({
-        provider: args.provider,
-        tools: args.tools,
-        status: response.status,
-        errorText,
-        nativeToolsSent: includeNativeTools,
-      }) &&
-      promptToolCompat
-    ) {
-      if (nativeToolCacheKey) {
-        vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
-      }
-      requestBody = buildStreamRequestBody(false);
-      if (args.debugModelResponses) {
-        logLastPrompt({
-          sessionId: args.sessionId,
-          provider: args.provider,
-          model: args.model,
-          kind: 'openai_compatible_streaming_request',
-          request: {
-            method: 'POST',
-            url,
-            body: requestBody,
-          },
-        });
-      }
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          ...buildHeaders(args.apiKey),
-          ...(args.requestHeaders || {}),
-          Accept: 'text/event-stream, application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-    } else {
-      throw new ProviderRequestError(response.status, errorText);
-    }
-  }
 
   if (!response.ok) {
     throw new ProviderRequestError(response.status, await response.text());
@@ -1347,24 +801,15 @@ export async function callLocalOpenAICompatProviderStream(
     args.thinkingFormat === 'qwen' ||
     normalizationOptions.parser === 'qwen' ||
     normalizationOptions.parser === 'qwen3_coder';
-  const shouldFilterCallPrefix = normalizationOptions.parser === 'call_prefix';
   const streamEmitter = createThinkingStreamEmitter(args.onTextDelta, {
     onThinkingDelta: args.onThinkingDelta,
   });
   const visibleToolFilter = shouldFilterQwenMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushVisible(delta))
-    : shouldFilterCallPrefix
-      ? createCallPrefixStreamFilter((delta) =>
-          streamEmitter.pushVisible(delta),
-        )
-      : null;
+    : null;
   const reasoningToolFilter = shouldFilterQwenMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushThinking(delta))
-    : shouldFilterCallPrefix
-      ? createCallPrefixStreamFilter((delta) =>
-          streamEmitter.pushThinking(delta),
-        )
-      : null;
+    : null;
   const flushReasoningPreview = (): void => {
     reasoningToolFilter?.close();
   };

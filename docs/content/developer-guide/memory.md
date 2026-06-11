@@ -331,7 +331,7 @@ The values below describe the built-in defaults in the current codebase.
 | prompt recall hard cap | `12` memories | `buildPromptMemoryContext()` clamps prompt injection to at most `memory.semanticPromptHardCap` memories |
 | low-level recall hard cap | `50` memories | lower-level semantic recall API maximum for non-prompt callers |
 | embedding provider | `hashed` | `memory.embedding.provider` selects the semantic vector source: the built-in hashed fallback or a local Transformers.js model |
-| Transformers.js model | `onnx-community/embeddinggemma-300m-ONNX` | `memory.embedding.model` controls the Hugging Face model id when the Transformers.js provider is enabled |
+| Transformers.js model | configured model id | `memory.embedding.model` controls the Hugging Face model id when the Transformers.js provider is enabled |
 | Transformers.js revision | `75a84c732f1884df76bec365346230e32f582c82` | `memory.embedding.revision` pins the exact Hugging Face model revision downloaded on first use |
 | Transformers.js dtype | `q8` | `memory.embedding.dtype` selects the local ONNX quantization variant (`fp32`, `q8`, or `q4`) |
 | query prep mode | `no-stopwords` | `memory.queryMode` can keep the raw query or strip common stopwords before recall |
