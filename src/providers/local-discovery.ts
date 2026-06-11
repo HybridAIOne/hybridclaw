@@ -20,6 +20,7 @@ import {
   LOCAL_VLLM_ENABLED,
   LOCAL_VLLM_MODEL_BEHAVIOR,
 } from '../config/config.js';
+import { resolveModelBehavior } from '../types/model-behavior.js';
 import type {
   LocalBackendType,
   LocalEndpointConfig,
@@ -73,8 +74,12 @@ function createLocalModelInfo(
     typeof overrides?.maxTokens === 'number' && overrides.maxTokens > 0
       ? Math.floor(overrides.maxTokens)
       : LOCAL_DEFAULT_MAX_TOKENS;
+  const modelBehavior = resolveModelBehavior({
+    model: normalizedId,
+    configured: overrides?.modelBehavior,
+  });
   const thinkingFormat =
-    overrides?.thinkingFormat || overrides?.modelBehavior?.thinkingFormat;
+    overrides?.thinkingFormat || modelBehavior?.thinkingFormat;
 
   return {
     id: normalizedId,
@@ -90,9 +95,7 @@ function createLocalModelInfo(
       ? { endpointName: overrides.endpointName }
       : {}),
     ...(thinkingFormat ? { thinkingFormat } : {}),
-    ...(overrides?.modelBehavior
-      ? { modelBehavior: overrides.modelBehavior }
-      : {}),
+    ...(modelBehavior ? { modelBehavior } : {}),
     cost: ZERO_COST,
     ...(typeof overrides?.sizeBytes === 'number'
       ? { sizeBytes: overrides.sizeBytes }
@@ -109,13 +112,22 @@ function applyModelBehavior(
   modelBehavior: LocalModelBehavior | undefined,
 ): LocalModelInfo[] {
   if (!modelBehavior) return models;
-  return models.map((model) => ({
-    ...model,
-    modelBehavior,
-    ...(modelBehavior.thinkingFormat
-      ? { thinkingFormat: modelBehavior.thinkingFormat }
-      : {}),
-  }));
+  return models.map((model) => {
+    const resolved = resolveModelBehavior({
+      model: model.id,
+      configured: {
+        ...(model.modelBehavior || {}),
+        ...modelBehavior,
+      },
+    });
+    return {
+      ...model,
+      ...(resolved ? { modelBehavior: resolved } : {}),
+      ...(resolved?.thinkingFormat
+        ? { thinkingFormat: resolved.thinkingFormat }
+        : {}),
+    };
+  });
 }
 
 async function fetchJson(

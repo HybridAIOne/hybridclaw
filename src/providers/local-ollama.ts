@@ -3,7 +3,10 @@ import {
   LOCAL_OLLAMA_BASE_URL,
   LOCAL_OLLAMA_MODEL_BEHAVIOR,
 } from '../config/config.js';
-import { normalizeModelBehavior } from '../types/model-behavior.js';
+import {
+  normalizeModelBehavior,
+  resolveModelBehavior,
+} from '../types/model-behavior.js';
 import {
   getLocalModelInfo,
   resolveLocalModelBehavior,
@@ -42,9 +45,12 @@ async function resolveOllamaRuntimeCredentials(
     resolveLocalModelThinkingFormat(params.model) ||
     resolveLocalModelThinkingFormat(modelName) ||
     undefined;
-  const modelBehavior = normalizeModelBehavior({
-    ...(explicitBehavior || {}),
-    ...(thinkingFormat ? { thinkingFormat } : {}),
+  const modelBehavior = resolveModelBehavior({
+    model: modelName,
+    configured: {
+      ...(explicitBehavior || {}),
+      ...(thinkingFormat ? { thinkingFormat } : {}),
+    },
   });
   const agentId = normalizeAgentId(params.agentId);
   return {
@@ -58,7 +64,7 @@ async function resolveOllamaRuntimeCredentials(
     agentId,
     isLocal: true,
     contextWindow: modelInfo?.contextWindow ?? LOCAL_DEFAULT_CONTEXT_WINDOW,
-    thinkingFormat,
+    thinkingFormat: modelBehavior?.thinkingFormat,
     modelBehavior,
   };
 }

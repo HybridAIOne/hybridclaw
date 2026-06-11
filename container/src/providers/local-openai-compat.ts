@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { replaceUnpairedSurrogates } from '../../shared/unicode-utils.js';
+import { resolveModelBehavior } from '../model-behavior.js';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
@@ -141,10 +142,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function usesQwenCompat(args: {
+  provider?: string;
+  model?: string;
   modelBehavior?: NormalizedCallArgs['modelBehavior'];
   thinkingFormat?: 'qwen';
 }): boolean {
-  if (args.modelBehavior?.thinkingFormat === 'qwen') return true;
+  const behavior = resolveModelBehavior({
+    model: args.model
+      ? normalizeLocalModelName(args.provider, args.model)
+      : undefined,
+    configured: args.modelBehavior,
+  });
+  if (behavior?.thinkingFormat === 'qwen') return true;
   if (args.thinkingFormat === 'qwen') return true;
   return false;
 }
@@ -161,9 +170,18 @@ function usesLiquidCompat(args: {
 }
 
 function usesCallPrefixToolCompat(args: {
+  provider?: string;
+  model?: string;
   modelBehavior?: NormalizedCallArgs['modelBehavior'];
 }): boolean {
-  return args.modelBehavior?.toolCallFormat === 'gemma';
+  return (
+    resolveModelBehavior({
+      model: args.model
+        ? normalizeLocalModelName(args.provider, args.model)
+        : undefined,
+      configured: args.modelBehavior,
+    })?.toolCallFormat === 'gemma'
+  );
 }
 
 function usesPromptToolCompat(args: {

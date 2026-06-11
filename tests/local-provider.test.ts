@@ -221,7 +221,6 @@ describe('local providers', () => {
           enabled: true,
           baseUrl: 'http://haigpu2:8000/v1',
           apiKey: 'gemma-secret-key',
-          modelBehavior: { toolCallFormat: 'gemma' },
         },
       ];
     });
@@ -271,7 +270,6 @@ describe('local providers', () => {
           enabled: true,
           baseUrl: 'http://haigpu2:8000/v1',
           apiKey: 'gemma-secret-key',
-          modelBehavior: { toolCallFormat: 'gemma' },
         },
       ];
     });

@@ -421,7 +421,7 @@ test('openai-compatible vLLM Gemma calls use Gemma tool declarations without nat
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test('openai-compatible vLLM does not infer Gemma tool behavior from model name', async () => {
+test('openai-compatible vLLM infers Gemma tool behavior from model name', async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -430,10 +430,10 @@ test('openai-compatible vLLM does not infer Gemma tool behavior from model name'
         unknown
       >;
       expect(body.model).toBe('google/gemma-4-e4b-it');
-      expect(body.tools).toEqual(tools);
-      expect(body.tool_choice).toBe('auto');
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
       const messages = body.messages as Array<Record<string, unknown>>;
-      expect(String(messages[0]?.content || '')).not.toContain(
+      expect(String(messages[0]?.content || '')).toContain(
         '<|tool>declaration:shell',
       );
       return new Response(
@@ -471,7 +471,7 @@ test('openai-compatible vLLM does not infer Gemma tool behavior from model name'
   });
 });
 
-test('openai-compatible vLLM does not retry without tools when no prompt tool format is configured', async () => {
+test('openai-compatible non-Gemma vLLM does not retry without tools when no prompt tool format is configured', async () => {
   const fetchMock = vi.fn(
     async () =>
       new Response(
@@ -498,7 +498,7 @@ test('openai-compatible vLLM does not retry without tools when no prompt tool fo
         contextWindow: 32_768,
         thinkingFormat: undefined,
       },
-      model: 'vllm/google/gemma-4-e4b-it',
+      model: 'vllm/example/plain-model',
       messages: [{ role: 'user', content: 'run pwd' }],
       tools,
     }),

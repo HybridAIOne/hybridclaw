@@ -8,6 +8,7 @@ import {
 } from '../providers/provider-ids.js';
 import type { ResolvedModelRuntimeCredentials } from '../providers/types.js';
 import type { ChatMessage, ToolCall } from '../types/api.js';
+import { resolveModelBehavior } from '../types/model-behavior.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
@@ -216,7 +217,12 @@ function shouldRetryVllmWithoutNativeTools(params: {
 }
 
 function usesGemmaToolPath(params: OpenAICompatibleModelCallParams): boolean {
-  return params.runtime.modelBehavior?.toolCallFormat === 'gemma';
+  return (
+    resolveModelBehavior({
+      model: params.model,
+      configured: params.runtime.modelBehavior,
+    })?.toolCallFormat === 'gemma'
+  );
 }
 
 function usesPromptToolPath(params: OpenAICompatibleModelCallParams): boolean {

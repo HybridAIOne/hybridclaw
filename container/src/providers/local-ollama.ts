@@ -1,3 +1,4 @@
+import { resolveModelBehavior } from '../model-behavior.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
@@ -180,10 +181,14 @@ function finalizeToolCalls(
   model: string | undefined,
   modelBehavior: NormalizedCallArgs['modelBehavior'],
 ): { content: string | null; toolCalls: ToolCall[] } {
+  const behavior = resolveModelBehavior({
+    model,
+    configured: modelBehavior,
+  });
   const parser =
-    modelBehavior?.toolCallFormat === 'gemma'
+    behavior?.toolCallFormat === 'gemma'
       ? 'call_prefix'
-      : modelBehavior?.thinkingFormat === 'qwen'
+      : behavior?.thinkingFormat === 'qwen'
         ? 'qwen'
         : resolveToolCallTextParser(model);
   return normalizeToolCalls(rawToolCalls as ToolCall[] | undefined, content, {

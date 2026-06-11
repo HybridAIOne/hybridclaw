@@ -67,19 +67,25 @@ afterEach(() => {
 });
 
 describe('local container providers', () => {
-  test('Gemma prompt tool overhead is enabled only by explicit model behavior', () => {
+  test('Gemma prompt tool overhead is inferred from model family', () => {
     expect(
       estimateLocalOpenAICompatPromptOverheadTokens({
         provider: 'vllm',
         model: 'vllm/google/gemma-4-e4b-it',
         tools,
-        modelBehavior: { toolCallFormat: 'gemma' },
       }),
     ).toBeGreaterThan(0);
     expect(
       estimateLocalOpenAICompatPromptOverheadTokens({
         provider: 'vllm',
-        model: 'vllm/google/gemma-4-e4b-it',
+        model: 'vllm/google/embeddinggemma-300m',
+        tools,
+      }),
+    ).toBe(0);
+    expect(
+      estimateLocalOpenAICompatPromptOverheadTokens({
+        provider: 'vllm',
+        model: 'vllm/example/plain-model',
         tools,
       }),
     ).toBe(0);
@@ -736,7 +742,6 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
-      modelBehavior: { toolCallFormat: 'gemma' },
     } satisfies Parameters<typeof callLocalOpenAICompatProvider>[0];
 
     const result = await callLocalOpenAICompatProvider(args);
@@ -838,7 +843,7 @@ describe('local container providers', () => {
         provider: 'vllm',
         baseUrl: 'http://plain-vllm:8000/v1',
         apiKey: '',
-        model: 'vllm/google/gemma-4-e4b-it',
+        model: 'vllm/example/plain-model',
         chatbotId: '',
         enableRag: false,
         requestHeaders: undefined,

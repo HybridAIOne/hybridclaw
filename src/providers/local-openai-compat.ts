@@ -9,7 +9,10 @@ import {
   LOCAL_VLLM_BASE_URL,
   LOCAL_VLLM_MODEL_BEHAVIOR,
 } from '../config/config.js';
-import { normalizeModelBehavior } from '../types/model-behavior.js';
+import {
+  normalizeModelBehavior,
+  resolveModelBehavior,
+} from '../types/model-behavior.js';
 import {
   discoverAllLocalModels,
   getLocalModelInfo,
@@ -91,7 +94,7 @@ function createLocalOpenAICompatProvider(params: {
           getLocalModelInfo(runtimeParams.model) ||
           getLocalModelInfo(normalizedModel);
       }
-      const explicitBehavior = normalizeModelBehavior(
+      const configuredBehavior = normalizeModelBehavior(
         resolvedModel.modelBehavior ||
           modelInfo?.modelBehavior ||
           resolveLocalModelBehavior(runtimeParams.model) ||
@@ -99,14 +102,17 @@ function createLocalOpenAICompatProvider(params: {
           backendModelBehavior?.(),
       );
       const thinkingFormat =
-        explicitBehavior?.thinkingFormat ||
+        configuredBehavior?.thinkingFormat ||
         modelInfo?.thinkingFormat ||
         resolveLocalModelThinkingFormat(runtimeParams.model) ||
         resolveLocalModelThinkingFormat(normalizedModel) ||
         undefined;
-      const normalizedBehavior = normalizeModelBehavior({
-        ...(explicitBehavior || {}),
-        ...(thinkingFormat ? { thinkingFormat } : {}),
+      const resolvedBehavior = resolveModelBehavior({
+        model: normalizedModel,
+        configured: {
+          ...(configuredBehavior || {}),
+          ...(thinkingFormat ? { thinkingFormat } : {}),
+        },
       });
       const agentId =
         String(runtimeParams.agentId || '').trim() || DEFAULT_AGENT_ID;
@@ -123,8 +129,8 @@ function createLocalOpenAICompatProvider(params: {
         agentId,
         isLocal: true,
         contextWindow: modelInfo?.contextWindow ?? LOCAL_DEFAULT_CONTEXT_WINDOW,
-        thinkingFormat,
-        modelBehavior: normalizedBehavior,
+        thinkingFormat: resolvedBehavior?.thinkingFormat,
+        modelBehavior: resolvedBehavior,
       };
     },
   };
