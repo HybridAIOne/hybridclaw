@@ -4,6 +4,7 @@ import type {
 } from '../shared/stakes-classifier.js';
 import type { WebSearchConfig } from '../shared/web-search-config.js';
 import type { McpServerConfig } from './mcp/types.js';
+import type { ModelBehavior } from './model-behavior.js';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -136,6 +137,7 @@ export interface TaskModelPolicy {
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
   model: string;
   chatbotId?: string;
@@ -236,6 +238,7 @@ export interface ContainerInput {
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;

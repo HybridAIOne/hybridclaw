@@ -178,8 +178,14 @@ function finalizeToolCalls(
   rawToolCalls: unknown[] | undefined,
   content: string | null,
   model: string | undefined,
+  modelBehavior: NormalizedCallArgs['modelBehavior'],
 ): { content: string | null; toolCalls: ToolCall[] } {
-  const parser = resolveToolCallTextParser(model);
+  const parser =
+    modelBehavior?.toolCallFormat === 'gemma'
+      ? 'call_prefix'
+      : modelBehavior?.thinkingFormat === 'qwen'
+        ? 'qwen'
+        : resolveToolCallTextParser(model);
   return normalizeToolCalls(rawToolCalls as ToolCall[] | undefined, content, {
     parser,
     recoverBlankStructuredNameFromContent: parser === 'mistral',
@@ -191,9 +197,15 @@ function adaptOllamaPayload(
   rawContent: string,
   thinkingText: string,
   rawToolCalls: unknown[] | undefined,
+  modelBehavior: NormalizedCallArgs['modelBehavior'],
 ): ChatCompletionResponse {
   const content = finalizeContent(rawContent, thinkingText);
-  const normalized = finalizeToolCalls(rawToolCalls, content, payload.model);
+  const normalized = finalizeToolCalls(
+    rawToolCalls,
+    content,
+    payload.model,
+    modelBehavior,
+  );
   const usage = buildUsage(payload);
   return {
     id: 'ollama',
@@ -268,6 +280,7 @@ export async function callOllamaProvider(
     payload.message?.content || '',
     payload.message?.thinking || '',
     payload.message?.tool_calls,
+    args.modelBehavior,
   );
 }
 
@@ -429,5 +442,6 @@ export async function callOllamaProviderStream(
     rawContent,
     thinkingText,
     rawToolCalls,
+    args.modelBehavior,
   );
 }

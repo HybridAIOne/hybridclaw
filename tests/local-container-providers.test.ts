@@ -542,6 +542,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -710,6 +711,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
     } satisfies Parameters<typeof callLocalOpenAICompatProvider>[0];
 
     const result = await callLocalOpenAICompatProvider(args);
@@ -721,24 +723,15 @@ describe('local container providers', () => {
     ) as Record<string, unknown>;
     const messages = body.messages as Array<Record<string, unknown>>;
     expect(messages.some((message) => message.role === 'tool')).toBe(false);
-    expect(messages[2]).toEqual({
-      role: 'assistant',
-      content: null,
-      tool_calls: [
-        {
-          function: {
-            name: 'shell',
-            arguments: { command: 'pwd' },
-          },
-        },
-      ],
-      tool_responses: [
-        {
-          name: 'shell',
-          response: { ok: true },
-        },
-      ],
-    });
+    expect(messages[2]?.role).toBe('assistant');
+    expect(String(messages[2]?.content || '')).toContain(
+      '<|tool_call>call:shell{command:<|"|>pwd<|"|>}<tool_call|>',
+    );
+    expect(String(messages[2]?.content || '')).toContain(
+      '<|tool_response>response:shell{ok:true}<tool_response|>',
+    );
+    expect(messages[2]).not.toHaveProperty('tool_calls');
+    expect(messages[2]).not.toHaveProperty('tool_responses');
   });
 
   test('vLLM Gemma provider normalizes call-prefix tool calls', async () => {
@@ -782,6 +775,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
     });
 
     expect(result.choices[0]?.message.content).toBe(
@@ -846,6 +840,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
     });
 
     expect(result.choices[0]?.message.content).toBe(
@@ -906,6 +901,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
     });
 
     expect(result.choices[0]?.message.content).toBe(
@@ -965,6 +961,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
     });
 
     expect(deltas).toEqual(['ok']);
@@ -1000,6 +997,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
     });
 
     expect(deltas).toEqual(['Yes, list of running servers']);
@@ -1077,6 +1075,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
     });
 
     expect(deltas).toEqual([visibleContent]);
@@ -1151,6 +1150,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
     });
 
     expect(deltas).toEqual(['Yes, list of running servers']);
@@ -1227,6 +1227,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -1494,6 +1495,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -1545,6 +1547,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -1671,6 +1674,7 @@ describe('local container providers', () => {
       maxTokens: 128,
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { thinkingFormat: 'qwen' },
       thinkingFormat: 'qwen',
     });
 
@@ -1703,6 +1707,7 @@ describe('local container providers', () => {
         maxTokens: 128,
         isLocal: true,
         contextWindow: 32_768,
+        modelBehavior: { thinkingFormat: 'qwen' },
         thinkingFormat: 'qwen',
       }),
     ).rejects.toThrow('No user query found in messages.');

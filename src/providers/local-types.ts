@@ -1,7 +1,12 @@
+import type {
+  ModelBehavior,
+  ModelThinkingFormat,
+} from '../types/model-behavior.js';
 import type { LocalBackendType } from './provider-ids.js';
 
 export type { LocalBackendType } from './provider-ids.js';
-export type LocalThinkingFormat = 'qwen';
+export type LocalThinkingFormat = ModelThinkingFormat;
+export type LocalModelBehavior = ModelBehavior;
 
 export interface LocalModelInfo {
   id: string;
@@ -12,6 +17,7 @@ export interface LocalModelInfo {
   backend: LocalBackendType;
   endpointName?: string;
   thinkingFormat?: LocalThinkingFormat;
+  modelBehavior?: LocalModelBehavior;
   sizeBytes?: number;
   family?: string;
   parameterSize?: string;
@@ -27,6 +33,7 @@ export interface LocalBackendConfig {
   enabled: boolean;
   baseUrl: string;
   apiKey?: string;
+  modelBehavior?: LocalModelBehavior;
 }
 
 export interface LocalEndpointConfig extends LocalBackendConfig {

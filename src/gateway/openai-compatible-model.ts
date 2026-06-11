@@ -216,12 +216,7 @@ function shouldRetryVllmWithoutNativeTools(params: {
 }
 
 function usesGemmaToolPath(params: OpenAICompatibleModelCallParams): boolean {
-  return normalizeOpenAICompatModelName(
-    params.runtime.provider,
-    params.runtime.model || params.model,
-  )
-    .toLowerCase()
-    .includes('gemma');
+  return params.runtime.modelBehavior?.toolCallFormat === 'gemma';
 }
 
 function buildHybridAIRequestBody(

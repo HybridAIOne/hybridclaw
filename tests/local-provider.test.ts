@@ -221,6 +221,7 @@ describe('local providers', () => {
           enabled: true,
           baseUrl: 'http://haigpu2:8000/v1',
           apiKey: 'gemma-secret-key',
+          modelBehavior: { toolCallFormat: 'gemma' },
         },
       ];
     });
@@ -239,6 +240,7 @@ describe('local providers', () => {
       apiKey: 'gemma-secret-key',
       baseUrl: 'http://haigpu2:8000/v1',
       isLocal: true,
+      modelBehavior: { toolCallFormat: 'gemma' },
     });
   });
 
@@ -253,6 +255,7 @@ describe('local providers', () => {
           enabled: true,
           baseUrl: 'http://haigpu2:8000/v1',
           apiKey: 'gemma-secret-key',
+          modelBehavior: { toolCallFormat: 'gemma' },
         },
       ];
     });
@@ -282,6 +285,7 @@ describe('local providers', () => {
     ).toMatchObject({
       backend: 'vllm',
       endpointName: 'haigpu2',
+      modelBehavior: { toolCallFormat: 'gemma' },
     });
   });
 
@@ -293,12 +297,15 @@ describe('local providers', () => {
     expect(factory.resolveModelProvider('gpt-5-nano')).toBe('hybridai');
   });
 
-  test('lmstudio runtime credentials mark qwen models with qwen thinking format', async () => {
+  test('lmstudio runtime credentials preserve configured qwen thinking behavior', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
       config.local.backends.ollama.enabled = false;
       config.local.backends.lmstudio.enabled = true;
       config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+      config.local.backends.lmstudio.modelBehavior = {
+        thinkingFormat: 'qwen',
+      };
     });
     const { discovery, factory } = await importFreshModules(homeDir);
 
@@ -325,6 +332,7 @@ describe('local providers', () => {
       baseUrl: 'http://127.0.0.1:1234/v1',
       isLocal: true,
       thinkingFormat: 'qwen',
+      modelBehavior: { thinkingFormat: 'qwen' },
     });
   });
 });

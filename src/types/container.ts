@@ -9,6 +9,7 @@ import type {
   ToolExecution,
 } from './execution.js';
 import type { MemoryCitation } from './memory.js';
+import type { ModelBehavior } from './model-behavior.js';
 import type {
   ContextGuardConfig,
   McpServerConfig,
@@ -75,6 +76,7 @@ export interface ContainerInput {
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;

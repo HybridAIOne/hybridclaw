@@ -119,8 +119,10 @@ saved revision history directly.
   `hybridclaw config set hybridai.maxTokens <n>`
 - `local.endpoints[]` for additional named local model endpoints. Each entry
   has `name`, `type` (`ollama`, `lmstudio`, `llamacpp`, or `vllm`), `enabled`,
-  `baseUrl`, and optional `apiKey`; named models use `<name>/<model-id>`, for
-  example `haigpu2/google/gemma-3-27b-it`.
+  `baseUrl`, optional `apiKey`, and optional `modelBehavior`; named models use
+  `<name>/<model-id>`, for example `haigpu2/google/gemma-4-e4b-it`.
+  `modelBehavior` currently supports `thinkingFormat: "qwen"` and
+  `toolCallFormat: "gemma"`.
 - `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
   Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
   standard HybridClaw tool loop or `app-server` for the native Codex app-server

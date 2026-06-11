@@ -202,7 +202,7 @@ export function printLocalUsage(): void {
 
 Commands:
   hybridclaw local status
-  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--no-default]
+  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--tool-call-format gemma] [--no-default]
 
 Use Instead:
   hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] ...
@@ -215,7 +215,7 @@ Examples:
   hybridclaw local configure llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw local configure ollama llama3.2
   hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
-  hybridclaw local configure vllm google/gemma-3-27b-it --name haigpu2 --base-url http://haigpu2:8000 --api-key secret --no-default
+  hybridclaw local configure vllm google/gemma-4-e4b-it --name haigpu2 --base-url http://haigpu2:8000 --api-key secret --tool-call-format gemma --no-default
 
 Notes:
   - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
@@ -223,7 +223,8 @@ Notes:
   - Ollama URLs are normalized to omit \`/v1\`.
   - When a model id is provided, \`configure\` also sets \`hybridai.defaultModel\` to that local model by default.
     Use \`--no-default\` to leave the global default model unchanged.
-  - Use \`--name <endpoint>\` to configure another endpoint of the same backend type. Named models use \`<endpoint>/<model>\`, for example \`haigpu2/google/gemma-3-27b-it\`.
+  - Use \`--name <endpoint>\` to configure another endpoint of the same backend type. Named models use \`<endpoint>/<model>\`, for example \`haigpu2/google/gemma-4-e4b-it\`.
+  - Use \`--thinking-format qwen\` or \`--tool-call-format gemma\` to attach explicit model-behavior flags to a backend or named endpoint.
   - When no model id is provided, \`configure\` only enables the backend so you can browse models later with \`/model list <backend>\`.`);
 }
 

@@ -73,6 +73,7 @@ import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import type {
   LocalBackendType,
   LocalEndpointConfig,
+  LocalModelBehavior,
   LocalProviderConfig,
 } from '../providers/local-types.js';
 import {
@@ -4790,6 +4791,26 @@ function normalizeLocalEndpointType(value: unknown): LocalBackendType | null {
   return isLocalBackendType(normalized) ? normalized : null;
 }
 
+function normalizeModelBehaviorConfig(
+  value: unknown,
+): LocalModelBehavior | undefined {
+  if (!isRecord(value)) return undefined;
+  const behavior: LocalModelBehavior = {};
+  const thinkingFormat = normalizeString(value.thinkingFormat, '', {
+    allowEmpty: true,
+  }).toLowerCase();
+  if (thinkingFormat === 'qwen') {
+    behavior.thinkingFormat = 'qwen';
+  }
+  const toolCallFormat = normalizeString(value.toolCallFormat, '', {
+    allowEmpty: true,
+  }).toLowerCase();
+  if (toolCallFormat === 'gemma') {
+    behavior.toolCallFormat = 'gemma';
+  }
+  return Object.keys(behavior).length > 0 ? behavior : undefined;
+}
+
 function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
   if (!Array.isArray(value)) return [];
   const endpoints: LocalEndpointConfig[] = [];
@@ -4819,6 +4840,7 @@ function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
       enabled,
       baseUrl: normalizeBaseUrl(raw.baseUrl, fallbackBaseUrl),
       apiKey: normalizeString(resolvedApiKey, '', { allowEmpty: true }),
+      modelBehavior: normalizeModelBehaviorConfig(raw.modelBehavior),
     });
   }
   return endpoints;
@@ -7201,6 +7223,9 @@ function normalizeRuntimeConfig(
             rawOllamaBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.ollama.baseUrl,
           ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawOllamaBackend.modelBehavior,
+          ),
         },
         lmstudio: {
           enabled: normalizeBoolean(
@@ -7211,6 +7236,9 @@ function normalizeRuntimeConfig(
             rawLmStudioBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl,
           ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawLmStudioBackend.modelBehavior,
+          ),
         },
         llamacpp: {
           enabled: normalizeBoolean(
@@ -7220,6 +7248,9 @@ function normalizeRuntimeConfig(
           baseUrl: normalizeBaseUrl(
             rawLlamacppBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl,
+          ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawLlamacppBackend.modelBehavior,
           ),
         },
         vllm: {
@@ -7232,6 +7263,9 @@ function normalizeRuntimeConfig(
             resolvedVllmApiKey,
             DEFAULT_RUNTIME_CONFIG.local.backends.vllm.apiKey || '',
             { allowEmpty: true },
+          ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawVllmBackend.modelBehavior,
           ),
         },
       },

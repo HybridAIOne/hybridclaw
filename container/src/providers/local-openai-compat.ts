@@ -72,6 +72,10 @@ interface StreamChunkPayload {
 }
 
 const vllmModelsWithoutNativeTools = new Set<string>();
+const CALL_PREFIX_TOOL_CALL_OPEN = '<|tool_call>';
+const CALL_PREFIX_TOOL_CALL_CLOSE = '<tool_call|>';
+const CALL_PREFIX_TOOL_RESPONSE_OPEN = '<|tool_response>';
+const CALL_PREFIX_TOOL_RESPONSE_CLOSE = '<tool_response|>';
 
 function buildHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = {
@@ -137,22 +141,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function usesQwenCompat(args: {
-  provider: string | undefined;
-  model: string;
+  modelBehavior?: NormalizedCallArgs['modelBehavior'];
   thinkingFormat?: 'qwen';
 }): boolean {
+  if (args.modelBehavior?.thinkingFormat === 'qwen') return true;
   if (args.thinkingFormat === 'qwen') return true;
-  if (
-    args.provider !== 'lmstudio' &&
-    args.provider !== 'llamacpp' &&
-    args.provider !== 'vllm'
-  ) {
-    return false;
-  }
-  const normalizedModel = normalizeLocalModelName(args.provider, args.model)
-    .trim()
-    .toLowerCase();
-  return normalizedModel.includes('qwen') || normalizedModel.includes('qwq');
+  return false;
 }
 
 function usesLiquidCompat(args: {
@@ -167,14 +161,9 @@ function usesLiquidCompat(args: {
 }
 
 function usesCallPrefixToolCompat(args: {
-  provider: string | undefined;
-  model: string;
+  modelBehavior?: NormalizedCallArgs['modelBehavior'];
 }): boolean {
-  return (
-    resolveToolCallTextParser(
-      normalizeLocalModelName(args.provider, args.model),
-    ) === 'call_prefix'
-  );
+  return args.modelBehavior?.toolCallFormat === 'gemma';
 }
 
 function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
@@ -270,12 +259,35 @@ function parseJsonObject(value: string): unknown {
   }
 }
 
+function contentToCallPrefixText(content: ChatMessage['content']): string {
+  if (typeof content === 'string') return replaceUnpairedSurrogates(content);
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((part) => part.type === 'text' && part.text)
+    .map((part) =>
+      part.type === 'text' ? replaceUnpairedSurrogates(part.text) : '',
+    )
+    .join('\n');
+}
+
+function renderCallPrefixToolCall(toolCall: ToolCall): string {
+  return `${CALL_PREFIX_TOOL_CALL_OPEN}call:${toolCall.function.name}${gemmaToolLiteral(
+    parseJsonObject(toolCall.function.arguments),
+  )}${CALL_PREFIX_TOOL_CALL_CLOSE}`;
+}
+
+function renderCallPrefixToolResponse(name: string, response: unknown): string {
+  return `${CALL_PREFIX_TOOL_RESPONSE_OPEN}response:${name}${gemmaToolLiteral(
+    response,
+  )}${CALL_PREFIX_TOOL_RESPONSE_CLOSE}`;
+}
+
 function buildCallPrefixRequestMessages(
   messages: ChatMessage[],
 ): Array<Record<string, unknown>> {
   const collapsed = collapseSystemMessages(messages);
   const result: Array<Record<string, unknown>> = [];
-  let pendingAssistant: Record<string, unknown> | null = null;
+  let pendingAssistant: { role: 'assistant'; content: string } | null = null;
   let pendingCalls: Array<{
     id: string;
     name: string;
@@ -301,14 +313,12 @@ function buildCallPrefixRequestMessages(
       }));
       pendingAssistant = {
         role: 'assistant',
-        content: normalizeMessageContent(message.content),
-        tool_calls: message.tool_calls.map((toolCall) => ({
-          function: {
-            name: toolCall.function.name,
-            arguments: parseJsonObject(toolCall.function.arguments),
-          },
-        })),
-        tool_responses: [],
+        content: [
+          contentToCallPrefixText(message.content).trim(),
+          message.tool_calls.map(renderCallPrefixToolCall).join(''),
+        ]
+          .filter(Boolean)
+          .join('\n'),
       };
       continue;
     }
@@ -324,17 +334,12 @@ function buildCallPrefixRequestMessages(
         ) || pendingCalls.find((call) => !call.used);
       if (responseCall) {
         responseCall.used = true;
-        const responses = pendingAssistant.tool_responses as Array<{
-          name: string;
-          response: unknown;
-        }>;
-        responses.push({
-          name: responseCall.name,
-          response:
-            typeof message.content === 'string'
-              ? parseJsonObject(message.content)
-              : normalizeMessageContent(message.content),
-        });
+        pendingAssistant.content += renderCallPrefixToolResponse(
+          responseCall.name,
+          typeof message.content === 'string'
+            ? parseJsonObject(message.content)
+            : normalizeMessageContent(message.content),
+        );
         continue;
       }
     }
@@ -529,10 +534,16 @@ function shouldRetryVllmWithoutNativeTools(params: {
 function buildToolCallNormalizationOptions(params: {
   provider: string | undefined;
   model: string;
+  modelBehavior?: NormalizedCallArgs['modelBehavior'];
 }) {
-  const parser = resolveToolCallTextParser(
-    normalizeLocalModelName(params.provider, params.model),
-  );
+  const parser =
+    params.modelBehavior?.toolCallFormat === 'gemma'
+      ? 'call_prefix'
+      : params.modelBehavior?.thinkingFormat === 'qwen'
+        ? 'qwen'
+        : resolveToolCallTextParser(
+            normalizeLocalModelName(params.provider, params.model),
+          );
   return {
     parser,
     recoverBlankStructuredNameFromContent: parser === 'mistral',
@@ -652,6 +663,7 @@ function adaptLocalOpenAICompatResponse(
   params: {
     provider: string | undefined;
     model: string;
+    modelBehavior?: NormalizedCallArgs['modelBehavior'];
   },
 ): ChatCompletionResponse {
   assertNoProviderError(payload);
@@ -1129,6 +1141,7 @@ export async function callLocalOpenAICompatProvider(
   return adaptLocalOpenAICompatResponse(payload, {
     provider: args.provider,
     model: args.model,
+    modelBehavior: args.modelBehavior,
   });
 }
 
@@ -1237,6 +1250,7 @@ export async function callLocalOpenAICompatProviderStream(
     const adapted = adaptLocalOpenAICompatResponse(payload, {
       provider: args.provider,
       model: args.model,
+      modelBehavior: args.modelBehavior,
     });
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
@@ -1256,6 +1270,7 @@ export async function callLocalOpenAICompatProviderStream(
     const adapted = adaptLocalOpenAICompatResponse(payload, {
       provider: args.provider,
       model: args.model,
+      modelBehavior: args.modelBehavior,
     });
     emitResponseTextDeltas(adapted, args.onTextDelta);
     return adapted;
@@ -1266,8 +1281,10 @@ export async function callLocalOpenAICompatProviderStream(
   const normalizationOptions = buildToolCallNormalizationOptions({
     provider: args.provider,
     model: args.model,
+    modelBehavior: args.modelBehavior,
   });
   const shouldFilterQwenMarkup =
+    args.modelBehavior?.thinkingFormat === 'qwen' ||
     args.thinkingFormat === 'qwen' ||
     normalizationOptions.parser === 'qwen' ||
     normalizationOptions.parser === 'qwen3_coder';
@@ -1498,6 +1515,7 @@ export async function callLocalOpenAICompatProviderStream(
     {
       provider: args.provider,
       model: args.model,
+      modelBehavior: args.modelBehavior,
     },
   );
 }

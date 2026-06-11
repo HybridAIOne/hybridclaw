@@ -456,13 +456,25 @@ export let KILO_ENABLED = false;
 export let KILO_BASE_URL = 'https://api.kilo.ai/api/gateway';
 export let LOCAL_OLLAMA_ENABLED = true;
 export let LOCAL_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+export let LOCAL_OLLAMA_MODEL_BEHAVIOR:
+  | RuntimeConfig['local']['backends']['ollama']['modelBehavior']
+  | undefined;
 export let LOCAL_LMSTUDIO_ENABLED = false;
 export let LOCAL_LMSTUDIO_BASE_URL = 'http://127.0.0.1:1234/v1';
+export let LOCAL_LMSTUDIO_MODEL_BEHAVIOR:
+  | RuntimeConfig['local']['backends']['lmstudio']['modelBehavior']
+  | undefined;
 export let LOCAL_LLAMACPP_ENABLED = false;
 export let LOCAL_LLAMACPP_BASE_URL = 'http://127.0.0.1:8081/v1';
+export let LOCAL_LLAMACPP_MODEL_BEHAVIOR:
+  | RuntimeConfig['local']['backends']['llamacpp']['modelBehavior']
+  | undefined;
 export let LOCAL_VLLM_ENABLED = false;
 export let LOCAL_VLLM_BASE_URL = 'http://127.0.0.1:8000/v1';
 export let LOCAL_VLLM_API_KEY = '';
+export let LOCAL_VLLM_MODEL_BEHAVIOR:
+  | RuntimeConfig['local']['backends']['vllm']['modelBehavior']
+  | undefined;
 export let LOCAL_ENDPOINTS: RuntimeConfig['local']['endpoints'] = [];
 export let LOCAL_DISCOVERY_ENABLED = true;
 export let LOCAL_DISCOVERY_INTERVAL_MS = 3_600_000;
@@ -1019,13 +1031,25 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   KILO_BASE_URL = config.kilo.baseUrl;
   LOCAL_OLLAMA_ENABLED = config.local.backends.ollama.enabled;
   LOCAL_OLLAMA_BASE_URL = config.local.backends.ollama.baseUrl;
+  LOCAL_OLLAMA_MODEL_BEHAVIOR = config.local.backends.ollama.modelBehavior
+    ? structuredClone(config.local.backends.ollama.modelBehavior)
+    : undefined;
   LOCAL_LMSTUDIO_ENABLED = config.local.backends.lmstudio.enabled;
   LOCAL_LMSTUDIO_BASE_URL = config.local.backends.lmstudio.baseUrl;
+  LOCAL_LMSTUDIO_MODEL_BEHAVIOR = config.local.backends.lmstudio.modelBehavior
+    ? structuredClone(config.local.backends.lmstudio.modelBehavior)
+    : undefined;
   LOCAL_LLAMACPP_ENABLED = config.local.backends.llamacpp.enabled;
   LOCAL_LLAMACPP_BASE_URL = config.local.backends.llamacpp.baseUrl;
+  LOCAL_LLAMACPP_MODEL_BEHAVIOR = config.local.backends.llamacpp.modelBehavior
+    ? structuredClone(config.local.backends.llamacpp.modelBehavior)
+    : undefined;
   LOCAL_VLLM_ENABLED = config.local.backends.vllm.enabled;
   LOCAL_VLLM_BASE_URL = config.local.backends.vllm.baseUrl;
   LOCAL_VLLM_API_KEY = config.local.backends.vllm.apiKey || '';
+  LOCAL_VLLM_MODEL_BEHAVIOR = config.local.backends.vllm.modelBehavior
+    ? structuredClone(config.local.backends.vllm.modelBehavior)
+    : undefined;
   LOCAL_ENDPOINTS = structuredClone(config.local.endpoints);
   LOCAL_DISCOVERY_ENABLED = config.local.discovery.enabled;
   LOCAL_DISCOVERY_INTERVAL_MS = config.local.discovery.intervalMs;

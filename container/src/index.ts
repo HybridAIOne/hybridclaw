@@ -760,6 +760,7 @@ async function callHybridAIWithRetry(params: {
   debugModelResponses?: boolean;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ContainerInput['modelBehavior'];
   thinkingFormat?: 'qwen';
 }): Promise<ChatCompletionResponse> {
   const {
@@ -781,6 +782,7 @@ async function callHybridAIWithRetry(params: {
     debugModelResponses,
     isLocal,
     contextWindow,
+    modelBehavior,
     thinkingFormat,
   } = params;
   let attempt = 0;
@@ -825,6 +827,7 @@ async function callHybridAIWithRetry(params: {
             debugModelResponses,
             isLocal,
             contextWindow,
+            modelBehavior,
             thinkingFormat,
           });
         } catch (streamErr) {
@@ -849,6 +852,7 @@ async function callHybridAIWithRetry(params: {
             debugModelResponses,
             isLocal,
             contextWindow,
+            modelBehavior,
             thinkingFormat,
           });
         }
@@ -869,6 +873,7 @@ async function callHybridAIWithRetry(params: {
           debugModelResponses,
           isLocal,
           contextWindow,
+          modelBehavior,
           thinkingFormat,
         });
       }
@@ -920,6 +925,7 @@ interface ProcessRequestParams {
   codexRuntime?: ContainerInput['codexRuntime'];
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ContainerInput['modelBehavior'];
   thinkingFormat?: 'qwen';
   model: string;
   chatbotId: string;
@@ -982,6 +988,7 @@ async function processRequest(
     codexRuntime,
     isLocal,
     contextWindow,
+    modelBehavior,
     thinkingFormat,
     model,
     chatbotId,
@@ -1067,6 +1074,7 @@ async function processRequest(
       chatbotId,
       requestHeaders,
       maxTokens,
+      modelBehavior,
       debugModelResponses,
       gatewayBaseUrl,
       gatewayApiToken,
@@ -1104,6 +1112,7 @@ async function processRequest(
       requestHeaders,
       isLocal,
       contextWindow,
+      modelBehavior,
       thinkingFormat,
       debugModelResponses,
     },
@@ -1239,6 +1248,7 @@ async function processRequest(
               requestHeaders,
               isLocal,
               contextWindow,
+              modelBehavior,
               thinkingFormat,
             },
             messages: summaryMessages,
@@ -1311,6 +1321,7 @@ async function processRequest(
         debugModelResponses,
         isLocal,
         contextWindow,
+        modelBehavior,
         thinkingFormat,
       });
     } catch (err) {
@@ -1886,6 +1897,7 @@ async function main(): Promise<void> {
     firstInput.chatbotId,
     storedRequestHeaders,
     firstInput.maxTokens,
+    firstInput.modelBehavior,
     firstInput.debugModelResponses === true,
   );
   setProviderCredentials(firstInput.providerCredentials);
@@ -1935,6 +1947,7 @@ async function main(): Promise<void> {
       codexRuntime: firstInput.codexRuntime,
       isLocal: firstInput.isLocal,
       contextWindow: firstInput.contextWindow,
+      modelBehavior: firstInput.modelBehavior,
       thinkingFormat: firstInput.thinkingFormat,
       model: firstInput.model,
       chatbotId: firstInput.chatbotId,
@@ -1977,6 +1990,7 @@ async function main(): Promise<void> {
         codexRuntime: firstInput.codexRuntime,
         isLocal: firstInput.isLocal,
         contextWindow: firstInput.contextWindow,
+        modelBehavior: firstInput.modelBehavior,
         thinkingFormat: firstInput.thinkingFormat,
         model: firstInput.model,
         chatbotId: firstInput.chatbotId,
@@ -2072,6 +2086,7 @@ async function main(): Promise<void> {
       input.chatbotId,
       requestHeaders,
       input.maxTokens,
+      input.modelBehavior,
       input.debugModelResponses === true,
     );
     setProviderCredentials(input.providerCredentials);
@@ -2126,6 +2141,7 @@ async function main(): Promise<void> {
       codexRuntime: input.codexRuntime,
       isLocal: input.isLocal,
       contextWindow: input.contextWindow,
+      modelBehavior: input.modelBehavior,
       thinkingFormat: input.thinkingFormat,
       model: input.model,
       chatbotId: input.chatbotId,
@@ -2167,6 +2183,7 @@ async function main(): Promise<void> {
         codexRuntime: input.codexRuntime,
         isLocal: input.isLocal,
         contextWindow: input.contextWindow,
+        modelBehavior: input.modelBehavior,
         thinkingFormat: input.thinkingFormat,
         model: input.model,
         chatbotId: input.chatbotId,

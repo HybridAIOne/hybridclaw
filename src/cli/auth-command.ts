@@ -53,6 +53,7 @@ import {
   saveNamedRuntimeSecrets,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import type { ModelBehavior } from '../types/model-behavior.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { makeLazyApi, normalizeArgs, parseValueFlag } from './common.js';
 import {
@@ -2015,6 +2016,7 @@ interface ParsedLocalConfigureArgs {
   baseUrl?: string;
   apiKey?: string;
   name?: string;
+  modelBehavior?: ModelBehavior;
   setDefault: boolean;
 }
 
@@ -2023,6 +2025,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
   const { baseUrl, remaining } = extractBaseUrlArg(args);
   let apiKey: string | undefined;
   let parsedName: string | undefined;
+  let modelBehavior: ModelBehavior | undefined;
   let setDefault = true;
   let setDefaultExplicit = false;
 
@@ -2063,6 +2066,40 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       index = apiKeyFlag.nextIndex;
       continue;
     }
+    const thinkingFormatFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      name: '--thinking-format',
+      placeholder: '<format>',
+    });
+    if (thinkingFormatFlag) {
+      const normalized = thinkingFormatFlag.value.trim().toLowerCase();
+      if (normalized !== 'qwen') {
+        throw new Error('`--thinking-format` currently supports only `qwen`.');
+      }
+      modelBehavior = { ...(modelBehavior || {}), thinkingFormat: 'qwen' };
+      index = thinkingFormatFlag.nextIndex;
+      continue;
+    }
+    const toolCallFormatFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      name: '--tool-call-format',
+      placeholder: '<format>',
+    });
+    if (toolCallFormatFlag) {
+      const normalized = toolCallFormatFlag.value.trim().toLowerCase();
+      if (normalized !== 'gemma') {
+        throw new Error(
+          '`--tool-call-format` currently supports only `gemma`.',
+        );
+      }
+      modelBehavior = { ...(modelBehavior || {}), toolCallFormat: 'gemma' };
+      index = toolCallFormatFlag.nextIndex;
+      continue;
+    }
     if (arg.startsWith('-')) {
       throw new Error(`Unknown flag: ${arg}`);
     }
@@ -2071,7 +2108,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
 
   if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--no-default]`',
+      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--tool-call-format gemma] [--no-default]`',
     );
   }
 
@@ -2101,6 +2138,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     baseUrl,
     apiKey,
     ...(endpointName ? { name: endpointName } : {}),
+    ...(modelBehavior ? { modelBehavior } : {}),
     setDefault: Boolean(modelId) && setDefault,
   };
 }
@@ -2162,6 +2200,11 @@ function configureLocalBackend(args: string[]): void {
         enabled: true,
         baseUrl: normalizedBaseUrl,
         apiKey: parsed.apiKey !== undefined ? '' : existing?.apiKey || '',
+        ...(parsed.modelBehavior
+          ? { modelBehavior: parsed.modelBehavior }
+          : existing?.modelBehavior
+            ? { modelBehavior: existing.modelBehavior }
+            : {}),
       };
       draft.local.endpoints = [
         ...draft.local.endpoints.filter((entry) => entry.name !== parsed.name),
@@ -2170,6 +2213,10 @@ function configureLocalBackend(args: string[]): void {
     } else {
       draft.local.backends[parsed.backend].enabled = true;
       draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
+      if (parsed.modelBehavior) {
+        draft.local.backends[parsed.backend].modelBehavior =
+          parsed.modelBehavior;
+      }
       if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
         draft.local.backends.vllm.apiKey = '';
       }
@@ -2224,6 +2271,26 @@ function configureLocalBackend(args: string[]): void {
     console.log(`Configured model: ${fullModelName}`);
   } else {
     console.log('Configured model: none');
+  }
+  const configuredBehavior =
+    nextEndpoint?.modelBehavior ||
+    nextConfig.local.backends[parsed.backend].modelBehavior;
+  if (
+    configuredBehavior?.thinkingFormat ||
+    configuredBehavior?.toolCallFormat
+  ) {
+    console.log(
+      `Model behavior: ${[
+        configuredBehavior.thinkingFormat
+          ? `thinkingFormat=${configuredBehavior.thinkingFormat}`
+          : '',
+        configuredBehavior.toolCallFormat
+          ? `toolCallFormat=${configuredBehavior.toolCallFormat}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(', ')}`,
+    );
   }
   if (parsed.apiKey !== undefined) {
     console.log(

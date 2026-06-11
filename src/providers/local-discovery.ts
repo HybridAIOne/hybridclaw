@@ -8,17 +8,22 @@ import {
   LOCAL_ENDPOINTS,
   LOCAL_LLAMACPP_BASE_URL,
   LOCAL_LLAMACPP_ENABLED,
+  LOCAL_LLAMACPP_MODEL_BEHAVIOR,
   LOCAL_LMSTUDIO_BASE_URL,
   LOCAL_LMSTUDIO_ENABLED,
+  LOCAL_LMSTUDIO_MODEL_BEHAVIOR,
   LOCAL_OLLAMA_BASE_URL,
   LOCAL_OLLAMA_ENABLED,
+  LOCAL_OLLAMA_MODEL_BEHAVIOR,
   LOCAL_VLLM_API_KEY,
   LOCAL_VLLM_BASE_URL,
   LOCAL_VLLM_ENABLED,
+  LOCAL_VLLM_MODEL_BEHAVIOR,
 } from '../config/config.js';
 import type {
   LocalBackendType,
   LocalEndpointConfig,
+  LocalModelBehavior,
   LocalModelInfo,
   LocalThinkingFormat,
 } from './local-types.js';
@@ -54,17 +59,6 @@ function isReasoningModel(modelId: string): boolean {
   );
 }
 
-function detectThinkingFormat(
-  modelId: string,
-): LocalThinkingFormat | undefined {
-  const normalized = normalizeModelId(modelId).toLowerCase();
-  if (!normalized) return undefined;
-  if (normalized.includes('qwen') || normalized.includes('qwq')) {
-    return 'qwen';
-  }
-  return undefined;
-}
-
 function createLocalModelInfo(
   backend: LocalBackendType,
   modelId: string,
@@ -79,6 +73,8 @@ function createLocalModelInfo(
     typeof overrides?.maxTokens === 'number' && overrides.maxTokens > 0
       ? Math.floor(overrides.maxTokens)
       : LOCAL_DEFAULT_MAX_TOKENS;
+  const thinkingFormat =
+    overrides?.thinkingFormat || overrides?.modelBehavior?.thinkingFormat;
 
   return {
     id: normalizedId,
@@ -93,11 +89,9 @@ function createLocalModelInfo(
     ...(overrides?.endpointName
       ? { endpointName: overrides.endpointName }
       : {}),
-    ...(overrides?.thinkingFormat || detectThinkingFormat(normalizedId)
-      ? {
-          thinkingFormat:
-            overrides?.thinkingFormat || detectThinkingFormat(normalizedId),
-        }
+    ...(thinkingFormat ? { thinkingFormat } : {}),
+    ...(overrides?.modelBehavior
+      ? { modelBehavior: overrides.modelBehavior }
       : {}),
     cost: ZERO_COST,
     ...(typeof overrides?.sizeBytes === 'number'
@@ -108,6 +102,20 @@ function createLocalModelInfo(
       ? { parameterSize: overrides.parameterSize }
       : {}),
   };
+}
+
+function applyModelBehavior(
+  models: LocalModelInfo[],
+  modelBehavior: LocalModelBehavior | undefined,
+): LocalModelInfo[] {
+  if (!modelBehavior) return models;
+  return models.map((model) => ({
+    ...model,
+    modelBehavior,
+    ...(modelBehavior.thinkingFormat
+      ? { thinkingFormat: modelBehavior.thinkingFormat }
+      : {}),
+  }));
 }
 
 async function fetchJson(
@@ -396,23 +404,35 @@ async function discoverEndpointModels(
       maxModels: LOCAL_DISCOVERY_MAX_MODELS,
       concurrency: LOCAL_DISCOVERY_CONCURRENCY,
     });
-    return models.map((model) => ({ ...model, endpointName: endpoint.name }));
+    return applyModelBehavior(
+      models.map((model) => ({ ...model, endpointName: endpoint.name })),
+      endpoint.modelBehavior,
+    );
   }
   if (endpoint.type === 'lmstudio') {
-    return discoverLmStudioModels(
-      endpoint.baseUrl,
-      endpoint.name,
-      endpoint.apiKey,
+    return applyModelBehavior(
+      await discoverLmStudioModels(
+        endpoint.baseUrl,
+        endpoint.name,
+        endpoint.apiKey,
+      ),
+      endpoint.modelBehavior,
     );
   }
   if (endpoint.type === 'llamacpp') {
-    return discoverLlamacppModels(
-      endpoint.baseUrl,
-      endpoint.name,
-      endpoint.apiKey,
+    return applyModelBehavior(
+      await discoverLlamacppModels(
+        endpoint.baseUrl,
+        endpoint.name,
+        endpoint.apiKey,
+      ),
+      endpoint.modelBehavior,
     );
   }
-  return discoverVllmModels(endpoint.baseUrl, endpoint.apiKey, endpoint.name);
+  return applyModelBehavior(
+    await discoverVllmModels(endpoint.baseUrl, endpoint.apiKey, endpoint.name),
+    endpoint.modelBehavior,
+  );
 }
 
 export interface LocalDiscoveryStore {
@@ -531,24 +551,38 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
             discoverOllamaModels(LOCAL_OLLAMA_BASE_URL, {
               maxModels: LOCAL_DISCOVERY_MAX_MODELS,
               concurrency: LOCAL_DISCOVERY_CONCURRENCY,
-            }).catch(() => []),
+            })
+              .then((models) =>
+                applyModelBehavior(models, LOCAL_OLLAMA_MODEL_BEHAVIOR),
+              )
+              .catch(() => []),
           );
         }
         if (LOCAL_LMSTUDIO_ENABLED) {
           tasks.push(
-            discoverLmStudioModels(LOCAL_LMSTUDIO_BASE_URL).catch(() => []),
+            discoverLmStudioModels(LOCAL_LMSTUDIO_BASE_URL)
+              .then((models) =>
+                applyModelBehavior(models, LOCAL_LMSTUDIO_MODEL_BEHAVIOR),
+              )
+              .catch(() => []),
           );
         }
         if (LOCAL_LLAMACPP_ENABLED) {
           tasks.push(
-            discoverLlamacppModels(LOCAL_LLAMACPP_BASE_URL).catch(() => []),
+            discoverLlamacppModels(LOCAL_LLAMACPP_BASE_URL)
+              .then((models) =>
+                applyModelBehavior(models, LOCAL_LLAMACPP_MODEL_BEHAVIOR),
+              )
+              .catch(() => []),
           );
         }
         if (LOCAL_VLLM_ENABLED) {
           tasks.push(
-            discoverVllmModels(LOCAL_VLLM_BASE_URL, LOCAL_VLLM_API_KEY).catch(
-              () => [],
-            ),
+            discoverVllmModels(LOCAL_VLLM_BASE_URL, LOCAL_VLLM_API_KEY)
+              .then((models) =>
+                applyModelBehavior(models, LOCAL_VLLM_MODEL_BEHAVIOR),
+              )
+              .catch(() => []),
           );
         }
         for (const endpoint of LOCAL_ENDPOINTS) {
@@ -646,11 +680,13 @@ export function resolveLocalModelContextWindow(model: string): number | null {
 export function resolveLocalModelThinkingFormat(
   model: string,
 ): LocalThinkingFormat | null {
-  return (
-    getLocalModelInfo(model)?.thinkingFormat ||
-    detectThinkingFormat(model) ||
-    null
-  );
+  return getLocalModelInfo(model)?.thinkingFormat || null;
+}
+
+export function resolveLocalModelBehavior(
+  model: string,
+): LocalModelBehavior | null {
+  return getLocalModelInfo(model)?.modelBehavior || null;
 }
 
 export function startDiscoveryLoop(): void {

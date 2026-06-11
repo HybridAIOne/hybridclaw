@@ -14,6 +14,7 @@ const GEMMA_QUOTE_MARKER = '<|"|>';
 const GEMMA_TOOL_CALL_OPEN = '<|tool_call>';
 const GEMMA_TOOL_CALL_CLOSE = '<tool_call|>';
 const GEMMA_TOOL_RESPONSE_OPEN = '<|tool_response>';
+const GEMMA_TOOL_RESPONSE_CLOSE = '<tool_response|>';
 
 function gemmaToolString(value: string): string {
   return `<|"|>${String(value || '').replace(/<\|"\|>/g, '"')}<|"|>`;
@@ -61,6 +62,27 @@ function parseJsonValue(value: string): unknown {
   } catch {
     return value;
   }
+}
+
+function contentToGemmaText(content: ChatMessage['content']): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((part) => part.type === 'text' && part.text)
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join('\n');
+}
+
+function renderGemmaToolCall(toolCall: ToolCall): string {
+  return `${GEMMA_TOOL_CALL_OPEN}call:${toolCall.function.name}${gemmaToolLiteral(
+    parseJsonValue(toolCall.function.arguments),
+  )}${GEMMA_TOOL_CALL_CLOSE}`;
+}
+
+function renderGemmaToolResponse(name: string, response: unknown): string {
+  return `${GEMMA_TOOL_RESPONSE_OPEN}response:${name}${gemmaToolLiteral(
+    response,
+  )}${GEMMA_TOOL_RESPONSE_CLOSE}`;
 }
 
 function findBalancedBraceEnd(text: string, startIndex: number): number {
@@ -367,7 +389,7 @@ export function buildGemmaRequestMessages(
   messages: ChatMessage[],
 ): Array<Record<string, unknown>> {
   const result: Array<Record<string, unknown>> = [];
-  let pendingAssistant: Record<string, unknown> | null = null;
+  let pendingAssistant: { role: 'assistant'; content: string } | null = null;
   let pendingCalls: Array<{
     id: string;
     name: string;
@@ -393,14 +415,12 @@ export function buildGemmaRequestMessages(
       }));
       pendingAssistant = {
         role: 'assistant',
-        content: message.content,
-        tool_calls: message.tool_calls.map((toolCall) => ({
-          function: {
-            name: toolCall.function.name,
-            arguments: parseJsonValue(toolCall.function.arguments),
-          },
-        })),
-        tool_responses: [],
+        content: [
+          contentToGemmaText(message.content).trim(),
+          message.tool_calls.map(renderGemmaToolCall).join(''),
+        ]
+          .filter(Boolean)
+          .join('\n'),
       };
       continue;
     }
@@ -416,17 +436,12 @@ export function buildGemmaRequestMessages(
         ) || pendingCalls.find((call) => !call.used);
       if (responseCall) {
         responseCall.used = true;
-        const responses = pendingAssistant.tool_responses as Array<{
-          name: string;
-          response: unknown;
-        }>;
-        responses.push({
-          name: responseCall.name,
-          response:
-            typeof message.content === 'string'
-              ? parseJsonValue(message.content)
-              : message.content,
-        });
+        pendingAssistant.content += renderGemmaToolResponse(
+          responseCall.name,
+          typeof message.content === 'string'
+            ? parseJsonValue(message.content)
+            : message.content,
+        );
         continue;
       }
     }

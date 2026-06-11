@@ -1,4 +1,5 @@
 import type { RuntimeProviderId } from '../providers/provider-ids.js';
+import type { ModelBehavior } from './model-behavior.js';
 
 export type ProviderKind = RuntimeProviderId;
 
@@ -23,6 +24,7 @@ export interface TaskModelPolicy {
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
   model: string;
   chatbotId?: string;

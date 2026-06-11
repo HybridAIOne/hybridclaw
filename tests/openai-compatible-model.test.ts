@@ -195,6 +195,7 @@ test('openai-compatible HybridAI Gemma calls use Gemma tool declarations without
       agentId: 'main',
       isLocal: false,
       contextWindow: 200_000,
+      modelBehavior: { toolCallFormat: 'gemma' },
       thinkingFormat: undefined,
     },
     model: 'hybridai/google/gemma-4-e4b-it',
@@ -307,6 +308,7 @@ test('openai-compatible non-vLLM Gemma calls use Gemma tool declarations without
       agentId: 'main',
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
       thinkingFormat: undefined,
     },
     model: 'lmstudio/google/gemma-4-e4b-it',
@@ -336,24 +338,15 @@ test('openai-compatible vLLM Gemma calls use Gemma tool declarations without nat
       '<|tool_call>call:TOOL_NAME',
     );
     expect(messages.some((message) => message.role === 'tool')).toBe(false);
-    expect(messages[2]).toEqual({
-      role: 'assistant',
-      content: null,
-      tool_calls: [
-        {
-          function: {
-            name: 'shell',
-            arguments: { command: 'pwd' },
-          },
-        },
-      ],
-      tool_responses: [
-        {
-          name: 'shell',
-          response: { ok: true },
-        },
-      ],
-    });
+    expect(messages[2]?.role).toBe('assistant');
+    expect(String(messages[2]?.content || '')).toContain(
+      '<|tool_call>call:shell{command:<|"|>pwd<|"|>}<tool_call|>',
+    );
+    expect(String(messages[2]?.content || '')).toContain(
+      '<|tool_response>response:shell{ok:true}<tool_response|>',
+    );
+    expect(messages[2]).not.toHaveProperty('tool_calls');
+    expect(messages[2]).not.toHaveProperty('tool_responses');
     return new Response(
       JSON.stringify({
         id: 'resp_1',
@@ -384,6 +377,7 @@ test('openai-compatible vLLM Gemma calls use Gemma tool declarations without nat
       agentId: 'main',
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
       thinkingFormat: undefined,
     },
     model: 'vllm/google/gemma-4-e4b-it',
@@ -416,6 +410,56 @@ test('openai-compatible vLLM Gemma calls use Gemma tool declarations without nat
 
   expect(result.choices[0]?.message.content).toBe('ok');
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('openai-compatible vLLM does not infer Gemma tool behavior from model name', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('google/gemma-4-e4b-it');
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(String(messages[0]?.content || '')).not.toContain(
+        '<|tool>declaration:shell',
+      );
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'google/gemma-4-e4b-it',
+          choices: [
+            {
+              message: { role: 'assistant', content: 'ok' },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }),
+  );
+
+  await callOpenAICompatibleModel({
+    runtime: {
+      provider: 'vllm',
+      apiKey: '',
+      baseUrl: 'http://haigpu2:8000/v1',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: {},
+      agentId: 'main',
+      isLocal: true,
+      contextWindow: 32_768,
+      thinkingFormat: undefined,
+    },
+    model: 'vllm/google/gemma-4-e4b-it',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    tools,
+  });
 });
 
 test('openai-compatible vLLM Gemma calls normalize text tool calls', async () => {
@@ -456,6 +500,7 @@ test('openai-compatible vLLM Gemma calls normalize text tool calls', async () =>
       agentId: 'main',
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
       thinkingFormat: undefined,
     },
     model: 'vllm/google/gemma-4-e4b-it',
@@ -515,6 +560,7 @@ test('openai-compatible vLLM Gemma streams use Gemma tool declarations without n
       agentId: 'main',
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
       thinkingFormat: undefined,
     },
     model: 'vllm/google/gemma-4-e4b-it',
@@ -572,6 +618,7 @@ test('openai-compatible vLLM Gemma streams normalize text tool calls without lea
       agentId: 'main',
       isLocal: true,
       contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
       thinkingFormat: undefined,
     },
     model: 'vllm/google/gemma-4-e4b-it',

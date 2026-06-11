@@ -157,6 +157,8 @@ test('local configure lmstudio enables the backend and normalizes the URL', asyn
     'qwen/qwen3.5-9b',
     '--base-url',
     'http://127.0.0.1:1234',
+    '--thinking-format',
+    'qwen',
   ]);
 
   const config = readRuntimeConfig(homeDir);
@@ -164,6 +166,9 @@ test('local configure lmstudio enables the backend and normalizes the URL', asyn
   expect(config.local.backends.lmstudio.baseUrl).toBe(
     'http://127.0.0.1:1234/v1',
   );
+  expect(config.local.backends.lmstudio.modelBehavior).toEqual({
+    thinkingFormat: 'qwen',
+  });
   expect(config.hybridai.defaultModel).toBe('lmstudio/qwen/qwen3.5-9b');
   expect(logSpy).toHaveBeenCalledWith(
     expect.stringContaining('Updated runtime config at'),
@@ -962,6 +967,8 @@ test('local configure vllm with name stores a named endpoint secret ref', async 
     'http://haigpu2:8000',
     '--api-key',
     'gemma-secret-key',
+    '--tool-call-format',
+    'gemma',
     '--no-default',
   ]);
 
@@ -984,6 +991,7 @@ test('local configure vllm with name stores a named endpoint secret ref', async 
     enabled: true,
     baseUrl: 'http://haigpu2:8000/v1',
     apiKey: 'gemma-secret-key',
+    modelBehavior: { toolCallFormat: 'gemma' },
   });
   expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
   expect(rawEndpoint?.apiKey).toEqual({

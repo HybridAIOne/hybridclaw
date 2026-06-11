@@ -2,16 +2,21 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_LLAMACPP_BASE_URL,
+  LOCAL_LLAMACPP_MODEL_BEHAVIOR,
   LOCAL_LMSTUDIO_BASE_URL,
+  LOCAL_LMSTUDIO_MODEL_BEHAVIOR,
   LOCAL_VLLM_API_KEY,
   LOCAL_VLLM_BASE_URL,
+  LOCAL_VLLM_MODEL_BEHAVIOR,
 } from '../config/config.js';
+import { normalizeModelBehavior } from '../types/model-behavior.js';
 import {
   getLocalModelInfo,
+  resolveLocalModelBehavior,
   resolveLocalModelThinkingFormat,
 } from './local-discovery.js';
 import { resolveLocalEndpointForModel } from './local-endpoints.js';
-import type { LocalBackendType } from './local-types.js';
+import type { LocalBackendType, LocalModelBehavior } from './local-types.js';
 import type {
   AIProvider,
   ResolvedModelRuntimeCredentials,
@@ -25,6 +30,7 @@ function resolveLocalRuntimeModel(
   modelId: string;
   baseUrl?: string;
   apiKey?: string;
+  modelBehavior?: LocalModelBehavior;
 } {
   const trimmed = String(model || '').trim();
   const endpoint = resolveLocalEndpointForModel(trimmed, backend);
@@ -33,6 +39,7 @@ function resolveLocalRuntimeModel(
       modelId: endpoint.modelId,
       baseUrl: endpoint.endpoint.baseUrl,
       apiKey: endpoint.endpoint.apiKey || '',
+      modelBehavior: endpoint.endpoint.modelBehavior,
     };
   }
   const prefix = `${backend}/`;
@@ -46,8 +53,14 @@ function createLocalOpenAICompatProvider(params: {
   backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm'>;
   baseUrl: () => string;
   apiKey?: () => string;
+  modelBehavior?: () => LocalModelBehavior | undefined;
 }): AIProvider {
-  const { backend, baseUrl, apiKey } = params;
+  const {
+    backend,
+    baseUrl,
+    apiKey,
+    modelBehavior: backendModelBehavior,
+  } = params;
   return {
     id: backend,
     matchesModel(model: string): boolean {
@@ -69,6 +82,23 @@ function createLocalOpenAICompatProvider(params: {
       const modelInfo =
         getLocalModelInfo(runtimeParams.model) ||
         getLocalModelInfo(normalizedModel);
+      const explicitBehavior = normalizeModelBehavior(
+        resolvedModel.modelBehavior ||
+          modelInfo?.modelBehavior ||
+          resolveLocalModelBehavior(runtimeParams.model) ||
+          resolveLocalModelBehavior(normalizedModel) ||
+          backendModelBehavior?.(),
+      );
+      const thinkingFormat =
+        explicitBehavior?.thinkingFormat ||
+        modelInfo?.thinkingFormat ||
+        resolveLocalModelThinkingFormat(runtimeParams.model) ||
+        resolveLocalModelThinkingFormat(normalizedModel) ||
+        undefined;
+      const normalizedBehavior = normalizeModelBehavior({
+        ...(explicitBehavior || {}),
+        ...(thinkingFormat ? { thinkingFormat } : {}),
+      });
       const agentId =
         String(runtimeParams.agentId || '').trim() || DEFAULT_AGENT_ID;
       return {
@@ -84,11 +114,8 @@ function createLocalOpenAICompatProvider(params: {
         agentId,
         isLocal: true,
         contextWindow: modelInfo?.contextWindow ?? LOCAL_DEFAULT_CONTEXT_WINDOW,
-        thinkingFormat:
-          modelInfo?.thinkingFormat ||
-          resolveLocalModelThinkingFormat(runtimeParams.model) ||
-          resolveLocalModelThinkingFormat(normalizedModel) ||
-          undefined,
+        thinkingFormat,
+        modelBehavior: normalizedBehavior,
       };
     },
   };
@@ -97,15 +124,18 @@ function createLocalOpenAICompatProvider(params: {
 export const lmstudioProvider = createLocalOpenAICompatProvider({
   backend: 'lmstudio',
   baseUrl: () => LOCAL_LMSTUDIO_BASE_URL,
+  modelBehavior: () => LOCAL_LMSTUDIO_MODEL_BEHAVIOR,
 });
 
 export const llamacppProvider = createLocalOpenAICompatProvider({
   backend: 'llamacpp',
   baseUrl: () => LOCAL_LLAMACPP_BASE_URL,
+  modelBehavior: () => LOCAL_LLAMACPP_MODEL_BEHAVIOR,
 });
 
 export const vllmProvider = createLocalOpenAICompatProvider({
   backend: 'vllm',
   baseUrl: () => LOCAL_VLLM_BASE_URL,
   apiKey: () => LOCAL_VLLM_API_KEY,
+  modelBehavior: () => LOCAL_VLLM_MODEL_BEHAVIOR,
 });

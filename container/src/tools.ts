@@ -29,6 +29,7 @@ import {
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
+import type { ModelBehavior } from './model-behavior.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   type RuntimeProvider,
@@ -810,6 +811,7 @@ export function setModelContext(
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  modelBehavior?: ModelBehavior,
   debugModelResponses = false,
 ): void {
   currentModelProvider = resolveRuntimeProviderContext(provider, model);
@@ -832,6 +834,7 @@ export function setModelContext(
     chatbotId,
     requestHeaders,
     currentModelMaxTokens,
+    modelBehavior,
     debugModelResponses,
   );
 }

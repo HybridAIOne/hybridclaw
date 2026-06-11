@@ -1187,12 +1187,6 @@ export function resolveToolCallTextParser(
     .toLowerCase();
   if (!normalizedModel) return null;
 
-  if (normalizedModel.includes('qwen3') && normalizedModel.includes('coder')) {
-    return 'qwen3_coder';
-  }
-  if (normalizedModel.includes('qwen') || normalizedModel.includes('qwq')) {
-    return 'qwen';
-  }
   if (
     normalizedModel.includes('mistral') ||
     normalizedModel.includes('ministral') ||
@@ -1222,9 +1216,6 @@ export function resolveToolCallTextParser(
   }
   if (normalizedModel.includes('hermes')) {
     return 'hermes';
-  }
-  if (normalizedModel.includes('gemma') || normalizedModel.includes('gemini')) {
-    return 'call_prefix';
   }
   return null;
 }

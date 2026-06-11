@@ -1,4 +1,7 @@
-import type { LocalThinkingFormat } from './local-types.js';
+import type {
+  ModelBehavior,
+  ModelThinkingFormat,
+} from '../types/model-behavior.js';
 import type { AIProviderId, RuntimeProviderId } from './provider-ids.js';
 
 export type { AIProviderId, RuntimeProviderId } from './provider-ids.js';
@@ -17,7 +20,8 @@ export interface ResolvedModelRuntimeCredentials {
   isLocal?: boolean;
   contextWindow?: number;
   maxTokens?: number;
-  thinkingFormat?: LocalThinkingFormat;
+  thinkingFormat?: ModelThinkingFormat;
+  modelBehavior?: ModelBehavior;
 }
 
 export interface ResolveProviderRuntimeParams {

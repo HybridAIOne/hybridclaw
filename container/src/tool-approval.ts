@@ -149,6 +149,7 @@ export function createToolApprovalResolver(params: {
     requestHeaders?: Record<string, string>;
     isLocal?: boolean;
     contextWindow?: number;
+    modelBehavior?: ContainerInput['modelBehavior'];
     thinkingFormat?: 'qwen';
     debugModelResponses?: boolean;
   };
