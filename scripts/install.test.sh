@@ -10,11 +10,11 @@
 # matrix (ubuntu/node:22/alpine in Docker) lives in
 # tests/install-script.install-e2e.test.ts (npm run test:install-e2e).
 #
-# The stub functions below override commands the sourced install.sh functions
-# call indirectly, which shellcheck's reachability pass can't see (SC2317); it
-# also can't follow the runtime source of install.sh (SC1091). Silence both
-# false positives file-wide so `shellcheck install.test.sh` stays clean.
-# shellcheck disable=SC2317,SC1091
+# The harness relies on sourced functions, subshell-local env setup, and
+# literal bash snippets. ShellCheck cannot follow the runtime source of
+# install.sh or see that those variables are consumed by sourced code, so keep
+# these false positives file-wide.
+# shellcheck disable=SC2317,SC2329,SC1091,SC2016,SC2030,SC2031,SC2034
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
