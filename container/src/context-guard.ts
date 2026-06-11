@@ -106,6 +106,8 @@ export function applyContextGuard(params: {
     0,
     Math.floor(params.promptOverheadTokens || 0),
   );
+  const tier3BudgetTokens =
+    promptOverheadTokens > 0 ? contextWindowTokens : overflowBudgetTokens;
   let totalTokens =
     estimateMessageTokens(params.history, params.cache) + promptOverheadTokens;
   let truncatedToolResults = 0;
@@ -143,6 +145,6 @@ export function applyContextGuard(params: {
     overflowBudgetTokens,
     truncatedToolResults,
     compactedToolResults,
-    tier3Triggered: totalTokens > overflowBudgetTokens,
+    tier3Triggered: totalTokens > tier3BudgetTokens,
   };
 }

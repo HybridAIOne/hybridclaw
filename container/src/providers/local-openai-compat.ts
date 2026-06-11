@@ -239,13 +239,13 @@ function buildCallPrefixToolCallInstruction(tools: ToolDefinition[]): string {
   return [
     declarations,
     'When a tool is needed, emit only a Gemma tool call in this form: <|tool_call>call:TOOL_NAME{ARGUMENT_NAME:ARGUMENT_VALUE}<tool_call|><|tool_response>',
-    'Do not write a shell command, Markdown code block, or prose instead of a tool call.',
+    'Use tool calls only when using tools.',
   ].join('\n');
 }
 
 function estimatePromptToolInstructionTokens(instruction: string): number {
   if (!instruction) return 0;
-  return Math.max(1, Math.ceil(instruction.length / 2) + 32);
+  return Math.max(1, Math.ceil(instruction.length / 4) + 16);
 }
 
 export function estimateLocalOpenAICompatPromptOverheadTokens(args: {

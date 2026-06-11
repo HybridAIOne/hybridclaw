@@ -687,7 +687,7 @@ describe('local container providers', () => {
         'command:{type:<|"|>STRING<|"|>}',
       );
       expect(String(messages[0]?.content || '')).toContain(
-        'Do not write a shell command',
+        'Use tool calls only when using tools.',
       );
       return new Response(
         JSON.stringify({

@@ -56,7 +56,7 @@ export function buildGemmaToolCallInstruction(
   return [
     declarations,
     'When a tool is needed, emit only a Gemma tool call in this form: <|tool_call>call:TOOL_NAME{ARGUMENT_NAME:ARGUMENT_VALUE}<tool_call|><|tool_response>',
-    'Do not write a shell command, Markdown code block, or prose instead of a tool call.',
+    'Use tool calls only when using tools.',
   ].join('\n');
 }
 
