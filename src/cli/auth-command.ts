@@ -2082,24 +2082,6 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       index = thinkingFormatFlag.nextIndex;
       continue;
     }
-    const toolCallFormatFlag = parseValueFlag({
-      arg,
-      args: remaining,
-      index,
-      name: '--tool-call-format',
-      placeholder: '<format>',
-    });
-    if (toolCallFormatFlag) {
-      const normalized = toolCallFormatFlag.value.trim().toLowerCase();
-      if (normalized !== 'gemma') {
-        throw new Error(
-          '`--tool-call-format` currently supports only `gemma`.',
-        );
-      }
-      modelBehavior = { ...(modelBehavior || {}), toolCallFormat: 'gemma' };
-      index = toolCallFormatFlag.nextIndex;
-      continue;
-    }
     if (arg.startsWith('-')) {
       throw new Error(`Unknown flag: ${arg}`);
     }
@@ -2108,7 +2090,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
 
   if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--tool-call-format gemma] [--no-default]`',
+      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
     );
   }
 
@@ -2275,17 +2257,11 @@ function configureLocalBackend(args: string[]): void {
   const configuredBehavior =
     nextEndpoint?.modelBehavior ||
     nextConfig.local.backends[parsed.backend].modelBehavior;
-  if (
-    configuredBehavior?.thinkingFormat ||
-    configuredBehavior?.toolCallFormat
-  ) {
+  if (configuredBehavior?.thinkingFormat) {
     console.log(
       `Model behavior: ${[
         configuredBehavior.thinkingFormat
           ? `thinkingFormat=${configuredBehavior.thinkingFormat}`
-          : '',
-        configuredBehavior.toolCallFormat
-          ? `toolCallFormat=${configuredBehavior.toolCallFormat}`
           : '',
       ]
         .filter(Boolean)

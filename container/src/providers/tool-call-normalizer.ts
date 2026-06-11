@@ -10,10 +10,6 @@ const KIMI_K2_START_TOKENS = [
   '<|tool_calls_section_begin|>',
   '<|tool_call_section_begin|>',
 ] as const;
-const GEMMA_TOOL_CALL_OPEN = '<|tool_call>';
-const GEMMA_TOOL_CALL_CLOSE = '<tool_call|>';
-const GEMMA_TOOL_RESPONSE_OPEN = '<|tool_response>';
-const GEMMA_QUOTE_MARKER = '<|"|>';
 
 export type ToolCallTextParser =
   | 'hermes'
@@ -23,8 +19,7 @@ export type ToolCallTextParser =
   | 'deepseek_v3'
   | 'deepseek_v3_1'
   | 'kimi_k2'
-  | 'liquid'
-  | 'call_prefix';
+  | 'liquid';
 
 export interface NormalizeToolCallOptions {
   parser?: ToolCallTextParser | null;
@@ -710,127 +705,6 @@ function extractLiquidToolCalls(content: string): {
     : { content, toolCalls: [] };
 }
 
-function findBalancedDelimiterEnd(text: string, startIndex: number): number {
-  const open = text[startIndex];
-  const closeByOpen = new Map([
-    ['{', '}'],
-    ['[', ']'],
-    ['(', ')'],
-  ]);
-  const close = closeByOpen.get(open);
-  if (!close) return -1;
-
-  let depth = 0;
-  let quote: '"' | "'" | null = null;
-  let escaped = false;
-  let gemmaQuoted = false;
-
-  for (let index = startIndex; index < text.length; index += 1) {
-    const char = text[index];
-    if (gemmaQuoted) {
-      if (text.startsWith(GEMMA_QUOTE_MARKER, index)) {
-        gemmaQuoted = false;
-        index += GEMMA_QUOTE_MARKER.length - 1;
-      }
-      continue;
-    }
-
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === quote) {
-        quote = null;
-      }
-      continue;
-    }
-
-    if (text.startsWith(GEMMA_QUOTE_MARKER, index)) {
-      gemmaQuoted = true;
-      index += GEMMA_QUOTE_MARKER.length - 1;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === open) {
-      depth += 1;
-      continue;
-    }
-    if (char === close) {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-  }
-
-  return -1;
-}
-
-function parseSingleQuotedString(text: string): string {
-  const body = text.slice(1, -1);
-  return body.replace(/\\(['\\bfnrt])/g, (_match, char: string) => {
-    switch (char) {
-      case "'":
-        return "'";
-      case '\\':
-        return '\\';
-      case 'b':
-        return '\b';
-      case 'f':
-        return '\f';
-      case 'n':
-        return '\n';
-      case 'r':
-        return '\r';
-      case 't':
-        return '\t';
-      default:
-        return char;
-    }
-  });
-}
-
-function replaceGemmaQuotedStrings(text: string): string {
-  let out = '';
-  let cursor = 0;
-  while (cursor < text.length) {
-    const start = text.indexOf(GEMMA_QUOTE_MARKER, cursor);
-    if (start < 0) {
-      out += text.slice(cursor);
-      break;
-    }
-    out += text.slice(cursor, start);
-    const valueStart = start + GEMMA_QUOTE_MARKER.length;
-    const end = text.indexOf(GEMMA_QUOTE_MARKER, valueStart);
-    if (end < 0) {
-      out += text.slice(start);
-      break;
-    }
-    out += JSON.stringify(text.slice(valueStart, end));
-    cursor = end + GEMMA_QUOTE_MARKER.length;
-  }
-  return out;
-}
-
-function parseCallPrefixObjectKey(text: string): string | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      return typeof parsed === 'string' ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
-    return parseSingleQuotedString(trimmed);
-  }
-  return /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(trimmed) ? trimmed : null;
-}
-
 function findTopLevelSeparator(text: string, separator: string): number {
   let quote: '"' | "'" | null = null;
   let escaped = false;
@@ -871,133 +745,6 @@ function findTopLevelSeparator(text: string, separator: string): number {
   }
 
   return -1;
-}
-
-function parseCallPrefixLiteral(text: string): unknown {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    const body = trimmed.slice(1, -1).trim();
-    const objectValue: Record<string, unknown> = {};
-    if (!body) return objectValue;
-
-    for (const segment of splitTopLevelSegments(body, ',')) {
-      const separator = findTopLevelSeparator(segment, ':');
-      if (separator < 1) {
-        throw new Error('Invalid call-prefix object literal');
-      }
-      const key = parseCallPrefixObjectKey(segment.slice(0, separator));
-      if (!key) {
-        throw new Error('Invalid call-prefix object key');
-      }
-      objectValue[key] = parseCallPrefixLiteral(segment.slice(separator + 1));
-    }
-    return objectValue;
-  }
-
-  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-    const body = trimmed.slice(1, -1).trim();
-    if (!body) return [];
-    return splitTopLevelSegments(body, ',').map((segment) =>
-      parseCallPrefixLiteral(segment),
-    );
-  }
-
-  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
-    return parseSingleQuotedString(trimmed);
-  }
-
-  return tryConvertParameterValue(trimmed);
-}
-
-function parseCallPrefixArguments(text: string): unknown {
-  const normalized = replaceGemmaQuotedStrings(text);
-  try {
-    return parseJsonCandidate(normalized);
-  } catch {
-    return parseCallPrefixLiteral(normalized);
-  }
-}
-
-function includesGemmaToolCallOpenBefore(text: string, index: number): boolean {
-  const start = index - GEMMA_TOOL_CALL_OPEN.length;
-  return (
-    start >= 0 &&
-    text.slice(start, index).toLowerCase() === GEMMA_TOOL_CALL_OPEN
-  );
-}
-
-function isCallPrefixBoundary(text: string, index: number): boolean {
-  if (index <= 0) return true;
-  const previous = text[index - 1] || '';
-  return /\s/.test(previous) || !/[A-Za-z0-9_]/.test(previous);
-}
-
-function callPrefixRemovalEnd(text: string, argumentsEnd: number): number {
-  const lower = text.toLowerCase();
-  let end = argumentsEnd + 1;
-  if (lower.startsWith(GEMMA_TOOL_CALL_CLOSE, end)) {
-    end += GEMMA_TOOL_CALL_CLOSE.length;
-  }
-  if (lower.startsWith(GEMMA_TOOL_RESPONSE_OPEN, end)) {
-    end += GEMMA_TOOL_RESPONSE_OPEN.length;
-  }
-  return end;
-}
-
-function extractCallPrefixToolCalls(content: string): {
-  content: string | null;
-  toolCalls: ToolCall[];
-} {
-  const protectedRanges = findCodeFenceRanges(content);
-  const removals: Array<{ start: number; end: number }> = [];
-  const toolCalls: ToolCall[] = [];
-  const pattern = /\bcall:\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*(?=\{)/gi;
-  let match: RegExpExecArray | null = pattern.exec(content);
-
-  while (match) {
-    const start = match.index;
-    const hasGemmaOpenMarker = includesGemmaToolCallOpenBefore(content, start);
-    if (
-      (isCallPrefixBoundary(content, start) || hasGemmaOpenMarker) &&
-      !isProtectedIndex(start, protectedRanges)
-    ) {
-      const argumentsStart = pattern.lastIndex;
-      const argumentsEnd = findBalancedDelimiterEnd(content, argumentsStart);
-      if (argumentsEnd >= argumentsStart) {
-        try {
-          const parsed = parseCallPrefixArguments(
-            content.slice(argumentsStart, argumentsEnd + 1),
-          );
-          const toolCall = normalizeToolCallLike({
-            function: {
-              name: match[1],
-              arguments: parsed,
-            },
-          });
-          if (toolCall) {
-            toolCalls.push(toolCall);
-            removals.push({
-              start: hasGemmaOpenMarker
-                ? start - GEMMA_TOOL_CALL_OPEN.length
-                : start,
-              end: callPrefixRemovalEnd(content, argumentsEnd),
-            });
-          }
-          pattern.lastIndex = callPrefixRemovalEnd(content, argumentsEnd);
-        } catch {
-          pattern.lastIndex = start + 'call:'.length;
-        }
-      }
-    }
-
-    match = pattern.exec(content);
-  }
-
-  return toolCalls.length > 0
-    ? { content: stripMarkedRanges(content, removals), toolCalls }
-    : { content, toolCalls: [] };
 }
 
 function parseLiquidToolCallList(payload: string): ToolCall[] {
@@ -1144,8 +891,6 @@ function parseTextToolCalls(
       return extractKimiK2ToolCalls(responseContent);
     case 'liquid':
       return extractLiquidToolCalls(responseContent);
-    case 'call_prefix':
-      return extractCallPrefixToolCalls(responseContent);
     default:
       return { content: responseContent, toolCalls: [] };
   }

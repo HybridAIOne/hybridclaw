@@ -271,7 +271,6 @@ function normalizeCallModelBehavior(
   const rawBehavior = isRecord(value)
     ? normalizeModelBehavior({
         thinkingFormat: normalizeThinkingFormat(value.thinkingFormat),
-        toolCallFormat: value.toolCallFormat === 'gemma' ? 'gemma' : undefined,
       })
     : undefined;
   return normalizeModelBehavior({
