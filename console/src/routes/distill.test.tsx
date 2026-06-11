@@ -115,6 +115,18 @@ describe('DistillPage', () => {
     registerDistillAgentMock.mockResolvedValue({
       subject: makeSubject(),
     });
+    saveDistillSubjectMock.mockResolvedValue({
+      subject: {
+        ...makeSubject(),
+        agentId: 'nora',
+        alias: 'nora',
+        profile: {
+          ...makeSubject().profile,
+          alias: 'nora',
+          displayName: 'Nora Hart',
+        },
+      },
+    });
     deleteDistillCorpusDocumentMock.mockResolvedValue({
       subject: { ...makeSubject(), corpusDocuments: 0, corpus: [] },
     });
@@ -182,6 +194,38 @@ describe('DistillPage', () => {
           sources: [{ path: '/sources/memo.md', kind: 'auto' }],
         }),
       );
+    });
+  });
+
+  it('starts a blank subject draft from an existing subject', async () => {
+    renderWithProviders(<DistillPage />);
+
+    await screen.findByText('Maya Lindqvist');
+    fireEvent.click(screen.getByRole('button', { name: 'New Subject' }));
+
+    await waitFor(() => {
+      const alias = screen.getByLabelText('Alias') as HTMLInputElement;
+      expect(alias.value).toBe('');
+    });
+    fireEvent.change(screen.getByLabelText('Alias'), {
+      target: { value: 'nora' },
+    });
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Nora Hart' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Subject' }));
+
+    await waitFor(() => {
+      expect(saveDistillSubjectMock).toHaveBeenCalledWith('test-token', {
+        agentId: undefined,
+        alias: 'nora',
+        displayName: 'Nora Hart',
+        role: undefined,
+        relationship: undefined,
+        realPerson: true,
+        personalityTags: [],
+        matchAliases: [],
+      });
     });
   });
 

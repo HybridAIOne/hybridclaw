@@ -496,6 +496,7 @@ export function DistillPage() {
   const auth = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const [isNewSubject, setIsNewSubject] = useState(false);
   const [selectedKey, setSelectedKey] = useState('');
   const [subjectDraft, setSubjectDraft] = useState<SubjectDraft>(
     draftFromSubject(null),
@@ -523,16 +524,17 @@ export function DistillPage() {
 
   const subjects = query.data?.subjects || [];
   useEffect(() => {
-    if (!selectedKey && subjects.length > 0) {
+    if (!isNewSubject && !selectedKey && subjects.length > 0) {
       setSelectedKey(subjectKey(subjects[0]));
     }
-  }, [selectedKey, subjects]);
+  }, [isNewSubject, selectedKey, subjects]);
 
-  const selectedSubject = useMemo(
-    () =>
-      subjects.find((subject) => subjectKey(subject) === selectedKey) || null,
-    [selectedKey, subjects],
-  );
+  const selectedSubject = useMemo(() => {
+    if (isNewSubject) return null;
+    return (
+      subjects.find((subject) => subjectKey(subject) === selectedKey) || null
+    );
+  }, [isNewSubject, selectedKey, subjects]);
 
   useEffect(() => {
     setSubjectDraft(draftFromSubject(selectedSubject));
@@ -550,6 +552,16 @@ export function DistillPage() {
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ['admin', 'distill'] });
 
+  const startNewSubject = () => {
+    setIsNewSubject(true);
+    setSelectedKey('');
+    setSubjectDraft(draftFromSubject(null));
+    setConsent({ grantedBy: '', method: 'written', statement: '' });
+    setPendingFiles([]);
+    setUploadedSources([]);
+    setManualSources('');
+  };
+
   const subjectMutation = useMutation({
     mutationFn: () =>
       saveDistillSubject(auth.token, {
@@ -563,6 +575,7 @@ export function DistillPage() {
         matchAliases: parseStringList(subjectDraft.matchAliases),
       }),
     onSuccess: async (result) => {
+      setIsNewSubject(false);
       setSelectedKey(subjectKey(result.subject));
       toast.success('Subject saved');
       await invalidate();
@@ -582,6 +595,7 @@ export function DistillPage() {
         statement: consent.statement,
       }),
     onSuccess: async (result) => {
+      setIsNewSubject(false);
       setSelectedKey(subjectKey(result.subject));
       toast.success('Consent recorded');
       await invalidate();
@@ -597,6 +611,7 @@ export function DistillPage() {
         alias: subjectDraft.alias,
       }),
     onSuccess: async (result) => {
+      setIsNewSubject(false);
       setSelectedKey(subjectKey(result.subject));
       toast.success('Agent registered');
       await invalidate();
@@ -649,6 +664,7 @@ export function DistillPage() {
         kind: sourceKind,
       }),
     onSuccess: async (result) => {
+      setIsNewSubject(false);
       setSelectedKey(subjectKey(result.subject));
       setUploadedSources([]);
       setManualSources('');
@@ -673,6 +689,7 @@ export function DistillPage() {
         documentId: document.id,
       }),
     onSuccess: async (result) => {
+      setIsNewSubject(false);
       setSelectedKey(subjectKey(result.subject));
       toast.success('Corpus document deleted');
       await invalidate();
@@ -742,13 +759,18 @@ export function DistillPage() {
       <PageHeader
         description="Human distillation intake, consent, source upload, and run control."
         actions={
-          <Button
-            variant="outline"
-            onClick={() => void query.refetch()}
-            loading={query.isFetching}
-          >
-            Refresh
-          </Button>
+          <div className="button-row">
+            <Button variant="outline" onClick={startNewSubject}>
+              New Subject
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void query.refetch()}
+              loading={query.isFetching}
+            >
+              Refresh
+            </Button>
+          </div>
         }
       />
 
@@ -766,9 +788,11 @@ export function DistillPage() {
         <div className="page-stack">
           <Card>
             <CardHeader>
-              <CardTitle>Subject</CardTitle>
+              <CardTitle>{isNewSubject ? 'New Subject' : 'Subject'}</CardTitle>
               <CardDescription>
-                Persona target and authorship aliases.
+                {isNewSubject
+                  ? 'Create a persona target and authorship aliases.'
+                  : 'Persona target and authorship aliases.'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -779,8 +803,16 @@ export function DistillPage() {
                     <FieldContent>
                       <NativeSelect
                         value={selectedKey}
-                        onChange={(event) => setSelectedKey(event.target.value)}
+                        onChange={(event) => {
+                          setIsNewSubject(false);
+                          setSelectedKey(event.target.value);
+                        }}
                       >
+                        {isNewSubject ? (
+                          <NativeSelectOption value="" disabled>
+                            New subject draft
+                          </NativeSelectOption>
+                        ) : null}
                         {subjects.map((subject) => (
                           <NativeSelectOption
                             key={subjectKey(subject)}
@@ -903,7 +935,7 @@ export function DistillPage() {
                     loading={subjectMutation.isPending}
                     disabled={!subjectDraft.alias.trim()}
                   >
-                    Save Subject
+                    {isNewSubject ? 'Create Subject' : 'Save Subject'}
                   </Button>
                   {selectedSubject && !selectedSubject.registeredAgent ? (
                     <Button
@@ -1135,7 +1167,10 @@ export function DistillPage() {
                       key={subjectKey(subject)}
                       className="list-row"
                       type="button"
-                      onClick={() => setSelectedKey(subjectKey(subject))}
+                      onClick={() => {
+                        setIsNewSubject(false);
+                        setSelectedKey(subjectKey(subject));
+                      }}
                     >
                       <div>
                         <strong>{subject.profile.displayName}</strong>
