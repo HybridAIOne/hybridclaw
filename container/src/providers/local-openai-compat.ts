@@ -672,6 +672,142 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
   };
 }
 
+function createCallPrefixStreamFilter(onTextDelta: (delta: string) => void): {
+  push: (delta: string) => void;
+  close: () => void;
+} {
+  let buffer = '';
+  let insideToolCall = false;
+  let braceDepth = 0;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  const emit = (text: string): void => {
+    if (text) onTextDelta(text);
+  };
+
+  const emitBeforeToolCall = (text: string): void => {
+    emit(text.trim() ? text.replace(/\s+$/g, '') : '');
+  };
+
+  const findCallPrefixStart = (): number => {
+    const lower = buffer.toLowerCase();
+    let index = lower.indexOf('call:');
+    while (index >= 0) {
+      if (index === 0 || /\s/.test(buffer[index - 1] || '')) return index;
+      index = lower.indexOf('call:', index + 1);
+    }
+    return -1;
+  };
+
+  const findPartialCallPrefixSuffixLength = (): number => {
+    const lower = buffer.toLowerCase();
+    const marker = 'call:';
+    const maxLength = Math.min(marker.length - 1, lower.length);
+    for (let length = maxLength; length > 0; length -= 1) {
+      if (lower.endsWith(marker.slice(0, length))) return length;
+    }
+    return 0;
+  };
+
+  const consumeToolCallBuffer = (): void => {
+    let index = 0;
+    while (index < buffer.length) {
+      const char = buffer[index];
+      if (quote) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === quote) {
+          quote = null;
+        }
+        index += 1;
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        quote = char;
+        index += 1;
+        continue;
+      }
+      if (char === '{') {
+        braceDepth += 1;
+      } else if (char === '}') {
+        braceDepth -= 1;
+        if (braceDepth <= 0) {
+          buffer = buffer.slice(index + 1);
+          insideToolCall = false;
+          braceDepth = 0;
+          quote = null;
+          escaped = false;
+          return;
+        }
+      }
+      index += 1;
+    }
+
+    buffer = '';
+  };
+
+  const flush = (final = false): void => {
+    while (buffer) {
+      if (insideToolCall) {
+        consumeToolCallBuffer();
+        if (insideToolCall) return;
+        continue;
+      }
+
+      const start = findCallPrefixStart();
+      if (start < 0) {
+        const holdbackChars = final ? 0 : findPartialCallPrefixSuffixLength();
+        if (!final && buffer.length <= holdbackChars) return;
+        const emitLength = buffer.length - holdbackChars;
+        emit(buffer.slice(0, emitLength));
+        buffer = buffer.slice(emitLength);
+        if (!final) return;
+        continue;
+      }
+
+      const beforeCall = buffer.slice(0, start);
+      const candidate = buffer.slice(start);
+      const callMatch = candidate.match(
+        /^call:\s*[A-Za-z_][A-Za-z0-9_.-]*\s*\{/i,
+      );
+      if (callMatch) {
+        emitBeforeToolCall(beforeCall);
+        buffer = candidate.slice(callMatch[0].length);
+        insideToolCall = true;
+        braceDepth = 1;
+        quote = null;
+        escaped = false;
+        continue;
+      }
+
+      if (!final && /^call:\s*[A-Za-z_][A-Za-z0-9_.-]*\s*$/i.test(candidate)) {
+        emitBeforeToolCall(beforeCall);
+        buffer = candidate;
+        return;
+      }
+
+      emit(buffer.slice(0, start + 'call:'.length));
+      buffer = buffer.slice(start + 'call:'.length);
+      if (!final) return;
+    }
+  };
+
+  return {
+    push(delta: string): void {
+      if (!delta) return;
+      buffer += delta;
+      flush();
+    },
+    close(): void {
+      flush(true);
+    },
+  };
+}
+
 export async function callLocalOpenAICompatProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
@@ -679,7 +815,9 @@ export async function callLocalOpenAICompatProvider(
   const includeNativeTools =
     !nativeToolCacheKey ||
     !vllmModelsWithoutNativeTools.has(nativeToolCacheKey);
-  let requestBody = buildRequestBody(args, { includeTools: includeNativeTools });
+  let requestBody = buildRequestBody(args, {
+    includeTools: includeNativeTools,
+  });
   const url = `${normalizeBaseUrl(args.baseUrl)}/chat/completions`;
   if (args.debugModelResponses) {
     logLastPrompt({
@@ -903,17 +1041,26 @@ export async function callLocalOpenAICompatProviderStream(
     args.thinkingFormat === 'qwen' ||
     normalizationOptions.parser === 'qwen' ||
     normalizationOptions.parser === 'qwen3_coder';
+  const shouldFilterCallPrefix = normalizationOptions.parser === 'call_prefix';
   const streamEmitter = createThinkingStreamEmitter(args.onTextDelta, {
     onThinkingDelta: args.onThinkingDelta,
   });
-  const qwenVisibleFilter = shouldFilterQwenMarkup
+  const visibleToolFilter = shouldFilterQwenMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushVisible(delta))
-    : null;
-  const qwenReasoningFilter = shouldFilterQwenMarkup
+    : shouldFilterCallPrefix
+      ? createCallPrefixStreamFilter((delta) =>
+          streamEmitter.pushVisible(delta),
+        )
+      : null;
+  const reasoningToolFilter = shouldFilterQwenMarkup
     ? createToolMarkupStreamFilter((delta) => streamEmitter.pushThinking(delta))
-    : null;
+    : shouldFilterCallPrefix
+      ? createCallPrefixStreamFilter((delta) =>
+          streamEmitter.pushThinking(delta),
+        )
+      : null;
   const flushReasoningPreview = (): void => {
-    qwenReasoningFilter?.close();
+    reasoningToolFilter?.close();
   };
 
   let buffer = '';
@@ -971,8 +1118,8 @@ export async function callLocalOpenAICompatProviderStream(
         if (delta) {
           usedMessageContent = true;
           flushReasoningPreview();
-          if (qwenVisibleFilter) {
-            qwenVisibleFilter.push(delta);
+          if (visibleToolFilter) {
+            visibleToolFilter.push(delta);
           } else if (/[<]\/?think[>]/i.test(delta)) {
             streamEmitter.pushRaw(delta);
           } else {
@@ -987,8 +1134,8 @@ export async function callLocalOpenAICompatProviderStream(
           : messageReasoning;
         rawReasoningContent = messageReasoning;
         if (reasoningDelta) {
-          if (qwenReasoningFilter) {
-            qwenReasoningFilter.push(reasoningDelta);
+          if (reasoningToolFilter) {
+            reasoningToolFilter.push(reasoningDelta);
           } else {
             streamEmitter.pushThinking(reasoningDelta);
           }
@@ -1023,8 +1170,8 @@ export async function callLocalOpenAICompatProviderStream(
       ) {
         rawTextContent += choice.delta.content;
         flushReasoningPreview();
-        if (qwenVisibleFilter) {
-          qwenVisibleFilter.push(choice.delta.content);
+        if (visibleToolFilter) {
+          visibleToolFilter.push(choice.delta.content);
         } else if (/[<]\/?think[>]/i.test(choice.delta.content)) {
           streamEmitter.pushRaw(choice.delta.content);
         } else {
@@ -1034,8 +1181,8 @@ export async function callLocalOpenAICompatProviderStream(
       const deltaReasoning = extractStructuredReasoning(choice.delta);
       if (deltaReasoning) {
         rawReasoningContent += deltaReasoning;
-        if (qwenReasoningFilter) {
-          qwenReasoningFilter.push(deltaReasoning);
+        if (reasoningToolFilter) {
+          reasoningToolFilter.push(deltaReasoning);
         } else {
           streamEmitter.pushThinking(deltaReasoning);
         }
@@ -1094,8 +1241,8 @@ export async function callLocalOpenAICompatProviderStream(
     throw new Error('Streaming response ended without payload');
   }
 
-  qwenVisibleFilter?.close();
-  qwenReasoningFilter?.close();
+  visibleToolFilter?.close();
+  reasoningToolFilter?.close();
   streamEmitter.close();
 
   return adaptLocalOpenAICompatResponse(
