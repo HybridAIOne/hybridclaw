@@ -1,38 +1,35 @@
-# Homebrew formula prep for HybridClaw.
+# Homebrew formula for HybridClaw.
 #
-# This formula is currently HEAD-only. Stable `brew install hybridclaw`
-# will start working once a signed GitHub release tarball is published and
-# the `url`/`sha256` block below is filled in. Until then, contributors
-# and early adopters can use:
-#
-#   brew install --HEAD hybridaione/hybridclaw/hybridclaw
-#
-# The tap repo lives at https://github.com/HybridAIOne/homebrew-hybridclaw
-# (to be created). Once a release exists, uncomment the `url` + `sha256`
-# lines and drop the `head` line if preferred, then:
+# Installs the published npm tarball (which ships the prebuilt dist/), so the
+# formula needs no TypeScript build. Served through the tap repo at
+# https://github.com/HybridAIOne/homebrew-hybridclaw (to be created):
 #
 #   brew tap hybridaione/hybridclaw
 #   brew install hybridclaw
+#
+# On each release, bump `url`/`sha256` to the new registry tarball:
+#   curl -fsSL https://registry.npmjs.org/@hybridaione/hybridclaw/-/hybridclaw-<ver>.tgz | shasum -a 256
 class Hybridclaw < Formula
   desc "Enterprise-ready self-hosted AI assistant runtime"
   homepage "https://github.com/HybridAIOne/hybridclaw"
-  head "https://github.com/HybridAIOne/hybridclaw.git", branch: "main"
+  url "https://registry.npmjs.org/@hybridaione/hybridclaw/-/hybridclaw-0.23.0.tgz"
+  sha256 "dda8728b0be65273ad5f545c01befc0d7b643d6bcaac73ee2614981ab2b5969c"
   license "MIT"
-
-  # Uncomment once a signed GitHub release tarball is published:
-  # url "https://github.com/HybridAIOne/hybridclaw/archive/refs/tags/v0.12.11.tar.gz"
-  # sha256 "REPLACE_WITH_TARBALL_SHA256"
 
   depends_on "node@22"
   depends_on "python@3.12" => :build
   depends_on "pkg-config" => :build
 
-  uses_from_macos "git"
-
   def install
-    # Install into libexec; Homebrew wraps the CLI into bin/.
+    # Build native modules (and run the package's container bootstrap) against
+    # the keg-only node@22, not whatever node happens to be linked.
+    ENV.prepend_path "PATH", Formula["node@22"].opt_bin
     system "npm", "install", *std_npm_args
-    bin.install_symlink Dir["#{libexec}/bin/*"]
+    # node@22 is keg-only, so the `#!/usr/bin/env node` bin stubs would resolve
+    # a wrong-major (or missing) node at runtime without this wrapper.
+    libexec.glob("bin/*") do |f|
+      (bin/f.basename).write_env_script f, PATH: "#{Formula["node@22"].opt_bin}:${PATH}"
+    end
   end
 
   def caveats
@@ -48,6 +45,7 @@ class Hybridclaw < Formula
   end
 
   test do
-    assert_match(/hybridclaw/i, shell_output("#{bin}/hybridclaw --version"))
+    # The CLI prints the bare semver.
+    assert_match version.to_s, shell_output("#{bin}/hybridclaw --version")
   end
 end

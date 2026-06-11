@@ -40,10 +40,14 @@ The script never uses `sudo`: when no Node.js 22 is present it installs a
 user-local copy under `~/.hybridclaw/node` (verified against nodejs.org's
 published SHA-256 checksum), and if the global npm prefix is not writable it
 automatically switches npm to a user-writable prefix
-(`~/.hybridclaw/npm-global`) rather than escalating.
+(`~/.hybridclaw/npm-global`) rather than escalating. That fallback persists
+`prefix=~/.hybridclaw/npm-global` in `~/.npmrc` so later global installs and
+`hybridclaw update` keep working; undo it with `npm config delete prefix`
+(nvm refuses to run while a prefix is set there).
 Windows users should run it inside WSL2. On
 Alpine or other musl-based distros, install Node 22 with your package manager
-(`apk add nodejs npm`) and pass `--skip-node`, since nodejs.org ships glibc
+(`apk add nodejs npm`, which needs Alpine 3.21+ — older releases ship Node 20)
+and pass `--skip-node`, since nodejs.org ships glibc
 builds only. Review `scripts/install.sh` before piping it to a shell if you
 prefer; the steps below cover each install method manually.
 
@@ -61,7 +65,14 @@ Prerequisites:
 - Docker when you want the default container sandbox
 
 The published package installs the packaged container runtime dependencies
-automatically during `npm install -g`.
+automatically during `npm install -g`. Installs that skip lifecycle scripts
+(`npm install -g --ignore-scripts`, or pnpm, which blocks dependency scripts
+by default) miss that step; complete it afterwards with:
+
+```bash
+# npm installs (pnpm: substitute "$(pnpm root -g)"):
+node "$(npm root -g)/@hybridaione/hybridclaw/scripts/postinstall-container.mjs"
+```
 
 ## Install From Nix (Flake)
 
@@ -108,19 +119,16 @@ so the default container sandbox works out of the box.
 
 ## Install From Homebrew (Preview)
 
-A Homebrew formula is drafted at [packaging/homebrew/hybridclaw.rb](https://github.com/HybridAIOne/hybridclaw/blob/main/packaging/homebrew/hybridclaw.rb)
-and will ship through a dedicated tap (`hybridaione/hybridclaw`) once the
-first signed release tarball is published. The formula is currently
-**HEAD-only** — the stable `brew install hybridclaw` command will fail
-until a release artifact and its checksum are published.
-
-In the meantime, early adopters can build from `main`:
+A Homebrew formula is drafted at [packaging/homebrew/hybridclaw.rb](https://github.com/HybridAIOne/hybridclaw/blob/main/packaging/homebrew/hybridclaw.rb).
+It installs the published npm tarball (no local build) and will ship through
+a dedicated tap (`hybridaione/hybridclaw`). Once the tap exists:
 
 ```bash
-brew install --HEAD hybridaione/hybridclaw/hybridclaw
+brew tap hybridaione/hybridclaw
+brew install hybridclaw
 ```
 
-Most macOS users should stick to npm or the Nix flake for now.
+Until then, most macOS users should stick to npm or the Nix flake.
 
 ## Install From a Source Checkout
 

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { DEFAULT_RUNTIME_HOME_DIR } from './config/runtime-paths.js';
+import { containerBootstrapScriptPath } from './infra/install-root.js';
 import { logger } from './logger.js';
 
 const DEFAULT_PACKAGE_NAME = '@hybridaione/hybridclaw';
@@ -421,11 +422,7 @@ function isGlobalPackageInstall(
 
 function runExplicitPostinstall(installRoot: string | null): void {
   if (!installRoot) return;
-  const scriptPath = path.join(
-    installRoot,
-    'scripts',
-    'postinstall-container.mjs',
-  );
+  const scriptPath = containerBootstrapScriptPath(installRoot);
   if (!fs.existsSync(scriptPath)) return;
 
   const result = spawnSync(process.execPath, [scriptPath], {
