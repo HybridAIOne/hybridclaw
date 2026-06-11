@@ -10,6 +10,7 @@ import {
   Email,
   Files,
   Gateway,
+  Harness,
   Jobs,
   Models,
   Plugins,
@@ -51,7 +52,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       {
         to: '/admin/harness-evolution',
         label: 'Harness Evolution',
-        icon: Skills,
+        icon: Harness,
       },
       { to: '/admin/distill', label: 'Distill', icon: Skills },
     ],

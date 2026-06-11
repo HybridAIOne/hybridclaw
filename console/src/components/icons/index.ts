@@ -16,6 +16,7 @@ export { Email } from './Email';
 export { Files } from './Files';
 export { Gateway } from './Gateway';
 export { Github } from './Github';
+export { Harness } from './Harness';
 export { HybridClaw } from './HybridClaw';
 export { Jobs } from './Jobs';
 export { Lightbulb } from './Lightbulb';
