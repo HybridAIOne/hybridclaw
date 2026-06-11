@@ -83,7 +83,7 @@
     },
     "console": {
       "name": "@hybridaione/hybridclaw-console",
-      "version": "0.0.0",
+      "version": "0.23.0",
       "dependencies": {
         "@tanstack/react-query": "5.101.0",
         "@tanstack/react-router": "1.170.11",

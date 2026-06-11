@@ -5295,7 +5295,7 @@ describe('CLI hybridai commands', () => {
 
   it('fails before starting tui when host runtime dependencies are missing', async () => {
     const startupError = new Error(
-      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk.',
     );
     const {
       cli,
@@ -5310,7 +5310,7 @@ describe('CLI hybridai commands', () => {
     });
 
     await expect(cli.main(['tui'])).rejects.toThrow(
-      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk.',
     );
 
     expect(ensureRuntimeCredentials).toHaveBeenCalledWith({

@@ -49,7 +49,7 @@ describe('ensureHostRuntimeReady', () => {
         installRoot,
       }),
     ).toThrow(
-      'hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Reinstall HybridClaw.',
+      `hybridclaw tui: Host runtime is not ready. Missing runtime dependency: @modelcontextprotocol/sdk. Run \`node ${path.join(installRoot, 'scripts', 'postinstall-container.mjs')}\` to install them; installs that skip lifecycle scripts (--ignore-scripts, pnpm) miss this step.`,
     );
   });
 
@@ -59,10 +59,7 @@ describe('ensureHostRuntimeReady', () => {
       path.join(installRoot, 'package.json'),
       '{"name":"@hybridaione/hybridclaw"}',
     );
-    fs.writeFileSync(
-      path.join(installRoot, '.git'),
-      'gitdir: ./.git/worktrees/dev\n',
-    );
+    fs.mkdirSync(path.join(installRoot, 'src'), { recursive: true });
     fs.mkdirSync(path.join(installRoot, 'container', 'dist'), {
       recursive: true,
     });

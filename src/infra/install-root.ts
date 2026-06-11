@@ -82,3 +82,11 @@ export function resolveInstallRoot(): string {
 export function resolveInstallPath(...segments: string[]): string {
   return path.join(resolveInstallRoot(), ...segments);
 }
+
+// Single owner of where the container-dependency bootstrap script lives; the
+// repair hints and the update flow must all point at the same file.
+export function containerBootstrapScriptPath(
+  installRoot: string = resolveInstallRoot(),
+): string {
+  return path.join(installRoot, 'scripts', 'postinstall-container.mjs');
+}

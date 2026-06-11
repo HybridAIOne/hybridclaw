@@ -953,7 +953,14 @@ function getOrSpawnContainer(
     entry.terminalError = formatWarmRunnerTerminalError(
       entry,
       'Container runtime',
-      { code, signal },
+      {
+        code,
+        signal,
+        // The sandbox image bakes its own node_modules; the host-side
+        // bootstrap script cannot repair it.
+        repairHint:
+          'The sandbox image is missing this package; rebuild it with `npm run build:container` (or pull a fresh image) and restart the gateway.',
+      },
     );
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ container: containerName }, message);

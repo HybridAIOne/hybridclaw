@@ -1132,7 +1132,7 @@ test('HostExecutor surfaces missing packaged runtime dependencies as immediate e
   expect(output.error).toContain(
     'Missing runtime dependency: @modelcontextprotocol/sdk.',
   );
-  expect(output.error).toContain('Reinstall HybridClaw.');
+  expect(output.error).toContain('postinstall-container.mjs');
 });
 
 test('HostExecutor forwards maxWallClockMs to the IPC output reader', async () => {

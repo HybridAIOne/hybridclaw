@@ -25,6 +25,14 @@ import type {
   AdminConfig,
   AdminConfigResponse,
   AdminCreateSkillPayload,
+  AdminDistillConsentPayload,
+  AdminDistillResponse,
+  AdminDistillRunPayload,
+  AdminDistillRunResponse,
+  AdminDistillSourceKind,
+  AdminDistillSubjectPayload,
+  AdminDistillSubjectResponse,
+  AdminDistillUploadResponse,
   AdminEmailDeleteResponse,
   AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
@@ -345,6 +353,134 @@ export function fetchFleetTopology(
   return requestJson<AdminFleetTopologyResponse>('/api/admin/fleet-topology', {
     token,
   });
+}
+
+export function fetchDistill(token: string): Promise<AdminDistillResponse> {
+  return requestJson<AdminDistillResponse>('/api/admin/distill', { token });
+}
+
+export function saveDistillSubject(
+  token: string,
+  payload: AdminDistillSubjectPayload,
+): Promise<AdminDistillSubjectResponse> {
+  return requestJson<AdminDistillSubjectResponse>(
+    '/api/admin/distill/subjects',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+}
+
+export function recordDistillConsent(
+  token: string,
+  payload: AdminDistillConsentPayload,
+): Promise<AdminDistillSubjectResponse> {
+  return requestJson<AdminDistillSubjectResponse>(
+    '/api/admin/distill/consent',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+}
+
+export function registerDistillAgent(
+  token: string,
+  payload: Pick<AdminDistillSubjectPayload, 'agentId' | 'alias'>,
+): Promise<AdminDistillSubjectResponse> {
+  return requestJson<AdminDistillSubjectResponse>(
+    '/api/admin/distill/register',
+    {
+      token,
+      method: 'POST',
+      body: payload,
+    },
+  );
+}
+
+export function runDistill(
+  token: string,
+  payload: AdminDistillRunPayload,
+): Promise<AdminDistillRunResponse> {
+  return requestJson<AdminDistillRunResponse>('/api/admin/distill/runs', {
+    token,
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export function uploadDistillSource(
+  token: string,
+  file: File,
+  params: {
+    alias: string;
+    agentId?: string;
+    kind?: AdminDistillSourceKind;
+  },
+): Promise<AdminDistillUploadResponse> {
+  const search = new URLSearchParams({ alias: params.alias });
+  if (params.agentId?.trim()) search.set('agentId', params.agentId.trim());
+  if (params.kind?.trim()) search.set('kind', params.kind.trim());
+  return requestJson<AdminDistillUploadResponse>(
+    `/api/admin/distill/sources/upload?${search.toString()}`,
+    {
+      token,
+      method: 'POST',
+      rawBody: file,
+      extraHeaders: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-Hybridclaw-Filename': encodeURIComponent(file.name || 'source.txt'),
+      },
+    },
+  );
+}
+
+function distillCorpusDocumentPath(params: {
+  alias: string;
+  agentId?: string;
+  documentId: string;
+}): string {
+  const search = new URLSearchParams({ alias: params.alias });
+  if (params.agentId?.trim()) search.set('agentId', params.agentId.trim());
+  return `/api/admin/distill/corpus/${encodeURIComponent(params.documentId)}?${search.toString()}`;
+}
+
+export async function downloadDistillCorpusDocument(
+  token: string,
+  params: {
+    alias: string;
+    agentId?: string;
+    documentId: string;
+  },
+): Promise<Blob> {
+  const response = await fetch(distillCorpusDocumentPath(params), {
+    headers: requestHeaders(token),
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+  return response.blob();
+}
+
+export function deleteDistillCorpusDocument(
+  token: string,
+  params: {
+    alias: string;
+    agentId?: string;
+    documentId: string;
+  },
+): Promise<AdminDistillSubjectResponse> {
+  return requestJson<AdminDistillSubjectResponse>(
+    distillCorpusDocumentPath(params),
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
 }
 
 export function upsertFleetTopologyInstance(

@@ -350,11 +350,16 @@ Skill resolution order (first match wins):
 When the user says "bump release":
 
 1. Bump the requested semantic version (if unspecified, default to patch).
-2. Update version strings in:
+2. Update `package.json` to the new version, then run `npm run version:sync`
+   to propagate it through product package metadata:
    - `package.json`
-   - `package-lock.json` (root `version` and `packages[""]`)
+   - `package-lock.json` and `npm-shrinkwrap.json` (root `version`,
+     `packages[""]`, and product workspace entries)
+   - `console/package.json`
+   - `desktop/package.json`
    - `container/package.json`
-   - `container/package-lock.json` (root `version` and `packages[""]`)
+   - `container/package-lock.json` and `container/npm-shrinkwrap.json` (root
+     `version` and `packages[""]`)
    - any user-facing version text (for example `src/tui.ts` banner)
 3. Move `CHANGELOG.md` release notes from `Unreleased` to the new version
    heading (or create one).

@@ -76,6 +76,7 @@ let registry: Map<string, AgentConfig>;
 let registryInitialized: boolean;
 let registryDbBacked: boolean;
 let lastConfigFingerprint: string;
+let lastDatabaseFingerprint: string;
 
 function resetRegistryState(): void {
   configuredDefaults = {};
@@ -87,6 +88,7 @@ function resetRegistryState(): void {
   registryInitialized = false;
   registryDbBacked = false;
   lastConfigFingerprint = '';
+  lastDatabaseFingerprint = '';
 }
 
 resetRegistryState();
@@ -340,6 +342,15 @@ function fingerprintAgentsConfig(params: {
   ].join('\n');
 }
 
+function fingerprintAgents(agents: AgentConfig[]): string {
+  return agents.map(fingerprintAgent).join('\n');
+}
+
+function fingerprintDatabaseAgents(): string {
+  if (!isDatabaseInitialized()) return '';
+  return fingerprintAgents(dbListAgents());
+}
+
 function normalizeAgentsConfig(config: AgentsConfig | undefined): {
   defaultAgentId: string;
   defaults: AgentDefaultsConfig;
@@ -447,6 +458,7 @@ function rebuildRegistryFromDatabase(options?: { validate?: boolean }): void {
   if (options?.validate !== false) {
     validateAgentOrgChart(Array.from(registry.values()));
   }
+  lastDatabaseFingerprint = fingerprintAgents(Array.from(registry.values()));
 }
 
 function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
@@ -529,10 +541,23 @@ function agentWorkspaceDirByWorkspaceName(workspaceName: string): string {
 
 function ensureRegistryCurrent(): void {
   const normalized = normalizeAgentsConfig(getRuntimeConfig().agents);
+  const databaseFingerprint = registryDbBacked
+    ? fingerprintDatabaseAgents()
+    : '';
+  const databaseChanged =
+    registryInitialized &&
+    registryDbBacked &&
+    databaseFingerprint !== lastDatabaseFingerprint;
   const shouldReload =
     !registryInitialized ||
     normalized.fingerprint !== lastConfigFingerprint ||
     (!registryDbBacked && isDatabaseInitialized());
+  if (!shouldReload && databaseChanged) {
+    rebuildRegistryFromDatabase();
+    registryInitialized = true;
+    registryDbBacked = true;
+    return;
+  }
   if (!shouldReload) return;
   initAgentRegistry({
     defaultAgentId: normalized.defaultAgentId,
