@@ -215,10 +215,7 @@ function shouldRetryVllmWithoutNativeTools(params: {
   );
 }
 
-function usesVllmGemmaToolPath(
-  params: OpenAICompatibleModelCallParams,
-): boolean {
-  if (params.runtime.provider !== 'vllm') return false;
+function usesGemmaToolPath(params: OpenAICompatibleModelCallParams): boolean {
   return normalizeOpenAICompatModelName(
     params.runtime.provider,
     params.runtime.model || params.model,
@@ -231,11 +228,19 @@ function buildHybridAIRequestBody(
   params: OpenAICompatibleModelCallParams,
   options: { includeTools?: boolean } = {},
 ): Record<string, unknown> {
-  const includeTools = options.includeTools ?? true;
+  const useGemmaToolPath = usesGemmaToolPath(params);
+  const includeTools = (options.includeTools ?? true) && !useGemmaToolPath;
+  const messages =
+    useGemmaToolPath && params.tools.length > 0
+      ? mergeSystemInstruction(
+          buildGemmaRequestMessages(collapseSystemMessages(params.messages)),
+          buildGemmaToolCallInstruction(params.tools),
+        )
+      : params.messages;
   const body: Record<string, unknown> = {
     model: stripHybridAIModelPrefix(params.model),
     chatbot_id: params.runtime.chatbotId,
-    messages: params.messages,
+    messages,
     enable_rag: params.runtime.enableRag,
   };
   if (includeTools && params.tools.length > 0) {
@@ -249,7 +254,7 @@ function buildOpenAICompatRequestBody(
   params: OpenAICompatibleModelCallParams,
   options: { includeTools?: boolean } = {},
 ): Record<string, unknown> {
-  const useGemmaToolPath = usesVllmGemmaToolPath(params);
+  const useGemmaToolPath = usesGemmaToolPath(params);
   const includeTools = (options.includeTools ?? true) && !useGemmaToolPath;
   const messages =
     useGemmaToolPath && params.tools.length > 0
@@ -276,7 +281,7 @@ function adaptOpenAICompatResponse(
   payload: OpenAICompatibleModelResponse,
   params: OpenAICompatibleModelCallParams,
 ): OpenAICompatibleModelResponse {
-  if (!usesVllmGemmaToolPath(params)) return payload;
+  if (!usesGemmaToolPath(params)) return payload;
   const choice = payload.choices[0];
   if (!choice || choice.message.tool_calls?.length) return payload;
   const content = choice.message.content;
@@ -470,7 +475,7 @@ export async function callOpenAICompatibleModel(
       : buildHybridAIRequestBody(params, { includeTools });
   const nativeToolCacheKey = vllmNativeToolCacheKey(params);
   const includeNativeTools =
-    !usesVllmGemmaToolPath(params) &&
+    !usesGemmaToolPath(params) &&
     (!nativeToolCacheKey ||
       !vllmModelsWithoutNativeTools.has(nativeToolCacheKey));
   let body = buildBody(includeNativeTools);
@@ -632,7 +637,7 @@ export async function callOpenAICompatibleModelStream(
       : buildHybridAIRequestBody(params, { includeTools });
   const nativeToolCacheKey = vllmNativeToolCacheKey(params);
   const includeNativeTools =
-    !usesVllmGemmaToolPath(params) &&
+    !usesGemmaToolPath(params) &&
     (!nativeToolCacheKey ||
       !vllmModelsWithoutNativeTools.has(nativeToolCacheKey));
   let body = buildBody(includeNativeTools);
@@ -720,7 +725,7 @@ export async function callOpenAICompatibleModelStream(
   let usage: OpenAICompatibleModelResponse['usage'] | undefined;
   const toolCalls: ToolCall[] = [];
   let finishReason = 'stop';
-  const bufferTextDeltas = usesVllmGemmaToolPath(params);
+  const bufferTextDeltas = usesGemmaToolPath(params);
 
   const ensureToolCall = (index: number): ToolCall => {
     while (toolCalls.length <= index) {

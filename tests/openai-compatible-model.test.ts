@@ -148,6 +148,63 @@ test('openai-compatible HybridAI calls omit empty tools', async () => {
   expect(result.choices[0]?.message.content).toBe('ok');
 });
 
+test('openai-compatible HybridAI Gemma calls use Gemma tool declarations without native tools', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://hybridai.one/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('google/gemma-4-e4b-it');
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(messages[0]?.role).toBe('system');
+      expect(String(messages[0]?.content || '')).toContain(
+        '<|tool>declaration:shell',
+      );
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'google/gemma-4-e4b-it',
+          choices: [
+            {
+              message: { role: 'assistant', content: 'ok' },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }),
+  );
+
+  const result = await callOpenAICompatibleModel({
+    runtime: {
+      provider: 'hybridai',
+      apiKey: 'hybridai-key',
+      baseUrl: 'https://hybridai.one',
+      chatbotId: 'bot_123',
+      enableRag: false,
+      requestHeaders: {},
+      agentId: 'main',
+      isLocal: false,
+      contextWindow: 200_000,
+      thinkingFormat: undefined,
+    },
+    model: 'hybridai/google/gemma-4-e4b-it',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    tools,
+  });
+
+  expect(result.choices[0]?.message.content).toBe('ok');
+});
+
 test('openai-compatible remote calls omit empty tools', async () => {
   vi.stubGlobal(
     'fetch',
@@ -195,6 +252,66 @@ test('openai-compatible remote calls omit empty tools', async () => {
     model: 'openrouter/google/gemini-2.5-flash-lite',
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
+  });
+
+  expect(result.choices[0]?.message.content).toBe('ok');
+});
+
+test('openai-compatible non-vLLM Gemma calls use Gemma tool declarations without native tools', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('http://127.0.0.1:1234/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('google/gemma-4-e4b-it');
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(messages[0]?.role).toBe('system');
+      expect(String(messages[0]?.content || '')).toContain(
+        '<|tool>declaration:shell',
+      );
+      expect(String(messages[0]?.content || '')).toContain(
+        '<|tool_call>call:TOOL_NAME',
+      );
+      return new Response(
+        JSON.stringify({
+          id: 'resp_1',
+          model: 'google/gemma-4-e4b-it',
+          choices: [
+            {
+              message: { role: 'assistant', content: 'ok' },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }),
+  );
+
+  const result = await callOpenAICompatibleModel({
+    runtime: {
+      provider: 'lmstudio',
+      apiKey: '',
+      baseUrl: 'http://127.0.0.1:1234/v1',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: {},
+      agentId: 'main',
+      isLocal: true,
+      contextWindow: 32_768,
+      thinkingFormat: undefined,
+    },
+    model: 'lmstudio/google/gemma-4-e4b-it',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    tools,
   });
 
   expect(result.choices[0]?.message.content).toBe('ok');
