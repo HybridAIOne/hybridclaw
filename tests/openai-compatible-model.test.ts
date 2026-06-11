@@ -1,6 +1,42 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
-import { callOpenAICompatibleModel } from '../src/gateway/openai-compatible-model.js';
+import {
+  callOpenAICompatibleModel,
+  callOpenAICompatibleModelStream,
+} from '../src/gateway/openai-compatible-model.js';
+
+function makeEventStreamResponse(chunks: string[]): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+
+const tools = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'shell',
+      description: 'Run a shell command',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string' },
+        },
+        required: ['command'],
+      },
+    },
+  },
+];
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -162,4 +198,138 @@ test('openai-compatible remote calls omit empty tools', async () => {
   });
 
   expect(result.choices[0]?.message.content).toBe('ok');
+});
+
+test('openai-compatible vLLM calls retry without native tools when auto tool choice is unsupported', async () => {
+  let calls = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls += 1;
+    expect(input).toBe('http://haigpu2:8000/v1/chat/completions');
+    const body = JSON.parse(String(init?.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(body.model).toBe('google/gemma-4-e4b-it');
+    if (calls === 1) {
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
+      return new Response(
+        JSON.stringify({
+          error: {
+            message:
+              '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set',
+          },
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+    return new Response(
+      JSON.stringify({
+        id: 'resp_1',
+        model: 'google/gemma-4-e4b-it',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const params = {
+    runtime: {
+      provider: 'vllm',
+      apiKey: '',
+      baseUrl: 'http://haigpu2:8000/v1',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: {},
+      agentId: 'main',
+      isLocal: true,
+      contextWindow: 32_768,
+      thinkingFormat: undefined,
+    },
+    model: 'vllm/google/gemma-4-e4b-it',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools,
+  } satisfies Parameters<typeof callOpenAICompatibleModel>[0];
+
+  const result = await callOpenAICompatibleModel(params);
+  const secondResult = await callOpenAICompatibleModel(params);
+
+  expect(result.choices[0]?.message.content).toBe('ok');
+  expect(secondResult.choices[0]?.message.content).toBe('ok');
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+test('openai-compatible vLLM streams retry without native tools when auto tool choice is unsupported', async () => {
+  const deltas: string[] = [];
+  let calls = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls += 1;
+    expect(input).toBe('http://haigpu2-stream:8000/v1/chat/completions');
+    const body = JSON.parse(String(init?.body || '{}')) as Record<
+      string,
+      unknown
+    >;
+    expect(body.model).toBe('google/gemma-4-e4b-it');
+    expect(body.stream).toBe(true);
+    if (calls === 1) {
+      expect(body.tools).toEqual(tools);
+      expect(body.tool_choice).toBe('auto');
+      return new Response(
+        JSON.stringify({
+          error: {
+            message:
+              '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set',
+          },
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+    return makeEventStreamResponse([
+      'data: {"id":"resp_1","model":"google/gemma-4-e4b-it","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const result = await callOpenAICompatibleModelStream({
+    runtime: {
+      provider: 'vllm',
+      apiKey: '',
+      baseUrl: 'http://haigpu2-stream:8000/v1',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: {},
+      agentId: 'main',
+      isLocal: true,
+      contextWindow: 32_768,
+      thinkingFormat: undefined,
+    },
+    model: 'vllm/google/gemma-4-e4b-it',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools,
+    onTextDelta: (delta) => deltas.push(delta),
+  });
+
+  expect(deltas).toEqual(['ok']);
+  expect(result.choices[0]?.message.content).toBe('ok');
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });

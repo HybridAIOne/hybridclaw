@@ -51,6 +51,8 @@ export interface OpenAICompatibleModelResponse {
   };
 }
 
+const vllmModelsWithoutNativeTools = new Set<string>();
+
 interface OpenAICompatibleModelCallParams {
   runtime: ResolvedModelRuntimeCredentials;
   model: string;
@@ -176,16 +178,49 @@ function createProviderError(status: number, body: string): Error {
   );
 }
 
+function vllmNativeToolCacheKey(
+  params: OpenAICompatibleModelCallParams,
+): string | null {
+  if (params.runtime.provider !== 'vllm') return null;
+  return `${normalizeBaseUrl(
+    params.runtime.baseUrl,
+  )}\n${normalizeOpenAICompatModelName(
+    params.runtime.provider,
+    params.runtime.model || params.model,
+  )}`;
+}
+
+function shouldRetryVllmWithoutNativeTools(params: {
+  runtime: ResolvedModelRuntimeCredentials;
+  tools: OpenAICompatibleToolDefinition[];
+  status: number;
+  errorText: string;
+  nativeToolsSent: boolean;
+}): boolean {
+  if (!params.nativeToolsSent) return false;
+  if (params.runtime.provider !== 'vllm') return false;
+  if (params.tools.length === 0) return false;
+  if (params.status !== 400) return false;
+  const normalized = params.errorText.toLowerCase();
+  return (
+    normalized.includes('enable-auto-tool-choice') ||
+    normalized.includes('tool-call-parser') ||
+    normalized.includes('"auto" tool choice')
+  );
+}
+
 function buildHybridAIRequestBody(
   params: OpenAICompatibleModelCallParams,
+  options: { includeTools?: boolean } = {},
 ): Record<string, unknown> {
+  const includeTools = options.includeTools ?? true;
   const body: Record<string, unknown> = {
     model: stripHybridAIModelPrefix(params.model),
     chatbot_id: params.runtime.chatbotId,
     messages: params.messages,
     enable_rag: params.runtime.enableRag,
   };
-  if (params.tools.length > 0) {
+  if (includeTools && params.tools.length > 0) {
     body.tools = params.tools;
     body.tool_choice = params.toolChoice || 'auto';
   }
@@ -194,7 +229,9 @@ function buildHybridAIRequestBody(
 
 function buildOpenAICompatRequestBody(
   params: OpenAICompatibleModelCallParams,
+  options: { includeTools?: boolean } = {},
 ): Record<string, unknown> {
+  const includeTools = options.includeTools ?? true;
   const body: Record<string, unknown> = {
     model: normalizeOpenAICompatModelName(
       params.runtime.provider,
@@ -202,7 +239,7 @@ function buildOpenAICompatRequestBody(
     ),
     messages: collapseSystemMessages(params.messages),
   };
-  if (params.tools.length > 0) {
+  if (includeTools && params.tools.length > 0) {
     body.tools = params.tools;
     body.tool_choice = params.toolChoice || 'auto';
   }
@@ -374,10 +411,16 @@ export async function callOpenAICompatibleModel(
   const url = isOpenAICompatProviderId(params.runtime.provider)
     ? `${normalizeBaseUrl(params.runtime.baseUrl)}/chat/completions`
     : `${normalizeBaseUrl(params.runtime.baseUrl)}/v1/chat/completions`;
-  const body = isOpenAICompatProviderId(params.runtime.provider)
-    ? buildOpenAICompatRequestBody(params)
-    : buildHybridAIRequestBody(params);
-  const response = await fetch(url, {
+  const buildBody = (includeTools: boolean): Record<string, unknown> =>
+    isOpenAICompatProviderId(params.runtime.provider)
+      ? buildOpenAICompatRequestBody(params, { includeTools })
+      : buildHybridAIRequestBody(params, { includeTools });
+  const nativeToolCacheKey = vllmNativeToolCacheKey(params);
+  const includeNativeTools =
+    !nativeToolCacheKey ||
+    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey);
+  let body = buildBody(includeNativeTools);
+  let response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders({
       apiKey: params.runtime.apiKey,
@@ -385,6 +428,33 @@ export async function callOpenAICompatibleModel(
     }),
     body: JSON.stringify(body),
   });
+  if (!response.ok) {
+    const errorText = await response.text();
+    if (
+      shouldRetryVllmWithoutNativeTools({
+        runtime: params.runtime,
+        tools: params.tools,
+        status: response.status,
+        errorText,
+        nativeToolsSent: includeNativeTools,
+      })
+    ) {
+      if (nativeToolCacheKey) {
+        vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
+      }
+      body = buildBody(false);
+      response = await fetch(url, {
+        method: 'POST',
+        headers: buildHeaders({
+          apiKey: params.runtime.apiKey,
+          requestHeaders: params.runtime.requestHeaders,
+        }),
+        body: JSON.stringify(body),
+      });
+    } else {
+      throw createProviderError(response.status, errorText);
+    }
+  }
   if (!response.ok) {
     throw createProviderError(response.status, await response.text());
   }
@@ -499,10 +569,16 @@ export async function callOpenAICompatibleModelStream(
   const url = isOpenAICompatProviderId(params.runtime.provider)
     ? `${normalizeBaseUrl(params.runtime.baseUrl)}/chat/completions`
     : `${normalizeBaseUrl(params.runtime.baseUrl)}/v1/chat/completions`;
-  const body = isOpenAICompatProviderId(params.runtime.provider)
-    ? buildOpenAICompatRequestBody(params)
-    : buildHybridAIRequestBody(params);
-  const response = await fetch(url, {
+  const buildBody = (includeTools: boolean): Record<string, unknown> =>
+    isOpenAICompatProviderId(params.runtime.provider)
+      ? buildOpenAICompatRequestBody(params, { includeTools })
+      : buildHybridAIRequestBody(params, { includeTools });
+  const nativeToolCacheKey = vllmNativeToolCacheKey(params);
+  const includeNativeTools =
+    !nativeToolCacheKey ||
+    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey);
+  let body = buildBody(includeNativeTools);
+  let response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders({
       apiKey: params.runtime.apiKey,
@@ -517,6 +593,40 @@ export async function callOpenAICompatibleModelStream(
       },
     }),
   });
+  if (!response.ok) {
+    const errorText = await response.text();
+    if (
+      shouldRetryVllmWithoutNativeTools({
+        runtime: params.runtime,
+        tools: params.tools,
+        status: response.status,
+        errorText,
+        nativeToolsSent: includeNativeTools,
+      })
+    ) {
+      if (nativeToolCacheKey) {
+        vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
+      }
+      body = buildBody(false);
+      response = await fetch(url, {
+        method: 'POST',
+        headers: buildHeaders({
+          apiKey: params.runtime.apiKey,
+          requestHeaders: params.runtime.requestHeaders,
+          accept: 'text/event-stream, application/json',
+        }),
+        body: JSON.stringify({
+          ...body,
+          stream: true,
+          stream_options: {
+            include_usage: true,
+          },
+        }),
+      });
+    } else {
+      throw createProviderError(response.status, errorText);
+    }
+  }
   if (!response.ok) {
     throw createProviderError(response.status, await response.text());
   }

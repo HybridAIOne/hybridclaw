@@ -71,6 +71,8 @@ interface StreamChunkPayload {
       };
 }
 
+const vllmModelsWithoutNativeTools = new Set<string>();
+
 function buildHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -288,7 +290,9 @@ function sanitizeMistralToolCallIds(
 
 function buildRequestMessages(
   args: NormalizedCallArgs,
+  options: { includeTools?: boolean } = {},
 ): Array<Record<string, unknown>> {
+  const includeTools = options.includeTools ?? true;
   let messages = usesQwenCompat(args)
     ? buildQwenRequestMessages(args.messages)
     : collapseSystemMessages(args.messages).map((message) => ({
@@ -296,6 +300,7 @@ function buildRequestMessages(
         content: normalizeMessageContent(message.content),
       }));
   if (
+    includeTools &&
     usesLiquidCompat(args) &&
     Array.isArray(args.tools) &&
     args.tools.length
@@ -313,12 +318,16 @@ function buildRequestMessages(
     : messages;
 }
 
-function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
+function buildRequestBody(
+  args: NormalizedCallArgs,
+  options: { includeTools?: boolean } = {},
+): Record<string, unknown> {
+  const includeTools = options.includeTools ?? true;
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
-    messages: buildRequestMessages(args),
+    messages: buildRequestMessages(args, { includeTools }),
   };
-  if (args.tools.length > 0) {
+  if (includeTools && args.tools.length > 0) {
     request.tools = args.tools;
     request.tool_choice = 'auto';
   }
@@ -330,6 +339,37 @@ function buildRequestBody(args: NormalizedCallArgs): Record<string, unknown> {
     request.max_tokens = Math.floor(args.maxTokens);
   }
   return request;
+}
+
+function vllmNativeToolCacheKey(args: {
+  provider: string | undefined;
+  baseUrl: string;
+  model: string;
+}): string | null {
+  if (args.provider !== 'vllm') return null;
+  return `${normalizeBaseUrl(args.baseUrl)}\n${normalizeLocalModelName(
+    args.provider,
+    args.model,
+  )}`;
+}
+
+function shouldRetryVllmWithoutNativeTools(params: {
+  provider: string | undefined;
+  tools: ToolDefinition[];
+  status: number;
+  errorText: string;
+  nativeToolsSent: boolean;
+}): boolean {
+  if (!params.nativeToolsSent) return false;
+  if (params.provider !== 'vllm') return false;
+  if (params.tools.length === 0) return false;
+  if (params.status !== 400) return false;
+  const normalized = params.errorText.toLowerCase();
+  return (
+    normalized.includes('enable-auto-tool-choice') ||
+    normalized.includes('tool-call-parser') ||
+    normalized.includes('"auto" tool choice')
+  );
 }
 
 function buildToolCallNormalizationOptions(params: {
@@ -635,7 +675,12 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
 export async function callLocalOpenAICompatProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const requestBody = buildRequestBody(args);
+  const nativeToolCacheKey = vllmNativeToolCacheKey(args);
+  const includeNativeTools =
+    !nativeToolCacheKey ||
+    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey);
+  let requestBody = buildRequestBody(args, { includeTools: includeNativeTools });
+  const url = `${normalizeBaseUrl(args.baseUrl)}/chat/completions`;
   if (args.debugModelResponses) {
     logLastPrompt({
       sessionId: args.sessionId,
@@ -644,22 +689,60 @@ export async function callLocalOpenAICompatProvider(
       kind: 'openai_compatible_non_streaming_request',
       request: {
         method: 'POST',
-        url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+        url,
         body: requestBody,
       },
     });
   }
-  const response = await fetch(
-    `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
-    {
-      method: 'POST',
-      headers: {
-        ...buildHeaders(args.apiKey),
-        ...(args.requestHeaders || {}),
-      },
-      body: JSON.stringify(requestBody),
+  let response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildHeaders(args.apiKey),
+      ...(args.requestHeaders || {}),
     },
-  );
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    if (
+      shouldRetryVllmWithoutNativeTools({
+        provider: args.provider,
+        tools: args.tools,
+        status: response.status,
+        errorText,
+        nativeToolsSent: includeNativeTools,
+      })
+    ) {
+      if (nativeToolCacheKey) {
+        vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
+      }
+      requestBody = buildRequestBody(args, { includeTools: false });
+      if (args.debugModelResponses) {
+        logLastPrompt({
+          sessionId: args.sessionId,
+          provider: args.provider,
+          model: args.model,
+          kind: 'openai_compatible_non_streaming_request',
+          request: {
+            method: 'POST',
+            url,
+            body: requestBody,
+          },
+        });
+      }
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...buildHeaders(args.apiKey),
+          ...(args.requestHeaders || {}),
+        },
+        body: JSON.stringify(requestBody),
+      });
+    } else {
+      throw new ProviderRequestError(response.status, errorText);
+    }
+  }
 
   if (!response.ok) {
     throw new ProviderRequestError(response.status, await response.text());
@@ -684,13 +767,19 @@ export async function callLocalOpenAICompatProvider(
 export async function callLocalOpenAICompatProviderStream(
   args: NormalizedStreamCallArgs,
 ): Promise<ChatCompletionResponse> {
-  const requestBody = {
-    ...buildRequestBody(args),
+  const buildStreamRequestBody = (includeTools: boolean) => ({
+    ...buildRequestBody(args, { includeTools }),
     stream: true,
     stream_options: {
       include_usage: true,
     },
-  };
+  });
+  const nativeToolCacheKey = vllmNativeToolCacheKey(args);
+  const includeNativeTools =
+    !nativeToolCacheKey ||
+    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey);
+  let requestBody = buildStreamRequestBody(includeNativeTools);
+  const url = `${normalizeBaseUrl(args.baseUrl)}/chat/completions`;
   if (args.debugModelResponses) {
     logLastPrompt({
       sessionId: args.sessionId,
@@ -699,23 +788,62 @@ export async function callLocalOpenAICompatProviderStream(
       kind: 'openai_compatible_streaming_request',
       request: {
         method: 'POST',
-        url: `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
+        url,
         body: requestBody,
       },
     });
   }
-  const response = await fetch(
-    `${normalizeBaseUrl(args.baseUrl)}/chat/completions`,
-    {
-      method: 'POST',
-      headers: {
-        ...buildHeaders(args.apiKey),
-        ...(args.requestHeaders || {}),
-        Accept: 'text/event-stream, application/json',
-      },
-      body: JSON.stringify(requestBody),
+  let response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildHeaders(args.apiKey),
+      ...(args.requestHeaders || {}),
+      Accept: 'text/event-stream, application/json',
     },
-  );
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    if (
+      shouldRetryVllmWithoutNativeTools({
+        provider: args.provider,
+        tools: args.tools,
+        status: response.status,
+        errorText,
+        nativeToolsSent: includeNativeTools,
+      })
+    ) {
+      if (nativeToolCacheKey) {
+        vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
+      }
+      requestBody = buildStreamRequestBody(false);
+      if (args.debugModelResponses) {
+        logLastPrompt({
+          sessionId: args.sessionId,
+          provider: args.provider,
+          model: args.model,
+          kind: 'openai_compatible_streaming_request',
+          request: {
+            method: 'POST',
+            url,
+            body: requestBody,
+          },
+        });
+      }
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...buildHeaders(args.apiKey),
+          ...(args.requestHeaders || {}),
+          Accept: 'text/event-stream, application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+    } else {
+      throw new ProviderRequestError(response.status, errorText);
+    }
+  }
 
   if (!response.ok) {
     throw new ProviderRequestError(response.status, await response.text());
