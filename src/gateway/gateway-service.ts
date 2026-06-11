@@ -175,6 +175,7 @@ import {
   isGoogleOAuthSpecifier,
   makeGoogleOAuthSecretRef,
   normalizeHttpRequestAuthRuleUrlPrefix,
+  type RuntimeAuxiliaryModelPolicyConfig,
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
@@ -3880,6 +3881,58 @@ function formatConfiguredAgentModel(
 ): string {
   const model = resolveAgentModel(agent);
   return model ? formatModelForDisplay(model) : '(none)';
+}
+
+function formatAuxiliaryModelPolicy(
+  policy: RuntimeAuxiliaryModelPolicyConfig,
+): string {
+  if (policy.provider === 'disabled') return 'disabled';
+
+  const configuredModel = policy.model.trim();
+  const formattedMaxTokens =
+    policy.maxTokens > 0
+      ? ` (max ${formatCompactNumber(policy.maxTokens)})`
+      : '';
+
+  if (!configuredModel) {
+    const label =
+      policy.provider === 'auto' ? 'auto' : `${policy.provider} default`;
+    return `${label}${formattedMaxTokens}`;
+  }
+
+  if (policy.provider === 'auto') {
+    return `${formatModelForDisplay(configuredModel)}${formattedMaxTokens}`;
+  }
+
+  try {
+    return `${formatModelForDisplay(
+      normalizeAuxiliaryProviderModel({
+        provider: policy.provider,
+        model: configuredModel,
+      }),
+    )}${formattedMaxTokens}`;
+  } catch {
+    return `${formatModelForDisplay(configuredModel)}${formattedMaxTokens}`;
+  }
+}
+
+function formatAuxiliaryModelLines(config: RuntimeConfig): string[] {
+  const configuredAuxiliaryModels = Object.entries(
+    config.auxiliaryModels,
+  ).filter(([, policy]) => {
+    return policy.provider !== 'auto' || policy.model.trim() !== '';
+  });
+
+  if (configuredAuxiliaryModels.length === 0) {
+    return ['Aux models: auto'];
+  }
+
+  return [
+    'Aux models:',
+    ...configuredAuxiliaryModels.map(([task, policy]) => {
+      return `- ${task}: ${formatAuxiliaryModelPolicy(policy)}`;
+    }),
+  ];
 }
 
 function enableFullAutoCommand(params: {
@@ -10052,6 +10105,7 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
+              ...formatAuxiliaryModelLines(getRuntimeConfig()),
               `Known metadata: ${metadata.known ? 'yes' : 'no'}`,
               `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
               `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,
