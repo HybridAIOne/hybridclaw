@@ -378,7 +378,7 @@ HybridClaw can route agent turns to locally running LLM servers instead of
 Enable and configure a backend with:
 
 ```bash
-hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local configure <backend> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw local status
 ```
 
@@ -386,6 +386,8 @@ Runtime details:
 
 - Configuration is stored in `~/.hybridclaw/config.json` under `local.*`.
 - Each backend gets its own `enabled` flag and `baseUrl`.
+- Additional same-type endpoints are stored in `local.endpoints[]`; endpoint
+  names become model prefixes such as `haigpu2/google/gemma-3-27b-it`.
 - Local models are prefixed with the backend name (e.g. `lmstudio/qwen/qwen3.5-9b`,
   `ollama/llama3`).
 - The gateway discovers running backends at startup and exposes reachable

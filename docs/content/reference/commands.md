@@ -239,14 +239,14 @@ hybridclaw auth login minimax [model-id] [--api-key <key>] [--base-url <url>] [-
 hybridclaw auth login dashscope [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login xiaomi [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login kilo [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
-hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 hybridclaw auth status <provider>
 hybridclaw auth logout <provider>
 hybridclaw auth whatsapp reset
 hybridclaw local status
-hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local configure <backend> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw help hybridai
 hybridclaw help codex
 hybridclaw help anthropic
@@ -556,7 +556,7 @@ specific agent.
 
 ```bash
 hybridclaw local status
-hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw hybridai base-url [url]
 hybridclaw hybridai login [--device-code|--browser|--import] [--base-url <url>]
 hybridclaw hybridai logout

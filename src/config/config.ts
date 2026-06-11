@@ -463,6 +463,7 @@ export let LOCAL_LLAMACPP_BASE_URL = 'http://127.0.0.1:8081/v1';
 export let LOCAL_VLLM_ENABLED = false;
 export let LOCAL_VLLM_BASE_URL = 'http://127.0.0.1:8000/v1';
 export let LOCAL_VLLM_API_KEY = '';
+export let LOCAL_ENDPOINTS: RuntimeConfig['local']['endpoints'] = [];
 export let LOCAL_DISCOVERY_ENABLED = true;
 export let LOCAL_DISCOVERY_INTERVAL_MS = 3_600_000;
 export let LOCAL_DISCOVERY_MAX_MODELS = 200;
@@ -1025,6 +1026,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   LOCAL_VLLM_ENABLED = config.local.backends.vllm.enabled;
   LOCAL_VLLM_BASE_URL = config.local.backends.vllm.baseUrl;
   LOCAL_VLLM_API_KEY = config.local.backends.vllm.apiKey || '';
+  LOCAL_ENDPOINTS = structuredClone(config.local.endpoints);
   LOCAL_DISCOVERY_ENABLED = config.local.discovery.enabled;
   LOCAL_DISCOVERY_INTERVAL_MS = config.local.discovery.intervalMs;
   LOCAL_DISCOVERY_MAX_MODELS = config.local.discovery.maxModels;

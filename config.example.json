@@ -1,5 +1,5 @@
 {
-  "version": 29,
+  "version": 30,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -404,6 +404,7 @@
         "apiKey": ""
       }
     },
+    "endpoints": [],
     "discovery": {
       "enabled": true,
       "intervalMs": 3600000,

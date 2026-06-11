@@ -98,6 +98,9 @@ async function readRuntimeSecrets(
     MSTEAMS_APP_PASSWORD: runtimeSecrets.readStoredRuntimeSecret(
       'MSTEAMS_APP_PASSWORD',
     ),
+    LOCAL_ENDPOINT_HAIGPU2_API_KEY: runtimeSecrets.readStoredRuntimeSecret(
+      'LOCAL_ENDPOINT_HAIGPU2_API_KEY',
+    ),
     VLLM_API_KEY: runtimeSecrets.readStoredRuntimeSecret('VLLM_API_KEY'),
   };
 }
@@ -942,6 +945,52 @@ test('local configure vllm stores api key in runtime secrets and writes a store 
     'vllm/meta-llama/Llama-3.1-8B-Instruct',
   );
   expect(secrets.VLLM_API_KEY).toBe('vllm-secret-key');
+});
+
+test('local configure vllm with name stores a named endpoint secret ref', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'local',
+    'configure',
+    'vllm',
+    'google/gemma-3-27b-it',
+    '--name',
+    'haigpu2',
+    '--base-url',
+    'http://haigpu2:8000',
+    '--api-key',
+    'gemma-secret-key',
+    '--no-default',
+  ]);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.resetModules();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  const config = runtimeConfig.getRuntimeConfig();
+  const rawConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as Record<string, unknown>;
+  const rawLocal = rawConfig.local as Record<string, unknown>;
+  const rawEndpoints = rawLocal.endpoints as Array<Record<string, unknown>>;
+  const rawEndpoint = rawEndpoints.find((entry) => entry.name === 'haigpu2');
+  const secrets = await readRuntimeSecrets(homeDir);
+
+  expect(config.local.endpoints).toContainEqual({
+    name: 'haigpu2',
+    type: 'vllm',
+    enabled: true,
+    baseUrl: 'http://haigpu2:8000/v1',
+    apiKey: 'gemma-secret-key',
+  });
+  expect(config.hybridai.defaultModel).toBe('gpt-5.4-mini');
+  expect(rawEndpoint?.apiKey).toEqual({
+    source: 'store',
+    id: 'LOCAL_ENDPOINT_HAIGPU2_API_KEY',
+  });
+  expect(secrets.LOCAL_ENDPOINT_HAIGPU2_API_KEY).toBe('gemma-secret-key');
 });
 
 test('channels imessage setup fails fast when the local imsg binary is missing', async () => {

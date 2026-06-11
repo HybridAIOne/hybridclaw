@@ -1042,6 +1042,7 @@ async function runContainerInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: modelRuntime.model || model,
   });
+  const runtimeModel = modelRuntime.model || model;
   const storedRuntimeEnv = readStoredRuntimeEnv();
   const googleWorkspaceRuntimeEnv =
     await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
@@ -1106,7 +1107,7 @@ async function runContainerInner(
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
-    model,
+    model: runtimeModel,
     codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,
@@ -1116,7 +1117,7 @@ async function runContainerInner(
     streamTextDeltas: Boolean(onTextDelta),
     debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
     maxTokens: resolveExecutorMaxTokens({
-      model,
+      model: runtimeModel,
       discoveredMaxTokens: modelRuntime.maxTokens,
     }),
     channelId,

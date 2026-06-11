@@ -5,6 +5,7 @@ import {
   LOCAL_DISCOVERY_ENABLED,
   LOCAL_DISCOVERY_INTERVAL_MS,
   LOCAL_DISCOVERY_MAX_MODELS,
+  LOCAL_ENDPOINTS,
   LOCAL_LLAMACPP_BASE_URL,
   LOCAL_LLAMACPP_ENABLED,
   LOCAL_LMSTUDIO_BASE_URL,
@@ -17,6 +18,7 @@ import {
 } from '../config/config.js';
 import type {
   LocalBackendType,
+  LocalEndpointConfig,
   LocalModelInfo,
   LocalThinkingFormat,
 } from './local-types.js';
@@ -36,7 +38,8 @@ function hasEnabledLocalBackend(): boolean {
     LOCAL_OLLAMA_ENABLED ||
     LOCAL_LMSTUDIO_ENABLED ||
     LOCAL_LLAMACPP_ENABLED ||
-    LOCAL_VLLM_ENABLED
+    LOCAL_VLLM_ENABLED ||
+    LOCAL_ENDPOINTS.some((endpoint) => endpoint.enabled)
   );
 }
 
@@ -87,6 +90,9 @@ function createLocalModelInfo(
         ? overrides.isReasoning
         : isReasoningModel(normalizedId),
     backend,
+    ...(overrides?.endpointName
+      ? { endpointName: overrides.endpointName }
+      : {}),
     ...(overrides?.thinkingFormat || detectThinkingFormat(normalizedId)
       ? {
           thinkingFormat:
@@ -213,6 +219,7 @@ async function fetchOpenAICompatModels(
   backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm'>,
   baseUrl: string,
   apiKey?: string,
+  endpointName?: string,
 ): Promise<LocalModelInfo[]> {
   const headers: Record<string, string> = {};
   if (String(apiKey || '').trim()) {
@@ -235,6 +242,7 @@ async function fetchOpenAICompatModels(
           contextWindow: readContextWindowFromModelEntry(
             entry as Record<string, unknown>,
           ),
+          endpointName,
         },
       ),
     )
@@ -306,12 +314,22 @@ async function discoverOllamaModels(
 
 async function discoverLmStudioModels(
   baseUrl = LOCAL_LMSTUDIO_BASE_URL,
+  endpointName?: string,
+  apiKey?: string,
 ): Promise<LocalModelInfo[]> {
   const apiBase = resolveOpenAICompatBaseUrl(baseUrl);
   const restBase = apiBase.replace(/\/v1$/i, '');
+  const headers: Record<string, string> = {};
+  if (String(apiKey || '').trim()) {
+    headers.Authorization = `Bearer ${String(apiKey).trim()}`;
+  }
 
   try {
-    const payload = await fetchJson(`${restBase}/api/v1/models`, {}, 5_000);
+    const payload = await fetchJson(
+      `${restBase}/api/v1/models`,
+      { headers },
+      5_000,
+    );
     const models =
       isRecord(payload) && Array.isArray(payload.models) ? payload.models : [];
 
@@ -344,26 +362,57 @@ async function discoverLmStudioModels(
               typeof record.params_string === 'string'
                 ? String(record.params_string).trim()
                 : undefined,
+            endpointName,
           },
         );
       })
       .filter((model) => Boolean(model.id));
   } catch {
-    return fetchOpenAICompatModels('lmstudio', baseUrl);
+    return fetchOpenAICompatModels('lmstudio', baseUrl, apiKey, endpointName);
   }
 }
 
 async function discoverVllmModels(
   baseUrl = LOCAL_VLLM_BASE_URL,
   apiKey = LOCAL_VLLM_API_KEY,
+  endpointName?: string,
 ): Promise<LocalModelInfo[]> {
-  return fetchOpenAICompatModels('vllm', baseUrl, apiKey);
+  return fetchOpenAICompatModels('vllm', baseUrl, apiKey, endpointName);
 }
 
 async function discoverLlamacppModels(
   baseUrl = LOCAL_LLAMACPP_BASE_URL,
+  endpointName?: string,
+  apiKey?: string,
 ): Promise<LocalModelInfo[]> {
-  return fetchOpenAICompatModels('llamacpp', baseUrl);
+  return fetchOpenAICompatModels('llamacpp', baseUrl, apiKey, endpointName);
+}
+
+async function discoverEndpointModels(
+  endpoint: LocalEndpointConfig,
+): Promise<LocalModelInfo[]> {
+  if (endpoint.type === 'ollama') {
+    const models = await discoverOllamaModels(endpoint.baseUrl, {
+      maxModels: LOCAL_DISCOVERY_MAX_MODELS,
+      concurrency: LOCAL_DISCOVERY_CONCURRENCY,
+    });
+    return models.map((model) => ({ ...model, endpointName: endpoint.name }));
+  }
+  if (endpoint.type === 'lmstudio') {
+    return discoverLmStudioModels(
+      endpoint.baseUrl,
+      endpoint.name,
+      endpoint.apiKey,
+    );
+  }
+  if (endpoint.type === 'llamacpp') {
+    return discoverLlamacppModels(
+      endpoint.baseUrl,
+      endpoint.name,
+      endpoint.apiKey,
+    );
+  }
+  return discoverVllmModels(endpoint.baseUrl, endpoint.apiKey, endpoint.name);
 }
 
 export interface LocalDiscoveryStore {
@@ -383,10 +432,12 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
     LocalBackendType,
     Map<string, LocalModelInfo>
   >();
+  const discoveredByEndpoint = new Map<string, Map<string, LocalModelInfo>>();
   const discoveredById = new Map<string, LocalModelInfo>();
 
   function replaceDiscoveryCache(models: LocalModelInfo[]): void {
     discoveredByBackend.clear();
+    discoveredByEndpoint.clear();
     discoveredById.clear();
 
     for (const backend of DISCOVERY_ORDER) {
@@ -394,9 +445,16 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
     }
 
     for (const model of models) {
-      const backendMap = discoveredByBackend.get(model.backend);
-      if (!backendMap) continue;
-      backendMap.set(model.id, model);
+      if (model.endpointName) {
+        const endpointMap =
+          discoveredByEndpoint.get(model.endpointName) ?? new Map();
+        endpointMap.set(model.id, model);
+        discoveredByEndpoint.set(model.endpointName, endpointMap);
+      } else {
+        const backendMap = discoveredByBackend.get(model.backend);
+        if (!backendMap) continue;
+        backendMap.set(model.id, model);
+      }
       if (!discoveredById.has(model.id)) {
         discoveredById.set(model.id, model);
       }
@@ -410,13 +468,18 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
       if (!backendMap) continue;
       models.push(...backendMap.values());
     }
+    for (const endpoint of LOCAL_ENDPOINTS) {
+      const endpointMap = discoveredByEndpoint.get(endpoint.name);
+      if (!endpointMap) continue;
+      models.push(...endpointMap.values());
+    }
     return models;
   }
 
   function getDiscoveredModelNames(): string[] {
     const names = new Set<string>();
     for (const model of getDiscoveredModels()) {
-      names.add(`${model.backend}/${model.id}`);
+      names.add(`${model.endpointName || model.backend}/${model.id}`);
     }
     return [...names];
   }
@@ -429,6 +492,10 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
     if (slashIndex > 0) {
       const backend = normalized.slice(0, slashIndex) as LocalBackendType;
       const modelId = normalized.slice(slashIndex + 1);
+      const endpointMap = discoveredByEndpoint.get(backend);
+      if (endpointMap) {
+        return endpointMap.get(modelId) || null;
+      }
       const backendMap = discoveredByBackend.get(backend);
       return backendMap?.get(modelId) || null;
     }
@@ -484,15 +551,25 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
             ),
           );
         }
+        for (const endpoint of LOCAL_ENDPOINTS) {
+          if (!endpoint.enabled) continue;
+          tasks.push(discoverEndpointModels(endpoint).catch(() => []));
+        }
 
         const discovered = (await Promise.all(tasks)).flat();
         const deduped: LocalModelInfo[] = [];
         const seen = new Set<string>();
-        for (const backend of DISCOVERY_ORDER) {
-          for (const model of discovered.filter(
-            (entry) => entry.backend === backend,
+        const orderedPrefixes = [
+          ...DISCOVERY_ORDER,
+          ...LOCAL_ENDPOINTS.map((endpoint) => endpoint.name),
+        ];
+        for (const prefix of orderedPrefixes) {
+          for (const model of discovered.filter((entry) =>
+            entry.endpointName
+              ? entry.endpointName === prefix
+              : entry.backend === prefix,
           )) {
-            const cacheKey = `${model.backend}:${model.id}`;
+            const cacheKey = `${model.endpointName || model.backend}:${model.id}`;
             if (seen.has(cacheKey)) continue;
             seen.add(cacheKey);
             deduped.push(model);

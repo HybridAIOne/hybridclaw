@@ -10,6 +10,7 @@ export interface LocalModelInfo {
   maxTokens: number;
   isReasoning: boolean;
   backend: LocalBackendType;
+  endpointName?: string;
   thinkingFormat?: LocalThinkingFormat;
   sizeBytes?: number;
   family?: string;
@@ -28,6 +29,11 @@ export interface LocalBackendConfig {
   apiKey?: string;
 }
 
+export interface LocalEndpointConfig extends LocalBackendConfig {
+  name: string;
+  type: LocalBackendType;
+}
+
 export interface LocalProviderConfig {
   backends: {
     ollama: LocalBackendConfig;
@@ -35,6 +41,7 @@ export interface LocalProviderConfig {
     llamacpp: LocalBackendConfig;
     vllm: LocalBackendConfig;
   };
+  endpoints: LocalEndpointConfig[];
   discovery: {
     enabled: boolean;
     intervalMs: number;

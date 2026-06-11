@@ -198,7 +198,7 @@ function buildOpenAICompatRequestBody(
   const body: Record<string, unknown> = {
     model: normalizeOpenAICompatModelName(
       params.runtime.provider,
-      params.model,
+      params.runtime.model || params.model,
     ),
     messages: collapseSystemMessages(params.messages),
   };

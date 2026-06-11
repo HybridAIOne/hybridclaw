@@ -10,6 +10,7 @@ import {
   getLocalModelInfo,
   resolveLocalModelThinkingFormat,
 } from './local-discovery.js';
+import { resolveLocalEndpointForModel } from './local-endpoints.js';
 import type { LocalBackendType } from './local-types.js';
 import type {
   AIProvider,
@@ -17,14 +18,28 @@ import type {
   ResolveProviderRuntimeParams,
 } from './types.js';
 
-function normalizePrefixedModelName(
+function resolveLocalRuntimeModel(
   model: string,
   backend: LocalBackendType,
-): string {
+): {
+  modelId: string;
+  baseUrl?: string;
+  apiKey?: string;
+} {
   const trimmed = String(model || '').trim();
+  const endpoint = resolveLocalEndpointForModel(trimmed, backend);
+  if (endpoint) {
+    return {
+      modelId: endpoint.modelId,
+      baseUrl: endpoint.endpoint.baseUrl,
+      apiKey: endpoint.endpoint.apiKey || '',
+    };
+  }
   const prefix = `${backend}/`;
-  if (!trimmed.toLowerCase().startsWith(prefix)) return trimmed;
-  return trimmed.slice(prefix.length) || trimmed;
+  if (!trimmed.toLowerCase().startsWith(prefix)) {
+    return { modelId: trimmed };
+  }
+  return { modelId: trimmed.slice(prefix.length) || trimmed };
 }
 
 function createLocalOpenAICompatProvider(params: {
@@ -39,16 +54,18 @@ function createLocalOpenAICompatProvider(params: {
       const normalized = String(model || '').trim();
       if (!normalized) return false;
       if (normalized.toLowerCase().startsWith(`${backend}/`)) return true;
+      if (resolveLocalEndpointForModel(normalized, backend)) return true;
       return getLocalModelInfo(normalized)?.backend === backend;
     },
     requiresChatbotId: () => false,
     async resolveRuntimeCredentials(
       runtimeParams: ResolveProviderRuntimeParams,
     ): Promise<ResolvedModelRuntimeCredentials> {
-      const normalizedModel = normalizePrefixedModelName(
+      const resolvedModel = resolveLocalRuntimeModel(
         runtimeParams.model,
         backend,
       );
+      const normalizedModel = resolvedModel.modelId;
       const modelInfo =
         getLocalModelInfo(runtimeParams.model) ||
         getLocalModelInfo(normalizedModel);
@@ -57,8 +74,10 @@ function createLocalOpenAICompatProvider(params: {
       return {
         provider: backend,
         model: `${backend}/${normalizedModel}`,
-        apiKey: apiKey?.() || '',
-        baseUrl: baseUrl().trim().replace(/\/+$/g, ''),
+        apiKey: resolvedModel.apiKey ?? apiKey?.() ?? '',
+        baseUrl: (resolvedModel.baseUrl ?? baseUrl())
+          .trim()
+          .replace(/\/+$/g, ''),
         chatbotId: '',
         enableRag: false,
         requestHeaders: {},

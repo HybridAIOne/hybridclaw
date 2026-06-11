@@ -350,7 +350,7 @@ async function resolveContextFromModel(params: {
     providerMethod: resolved.providerMethod,
     baseUrl: resolved.baseUrl,
     apiKey: resolved.apiKey,
-    model,
+    model: resolved.model || model,
     chatbotId: resolved.chatbotId,
     enableRag: resolved.enableRag,
     requestHeaders: resolved.requestHeaders,
