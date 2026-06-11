@@ -166,6 +166,17 @@ function usesLiquidCompat(args: {
   );
 }
 
+function usesCallPrefixToolCompat(args: {
+  provider: string | undefined;
+  model: string;
+}): boolean {
+  return (
+    resolveToolCallTextParser(
+      normalizeLocalModelName(args.provider, args.model),
+    ) === 'call_prefix'
+  );
+}
+
 function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
   const toolList = tools.map((tool) => ({
     name: tool.function.name,
@@ -173,6 +184,44 @@ function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
     parameters: tool.function.parameters,
   }));
   return `List of tools: ${JSON.stringify(toolList)}`;
+}
+
+function gemmaToolString(value: string): string {
+  return `<|"|>${String(value || '').replace(/<\|"\|>/g, '"')}<|"|>`;
+}
+
+function gemmaToolLiteral(value: unknown): string {
+  if (value == null) return 'null';
+  if (typeof value === 'string') return gemmaToolString(value);
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => gemmaToolLiteral(item)).join(',')}]`;
+  }
+  if (isRecord(value)) {
+    return `{${Object.entries(value)
+      .map(([key, entry]) => `${key}:${gemmaToolLiteral(entry)}`)
+      .join(',')}}`;
+  }
+  return gemmaToolString(String(value));
+}
+
+function buildCallPrefixToolCallInstruction(tools: ToolDefinition[]): string {
+  const declarations = tools
+    .map(
+      (tool) =>
+        `<|tool>declaration:${tool.function.name}{description:${gemmaToolString(
+          tool.function.description,
+        )},parameters:${gemmaToolLiteral(tool.function.parameters)}}<tool|>`,
+    )
+    .join('\n');
+  return [
+    'Available tools are declared below. If a user request requires one of these tools, call it instead of saying it is unavailable.',
+    declarations,
+    'Emit Gemma tool calls exactly as <|tool_call>call:TOOL_NAME{ARGUMENT_NAME:ARGUMENT_VALUE}<tool_call|><|tool_response> and do not wrap them in Markdown.',
+    'Use <|"|>text<|"|> for string argument values.',
+  ].join('\n');
 }
 
 function normalizeMessageContent(
@@ -308,6 +357,20 @@ function buildRequestMessages(
     messages = mergeSystemMessage(
       messages as ChatMessage[],
       buildLiquidToolCallInstruction(args.tools),
+    ).map((message) => ({
+      ...message,
+      content: normalizeMessageContent(message.content),
+    }));
+  }
+  if (
+    !includeTools &&
+    usesCallPrefixToolCompat(args) &&
+    Array.isArray(args.tools) &&
+    args.tools.length
+  ) {
+    messages = mergeSystemMessage(
+      messages as ChatMessage[],
+      buildCallPrefixToolCallInstruction(args.tools),
     ).map((message) => ({
       ...message,
       content: normalizeMessageContent(message.content),

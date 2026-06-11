@@ -661,6 +661,17 @@ describe('local container providers', () => {
       }
       expect(body.tools).toBeUndefined();
       expect(body.tool_choice).toBeUndefined();
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(messages[0]?.role).toBe('system');
+      expect(String(messages[0]?.content || '')).toContain(
+        '<|tool>declaration:shell',
+      );
+      expect(String(messages[0]?.content || '')).toContain(
+        '<|tool_call>call:TOOL_NAME',
+      );
+      expect(String(messages[0]?.content || '')).toContain(
+        'instead of saying it is unavailable',
+      );
       return new Response(
         JSON.stringify({
           id: 'resp_1',
@@ -849,6 +860,14 @@ describe('local container providers', () => {
       }
       expect(body.tools).toBeUndefined();
       expect(body.tool_choice).toBeUndefined();
+      const messages = body.messages as Array<Record<string, unknown>>;
+      expect(messages[0]?.role).toBe('system');
+      expect(String(messages[0]?.content || '')).toContain(
+        '<|tool>declaration:shell',
+      );
+      expect(String(messages[0]?.content || '')).toContain(
+        '<|tool_call>call:TOOL_NAME',
+      );
       return makeEventStreamResponse([
         'data: {"id":"resp_1","model":"google/gemma-4-e4b-it","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
         'data: [DONE]\n\n',
