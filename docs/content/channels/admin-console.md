@@ -1,6 +1,6 @@
 ---
 title: Admin Console
-description: Manage channels, agents, approvals, config, secrets, output guard, audit, jobs, and browser-based operator workflows from /admin.
+description: Manage channels, agents, human distillation, approvals, config, secrets, output guard, audit, jobs, and browser-based operator workflows from /admin.
 sidebar_position: 10
 ---
 
@@ -12,6 +12,8 @@ instead of the CLI. The channel setup page lives at `/admin/channels`, and the
 agent prompt-file editor lives at `/admin/agents`. The approvals page at
 `/admin/approvals` shows live pending approvals and lets operators add, edit,
 and delete the current workspace network policy rules for a selected agent.
+The human distillation page at `/admin/distill` manages subjects, consent,
+corpus documents, source uploads, and distillation runs.
 The A2A inbox at `/admin/a2a-inbox` shows instance-wide agent-to-agent message threads and uses the same web-console authentication as the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local web access.
 The fleet page at `/admin/fleet-topology` shows the local A2A instance identity
 and trusted child instances from the A2A trust ledger. The A2A trust page at
@@ -44,6 +46,9 @@ pairing requests.
   restore an earlier version without opening the workspace directory manually
 - `/admin/agents` lists synced installation- and company-scoped cloud memory under a separate "Shared memory" group as read-only cache views without save or revision actions
 - `/admin/agents` also shows org-chart/team-structure revisions, per-revision diffs, and a restore action for rolling back role, reporting, delegation, and peer relationships
+- `/admin/distill` creates distillation subjects, records consent artefacts,
+  registers or uploads source material, manages corpus documents, starts runs,
+  and opens generated run reports
 - `/admin/approvals` shows unresolved approval prompts across sessions and the
   selected agent workspace's current `policy.yaml` network rules in one place
 - `/admin/approvals` can add, edit, and delete network rules without switching
@@ -98,6 +103,8 @@ pairing requests.
 - the web chat route shares the admin shell, supports improved session
   management, preserves scroll position while reading older messages, and
   renders assistant message blocks with better structured content handling
+- the web chat route supports explicit agent addressing with autocomplete,
+  avatar-backed mention pills, and stable addressed-agent routing
 - the web chat route renders slash-command results distinctly and lets
   operators apply persisted thumbs-up/down ratings to assistant responses
 - the web chat route syntax-highlights completed code blocks, shows language
@@ -126,6 +133,8 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want to inspect or roll back agent org-chart changes from the browser
 - you want to compare all agents, models, budgets, and prompt metadata from a
   single overview page
+- you want to distill a consented coworker agent from source material without
+  stitching CLI commands together by hand
 - you want to inspect pending approvals and compare them with the declarative
   network policy without switching to `/chat` or opening the workspace files
 - you want to add, edit, or remove network policy rules from the browser

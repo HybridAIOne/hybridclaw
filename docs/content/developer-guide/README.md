@@ -26,3 +26,5 @@ These pages focus on how HybridClaw is built and operated under the hood.
 - [Workflows](./workflows.md) for declarative YAML workflow schema and validation rules
 - [Harness Evolution](./harness-evolution.md) for eval-driven coworker
   workspace evolution loops, example suites, and admin inspection
+- [Desktop Release Builds](./desktop-release.md) for signed macOS Electron
+  packaging, notarization, and GitHub Release uploads

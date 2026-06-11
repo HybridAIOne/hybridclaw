@@ -22,7 +22,9 @@ Model prefixes:
 - DashScope / Qwen models use `dashscope/`
 - Xiaomi MiMo models use `xiaomi/`
 - Kilo Code models use `kilo/`
-- local backends use prefixes such as `ollama/`, `lmstudio/`, and `vllm/`
+- local backends use prefixes such as `ollama/`, `lmstudio/`, and `vllm/`;
+  named local endpoints use their configured endpoint name as the prefix, for
+  example `haigpu2/google/gemma-4-e4b-it`
 
 The shipped default Codex model is `openai-codex/gpt-5-codex`.
 
