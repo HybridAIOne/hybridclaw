@@ -9,6 +9,7 @@ import {
   uploadDistillSource,
 } from '../api/client';
 import type {
+  AdminDistillCorpusDocumentSummary,
   AdminDistillRunSummary,
   AdminDistillSourceKind,
   AdminDistillSubjectSummary,
@@ -73,11 +74,34 @@ function statusClass(run: AdminDistillRunSummary | null): string {
   return 'status-dot';
 }
 
+function formatBytes(sizeBytes: number): string {
+  if (!Number.isFinite(sizeBytes) || sizeBytes < 0) return '0 B';
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  const kib = sizeBytes / 1024;
+  if (kib < 1024) return `${kib.toFixed(kib >= 10 ? 0 : 1)} KiB`;
+  const mib = kib / 1024;
+  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
+}
+
 function splitManualSources(value: string, kind: AdminDistillSourceKind) {
   return parseStringList(value).map((sourcePath) => ({
     path: sourcePath,
     kind,
   }));
+}
+
+function dedupeRunSources(subject: AdminDistillSubjectSummary | null) {
+  const seen = new Set<string>();
+  const sources: Array<{ path: string; kind: AdminDistillSourceKind }> = [];
+  for (const run of subject?.runs || []) {
+    for (const source of run.sources) {
+      const key = `${source.kind}:${source.path}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sources.push(source);
+    }
+  }
+  return sources;
 }
 
 interface SubjectDraft {
@@ -126,8 +150,8 @@ function LatestRunPanel({ run }: { run: AdminDistillRunSummary | null }) {
     return <div className="empty-state">No distillation run yet.</div>;
   }
   return (
-    <div className="list-stack">
-      <div className="key-value-grid">
+    <div className="list-stack distill-run-panel">
+      <div className="key-value-grid distill-run-metrics">
         <div>
           <span>Run</span>
           <strong>{run.runId}</strong>
@@ -145,39 +169,166 @@ function LatestRunPanel({ run }: { run: AdminDistillRunSummary | null }) {
           <strong>{run.stats.documentsTotal}</strong>
         </div>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Stage</th>
-            <th>Status</th>
-            <th>Detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {DISTILL_STAGE_ORDER.map((stage) => {
-            const state = run.stages[stage];
-            return (
-              <tr key={stage}>
-                <td>{stage}</td>
-                <td>{state.status}</td>
-                <td>{state.detail || ''}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <div className="summary-block">
+      <div className="table-shell distill-stage-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Stage</th>
+              <th>Status</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {DISTILL_STAGE_ORDER.map((stage) => {
+              const state = run.stages[stage];
+              return (
+                <tr key={stage}>
+                  <td>{stage}</td>
+                  <td>{state.status}</td>
+                  <td>{state.detail || ''}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="summary-block distill-path-summary">
         <span>Report</span>
-        <strong>{run.reportPath}</strong>
+        <strong className="path-text">{run.reportPath}</strong>
         {run.status === 'awaiting-extraction' ? (
           <>
             <span>Packet</span>
-            <strong>{run.packetMarkdownPath}</strong>
+            <strong className="path-text">{run.packetMarkdownPath}</strong>
             <span>Extraction target</span>
-            <strong>{run.extractionPath}</strong>
+            <strong className="path-text">{run.extractionPath}</strong>
           </>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function SourceRows({
+  sources,
+  emptyLabel,
+}: {
+  sources: Array<{ path: string; kind: AdminDistillSourceKind }>;
+  emptyLabel: string;
+}) {
+  if (sources.length === 0) {
+    return <div className="empty-state">{emptyLabel}</div>;
+  }
+  return (
+    <ul className="distill-data-list">
+      {sources.map((source) => (
+        <li className="distill-data-row" key={`${source.kind}:${source.path}`}>
+          <div>
+            <strong>{source.kind}</strong>
+            <code className="path-text">{source.path}</code>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function QueuedUploadRows({
+  uploads,
+}: {
+  uploads: AdminDistillUploadResponse[];
+}) {
+  if (uploads.length === 0) {
+    return <div className="empty-state">No queued uploads.</div>;
+  }
+  return (
+    <ul className="distill-data-list">
+      {uploads.map((upload) => (
+        <li
+          className="distill-data-row"
+          key={`${upload.source.kind}:${upload.path}`}
+        >
+          <div>
+            <strong>
+              {upload.filename} · {upload.source.kind} ·{' '}
+              {formatBytes(upload.sizeBytes)}
+            </strong>
+            <code className="path-text">{upload.path}</code>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CorpusRows({
+  documents,
+}: {
+  documents: AdminDistillCorpusDocumentSummary[];
+}) {
+  if (documents.length === 0) {
+    return <div className="empty-state">No corpus documents ingested yet.</div>;
+  }
+  return (
+    <ul className="distill-data-list">
+      {documents.map((document) => (
+        <li className="distill-data-row" key={document.id}>
+          <div>
+            <strong>{document.id}</strong>
+            <small>
+              {document.source} · {document.wordCount} words ·{' '}
+              {document.holdout ? 'holdout' : 'analysis'} · {document.author}
+            </small>
+            <code className="path-text">{document.origin}</code>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SourceDataPanel({
+  subject,
+  queuedUploads,
+}: {
+  subject: AdminDistillSubjectSummary | null;
+  queuedUploads: AdminDistillUploadResponse[];
+}) {
+  if (!subject) {
+    return <div className="empty-state">No subject selected.</div>;
+  }
+  const runSources = dedupeRunSources(subject);
+  return (
+    <div className="list-stack">
+      <div className="summary-block distill-path-summary">
+        <span>Workspace</span>
+        <strong className="path-text">{subject.paths.workspacePath}</strong>
+        <span>Uploaded files</span>
+        <strong className="path-text">{subject.paths.uploadsPath}</strong>
+        <span>Corpus index</span>
+        <strong className="path-text">
+          {subject.paths.corpusDocumentsPath}
+        </strong>
+      </div>
+
+      {queuedUploads.length > 0 ? (
+        <section className="distill-data-section">
+          <h5>Queued Uploads</h5>
+          <QueuedUploadRows uploads={queuedUploads} />
+        </section>
+      ) : null}
+
+      <section className="distill-data-section">
+        <h5>Run Sources</h5>
+        <SourceRows
+          sources={runSources}
+          emptyLabel="No sources attached to a run yet."
+        />
+      </section>
+
+      <section className="distill-data-section">
+        <h5>Corpus Documents</h5>
+        <CorpusRows documents={subject.corpus} />
+      </section>
     </div>
   );
 }
@@ -193,7 +344,7 @@ export function DistillPage() {
   const [sourceKind, setSourceKind] = useState<AdminDistillSourceKind>('auto');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploadedSources, setUploadedSources] = useState<
-    AdminDistillUploadResponse['source'][]
+    AdminDistillUploadResponse[]
   >([]);
   const [manualSources, setManualSources] = useState('');
   const [holdoutRatio, setHoldoutRatio] = useState('0.1');
@@ -294,7 +445,7 @@ export function DistillPage() {
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
-      const uploaded = [];
+      const uploaded: AdminDistillUploadResponse[] = [];
       for (const file of pendingFiles) {
         uploaded.push(
           await uploadDistillSource(auth.token, file, {
@@ -307,10 +458,7 @@ export function DistillPage() {
       return uploaded;
     },
     onSuccess: (result) => {
-      setUploadedSources((current) => [
-        ...current,
-        ...result.map((item) => item.source),
-      ]);
+      setUploadedSources((current) => [...current, ...result]);
       setPendingFiles([]);
       toast.success('Source upload complete');
     },
@@ -331,7 +479,7 @@ export function DistillPage() {
         sources: resumeRunId
           ? []
           : [
-              ...uploadedSources,
+              ...uploadedSources.map((upload) => upload.source),
               ...splitManualSources(manualSources, sourceKind),
             ],
         resumeRunId,
@@ -687,10 +835,7 @@ export function DistillPage() {
                   </FieldContent>
                 </Field>
                 {uploadedSources.length > 0 ? (
-                  <div className="summary-block">
-                    <span>Queued uploads</span>
-                    <strong>{uploadedSources.length}</strong>
-                  </div>
+                  <QueuedUploadRows uploads={uploadedSources} />
                 ) : null}
               </div>
             </CardContent>
@@ -793,6 +938,21 @@ export function DistillPage() {
             </CardHeader>
             <CardContent>
               <LatestRunPanel run={latestRun} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Source Data</CardTitle>
+              <CardDescription>
+                Uploaded files, source paths, and ingested corpus records.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SourceDataPanel
+                subject={selectedSubject}
+                queuedUploads={uploadedSources}
+              />
             </CardContent>
           </Card>
         </div>

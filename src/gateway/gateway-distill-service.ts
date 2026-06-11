@@ -30,6 +30,7 @@ import {
 } from '../distill/subject.js';
 import type {
   ConsentArtefact,
+  CorpusDocument,
   DistillRunRecord,
   DistillRunSource,
   DistillStageName,
@@ -79,13 +80,37 @@ export interface GatewayAdminDistillRunSummary {
   extractionPath: string;
 }
 
+export interface GatewayAdminDistillDataPaths {
+  workspacePath: string;
+  subjectPath: string;
+  uploadsPath: string;
+  corpusDocumentsPath: string;
+}
+
+export interface GatewayAdminDistillCorpusDocumentSummary {
+  id: string;
+  source: CorpusDocument['source'];
+  origin: string;
+  author: string;
+  authoredBySubject: boolean;
+  title?: string;
+  channel?: string;
+  timestamp?: string;
+  wordCount: number;
+  weight: number;
+  holdout: boolean;
+  runId: string | null;
+}
+
 export interface GatewayAdminDistillSubjectSummary {
   agentId: string;
   alias: string;
   registeredAgent: boolean;
   profile: SubjectProfile;
   consent: GatewayAdminDistillConsentSummary;
+  paths: GatewayAdminDistillDataPaths;
   corpusDocuments: number;
+  corpus: GatewayAdminDistillCorpusDocumentSummary[];
   openReviews: number;
   runs: GatewayAdminDistillRunSummary[];
   latestRun: GatewayAdminDistillRunSummary | null;
@@ -250,6 +275,25 @@ function summarizeConsent(
   };
 }
 
+function summarizeCorpusDocument(
+  document: CorpusDocument,
+): GatewayAdminDistillCorpusDocumentSummary {
+  return {
+    id: document.id,
+    source: document.source,
+    origin: document.origin,
+    author: document.author,
+    authoredBySubject: document.authoredBySubject,
+    ...(document.title ? { title: document.title } : {}),
+    ...(document.channel ? { channel: document.channel } : {}),
+    ...(document.timestamp ? { timestamp: document.timestamp } : {}),
+    wordCount: document.wordCount,
+    weight: document.weight,
+    holdout: Boolean(document.holdout),
+    runId: document.runId || null,
+  };
+}
+
 function summarizeRun(
   agentId: string,
   run: DistillRunRecord,
@@ -286,6 +330,7 @@ function summarizeSubject(
   profile: SubjectProfile,
 ): GatewayAdminDistillSubjectSummary {
   const paths = resolveDistillPaths(agentId, alias);
+  const corpus = listCorpusDocuments(paths);
   const runs = listDistillRuns(paths)
     .slice()
     .reverse()
@@ -296,7 +341,14 @@ function summarizeSubject(
     registeredAgent: getAgentById(agentId) !== null,
     profile,
     consent: summarizeConsent(loadConsentArtefact(paths)),
-    corpusDocuments: listCorpusDocuments(paths).length,
+    paths: {
+      workspacePath: paths.workspaceDir,
+      subjectPath: paths.subjectDir,
+      uploadsPath: path.join(paths.subjectDir, 'uploads'),
+      corpusDocumentsPath: paths.corpusDocumentsPath,
+    },
+    corpusDocuments: corpus.length,
+    corpus: corpus.map(summarizeCorpusDocument),
     openReviews: listReviewItems(paths).filter(
       (review) => review.status === 'open',
     ).length,

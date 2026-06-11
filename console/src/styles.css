@@ -459,7 +459,7 @@ code {
 }
 
 .two-column-grid {
-  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
 }
 
 .skills-review-grid {
@@ -483,9 +483,12 @@ code {
 }
 
 .field-grid,
-.config-grid,
-.key-value-grid {
+.config-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.key-value-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }
 
 .metric-card {
@@ -1926,6 +1929,18 @@ th {
   line-height: 1.55;
 }
 
+.summary-block strong,
+.path-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.path-text {
+  font-family: "SFMono-Regular", "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.9em;
+}
+
 .agent-file-meta {
   min-width: 0;
 }
@@ -2575,6 +2590,98 @@ th {
   padding: 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
+}
+
+.distill-run-panel,
+.distill-run-metrics,
+.distill-stage-table,
+.distill-data-section,
+.distill-data-list,
+.distill-data-row {
+  min-width: 0;
+}
+
+.distill-stage-table table {
+  table-layout: fixed;
+}
+
+.distill-stage-table th,
+.distill-stage-table td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.distill-stage-table th:nth-child(1),
+.distill-stage-table td:nth-child(1) {
+  width: 120px;
+}
+
+.distill-stage-table th:nth-child(2),
+.distill-stage-table td:nth-child(2) {
+  width: 140px;
+}
+
+.distill-data-section {
+  display: grid;
+  gap: 8px;
+}
+
+.distill-data-section h5 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.distill-data-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.distill-data-row {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted);
+}
+
+.distill-path-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: start;
+}
+
+.distill-path-summary span {
+  padding-top: 1px;
+}
+
+.distill-data-row > div {
+  min-width: 0;
+}
+
+.distill-data-row strong,
+.distill-data-row small,
+.distill-data-row code {
+  display: block;
+}
+
+.distill-data-row strong {
+  line-height: 1.3;
+}
+
+.distill-data-row small {
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .table-shell td strong,

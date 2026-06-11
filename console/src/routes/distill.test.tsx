@@ -52,7 +52,28 @@ function makeSubject() {
       scope: 'Distill persona and working knowledge.',
       sha256: 'abc',
     },
+    paths: {
+      workspacePath: '/tmp/hybridclaw/agents/maya/workspace',
+      subjectPath: '/tmp/hybridclaw/agents/maya/workspace/distill/maya',
+      uploadsPath: '/tmp/hybridclaw/agents/maya/workspace/distill/maya/uploads',
+      corpusDocumentsPath:
+        '/tmp/hybridclaw/agents/maya/workspace/distill/maya/corpus/documents.jsonl',
+    },
     corpusDocuments: 2,
+    corpus: [
+      {
+        id: 'doc_abc123abc123',
+        source: 'markdown' as const,
+        origin:
+          '/tmp/hybridclaw/agents/maya/workspace/distill/maya/uploads/2026-06-10/memo.md',
+        author: 'Maya Lindqvist',
+        authoredBySubject: true,
+        wordCount: 42,
+        weight: 0.8,
+        holdout: false,
+        runId: 'dst_1',
+      },
+    ],
     openReviews: 0,
     runs: [],
     latestRun: null,
@@ -149,5 +170,59 @@ describe('DistillPage', () => {
         alias: 'maya',
       });
     });
+  });
+
+  it('shows source data paths and ingested corpus documents', async () => {
+    const run = {
+      runId: 'dst_1',
+      status: 'completed' as const,
+      createdAt: '2026-06-10T10:02:00.000Z',
+      updatedAt: '2026-06-10T10:03:00.000Z',
+      stages: {
+        ingest: { status: 'completed' as const },
+        analyse: { status: 'completed' as const },
+        build: { status: 'completed' as const },
+        merge: { status: 'completed' as const },
+        correct: { status: 'completed' as const },
+      },
+      stats: {
+        documentsAdded: 1,
+        documentsTotal: 2,
+        deltaDocuments: 1,
+        claimsAdded: 1,
+        claimsFlagged: 0,
+        reviewsOpened: 0,
+      },
+      sources: [
+        {
+          path: '/tmp/hybridclaw/agents/maya/workspace/distill/maya/uploads/2026-06-10/memo.md',
+          kind: 'markdown' as const,
+        },
+      ],
+      reportPath:
+        '/tmp/hybridclaw/agents/maya/workspace/runtime/distill/dst_1/REPORT.md',
+      packetMarkdownPath:
+        '/tmp/hybridclaw/agents/maya/workspace/runtime/distill/dst_1/analysis/PACKET.md',
+      extractionPath:
+        '/tmp/hybridclaw/agents/maya/workspace/runtime/distill/dst_1/analysis/extraction.json',
+    };
+    fetchDistillMock.mockResolvedValue({
+      sourceKinds: ['auto', 'markdown', 'text'],
+      subjects: [{ ...makeSubject(), runs: [run], latestRun: run }],
+    });
+    renderWithProviders(<DistillPage />);
+
+    await screen.findByText('Source Data');
+    expect(
+      screen.getByText(
+        '/tmp/hybridclaw/agents/maya/workspace/distill/maya/uploads',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('doc_abc123abc123')).toBeTruthy();
+    expect(
+      screen.getAllByText(
+        '/tmp/hybridclaw/agents/maya/workspace/distill/maya/uploads/2026-06-10/memo.md',
+      ).length,
+    ).toBeGreaterThan(0);
   });
 });

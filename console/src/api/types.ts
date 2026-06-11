@@ -1878,13 +1878,37 @@ export interface AdminDistillRunSummary {
   extractionPath: string;
 }
 
+export interface AdminDistillDataPaths {
+  workspacePath: string;
+  subjectPath: string;
+  uploadsPath: string;
+  corpusDocumentsPath: string;
+}
+
+export interface AdminDistillCorpusDocumentSummary {
+  id: string;
+  source: Exclude<AdminDistillSourceKind, 'auto'>;
+  origin: string;
+  author: string;
+  authoredBySubject: boolean;
+  title?: string;
+  channel?: string;
+  timestamp?: string;
+  wordCount: number;
+  weight: number;
+  holdout: boolean;
+  runId: string | null;
+}
+
 export interface AdminDistillSubjectSummary {
   agentId: string;
   alias: string;
   registeredAgent: boolean;
   profile: AdminDistillSubjectProfile;
   consent: AdminDistillConsentSummary;
+  paths: AdminDistillDataPaths;
   corpusDocuments: number;
+  corpus: AdminDistillCorpusDocumentSummary[];
   openReviews: number;
   runs: AdminDistillRunSummary[];
   latestRun: AdminDistillRunSummary | null;
