@@ -604,7 +604,7 @@ export function DistillPage() {
         <MetricCard label="Open Reviews" value={String(metrics.openReviews)} />
       </div>
 
-      <div className="two-column-grid">
+      <div className="two-column-grid distill-layout">
         <div className="page-stack">
           <Card>
             <CardHeader>

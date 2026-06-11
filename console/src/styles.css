@@ -2595,10 +2595,19 @@ th {
 .distill-run-panel,
 .distill-run-metrics,
 .distill-stage-table,
+.distill-layout,
 .distill-data-section,
 .distill-data-list,
 .distill-data-row {
   min-width: 0;
+}
+
+.distill-layout {
+  align-items: start;
+}
+
+.distill-layout > .page-stack {
+  align-self: start;
 }
 
 .distill-stage-table table {
