@@ -200,8 +200,10 @@ function buildSkillsSection(skillsPrompt: string): string {
   return [
     '## Skills (mandatory)',
     'Before replying: scan `<available_skills>` `<name>`, `<category>`, and `<description>` entries.',
+    '- A skill is instruction text, not a directly callable tool/function. Do not try to invoke a skill by name.',
     '- If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
     '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
+    '- After reading SKILL.md, use ordinary available tools such as `bash`, `read`, or `http_request` exactly as the skill instructs.',
     '- If multiple could apply: choose the most specific one, then read/follow it.',
     '- Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
     '- If none clearly apply: do not read any SKILL.md.',
