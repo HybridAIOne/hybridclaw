@@ -10,6 +10,10 @@ const KIMI_K2_START_TOKENS = [
   '<|tool_calls_section_begin|>',
   '<|tool_call_section_begin|>',
 ] as const;
+const GEMMA_TOOL_CALL_OPEN = '<|tool_call>';
+const GEMMA_TOOL_CALL_CLOSE = '<tool_call|>';
+const GEMMA_TOOL_RESPONSE_OPEN = '<|tool_response>';
+const GEMMA_QUOTE_MARKER = '<|"|>';
 
 export type ToolCallTextParser =
   | 'hermes'
@@ -719,9 +723,18 @@ function findBalancedDelimiterEnd(text: string, startIndex: number): number {
   let depth = 0;
   let quote: '"' | "'" | null = null;
   let escaped = false;
+  let gemmaQuoted = false;
 
   for (let index = startIndex; index < text.length; index += 1) {
     const char = text[index];
+    if (gemmaQuoted) {
+      if (text.startsWith(GEMMA_QUOTE_MARKER, index)) {
+        gemmaQuoted = false;
+        index += GEMMA_QUOTE_MARKER.length - 1;
+      }
+      continue;
+    }
+
     if (quote) {
       if (escaped) {
         escaped = false;
@@ -733,6 +746,11 @@ function findBalancedDelimiterEnd(text: string, startIndex: number): number {
       continue;
     }
 
+    if (text.startsWith(GEMMA_QUOTE_MARKER, index)) {
+      gemmaQuoted = true;
+      index += GEMMA_QUOTE_MARKER.length - 1;
+      continue;
+    }
     if (char === '"' || char === "'") {
       quote = char;
       continue;
@@ -772,6 +790,28 @@ function parseSingleQuotedString(text: string): string {
         return char;
     }
   });
+}
+
+function replaceGemmaQuotedStrings(text: string): string {
+  let out = '';
+  let cursor = 0;
+  while (cursor < text.length) {
+    const start = text.indexOf(GEMMA_QUOTE_MARKER, cursor);
+    if (start < 0) {
+      out += text.slice(cursor);
+      break;
+    }
+    out += text.slice(cursor, start);
+    const valueStart = start + GEMMA_QUOTE_MARKER.length;
+    const end = text.indexOf(GEMMA_QUOTE_MARKER, valueStart);
+    if (end < 0) {
+      out += text.slice(start);
+      break;
+    }
+    out += JSON.stringify(text.slice(valueStart, end));
+    cursor = end + GEMMA_QUOTE_MARKER.length;
+  }
+  return out;
 }
 
 function parseCallPrefixObjectKey(text: string): string | null {
@@ -872,11 +912,32 @@ function parseCallPrefixLiteral(text: string): unknown {
 }
 
 function parseCallPrefixArguments(text: string): unknown {
+  const normalized = replaceGemmaQuotedStrings(text);
   try {
-    return parseJsonCandidate(text);
+    return parseJsonCandidate(normalized);
   } catch {
-    return parseCallPrefixLiteral(text);
+    return parseCallPrefixLiteral(normalized);
   }
+}
+
+function includesGemmaToolCallOpenBefore(text: string, index: number): boolean {
+  const start = index - GEMMA_TOOL_CALL_OPEN.length;
+  return (
+    start >= 0 &&
+    text.slice(start, index).toLowerCase() === GEMMA_TOOL_CALL_OPEN
+  );
+}
+
+function callPrefixRemovalEnd(text: string, argumentsEnd: number): number {
+  const lower = text.toLowerCase();
+  let end = argumentsEnd + 1;
+  if (lower.startsWith(GEMMA_TOOL_CALL_CLOSE, end)) {
+    end += GEMMA_TOOL_CALL_CLOSE.length;
+  }
+  if (lower.startsWith(GEMMA_TOOL_RESPONSE_OPEN, end)) {
+    end += GEMMA_TOOL_RESPONSE_OPEN.length;
+  }
+  return end;
 }
 
 function extractCallPrefixToolCalls(content: string): {
@@ -892,8 +953,9 @@ function extractCallPrefixToolCalls(content: string): {
   while (match) {
     const start = match.index;
     const previous = start > 0 ? content[start - 1] : '';
+    const hasGemmaOpenMarker = includesGemmaToolCallOpenBefore(content, start);
     if (
-      (start === 0 || /\s/.test(previous)) &&
+      (start === 0 || /\s/.test(previous) || hasGemmaOpenMarker) &&
       !isProtectedIndex(start, protectedRanges)
     ) {
       const argumentsStart = pattern.lastIndex;
@@ -911,9 +973,14 @@ function extractCallPrefixToolCalls(content: string): {
           });
           if (toolCall) {
             toolCalls.push(toolCall);
-            removals.push({ start, end: argumentsEnd + 1 });
+            removals.push({
+              start: hasGemmaOpenMarker
+                ? start - GEMMA_TOOL_CALL_OPEN.length
+                : start,
+              end: callPrefixRemovalEnd(content, argumentsEnd),
+            });
           }
-          pattern.lastIndex = argumentsEnd + 1;
+          pattern.lastIndex = callPrefixRemovalEnd(content, argumentsEnd);
         } catch {
           pattern.lastIndex = start + 'call:'.length;
         }

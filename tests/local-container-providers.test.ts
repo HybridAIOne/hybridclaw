@@ -763,6 +763,66 @@ describe('local container providers', () => {
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
+  test('vLLM Gemma provider normalizes documented tool-call markers', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: 'resp_1',
+              model: 'google/gemma-4-e4b-it',
+              choices: [
+                {
+                  message: {
+                    role: 'assistant',
+                    content:
+                      'Yes, list of running servers\n<|tool_call>call:hetzner-cloud{action:<|"|>list_servers<|"|>,filters:{status:<|"|>running<|"|>}}<tool_call|><|tool_response>',
+                  },
+                  finish_reason: 'stop',
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'vllm',
+      baseUrl: 'http://haigpu2:8000/v1',
+      apiKey: '',
+      model: 'vllm/google/gemma-4-e4b-it',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: [],
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe(
+      'Yes, list of running servers',
+    );
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'hetzner-cloud',
+          arguments:
+            '{"action":"list_servers","filters":{"status":"running"}}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
   test('vLLM local stream retries without native tools when auto tool choice is unsupported', async () => {
     const deltas: string[] = [];
     let calls = 0;
@@ -826,6 +886,82 @@ describe('local container providers', () => {
           'data: {"id":"resp_1","model":"google/gemma-4-e4b-it","choices":[{"delta":{"content":"Yes, list of running servers"}}]}\n\n',
           'data: {"choices":[{"delta":{"content":"\\ncall:hetzner-cloud{action:\\"list_servers\\",filters:{status:\\"running\\"}}"}}]}\n\n',
           'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'vllm',
+      baseUrl: 'http://haigpu2:8000/v1',
+      apiKey: '',
+      model: 'vllm/google/gemma-4-e4b-it',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: [],
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(deltas).toEqual(['Yes, list of running servers']);
+    expect(result.choices[0]?.message.content).toBe(
+      'Yes, list of running servers',
+    );
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'hetzner-cloud',
+          arguments:
+            '{"action":"list_servers","filters":{"status":"running"}}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('vLLM Gemma stream normalizes and hides documented tool-call markers', async () => {
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          `data: ${JSON.stringify({
+            id: 'resp_1',
+            model: 'google/gemma-4-e4b-it',
+            choices: [
+              {
+                delta: {
+                  content: 'Yes, list of running servers',
+                },
+              },
+            ],
+          })}\n\n`,
+          `data: ${JSON.stringify({
+            choices: [
+              {
+                delta: {
+                  content:
+                    '\n<|tool_call>call:hetzner-cloud{action:<|"|>list_servers<|"|>,filters:{status:<|"|>running<|"|>}}',
+                },
+              },
+            ],
+          })}\n\n`,
+          `data: ${JSON.stringify({
+            choices: [
+              {
+                delta: {
+                  content: '<tool_call|><|tool_response>',
+                },
+                finish_reason: 'stop',
+              },
+            ],
+          })}\n\n`,
           'data: [DONE]\n\n',
         ]),
       ),

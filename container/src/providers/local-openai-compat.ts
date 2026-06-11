@@ -676,8 +676,12 @@ function createCallPrefixStreamFilter(onTextDelta: (delta: string) => void): {
   push: (delta: string) => void;
   close: () => void;
 } {
+  const gemmaToolCallOpen = '<|tool_call>';
+  const gemmaToolCallClose = '<tool_call|>';
+  const gemmaToolResponseOpen = '<|tool_response>';
   let buffer = '';
   let insideToolCall = false;
+  let markerToolCallClose: string | null = null;
   let braceDepth = 0;
   let quote: '"' | "'" | null = null;
   let escaped = false;
@@ -700,17 +704,70 @@ function createCallPrefixStreamFilter(onTextDelta: (delta: string) => void): {
     return -1;
   };
 
+  const findNextSuppressedStart = (): {
+    index: number;
+    kind: 'call' | 'tool_call_marker' | 'tool_response_marker';
+  } | null => {
+    const lower = buffer.toLowerCase();
+    const candidates: Array<{
+      index: number;
+      kind: 'call' | 'tool_call_marker' | 'tool_response_marker';
+    }> = [];
+    const callIndex = findCallPrefixStart();
+    if (callIndex >= 0) candidates.push({ index: callIndex, kind: 'call' });
+    const toolCallMarkerIndex = lower.indexOf(gemmaToolCallOpen);
+    if (toolCallMarkerIndex >= 0) {
+      candidates.push({
+        index: toolCallMarkerIndex,
+        kind: 'tool_call_marker',
+      });
+    }
+    const responseMarkerIndex = lower.indexOf(gemmaToolResponseOpen);
+    if (responseMarkerIndex >= 0) {
+      candidates.push({
+        index: responseMarkerIndex,
+        kind: 'tool_response_marker',
+      });
+    }
+    return (
+      candidates.sort((left, right) => left.index - right.index)[0] || null
+    );
+  };
+
   const findPartialCallPrefixSuffixLength = (): number => {
     const lower = buffer.toLowerCase();
-    const marker = 'call:';
-    const maxLength = Math.min(marker.length - 1, lower.length);
-    for (let length = maxLength; length > 0; length -= 1) {
-      if (lower.endsWith(marker.slice(0, length))) return length;
+    const markers = ['call:', gemmaToolCallOpen, gemmaToolResponseOpen];
+    let longest = 0;
+    for (const marker of markers) {
+      const maxLength = Math.min(marker.length - 1, lower.length);
+      for (let length = maxLength; length > longest; length -= 1) {
+        if (lower.endsWith(marker.slice(0, length))) {
+          longest = length;
+          break;
+        }
+      }
     }
-    return 0;
+    return longest;
   };
 
   const consumeToolCallBuffer = (): void => {
+    if (markerToolCallClose) {
+      const lower = buffer.toLowerCase();
+      const end = lower.indexOf(markerToolCallClose);
+      if (end < 0) {
+        buffer = '';
+        return;
+      }
+      let nextStart = end + markerToolCallClose.length;
+      if (lower.startsWith(gemmaToolResponseOpen, nextStart)) {
+        nextStart += gemmaToolResponseOpen.length;
+      }
+      buffer = buffer.slice(nextStart);
+      insideToolCall = false;
+      markerToolCallClose = null;
+      return;
+    }
+
     let index = 0;
     while (index < buffer.length) {
       const char = buffer[index];
@@ -758,8 +815,8 @@ function createCallPrefixStreamFilter(onTextDelta: (delta: string) => void): {
         continue;
       }
 
-      const start = findCallPrefixStart();
-      if (start < 0) {
+      const start = findNextSuppressedStart();
+      if (!start) {
         const holdbackChars = final ? 0 : findPartialCallPrefixSuffixLength();
         if (!final && buffer.length <= holdbackChars) return;
         const emitLength = buffer.length - holdbackChars;
@@ -769,8 +826,21 @@ function createCallPrefixStreamFilter(onTextDelta: (delta: string) => void): {
         continue;
       }
 
-      const beforeCall = buffer.slice(0, start);
-      const candidate = buffer.slice(start);
+      const beforeCall = buffer.slice(0, start.index);
+      const candidate = buffer.slice(start.index);
+      if (start.kind === 'tool_response_marker') {
+        emitBeforeToolCall(beforeCall);
+        buffer = candidate.slice(gemmaToolResponseOpen.length);
+        continue;
+      }
+      if (start.kind === 'tool_call_marker') {
+        emitBeforeToolCall(beforeCall);
+        buffer = candidate.slice(gemmaToolCallOpen.length);
+        insideToolCall = true;
+        markerToolCallClose = gemmaToolCallClose;
+        continue;
+      }
+
       const callMatch = candidate.match(
         /^call:\s*[A-Za-z_][A-Za-z0-9_.-]*\s*\{/i,
       );
@@ -790,8 +860,8 @@ function createCallPrefixStreamFilter(onTextDelta: (delta: string) => void): {
         return;
       }
 
-      emit(buffer.slice(0, start + 'call:'.length));
-      buffer = buffer.slice(start + 'call:'.length);
+      emit(buffer.slice(0, start.index + 'call:'.length));
+      buffer = buffer.slice(start.index + 'call:'.length);
       if (!final) return;
     }
   };
