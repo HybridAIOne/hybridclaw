@@ -24,6 +24,7 @@ import {
 import {
   callLocalOpenAICompatProvider,
   callLocalOpenAICompatProviderStream,
+  estimateLocalOpenAICompatPromptOverheadTokens,
 } from './local-openai-compat.js';
 import {
   callOpenAICodexProvider,
@@ -67,6 +68,10 @@ export interface RoutedModelStreamCallParams extends RoutedModelCallParams {
   onTextDelta: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
+}
+
+export interface RoutedPromptOverheadParams extends RoutedModelContext {
+  tools?: ToolDefinition[];
 }
 
 export interface RoutedVisionCallParams extends RoutedModelContext {
@@ -146,6 +151,18 @@ export async function callProviderModelStream(
     return callLocalOpenAICompatProviderStream(args);
   }
   return callHybridAIProviderStream(args);
+}
+
+export function estimateRoutedPromptOverheadTokens(
+  params: RoutedPromptOverheadParams,
+): number {
+  if (!isOpenAICompatRuntimeProvider(params.provider)) return 0;
+  return estimateLocalOpenAICompatPromptOverheadTokens({
+    provider: params.provider,
+    model: params.model,
+    tools: params.tools,
+    modelBehavior: params.modelBehavior,
+  });
 }
 
 export async function callRoutedModel(

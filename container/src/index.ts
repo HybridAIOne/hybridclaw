@@ -29,7 +29,11 @@ import {
   shouldRetryWithoutNativeMedia,
 } from './native-media.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
+import {
+  callRoutedModel,
+  callRoutedModelStream,
+  estimateRoutedPromptOverheadTokens,
+} from './providers/router.js';
 import {
   isHybridAIEmptyVisibleCompletion,
   ProviderRequestError,
@@ -1044,6 +1048,21 @@ async function processRequest(
   let latestVisibleAssistantText: string | null = null;
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
+  const promptOverheadTokens = estimateRoutedPromptOverheadTokens({
+    provider,
+    providerMethod,
+    baseUrl,
+    apiKey,
+    model,
+    chatbotId,
+    enableRag,
+    requestHeaders,
+    isLocal,
+    contextWindow,
+    modelBehavior,
+    thinkingFormat,
+    tools,
+  });
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
 
   if (provider === 'openai-codex' && codexRuntime === 'app-server') {
@@ -1200,6 +1219,7 @@ async function processRequest(
     const guardResult = applyContextGuard({
       history,
       contextWindowTokens: contextWindow,
+      promptOverheadTokens,
       config: contextGuard,
       cache: tokenEstimateCache,
     });
@@ -1286,10 +1306,8 @@ async function processRequest(
       continue;
     }
 
-    const estimatedPromptTokensForCall = estimateMessageTokens(
-      history,
-      tokenEstimateCache,
-    );
+    const estimatedPromptTokensForCall =
+      estimateMessageTokens(history, tokenEstimateCache) + promptOverheadTokens;
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 

@@ -58,6 +58,22 @@ describe('applyContextGuard', () => {
     expect(result.tier3Triggered).toBe(true);
   });
 
+  test('includes provider prompt overhead in overflow decisions', () => {
+    const history: ChatMessage[] = [
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'Small request' },
+    ];
+    const result = applyContextGuard({
+      history,
+      contextWindowTokens: 1_024,
+      promptOverheadTokens: 1_000,
+      cache: createTokenEstimateCache(),
+    });
+
+    expect(result.totalTokensAfter).toBeGreaterThan(1_000);
+    expect(result.tier3Triggered).toBe(true);
+  });
+
   test('does not treat matching placeholder tool output as already compacted', () => {
     const history: ChatMessage[] = [
       { role: 'system', content: 'System prompt' },

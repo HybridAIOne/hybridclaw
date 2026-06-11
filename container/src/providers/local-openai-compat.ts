@@ -225,6 +225,32 @@ function buildCallPrefixToolCallInstruction(tools: ToolDefinition[]): string {
   ].join('\n');
 }
 
+function estimatePromptToolInstructionTokens(instruction: string): number {
+  if (!instruction) return 0;
+  return Math.max(1, Math.ceil(instruction.length / 2) + 32);
+}
+
+export function estimateLocalOpenAICompatPromptOverheadTokens(args: {
+  provider: string | undefined;
+  model: string;
+  tools?: ToolDefinition[];
+  modelBehavior?: NormalizedCallArgs['modelBehavior'];
+}): number {
+  const tools = Array.isArray(args.tools) ? args.tools : [];
+  if (tools.length === 0) return 0;
+  if (usesCallPrefixToolCompat(args)) {
+    return estimatePromptToolInstructionTokens(
+      buildCallPrefixToolCallInstruction(tools),
+    );
+  }
+  if (usesLiquidCompat(args)) {
+    return estimatePromptToolInstructionTokens(
+      buildLiquidToolCallInstruction(tools),
+    );
+  }
+  return 0;
+}
+
 function normalizeMessageContent(
   content: ChatMessage['content'],
 ): ChatMessage['content'] {

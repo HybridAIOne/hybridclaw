@@ -6,6 +6,7 @@ import {
 import {
   callLocalOpenAICompatProvider,
   callLocalOpenAICompatProviderStream,
+  estimateLocalOpenAICompatPromptOverheadTokens,
 } from '../container/src/providers/local-openai-compat.js';
 import { normalizeOpenRouterRuntimeModelName } from '../container/src/providers/shared.js';
 import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
@@ -66,6 +67,24 @@ afterEach(() => {
 });
 
 describe('local container providers', () => {
+  test('Gemma prompt tool overhead is enabled only by explicit model behavior', () => {
+    expect(
+      estimateLocalOpenAICompatPromptOverheadTokens({
+        provider: 'vllm',
+        model: 'vllm/google/gemma-4-e4b-it',
+        tools,
+        modelBehavior: { toolCallFormat: 'gemma' },
+      }),
+    ).toBeGreaterThan(0);
+    expect(
+      estimateLocalOpenAICompatPromptOverheadTokens({
+        provider: 'vllm',
+        model: 'vllm/google/gemma-4-e4b-it',
+        tools,
+      }),
+    ).toBe(0);
+  });
+
   test('Ollama provider builds native /api/chat requests and extracts data URI images', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as Record<
