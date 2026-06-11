@@ -1858,6 +1858,14 @@ export interface AdminDistillConsentSummary {
   sha256: string | null;
 }
 
+export interface AdminDistillEmbeddedText {
+  available: boolean;
+  content: string;
+  byteLength: number;
+  truncated: boolean;
+  error: string | null;
+}
+
 export interface AdminDistillRunSummary {
   runId: string;
   status: 'pending' | 'awaiting-extraction' | 'failed' | 'completed';
@@ -1876,6 +1884,11 @@ export interface AdminDistillRunSummary {
   reportPath: string;
   packetMarkdownPath: string;
   extractionPath: string;
+  artifacts: {
+    report: AdminDistillEmbeddedText;
+    packetMarkdown: AdminDistillEmbeddedText;
+    extraction: AdminDistillEmbeddedText;
+  };
 }
 
 export interface AdminDistillDataPaths {
@@ -1898,6 +1911,7 @@ export interface AdminDistillCorpusDocumentSummary {
   weight: number;
   holdout: boolean;
   runId: string | null;
+  contentPreview: AdminDistillEmbeddedText;
 }
 
 export interface AdminDistillSubjectSummary {
@@ -1964,6 +1978,7 @@ export interface AdminDistillUploadResponse {
   path: string;
   filename: string;
   sizeBytes: number;
+  preview: AdminDistillEmbeddedText;
 }
 
 export interface AdminHarnessEvolutionMetrics {

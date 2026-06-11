@@ -26,6 +26,16 @@ vi.mock('../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
 
+function embeddedText(content: string) {
+  return {
+    available: true,
+    content,
+    byteLength: content.length,
+    truncated: false,
+    error: null,
+  };
+}
+
 function makeSubject() {
   return {
     agentId: 'maya',
@@ -72,6 +82,7 @@ function makeSubject() {
         weight: 0.8,
         holdout: false,
         runId: 'dst_1',
+        contentPreview: embeddedText('# Memo\n\nBoring options win.'),
       },
     ],
     openReviews: 0,
@@ -122,6 +133,17 @@ describe('DistillPage', () => {
         reportPath: '/tmp/REPORT.md',
         packetMarkdownPath: '/tmp/PACKET.md',
         extractionPath: '/tmp/extraction.json',
+        artifacts: {
+          report: embeddedText('# Report\n\nAwaiting extraction.'),
+          packetMarkdown: embeddedText('# Packet\n\nRead this.'),
+          extraction: {
+            available: false,
+            content: '',
+            byteLength: 0,
+            truncated: false,
+            error: 'Not generated yet.',
+          },
+        },
       },
       warnings: [],
       flagged: [],
@@ -205,6 +227,11 @@ describe('DistillPage', () => {
         '/tmp/hybridclaw/agents/maya/workspace/runtime/distill/dst_1/analysis/PACKET.md',
       extractionPath:
         '/tmp/hybridclaw/agents/maya/workspace/runtime/distill/dst_1/analysis/extraction.json',
+      artifacts: {
+        report: embeddedText('# Distill Report\n\nReport for cloud users.'),
+        packetMarkdown: embeddedText('# Packet\n\nPacket for cloud users.'),
+        extraction: embeddedText('{"version":1}'),
+      },
     };
     fetchDistillMock.mockResolvedValue({
       sourceKinds: ['auto', 'markdown', 'text'],
@@ -219,6 +246,8 @@ describe('DistillPage', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText('doc_abc123abc123')).toBeTruthy();
+    expect(screen.getByText(/Report for cloud users/)).toBeTruthy();
+    expect(screen.getByText(/Boring options win/)).toBeTruthy();
     expect(
       screen.getAllByText(
         '/tmp/hybridclaw/agents/maya/workspace/distill/maya/uploads/2026-06-10/memo.md',

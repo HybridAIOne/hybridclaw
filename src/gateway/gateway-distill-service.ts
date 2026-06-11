@@ -55,6 +55,9 @@ export const ADMIN_DISTILL_SOURCE_KINDS = [
 type AdminDistillSelectableSourceKind =
   (typeof ADMIN_DISTILL_SOURCE_KINDS)[number];
 type AdminDistillSourceKind = DistillRunSource['kind'];
+const ADMIN_DISTILL_FILE_PREVIEW_BYTES = 80_000;
+const ADMIN_DISTILL_UPLOAD_PREVIEW_BYTES = 40_000;
+const ADMIN_DISTILL_CORPUS_PREVIEW_CHARS = 2_000;
 
 export interface GatewayAdminDistillConsentSummary {
   present: boolean;
@@ -65,6 +68,14 @@ export interface GatewayAdminDistillConsentSummary {
   method: string | null;
   scope: string | null;
   sha256: string | null;
+}
+
+export interface GatewayAdminDistillEmbeddedText {
+  available: boolean;
+  content: string;
+  byteLength: number;
+  truncated: boolean;
+  error: string | null;
 }
 
 export interface GatewayAdminDistillRunSummary {
@@ -78,6 +89,11 @@ export interface GatewayAdminDistillRunSummary {
   reportPath: string;
   packetMarkdownPath: string;
   extractionPath: string;
+  artifacts: {
+    report: GatewayAdminDistillEmbeddedText;
+    packetMarkdown: GatewayAdminDistillEmbeddedText;
+    extraction: GatewayAdminDistillEmbeddedText;
+  };
 }
 
 export interface GatewayAdminDistillDataPaths {
@@ -100,6 +116,7 @@ export interface GatewayAdminDistillCorpusDocumentSummary {
   weight: number;
   holdout: boolean;
   runId: string | null;
+  contentPreview: GatewayAdminDistillEmbeddedText;
 }
 
 export interface GatewayAdminDistillSubjectSummary {
@@ -161,6 +178,7 @@ export interface GatewayAdminDistillUploadResult {
   path: string;
   filename: string;
   sizeBytes: number;
+  preview: GatewayAdminDistillEmbeddedText;
 }
 
 function normalizeOptionalText(value: unknown): string | undefined {
@@ -275,6 +293,70 @@ function summarizeConsent(
   };
 }
 
+function embeddedTextFromString(
+  content: string,
+  maxChars: number,
+): GatewayAdminDistillEmbeddedText {
+  const truncated = content.length > maxChars;
+  return {
+    available: true,
+    content: truncated ? content.slice(0, maxChars) : content,
+    byteLength: Buffer.byteLength(content, 'utf-8'),
+    truncated,
+    error: null,
+  };
+}
+
+function embeddedTextFromBuffer(
+  buffer: Buffer,
+  maxBytes: number,
+): GatewayAdminDistillEmbeddedText {
+  const truncated = buffer.length > maxBytes;
+  const visible = truncated ? buffer.subarray(0, maxBytes) : buffer;
+  return {
+    available: true,
+    content: visible.toString('utf-8'),
+    byteLength: buffer.length,
+    truncated,
+    error: null,
+  };
+}
+
+function readEmbeddedTextFile(
+  filePath: string,
+): GatewayAdminDistillEmbeddedText {
+  try {
+    const file = fs.openSync(filePath, 'r');
+    try {
+      const stat = fs.fstatSync(file);
+      const bytesToRead = Math.min(stat.size, ADMIN_DISTILL_FILE_PREVIEW_BYTES);
+      const buffer = Buffer.alloc(bytesToRead);
+      fs.readSync(file, buffer, 0, bytesToRead, 0);
+      return {
+        available: true,
+        content: buffer.toString('utf-8'),
+        byteLength: stat.size,
+        truncated: stat.size > ADMIN_DISTILL_FILE_PREVIEW_BYTES,
+        error: null,
+      };
+    } finally {
+      fs.closeSync(file);
+    }
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    return {
+      available: false,
+      content: '',
+      byteLength: 0,
+      truncated: false,
+      error:
+        err.code === 'ENOENT'
+          ? 'Not generated yet.'
+          : err.message || 'Unable to read artifact.',
+    };
+  }
+}
+
 function summarizeCorpusDocument(
   document: CorpusDocument,
 ): GatewayAdminDistillCorpusDocumentSummary {
@@ -291,6 +373,10 @@ function summarizeCorpusDocument(
     weight: document.weight,
     holdout: Boolean(document.holdout),
     runId: document.runId || null,
+    contentPreview: embeddedTextFromString(
+      document.content,
+      ADMIN_DISTILL_CORPUS_PREVIEW_CHARS,
+    ),
   };
 }
 
@@ -311,6 +397,11 @@ function summarizeRun(
     reportPath: runPaths.reportPath,
     packetMarkdownPath: runPaths.packetMarkdownPath,
     extractionPath: runPaths.extractionPath,
+    artifacts: {
+      report: readEmbeddedTextFile(runPaths.reportPath),
+      packetMarkdown: readEmbeddedTextFile(runPaths.packetMarkdownPath),
+      extraction: readEmbeddedTextFile(runPaths.extractionPath),
+    },
   };
 }
 
@@ -583,6 +674,10 @@ export async function uploadGatewayAdminDistillSource(params: {
     path: filePath,
     filename,
     sizeBytes: params.buffer.length,
+    preview: embeddedTextFromBuffer(
+      params.buffer,
+      ADMIN_DISTILL_UPLOAD_PREVIEW_BYTES,
+    ),
     source: {
       path: filePath,
       kind: normalizeSourceKind(params.kind),

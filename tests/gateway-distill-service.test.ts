@@ -142,6 +142,8 @@ test('admin distill service creates a consented subject, uploads a source, and s
   });
   expect(upload.filename).toBe('memo.md');
   expect(upload.source.kind).toBe('markdown');
+  expect(upload.preview.available).toBe(true);
+  expect(upload.preview.content).toContain('Boring options win');
   expect(upload.path).toContain(
     path.join(
       tempHome,
@@ -165,5 +167,11 @@ test('admin distill service creates a consented subject, uploads a source, and s
   expect(result.run.status).toBe('awaiting-extraction');
   expect(result.run.stats.documentsAdded).toBe(1);
   expect(result.subject.corpusDocuments).toBe(1);
+  expect(result.run.artifacts.report.available).toBe(true);
+  expect(result.run.artifacts.report.content).toContain(result.run.runId);
+  expect(result.run.artifacts.packetMarkdown.available).toBe(true);
+  expect(result.subject.corpus[0]?.contentPreview.content).toContain(
+    'Boring options win',
+  );
   expect(result.warnings).toEqual([]);
 });

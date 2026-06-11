@@ -10,6 +10,7 @@ import {
 } from '../api/client';
 import type {
   AdminDistillCorpusDocumentSummary,
+  AdminDistillEmbeddedText,
   AdminDistillRunSummary,
   AdminDistillSourceKind,
   AdminDistillSubjectSummary,
@@ -104,6 +105,60 @@ function dedupeRunSources(subject: AdminDistillSubjectSummary | null) {
   return sources;
 }
 
+function EmbeddedTextDisclosure({
+  title,
+  artifact,
+  path,
+}: {
+  title: string;
+  artifact: AdminDistillEmbeddedText;
+  path?: string;
+}) {
+  return (
+    <details className="distill-embed">
+      <summary>
+        <span>{title}</span>
+        <small>
+          {artifact.available
+            ? `${formatBytes(artifact.byteLength)}${artifact.truncated ? ' preview' : ''}`
+            : artifact.error || 'Not available'}
+        </small>
+      </summary>
+      {path ? <code className="path-text">{path}</code> : null}
+      {artifact.available ? (
+        <pre>{artifact.content || '(empty)'}</pre>
+      ) : (
+        <div className="empty-state">{artifact.error || 'Not available.'}</div>
+      )}
+    </details>
+  );
+}
+
+function StoragePathsDisclosure({
+  subject,
+}: {
+  subject: AdminDistillSubjectSummary;
+}) {
+  return (
+    <details className="distill-embed">
+      <summary>
+        <span>Storage Paths</span>
+        <small>server metadata</small>
+      </summary>
+      <div className="summary-block distill-path-summary">
+        <span>Workspace</span>
+        <strong className="path-text">{subject.paths.workspacePath}</strong>
+        <span>Uploaded files</span>
+        <strong className="path-text">{subject.paths.uploadsPath}</strong>
+        <span>Corpus index</span>
+        <strong className="path-text">
+          {subject.paths.corpusDocumentsPath}
+        </strong>
+      </div>
+    </details>
+  );
+}
+
 interface SubjectDraft {
   agentId: string;
   alias: string;
@@ -192,16 +247,27 @@ function LatestRunPanel({ run }: { run: AdminDistillRunSummary | null }) {
           </tbody>
         </table>
       </div>
-      <div className="summary-block distill-path-summary">
-        <span>Report</span>
-        <strong className="path-text">{run.reportPath}</strong>
-        {run.status === 'awaiting-extraction' ? (
-          <>
-            <span>Packet</span>
-            <strong className="path-text">{run.packetMarkdownPath}</strong>
-            <span>Extraction target</span>
-            <strong className="path-text">{run.extractionPath}</strong>
-          </>
+      <div className="distill-embed-list">
+        <EmbeddedTextDisclosure
+          title="Report"
+          artifact={run.artifacts.report}
+          path={run.reportPath}
+        />
+        {run.status === 'awaiting-extraction' ||
+        run.artifacts.packetMarkdown.available ? (
+          <EmbeddedTextDisclosure
+            title="Analysis Packet"
+            artifact={run.artifacts.packetMarkdown}
+            path={run.packetMarkdownPath}
+          />
+        ) : null}
+        {run.status === 'awaiting-extraction' ||
+        run.artifacts.extraction.available ? (
+          <EmbeddedTextDisclosure
+            title="Extraction"
+            artifact={run.artifacts.extraction}
+            path={run.extractionPath}
+          />
         ) : null}
       </div>
     </div>
@@ -253,6 +319,7 @@ function QueuedUploadRows({
               {formatBytes(upload.sizeBytes)}
             </strong>
             <code className="path-text">{upload.path}</code>
+            <EmbeddedTextDisclosure title="Preview" artifact={upload.preview} />
           </div>
         </li>
       ))}
@@ -279,6 +346,10 @@ function CorpusRows({
               {document.holdout ? 'holdout' : 'analysis'} · {document.author}
             </small>
             <code className="path-text">{document.origin}</code>
+            <EmbeddedTextDisclosure
+              title="Content Preview"
+              artifact={document.contentPreview}
+            />
           </div>
         </li>
       ))}
@@ -299,16 +370,7 @@ function SourceDataPanel({
   const runSources = dedupeRunSources(subject);
   return (
     <div className="list-stack">
-      <div className="summary-block distill-path-summary">
-        <span>Workspace</span>
-        <strong className="path-text">{subject.paths.workspacePath}</strong>
-        <span>Uploaded files</span>
-        <strong className="path-text">{subject.paths.uploadsPath}</strong>
-        <span>Corpus index</span>
-        <strong className="path-text">
-          {subject.paths.corpusDocumentsPath}
-        </strong>
-      </div>
+      <StoragePathsDisclosure subject={subject} />
 
       {queuedUploads.length > 0 ? (
         <section className="distill-data-section">

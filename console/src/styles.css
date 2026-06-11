@@ -2635,6 +2635,71 @@ th {
   letter-spacing: 0.08em;
 }
 
+.distill-embed-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.distill-embed {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted);
+}
+
+.distill-embed summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.distill-embed summary span {
+  font-weight: 700;
+}
+
+.distill-embed summary small {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--muted-foreground);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.distill-embed > code,
+.distill-embed > pre,
+.distill-embed > .empty-state {
+  margin: 0 12px 12px;
+}
+
+.distill-embed > code {
+  display: block;
+  color: var(--muted-foreground);
+}
+
+.distill-embed > pre {
+  max-height: 420px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-family: "SFMono-Regular", "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.distill-embed > .summary-block {
+  margin: 0 12px 12px;
+}
+
 .distill-data-list {
   display: grid;
   gap: 8px;
