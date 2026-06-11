@@ -11,6 +11,7 @@ import {
 } from '../config/config.js';
 import { normalizeModelBehavior } from '../types/model-behavior.js';
 import {
+  discoverAllLocalModels,
   getLocalModelInfo,
   resolveLocalModelBehavior,
   resolveLocalModelThinkingFormat,
@@ -30,6 +31,7 @@ function resolveLocalRuntimeModel(
   modelId: string;
   baseUrl?: string;
   apiKey?: string;
+  endpointName?: string;
   modelBehavior?: LocalModelBehavior;
 } {
   const trimmed = String(model || '').trim();
@@ -39,6 +41,7 @@ function resolveLocalRuntimeModel(
       modelId: endpoint.modelId,
       baseUrl: endpoint.endpoint.baseUrl,
       apiKey: endpoint.endpoint.apiKey || '',
+      endpointName: endpoint.endpoint.name,
       modelBehavior: endpoint.endpoint.modelBehavior,
     };
   }
@@ -79,9 +82,15 @@ function createLocalOpenAICompatProvider(params: {
         backend,
       );
       const normalizedModel = resolvedModel.modelId;
-      const modelInfo =
+      let modelInfo =
         getLocalModelInfo(runtimeParams.model) ||
         getLocalModelInfo(normalizedModel);
+      if (!modelInfo && resolvedModel.endpointName) {
+        await discoverAllLocalModels();
+        modelInfo =
+          getLocalModelInfo(runtimeParams.model) ||
+          getLocalModelInfo(normalizedModel);
+      }
       const explicitBehavior = normalizeModelBehavior(
         resolvedModel.modelBehavior ||
           modelInfo?.modelBehavior ||

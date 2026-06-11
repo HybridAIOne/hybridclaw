@@ -226,6 +226,21 @@ describe('local providers', () => {
       ];
     });
     const { factory } = await importFreshModules(homeDir);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        expect(String(input)).toBe('http://haigpu2:8000/v1/models');
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer gemma-secret-key',
+        });
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'google/gemma-3-27b-it', max_model_len: 32_768 }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }),
+    );
 
     expect(factory.resolveModelProvider('haigpu2/google/gemma-3-27b-it')).toBe(
       'vllm',
@@ -240,6 +255,7 @@ describe('local providers', () => {
       apiKey: 'gemma-secret-key',
       baseUrl: 'http://haigpu2:8000/v1',
       isLocal: true,
+      contextWindow: 32_768,
       modelBehavior: { toolCallFormat: 'gemma' },
     });
   });
