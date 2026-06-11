@@ -29,7 +29,7 @@ const MCP_CONNECT_TIMEOUT_MS = 60_000;
 const MCP_TOOL_CALL_TIMEOUT_MS = 120_000;
 /* Remote (http/sse) servers can grow or lose tools while we stay connected —
    e.g. the HybridAI connector gateway's tool list changes when the user
-   connects a service on the platform. Re-discover on a TTL so long-lived
+   connects a new service. Re-discover on a TTL so long-lived
    agents pick that up, and retry once shortly after a connect that returned
    zero tools (a transient upstream hiccup would otherwise mute the server
    for the agent's whole lifetime). */
