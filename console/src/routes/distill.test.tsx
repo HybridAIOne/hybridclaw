@@ -154,6 +154,7 @@ describe('DistillPage', () => {
     renderWithProviders(<DistillPage />);
 
     await screen.findByText('Maya Lindqvist');
+    expect(screen.getByText(/Reserves part of the corpus/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Host paths'), {
       target: { value: '/sources/memo.md' },
     });
@@ -178,6 +179,10 @@ describe('DistillPage', () => {
     renderWithProviders(<DistillPage />);
 
     await screen.findByText(/unregistered/);
+    await waitFor(() => {
+      const alias = screen.getByLabelText('Alias') as HTMLInputElement;
+      expect(alias.value).toBe('maya');
+    });
     await waitFor(() => {
       const button = screen.getByRole('button', { name: 'Register Agent' });
       if (button.hasAttribute('disabled')) {

@@ -26,7 +26,12 @@ import {
   CardTitle,
 } from '../components/card';
 import { Checkbox } from '../components/checkbox';
-import { Field, FieldContent, FieldLabel } from '../components/field';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldLabel,
+} from '../components/field';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { Textarea } from '../components/textarea';
@@ -912,6 +917,11 @@ export function DistillPage() {
               <div className="stack-form">
                 <Field>
                   <FieldLabel>Holdout ratio</FieldLabel>
+                  <FieldDescription>
+                    Reserves part of the corpus for later fidelity checks. 10%
+                    means one in ten documents is kept out of the distillation
+                    packet.
+                  </FieldDescription>
                   <FieldContent>
                     <Input
                       type="number"
