@@ -201,7 +201,7 @@ describe('DistillPage', () => {
     renderWithProviders(<DistillPage />);
 
     await screen.findByText('Maya Lindqvist');
-    fireEvent.click(screen.getByRole('button', { name: 'New Subject' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
 
     await waitFor(() => {
       const alias = screen.getByLabelText('Alias') as HTMLInputElement;

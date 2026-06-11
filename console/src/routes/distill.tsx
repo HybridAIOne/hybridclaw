@@ -22,6 +22,7 @@ import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -759,18 +760,13 @@ export function DistillPage() {
       <PageHeader
         description="Human distillation intake, consent, source upload, and run control."
         actions={
-          <div className="button-row">
-            <Button variant="outline" onClick={startNewSubject}>
-              New Subject
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => void query.refetch()}
-              loading={query.isFetching}
-            >
-              Refresh
-            </Button>
-          </div>
+          <Button
+            variant="outline"
+            onClick={() => void query.refetch()}
+            loading={query.isFetching}
+          >
+            Refresh
+          </Button>
         }
       />
 
@@ -1156,6 +1152,11 @@ export function DistillPage() {
               <CardDescription>
                 {metrics.consentReady} with valid consent.
               </CardDescription>
+              <CardAction>
+                <Button variant="outline" size="sm" onClick={startNewSubject}>
+                  New
+                </Button>
+              </CardAction>
             </CardHeader>
             <CardContent>
               {subjects.length === 0 ? (
