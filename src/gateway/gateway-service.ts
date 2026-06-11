@@ -127,6 +127,10 @@ import {
   parseLowerArg,
 } from '../command-parsing.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
+import {
+  AuxCommandUsageError,
+  runAuxCommand,
+} from '../commands/aux-command.js';
 import { runBtwSideQuestion } from '../commands/btw-command.js';
 import { runPolicyCommand } from '../commands/policy-command.js';
 import { runSecondOpinionCommand } from '../commands/second-opinion-command.js';
@@ -9875,6 +9879,20 @@ export async function handleGatewayCommand(
         } catch (error) {
           return badCommand(
             'BTW Failed',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
+      case 'aux': {
+        try {
+          return infoCommand(
+            'Auxiliary Model',
+            await runAuxCommand(session, req.args.slice(1)),
+          );
+        } catch (error) {
+          return badCommand(
+            error instanceof AuxCommandUsageError ? 'Usage' : 'Aux Failed',
             error instanceof Error ? error.message : String(error),
           );
         }
