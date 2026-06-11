@@ -20,7 +20,8 @@ function connectorGatewayUrl(baseUrl: string): string {
  * first-party tools — no manual `mcpServers` entry needed. The entry is injected
  * into the in-memory server map only (never persisted to config.json). A
  * user-defined server of the same name always wins, and the entry is omitted
- * when the provider isn't configured.
+ * when the provider isn't configured or when `enabled` is false (the
+ * `hybridai.enableConnectors` config flag).
  *
  * The entry deliberately carries NO Authorization header: the API key is
  * resolved per agent run by {@link withConnectorGatewayAuth}, so the long-lived
@@ -30,7 +31,9 @@ export function injectHybridAIConnectorGateway(
   servers: RuntimeConfig['mcpServers'],
   baseUrl: string,
   apiKey: string,
+  enabled = true,
 ): RuntimeConfig['mcpServers'] {
+  if (!enabled) return servers;
   const url = connectorGatewayUrl(baseUrl);
   if (!apiKey.trim() || !url) return servers;
   if (servers[CONNECTOR_GATEWAY_SERVER_NAME]) return servers;

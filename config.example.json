@@ -312,6 +312,7 @@
     "defaultChatbotId": "",
     "maxTokens": 4096,
     "enableRag": true,
+    "enableConnectors": true,
     "models": ["gpt-4.1-mini", "gpt-5-nano", "gpt-5"]
   },
   "codex": {

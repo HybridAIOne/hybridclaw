@@ -994,6 +994,7 @@ export interface RuntimeConfig {
     defaultChatbotId: string;
     maxTokens: number;
     enableRag: boolean;
+    enableConnectors: boolean;
     models: string[];
   };
   codex: {
@@ -1652,6 +1653,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     defaultChatbotId: '',
     maxTokens: 4_096,
     enableRag: true,
+    enableConnectors: true,
     models: ['gpt-4.1-mini', 'gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
   },
   codex: {
@@ -6931,6 +6933,10 @@ function normalizeRuntimeConfig(
       enableRag: normalizeBoolean(
         rawHybridAi.enableRag,
         DEFAULT_RUNTIME_CONFIG.hybridai.enableRag,
+      ),
+      enableConnectors: normalizeBoolean(
+        rawHybridAi.enableConnectors,
+        DEFAULT_RUNTIME_CONFIG.hybridai.enableConnectors,
       ),
       models: modelList,
     },

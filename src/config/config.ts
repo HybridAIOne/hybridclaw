@@ -486,6 +486,7 @@ export let HYBRIDAI_MODEL = 'gpt-4.1-mini';
 export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
+export let HYBRIDAI_ENABLE_CONNECTORS = true;
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
 export let CODEX_RUNTIME: RuntimeConfig['codex']['runtime'] = 'hybridclaw';
 export let ANTHROPIC_ENABLED = false;
@@ -1048,6 +1049,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     Math.min(32_768, config.hybridai.maxTokens),
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
+  HYBRIDAI_ENABLE_CONNECTORS = config.hybridai.enableConnectors;
   CODEX_BASE_URL = config.codex.baseUrl;
   CODEX_RUNTIME = config.codex.turnRuntime;
   ANTHROPIC_ENABLED = config.anthropic.enabled;
@@ -1112,13 +1114,15 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   warnIfWarmPoolMinIdleIsClamped(config.container.warmPool);
   CONTAINER_WARM_POOL = structuredClone(config.container.warmPool);
   // Auto-wire the HybridAI connector gateway when the HybridAI provider is
-  // configured, so self-hosted installs need no manual mcpServers entry. Kept
-  // in-memory only, and the entry carries no credential — the bearer is
-  // attached per agent run via withConnectorGatewayAuth in the runners.
+  // configured and connectors are enabled, so self-hosted installs need no
+  // manual mcpServers entry. Kept in-memory only, and the entry carries no
+  // credential — the bearer is attached per agent run via
+  // withConnectorGatewayAuth in the runners.
   MCP_SERVERS = injectHybridAIConnectorGateway(
     structuredClone(config.mcpServers || {}),
     HYBRIDAI_BASE_URL,
     HYBRIDAI_API_KEY,
+    HYBRIDAI_ENABLE_CONNECTORS,
   );
   BROWSER_PROVIDER = config.browser.provider;
   BROWSER_ALLOW_PRIVATE_NETWORK = config.browser.allowPrivateNetwork;

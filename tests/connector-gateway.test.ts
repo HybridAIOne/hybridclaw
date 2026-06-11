@@ -41,6 +41,15 @@ describe('injectHybridAIConnectorGateway', () => {
     expect(injectHybridAIConnectorGateway({}, '   ', KEY)).toEqual({});
   });
 
+  test('does not inject when connectors are disabled', () => {
+    expect(injectHybridAIConnectorGateway({}, BASE, KEY, false)).toEqual({});
+  });
+
+  test('injects when connectors are explicitly enabled', () => {
+    const result = injectHybridAIConnectorGateway({}, BASE, KEY, true);
+    expect(result[CONNECTOR_GATEWAY_SERVER_NAME]?.url).toBe(GATEWAY_URL);
+  });
+
   test('a user-defined server of the same name always wins', () => {
     const existing: Record<string, McpServerConfig> = {
       [CONNECTOR_GATEWAY_SERVER_NAME]: {
