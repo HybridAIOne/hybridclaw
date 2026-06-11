@@ -757,11 +757,17 @@ function createCallPrefixStreamFilter(onTextDelta: (delta: string) => void): {
     emit(text.trim() ? text.replace(/\s+$/g, '') : '');
   };
 
+  const isCallPrefixBoundary = (index: number): boolean => {
+    if (index <= 0) return true;
+    const previous = buffer[index - 1] || '';
+    return /\s/.test(previous) || !/[A-Za-z0-9_]/.test(previous);
+  };
+
   const findCallPrefixStart = (): number => {
     const lower = buffer.toLowerCase();
     let index = lower.indexOf('call:');
     while (index >= 0) {
-      if (index === 0 || /\s/.test(buffer[index - 1] || '')) return index;
+      if (isCallPrefixBoundary(index)) return index;
       index = lower.indexOf('call:', index + 1);
     }
     return -1;

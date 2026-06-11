@@ -928,6 +928,12 @@ function includesGemmaToolCallOpenBefore(text: string, index: number): boolean {
   );
 }
 
+function isCallPrefixBoundary(text: string, index: number): boolean {
+  if (index <= 0) return true;
+  const previous = text[index - 1] || '';
+  return /\s/.test(previous) || !/[A-Za-z0-9_]/.test(previous);
+}
+
 function callPrefixRemovalEnd(text: string, argumentsEnd: number): number {
   const lower = text.toLowerCase();
   let end = argumentsEnd + 1;
@@ -952,10 +958,9 @@ function extractCallPrefixToolCalls(content: string): {
 
   while (match) {
     const start = match.index;
-    const previous = start > 0 ? content[start - 1] : '';
     const hasGemmaOpenMarker = includesGemmaToolCallOpenBefore(content, start);
     if (
-      (start === 0 || /\s/.test(previous) || hasGemmaOpenMarker) &&
+      (isCallPrefixBoundary(content, start) || hasGemmaOpenMarker) &&
       !isProtectedIndex(start, protectedRanges)
     ) {
       const argumentsStart = pattern.lastIndex;

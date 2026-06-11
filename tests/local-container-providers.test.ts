@@ -774,6 +774,70 @@ describe('local container providers', () => {
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
+  test('vLLM Gemma provider normalizes call-prefix tool calls after markdown code spans', async () => {
+    const command =
+      'node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-servers --project acme';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: 'resp_1',
+              model: 'google/gemma-4-e4b-it',
+              choices: [
+                {
+                  message: {
+                    role: 'assistant',
+                    content: [
+                      'The required command is:',
+                      `\`${command}\`call:bash{command:${command}}`,
+                    ].join('\n'),
+                  },
+                  finish_reason: 'stop',
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProvider({
+      provider: 'vllm',
+      baseUrl: 'http://haigpu2:8000/v1',
+      apiKey: '',
+      model: 'vllm/google/gemma-4-e4b-it',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: [],
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(result.choices[0]?.message.content).toBe(
+      ['The required command is:', `\`${command}\``].join('\n'),
+    );
+    expect(result.choices[0]?.message.content).not.toContain('call:bash');
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'bash',
+          arguments: JSON.stringify({ command }),
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
   test('vLLM Gemma provider normalizes documented tool-call markers', async () => {
     vi.stubGlobal(
       'fetch',
@@ -938,6 +1002,81 @@ describe('local container providers', () => {
           name: 'hetzner-cloud',
           arguments:
             '{"action":"list_servers","filters":{"status":"running"}}',
+        },
+      },
+    ]);
+    expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('vLLM Gemma stream hides call-prefix tool calls after markdown code spans', async () => {
+    const command =
+      'node skills/hetzner-cloud/hetzner_cloud.cjs --format json run list-servers --project acme';
+    const visibleContent = ['The required command is:', `\`${command}\``].join(
+      '\n',
+    );
+    const deltas: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          `data: ${JSON.stringify({
+            id: 'resp_1',
+            model: 'google/gemma-4-e4b-it',
+            choices: [
+              {
+                delta: {
+                  content: visibleContent,
+                },
+              },
+            ],
+          })}\n\n`,
+          `data: ${JSON.stringify({
+            choices: [
+              {
+                delta: {
+                  content: `call:bash{command:${command}}`,
+                },
+              },
+            ],
+          })}\n\n`,
+          `data: ${JSON.stringify({
+            choices: [
+              {
+                finish_reason: 'stop',
+              },
+            ],
+          })}\n\n`,
+          'data: [DONE]\n\n',
+        ]),
+      ),
+    );
+
+    const result = await callLocalOpenAICompatProviderStream({
+      provider: 'vllm',
+      baseUrl: 'http://haigpu2:8000/v1',
+      apiKey: '',
+      model: 'vllm/google/gemma-4-e4b-it',
+      chatbotId: '',
+      enableRag: false,
+      requestHeaders: undefined,
+      messages: baseMessages,
+      tools: [],
+      onTextDelta: (delta) => deltas.push(delta),
+      maxTokens: 128,
+      isLocal: true,
+      contextWindow: 32_768,
+    });
+
+    expect(deltas).toEqual([visibleContent]);
+    expect(result.choices[0]?.message.content).toBe(visibleContent);
+    expect(result.choices[0]?.message.content).not.toContain('call:bash');
+    expect(result.choices[0]?.message.tool_calls).toEqual([
+      {
+        id: '',
+        type: 'function',
+        function: {
+          name: 'bash',
+          arguments: JSON.stringify({ command }),
         },
       },
     ]);
