@@ -219,6 +219,16 @@ function isLocalPrefixedModel(model: string): boolean {
   );
 }
 
+function resolveModelProviderOrNull(
+  model: string,
+): ReturnType<typeof resolveModelProvider> | null {
+  try {
+    return resolveModelProvider(model);
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeModelCatalogProviderFilter(
   value: string | undefined,
 ): ModelCatalogProviderFilter | null {
@@ -276,8 +286,8 @@ export function dedupeExplicitModelNames(
 function normalizeAvailableCatalogModel(rawModel: string): string | null {
   const originalModel = String(rawModel || '').trim();
   const model =
-    resolveModelProvider(originalModel) === 'hybridai' &&
-    !isLocalPrefixedModel(originalModel)
+    !isLocalPrefixedModel(originalModel) &&
+    resolveModelProviderOrNull(originalModel) === 'hybridai'
       ? formatHybridAIModelForCatalog(originalModel)
       : originalModel;
   if (!model) return null;
@@ -624,10 +634,13 @@ export function findCheapestModelMeetingCapabilities(
 export function isModelVisionCapable(model: string): boolean {
   const normalized = String(model || '').trim();
   if (!normalized) return false;
+  if (isLocalPrefixedModel(normalized)) {
+    return isStaticModelVisionCapable(normalized);
+  }
   if (hasModelPrefix(normalized, OPENROUTER_MODEL_PREFIX)) {
     return isDiscoveredOpenRouterModelVisionCapable(normalized);
   }
-  if (resolveModelProvider(normalized) === 'hybridai') {
+  if (resolveModelProviderOrNull(normalized) === 'hybridai') {
     const discoveredHybridAIVision =
       getDiscoveredHybridAIModelVisionCapability(normalized);
     if (discoveredHybridAIVision != null) return discoveredHybridAIVision;

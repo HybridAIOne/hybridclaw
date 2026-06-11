@@ -709,16 +709,23 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
     const actual = await vi.importActual<
       typeof import('../src/providers/model-catalog.js')
     >('../src/providers/model-catalog.js');
+    const modelList = [
+      'gpt-4.1-mini', // bare slug = HybridAI passthrough
+      'openai-codex/gpt-5', // openai-codex/ prefix maps to providerHealth key 'codex'
+      'openrouter/anthropic/claude-sonnet-4',
+      'gemini/gemini-2.5-pro',
+      'ollama/llama-3.1',
+      'haigpu2/google/gemma-4-e4b-it',
+    ];
     return {
       ...actual,
       refreshAvailableModelCatalogs: vi.fn(async () => {}),
-      getAvailableModelList: vi.fn(() => [
-        'gpt-4.1-mini', // bare slug = HybridAI passthrough
-        'openai-codex/gpt-5', // openai-codex/ prefix maps to providerHealth key 'codex'
-        'openrouter/anthropic/claude-sonnet-4',
-        'gemini/gemini-2.5-pro',
-        'ollama/llama-3.1',
-      ]),
+      getAvailableModelList: vi.fn((provider?: string) => {
+        if (provider === 'ollama') return ['ollama/llama-3.1'];
+        if (provider === 'vllm') return ['haigpu2/google/gemma-4-e4b-it'];
+        if (provider === 'lmstudio' || provider === 'llamacpp') return [];
+        return modelList;
+      }),
     };
   });
 
@@ -737,6 +744,7 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
   expect(byId['openrouter/anthropic/claude-sonnet-4']).toBe('openrouter');
   expect(byId['gemini/gemini-2.5-pro']).toBe('gemini');
   expect(byId['ollama/llama-3.1']).toBe('ollama');
+  expect(byId['haigpu2/google/gemma-4-e4b-it']).toBe('vllm');
 });
 
 test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without warning', async () => {

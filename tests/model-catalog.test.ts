@@ -308,7 +308,7 @@ test('available model catalog includes named local endpoints in local and backen
       if (url === 'http://haigpu1:8000/v1/models') {
         return new Response(
           JSON.stringify({
-            data: [{ id: 'Qwen/Qwen3.6-27B-FP8' }],
+            data: [{ id: 'Qwen/Qwen3.6-27B-FP8', max_model_len: 131_072 }],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
@@ -316,7 +316,7 @@ test('available model catalog includes named local endpoints in local and backen
       if (url === 'http://haigpu2:8000/v1/models') {
         return new Response(
           JSON.stringify({
-            data: [{ id: 'google/gemma-4-e4b-it' }],
+            data: [{ id: 'google/gemma-4-e4b-it', max_model_len: 32_768 }],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
@@ -336,6 +336,13 @@ test('available model catalog includes named local endpoints in local and backen
     'haigpu1/Qwen/Qwen3.6-27B-FP8',
     'haigpu2/google/gemma-4-e4b-it',
   ]);
+  expect(
+    catalog.getModelCatalogMetadata('haigpu2/google/gemma-4-e4b-it'),
+  ).toMatchObject({
+    known: true,
+    contextWindow: expect.any(Number),
+    pricingUsdPerToken: { input: 0, output: 0 },
+  });
 });
 
 test('available model catalog prefixes HybridAI provider-family models', async () => {

@@ -6261,10 +6261,26 @@ const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
 // Bare slugs (no `provider/` prefix) are HybridAI passthroughs by gateway
 // convention — that's what `runtimeConfig.hybridai.defaultModel` carries and
 // what `/model set <slug>` resolves through.
-function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
+function resolveModelProviderKey(
+  modelId: string,
+  options: {
+    localBackend?: GatewayModelProviderKey | null;
+    localEndpoints?: RuntimeConfig['local']['endpoints'];
+    providerHint?: GatewayModelProviderKey | null;
+  } = {},
+): GatewayModelProviderKey {
+  const endpointPrefix = modelId.trim().split('/', 1)[0]?.trim() ?? '';
+  const localEndpoint = options.localEndpoints?.find(
+    (endpoint) => endpoint.enabled === true && endpoint.name === endpointPrefix,
+  );
+  if (localEndpoint) return localEndpoint.type;
   const normalized = modelId.trim().toLowerCase();
   for (const [prefix, key] of MODEL_PROVIDER_KEY_BY_PREFIX) {
     if (normalized.startsWith(prefix)) return key;
+  }
+  if (options.localBackend) return options.localBackend;
+  if (options.providerHint && normalized.includes('/')) {
+    return options.providerHint;
   }
   // A `/`-bearing slug that didn't match any known prefix means a new provider
   // landed in the catalog without an entry here; surface it instead of silently
@@ -6323,9 +6339,27 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
   >();
+  const localProviderHints = new Map<string, GatewayModelProviderKey>();
+  for (const provider of ['ollama', 'lmstudio', 'llamacpp', 'vllm'] as const) {
+    for (const modelId of getAvailableModelList(provider)) {
+      if (!localProviderHints.has(modelId)) {
+        localProviderHints.set(modelId, provider);
+      }
+    }
+  }
 
   const providerKeyByModel = new Map(
-    modelIds.map((id) => [id, resolveModelProviderKey(id)] as const),
+    modelIds.map(
+      (id) =>
+        [
+          id,
+          resolveModelProviderKey(id, {
+            localBackend: getLocalModelInfo(id)?.backend || null,
+            localEndpoints: runtimeConfig.local.endpoints,
+            providerHint: localProviderHints.get(id) || null,
+          }),
+        ] as const,
+    ),
   );
   for (const providerKey of providerKeyByModel.values()) {
     modelCountByProvider.set(
