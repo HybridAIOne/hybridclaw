@@ -6,11 +6,13 @@ import {
   fetchAdminHybridAIBots,
   isLoopbackHostnameForTest,
   readStoredToken,
+  registerDistillAgent,
   setAuthReloadHandlerForTest,
   setRuntimeSecret,
   TOKEN_STORAGE_KEY,
   unblockSkill,
   updateAdminAgent,
+  uploadDistillSource,
   uploadSkillZip,
 } from './client';
 
@@ -250,6 +252,68 @@ describe('client command helpers', () => {
           'Content-Type': 'application/zip',
         }),
         body: file,
+      }),
+    );
+  });
+
+  it('uploads distill sources with subject query params and encoded filename', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ source: { path: '/tmp/memo.md' } }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+
+    const file = new File(['source text'], 'memo one.md', {
+      type: 'text/markdown',
+    });
+
+    await uploadDistillSource('test-token', file, {
+      alias: 'maya',
+      agentId: 'research',
+      kind: 'markdown',
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/admin/distill/sources/upload?alias=maya&agentId=research&kind=markdown',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+          'Content-Type': 'text/markdown',
+          'X-Hybridclaw-Filename': 'memo%20one.md',
+        }),
+        body: file,
+      }),
+    );
+  });
+
+  it('registers distill agents', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ subject: { alias: 'maya' } }), {
+        status: 201,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+
+    await registerDistillAgent('test-token', {
+      alias: 'maya',
+      agentId: 'research',
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/admin/distill/register',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+          'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify({ alias: 'maya', agentId: 'research' }),
       }),
     );
   });

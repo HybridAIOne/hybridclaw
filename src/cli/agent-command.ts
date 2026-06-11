@@ -1,11 +1,14 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { resolveInstallArchiveSource } from '../agents/agent-install-source.js';
+import { DATA_DIR } from '../config/config.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
 } from '../config/runtime-config.js';
+import { expandHomePath } from '../utils/path.js';
 import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printAgentUsage } from './help.js';
 
@@ -19,6 +22,54 @@ async function ensureAgentPackagingRuntime(): Promise<void> {
     initDatabase({ quiet: true });
   }
   initAgentRegistry(getRuntimeConfig().agents);
+}
+
+function assertCreateAgentId(value: string): void {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value)) {
+    throw new Error(
+      'Agent ids must start with a letter or number and only use letters, numbers, `_`, or `-`.',
+    );
+  }
+}
+
+function resolveManagedWorkspaceOption(
+  rawWorkspace: string,
+  agentId: string,
+): string | undefined {
+  const trimmed = rawWorkspace.trim();
+  if (!trimmed) return undefined;
+  if (/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(trimmed)) {
+    return trimmed === agentId ? undefined : trimmed;
+  }
+
+  const workspacePath = path.resolve(expandHomePath(trimmed));
+  if (
+    !fs.existsSync(workspacePath) ||
+    !fs.statSync(workspacePath).isDirectory()
+  ) {
+    throw new Error(`Workspace does not exist: ${workspacePath}`);
+  }
+  if (path.basename(workspacePath) !== 'workspace') {
+    throw new Error(
+      '`--workspace` must point to a managed HybridClaw workspace directory ending in `/workspace`.',
+    );
+  }
+
+  const agentsRoot = path.resolve(DATA_DIR, 'agents');
+  const workspaceRoot = path.dirname(workspacePath);
+  const relativeWorkspaceRoot = path.relative(agentsRoot, workspaceRoot);
+  if (
+    !relativeWorkspaceRoot ||
+    relativeWorkspaceRoot.startsWith('..') ||
+    path.isAbsolute(relativeWorkspaceRoot) ||
+    relativeWorkspaceRoot.includes(path.sep)
+  ) {
+    throw new Error(
+      `\`--workspace\` must point under ${path.join(agentsRoot, '<workspace-id>', 'workspace')}.`,
+    );
+  }
+  assertCreateAgentId(relativeWorkspaceRoot);
+  return relativeWorkspaceRoot === agentId ? undefined : relativeWorkspaceRoot;
 }
 
 async function promptYesNo(
@@ -95,6 +146,107 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
             : agent.model?.primary || '',
         ].join('\t'),
       );
+    }
+    return;
+  }
+
+  if (sub === 'create') {
+    let agentId = '';
+    let name = '';
+    let model = '';
+    let workspace = '';
+    let activate = false;
+
+    for (let index = 1; index < normalized.length; index += 1) {
+      const arg = normalized[index];
+      if (!agentId && !arg.startsWith('-')) {
+        agentId = arg;
+        continue;
+      }
+      if (arg === '--activate') {
+        activate = true;
+        continue;
+      }
+      const nameFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        name: '--name',
+        placeholder: '<name>',
+      });
+      if (nameFlag) {
+        name = nameFlag.value;
+        index = nameFlag.nextIndex;
+        continue;
+      }
+      const modelFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        name: '--model',
+        placeholder: '<model>',
+      });
+      if (modelFlag) {
+        model = modelFlag.value;
+        index = modelFlag.nextIndex;
+        continue;
+      }
+      const workspaceFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        name: '--workspace',
+        placeholder: '<path-or-id>',
+      });
+      if (workspaceFlag) {
+        workspace = workspaceFlag.value;
+        index = workspaceFlag.nextIndex;
+        continue;
+      }
+      printAgentUsage();
+      throw new Error(
+        `Unexpected argument for \`hybridclaw agent create\`: ${arg}`,
+      );
+    }
+
+    if (!agentId) {
+      printAgentUsage();
+      throw new Error('Missing agent id for `hybridclaw agent create <id>`.');
+    }
+    assertCreateAgentId(agentId);
+
+    const { getAgentById, upsertRegisteredAgent } = await import(
+      '../agents/agent-registry.js'
+    );
+    if (getAgentById(agentId)) {
+      throw new Error(`Agent already exists: ${agentId}`);
+    }
+
+    const workspaceId = workspace
+      ? resolveManagedWorkspaceOption(workspace, agentId)
+      : undefined;
+    const saved = upsertRegisteredAgent({
+      id: agentId,
+      ...(name ? { name } : {}),
+      ...(model ? { model } : {}),
+      ...(workspaceId ? { workspace: workspaceId } : {}),
+    });
+    const { agentWorkspaceDir } = await import('../infra/ipc.js');
+    const { ensureBootstrapFiles } = await import('../workspace.js');
+    const workspacePath = path.resolve(agentWorkspaceDir(saved.id));
+    ensureBootstrapFiles(saved.id);
+
+    console.log(`Created agent ${saved.id}.`);
+    console.log(`Workspace: ${workspacePath}`);
+    if (activate) {
+      const { activateAgentInRuntimeConfig } = await import(
+        '../agents/agent-runtime-config.js'
+      );
+      if (activateAgentInRuntimeConfig(saved)) {
+        console.log(
+          `Activated agent ${saved.id} as the default at ${runtimeConfigPath()}.`,
+        );
+      }
     }
     return;
   }

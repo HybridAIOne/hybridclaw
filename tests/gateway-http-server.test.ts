@@ -7514,6 +7514,88 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('downloads and deletes admin distill corpus documents', async () => {
+    const dataDir = makeTempDataDir();
+    const subjectDir = path.join(
+      dataDir,
+      'agents',
+      'maya',
+      'workspace',
+      'distill',
+      'maya',
+    );
+    const corpusPath = path.join(subjectDir, 'corpus', 'documents.jsonl');
+    fs.mkdirSync(path.dirname(corpusPath), { recursive: true });
+    fs.writeFileSync(
+      path.join(subjectDir, 'subject.json'),
+      `${JSON.stringify({
+        version: 1,
+        alias: 'maya',
+        displayName: 'Maya Lindqvist',
+        realPerson: false,
+        personalityTags: [],
+        matchAliases: ['maya@example.com'],
+        createdAt: '2026-06-10T10:00:00.000Z',
+      })}\n`,
+      'utf-8',
+    );
+    fs.writeFileSync(
+      corpusPath,
+      `${JSON.stringify({
+        id: 'doc_abc123abc123',
+        subject: 'maya',
+        source: 'markdown',
+        origin: '/uploads/memo.md',
+        author: 'Maya Lindqvist',
+        authoredBySubject: true,
+        content: '# Memo\n\nBoring options win.',
+        wordCount: 4,
+        weight: 0.9,
+        holdout: false,
+        maskedThirdParties: 0,
+        ingestedAt: '2026-06-10T10:02:00.000Z',
+        runId: 'dst_1',
+      })}\n`,
+      'utf-8',
+    );
+
+    const state = await importFreshHealth({ dataDir });
+    const downloadReq = makeRequest({
+      url: '/api/admin/distill/corpus/doc_abc123abc123?alias=maya',
+    });
+    const downloadRes = makeResponse();
+
+    state.handler(downloadReq as never, downloadRes as never);
+    await waitForResponse(downloadRes, (next) => next.writableEnded);
+
+    expect(downloadRes.statusCode).toBe(200);
+    expect(downloadRes.headers['Content-Type']).toBe(
+      'text/plain; charset=utf-8',
+    );
+    expect(downloadRes.headers['Content-Disposition']).toContain(
+      'attachment; filename="doc_abc123abc123-markdown.txt"',
+    );
+    expect(downloadRes.headers['X-Content-Type-Options']).toBe('nosniff');
+    expect(downloadRes.body).toContain('Boring options win');
+
+    const deleteReq = makeRequest({
+      method: 'DELETE',
+      url: '/api/admin/distill/corpus/doc_abc123abc123?alias=maya',
+    });
+    const deleteRes = makeResponse();
+
+    state.handler(deleteReq as never, deleteRes as never);
+    await waitForResponse(deleteRes, (next) => next.writableEnded);
+
+    expect(deleteRes.statusCode).toBe(200);
+    expect(JSON.parse(deleteRes.body).subject).toMatchObject({
+      alias: 'maya',
+      corpusDocuments: 0,
+      corpus: [],
+    });
+    expect(fs.readFileSync(corpusPath, 'utf-8')).toBe('');
+  });
+
   test('returns admin tools for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/tools' });

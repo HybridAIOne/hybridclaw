@@ -16,6 +16,7 @@ import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
 import { DashboardPage } from './routes/dashboard';
+import { DistillPage } from './routes/distill';
 import { EmailPage } from './routes/email';
 import { FleetTopologyPage } from './routes/fleet-topology';
 import { GatewayPage } from './routes/gateway';
@@ -200,6 +201,12 @@ const harnessEvolutionRoute = createRoute({
   component: HarnessEvolutionPage,
 });
 
+const distillRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/distill',
+  component: DistillPage,
+});
+
 const mcpRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/mcp',
@@ -277,6 +284,7 @@ const routeTree = rootRoute.addChildren([
     schedulerRoute,
     jobsRoute,
     harnessEvolutionRoute,
+    distillRoute,
     mcpRoute,
     auditRoute,
     skillsRoute,

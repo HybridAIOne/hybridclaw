@@ -102,6 +102,48 @@ test('agent config command accepts direct JSON and overwrites markdown files', a
   ).toBe('# Updated Felix\n');
 });
 
+test('agent create registers an existing managed workspace', async () => {
+  const homeDir = setupHome();
+
+  const workspacePath = path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'agents',
+    'ben',
+    'workspace',
+  );
+  fs.mkdirSync(workspacePath, { recursive: true });
+  fs.writeFileSync(path.join(workspacePath, 'IDENTITY.md'), '# Ben\n', 'utf-8');
+
+  const { handleAgentPackageCommand } = await import(
+    '../src/cli/agent-command.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await handleAgentPackageCommand([
+    'create',
+    'ben',
+    '--name',
+    'Ben Example',
+    '--workspace',
+    workspacePath,
+  ]);
+
+  expect(getAgentById('ben')).toMatchObject({
+    id: 'ben',
+    name: 'Ben Example',
+  });
+  expect(path.resolve(agentWorkspaceDir('ben'))).toBe(workspacePath);
+  expect(fs.readFileSync(path.join(workspacePath, 'IDENTITY.md'), 'utf-8')).toBe(
+    '# Ben\n',
+  );
+  expect(logSpy).toHaveBeenCalledWith('Created agent ben.');
+  expect(logSpy).toHaveBeenCalledWith(`Workspace: ${workspacePath}`);
+});
+
 test('agent config command imports remote image assets into the workspace', async () => {
   setupHome();
 
