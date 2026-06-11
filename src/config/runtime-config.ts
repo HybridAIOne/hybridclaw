@@ -70,8 +70,14 @@ import {
   normalizeMemoryRecallTokenizer,
 } from '../memory/semantic-recall.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
-import type { LocalProviderConfig } from '../providers/local-types.js';
+import type {
+  LocalBackendType,
+  LocalEndpointConfig,
+  LocalModelBehavior,
+  LocalProviderConfig,
+} from '../providers/local-types.js';
 import {
+  isLocalBackendType,
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
@@ -137,7 +143,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 29;
+export const CONFIG_VERSION = 30;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -1752,6 +1758,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
         apiKey: '',
       },
     },
+    endpoints: [],
     discovery: {
       enabled: true,
       intervalMs: 3_600_000,
@@ -4767,6 +4774,78 @@ function normalizeBaseUrl(value: unknown, fallback: string): string {
   return candidate.replace(/\/+$/, '') || fallback;
 }
 
+const LOCAL_ENDPOINT_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+function normalizeLocalEndpointName(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  if (!normalized || !LOCAL_ENDPOINT_NAME_PATTERN.test(normalized)) return null;
+  if (normalized.toLowerCase() === 'local') return null;
+  if (isRuntimeProviderId(normalized.toLowerCase())) return null;
+  return normalized;
+}
+
+function normalizeLocalEndpointType(value: unknown): LocalBackendType | null {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return isLocalBackendType(normalized) ? normalized : null;
+}
+
+function normalizeModelBehaviorConfig(
+  value: unknown,
+): LocalModelBehavior | undefined {
+  if (!isRecord(value)) return undefined;
+  const behavior: LocalModelBehavior = {};
+  const thinkingFormat = normalizeString(value.thinkingFormat, '', {
+    allowEmpty: true,
+  }).toLowerCase();
+  if (thinkingFormat === 'qwen') {
+    behavior.thinkingFormat = 'qwen';
+  }
+  const toolCallFormat = normalizeString(value.toolCallFormat, '', {
+    allowEmpty: true,
+  }).toLowerCase();
+  if (toolCallFormat === 'gemma') {
+    behavior.toolCallFormat = 'gemma';
+  }
+  return Object.keys(behavior).length > 0 ? behavior : undefined;
+}
+
+function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
+  if (!Array.isArray(value)) return [];
+  const endpoints: LocalEndpointConfig[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (!isRecord(raw)) continue;
+    const name = normalizeLocalEndpointName(raw.name);
+    const type = normalizeLocalEndpointType(raw.type);
+    if (!name || !type || seen.has(name)) continue;
+    seen.add(name);
+    const enabled = normalizeBoolean(raw.enabled, true);
+    const fallbackBaseUrl =
+      type === 'ollama'
+        ? DEFAULT_RUNTIME_CONFIG.local.backends.ollama.baseUrl
+        : type === 'lmstudio'
+          ? DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl
+          : type === 'llamacpp'
+            ? DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl
+            : DEFAULT_RUNTIME_CONFIG.local.backends.vllm.baseUrl;
+    const resolvedApiKey = resolveConfiguredSecretInput(raw.apiKey, {
+      path: `local.endpoints.${name}.apiKey`,
+      required: isSecretRefInput(raw.apiKey) && enabled,
+    });
+    endpoints.push({
+      name,
+      type,
+      enabled,
+      baseUrl: normalizeBaseUrl(raw.baseUrl, fallbackBaseUrl),
+      apiKey: normalizeString(resolvedApiKey, '', { allowEmpty: true }),
+      modelBehavior: normalizeModelBehaviorConfig(raw.modelBehavior),
+    });
+  }
+  return endpoints;
+}
+
 function migrateProviderBaseUrl(params: {
   provider: string;
   baseUrl: string;
@@ -5012,6 +5091,40 @@ function preserveDiscordWebhookSecretInputs(
   }
 }
 
+function preserveLocalEndpointSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  const sourceLocal = isRecord(source.local) ? source.local : null;
+  const sourceEndpoints =
+    sourceLocal && Array.isArray(sourceLocal.endpoints)
+      ? sourceLocal.endpoints
+      : null;
+  if (!sourceEndpoints) return;
+
+  const serializableLocal = isRecord(serializable.local)
+    ? serializable.local
+    : {};
+  serializable.local = serializableLocal;
+  const serializableEndpoints = Array.isArray(serializableLocal.endpoints)
+    ? serializableLocal.endpoints
+    : [];
+  serializableLocal.endpoints = serializableEndpoints;
+
+  for (const rawEndpoint of sourceEndpoints) {
+    if (!isRecord(rawEndpoint) || !isSecretRefInput(rawEndpoint.apiKey)) {
+      continue;
+    }
+    const name = normalizeLocalEndpointName(rawEndpoint.name);
+    if (!name) continue;
+    const target = serializableEndpoints.find(
+      (entry) => isRecord(entry) && entry.name === name,
+    );
+    if (!isRecord(target)) continue;
+    target.apiKey = cloneConfig(rawEndpoint.apiKey);
+  }
+}
+
 function preserveSecretInputs(
   serializable: Record<string, unknown>,
   source: Record<string, unknown>,
@@ -5023,6 +5136,7 @@ function preserveSecretInputs(
   }
   preserveSlackWebhookSecretInputs(serializable, source);
   preserveDiscordWebhookSecretInputs(serializable, source);
+  preserveLocalEndpointSecretInputs(serializable, source);
 }
 
 function resolveConfiguredSecretInput(
@@ -7109,6 +7223,9 @@ function normalizeRuntimeConfig(
             rawOllamaBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.ollama.baseUrl,
           ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawOllamaBackend.modelBehavior,
+          ),
         },
         lmstudio: {
           enabled: normalizeBoolean(
@@ -7119,6 +7236,9 @@ function normalizeRuntimeConfig(
             rawLmStudioBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.lmstudio.baseUrl,
           ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawLmStudioBackend.modelBehavior,
+          ),
         },
         llamacpp: {
           enabled: normalizeBoolean(
@@ -7128,6 +7248,9 @@ function normalizeRuntimeConfig(
           baseUrl: normalizeBaseUrl(
             rawLlamacppBackend.baseUrl,
             DEFAULT_RUNTIME_CONFIG.local.backends.llamacpp.baseUrl,
+          ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawLlamacppBackend.modelBehavior,
           ),
         },
         vllm: {
@@ -7141,8 +7264,12 @@ function normalizeRuntimeConfig(
             DEFAULT_RUNTIME_CONFIG.local.backends.vllm.apiKey || '',
             { allowEmpty: true },
           ),
+          modelBehavior: normalizeModelBehaviorConfig(
+            rawVllmBackend.modelBehavior,
+          ),
         },
       },
+      endpoints: normalizeLocalEndpointConfigs(rawLocal.endpoints),
       discovery: {
         enabled: normalizeBoolean(
           rawLocalDiscovery.enabled,
@@ -8486,6 +8613,44 @@ export function setRuntimeConfigSecretInput(
 
   const draftSource = cloneConfig(baseSource);
   setSecretInputOnSource(draftSource, secretPath, value);
+  return saveRuntimeConfigSource(draftSource, meta);
+}
+
+export function setRuntimeConfigLocalEndpointSecretInput(
+  endpointName: string,
+  value: SecretInput | '',
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const normalizedName = normalizeLocalEndpointName(endpointName);
+  if (!normalizedName) {
+    throw new Error(`Invalid local endpoint name: ${endpointName}`);
+  }
+
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-local-endpoint-secret-save',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] local endpoint secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const draftSource = cloneConfig(baseSource);
+  const local = isRecord(draftSource.local) ? draftSource.local : {};
+  draftSource.local = local;
+  const endpoints = Array.isArray(local.endpoints) ? local.endpoints : [];
+  local.endpoints = endpoints;
+  const endpoint = endpoints.find(
+    (entry) => isRecord(entry) && entry.name === normalizedName,
+  );
+  if (!isRecord(endpoint)) {
+    throw new Error(`Local endpoint "${normalizedName}" is not configured.`);
+  }
+  endpoint.apiKey = value;
   return saveRuntimeConfigSource(draftSource, meta);
 }
 

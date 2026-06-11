@@ -127,6 +127,10 @@ import {
   parseLowerArg,
 } from '../command-parsing.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
+import {
+  AuxCommandUsageError,
+  runAuxCommand,
+} from '../commands/aux-command.js';
 import { runBtwSideQuestion } from '../commands/btw-command.js';
 import { runPolicyCommand } from '../commands/policy-command.js';
 import { runSecondOpinionCommand } from '../commands/second-opinion-command.js';
@@ -175,6 +179,7 @@ import {
   isGoogleOAuthSpecifier,
   makeGoogleOAuthSecretRef,
   normalizeHttpRequestAuthRuleUrlPrefix,
+  type RuntimeAuxiliaryModelPolicyConfig,
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
@@ -3882,6 +3887,58 @@ function formatConfiguredAgentModel(
   return model ? formatModelForDisplay(model) : '(none)';
 }
 
+function formatAuxiliaryModelPolicy(
+  policy: RuntimeAuxiliaryModelPolicyConfig,
+): string {
+  if (policy.provider === 'disabled') return 'disabled';
+
+  const configuredModel = policy.model.trim();
+  const formattedMaxTokens =
+    policy.maxTokens > 0
+      ? ` (max ${formatCompactNumber(policy.maxTokens)})`
+      : '';
+
+  if (!configuredModel) {
+    const label =
+      policy.provider === 'auto' ? 'auto' : `${policy.provider} default`;
+    return `${label}${formattedMaxTokens}`;
+  }
+
+  if (policy.provider === 'auto') {
+    return `${formatModelForDisplay(configuredModel)}${formattedMaxTokens}`;
+  }
+
+  try {
+    return `${formatModelForDisplay(
+      normalizeAuxiliaryProviderModel({
+        provider: policy.provider,
+        model: configuredModel,
+      }),
+    )}${formattedMaxTokens}`;
+  } catch {
+    return `${formatModelForDisplay(configuredModel)}${formattedMaxTokens}`;
+  }
+}
+
+function formatAuxiliaryModelLines(config: RuntimeConfig): string[] {
+  const configuredAuxiliaryModels = Object.entries(
+    config.auxiliaryModels,
+  ).filter(([, policy]) => {
+    return policy.provider !== 'auto' || policy.model.trim() !== '';
+  });
+
+  if (configuredAuxiliaryModels.length === 0) {
+    return ['Aux models: auto'];
+  }
+
+  return [
+    'Aux models:',
+    ...configuredAuxiliaryModels.map(([task, policy]) => {
+      return `- ${task}: ${formatAuxiliaryModelPolicy(policy)}`;
+    }),
+  ];
+}
+
 function enableFullAutoCommand(params: {
   session: Session;
   req: GatewayCommandRequest;
@@ -6204,10 +6261,26 @@ const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
 // Bare slugs (no `provider/` prefix) are HybridAI passthroughs by gateway
 // convention — that's what `runtimeConfig.hybridai.defaultModel` carries and
 // what `/model set <slug>` resolves through.
-function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
+function resolveModelProviderKey(
+  modelId: string,
+  options: {
+    localBackend?: GatewayModelProviderKey | null;
+    localEndpoints?: RuntimeConfig['local']['endpoints'];
+    providerHint?: GatewayModelProviderKey | null;
+  } = {},
+): GatewayModelProviderKey {
+  const endpointPrefix = modelId.trim().split('/', 1)[0]?.trim() ?? '';
+  const localEndpoint = options.localEndpoints?.find(
+    (endpoint) => endpoint.enabled === true && endpoint.name === endpointPrefix,
+  );
+  if (localEndpoint) return localEndpoint.type;
   const normalized = modelId.trim().toLowerCase();
   for (const [prefix, key] of MODEL_PROVIDER_KEY_BY_PREFIX) {
     if (normalized.startsWith(prefix)) return key;
+  }
+  if (options.localBackend) return options.localBackend;
+  if (options.providerHint && normalized.includes('/')) {
+    return options.providerHint;
   }
   // A `/`-bearing slug that didn't match any known prefix means a new provider
   // landed in the catalog without an entry here; surface it instead of silently
@@ -6266,9 +6339,27 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     keyof NonNullable<GatewayAdminModelsResponse['providerStatus']>,
     number
   >();
+  const localProviderHints = new Map<string, GatewayModelProviderKey>();
+  for (const provider of ['ollama', 'lmstudio', 'llamacpp', 'vllm'] as const) {
+    for (const modelId of getAvailableModelList(provider)) {
+      if (!localProviderHints.has(modelId)) {
+        localProviderHints.set(modelId, provider);
+      }
+    }
+  }
 
   const providerKeyByModel = new Map(
-    modelIds.map((id) => [id, resolveModelProviderKey(id)] as const),
+    modelIds.map(
+      (id) =>
+        [
+          id,
+          resolveModelProviderKey(id, {
+            localBackend: getLocalModelInfo(id)?.backend || null,
+            localEndpoints: runtimeConfig.local.endpoints,
+            providerHint: localProviderHints.get(id) || null,
+          }),
+        ] as const,
+    ),
   );
   for (const providerKey of providerKeyByModel.values()) {
     modelCountByProvider.set(
@@ -9827,6 +9918,20 @@ export async function handleGatewayCommand(
         }
       }
 
+      case 'aux': {
+        try {
+          return infoCommand(
+            'Auxiliary Model',
+            await runAuxCommand(session, req.args.slice(1)),
+          );
+        } catch (error) {
+          return badCommand(
+            error instanceof AuxCommandUsageError ? 'Usage' : 'Aux Failed',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
       case 'second-opinion': {
         try {
           return infoCommand(
@@ -10052,6 +10157,7 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
+              ...formatAuxiliaryModelLines(getRuntimeConfig()),
               `Known metadata: ${metadata.known ? 'yes' : 'no'}`,
               `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
               `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,

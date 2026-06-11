@@ -8,8 +8,15 @@ import {
 } from '../providers/provider-ids.js';
 import type { ResolvedModelRuntimeCredentials } from '../providers/types.js';
 import type { ChatMessage, ToolCall } from '../types/api.js';
+import { resolveModelBehavior } from '../types/model-behavior.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { isRecord } from '../utils/type-guards.js';
+import {
+  buildGemmaRequestMessages,
+  buildGemmaToolCallInstruction,
+  extractGemmaToolCalls,
+  mergeSystemInstruction,
+} from './gemma-tool-format.js';
 
 export interface OpenAICompatibleToolDefinition {
   type: 'function';
@@ -50,6 +57,8 @@ export interface OpenAICompatibleModelResponse {
     output_tokens?: number;
   };
 }
+
+const vllmModelsWithoutNativeTools = new Set<string>();
 
 interface OpenAICompatibleModelCallParams {
   runtime: ResolvedModelRuntimeCredentials;
@@ -176,16 +185,70 @@ function createProviderError(status: number, body: string): Error {
   );
 }
 
+function vllmNativeToolCacheKey(
+  params: OpenAICompatibleModelCallParams,
+): string | null {
+  if (params.runtime.provider !== 'vllm') return null;
+  return `${normalizeBaseUrl(
+    params.runtime.baseUrl,
+  )}\n${normalizeOpenAICompatModelName(
+    params.runtime.provider,
+    params.runtime.model || params.model,
+  )}`;
+}
+
+function shouldRetryVllmWithoutNativeTools(params: {
+  runtime: ResolvedModelRuntimeCredentials;
+  tools: OpenAICompatibleToolDefinition[];
+  status: number;
+  errorText: string;
+  nativeToolsSent: boolean;
+}): boolean {
+  if (!params.nativeToolsSent) return false;
+  if (params.runtime.provider !== 'vllm') return false;
+  if (params.tools.length === 0) return false;
+  if (params.status !== 400) return false;
+  const normalized = params.errorText.toLowerCase();
+  return (
+    normalized.includes('enable-auto-tool-choice') ||
+    normalized.includes('tool-call-parser') ||
+    normalized.includes('"auto" tool choice')
+  );
+}
+
+function usesGemmaToolPath(params: OpenAICompatibleModelCallParams): boolean {
+  return (
+    resolveModelBehavior({
+      model: params.model,
+      configured: params.runtime.modelBehavior,
+    })?.toolCallFormat === 'gemma'
+  );
+}
+
+function usesPromptToolPath(params: OpenAICompatibleModelCallParams): boolean {
+  return usesGemmaToolPath(params);
+}
+
 function buildHybridAIRequestBody(
   params: OpenAICompatibleModelCallParams,
+  options: { includeTools?: boolean } = {},
 ): Record<string, unknown> {
+  const useGemmaToolPath = usesGemmaToolPath(params);
+  const includeTools = (options.includeTools ?? true) && !useGemmaToolPath;
+  const messages =
+    useGemmaToolPath && params.tools.length > 0
+      ? mergeSystemInstruction(
+          buildGemmaRequestMessages(collapseSystemMessages(params.messages)),
+          buildGemmaToolCallInstruction(params.tools),
+        )
+      : params.messages;
   const body: Record<string, unknown> = {
     model: stripHybridAIModelPrefix(params.model),
     chatbot_id: params.runtime.chatbotId,
-    messages: params.messages,
+    messages,
     enable_rag: params.runtime.enableRag,
   };
-  if (params.tools.length > 0) {
+  if (includeTools && params.tools.length > 0) {
     body.tools = params.tools;
     body.tool_choice = params.toolChoice || 'auto';
   }
@@ -194,19 +257,56 @@ function buildHybridAIRequestBody(
 
 function buildOpenAICompatRequestBody(
   params: OpenAICompatibleModelCallParams,
+  options: { includeTools?: boolean } = {},
 ): Record<string, unknown> {
+  const useGemmaToolPath = usesGemmaToolPath(params);
+  const includeTools = (options.includeTools ?? true) && !useGemmaToolPath;
+  const messages =
+    useGemmaToolPath && params.tools.length > 0
+      ? mergeSystemInstruction(
+          buildGemmaRequestMessages(collapseSystemMessages(params.messages)),
+          buildGemmaToolCallInstruction(params.tools),
+        )
+      : collapseSystemMessages(params.messages);
   const body: Record<string, unknown> = {
     model: normalizeOpenAICompatModelName(
       params.runtime.provider,
-      params.model,
+      params.runtime.model || params.model,
     ),
-    messages: collapseSystemMessages(params.messages),
+    messages,
   };
-  if (params.tools.length > 0) {
+  if (includeTools && params.tools.length > 0) {
     body.tools = params.tools;
     body.tool_choice = params.toolChoice || 'auto';
   }
   return body;
+}
+
+function adaptOpenAICompatResponse(
+  payload: OpenAICompatibleModelResponse,
+  params: OpenAICompatibleModelCallParams,
+): OpenAICompatibleModelResponse {
+  if (!usesGemmaToolPath(params)) return payload;
+  const choice = payload.choices[0];
+  if (!choice || choice.message.tool_calls?.length) return payload;
+  const content = choice.message.content;
+  if (typeof content !== 'string' || !content) return payload;
+  const normalized = extractGemmaToolCalls(content);
+  if (normalized.toolCalls.length === 0) return payload;
+  return {
+    ...payload,
+    choices: [
+      {
+        ...choice,
+        message: {
+          role: 'assistant',
+          content: normalized.content,
+          tool_calls: normalized.toolCalls,
+        },
+        finish_reason: 'tool_calls',
+      },
+    ],
+  };
 }
 
 function convertMessageToResponsesInput(
@@ -374,10 +474,19 @@ export async function callOpenAICompatibleModel(
   const url = isOpenAICompatProviderId(params.runtime.provider)
     ? `${normalizeBaseUrl(params.runtime.baseUrl)}/chat/completions`
     : `${normalizeBaseUrl(params.runtime.baseUrl)}/v1/chat/completions`;
-  const body = isOpenAICompatProviderId(params.runtime.provider)
-    ? buildOpenAICompatRequestBody(params)
-    : buildHybridAIRequestBody(params);
-  const response = await fetch(url, {
+  const buildBody = (includeTools: boolean): Record<string, unknown> =>
+    isOpenAICompatProviderId(params.runtime.provider)
+      ? buildOpenAICompatRequestBody(params, { includeTools })
+      : buildHybridAIRequestBody(params, { includeTools });
+  const nativeToolCacheKey = vllmNativeToolCacheKey(params);
+  const promptToolPath = usesPromptToolPath(params);
+  const includeNativeTools =
+    !usesGemmaToolPath(params) &&
+    (!nativeToolCacheKey ||
+      !vllmModelsWithoutNativeTools.has(nativeToolCacheKey) ||
+      !promptToolPath);
+  let body = buildBody(includeNativeTools);
+  let response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders({
       apiKey: params.runtime.apiKey,
@@ -386,9 +495,40 @@ export async function callOpenAICompatibleModel(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
+    const errorText = await response.text();
+    if (
+      shouldRetryVllmWithoutNativeTools({
+        runtime: params.runtime,
+        tools: params.tools,
+        status: response.status,
+        errorText,
+        nativeToolsSent: includeNativeTools,
+      }) &&
+      promptToolPath
+    ) {
+      if (nativeToolCacheKey) {
+        vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
+      }
+      body = buildBody(false);
+      response = await fetch(url, {
+        method: 'POST',
+        headers: buildHeaders({
+          apiKey: params.runtime.apiKey,
+          requestHeaders: params.runtime.requestHeaders,
+        }),
+        body: JSON.stringify(body),
+      });
+    } else {
+      throw createProviderError(response.status, errorText);
+    }
+  }
+  if (!response.ok) {
     throw createProviderError(response.status, await response.text());
   }
-  return (await response.json()) as OpenAICompatibleModelResponse;
+  return adaptOpenAICompatResponse(
+    (await response.json()) as OpenAICompatibleModelResponse,
+    params,
+  );
 }
 
 export async function callOpenAICompatibleModelStream(
@@ -499,10 +639,19 @@ export async function callOpenAICompatibleModelStream(
   const url = isOpenAICompatProviderId(params.runtime.provider)
     ? `${normalizeBaseUrl(params.runtime.baseUrl)}/chat/completions`
     : `${normalizeBaseUrl(params.runtime.baseUrl)}/v1/chat/completions`;
-  const body = isOpenAICompatProviderId(params.runtime.provider)
-    ? buildOpenAICompatRequestBody(params)
-    : buildHybridAIRequestBody(params);
-  const response = await fetch(url, {
+  const buildBody = (includeTools: boolean): Record<string, unknown> =>
+    isOpenAICompatProviderId(params.runtime.provider)
+      ? buildOpenAICompatRequestBody(params, { includeTools })
+      : buildHybridAIRequestBody(params, { includeTools });
+  const nativeToolCacheKey = vllmNativeToolCacheKey(params);
+  const promptToolPath = usesPromptToolPath(params);
+  const includeNativeTools =
+    !usesGemmaToolPath(params) &&
+    (!nativeToolCacheKey ||
+      !vllmModelsWithoutNativeTools.has(nativeToolCacheKey) ||
+      !promptToolPath);
+  let body = buildBody(includeNativeTools);
+  let response = await fetch(url, {
     method: 'POST',
     headers: buildHeaders({
       apiKey: params.runtime.apiKey,
@@ -518,6 +667,41 @@ export async function callOpenAICompatibleModelStream(
     }),
   });
   if (!response.ok) {
+    const errorText = await response.text();
+    if (
+      shouldRetryVllmWithoutNativeTools({
+        runtime: params.runtime,
+        tools: params.tools,
+        status: response.status,
+        errorText,
+        nativeToolsSent: includeNativeTools,
+      }) &&
+      promptToolPath
+    ) {
+      if (nativeToolCacheKey) {
+        vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
+      }
+      body = buildBody(false);
+      response = await fetch(url, {
+        method: 'POST',
+        headers: buildHeaders({
+          apiKey: params.runtime.apiKey,
+          requestHeaders: params.runtime.requestHeaders,
+          accept: 'text/event-stream, application/json',
+        }),
+        body: JSON.stringify({
+          ...body,
+          stream: true,
+          stream_options: {
+            include_usage: true,
+          },
+        }),
+      });
+    } else {
+      throw createProviderError(response.status, errorText);
+    }
+  }
+  if (!response.ok) {
     throw createProviderError(response.status, await response.text());
   }
   const contentType = (
@@ -528,12 +712,19 @@ export async function callOpenAICompatibleModelStream(
     !contentType.includes('event-stream')
   ) {
     const payload = (await response.json()) as OpenAICompatibleModelResponse;
-    const content = payload.choices[0]?.message.content;
-    if (typeof content === 'string' && content) params.onTextDelta(content);
-    return payload;
+    const adapted = adaptOpenAICompatResponse(payload, params);
+    const content = adapted.choices[0]?.message.content;
+    const toolCalls = adapted.choices[0]?.message.tool_calls || [];
+    if (toolCalls.length === 0 && typeof content === 'string' && content) {
+      params.onTextDelta(content);
+    }
+    return adapted;
   }
   if (!response.body) {
-    return (await response.json()) as OpenAICompatibleModelResponse;
+    return adaptOpenAICompatResponse(
+      (await response.json()) as OpenAICompatibleModelResponse,
+      params,
+    );
   }
 
   const reader = response.body.getReader();
@@ -545,6 +736,7 @@ export async function callOpenAICompatibleModelStream(
   let usage: OpenAICompatibleModelResponse['usage'] | undefined;
   const toolCalls: ToolCall[] = [];
   let finishReason = 'stop';
+  const bufferTextDeltas = usesGemmaToolPath(params);
 
   const ensureToolCall = (index: number): ToolCall => {
     while (toolCalls.length <= index) {
@@ -591,7 +783,7 @@ export async function callOpenAICompatibleModelStream(
           const delta = choice.delta;
           if (typeof delta.content === 'string' && delta.content) {
             text += delta.content;
-            params.onTextDelta(delta.content);
+            if (!bufferTextDeltas) params.onTextDelta(delta.content);
           }
           if (Array.isArray(delta.tool_calls)) {
             for (const rawToolCall of delta.tool_calls) {
@@ -631,22 +823,37 @@ export async function callOpenAICompatibleModelStream(
     decoder.decode();
   }
 
-  return {
-    id: streamId || 'stream',
-    model: streamModel,
-    choices: [
-      {
-        message: {
-          role: 'assistant',
-          content: text || null,
-          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+  const streamedResponse = adaptOpenAICompatResponse(
+    {
+      id: streamId || 'stream',
+      model: streamModel,
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: text || null,
+            ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          },
+          finish_reason:
+            finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
         },
-        finish_reason:
-          finishReason || (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
-      },
-    ],
-    ...(usage ? { usage } : {}),
-  };
+      ],
+      ...(usage ? { usage } : {}),
+    },
+    params,
+  );
+  const streamedContent = streamedResponse.choices[0]?.message.content;
+  const streamedToolCalls =
+    streamedResponse.choices[0]?.message.tool_calls || [];
+  if (
+    bufferTextDeltas &&
+    streamedToolCalls.length === 0 &&
+    typeof streamedContent === 'string' &&
+    streamedContent
+  ) {
+    params.onTextDelta(streamedContent);
+  }
+  return streamedResponse;
 }
 
 export function mapOpenAICompatibleUsageToTokenStats(usage?: {

@@ -12,13 +12,18 @@ import {
 } from '../types/models.js';
 import { positiveIntegerOrNull } from '../utils/number-normalization.js';
 import { resolveModelRuntimeCredentials } from './factory.js';
+import { isLocalEndpointModelForBackend } from './local-endpoints.js';
 import {
   findVisionCapableModel,
   getAvailableModelList,
   isModelVisionCapable,
 } from './model-catalog.js';
 import { discoverOpenRouterModels } from './openrouter-discovery.js';
-import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
+import {
+  isLocalBackendType,
+  isRuntimeProviderId,
+  type RuntimeProviderId,
+} from './provider-ids.js';
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 
 export type AuxiliaryTask = TaskModelKey | 'cv_narration';
@@ -214,6 +219,13 @@ export function normalizeAuxiliaryProviderModel(params: {
     return `${RUNTIME_PROVIDER_PREFIXES.openrouter}${trimmed}`;
   }
 
+  if (
+    isLocalBackendType(params.provider) &&
+    isLocalEndpointModelForBackend(trimmed, params.provider)
+  ) {
+    return trimmed;
+  }
+
   if (explicitPrefix && explicitPrefix !== params.provider) {
     throw new Error(
       `${params.provider} provider override cannot be used with model "${trimmed}".`,
@@ -281,6 +293,7 @@ export async function resolveTaskModelPolicy(
               requestHeaders: { ...resolved.requestHeaders },
               isLocal: resolved.isLocal,
               contextWindow: resolved.contextWindow,
+              modelBehavior: resolved.modelBehavior,
               thinkingFormat: resolved.thinkingFormat,
               model: fallback,
               chatbotId: resolved.chatbotId,
@@ -367,8 +380,9 @@ export async function resolveTaskModelPolicy(
       requestHeaders: { ...resolved.requestHeaders },
       isLocal: resolved.isLocal,
       contextWindow: resolved.contextWindow,
+      modelBehavior: resolved.modelBehavior,
       thinkingFormat: resolved.thinkingFormat,
-      model,
+      model: resolved.model || model,
       chatbotId: resolved.chatbotId,
       maxTokens: resolveProviderRequestMaxTokens({
         model,

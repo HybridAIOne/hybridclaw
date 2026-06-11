@@ -907,6 +907,7 @@ async function runHostProcessInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: modelRuntime.model || model,
   });
+  const runtimeModel = modelRuntime.model || model;
   const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
     const recoveryHint = getGoogleWorkspaceRuntimeEnvRecoveryHint(error);
     logger.warn(
@@ -956,12 +957,13 @@ async function runHostProcessInner(
     requestHeaders: modelRuntime.requestHeaders,
     isLocal: modelRuntime.isLocal,
     contextWindow: modelRuntime.contextWindow,
+    modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: GATEWAY_BASE_URL,
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
-    model,
+    model: runtimeModel,
     codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,
@@ -971,7 +973,7 @@ async function runHostProcessInner(
     streamTextDeltas: Boolean(onTextDelta),
     debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
     maxTokens: resolveExecutorMaxTokens({
-      model,
+      model: runtimeModel,
       discoveredMaxTokens: modelRuntime.maxTokens,
     }),
     channelId,
@@ -1018,6 +1020,8 @@ async function runHostProcessInner(
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
+    modelBehavior: input.modelBehavior,
+    thinkingFormat: input.thinkingFormat,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     taskModels: input.taskModels,

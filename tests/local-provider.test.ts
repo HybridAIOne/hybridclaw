@@ -210,6 +210,102 @@ describe('local providers', () => {
     expect(factory.resolveModelProvider('gpt-5-nano')).toBe('hybridai');
   });
 
+  test('provider factory resolves named local endpoint prefixes', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.endpoints = [
+        {
+          name: 'haigpu2',
+          type: 'vllm',
+          enabled: true,
+          baseUrl: 'http://haigpu2:8000/v1',
+          apiKey: 'gemma-secret-key',
+        },
+      ];
+    });
+    const { factory } = await importFreshModules(homeDir);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        expect(String(input)).toBe('http://haigpu2:8000/v1/models');
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer gemma-secret-key',
+        });
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'google/gemma-3-27b-it', max_model_len: 32_768 }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }),
+    );
+
+    expect(factory.resolveModelProvider('haigpu2/google/gemma-3-27b-it')).toBe(
+      'vllm',
+    );
+    const credentials = await factory.resolveModelRuntimeCredentials({
+      model: 'haigpu2/google/gemma-3-27b-it',
+    });
+
+    expect(credentials).toMatchObject({
+      provider: 'vllm',
+      model: 'vllm/google/gemma-3-27b-it',
+      apiKey: 'gemma-secret-key',
+      baseUrl: 'http://haigpu2:8000/v1',
+      isLocal: true,
+      contextWindow: 32_768,
+      modelBehavior: { toolCallFormat: 'gemma' },
+    });
+  });
+
+  test('local discovery lists named endpoint model prefixes', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = false;
+      config.local.endpoints = [
+        {
+          name: 'haigpu2',
+          type: 'vllm',
+          enabled: true,
+          baseUrl: 'http://haigpu2:8000/v1',
+          apiKey: 'gemma-secret-key',
+        },
+      ];
+    });
+    const { discovery } = await importFreshModules(homeDir);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        expect(String(input)).toBe('http://haigpu2:8000/v1/models');
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer gemma-secret-key',
+        });
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'google/gemma-3-27b-it', max_model_len: 32_768 }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }),
+    );
+
+    await discovery.discoverAllLocalModels();
+
+    expect(discovery.getDiscoveredLocalModelNames()).toContain(
+      'haigpu2/google/gemma-3-27b-it',
+    );
+    expect(
+      discovery.getLocalModelInfo('haigpu2/google/gemma-3-27b-it'),
+    ).toMatchObject({
+      backend: 'vllm',
+      contextWindow: 32_768,
+      endpointName: 'haigpu2',
+      modelBehavior: { toolCallFormat: 'gemma' },
+    });
+  });
+
   test('unknown models still fall back to HybridAI', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir);
@@ -218,12 +314,15 @@ describe('local providers', () => {
     expect(factory.resolveModelProvider('gpt-5-nano')).toBe('hybridai');
   });
 
-  test('lmstudio runtime credentials mark qwen models with qwen thinking format', async () => {
+  test('lmstudio runtime credentials preserve configured qwen thinking behavior', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
       config.local.backends.ollama.enabled = false;
       config.local.backends.lmstudio.enabled = true;
       config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+      config.local.backends.lmstudio.modelBehavior = {
+        thinkingFormat: 'qwen',
+      };
     });
     const { discovery, factory } = await importFreshModules(homeDir);
 
@@ -250,6 +349,7 @@ describe('local providers', () => {
       baseUrl: 'http://127.0.0.1:1234/v1',
       isLocal: true,
       thinkingFormat: 'qwen',
+      modelBehavior: { thinkingFormat: 'qwen' },
     });
   });
 });

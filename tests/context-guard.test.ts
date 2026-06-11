@@ -58,6 +58,41 @@ describe('applyContextGuard', () => {
     expect(result.tier3Triggered).toBe(true);
   });
 
+  test('includes provider prompt overhead in overflow decisions', () => {
+    const history: ChatMessage[] = [
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'Small request' },
+    ];
+    const result = applyContextGuard({
+      history,
+      contextWindowTokens: 1_024,
+      promptOverheadTokens: 2_000,
+      cache: createTokenEstimateCache(),
+    });
+
+    expect(result.totalTokensAfter).toBeGreaterThan(1_024);
+    expect(result.tier3Triggered).toBe(true);
+  });
+
+  test('does not trigger tier 3 for prompt overhead within the hard context window', () => {
+    const history: ChatMessage[] = [
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'Small request' },
+    ];
+    const result = applyContextGuard({
+      history,
+      contextWindowTokens: 1_024,
+      promptOverheadTokens: 920,
+      cache: createTokenEstimateCache(),
+    });
+
+    expect(result.totalTokensAfter).toBeGreaterThan(
+      result.overflowBudgetTokens,
+    );
+    expect(result.totalTokensAfter).toBeLessThanOrEqual(1_024);
+    expect(result.tier3Triggered).toBe(false);
+  });
+
   test('does not treat matching placeholder tool output as already compacted', () => {
     const history: ChatMessage[] = [
       { role: 'system', content: 'System prompt' },

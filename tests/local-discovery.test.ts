@@ -163,6 +163,9 @@ describe('local discovery', () => {
       config.local.backends.lmstudio.enabled = true;
       config.local.backends.vllm.enabled = false;
       config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+      config.local.backends.lmstudio.modelBehavior = {
+        thinkingFormat: 'qwen',
+      };
     });
     const discovery = await importFreshDiscovery(homeDir);
 
@@ -214,8 +217,10 @@ describe('local discovery', () => {
     expect(models[0]?.family).toBe('qwen2.5');
     expect(models[0]?.parameterSize).toBe('7B');
     expect(models[0]?.thinkingFormat).toBe('qwen');
+    expect(models[0]?.modelBehavior).toEqual({ thinkingFormat: 'qwen' });
     expect(models[1]?.contextWindow).toBe(128_000);
-    expect(models[1]?.thinkingFormat).toBeUndefined();
+    expect(models[1]?.thinkingFormat).toBe('qwen');
+    expect(models[1]?.modelBehavior).toEqual({ thinkingFormat: 'qwen' });
   });
 
   test('discoverLmStudioModels falls back to /models when /api/v1/models is unavailable', async () => {
@@ -256,9 +261,9 @@ describe('local discovery', () => {
         backend: 'lmstudio',
         id: 'qwen3.5-4b',
         contextWindow: 32_768,
-        thinkingFormat: 'qwen',
       }),
     ]);
+    expect(models[0]?.thinkingFormat).toBeUndefined();
   });
 
   test('discoverLlamacppModels reads OpenAI-compatible /models output', async () => {

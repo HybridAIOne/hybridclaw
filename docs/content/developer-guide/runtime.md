@@ -378,7 +378,7 @@ HybridClaw can route agent turns to locally running LLM servers instead of
 Enable and configure a backend with:
 
 ```bash
-hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local configure <backend> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--tool-call-format gemma] [--no-default]
 hybridclaw local status
 ```
 
@@ -386,8 +386,12 @@ Runtime details:
 
 - Configuration is stored in `~/.hybridclaw/config.json` under `local.*`.
 - Each backend gets its own `enabled` flag and `baseUrl`.
+- Additional same-type endpoints are stored in `local.endpoints[]`; endpoint
+  names become model prefixes such as `haigpu2/google/gemma-4-e4b-it`.
 - Local models are prefixed with the backend name (e.g. `lmstudio/qwen/qwen3.5-9b`,
   `ollama/llama3`).
+- Special model behavior is explicit in `modelBehavior`, for example
+  `thinkingFormat: "qwen"` or `toolCallFormat: "gemma"`.
 - The gateway discovers running backends at startup and exposes reachable
   models in `gateway status` and the TUI/Discord model picker.
 - Worker pools are keyed by backend/provider signature, so changing the local

@@ -29,7 +29,11 @@ import {
   shouldRetryWithoutNativeMedia,
 } from './native-media.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import { callRoutedModel, callRoutedModelStream } from './providers/router.js';
+import {
+  callRoutedModel,
+  callRoutedModelStream,
+  estimateRoutedPromptOverheadTokens,
+} from './providers/router.js';
 import {
   isHybridAIEmptyVisibleCompletion,
   ProviderRequestError,
@@ -760,6 +764,7 @@ async function callHybridAIWithRetry(params: {
   debugModelResponses?: boolean;
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ContainerInput['modelBehavior'];
   thinkingFormat?: 'qwen';
 }): Promise<ChatCompletionResponse> {
   const {
@@ -781,6 +786,7 @@ async function callHybridAIWithRetry(params: {
     debugModelResponses,
     isLocal,
     contextWindow,
+    modelBehavior,
     thinkingFormat,
   } = params;
   let attempt = 0;
@@ -825,6 +831,7 @@ async function callHybridAIWithRetry(params: {
             debugModelResponses,
             isLocal,
             contextWindow,
+            modelBehavior,
             thinkingFormat,
           });
         } catch (streamErr) {
@@ -849,6 +856,7 @@ async function callHybridAIWithRetry(params: {
             debugModelResponses,
             isLocal,
             contextWindow,
+            modelBehavior,
             thinkingFormat,
           });
         }
@@ -869,6 +877,7 @@ async function callHybridAIWithRetry(params: {
           debugModelResponses,
           isLocal,
           contextWindow,
+          modelBehavior,
           thinkingFormat,
         });
       }
@@ -920,6 +929,7 @@ interface ProcessRequestParams {
   codexRuntime?: ContainerInput['codexRuntime'];
   isLocal?: boolean;
   contextWindow?: number;
+  modelBehavior?: ContainerInput['modelBehavior'];
   thinkingFormat?: 'qwen';
   model: string;
   chatbotId: string;
@@ -982,6 +992,7 @@ async function processRequest(
     codexRuntime,
     isLocal,
     contextWindow,
+    modelBehavior,
     thinkingFormat,
     model,
     chatbotId,
@@ -1037,6 +1048,21 @@ async function processRequest(
   let latestVisibleAssistantText: string | null = null;
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
+  const promptOverheadTokens = estimateRoutedPromptOverheadTokens({
+    provider,
+    providerMethod,
+    baseUrl,
+    apiKey,
+    model,
+    chatbotId,
+    enableRag,
+    requestHeaders,
+    isLocal,
+    contextWindow,
+    modelBehavior,
+    thinkingFormat,
+    tools,
+  });
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
 
   if (provider === 'openai-codex' && codexRuntime === 'app-server') {
@@ -1067,6 +1093,7 @@ async function processRequest(
       chatbotId,
       requestHeaders,
       maxTokens,
+      modelBehavior,
       debugModelResponses,
       gatewayBaseUrl,
       gatewayApiToken,
@@ -1104,6 +1131,7 @@ async function processRequest(
       requestHeaders,
       isLocal,
       contextWindow,
+      modelBehavior,
       thinkingFormat,
       debugModelResponses,
     },
@@ -1191,6 +1219,7 @@ async function processRequest(
     const guardResult = applyContextGuard({
       history,
       contextWindowTokens: contextWindow,
+      promptOverheadTokens,
       config: contextGuard,
       cache: tokenEstimateCache,
     });
@@ -1239,6 +1268,7 @@ async function processRequest(
               requestHeaders,
               isLocal,
               contextWindow,
+              modelBehavior,
               thinkingFormat,
             },
             messages: summaryMessages,
@@ -1276,10 +1306,8 @@ async function processRequest(
       continue;
     }
 
-    const estimatedPromptTokensForCall = estimateMessageTokens(
-      history,
-      tokenEstimateCache,
-    );
+    const estimatedPromptTokensForCall =
+      estimateMessageTokens(history, tokenEstimateCache) + promptOverheadTokens;
     tokenUsage.modelCalls += 1;
     tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 
@@ -1311,6 +1339,7 @@ async function processRequest(
         debugModelResponses,
         isLocal,
         contextWindow,
+        modelBehavior,
         thinkingFormat,
       });
     } catch (err) {
@@ -1886,6 +1915,7 @@ async function main(): Promise<void> {
     firstInput.chatbotId,
     storedRequestHeaders,
     firstInput.maxTokens,
+    firstInput.modelBehavior,
     firstInput.debugModelResponses === true,
   );
   setProviderCredentials(firstInput.providerCredentials);
@@ -1935,6 +1965,7 @@ async function main(): Promise<void> {
       codexRuntime: firstInput.codexRuntime,
       isLocal: firstInput.isLocal,
       contextWindow: firstInput.contextWindow,
+      modelBehavior: firstInput.modelBehavior,
       thinkingFormat: firstInput.thinkingFormat,
       model: firstInput.model,
       chatbotId: firstInput.chatbotId,
@@ -1977,6 +2008,7 @@ async function main(): Promise<void> {
         codexRuntime: firstInput.codexRuntime,
         isLocal: firstInput.isLocal,
         contextWindow: firstInput.contextWindow,
+        modelBehavior: firstInput.modelBehavior,
         thinkingFormat: firstInput.thinkingFormat,
         model: firstInput.model,
         chatbotId: firstInput.chatbotId,
@@ -2072,6 +2104,7 @@ async function main(): Promise<void> {
       input.chatbotId,
       requestHeaders,
       input.maxTokens,
+      input.modelBehavior,
       input.debugModelResponses === true,
     );
     setProviderCredentials(input.providerCredentials);
@@ -2126,6 +2159,7 @@ async function main(): Promise<void> {
       codexRuntime: input.codexRuntime,
       isLocal: input.isLocal,
       contextWindow: input.contextWindow,
+      modelBehavior: input.modelBehavior,
       thinkingFormat: input.thinkingFormat,
       model: input.model,
       chatbotId: input.chatbotId,
@@ -2167,6 +2201,7 @@ async function main(): Promise<void> {
         codexRuntime: input.codexRuntime,
         isLocal: input.isLocal,
         contextWindow: input.contextWindow,
+        modelBehavior: input.modelBehavior,
         thinkingFormat: input.thinkingFormat,
         model: input.model,
         chatbotId: input.chatbotId,

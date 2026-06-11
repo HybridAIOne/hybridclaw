@@ -239,14 +239,14 @@ hybridclaw auth login minimax [model-id] [--api-key <key>] [--base-url <url>] [-
 hybridclaw auth login dashscope [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login xiaomi [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login kilo [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
-hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--tool-call-format gemma] [--no-default]
 hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <secret>|--client-secret <secret>] [--tenant-id <id>]
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 hybridclaw auth status <provider>
 hybridclaw auth logout <provider>
 hybridclaw auth whatsapp reset
 hybridclaw local status
-hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local configure <backend> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--tool-call-format gemma] [--no-default]
 hybridclaw help hybridai
 hybridclaw help codex
 hybridclaw help anthropic
@@ -556,7 +556,7 @@ specific agent.
 
 ```bash
 hybridclaw local status
-hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--tool-call-format gemma] [--no-default]
 hybridclaw hybridai base-url [url]
 hybridclaw hybridai login [--device-code|--browser|--import] [--base-url <url>]
 hybridclaw hybridai logout
@@ -604,10 +604,10 @@ actions. Common examples:
 !claw schedule add every <ms> <prompt>
 ```
 
-`/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/second-opinion`, and related
-slash commands route through the same gateway command surface used by TUI and
-web chat. `/context` is local-only because it exposes session context-window
-accounting.
+`/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
+related slash commands route through the same gateway command surface used by
+TUI and web chat. `/context` is local-only because it exposes session
+context-window accounting.
 
 ## In Session
 
@@ -615,6 +615,8 @@ accounting.
   chat, filtered per surface and kept in a consistent alphabetical order
 - `/audit turn <n>` and `/audit run <runId>` show focused turn traces for one
   request, including nearby tool, approval, and audit events
+- `/aux test <task> <prompt>` triggers a configured auxiliary text task on
+  demand and prints the provider/model that answered
 - `/second-opinion` compares a question or validates the last answer with a
   stronger configured model; `fact-check` adds bounded web-search evidence
 
@@ -631,6 +633,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/approve [view|yes|session|agent|all|no] [approval_id]` | local and chat channels | View or answer pending tool approval requests |
 | `/audit [sessionId]|last|turn <n>|run <runId>` | local and chat channels | Show recent audit events or focused turn traces |
 | `/auth status <provider>` | local TUI/web | Show local auth and provider config state |
+| `/aux test <task> <prompt>` | local TUI/web | Trigger a configured auxiliary text task and show the provider/model used |
 | `/bot [info|list|set <id|name>|clear]` | local and chat channels | Inspect or select the active chatbot |
 | `/btw <question>` | local and chat channels | Ask an ephemeral side question without tools or persistence |
 | `/channel-mode <off|mention|free>` | chat channels | Set the current channel response mode |

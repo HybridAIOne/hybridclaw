@@ -102,7 +102,13 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
   );
   expect(prompt).toContain(
+    'A skill is instruction text, not a directly callable tool/function. Do not try to invoke a skill by name.',
+  );
+  expect(prompt).toContain(
     'If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
+  );
+  expect(prompt).toContain(
+    'After reading SKILL.md, use ordinary available tools such as `bash`, `read`, or `http_request` exactly as the skill instructs.',
   );
   expect(prompt).toContain(
     'Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',

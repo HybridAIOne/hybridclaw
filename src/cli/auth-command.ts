@@ -28,6 +28,7 @@ import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
+  setRuntimeConfigLocalEndpointSecretInput,
   setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
@@ -37,6 +38,7 @@ import {
   normalizeAnthropicModelName,
 } from '../providers/anthropic-utils.js';
 import { resolveModelProvider } from '../providers/factory.js';
+import { validateLocalEndpointName } from '../providers/local-endpoints.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import { getProviderAliasesFor } from '../providers/provider-aliases.js';
@@ -48,8 +50,10 @@ import { normalizeBaseUrl } from '../providers/utils.js';
 import {
   readStoredRuntimeSecret,
   runtimeSecretsPath,
+  saveNamedRuntimeSecrets,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import type { ModelBehavior } from '../types/model-behavior.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { makeLazyApi, normalizeArgs, parseValueFlag } from './common.js';
 import {
@@ -1959,8 +1963,15 @@ function printUnifiedProviderUsage(provider: UnifiedProvider): void {
 function normalizeLocalModelId(
   backend: LocalBackendType,
   rawModelId: string,
+  endpointName?: string,
 ): string {
   const trimmed = rawModelId.trim();
+  if (endpointName) {
+    const endpointPrefix = `${endpointName}/`;
+    if (trimmed.startsWith(endpointPrefix)) {
+      return trimmed.slice(endpointPrefix.length).trim();
+    }
+  }
   const ownPrefix = `${backend}/`;
   if (trimmed.toLowerCase().startsWith(ownPrefix)) {
     return trimmed.slice(ownPrefix.length).trim();
@@ -1990,11 +2001,22 @@ function normalizeLocalBaseUrl(
   return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
 }
 
+function localEndpointSecretName(endpointName: string): string {
+  const suffix = endpointName
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return `LOCAL_ENDPOINT_${suffix || 'ENDPOINT'}_API_KEY`;
+}
+
 interface ParsedLocalConfigureArgs {
   backend: LocalBackendType;
   modelId?: string;
   baseUrl?: string;
   apiKey?: string;
+  name?: string;
+  modelBehavior?: ModelBehavior;
   setDefault: boolean;
 }
 
@@ -2002,6 +2024,8 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
   const positional: string[] = [];
   const { baseUrl, remaining } = extractBaseUrlArg(args);
   let apiKey: string | undefined;
+  let parsedName: string | undefined;
+  let modelBehavior: ModelBehavior | undefined;
   let setDefault = true;
   let setDefaultExplicit = false;
 
@@ -2017,6 +2041,18 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       setDefaultExplicit = true;
       continue;
     }
+    const nameFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      name: '--name',
+      placeholder: '<name>',
+    });
+    if (nameFlag) {
+      parsedName = validateLocalEndpointName(nameFlag.value);
+      index = nameFlag.nextIndex;
+      continue;
+    }
     const apiKeyFlag = parseValueFlag({
       arg,
       args: remaining,
@@ -2030,6 +2066,40 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
       index = apiKeyFlag.nextIndex;
       continue;
     }
+    const thinkingFormatFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      name: '--thinking-format',
+      placeholder: '<format>',
+    });
+    if (thinkingFormatFlag) {
+      const normalized = thinkingFormatFlag.value.trim().toLowerCase();
+      if (normalized !== 'qwen') {
+        throw new Error('`--thinking-format` currently supports only `qwen`.');
+      }
+      modelBehavior = { ...(modelBehavior || {}), thinkingFormat: 'qwen' };
+      index = thinkingFormatFlag.nextIndex;
+      continue;
+    }
+    const toolCallFormatFlag = parseValueFlag({
+      arg,
+      args: remaining,
+      index,
+      name: '--tool-call-format',
+      placeholder: '<format>',
+    });
+    if (toolCallFormatFlag) {
+      const normalized = toolCallFormatFlag.value.trim().toLowerCase();
+      if (normalized !== 'gemma') {
+        throw new Error(
+          '`--tool-call-format` currently supports only `gemma`.',
+        );
+      }
+      modelBehavior = { ...(modelBehavior || {}), toolCallFormat: 'gemma' };
+      index = toolCallFormatFlag.nextIndex;
+      continue;
+    }
     if (arg.startsWith('-')) {
       throw new Error(`Unknown flag: ${arg}`);
     }
@@ -2038,7 +2108,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
 
   if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]`',
+      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--tool-call-format gemma] [--no-default]`',
     );
   }
 
@@ -2053,9 +2123,10 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     throw new Error('`--api-key` is only supported for the `vllm` backend.');
   }
 
+  const endpointName = parsedName?.trim();
   const rawModelId = positional.slice(1).join(' ');
   const modelId = rawModelId
-    ? normalizeLocalModelId(backendRaw, rawModelId)
+    ? normalizeLocalModelId(backendRaw, rawModelId, endpointName)
     : undefined;
   if (setDefaultExplicit && setDefault && !modelId) {
     throw new Error('`--set-default` requires a model ID.');
@@ -2066,6 +2137,8 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     ...(modelId ? { modelId } : {}),
     baseUrl,
     apiKey,
+    ...(endpointName ? { name: endpointName } : {}),
+    ...(modelBehavior ? { modelBehavior } : {}),
     setDefault: Boolean(modelId) && setDefault,
   };
 }
@@ -2088,6 +2161,14 @@ function printLocalStatus(): void {
       );
     }
   }
+  for (const endpoint of config.local.endpoints) {
+    console.log(
+      `${endpoint.name}: ${endpoint.enabled ? 'enabled' : 'disabled'} (${endpoint.type}, ${endpoint.baseUrl})`,
+    );
+    if (endpoint.apiKey) {
+      console.log(`${endpoint.name} api key: configured`);
+    }
+  }
 }
 
 function configureLocalBackend(args: string[]): void {
@@ -2095,24 +2176,70 @@ function configureLocalBackend(args: string[]): void {
   const parsed = parseLocalConfigureArgs(args);
   const currentConfig = getRuntimeConfig();
   const currentBackend = currentConfig.local.backends[parsed.backend];
+  const currentEndpoint = parsed.name
+    ? currentConfig.local.endpoints.find(
+        (endpoint) => endpoint.name === parsed.name,
+      )
+    : undefined;
   const normalizedBaseUrl = normalizeLocalBaseUrl(
     parsed.backend,
-    parsed.baseUrl || currentBackend.baseUrl,
+    parsed.baseUrl || currentEndpoint?.baseUrl || currentBackend.baseUrl,
   );
+  const modelPrefix = parsed.name || parsed.backend;
   const fullModelName = parsed.modelId
-    ? `${parsed.backend}/${parsed.modelId}`
+    ? `${modelPrefix}/${parsed.modelId}`
     : '';
   const nextConfig = updateRuntimeConfig((draft) => {
-    draft.local.backends[parsed.backend].enabled = true;
-    draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
-    if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-      draft.local.backends.vllm.apiKey = '';
+    if (parsed.name) {
+      const existing = draft.local.endpoints.find(
+        (endpoint) => endpoint.name === parsed.name,
+      );
+      const endpoint = {
+        name: parsed.name,
+        type: parsed.backend,
+        enabled: true,
+        baseUrl: normalizedBaseUrl,
+        apiKey: parsed.apiKey !== undefined ? '' : existing?.apiKey || '',
+        ...(parsed.modelBehavior
+          ? { modelBehavior: parsed.modelBehavior }
+          : existing?.modelBehavior
+            ? { modelBehavior: existing.modelBehavior }
+            : {}),
+      };
+      draft.local.endpoints = [
+        ...draft.local.endpoints.filter((entry) => entry.name !== parsed.name),
+        endpoint,
+      ];
+    } else {
+      draft.local.backends[parsed.backend].enabled = true;
+      draft.local.backends[parsed.backend].baseUrl = normalizedBaseUrl;
+      if (parsed.modelBehavior) {
+        draft.local.backends[parsed.backend].modelBehavior =
+          parsed.modelBehavior;
+      }
+      if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
+        draft.local.backends.vllm.apiKey = '';
+      }
     }
     if (parsed.setDefault) {
       draft.hybridai.defaultModel = fullModelName;
     }
   });
-  if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
+  if (parsed.name && parsed.apiKey !== undefined) {
+    const secretName = localEndpointSecretName(parsed.name);
+    saveNamedRuntimeSecrets({ [secretName]: parsed.apiKey });
+    setRuntimeConfigLocalEndpointSecretInput(
+      parsed.name,
+      {
+        source: 'store',
+        id: secretName,
+      },
+      {
+        route: 'cli.auth.local.configure-endpoint-secret-ref',
+        source: 'user',
+      },
+    );
+  } else if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
     saveRuntimeSecrets({ VLLM_API_KEY: parsed.apiKey });
     setRuntimeConfigSecretInput(
       'local.backends.vllm.apiKey',
@@ -2129,14 +2256,48 @@ function configureLocalBackend(args: string[]): void {
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
   console.log(`Backend: ${parsed.backend}`);
-  console.log(`Base URL: ${nextConfig.local.backends[parsed.backend].baseUrl}`);
+  if (parsed.name) {
+    console.log(`Endpoint: ${parsed.name}`);
+  }
+  const nextEndpoint = parsed.name
+    ? nextConfig.local.endpoints.find(
+        (endpoint) => endpoint.name === parsed.name,
+      )
+    : undefined;
+  console.log(
+    `Base URL: ${nextEndpoint?.baseUrl || nextConfig.local.backends[parsed.backend].baseUrl}`,
+  );
   if (fullModelName) {
     console.log(`Configured model: ${fullModelName}`);
   } else {
     console.log('Configured model: none');
   }
-  if (parsed.backend === 'vllm' && parsed.apiKey !== undefined) {
-    console.log('vllm api key: configured');
+  const configuredBehavior =
+    nextEndpoint?.modelBehavior ||
+    nextConfig.local.backends[parsed.backend].modelBehavior;
+  if (
+    configuredBehavior?.thinkingFormat ||
+    configuredBehavior?.toolCallFormat
+  ) {
+    console.log(
+      `Model behavior: ${[
+        configuredBehavior.thinkingFormat
+          ? `thinkingFormat=${configuredBehavior.thinkingFormat}`
+          : '',
+        configuredBehavior.toolCallFormat
+          ? `toolCallFormat=${configuredBehavior.toolCallFormat}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(', ')}`,
+    );
+  }
+  if (parsed.apiKey !== undefined) {
+    console.log(
+      parsed.name
+        ? `${parsed.name} api key: configured`
+        : 'vllm api key: configured',
+    );
   }
   if (parsed.setDefault) {
     console.log(`Default model: ${fullModelName}`);
@@ -2153,7 +2314,7 @@ function configureLocalBackend(args: string[]): void {
     console.log(`  /model set ${fullModelName}`);
   } else {
     console.log(`  /model list ${parsed.backend}`);
-    console.log(`  /model set ${parsed.backend}/<model>`);
+    console.log(`  /model set ${modelPrefix}/<model>`);
   }
 }
 

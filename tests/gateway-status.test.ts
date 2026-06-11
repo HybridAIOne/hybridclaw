@@ -709,16 +709,23 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
     const actual = await vi.importActual<
       typeof import('../src/providers/model-catalog.js')
     >('../src/providers/model-catalog.js');
+    const modelList = [
+      'gpt-4.1-mini', // bare slug = HybridAI passthrough
+      'openai-codex/gpt-5', // openai-codex/ prefix maps to providerHealth key 'codex'
+      'openrouter/anthropic/claude-sonnet-4',
+      'gemini/gemini-2.5-pro',
+      'ollama/llama-3.1',
+      'haigpu2/google/gemma-4-e4b-it',
+    ];
     return {
       ...actual,
       refreshAvailableModelCatalogs: vi.fn(async () => {}),
-      getAvailableModelList: vi.fn(() => [
-        'gpt-4.1-mini', // bare slug = HybridAI passthrough
-        'openai-codex/gpt-5', // openai-codex/ prefix maps to providerHealth key 'codex'
-        'openrouter/anthropic/claude-sonnet-4',
-        'gemini/gemini-2.5-pro',
-        'ollama/llama-3.1',
-      ]),
+      getAvailableModelList: vi.fn((provider?: string) => {
+        if (provider === 'ollama') return ['ollama/llama-3.1'];
+        if (provider === 'vllm') return ['haigpu2/google/gemma-4-e4b-it'];
+        if (provider === 'lmstudio' || provider === 'llamacpp') return [];
+        return modelList;
+      }),
     };
   });
 
@@ -737,6 +744,7 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
   expect(byId['openrouter/anthropic/claude-sonnet-4']).toBe('openrouter');
   expect(byId['gemini/gemini-2.5-pro']).toBe('gemini');
   expect(byId['ollama/llama-3.1']).toBe('ollama');
+  expect(byId['haigpu2/google/gemma-4-e4b-it']).toBe('vllm');
 });
 
 test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without warning', async () => {
@@ -3795,6 +3803,22 @@ test('model info shows global, agent, and session scopes', async () => {
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
+    config.local.endpoints = [
+      {
+        name: 'haigpu2',
+        type: 'vllm',
+        enabled: true,
+        baseUrl: 'http://haigpu2:8000/v1',
+        apiKey: '',
+      },
+    ];
+    config.auxiliaryModels.compression.provider = 'vllm';
+    config.auxiliaryModels.compression.model = 'haigpu2/google/gemma-4-e4b-it';
+    config.auxiliaryModels.second_opinion = {
+      provider: 'openai-codex',
+      model: 'openai-codex/gpt-5.5',
+      maxTokens: 1200,
+    };
   });
   vi.resetModules();
 
@@ -3840,6 +3864,13 @@ test('model info shows global, agent, and session scopes', async () => {
   expect(result.text).toContain('Global model: hybridai/gpt-5');
   expect(result.text).toContain('Agent model: hybridai/gpt-5-mini');
   expect(result.text).toContain('Session model: hybridai/gpt-5-nano');
+  expect(result.text).toContain('Aux models:\n');
+  expect(result.text).toContain(
+    '- compression: haigpu2/google/gemma-4-e4b-it',
+  );
+  expect(result.text).toContain(
+    '- second_opinion: openai-codex/gpt-5.5 (max 1.2k)',
+  );
   expect(result.text).toContain('Known metadata: yes');
   expect(result.text).toContain('Pricing: dynamic pricing unavailable');
   expect(result.text).toContain(
