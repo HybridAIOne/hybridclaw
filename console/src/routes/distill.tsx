@@ -112,6 +112,27 @@ function dedupeRunSources(subject: AdminDistillSubjectSummary | null) {
   return sources;
 }
 
+function pathDisplayName(value: string): string {
+  const normalized = value.replace(/\\/g, '/').replace(/\/+$/g, '');
+  const parts = normalized.split('/').filter(Boolean);
+  return parts.at(-1) || value || 'source';
+}
+
+function ServerPathDisclosure({
+  label = 'Server path',
+  path,
+}: {
+  label?: string;
+  path: string;
+}) {
+  return (
+    <details className="distill-inline-path">
+      <summary>{label}</summary>
+      <code className="path-text">{path}</code>
+    </details>
+  );
+}
+
 function EmbeddedTextDisclosure({
   title,
   artifact,
@@ -296,8 +317,9 @@ function SourceRows({
       {sources.map((source) => (
         <li className="distill-data-row" key={`${source.kind}:${source.path}`}>
           <div>
-            <strong>{source.kind}</strong>
-            <code className="path-text">{source.path}</code>
+            <strong>{pathDisplayName(source.path)}</strong>
+            <small>{source.kind}</small>
+            <ServerPathDisclosure path={source.path} />
           </div>
         </li>
       ))}
@@ -325,7 +347,7 @@ function QueuedUploadRows({
               {upload.filename} · {upload.source.kind} ·{' '}
               {formatBytes(upload.sizeBytes)}
             </strong>
-            <code className="path-text">{upload.path}</code>
+            <ServerPathDisclosure path={upload.path} />
             <EmbeddedTextDisclosure title="Preview" artifact={upload.preview} />
           </div>
         </li>
@@ -369,7 +391,10 @@ function CorpusRows({
                 {document.source} · {document.wordCount} words ·{' '}
                 {document.holdout ? 'holdout' : 'analysis'} · {document.author}
               </small>
-              <code className="path-text">{document.origin}</code>
+              <ServerPathDisclosure
+                label="Original source"
+                path={document.origin}
+              />
             </div>
             <div className="distill-row-actions">
               <Button
@@ -442,6 +467,10 @@ function SourceDataPanel({
 
       <section className="distill-data-section">
         <h5>Run Sources</h5>
+        <p className="distill-section-note">
+          Server paths are provenance only. Use corpus previews and downloads
+          below for cloud-accessible content.
+        </p>
         <SourceRows
           sources={runSources}
           emptyLabel="No sources attached to a run yet."

@@ -259,6 +259,8 @@ describe('DistillPage', () => {
     renderWithProviders(<DistillPage />);
 
     await screen.findByText('Source Data');
+    expect(screen.getByText(/Server paths are provenance only/)).toBeTruthy();
+    expect(screen.getByText('memo.md')).toBeTruthy();
     expect(
       screen.getByText(
         '/tmp/hybridclaw/agents/maya/workspace/distill/maya/uploads',

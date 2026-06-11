@@ -2644,6 +2644,30 @@ th {
   letter-spacing: 0.08em;
 }
 
+.distill-section-note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.distill-inline-path {
+  min-width: 0;
+}
+
+.distill-inline-path summary {
+  width: fit-content;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.distill-inline-path code {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted-foreground);
+}
+
 .distill-embed-list {
   display: grid;
   gap: 8px;
