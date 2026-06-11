@@ -262,6 +262,94 @@ function buildQwenRequestMessages(
   }));
 }
 
+function parseJsonObject(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function buildCallPrefixRequestMessages(
+  messages: ChatMessage[],
+): Array<Record<string, unknown>> {
+  const collapsed = collapseSystemMessages(messages);
+  const result: Array<Record<string, unknown>> = [];
+  let pendingAssistant: Record<string, unknown> | null = null;
+  let pendingCalls: Array<{
+    id: string;
+    name: string;
+    used: boolean;
+  }> = [];
+  const flushPendingAssistant = (): void => {
+    if (pendingAssistant) result.push(pendingAssistant);
+    pendingAssistant = null;
+    pendingCalls = [];
+  };
+
+  for (const message of collapsed) {
+    if (
+      message.role === 'assistant' &&
+      Array.isArray(message.tool_calls) &&
+      message.tool_calls.length > 0
+    ) {
+      flushPendingAssistant();
+      pendingCalls = message.tool_calls.map((toolCall) => ({
+        id: toolCall.id || '',
+        name: toolCall.function.name,
+        used: false,
+      }));
+      pendingAssistant = {
+        role: 'assistant',
+        content: normalizeMessageContent(message.content),
+        tool_calls: message.tool_calls.map((toolCall) => ({
+          function: {
+            name: toolCall.function.name,
+            arguments: parseJsonObject(toolCall.function.arguments),
+          },
+        })),
+        tool_responses: [],
+      };
+      continue;
+    }
+
+    if (message.role === 'tool' && pendingAssistant) {
+      const responseCall =
+        pendingCalls.find(
+          (call) =>
+            !call.used &&
+            call.id &&
+            message.tool_call_id &&
+            call.id === message.tool_call_id,
+        ) || pendingCalls.find((call) => !call.used);
+      if (responseCall) {
+        responseCall.used = true;
+        const responses = pendingAssistant.tool_responses as Array<{
+          name: string;
+          response: unknown;
+        }>;
+        responses.push({
+          name: responseCall.name,
+          response:
+            typeof message.content === 'string'
+              ? parseJsonObject(message.content)
+              : normalizeMessageContent(message.content),
+        });
+        continue;
+      }
+    }
+
+    flushPendingAssistant();
+    result.push({
+      ...message,
+      content: normalizeMessageContent(message.content),
+    });
+  }
+
+  flushPendingAssistant();
+  return result;
+}
+
 function shortHash(text: string, length: number): string {
   return createHash('sha256').update(text).digest('hex').slice(0, length);
 }
@@ -342,12 +430,15 @@ function buildRequestMessages(
   options: { includeTools?: boolean } = {},
 ): Array<Record<string, unknown>> {
   const includeTools = options.includeTools ?? true;
-  let messages = usesQwenCompat(args)
-    ? buildQwenRequestMessages(args.messages)
-    : collapseSystemMessages(args.messages).map((message) => ({
-        ...message,
-        content: normalizeMessageContent(message.content),
-      }));
+  const useCallPrefixToolCompat = usesCallPrefixToolCompat(args);
+  let messages = useCallPrefixToolCompat
+    ? buildCallPrefixRequestMessages(args.messages)
+    : usesQwenCompat(args)
+      ? buildQwenRequestMessages(args.messages)
+      : collapseSystemMessages(args.messages).map((message) => ({
+          ...message,
+          content: normalizeMessageContent(message.content),
+        }));
   if (
     includeTools &&
     usesLiquidCompat(args) &&
@@ -363,8 +454,7 @@ function buildRequestMessages(
     }));
   }
   if (
-    !includeTools &&
-    usesCallPrefixToolCompat(args) &&
+    useCallPrefixToolCompat &&
     Array.isArray(args.tools) &&
     args.tools.length
   ) {
@@ -385,7 +475,8 @@ function buildRequestBody(
   args: NormalizedCallArgs,
   options: { includeTools?: boolean } = {},
 ): Record<string, unknown> {
-  const includeTools = options.includeTools ?? true;
+  const includeTools =
+    (options.includeTools ?? true) && !usesCallPrefixToolCompat(args);
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
     messages: buildRequestMessages(args, { includeTools }),

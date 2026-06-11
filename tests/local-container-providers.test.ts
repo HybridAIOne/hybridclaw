@@ -637,28 +637,13 @@ describe('local container providers', () => {
     expect(result.choices[0]?.message.content).toBe('ok');
   });
 
-  test('vLLM local provider retries without native tools when auto tool choice is unsupported', async () => {
-    let calls = 0;
+  test('vLLM Gemma provider uses Gemma tool declarations without native tools', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      calls += 1;
       const body = JSON.parse(String(init?.body || '{}')) as Record<
         string,
         unknown
       >;
       expect(body.model).toBe('google/gemma-4-e4b-it');
-      if (calls === 1) {
-        expect(body.tools).toEqual(tools);
-        expect(body.tool_choice).toBe('auto');
-        return new Response(
-          JSON.stringify({
-            error: {
-              message:
-                '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set',
-            },
-          }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
       expect(body.tools).toBeUndefined();
       expect(body.tool_choice).toBeUndefined();
       const messages = body.messages as Array<Record<string, unknown>>;
@@ -699,7 +684,28 @@ describe('local container providers', () => {
       chatbotId: '',
       enableRag: false,
       requestHeaders: undefined,
-      messages: baseMessages,
+      messages: [
+        { role: 'user', content: 'run pwd' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: '',
+              type: 'function',
+              function: {
+                name: 'shell',
+                arguments: '{"command":"pwd"}',
+              },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          content: '{"ok":true}',
+          tool_call_id: '',
+        },
+      ],
       tools,
       maxTokens: 128,
       isLocal: true,
@@ -707,11 +713,32 @@ describe('local container providers', () => {
     } satisfies Parameters<typeof callLocalOpenAICompatProvider>[0];
 
     const result = await callLocalOpenAICompatProvider(args);
-    const secondResult = await callLocalOpenAICompatProvider(args);
 
     expect(result.choices[0]?.message.content).toBe('ok');
-    expect(secondResult.choices[0]?.message.content).toBe('ok');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body || '{}'),
+    ) as Record<string, unknown>;
+    const messages = body.messages as Array<Record<string, unknown>>;
+    expect(messages.some((message) => message.role === 'tool')).toBe(false);
+    expect(messages[2]).toEqual({
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          function: {
+            name: 'shell',
+            arguments: { command: 'pwd' },
+          },
+        },
+      ],
+      tool_responses: [
+        {
+          name: 'shell',
+          response: { ok: true },
+        },
+      ],
+    });
   });
 
   test('vLLM Gemma provider normalizes call-prefix tool calls', async () => {
@@ -898,30 +925,15 @@ describe('local container providers', () => {
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
   });
 
-  test('vLLM local stream retries without native tools when auto tool choice is unsupported', async () => {
+  test('vLLM Gemma stream uses Gemma tool declarations without native tools', async () => {
     const deltas: string[] = [];
-    let calls = 0;
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      calls += 1;
       const body = JSON.parse(String(init?.body || '{}')) as Record<
         string,
         unknown
       >;
       expect(body.model).toBe('google/gemma-4-e4b-it');
       expect(body.stream).toBe(true);
-      if (calls === 1) {
-        expect(body.tools).toEqual(tools);
-        expect(body.tool_choice).toBe('auto');
-        return new Response(
-          JSON.stringify({
-            error: {
-              message:
-                '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set',
-            },
-          }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
       expect(body.tools).toBeUndefined();
       expect(body.tool_choice).toBeUndefined();
       const messages = body.messages as Array<Record<string, unknown>>;
@@ -957,7 +969,7 @@ describe('local container providers', () => {
 
     expect(deltas).toEqual(['ok']);
     expect(result.choices[0]?.message.content).toBe('ok');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test('vLLM Gemma stream normalizes and hides call-prefix tool calls', async () => {
