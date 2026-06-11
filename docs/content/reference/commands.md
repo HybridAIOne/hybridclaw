@@ -404,6 +404,12 @@ imports `imageAsset` URLs or local file paths into the agent workspace:
 hybridclaw agent config '{"id":"felix","model":"gpt-5.4-mini","imageAsset":"https://example.com/felix.jpg","markdown":{"IDENTITY.md":"# Felix\n"}}' --activate
 ```
 
+Proxy agents use the same command with a per-agent `proxy` object:
+
+```bash
+hybridclaw agent config '{"id":"support-proxy","name":"Support Proxy","proxy":{"kind":"hybridai","baseUrl":"https://app.hybridai.one","chatbotId":"bot_abc123","apiKey":"<secret:HYBRIDAI_API_KEY>","conversationScope":"user"}}'
+```
+
 Use `agent config` for metadata plus bootstrap markdown. Use `agent install`
 when you need a portable `.claw` archive with arbitrary workspace files,
 bundled skills, bundled plugins, or install-time imports.

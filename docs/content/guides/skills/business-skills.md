@@ -10,6 +10,13 @@ A business skill is a versioned `SKILL.md` package that declares what work it
 can perform, which credentials it needs, which channels it supports, and how
 operators manage its lifecycle.
 
+Business skills are product workflows, not prompt-only descriptions. A
+production business skill should have deterministic helper commands, fixtures
+or eval scenarios, targeted tests, explicit credential requirements, and
+approval tiers for mutations. `Qwen/Qwen3.6-27B-FP8` is the small-model
+validation baseline: if a workflow only succeeds with frontier-model
+guesswork, tighten the helper surface before shipping it.
+
 ## Package Layout
 
 Use one directory per skill:
@@ -71,6 +78,22 @@ Required fields for business packages:
 
 `web` is normalized to `tui` for local browser sessions. Unknown channels are
 ignored.
+
+## Validation Standard
+
+Production business skills should include:
+
+- a helper command that exposes deterministic plans or actions
+- offline fixtures for representative read and mutation workflows
+- an `eval-scenarios` surface or equivalent scenario file
+- targeted tests for helper parsing, safety tiers, credential declarations,
+  and scenario coverage
+- approval-grant requirements for amber or red mutations
+- small-model validation against `Qwen/Qwen3.6-27B-FP8`
+
+The goal is to keep the model responsible for intent and judgment while helper
+code owns API shape, request validation, redaction, cost accounting, and
+guarded side effects.
 
 ## Lifecycle Commands
 

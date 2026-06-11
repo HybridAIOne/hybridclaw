@@ -109,5 +109,7 @@ bundle into a fresh agent workspace without re-distillation.
 
 ## See also
 
-- The bundled [`human-distill` skill](../extensibility/skills.md) drives the agent half of the pipeline: intake, interviews, mirroring sessions, and writing the extraction contract.
+- The bundled [`human-distill` skill](./skills/productivity.md#human-distill)
+  drives the agent half of the pipeline: intake, interviews, mirroring
+  sessions, and writing the extraction contract.
 - Roadmap: R72 in `docs/content/internal/roadmap.md`.

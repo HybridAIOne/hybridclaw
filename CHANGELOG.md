@@ -2,27 +2,30 @@
 
 ## Unreleased
 
+## [0.24.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.0) - 2026-06-11
+
 ### Added
 
 - **Human distillation (R72)**: New `hybridclaw coworker` command group and
-  bundled `human-distill` skill that distill a real person's source material
+  bundled `human-distill` skill that distills a real person's source material
   into a coworker agent. Collectors normalise Slack exports, mbox email,
   meeting transcripts, chat JSONL, documents, and gap-driven interview
   questionnaires into an agent-scoped corpus with quality weighting, stable
   provenance ids, and third-party PII masking at ingest. A resumable
   ingest → analyse → build → merge → correct pipeline writes the persona into
   the standard identity files (`IDENTITY.md`, `SOUL.md`, `USER.md`, `CV.md`)
-  and a generated work-module skill, with every claim citing corpus documents
-  (uncited claims are flagged, not written), every merge an F4-versioned
-  reversible edit, and conflicting evidence surfaced as operator review
-  items. Distilling a real, named human is hard-blocked until a consent
-  artefact is recorded; all lifecycle actions emit hash-chained `distill.*`
-  audit events; `coworker forget` erases corpus, persona, work module, runs,
-  and revision snapshots as one identifier set. Includes a leakage/fidelity
-  eval (`coworker eval`), conversational corrections (`coworker correct`),
-  and one-bundle multi-host export/install for Claude Code, Codex, OpenClaw,
-  and HybridClaw. Manifesto: Principle VII - A coworker you can trust with
-  real responsibility.
+  and a generated work-module skill, with `/admin/distill` managing subjects,
+  consent, source uploads, corpus documents, and runs from the browser. Every
+  claim cites corpus documents (uncited claims are flagged, not written),
+  every merge is an F4-versioned reversible edit, and conflicting evidence is
+  surfaced as operator review items. Distilling a real, named human is
+  hard-blocked until a consent artefact is recorded; all lifecycle actions
+  emit hash-chained `distill.*` audit events; `coworker forget` erases corpus,
+  persona, work module, runs, and revision snapshots as one identifier set.
+  Includes a leakage/fidelity eval (`coworker eval`), conversational
+  corrections (`coworker correct`), and one-bundle multi-host export/install
+  for Claude Code, Codex, OpenClaw, and HybridClaw. Manifesto: Principle VII -
+  A coworker you can trust with real responsibility.
 - **Cloud memory sync**: Agents now sync local memory files (`MEMORY.md`,
   `USER.md`, and recent daily memory notes) with the HybridAI cloud and receive
   shared installation- and company-scoped memory back for prompt context. Sync
@@ -37,14 +40,38 @@
   optional peer-side approval prompt. Incoming pairing requests arrive through
   a rate-limited `/a2a/pairing/requests` endpoint and can be approved or
   declined from the console with audit-trail decision reasons.
+- **Inbound A2A envelopes**: Added a JSON-RPC Agent Card envelope receiver for
+  cross-instance A2A delivery, including canonical sender/recipient metadata,
+  idempotent persistence, signed bearer-token validation, read-only admin
+  inbox visibility, and audit events for malformed or rejected envelopes.
+- **HybridAI proxy agents**: Agents can now proxy conversations to hosted
+  HybridAI chatbots via per-agent `proxy` config, SecretRef-backed API keys,
+  HTTPS-only upstreams, selectable channel- or user-scoped conversation ids,
+  streaming response forwarding, and `/status` visibility for proxy mode.
+- **Explicit agent addressing**: Chat channels and web chat can address
+  specific agents inline, with mention autocomplete, avatar-backed mention
+  pills, canonical recipient handling, and fanout hardening for local
+  proactive delivery.
 - **`byd-battery` skill**: Added read-only monitoring for BYD Battery-Box
   Premium HVS/HVM/LVS/LVL home-storage systems over local Modbus TCP or
   Fronius inverter delegation, covering state of charge, pack telemetry, cell
   extremes, tower/module inventory, decoded alarms, firmware info, and energy
   counters, with allowlisted register ranges and no write operations.
+- **`mailchimp` skill**: Added Mailchimp Marketing and Mailchimp
+  Transactional/Mandrill workflows for credential checks, audience/member
+  reads, guarded subscriber and tag mutations, campaign draft/content/report
+  operations, automations, journeys, and approval-gated campaign or
+  transactional sends through the gateway HTTP proxy.
 - **Amber approval cards**: Web chat approval prompts now render as structured
   confirmation cards with an approval-tier badge, parsed action/tool/reason
   detail rows, and separated confirm/deny and trust-scope button groups.
+- **Named local model endpoints**: Local provider config now supports
+  additional named Ollama, LM Studio, llama.cpp, and vLLM endpoints with
+  endpoint-prefixed model ids, CLI setup via `--name`, and per-endpoint model
+  behavior flags for Qwen thinking markup and Gemma tool-call formats.
+- **Auxiliary model testing**: Added `/aux test <task> <prompt>` so operators
+  can exercise configured auxiliary model routes directly and see the
+  provider/model used for the request.
 - **Response rating forwarding**: Thumbs up/down ratings on web chat responses
   are forwarded to the HybridAI feedback API when HybridAI authentication is
   active, alongside the existing local rating store and audit events.
@@ -52,11 +79,36 @@
 
 ### Changed
 
+- **README and skill docs positioning**: The public README and skills docs now
+  lead with HybridClaw's validated business-skill workflow: helper-backed
+  production skills, eval scenarios, approval tiers, credential boundaries, and
+  `Qwen/Qwen3.6-27B-FP8` as the small-model validation baseline.
+- **Multi-agent and credential-isolation positioning**: The README and docs
+  now call out multi-instance A2A workflows, hosted proxy agents, explicit
+  addressing, and SecretRef-backed execution that keeps raw credentials out of
+  model context.
+- **HybridAI Cloud launch path**: The README, docs landing page, and
+  installation guide now link to the managed HybridClaw cloud offering at
+  `hybridclaw.io`.
+- **Desktop release order docs**: The macOS desktop release guide now
+  recommends building and notarizing from the exact version tag, uploading
+  desktop assets to a draft GitHub Release, then publishing after assets are
+  verified.
 - **Provider request payloads**: Empty tool definitions are omitted from
   HybridAI, OpenAI-compatible, Codex, and Ollama provider requests instead of
   sending empty `tools` arrays.
+- **Local vLLM tool behavior**: OpenAI-compatible local providers infer and
+  remember native-tool fallback support, count prompt-side tool overhead in
+  context guards, refresh named-endpoint metadata, and parse Gemma text tool
+  calls emitted before or after Markdown wrappers.
+- **Structured actors in audit data**: Audit/event records now carry unified
+  actor identities across A2A envelopes, board cards, adaptive-skill
+  observations, scoreboards, and structured audit queries.
 - **Coworker liveness scan**: Skill scans during coworker liveness checks use
   set-based agent filtering, speeding up gateways with many agents.
+- **Release version sync tooling**: `npm run version:sync` now keeps root,
+  console, desktop, container, lockfile, and shrinkwrap package versions in
+  sync, with `release:check` validating the same invariant.
 - **Dependency updates**: Routine minor and patch dependency updates across the
   gateway, console, container, and desktop packages, plus overrides that lift
   transitive `shell-quote` and `tmp` to patched releases flagged by npm audit.
@@ -79,6 +131,10 @@
   no longer misreport container dependencies as missing when npm hoists a
   package whose `exports` map does not expose `package.json` (e.g.
   `dompurify`).
+- **Installer and setup hardening**: The one-line installer, postinstall
+  container setup, Node version guard, and Homebrew/source-checkout paths handle
+  no-sudo installs, user npm prefixes, and container dependency setup more
+  reliably.
 
 ## [0.23.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.23.0) - 2026-06-09
 

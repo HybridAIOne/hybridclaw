@@ -68,6 +68,6 @@ the runtime can reach those local endpoints directly.
 - Interactive onboarding can skip remote-provider auth completely when you plan
   to use a local backend only.
 - For longer agent sessions, `16k` context is a minimum and `32k` is safer.
-- The TUI and Discord model pickers come from the live gateway model list, so
-  restart the gateway after enabling a new backend or loading a different
-  local model.
+- The TUI, web chat, and Discord model pickers come from the live gateway model
+  list, so restart the gateway after enabling a new backend or loading a
+  different local model.

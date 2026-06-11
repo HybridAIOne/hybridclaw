@@ -6,6 +6,17 @@ sidebar_position: 2
 
 # Installation
 
+## Launch On HybridAI Cloud
+
+The fastest managed path is the HybridAI Cloud offering for HybridClaw:
+
+```text
+https://hybridclaw.io
+```
+
+Use it when you want a hosted HybridClaw environment running in a few minutes
+without preparing a local Node.js, npm, or Docker setup first.
+
 ## Install With the One-Line Script
 
 The quickest path on Linux and macOS is the bootstrap installer. It ensures a
@@ -129,6 +140,23 @@ brew install hybridclaw
 ```
 
 Until then, most macOS users should stick to npm or the Nix flake.
+
+## Install The macOS Desktop App
+
+Signed macOS desktop builds are distributed as GitHub Release assets when a
+desktop artifact is published for a version:
+
+```text
+https://github.com/HybridAIOne/hybridclaw/releases/latest
+```
+
+Download the `HybridClaw-<version>-<arch>.dmg` asset for your Mac, open it,
+and drag `HybridClaw.app` into `/Applications`.
+
+The desktop app is a native wrapper around the same local gateway, chat, agents,
+and admin surfaces. From a source checkout, use `npm run desktop` instead. For
+maintainer packaging, signing, notarization, and upload steps, see
+[Desktop Release Builds](../developer-guide/desktop-release.md).
 
 ## Install From a Source Checkout
 
