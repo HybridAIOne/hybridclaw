@@ -46,8 +46,6 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin', label: 'Dashboard', icon: Dashboard },
       { to: '/admin/statistics', label: 'Statistics', icon: Statistics },
       { to: '/admin/approvals', label: 'Approvals', icon: Policy },
-      { to: '/admin/a2a-inbox', label: 'A2A Inbox', icon: Chat },
-      { to: '/admin/a2a-trust', label: 'A2A Trust', icon: Policy },
       { to: '/admin/audit', label: 'Audit', icon: Audit },
       { to: '/admin/jobs', label: 'Jobs', icon: Jobs },
       {
@@ -56,6 +54,13 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
         icon: Harness,
       },
       { to: '/admin/distill', label: 'Distill', icon: Flask },
+    ],
+  },
+  {
+    label: 'A2A',
+    items: [
+      { to: '/admin/a2a-inbox', label: 'Inbox', icon: Chat },
+      { to: '/admin/a2a-trust', label: 'Trust', icon: Policy },
     ],
   },
   {
