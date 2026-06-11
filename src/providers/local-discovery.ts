@@ -187,6 +187,7 @@ function readContextWindowFromModelEntry(
   return (
     readPositiveInteger(entry.loaded_context_length) ??
     readPositiveInteger(entry.context_length) ??
+    readPositiveInteger(entry.max_model_len) ??
     readPositiveInteger(entry.max_context_length) ??
     readPositiveInteger(entry.maxContextLength)
   );

@@ -340,7 +340,7 @@ test('available model catalog includes named local endpoints in local and backen
     catalog.getModelCatalogMetadata('haigpu2/google/gemma-4-e4b-it'),
   ).toMatchObject({
     known: true,
-    contextWindow: expect.any(Number),
+    contextWindow: 32_768,
     pricingUsdPerToken: { input: 0, output: 0 },
   });
 });

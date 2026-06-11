@@ -269,7 +269,9 @@ describe('local providers', () => {
           Authorization: 'Bearer gemma-secret-key',
         });
         return new Response(
-          JSON.stringify({ data: [{ id: 'google/gemma-3-27b-it' }] }),
+          JSON.stringify({
+            data: [{ id: 'google/gemma-3-27b-it', max_model_len: 32_768 }],
+          }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }),
@@ -284,6 +286,7 @@ describe('local providers', () => {
       discovery.getLocalModelInfo('haigpu2/google/gemma-3-27b-it'),
     ).toMatchObject({
       backend: 'vllm',
+      contextWindow: 32_768,
       endpointName: 'haigpu2',
       modelBehavior: { toolCallFormat: 'gemma' },
     });
