@@ -20,18 +20,23 @@ function gemmaToolString(value: string): string {
   return `<|"|>${String(value || '').replace(/<\|"\|>/g, '"')}<|"|>`;
 }
 
-function gemmaToolLiteral(value: unknown): string {
+function gemmaToolLiteral(value: unknown, key = ''): string {
   if (value == null) return 'null';
-  if (typeof value === 'string') return gemmaToolString(value);
+  if (typeof value === 'string') {
+    return gemmaToolString(key === 'type' ? value.toUpperCase() : value);
+  }
   if (typeof value === 'number' || typeof value === 'boolean') {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map((item) => gemmaToolLiteral(item)).join(',')}]`;
+    return `[${value.map((item) => gemmaToolLiteral(item, key)).join(',')}]`;
   }
   if (isRecord(value)) {
     return `{${Object.entries(value)
-      .map(([key, entry]) => `${key}:${gemmaToolLiteral(entry)}`)
+      .map(
+        ([entryKey, entry]) =>
+          `${entryKey}:${gemmaToolLiteral(entry, entryKey)}`,
+      )
       .join(',')}}`;
   }
   return gemmaToolString(String(value));
@@ -49,10 +54,9 @@ export function buildGemmaToolCallInstruction(
     )
     .join('\n');
   return [
-    'Available tools are declared below. If a user request requires one of these tools, call it instead of saying it is unavailable.',
     declarations,
-    'Emit Gemma tool calls exactly as <|tool_call>call:TOOL_NAME{ARGUMENT_NAME:ARGUMENT_VALUE}<tool_call|><|tool_response> and do not wrap them in Markdown.',
-    'Use <|"|>text<|"|> for string argument values.',
+    'When a tool is needed, emit only a Gemma tool call in this form: <|tool_call>call:TOOL_NAME{ARGUMENT_NAME:ARGUMENT_VALUE}<tool_call|><|tool_response>',
+    'Do not write a shell command, Markdown code block, or prose instead of a tool call.',
   ].join('\n');
 }
 

@@ -165,6 +165,9 @@ test('openai-compatible HybridAI Gemma calls use Gemma tool declarations without
       expect(String(messages[0]?.content || '')).toContain(
         '<|tool>declaration:shell',
       );
+      expect(String(messages[0]?.content || '')).toContain(
+        'type:<|"|>OBJECT<|"|>',
+      );
       return new Response(
         JSON.stringify({
           id: 'resp_1',
@@ -278,6 +281,9 @@ test('openai-compatible non-vLLM Gemma calls use Gemma tool declarations without
       expect(String(messages[0]?.content || '')).toContain(
         '<|tool_call>call:TOOL_NAME',
       );
+      expect(String(messages[0]?.content || '')).toContain(
+        'command:{type:<|"|>STRING<|"|>}',
+      );
       return new Response(
         JSON.stringify({
           id: 'resp_1',
@@ -336,6 +342,9 @@ test('openai-compatible vLLM Gemma calls use Gemma tool declarations without nat
     );
     expect(String(messages[0]?.content || '')).toContain(
       '<|tool_call>call:TOOL_NAME',
+    );
+    expect(String(messages[0]?.content || '')).toContain(
+      'type:<|"|>OBJECT<|"|>',
     );
     expect(messages.some((message) => message.role === 'tool')).toBe(false);
     expect(messages[2]?.role).toBe('assistant');
@@ -462,6 +471,47 @@ test('openai-compatible vLLM does not infer Gemma tool behavior from model name'
   });
 });
 
+test('openai-compatible vLLM does not retry without tools when no prompt tool format is configured', async () => {
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          error:
+            '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set',
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      ),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  await expect(
+    callOpenAICompatibleModel({
+      runtime: {
+        provider: 'vllm',
+        apiKey: '',
+        baseUrl: 'http://plain-vllm:8000/v1',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: true,
+        contextWindow: 32_768,
+        thinkingFormat: undefined,
+      },
+      model: 'vllm/google/gemma-4-e4b-it',
+      messages: [{ role: 'user', content: 'run pwd' }],
+      tools,
+    }),
+  ).rejects.toThrow('enable-auto-tool-choice');
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const body = JSON.parse(
+    String(fetchMock.mock.calls[0]?.[1]?.body || '{}'),
+  ) as Record<string, unknown>;
+  expect(body.tools).toEqual(tools);
+  expect(body.tool_choice).toBe('auto');
+});
+
 test('openai-compatible vLLM Gemma calls normalize text tool calls', async () => {
   vi.stubGlobal(
     'fetch',
@@ -541,6 +591,9 @@ test('openai-compatible vLLM Gemma streams use Gemma tool declarations without n
     );
     expect(String(messages[0]?.content || '')).toContain(
       '<|tool_call>call:TOOL_NAME',
+    );
+    expect(String(messages[0]?.content || '')).toContain(
+      'type:<|"|>OBJECT<|"|>',
     );
     return makeEventStreamResponse([
       'data: {"id":"resp_1","model":"google/gemma-4-e4b-it","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',

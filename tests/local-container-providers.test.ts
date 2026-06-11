@@ -656,7 +656,13 @@ describe('local container providers', () => {
         '<|tool_call>call:TOOL_NAME',
       );
       expect(String(messages[0]?.content || '')).toContain(
-        'instead of saying it is unavailable',
+        'type:<|"|>OBJECT<|"|>',
+      );
+      expect(String(messages[0]?.content || '')).toContain(
+        'command:{type:<|"|>STRING<|"|>}',
+      );
+      expect(String(messages[0]?.content || '')).toContain(
+        'Do not write a shell command',
       );
       return new Response(
         JSON.stringify({
@@ -793,6 +799,44 @@ describe('local container providers', () => {
       },
     ]);
     expect(result.choices[0]?.finish_reason).toBe('tool_calls');
+  });
+
+  test('vLLM provider does not retry without tools when no prompt tool format is configured', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error:
+              '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set',
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      callLocalOpenAICompatProvider({
+        provider: 'vllm',
+        baseUrl: 'http://plain-vllm:8000/v1',
+        apiKey: '',
+        model: 'vllm/google/gemma-4-e4b-it',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: undefined,
+        messages: baseMessages,
+        tools,
+        maxTokens: 128,
+        isLocal: true,
+        contextWindow: 32_768,
+      }),
+    ).rejects.toThrow('enable-auto-tool-choice');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body || '{}'),
+    ) as Record<string, unknown>;
+    expect(body.tools).toEqual(tools);
+    expect(body.tool_choice).toBe('auto');
   });
 
   test('vLLM Gemma provider normalizes call-prefix tool calls after markdown code spans', async () => {
@@ -939,6 +983,9 @@ describe('local container providers', () => {
       );
       expect(String(messages[0]?.content || '')).toContain(
         '<|tool_call>call:TOOL_NAME',
+      );
+      expect(String(messages[0]?.content || '')).toContain(
+        'type:<|"|>OBJECT<|"|>',
       );
       return makeEventStreamResponse([
         'data: {"id":"resp_1","model":"google/gemma-4-e4b-it","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',

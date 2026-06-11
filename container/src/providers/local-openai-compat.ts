@@ -166,6 +166,14 @@ function usesCallPrefixToolCompat(args: {
   return args.modelBehavior?.toolCallFormat === 'gemma';
 }
 
+function usesPromptToolCompat(args: {
+  provider: string | undefined;
+  model: string;
+  modelBehavior?: NormalizedCallArgs['modelBehavior'];
+}): boolean {
+  return usesCallPrefixToolCompat(args) || usesLiquidCompat(args);
+}
+
 function buildLiquidToolCallInstruction(tools: ToolDefinition[]): string {
   const toolList = tools.map((tool) => ({
     name: tool.function.name,
@@ -179,18 +187,23 @@ function gemmaToolString(value: string): string {
   return `<|"|>${String(value || '').replace(/<\|"\|>/g, '"')}<|"|>`;
 }
 
-function gemmaToolLiteral(value: unknown): string {
+function gemmaToolLiteral(value: unknown, key = ''): string {
   if (value == null) return 'null';
-  if (typeof value === 'string') return gemmaToolString(value);
+  if (typeof value === 'string') {
+    return gemmaToolString(key === 'type' ? value.toUpperCase() : value);
+  }
   if (typeof value === 'number' || typeof value === 'boolean') {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map((item) => gemmaToolLiteral(item)).join(',')}]`;
+    return `[${value.map((item) => gemmaToolLiteral(item, key)).join(',')}]`;
   }
   if (isRecord(value)) {
     return `{${Object.entries(value)
-      .map(([key, entry]) => `${key}:${gemmaToolLiteral(entry)}`)
+      .map(
+        ([entryKey, entry]) =>
+          `${entryKey}:${gemmaToolLiteral(entry, entryKey)}`,
+      )
       .join(',')}}`;
   }
   return gemmaToolString(String(value));
@@ -206,10 +219,9 @@ function buildCallPrefixToolCallInstruction(tools: ToolDefinition[]): string {
     )
     .join('\n');
   return [
-    'Available tools are declared below. If a user request requires one of these tools, call it instead of saying it is unavailable.',
     declarations,
-    'Emit Gemma tool calls exactly as <|tool_call>call:TOOL_NAME{ARGUMENT_NAME:ARGUMENT_VALUE}<tool_call|><|tool_response> and do not wrap them in Markdown.',
-    'Use <|"|>text<|"|> for string argument values.',
+    'When a tool is needed, emit only a Gemma tool call in this form: <|tool_call>call:TOOL_NAME{ARGUMENT_NAME:ARGUMENT_VALUE}<tool_call|><|tool_response>',
+    'Do not write a shell command, Markdown code block, or prose instead of a tool call.',
   ].join('\n');
 }
 
@@ -432,9 +444,7 @@ function sanitizeMistralToolCallIds(
 
 function buildRequestMessages(
   args: NormalizedCallArgs,
-  options: { includeTools?: boolean } = {},
 ): Array<Record<string, unknown>> {
-  const includeTools = options.includeTools ?? true;
   const useCallPrefixToolCompat = usesCallPrefixToolCompat(args);
   let messages = useCallPrefixToolCompat
     ? buildCallPrefixRequestMessages(args.messages)
@@ -445,7 +455,6 @@ function buildRequestMessages(
           content: normalizeMessageContent(message.content),
         }));
   if (
-    includeTools &&
     usesLiquidCompat(args) &&
     Array.isArray(args.tools) &&
     args.tools.length
@@ -484,7 +493,7 @@ function buildRequestBody(
     (options.includeTools ?? true) && !usesCallPrefixToolCompat(args);
   const request: Record<string, unknown> = {
     model: normalizeLocalModelName(args.provider, args.model),
-    messages: buildRequestMessages(args, { includeTools }),
+    messages: buildRequestMessages(args),
   };
   if (includeTools && args.tools.length > 0) {
     request.tools = args.tools;
@@ -1054,9 +1063,11 @@ export async function callLocalOpenAICompatProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
   const nativeToolCacheKey = vllmNativeToolCacheKey(args);
+  const promptToolCompat = usesPromptToolCompat(args);
   const includeNativeTools =
     !nativeToolCacheKey ||
-    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey);
+    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey) ||
+    !promptToolCompat;
   let requestBody = buildRequestBody(args, {
     includeTools: includeNativeTools,
   });
@@ -1092,7 +1103,8 @@ export async function callLocalOpenAICompatProvider(
         status: response.status,
         errorText,
         nativeToolsSent: includeNativeTools,
-      })
+      }) &&
+      promptToolCompat
     ) {
       if (nativeToolCacheKey) {
         vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
@@ -1156,9 +1168,11 @@ export async function callLocalOpenAICompatProviderStream(
     },
   });
   const nativeToolCacheKey = vllmNativeToolCacheKey(args);
+  const promptToolCompat = usesPromptToolCompat(args);
   const includeNativeTools =
     !nativeToolCacheKey ||
-    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey);
+    !vllmModelsWithoutNativeTools.has(nativeToolCacheKey) ||
+    !promptToolCompat;
   let requestBody = buildStreamRequestBody(includeNativeTools);
   const url = `${normalizeBaseUrl(args.baseUrl)}/chat/completions`;
   if (args.debugModelResponses) {
@@ -1193,7 +1207,8 @@ export async function callLocalOpenAICompatProviderStream(
         status: response.status,
         errorText,
         nativeToolsSent: includeNativeTools,
-      })
+      }) &&
+      promptToolCompat
     ) {
       if (nativeToolCacheKey) {
         vllmModelsWithoutNativeTools.add(nativeToolCacheKey);

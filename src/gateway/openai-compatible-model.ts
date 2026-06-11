@@ -219,6 +219,10 @@ function usesGemmaToolPath(params: OpenAICompatibleModelCallParams): boolean {
   return params.runtime.modelBehavior?.toolCallFormat === 'gemma';
 }
 
+function usesPromptToolPath(params: OpenAICompatibleModelCallParams): boolean {
+  return usesGemmaToolPath(params);
+}
+
 function buildHybridAIRequestBody(
   params: OpenAICompatibleModelCallParams,
   options: { includeTools?: boolean } = {},
@@ -469,10 +473,12 @@ export async function callOpenAICompatibleModel(
       ? buildOpenAICompatRequestBody(params, { includeTools })
       : buildHybridAIRequestBody(params, { includeTools });
   const nativeToolCacheKey = vllmNativeToolCacheKey(params);
+  const promptToolPath = usesPromptToolPath(params);
   const includeNativeTools =
     !usesGemmaToolPath(params) &&
     (!nativeToolCacheKey ||
-      !vllmModelsWithoutNativeTools.has(nativeToolCacheKey));
+      !vllmModelsWithoutNativeTools.has(nativeToolCacheKey) ||
+      !promptToolPath);
   let body = buildBody(includeNativeTools);
   let response = await fetch(url, {
     method: 'POST',
@@ -491,7 +497,8 @@ export async function callOpenAICompatibleModel(
         status: response.status,
         errorText,
         nativeToolsSent: includeNativeTools,
-      })
+      }) &&
+      promptToolPath
     ) {
       if (nativeToolCacheKey) {
         vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
@@ -631,10 +638,12 @@ export async function callOpenAICompatibleModelStream(
       ? buildOpenAICompatRequestBody(params, { includeTools })
       : buildHybridAIRequestBody(params, { includeTools });
   const nativeToolCacheKey = vllmNativeToolCacheKey(params);
+  const promptToolPath = usesPromptToolPath(params);
   const includeNativeTools =
     !usesGemmaToolPath(params) &&
     (!nativeToolCacheKey ||
-      !vllmModelsWithoutNativeTools.has(nativeToolCacheKey));
+      !vllmModelsWithoutNativeTools.has(nativeToolCacheKey) ||
+      !promptToolPath);
   let body = buildBody(includeNativeTools);
   let response = await fetch(url, {
     method: 'POST',
@@ -660,7 +669,8 @@ export async function callOpenAICompatibleModelStream(
         status: response.status,
         errorText,
         nativeToolsSent: includeNativeTools,
-      })
+      }) &&
+      promptToolPath
     ) {
       if (nativeToolCacheKey) {
         vllmModelsWithoutNativeTools.add(nativeToolCacheKey);
