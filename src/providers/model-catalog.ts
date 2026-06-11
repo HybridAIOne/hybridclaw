@@ -38,6 +38,7 @@ import {
   getLocalModelInfo,
   resolveLocalModelContextWindow,
 } from './local-discovery.js';
+import { resolveLocalBackendFromEndpointModel } from './local-endpoints.js';
 import {
   discoverMistralModels,
   getDiscoveredMistralModelContextWindow,
@@ -213,7 +214,8 @@ function isLocalPrefixedModel(model: string): boolean {
     hasModelPrefix(model, PREFIX_BY_PROVIDER.ollama) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.lmstudio) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.llamacpp) ||
-    hasModelPrefix(model, PREFIX_BY_PROVIDER.vllm)
+    hasModelPrefix(model, PREFIX_BY_PROVIDER.vllm) ||
+    Boolean(resolveLocalBackendFromEndpointModel(model))
   );
 }
 
@@ -239,14 +241,16 @@ function matchesProviderFilter(
   const normalized = String(model || '').trim();
   if (!normalized) return false;
 
+  if (providerFilter === 'local') return isLocalPrefixedModel(normalized);
+
+  const endpointBackend = resolveLocalBackendFromEndpointModel(normalized);
+  if (endpointBackend) return providerFilter === endpointBackend;
+
   const prefix =
-    providerFilter === 'local' || providerFilter === 'hybridai'
-      ? null
-      : PREFIX_BY_PROVIDER[providerFilter];
+    providerFilter === 'hybridai' ? null : PREFIX_BY_PROVIDER[providerFilter];
   if (prefix) {
     return hasModelPrefix(normalized, prefix);
   }
-  if (providerFilter === 'local') return isLocalPrefixedModel(normalized);
 
   const provider = resolveModelProvider(normalized);
   if (providerFilter === 'hybridai') {
