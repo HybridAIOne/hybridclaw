@@ -382,6 +382,34 @@ test('reconnect warnings use human-readable wording for lost connections', async
   await manager.stop();
 });
 
+test('reconnect warning catches wrapped WhatsApp websocket handshake timeouts', async () => {
+  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+    await importFreshConnectionModule();
+
+  const manager = createWhatsAppConnectionManager();
+  await manager.start();
+
+  const updateHandlers = sockets[0]?.evHandlers.get('connection.update');
+  expect(updateHandlers).toHaveLength(1);
+
+  updateHandlers?.[0]?.({
+    connection: 'close',
+    lastDisconnect: {
+      error: Object.assign(new Error('WebSocket Error'), {
+        data: new Error('Opening handshake has timed out'),
+        output: { statusCode: 408 },
+      }),
+      date: new Date(),
+    },
+  });
+
+  expect(whatsappLogger.warn).toHaveBeenCalledWith(
+    'WhatsApp WebSocket connection to web.whatsapp.com timed out. Retrying connection in 1s.',
+  );
+
+  await manager.stop();
+});
+
 test('suppresses buffer flush noise while WhatsApp is offline', async () => {
   const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
     await importFreshConnectionModule({
