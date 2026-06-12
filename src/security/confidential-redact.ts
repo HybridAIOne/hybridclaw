@@ -32,12 +32,26 @@ export interface ConfidentialPlaceholderMap {
   byPlaceholder: Map<string, string>;
   /** rule id → placeholder token */
   byRuleId: Map<string, string>;
+  /** placeholder token → confidential class for metadata-only audit counts */
+  byPlaceholderClass: Map<string, ConfidentialRule['kind']>;
+}
+
+export interface ConfidentialClassCount {
+  class: ConfidentialRule['kind'];
+  count: number;
 }
 
 export interface DehydrateResult {
   text: string;
   mappings: ConfidentialPlaceholderMap;
   hits: number;
+  classes: ConfidentialClassCount[];
+}
+
+export interface RehydrateResult {
+  text: string;
+  hits: number;
+  classes: ConfidentialClassCount[];
 }
 
 export interface ConfidentialFinding {
@@ -66,7 +80,26 @@ export interface ConfidentialScanResult {
 }
 
 export function createPlaceholderMap(): ConfidentialPlaceholderMap {
-  return { byPlaceholder: new Map(), byRuleId: new Map() };
+  return {
+    byPlaceholder: new Map(),
+    byRuleId: new Map(),
+    byPlaceholderClass: new Map(),
+  };
+}
+
+function incrementClassCount(
+  counts: Map<ConfidentialRule['kind'], number>,
+  kind: ConfidentialRule['kind'],
+): void {
+  counts.set(kind, (counts.get(kind) || 0) + 1);
+}
+
+function classCountsToArray(
+  counts: Map<ConfidentialRule['kind'], number>,
+): ConfidentialClassCount[] {
+  return [...counts.entries()]
+    .map(([className, count]) => ({ class: className, count }))
+    .sort((a, b) => a.class.localeCompare(b.class));
 }
 
 function escapeForRegex(value: string): string {
@@ -102,6 +135,7 @@ function placeholderForRule(
   if (existing) return existing;
   const token = `${PLACEHOLDER_PREFIX}${rule.id.toUpperCase()}${PLACEHOLDER_SUFFIX}`;
   mappings.byRuleId.set(rule.id, token);
+  mappings.byPlaceholderClass.set(token, rule.kind);
   return token;
 }
 
@@ -112,19 +146,22 @@ export function dehydrateConfidential(
 ): DehydrateResult {
   const mappings = initialMappings || createPlaceholderMap();
   if (!text || ruleSet.rules.length === 0) {
-    return { text: text || '', mappings, hits: 0 };
+    return { text: text || '', mappings, hits: 0, classes: [] };
   }
 
   let next = text;
   let hits = 0;
+  const classCounts = new Map<ConfidentialRule['kind'], number>();
 
   for (const rule of ruleSet.rules) {
     const regex = ruleRegex(rule);
     if (!regex) continue;
     const placeholder = placeholderForRule(rule, mappings);
+    mappings.byPlaceholderClass.set(placeholder, rule.kind);
 
     next = next.replace(regex, (match) => {
       hits += 1;
+      incrementClassCount(classCounts, rule.kind);
       if (!mappings.byPlaceholder.has(placeholder)) {
         mappings.byPlaceholder.set(placeholder, match);
       }
@@ -132,18 +169,39 @@ export function dehydrateConfidential(
     });
   }
 
-  return { text: next, mappings, hits };
+  return {
+    text: next,
+    mappings,
+    hits,
+    classes: classCountsToArray(classCounts),
+  };
+}
+
+export function rehydrateConfidentialWithStats(
+  text: string,
+  mappings: ConfidentialPlaceholderMap,
+): RehydrateResult {
+  if (!text || mappings.byPlaceholder.size === 0) {
+    return { text, hits: 0, classes: [] };
+  }
+  let hits = 0;
+  const classCounts = new Map<ConfidentialRule['kind'], number>();
+  const next = text.replace(PLACEHOLDER_RE, (match) => {
+    const original = mappings.byPlaceholder.get(match);
+    if (!original) return match;
+    hits += 1;
+    const kind = mappings.byPlaceholderClass.get(match);
+    if (kind) incrementClassCount(classCounts, kind);
+    return original;
+  });
+  return { text: next, hits, classes: classCountsToArray(classCounts) };
 }
 
 export function rehydrateConfidential(
   text: string,
   mappings: ConfidentialPlaceholderMap,
 ): string {
-  if (!text || mappings.byPlaceholder.size === 0) return text;
-  return text.replace(PLACEHOLDER_RE, (match) => {
-    const original = mappings.byPlaceholder.get(match);
-    return original ?? match;
-  });
+  return rehydrateConfidentialWithStats(text, mappings).text;
 }
 
 function buildExcerpt(
@@ -249,6 +307,11 @@ export function mergePlaceholderMaps(
   for (const [ruleId, token] of next.byRuleId) {
     if (!base.byRuleId.has(ruleId)) {
       base.byRuleId.set(ruleId, token);
+    }
+  }
+  for (const [token, className] of next.byPlaceholderClass) {
+    if (!base.byPlaceholderClass.has(token)) {
+      base.byPlaceholderClass.set(token, className);
     }
   }
   return base;

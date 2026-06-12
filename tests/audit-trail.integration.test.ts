@@ -17,6 +17,9 @@ let verifyAuditSessionChain: typeof import('../src/audit/audit-trail.js').verify
 let getAuditWirePath: typeof import('../src/audit/audit-trail.js').getAuditWirePath;
 let createAuditRunId: typeof import('../src/audit/audit-trail.js').createAuditRunId;
 let AUDIT_PROTOCOL_VERSION: typeof import('../src/audit/audit-trail.js').AUDIT_PROTOCOL_VERSION;
+let initDatabase: typeof import('../src/memory/db.js').initDatabase;
+let createConfidentialRuntimeContext: typeof import('../src/security/confidential-runtime.js').createConfidentialRuntimeContext;
+let parseConfidentialYaml: typeof import('../src/security/confidential-rules.js').parseConfidentialYaml;
 type WireRecord = import('../src/audit/audit-trail.js').WireRecord;
 
 beforeAll(async () => {
@@ -42,6 +45,20 @@ beforeAll(async () => {
   getAuditWirePath = auditMod.getAuditWirePath;
   createAuditRunId = auditMod.createAuditRunId;
   AUDIT_PROTOCOL_VERSION = auditMod.AUDIT_PROTOCOL_VERSION;
+
+  const dbMod = await import('../src/memory/db.js');
+  initDatabase = dbMod.initDatabase;
+  initDatabase({ quiet: true, dbPath: path.join(tmpDir, 'audit.db') });
+
+  const confidentialRuntimeMod = await import(
+    '../src/security/confidential-runtime.js'
+  );
+  createConfidentialRuntimeContext =
+    confidentialRuntimeMod.createConfidentialRuntimeContext;
+  const confidentialRulesMod = await import(
+    '../src/security/confidential-rules.js'
+  );
+  parseConfidentialYaml = confidentialRulesMod.parseConfidentialYaml;
 });
 
 afterAll(() => {
@@ -230,5 +247,84 @@ describe('audit trail integration', () => {
     for (let i = 1; i < records.length; i++) {
       expect(records[i].seq).toBe(records[i - 1].seq + 1);
     }
+  });
+
+  it('confidential runtime writes metadata-only mask and rehydrate audit events', () => {
+    const secretSessionId = 'audit-confidential-runtime';
+    const runId = createAuditRunId('secret-redaction');
+    const clientSecret = 'AsterWorks Labs';
+    const contractSecret = 'CONTRACT-ASTER-2026-001';
+    const ruleSet = parseConfidentialYaml(
+      `
+clients:
+  - name: ${clientSecret}
+    sensitivity: high
+keywords:
+  - term: ${contractSecret}
+    sensitivity: critical
+`,
+      'fixtures:trusted-agents',
+    );
+    const confidential = createConfidentialRuntimeContext(ruleSet, {
+      audit: { sessionId: secretSessionId, runId },
+    });
+
+    const [message] = confidential.dehydrate(
+      [
+        {
+          role: 'user',
+          content: `${clientSecret} signed ${contractSecret} for ${clientSecret}.`,
+        },
+      ],
+      'test.messages',
+    );
+    expect(String(message?.content)).not.toContain(clientSecret);
+    expect(String(message?.content)).not.toContain(contractSecret);
+
+    const rehydrated = confidential.rehydrate(
+      String(message?.content),
+      'test.result',
+    );
+    expect(rehydrated).toContain(clientSecret);
+    expect(rehydrated).toContain(contractSecret);
+
+    const wirePath = getAuditWirePath(secretSessionId);
+    const wireText = fs.readFileSync(wirePath, 'utf-8');
+    expect(wireText).not.toContain(clientSecret);
+    expect(wireText).not.toContain(contractSecret);
+
+    const records = wireText
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((entry): entry is WireRecord => entry.event != null);
+    expect(records.map((record) => record.event.type)).toEqual([
+      'secret.masked',
+      'secret.rehydrated',
+    ]);
+    expect(records[0]?.event).toMatchObject({
+      type: 'secret.masked',
+      surface: 'test.messages',
+      count: 3,
+      classes: [
+        { class: 'client', count: 2 },
+        { class: 'keyword', count: 1 },
+      ],
+      rulesSource: 'fixtures:trusted-agents',
+    });
+    expect(records[1]?.event).toMatchObject({
+      type: 'secret.rehydrated',
+      surface: 'test.result',
+      count: 3,
+      classes: [
+        { class: 'client', count: 2 },
+        { class: 'keyword', count: 1 },
+      ],
+      rulesSource: 'fixtures:trusted-agents',
+    });
+
+    const result = verifyAuditSessionChain(secretSessionId);
+    expect(result.ok).toBe(true);
+    expect(result.checkedRecords).toBe(2);
   });
 });
