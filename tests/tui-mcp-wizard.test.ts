@@ -1,19 +1,19 @@
 import { expect, test } from 'vitest';
 
+import { isValidMcpServerName } from '../src/mcp/server-config.js';
 import {
   buildTuiMcpServerConfig,
-  isValidTuiMcpServerName,
   parseTuiMcpArgsLine,
   parseTuiMcpKeyValuePairs,
   waitForTuiMcpOAuthConnection,
 } from '../src/tui-mcp-wizard.js';
 
-test('validates MCP server names like the gateway', () => {
-  expect(isValidTuiMcpServerName('github')).toBe(true);
-  expect(isValidTuiMcpServerName('hf_server-1')).toBe(true);
-  expect(isValidTuiMcpServerName('Foo')).toBe(false);
-  expect(isValidTuiMcpServerName('foo bar')).toBe(false);
-  expect(isValidTuiMcpServerName('')).toBe(false);
+test('validates MCP server names', () => {
+  expect(isValidMcpServerName('github')).toBe(true);
+  expect(isValidMcpServerName('hf_server-1')).toBe(true);
+  expect(isValidMcpServerName('Foo')).toBe(false);
+  expect(isValidMcpServerName('foo bar')).toBe(false);
+  expect(isValidMcpServerName('')).toBe(false);
 });
 
 test('parses comma separated KEY=VALUE pairs', () => {

@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -8,6 +7,7 @@ import readline from 'node:readline/promises';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { CODEX_DEFAULT_BASE_URL } from '../providers/codex-constants.js';
 import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
+import { tryOpenUrlInBrowser } from '../utils/open-url.js';
 import { sleep } from '../utils/sleep.js';
 import { isRecord } from '../utils/type-guards.js';
 
@@ -176,31 +176,6 @@ function generatePkcePair(): PkcePair {
 
 function generateState(): string {
   return toBase64Url(randomBytes(32));
-}
-
-function getOpenCommand(url: string): { cmd: string; args: string[] } | null {
-  if (process.platform === 'darwin') return { cmd: 'open', args: [url] };
-  if (process.platform === 'win32')
-    return { cmd: 'cmd', args: ['/c', 'start', '', url] };
-  if (process.platform === 'linux') return { cmd: 'xdg-open', args: [url] };
-  return null;
-}
-
-async function openUrl(url: string): Promise<boolean> {
-  const openCommand = getOpenCommand(url);
-  if (!openCommand) return false;
-
-  return new Promise((resolve) => {
-    const child = spawn(openCommand.cmd, openCommand.args, {
-      stdio: 'ignore',
-      detached: true,
-    });
-    child.once('error', () => resolve(false));
-    child.once('spawn', () => {
-      child.unref();
-      resolve(true);
-    });
-  });
 }
 
 function maskToken(token: string): string {
@@ -1175,7 +1150,7 @@ export async function loginWithBrowserPkce(): Promise<{
     console.log(`Callback: ${redirectUri}`);
     console.log(`Auth URL: ${authUrl}`);
 
-    const opened = await openUrl(authUrl);
+    const opened = await tryOpenUrlInBrowser(authUrl);
     if (!opened) {
       console.log(
         'Could not open a browser automatically. Open the URL above.',

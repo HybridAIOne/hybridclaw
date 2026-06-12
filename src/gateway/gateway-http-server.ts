@@ -156,7 +156,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
-import { serveDocs } from './docs.js';
+import { escapeHtml, serveDocs } from './docs.js';
 import {
   getGatewayAdminSecrets,
   overwriteGatewayAdminSecret,
@@ -5336,18 +5336,6 @@ async function handleApiAdminMcp(
   );
 }
 
-function resolveRequestBaseUrl(req: IncomingMessage): string | undefined {
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
-    .split(',')[0]
-    .trim();
-  if (!host) return undefined;
-  const proto =
-    String(req.headers['x-forwarded-proto'] || '')
-      .split(',')[0]
-      .trim() || 'http';
-  return `${proto}://${host}`;
-}
-
 async function handleApiAdminMcpOAuth(
   req: IncomingMessage,
   res: ServerResponse,
@@ -5367,7 +5355,7 @@ async function handleApiAdminMcpOAuth(
       200,
       await startGatewayAdminMcpOAuth({
         name,
-        requestBaseUrl: resolveRequestBaseUrl(req),
+        requestBaseUrl: resolveRequestOrigin(req),
       }),
     );
     return;
@@ -5382,12 +5370,6 @@ function sendMcpOAuthCallbackPage(
   detail: string,
   opts?: { autoClose?: boolean },
 ): void {
-  const escapeHtml = (value: string) =>
-    value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
   // window.close() only works for script-opened tabs (the console's
   // window.open); for manually opened tabs it is a silent no-op.
   const autoClose = opts?.autoClose

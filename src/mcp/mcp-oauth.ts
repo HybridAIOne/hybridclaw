@@ -17,6 +17,7 @@ import path from 'node:path';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
 import type { McpServerConfig } from '../types/models.js';
+import { supportsMcpOAuth } from './server-config.js';
 
 const MCP_OAUTH_FILE = 'mcp-oauth.json';
 const DISCOVERY_TIMEOUT_MS = 10_000;
@@ -78,7 +79,7 @@ interface AuthorizationServerMetadata {
 
 const pendingFlows = new Map<string, PendingMcpOAuthFlow>();
 
-export function mcpOAuthStorePath(): string {
+function mcpOAuthStorePath(): string {
   return path.join(DEFAULT_RUNTIME_HOME_DIR, MCP_OAUTH_FILE);
 }
 
@@ -108,17 +109,9 @@ function writeStore(store: Record<string, McpOAuthRecord>): void {
   }
 }
 
-function toBase64Url(buffer: Buffer): string {
-  return buffer
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-}
-
 function generatePkcePair(): { verifier: string; challenge: string } {
-  const verifier = toBase64Url(randomBytes(32));
-  const challenge = toBase64Url(createHash('sha256').update(verifier).digest());
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
   return { verifier, challenge };
 }
 
@@ -155,6 +148,19 @@ function asTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function asStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : undefined;
+}
+
+function tokenExpiresSoon(tokens: McpOAuthTokenSet): boolean {
+  return (
+    typeof tokens.expiresAt === 'number' &&
+    tokens.expiresAt - Date.now() <= TOKEN_REFRESH_SKEW_MS
+  );
+}
+
 function wellKnownCandidates(baseUrl: string, suffix: string): string[] {
   const parsed = new URL(baseUrl);
   const candidates: string[] = [];
@@ -188,15 +194,10 @@ export async function discoverProtectedResource(serverUrl: string): Promise<{
             typeof entry === 'string' && Boolean(entry.trim()),
         )
       : [];
-    const scopes = Array.isArray(metadata.scopes_supported)
-      ? metadata.scopes_supported.filter(
-          (entry): entry is string => typeof entry === 'string',
-        )
-      : undefined;
     return {
       resource: asTrimmedString(metadata.resource) || serverUrl,
       authorizationServer: servers[0] || new URL(serverUrl).origin,
-      scopes,
+      scopes: asStringArray(metadata.scopes_supported),
     };
   }
   return {
@@ -229,11 +230,7 @@ export async function discoverAuthorizationServer(
       tokenEndpoint,
       registrationEndpoint:
         asTrimmedString(metadata.registration_endpoint) || undefined,
-      scopesSupported: Array.isArray(metadata.scopes_supported)
-        ? metadata.scopes_supported.filter(
-            (entry): entry is string => typeof entry === 'string',
-          )
-        : undefined,
+      scopesSupported: asStringArray(metadata.scopes_supported),
     };
   }
   const origin = new URL(issuer).origin;
@@ -390,7 +387,7 @@ export async function startMcpOAuthFlow(input: {
   }
 
   const pkce = generatePkcePair();
-  const state = toBase64Url(randomBytes(32));
+  const state = randomBytes(32).toString('base64url');
   const record: McpOAuthRecord = {
     serverUrl,
     resource: resource.resource,
@@ -493,10 +490,7 @@ export function getMcpOAuthStatus(
     return { method: 'oauth', state: 'unauthorized' };
   }
   const expiresAt = record.tokens.expiresAt ?? null;
-  const expired =
-    typeof expiresAt === 'number' &&
-    expiresAt - Date.now() <= TOKEN_REFRESH_SKEW_MS;
-  if (expired && !record.tokens.refreshToken) {
+  if (tokenExpiresSoon(record.tokens) && !record.tokens.refreshToken) {
     return { method: 'oauth', state: 'expired', expiresAt };
   }
   return {
@@ -514,15 +508,13 @@ export function getMcpOAuthStatus(
  */
 export async function ensureFreshMcpAccessToken(
   serverName: string,
+  records: Record<string, McpOAuthRecord> = readStore(),
 ): Promise<string | null> {
-  const record = readStore()[serverName];
+  const record = records[serverName];
   const tokens = record?.tokens;
   if (!record || !tokens?.accessToken) return null;
 
-  const expiresSoon =
-    typeof tokens.expiresAt === 'number' &&
-    tokens.expiresAt - Date.now() <= TOKEN_REFRESH_SKEW_MS;
-  if (!expiresSoon) return tokens.accessToken;
+  if (!tokenExpiresSoon(tokens)) return tokens.accessToken;
   if (!tokens.refreshToken) return null;
 
   const params = new URLSearchParams({
@@ -564,17 +556,18 @@ export async function ensureFreshMcpAccessToken(
 export async function resolveMcpServersForRuntime(
   servers: Record<string, McpServerConfig>,
 ): Promise<Record<string, McpServerConfig>> {
+  const records = readStore();
   const entries = await Promise.all(
     Object.entries(servers).map(
       async ([name, config]): Promise<[string, McpServerConfig]> => {
         if (
           config.auth !== 'oauth' ||
           config.enabled === false ||
-          (config.transport !== 'http' && config.transport !== 'sse')
+          !supportsMcpOAuth(config.transport)
         ) {
           return [name, config];
         }
-        const accessToken = await ensureFreshMcpAccessToken(name);
+        const accessToken = await ensureFreshMcpAccessToken(name, records);
         if (!accessToken) return [name, config];
         return [
           name,

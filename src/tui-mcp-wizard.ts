@@ -7,7 +7,6 @@ import type readline from 'node:readline';
 
 import {
   fetchGatewayMcpOAuthStatus,
-  logoutGatewayMcpOAuth,
   saveGatewayAdminMcpServer,
   startGatewayMcpOAuth,
 } from './gateway/gateway-client.js';
@@ -17,31 +16,22 @@ import type {
   GatewayAdminMcpResponse,
   GatewayAdminMcpServer,
 } from './gateway/gateway-types.js';
+import { isValidMcpServerName } from './mcp/server-config.js';
 import type { McpServerConfig } from './types/models.js';
 import { tryOpenUrlInBrowser } from './utils/open-url.js';
+import { sleep } from './utils/sleep.js';
 
-const MCP_SERVER_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const OAUTH_POLL_INTERVAL_MS = 2_000;
 const OAUTH_POLL_TIMEOUT_MS = 3 * 60_000;
 
-export interface TuiMcpWizardPalette {
-  reset: string;
-  bold: string;
-  muted: string;
-  teal: string;
-  green: string;
-  red: string;
-}
-
-export const DEFAULT_TUI_MCP_WIZARD_PALETTE: Readonly<TuiMcpWizardPalette> =
-  Object.freeze({
-    reset: '\x1b[0m',
-    bold: '\x1b[1m',
-    muted: '\x1b[90m',
-    teal: '\x1b[36m',
-    green: '\x1b[32m',
-    red: '\x1b[31m',
-  });
+const palette = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  muted: '\x1b[90m',
+  teal: '\x1b[36m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+};
 
 export type TuiMcpAuthChoice = 'oauth' | 'bearer' | 'headers' | 'none';
 
@@ -56,10 +46,6 @@ export interface TuiMcpWizardAnswers {
   authChoice?: TuiMcpAuthChoice;
   bearerToken?: string;
   headerPairs?: string;
-}
-
-export function isValidTuiMcpServerName(name: string): boolean {
-  return MCP_SERVER_NAME_RE.test(name);
 }
 
 /** Parse `KEY=VALUE` pairs separated by commas (values may contain `=`). */
@@ -139,7 +125,6 @@ export interface TuiMcpWizardDeps {
   saveServer: typeof saveGatewayAdminMcpServer;
   startOAuth: typeof startGatewayMcpOAuth;
   fetchOAuthStatus: typeof fetchGatewayMcpOAuthStatus;
-  logoutOAuth: typeof logoutGatewayMcpOAuth;
   openUrl: typeof tryOpenUrlInBrowser;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
@@ -149,9 +134,8 @@ const defaultDeps: TuiMcpWizardDeps = {
   saveServer: saveGatewayAdminMcpServer,
   startOAuth: startGatewayMcpOAuth,
   fetchOAuthStatus: fetchGatewayMcpOAuthStatus,
-  logoutOAuth: logoutGatewayMcpOAuth,
   openUrl: tryOpenUrlInBrowser,
-  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  sleep,
   now: () => Date.now(),
 };
 
@@ -163,7 +147,6 @@ function ask(rl: readline.Interface, query: string): Promise<string> {
 
 async function askWithDefault(
   rl: readline.Interface,
-  palette: TuiMcpWizardPalette,
   label: string,
   options?: { defaultValue?: string; hint?: string },
 ): Promise<string> {
@@ -184,7 +167,6 @@ async function askWithDefault(
 
 async function askChoice(
   rl: readline.Interface,
-  palette: TuiMcpWizardPalette,
   label: string,
   choices: Array<{ value: string; label: string; hint?: string }>,
   defaultIndex: number,
@@ -213,14 +195,6 @@ async function askChoice(
   }
   const match = choices.find((choice) => choice.value === raw.toLowerCase());
   return match ? match.value : choices[defaultIndex].value;
-}
-
-export interface TuiMcpWizardResult {
-  cancelled: boolean;
-  saved?: boolean;
-  name?: string;
-  oauthStarted?: boolean;
-  oauthConnected?: boolean;
 }
 
 /**
@@ -252,10 +226,8 @@ export async function waitForTuiMcpOAuthConnection(input: {
  */
 export async function runTuiMcpOAuthLogin(input: {
   name: string;
-  palette?: Partial<TuiMcpWizardPalette>;
   deps?: Partial<TuiMcpWizardDeps>;
 }): Promise<boolean> {
-  const palette = { ...DEFAULT_TUI_MCP_WIZARD_PALETTE, ...input.palette };
   const deps = { ...defaultDeps, ...input.deps };
 
   let started: GatewayAdminMcpOAuthStartResponse;
@@ -305,11 +277,9 @@ export async function promptTuiMcpServerWizard(input: {
   rl: readline.Interface;
   existing?: GatewayAdminMcpServer | null;
   presetName?: string;
-  palette?: Partial<TuiMcpWizardPalette>;
   deps?: Partial<TuiMcpWizardDeps>;
-}): Promise<TuiMcpWizardResult> {
+}): Promise<void> {
   const { rl, existing } = input;
-  const palette = { ...DEFAULT_TUI_MCP_WIZARD_PALETTE, ...input.palette };
   const deps = { ...defaultDeps, ...input.deps };
 
   console.log('');
@@ -319,13 +289,13 @@ export async function promptTuiMcpServerWizard(input: {
 
   const presetName = (input.presetName || '').trim();
   let name =
-    existing?.name || (isValidTuiMcpServerName(presetName) ? presetName : '');
+    existing?.name || (isValidMcpServerName(presetName) ? presetName : '');
   while (!name) {
-    const answer = await askWithDefault(rl, palette, 'Name', {
+    const answer = await askWithDefault(rl, 'Name', {
       hint: 'lowercase letters, numbers, - and _',
     });
-    if (!answer) return { cancelled: true };
-    if (!isValidTuiMcpServerName(answer)) {
+    if (!answer) return;
+    if (!isValidMcpServerName(answer)) {
       console.log(
         `  ${palette.red}Invalid name.${palette.reset} Use lowercase letters, numbers, \`-\` or \`_\`, starting with a letter or number.`,
       );
@@ -336,7 +306,6 @@ export async function promptTuiMcpServerWizard(input: {
 
   const transport = (await askChoice(
     rl,
-    palette,
     'Transport',
     [
       {
@@ -357,25 +326,25 @@ export async function promptTuiMcpServerWizard(input: {
   const answers: TuiMcpWizardAnswers = { name, transport };
 
   if (transport === 'stdio') {
-    answers.command = await askWithDefault(rl, palette, 'Command', {
+    answers.command = await askWithDefault(rl, 'Command', {
       defaultValue: existing?.config.command || '',
     });
-    answers.argsLine = await askWithDefault(rl, palette, 'Arguments', {
+    answers.argsLine = await askWithDefault(rl, 'Arguments', {
       hint: 'space separated, quote as needed',
       defaultValue: (existing?.config.args || []).join(' '),
     });
-    answers.cwd = await askWithDefault(rl, palette, 'Working directory', {
+    answers.cwd = await askWithDefault(rl, 'Working directory', {
       hint: 'optional',
       defaultValue: existing?.config.cwd || '',
     });
-    answers.envPairs = await askWithDefault(rl, palette, 'Environment', {
+    answers.envPairs = await askWithDefault(rl, 'Environment', {
       hint: 'optional, KEY=VALUE pairs separated by commas',
       defaultValue: Object.entries(existing?.config.env || {})
         .map(([key, value]) => `${key}=${value}`)
         .join(','),
     });
   } else {
-    answers.url = await askWithDefault(rl, palette, 'Server URL', {
+    answers.url = await askWithDefault(rl, 'Server URL', {
       hint: 'https://...',
       defaultValue: existing?.config.url || '',
     });
@@ -388,7 +357,6 @@ export async function promptTuiMcpServerWizard(input: {
           : 'none';
     answers.authChoice = (await askChoice(
       rl,
-      palette,
       'Authentication',
       [
         {
@@ -411,11 +379,11 @@ export async function promptTuiMcpServerWizard(input: {
       existingChoice === 'headers' ? 2 : existingChoice === 'none' ? 3 : 0,
     )) as TuiMcpAuthChoice;
     if (answers.authChoice === 'bearer') {
-      answers.bearerToken = await askWithDefault(rl, palette, 'Token', {
+      answers.bearerToken = await askWithDefault(rl, 'Token', {
         hint: 'sent as `Authorization: Bearer <token>`',
       });
     } else if (answers.authChoice === 'headers') {
-      answers.headerPairs = await askWithDefault(rl, palette, 'Headers', {
+      answers.headerPairs = await askWithDefault(rl, 'Headers', {
         hint: 'KEY=VALUE pairs separated by commas',
         defaultValue: Object.entries(existing?.config.headers || {})
           .map(([key, value]) => `${key}=${value}`)
@@ -431,7 +399,7 @@ export async function promptTuiMcpServerWizard(input: {
     console.log(
       `  ${palette.red}${error instanceof Error ? error.message : String(error)}${palette.reset}`,
     );
-    return { cancelled: true };
+    return;
   }
   if (existing?.config.enabled === false) config.enabled = false;
 
@@ -442,26 +410,13 @@ export async function promptTuiMcpServerWizard(input: {
     console.log(
       `  ${palette.red}Save failed:${palette.reset} ${error instanceof Error ? error.message : String(error)}`,
     );
-    return { cancelled: false, saved: false, name };
+    return;
   }
   const saved = response.servers.find((server) => server.name === name);
   console.log(
-    `  ${palette.green}Saved.${palette.reset} ${saved?.summary || name}`,
+    `  ${palette.green}Saved.${palette.reset} ${name}${saved ? ` — ${saved.summary}` : ''}`,
   );
 
-  if (config.auth !== 'oauth') {
-    return { cancelled: false, saved: true, name };
-  }
-  const connected = await runTuiMcpOAuthLogin({
-    name,
-    palette: input.palette,
-    deps: input.deps,
-  });
-  return {
-    cancelled: false,
-    saved: true,
-    name,
-    oauthStarted: true,
-    oauthConnected: connected,
-  };
+  if (config.auth !== 'oauth') return;
+  await runTuiMcpOAuthLogin({ name, deps: input.deps });
 }

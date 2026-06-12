@@ -47,6 +47,7 @@ import {
   normalizeSlackWebhookUrl,
   SLACK_WEBHOOK_DEFAULT_TARGET,
 } from '../channels/slack-webhook/target.js';
+import { supportsMcpOAuth } from '../mcp/server-config.js';
 import type {
   MemoryEmbeddingDtype,
   MemoryEmbeddingProviderKind,
@@ -2991,7 +2992,7 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
   const auth =
     String(value.auth || '')
       .trim()
-      .toLowerCase() === 'oauth' && transport !== 'stdio'
+      .toLowerCase() === 'oauth' && supportsMcpOAuth(transport)
       ? ('oauth' as const)
       : undefined;
   const enabled = normalizeBoolean(value.enabled, true);

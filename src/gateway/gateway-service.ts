@@ -223,6 +223,7 @@ import {
   type McpOAuthStatus,
   startMcpOAuthFlow,
 } from '../mcp/mcp-oauth.js';
+import { MCP_SERVER_NAME_RE, supportsMcpOAuth } from '../mcp/server-config.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import {
@@ -543,6 +544,7 @@ import {
   type GatewayAdminJobCardEdge,
   type GatewayAdminJobsContextResponse,
   type GatewayAdminLanHttpAccessMode,
+  type GatewayAdminMcpOAuthStatusResponse,
   type GatewayAdminMcpResponse,
   type GatewayAdminModelsResponse,
   type GatewayAdminModelUsageRow,
@@ -3964,8 +3966,6 @@ function enableFullAutoCommand(params: {
   );
 }
 
-const MCP_SERVER_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
-
 export function parseMcpServerName(rawName: string): {
   name?: string;
   error?: string;
@@ -4040,7 +4040,7 @@ export function parseMcpServerConfig(rawJson: string): {
   if (rawAuth && rawAuth !== 'none' && rawAuth !== 'oauth') {
     return { error: 'MCP server `auth` must be `oauth` when set.' };
   }
-  if (rawAuth === 'oauth' && transport === 'stdio') {
+  if (rawAuth === 'oauth' && !supportsMcpOAuth(transport)) {
     return {
       error: 'OAuth is only supported for `http` and `sse` MCP servers.',
     };
@@ -4056,28 +4056,24 @@ export function parseMcpServerConfig(rawJson: string): {
   return { config };
 }
 
-function describeMcpServerAuth(name: string, config: McpServerConfig): string {
-  if (config.auth !== 'oauth') return '';
-  const status = getMcpOAuthStatus(name, config);
+function describeMcpServerAuth(status: McpOAuthStatus): string {
+  if (status.method !== 'oauth') return '';
   if (status.state === 'connected') return ' · oauth: connected';
   if (status.state === 'expired') return ' · oauth: expired';
   return ' · oauth: login required';
 }
 
-function mcpOAuthNeedsLogin(name: string, config: McpServerConfig): boolean {
-  return (
-    config.auth === 'oauth' &&
-    getMcpOAuthStatus(name, config).state !== 'connected'
-  );
+function mcpOAuthNeedsLogin(status: McpOAuthStatus): boolean {
+  return status.method === 'oauth' && status.state !== 'connected';
 }
 
-function summarizeMcpServer(name: string, config: McpServerConfig): string {
+function summarizeMcpServer(config: McpServerConfig): string {
   const enabled = config.enabled === false ? 'disabled' : 'enabled';
   const target =
     config.transport === 'stdio'
       ? [config.command, ...(config.args || [])].filter(Boolean).join(' ')
       : config.url || '(missing url)';
-  return `${name} — ${enabled} · ${config.transport} · ${target || '(missing command)'}${describeMcpServerAuth(name, config)}`;
+  return `${enabled} · ${config.transport} · ${target || '(missing command)'}`;
 }
 
 function restartNoteForMcpChange(sessionId: string): string {
@@ -6494,7 +6490,7 @@ export function getGatewayAdminMcp(): GatewayAdminMcpResponse {
     .map(([name, config]) => ({
       name,
       enabled: config.enabled !== false,
-      summary: summarizeMcpServer(name, config),
+      summary: summarizeMcpServer(config),
       config,
       auth: getMcpOAuthStatus(name, config),
     }));
@@ -6533,7 +6529,7 @@ export async function startGatewayAdminMcpOAuth(input: {
   requestBaseUrl?: string;
 }): Promise<McpOAuthStartResult> {
   const { name, config } = requireConfiguredMcpServer(input.name);
-  if (config.transport !== 'http' && config.transport !== 'sse') {
+  if (!supportsMcpOAuth(config.transport)) {
     throw new Error('OAuth is only supported for http and sse MCP servers.');
   }
   if (!config.url?.trim()) {
@@ -6559,10 +6555,9 @@ export async function completeGatewayMcpOAuthCallback(input: {
   return await completeMcpOAuthFlow(input);
 }
 
-export function getGatewayAdminMcpOAuthStatus(name: string): {
-  name: string;
-  auth: McpOAuthStatus;
-} {
+export function getGatewayAdminMcpOAuthStatus(
+  name: string,
+): GatewayAdminMcpOAuthStatusResponse {
   const server = requireConfiguredMcpServer(name);
   return {
     name: server.name,
@@ -6591,14 +6586,19 @@ export function upsertGatewayAdminMcpServer(input: {
     throw new Error(parsedConfig.error || 'Invalid MCP server config.');
   }
   const serverName = parsedName.name;
-  if (!serverName) {
-    throw new Error(parsedName.error || 'Invalid MCP server name.');
-  }
 
   updateRuntimeConfig((draft) => {
     draft.mcpServers[serverName] = parsedConfig.config as McpServerConfig;
   });
   return getGatewayAdminMcp();
+}
+
+// Deleting a server must also drop its stored OAuth credentials.
+function deleteMcpServerConfig(name: string): void {
+  updateRuntimeConfig((draft) => {
+    delete draft.mcpServers[name];
+  });
+  clearMcpOAuth(name);
 }
 
 export function removeGatewayAdminMcpServer(
@@ -6608,15 +6608,8 @@ export function removeGatewayAdminMcpServer(
   if (!parsedName.name) {
     throw new Error(parsedName.error || 'Invalid MCP server name.');
   }
-  const serverName = parsedName.name;
-  if (!serverName) {
-    throw new Error(parsedName.error || 'Invalid MCP server name.');
-  }
 
-  updateRuntimeConfig((draft) => {
-    delete draft.mcpServers[serverName];
-  });
-  clearMcpOAuth(serverName);
+  deleteMcpServerConfig(parsedName.name);
   return getGatewayAdminMcp();
 }
 
@@ -11228,12 +11221,14 @@ export async function handleGatewayCommand(
             );
           }
           entries.sort(([left], [right]) => left.localeCompare(right));
-          const lines = entries.map(([name, config]) =>
-            summarizeMcpServer(name, config),
+          const statuses = entries.map(([name, config]) =>
+            getMcpOAuthStatus(name, config),
           );
-          if (
-            entries.some(([name, config]) => mcpOAuthNeedsLogin(name, config))
-          ) {
+          const lines = entries.map(
+            ([name, config], index) =>
+              `${name} — ${summarizeMcpServer(config)}${describeMcpServerAuth(statuses[index])}`,
+          );
+          if (statuses.some(mcpOAuthNeedsLogin)) {
             lines.push('', 'Connect OAuth servers with `mcp login <name>`.');
           }
           return infoCommand('MCP Servers', lines.join('\n'));
@@ -11276,10 +11271,7 @@ export async function handleGatewayCommand(
               `MCP server \`${name}\` was not found.`,
             );
           }
-          updateRuntimeConfig((draft) => {
-            delete draft.mcpServers[name];
-          });
-          clearMcpOAuth(name);
+          deleteMcpServerConfig(name);
           return plainCommand(
             `MCP server \`${name}\` removed.${restartNoteForMcpChange(req.sessionId)}`,
           );
@@ -11360,10 +11352,11 @@ export async function handleGatewayCommand(
               `MCP server \`${name}\` was not found.`,
             );
           }
+          const status = getMcpOAuthStatus(name, servers[name]);
           return infoCommand(
             'MCP Server Status',
-            summarizeMcpServer(name, servers[name]) +
-              (mcpOAuthNeedsLogin(name, servers[name])
+            `${name} — ${summarizeMcpServer(servers[name])}${describeMcpServerAuth(status)}` +
+              (mcpOAuthNeedsLogin(status)
                 ? `\nRun \`mcp login ${name}\` to connect.`
                 : ''),
           );

@@ -24,6 +24,11 @@ import type {
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
+import type {
+  McpOAuthConnectionState,
+  McpOAuthStartResult,
+  McpOAuthStatus,
+} from '../mcp/mcp-oauth.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type {
   SkillManifestConfigVariable,
@@ -1355,14 +1360,9 @@ export interface GatewayAdminSchedulerResponse {
   jobs: GatewayAdminSchedulerJob[];
 }
 
-export type GatewayAdminMcpAuthState = 'connected' | 'expired' | 'unauthorized';
+export type GatewayAdminMcpAuthState = McpOAuthConnectionState;
 
-export interface GatewayAdminMcpAuthStatus {
-  method: 'oauth' | 'none';
-  state?: GatewayAdminMcpAuthState;
-  expiresAt?: number | null;
-  scope?: string;
-}
+export type GatewayAdminMcpAuthStatus = McpOAuthStatus;
 
 export interface GatewayAdminMcpServer {
   name: string;
@@ -1376,12 +1376,7 @@ export interface GatewayAdminMcpResponse {
   servers: GatewayAdminMcpServer[];
 }
 
-export interface GatewayAdminMcpOAuthStartResponse {
-  serverName: string;
-  authorizationUrl: string;
-  state: string;
-  expiresAt: number;
-}
+export type GatewayAdminMcpOAuthStartResponse = McpOAuthStartResult;
 
 export interface GatewayAdminMcpOAuthStatusResponse {
   name: string;

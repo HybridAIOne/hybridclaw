@@ -172,7 +172,7 @@ type PromotedSidebarGroup = {
 
 let developmentDocsSnapshotCache: DevelopmentDocsSnapshot | null = null;
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')

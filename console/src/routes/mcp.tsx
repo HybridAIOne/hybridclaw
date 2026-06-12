@@ -319,11 +319,7 @@ export function McpPage() {
                     >
                       <div>
                         <strong>{server.name}</strong>
-                        <small>
-                          {server.summary.startsWith(`${server.name} — `)
-                            ? server.summary.slice(server.name.length + 3)
-                            : server.summary}
-                        </small>
+                        <small>{server.summary}</small>
                       </div>
                       <div className="button-row">
                         {serverAuth ? (
