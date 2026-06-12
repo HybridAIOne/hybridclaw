@@ -513,6 +513,12 @@
       "command": "npx",
       "args": ["-y", "@playwright/mcp@latest"],
       "enabled": false
+    },
+    "linear": {
+      "transport": "http",
+      "url": "https://mcp.linear.app/mcp",
+      "auth": "oauth",
+      "enabled": false
     }
   },
   "web": {

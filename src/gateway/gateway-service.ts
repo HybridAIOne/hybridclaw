@@ -215,6 +215,14 @@ import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import {
+  clearMcpOAuth,
+  completeMcpOAuthFlow,
+  getMcpOAuthStatus,
+  type McpOAuthStartResult,
+  type McpOAuthStatus,
+  startMcpOAuthFlow,
+} from '../mcp/mcp-oauth.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import {
@@ -3975,7 +3983,7 @@ export function parseMcpServerName(rawName: string): {
   return { name };
 }
 
-function parseMcpServerConfig(rawJson: string): {
+export function parseMcpServerConfig(rawJson: string): {
   config?: McpServerConfig;
   error?: string;
 } {
@@ -4026,7 +4034,41 @@ function parseMcpServerConfig(rawJson: string): {
     };
   }
 
-  return { config: parsed as McpServerConfig };
+  const rawAuth = String(record.auth ?? '')
+    .trim()
+    .toLowerCase();
+  if (rawAuth && rawAuth !== 'none' && rawAuth !== 'oauth') {
+    return { error: 'MCP server `auth` must be `oauth` when set.' };
+  }
+  if (rawAuth === 'oauth' && transport === 'stdio') {
+    return {
+      error: 'OAuth is only supported for `http` and `sse` MCP servers.',
+    };
+  }
+
+  const config = parsed as McpServerConfig;
+  config.transport = transport;
+  if (rawAuth === 'oauth') {
+    config.auth = 'oauth';
+  } else {
+    delete config.auth;
+  }
+  return { config };
+}
+
+function describeMcpServerAuth(name: string, config: McpServerConfig): string {
+  if (config.auth !== 'oauth') return '';
+  const status = getMcpOAuthStatus(name, config);
+  if (status.state === 'connected') return ' · oauth: connected';
+  if (status.state === 'expired') return ' · oauth: expired';
+  return ' · oauth: login required';
+}
+
+function mcpOAuthNeedsLogin(name: string, config: McpServerConfig): boolean {
+  return (
+    config.auth === 'oauth' &&
+    getMcpOAuthStatus(name, config).state !== 'connected'
+  );
 }
 
 function summarizeMcpServer(name: string, config: McpServerConfig): string {
@@ -4035,7 +4077,7 @@ function summarizeMcpServer(name: string, config: McpServerConfig): string {
     config.transport === 'stdio'
       ? [config.command, ...(config.args || [])].filter(Boolean).join(' ')
       : config.url || '(missing url)';
-  return `${name} — ${enabled} · ${config.transport} · ${target || '(missing command)'}`;
+  return `${name} — ${enabled} · ${config.transport} · ${target || '(missing command)'}${describeMcpServerAuth(name, config)}`;
 }
 
 function restartNoteForMcpChange(sessionId: string): string {
@@ -6454,8 +6496,86 @@ export function getGatewayAdminMcp(): GatewayAdminMcpResponse {
       enabled: config.enabled !== false,
       summary: summarizeMcpServer(name, config),
       config,
+      auth: getMcpOAuthStatus(name, config),
     }));
   return { servers };
+}
+
+function requireConfiguredMcpServer(name: string): {
+  name: string;
+  config: McpServerConfig;
+} {
+  const parsedName = parseMcpServerName(name);
+  if (!parsedName.name) {
+    throw new Error(parsedName.error || 'Invalid MCP server name.');
+  }
+  const config = getRuntimeConfig().mcpServers[parsedName.name];
+  if (!config) {
+    throw new Error(`MCP server \`${parsedName.name}\` was not found.`);
+  }
+  return { name: parsedName.name, config };
+}
+
+export function resolveMcpOAuthRedirectUri(requestBaseUrl?: string): string {
+  const base = String(requestBaseUrl || GATEWAY_BASE_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!base) {
+    throw new Error(
+      'Cannot determine the gateway base URL for the OAuth redirect.',
+    );
+  }
+  return `${base}/api/mcp/oauth/callback`;
+}
+
+export async function startGatewayAdminMcpOAuth(input: {
+  name: string;
+  requestBaseUrl?: string;
+}): Promise<McpOAuthStartResult> {
+  const { name, config } = requireConfiguredMcpServer(input.name);
+  if (config.transport !== 'http' && config.transport !== 'sse') {
+    throw new Error('OAuth is only supported for http and sse MCP servers.');
+  }
+  if (!config.url?.trim()) {
+    throw new Error(`MCP server \`${name}\` has no URL configured.`);
+  }
+  if (config.auth !== 'oauth') {
+    updateRuntimeConfig((draft) => {
+      const entry = draft.mcpServers[name];
+      if (entry) entry.auth = 'oauth';
+    });
+  }
+  return await startMcpOAuthFlow({
+    serverName: name,
+    serverUrl: config.url.trim(),
+    redirectUri: resolveMcpOAuthRedirectUri(input.requestBaseUrl),
+  });
+}
+
+export async function completeGatewayMcpOAuthCallback(input: {
+  state: string;
+  code: string;
+}): Promise<{ serverName: string }> {
+  return await completeMcpOAuthFlow(input);
+}
+
+export function getGatewayAdminMcpOAuthStatus(name: string): {
+  name: string;
+  auth: McpOAuthStatus;
+} {
+  const server = requireConfiguredMcpServer(name);
+  return {
+    name: server.name,
+    auth: getMcpOAuthStatus(server.name, server.config),
+  };
+}
+
+export function logoutGatewayAdminMcpOAuth(
+  name: string,
+): GatewayAdminMcpResponse {
+  const server = requireConfiguredMcpServer(name);
+  clearMcpOAuth(server.name);
+  return getGatewayAdminMcp();
 }
 
 export function upsertGatewayAdminMcpServer(input: {
@@ -6496,6 +6616,7 @@ export function removeGatewayAdminMcpServer(
   updateRuntimeConfig((draft) => {
     delete draft.mcpServers[serverName];
   });
+  clearMcpOAuth(serverName);
   return getGatewayAdminMcp();
 }
 
@@ -11107,12 +11228,15 @@ export async function handleGatewayCommand(
             );
           }
           entries.sort(([left], [right]) => left.localeCompare(right));
-          return infoCommand(
-            'MCP Servers',
-            entries
-              .map(([name, config]) => summarizeMcpServer(name, config))
-              .join('\n'),
+          const lines = entries.map(([name, config]) =>
+            summarizeMcpServer(name, config),
           );
+          if (
+            entries.some(([name, config]) => mcpOAuthNeedsLogin(name, config))
+          ) {
+            lines.push('', 'Connect OAuth servers with `mcp login <name>`.');
+          }
+          return infoCommand('MCP Servers', lines.join('\n'));
         }
 
         if (sub === 'add') {
@@ -11155,6 +11279,7 @@ export async function handleGatewayCommand(
           updateRuntimeConfig((draft) => {
             delete draft.mcpServers[name];
           });
+          clearMcpOAuth(name);
           return plainCommand(
             `MCP server \`${name}\` removed.${restartNoteForMcpChange(req.sessionId)}`,
           );
@@ -11198,9 +11323,74 @@ export async function handleGatewayCommand(
           );
         }
 
+        if (sub === 'login') {
+          const name = parseIdArg(req.args, 2);
+          if (!name) {
+            return badCommand('Usage', 'Usage: `mcp login <name>`');
+          }
+          try {
+            const started = await startGatewayAdminMcpOAuth({ name });
+            return infoCommand(
+              'MCP OAuth Login',
+              [
+                `Open this URL in your browser to authorize \`${name}\`:`,
+                started.authorizationUrl,
+                '',
+                'After approving access, run `mcp status ' +
+                  name +
+                  '` to confirm the connection.',
+              ].join('\n'),
+            );
+          } catch (error) {
+            return badCommand(
+              'MCP OAuth Login Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        if (sub === 'status') {
+          const name = parseIdArg(req.args, 2);
+          if (!name) {
+            return badCommand('Usage', 'Usage: `mcp status <name>`');
+          }
+          if (!servers[name]) {
+            return badCommand(
+              'Not Found',
+              `MCP server \`${name}\` was not found.`,
+            );
+          }
+          return infoCommand(
+            'MCP Server Status',
+            summarizeMcpServer(name, servers[name]) +
+              (mcpOAuthNeedsLogin(name, servers[name])
+                ? `\nRun \`mcp login ${name}\` to connect.`
+                : ''),
+          );
+        }
+
+        if (sub === 'logout') {
+          const name = parseIdArg(req.args, 2);
+          if (!name) {
+            return badCommand('Usage', 'Usage: `mcp logout <name>`');
+          }
+          if (!servers[name]) {
+            return badCommand(
+              'Not Found',
+              `MCP server \`${name}\` was not found.`,
+            );
+          }
+          const cleared = clearMcpOAuth(name);
+          return plainCommand(
+            cleared
+              ? `Cleared OAuth credentials for \`${name}\`. Run \`mcp login ${name}\` to reconnect.`
+              : `MCP server \`${name}\` has no stored OAuth credentials.`,
+          );
+        }
+
         return badCommand(
           'Usage',
-          'Usage: `mcp list|add <name> <json>|remove <name>|toggle <name>|reconnect <name>`',
+          'Usage: `mcp list|add <name> <json>|remove <name>|toggle <name>|reconnect <name>|login <name>|logout <name>|status <name>`',
         );
       }
 

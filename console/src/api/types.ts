@@ -1276,7 +1276,17 @@ export interface AdminMcpConfig {
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
+  auth?: 'oauth';
   enabled?: boolean;
+}
+
+export type AdminMcpAuthState = 'connected' | 'expired' | 'unauthorized';
+
+export interface AdminMcpAuthStatus {
+  method: 'oauth' | 'none';
+  state?: AdminMcpAuthState;
+  expiresAt?: number | null;
+  scope?: string;
 }
 
 export interface AdminMcpServer {
@@ -1284,10 +1294,23 @@ export interface AdminMcpServer {
   enabled: boolean;
   summary: string;
   config: AdminMcpConfig;
+  auth: AdminMcpAuthStatus;
 }
 
 export interface AdminMcpResponse {
   servers: AdminMcpServer[];
+}
+
+export interface AdminMcpOAuthStartResponse {
+  serverName: string;
+  authorizationUrl: string;
+  state: string;
+  expiresAt: number;
+}
+
+export interface AdminMcpOAuthStatusResponse {
+  name: string;
+  auth: AdminMcpAuthStatus;
 }
 
 export interface AdminAuditEntry {

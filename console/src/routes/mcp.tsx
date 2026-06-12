@@ -1,7 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { deleteMcpServer, fetchMcp, saveMcpServer } from '../api/client';
-import type { AdminMcpConfig, AdminMcpServer } from '../api/types';
+import { useEffect, useRef, useState } from 'react';
+import {
+  deleteMcpServer,
+  fetchMcp,
+  fetchMcpOAuthStatus,
+  logoutMcpOAuth,
+  saveMcpServer,
+  startMcpOAuth,
+} from '../api/client';
+import type {
+  AdminMcpAuthStatus,
+  AdminMcpConfig,
+  AdminMcpServer,
+} from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
@@ -11,7 +22,12 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
-import { Field, FieldContent, FieldLabel } from '../components/field';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldLabel,
+} from '../components/field';
 import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { Switch } from '../components/switch';
@@ -19,6 +35,8 @@ import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
+
+type McpAuthMode = 'none' | 'headers' | 'oauth';
 
 interface McpDraft {
   originalName: string | null;
@@ -30,25 +48,38 @@ interface McpDraft {
   cwd: string;
   url: string;
   envJson: string;
+  authMode: McpAuthMode;
   headersJson: string;
 }
+
+const OAUTH_POLL_INTERVAL_MS = 2_000;
+const OAUTH_POLL_TIMEOUT_MS = 3 * 60_000;
 
 function formatJson(value: Record<string, string> | undefined): string {
   if (!value || Object.keys(value).length === 0) return '';
   return JSON.stringify(value, null, 2);
 }
 
+function deriveAuthMode(config?: AdminMcpConfig): McpAuthMode {
+  if (config?.auth === 'oauth') return 'oauth';
+  if (config?.headers && Object.keys(config.headers).length > 0) {
+    return 'headers';
+  }
+  return 'none';
+}
+
 function createDraft(source?: AdminMcpServer): McpDraft {
   return {
     originalName: source?.name || null,
     name: source?.name || '',
-    transport: source?.config.transport || 'stdio',
+    transport: source?.config.transport || 'http',
     enabled: source?.enabled ?? true,
     command: source?.config.command || '',
     args: (source?.config.args || []).join('\n'),
     cwd: source?.config.cwd || '',
     url: source?.config.url || '',
     envJson: formatJson(source?.config.env),
+    authMode: source ? deriveAuthMode(source.config) : 'oauth',
     headersJson: formatJson(source?.config.headers),
   };
 }
@@ -100,12 +131,27 @@ function normalizeDraft(draft: McpDraft): {
           }
         : {
             url: draft.url.trim(),
-            ...(draft.headersJson.trim()
+            ...(draft.authMode === 'oauth' ? { auth: 'oauth' as const } : {}),
+            ...(draft.authMode === 'headers' && draft.headersJson.trim()
               ? { headers: parseJsonMap(draft.headersJson, 'Headers JSON') }
               : {}),
           }),
     },
   };
+}
+
+function describeAuthStatus(auth: AdminMcpAuthStatus): {
+  label: string;
+  connected: boolean;
+} {
+  if (auth.state === 'connected')
+    return { label: 'connected', connected: true };
+  if (auth.state === 'expired') return { label: 'expired', connected: false };
+  return { label: 'login required', connected: false };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function McpPage() {
@@ -114,6 +160,8 @@ export function McpPage() {
   const toast = useToast();
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [draft, setDraft] = useState<McpDraft>(createDraft());
+  const [pendingAuthUrl, setPendingAuthUrl] = useState<string | null>(null);
+  const connectCancelled = useRef(false);
 
   const mcpQuery = useQuery({
     queryKey: ['mcp', auth.token],
@@ -149,6 +197,58 @@ export function McpPage() {
     },
   });
 
+  const connectMutation = useMutation({
+    mutationFn: async () => {
+      connectCancelled.current = false;
+      const payload = normalizeDraft(draft);
+      const saved = await saveMcpServer(auth.token, payload);
+      queryClient.setQueryData(['mcp', auth.token], saved);
+
+      const started = await startMcpOAuth(auth.token, payload.name);
+      setPendingAuthUrl(started.authorizationUrl);
+      window.open(started.authorizationUrl, '_blank', 'noopener');
+
+      const deadline =
+        Date.now() +
+        Math.max(
+          OAUTH_POLL_INTERVAL_MS,
+          Math.min(OAUTH_POLL_TIMEOUT_MS, started.expiresAt - Date.now()),
+        );
+      while (Date.now() < deadline) {
+        if (connectCancelled.current) {
+          throw new Error('Authorization cancelled.');
+        }
+        await sleep(OAUTH_POLL_INTERVAL_MS);
+        const status = await fetchMcpOAuthStatus(auth.token, payload.name);
+        if (status.auth.state === 'connected') return payload.name;
+      }
+      throw new Error(
+        'Timed out waiting for authorization. Complete the login in the opened tab and try again.',
+      );
+    },
+    onSuccess: async (name) => {
+      setPendingAuthUrl(null);
+      await queryClient.invalidateQueries({ queryKey: ['mcp', auth.token] });
+      setSelectedName(name);
+      toast.success(`Connected to ${name} via OAuth.`);
+    },
+    onError: (error) => {
+      setPendingAuthUrl(null);
+      toast.error('OAuth connection failed', getErrorMessage(error));
+    },
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => logoutMcpOAuth(auth.token, draft.name.trim()),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['mcp', auth.token], payload);
+      toast.success('OAuth credentials cleared.');
+    },
+    onError: (error) => {
+      toast.error('Disconnect failed', getErrorMessage(error));
+    },
+  });
+
   const selectedServer =
     mcpQuery.data?.servers.find((entry) => entry.name === selectedName) || null;
 
@@ -161,6 +261,15 @@ export function McpPage() {
       setDraft(createDraft());
     }
   }, [selectedName, selectedServer]);
+
+  useEffect(() => {
+    return () => {
+      connectCancelled.current = true;
+    };
+  }, []);
+
+  const authStatus = selectedServer?.auth;
+  const oauthConnected = authStatus?.state === 'connected';
 
   return (
     <div className="page-stack">
@@ -192,32 +301,53 @@ export function McpPage() {
               <div className="empty-state">Loading MCP servers...</div>
             ) : mcpQuery.data?.servers.length ? (
               <div className="list-stack selectable-list">
-                {mcpQuery.data.servers.map((server) => (
-                  <button
-                    key={server.name}
-                    className={
-                      server.name === selectedName
-                        ? 'selectable-row active'
-                        : 'selectable-row'
-                    }
-                    type="button"
-                    onClick={() => setSelectedName(server.name)}
-                  >
-                    <div>
-                      <strong>{server.name}</strong>
-                      <small>{server.summary}</small>
-                    </div>
-                    <BooleanPill
-                      value={server.enabled}
-                      trueLabel="active"
-                      falseLabel="inactive"
-                    />
-                  </button>
-                ))}
+                {mcpQuery.data.servers.map((server) => {
+                  const serverAuth =
+                    server.auth.method === 'oauth'
+                      ? describeAuthStatus(server.auth)
+                      : null;
+                  return (
+                    <button
+                      key={server.name}
+                      className={
+                        server.name === selectedName
+                          ? 'selectable-row active'
+                          : 'selectable-row'
+                      }
+                      type="button"
+                      onClick={() => setSelectedName(server.name)}
+                    >
+                      <div>
+                        <strong>{server.name}</strong>
+                        <small>
+                          {server.summary.startsWith(`${server.name} — `)
+                            ? server.summary.slice(server.name.length + 3)
+                            : server.summary}
+                        </small>
+                      </div>
+                      <div className="button-row">
+                        {serverAuth ? (
+                          <BooleanPill
+                            value={serverAuth.connected}
+                            trueLabel="oauth"
+                            falseLabel={serverAuth.label}
+                            falseTone="danger"
+                          />
+                        ) : null}
+                        <BooleanPill
+                          value={server.enabled}
+                          trueLabel="active"
+                          falseLabel="inactive"
+                        />
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <div className="empty-state">
-                No MCP servers are configured yet.
+                No MCP servers are configured yet. Add a remote server with its
+                URL and connect it with OAuth, or run a local stdio command.
               </div>
             )}
           </CardContent>
@@ -225,7 +355,12 @@ export function McpPage() {
 
         <Card variant="muted">
           <CardHeader>
-            <CardTitle>Server editor</CardTitle>
+            <CardTitle>
+              {selectedServer ? `Edit ${selectedServer.name}` : 'New server'}
+            </CardTitle>
+            <CardDescription>
+              Changes apply on the next agent turn.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="stack-form">
@@ -242,6 +377,10 @@ export function McpPage() {
                     }
                     placeholder="github"
                   />
+                  <FieldDescription>
+                    Lowercase letters, numbers, - and _. Used as the tool
+                    prefix.
+                  </FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel>Transport</FieldLabel>
@@ -254,9 +393,15 @@ export function McpPage() {
                       }))
                     }
                   >
-                    <NativeSelectOption value="stdio">stdio</NativeSelectOption>
-                    <NativeSelectOption value="http">http</NativeSelectOption>
-                    <NativeSelectOption value="sse">sse</NativeSelectOption>
+                    <NativeSelectOption value="http">
+                      http — remote server
+                    </NativeSelectOption>
+                    <NativeSelectOption value="sse">
+                      sse — remote server (legacy)
+                    </NativeSelectOption>
+                    <NativeSelectOption value="stdio">
+                      stdio — local command
+                    </NativeSelectOption>
                   </NativeSelect>
                 </Field>
               </div>
@@ -344,23 +489,112 @@ export function McpPage() {
                           url: event.target.value,
                         }))
                       }
-                      placeholder="https://example.test/mcp"
+                      placeholder="https://mcp.example.com/mcp"
                     />
                   </Field>
                   <Field>
-                    <FieldLabel>Headers JSON</FieldLabel>
-                    <Textarea
-                      rows={5}
-                      value={draft.headersJson}
+                    <FieldLabel>Authentication</FieldLabel>
+                    <NativeSelect
+                      value={draft.authMode}
                       onChange={(event) =>
                         setDraft((current) => ({
                           ...current,
-                          headersJson: event.target.value,
+                          authMode: event.target.value as McpAuthMode,
                         }))
                       }
-                      placeholder='{"Authorization":"Bearer ..."}'
-                    />
+                    >
+                      <NativeSelectOption value="oauth">
+                        OAuth — log in via browser
+                      </NativeSelectOption>
+                      <NativeSelectOption value="headers">
+                        Custom headers (API key / bearer token)
+                      </NativeSelectOption>
+                      <NativeSelectOption value="none">None</NativeSelectOption>
+                    </NativeSelect>
+                    <FieldDescription>
+                      {draft.authMode === 'oauth'
+                        ? 'The gateway discovers the authorization server, registers a client, and refreshes tokens automatically.'
+                        : draft.authMode === 'headers'
+                          ? 'Headers are sent with every request to the server.'
+                          : 'Requests are sent without credentials.'}
+                    </FieldDescription>
                   </Field>
+
+                  {draft.authMode === 'headers' ? (
+                    <Field>
+                      <FieldLabel>Headers JSON</FieldLabel>
+                      <Textarea
+                        rows={5}
+                        value={draft.headersJson}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            headersJson: event.target.value,
+                          }))
+                        }
+                        placeholder='{"Authorization":"Bearer ..."}'
+                      />
+                    </Field>
+                  ) : null}
+
+                  {draft.authMode === 'oauth' ? (
+                    <Field orientation="horizontal">
+                      <FieldContent>
+                        <FieldLabel>OAuth connection</FieldLabel>
+                        <FieldDescription>
+                          {connectMutation.isPending
+                            ? 'Waiting for you to approve access in the browser...'
+                            : oauthConnected
+                              ? 'Connected. Tokens refresh automatically.'
+                              : authStatus?.state === 'expired'
+                                ? 'The session expired. Reconnect to continue.'
+                                : 'Not connected yet. Saving happens automatically when you connect.'}
+                          {pendingAuthUrl && connectMutation.isPending ? (
+                            <>
+                              {' '}
+                              <a
+                                href={pendingAuthUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Open the login page
+                              </a>{' '}
+                              if it did not open automatically.
+                            </>
+                          ) : null}
+                        </FieldDescription>
+                      </FieldContent>
+                      <div className="button-row">
+                        <Button
+                          type="button"
+                          loading={connectMutation.isPending}
+                          disabled={
+                            connectMutation.isPending ||
+                            !draft.name.trim() ||
+                            !draft.url.trim()
+                          }
+                          onClick={() => connectMutation.mutate()}
+                        >
+                          {connectMutation.isPending
+                            ? 'Waiting...'
+                            : oauthConnected
+                              ? 'Reconnect'
+                              : 'Connect'}
+                        </Button>
+                        {oauthConnected ? (
+                          <Button
+                            variant="ghost"
+                            type="button"
+                            loading={disconnectMutation.isPending}
+                            disabled={disconnectMutation.isPending}
+                            onClick={() => disconnectMutation.mutate()}
+                          >
+                            Disconnect
+                          </Button>
+                        ) : null}
+                      </div>
+                    </Field>
+                  ) : null}
                 </>
               )}
 

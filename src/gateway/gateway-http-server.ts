@@ -203,6 +203,7 @@ import { handleApiSecretInject } from './gateway-secret-injection.js';
 import {
   applyGatewayAdminPolicyPreset,
   approveGatewayAdminA2APairingRequest,
+  completeGatewayMcpOAuthCallback,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
   declineGatewayAdminA2APairingRequest,
@@ -229,6 +230,7 @@ import {
   getGatewayAdminHybridAIBots,
   getGatewayAdminJobsContext,
   getGatewayAdminMcp,
+  getGatewayAdminMcpOAuthStatus,
   getGatewayAdminModels,
   getGatewayAdminOverview,
   getGatewayAdminSessions,
@@ -246,6 +248,7 @@ import {
   getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
+  logoutGatewayAdminMcpOAuth,
   previewGatewayAdminA2APairing,
   reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
@@ -263,6 +266,7 @@ import {
   saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
   startGatewayAdminA2APairing,
+  startGatewayAdminMcpOAuth,
   unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
@@ -5332,6 +5336,118 @@ async function handleApiAdminMcp(
   );
 }
 
+function resolveRequestBaseUrl(req: IncomingMessage): string | undefined {
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+    .split(',')[0]
+    .trim();
+  if (!host) return undefined;
+  const proto =
+    String(req.headers['x-forwarded-proto'] || '')
+      .split(',')[0]
+      .trim() || 'http';
+  return `${proto}://${host}`;
+}
+
+async function handleApiAdminMcpOAuth(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const pathname = url.pathname;
+  if (pathname === '/api/admin/mcp/oauth/status') {
+    const name = (url.searchParams.get('name') || '').trim();
+    sendJson(res, 200, getGatewayAdminMcpOAuthStatus(name));
+    return;
+  }
+  const body = (await readJsonBody(req)) as { name?: unknown };
+  const name = String(body.name || '').trim();
+  if (pathname === '/api/admin/mcp/oauth/start') {
+    sendJson(
+      res,
+      200,
+      await startGatewayAdminMcpOAuth({
+        name,
+        requestBaseUrl: resolveRequestBaseUrl(req),
+      }),
+    );
+    return;
+  }
+  sendJson(res, 200, logoutGatewayAdminMcpOAuth(name));
+}
+
+function sendMcpOAuthCallbackPage(
+  res: ServerResponse,
+  status: number,
+  title: string,
+  detail: string,
+  opts?: { autoClose?: boolean },
+): void {
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  // window.close() only works for script-opened tabs (the console's
+  // window.open); for manually opened tabs it is a silent no-op.
+  const autoClose = opts?.autoClose
+    ? '<script>setTimeout(function(){window.close()},1500)</script>'
+    : '';
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(
+    `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>` +
+      '<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#101418;color:#e8eaed}main{max-width:28rem;padding:2rem;text-align:center}h1{font-size:1.25rem}p{color:#9aa0a6}</style>' +
+      `</head><body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p></main>${autoClose}</body></html>`,
+  );
+}
+
+async function handleApiMcpOAuthCallback(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const error = (url.searchParams.get('error') || '').trim();
+  if (error) {
+    const description = (
+      url.searchParams.get('error_description') || ''
+    ).trim();
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'MCP authorization failed',
+      description || error,
+    );
+    return;
+  }
+  const state = (url.searchParams.get('state') || '').trim();
+  const code = (url.searchParams.get('code') || '').trim();
+  if (!state || !code) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'MCP authorization failed',
+      'The callback is missing the authorization code or state parameter.',
+    );
+    return;
+  }
+  try {
+    const result = await completeGatewayMcpOAuthCallback({ state, code });
+    sendMcpOAuthCallbackPage(
+      res,
+      200,
+      `Connected to ${result.serverName}`,
+      'Authorization complete. You can close this tab and return to HybridClaw.',
+      { autoClose: true },
+    );
+  } catch (err) {
+    sendMcpOAuthCallbackPage(
+      res,
+      400,
+      'MCP authorization failed',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 function handleApiAdminAudit(res: ServerResponse, url: URL): void {
   const parsedLimit = parseInt(url.searchParams.get('limit') || '60', 10);
   const limit = Number.isNaN(parsedLimit) ? 60 : parsedLimit;
@@ -6854,6 +6970,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         });
         return;
       }
+      if (pathname === '/api/mcp/oauth/callback' && method === 'GET') {
+        // Public by design: the OAuth provider redirects the user's browser
+        // here without gateway credentials. The flow is bound to a
+        // single-use `state` nonce validated by the pending-flow registry.
+        void handleApiMcpOAuthCallback(res, url).catch((err: unknown) => {
+          if (res.writableEnded) return;
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        return;
+      }
       if (pathname === '/api/agent-avatar' && method === 'GET') {
         try {
           handleApiAgentAvatar(req, res, url);
@@ -7017,6 +7145,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT' || method === 'DELETE')
           ) {
             await handleApiAdminMcp(req, res, url);
+            return;
+          }
+          if (
+            ((pathname === '/api/admin/mcp/oauth/start' ||
+              pathname === '/api/admin/mcp/oauth/logout') &&
+              method === 'POST') ||
+            (pathname === '/api/admin/mcp/oauth/status' && method === 'GET')
+          ) {
+            await handleApiAdminMcpOAuth(req, res, url);
             return;
           }
           if (

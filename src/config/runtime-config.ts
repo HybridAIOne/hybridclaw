@@ -2988,6 +2988,12 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
   const cwd = normalizeString(value.cwd, '', { allowEmpty: true });
   const url = normalizeString(value.url, '', { allowEmpty: true });
   const headers = normalizeStringRecord(value.headers);
+  const auth =
+    String(value.auth || '')
+      .trim()
+      .toLowerCase() === 'oauth' && transport !== 'stdio'
+      ? ('oauth' as const)
+      : undefined;
   const enabled = normalizeBoolean(value.enabled, true);
 
   if (transport === 'stdio' && !command) return null;
@@ -3001,6 +3007,7 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
     ...(cwd ? { cwd } : {}),
     ...(url ? { url } : {}),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(auth ? { auth } : {}),
     enabled,
   };
 }

@@ -60,6 +60,7 @@ import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
+import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
@@ -1090,6 +1091,7 @@ async function runContainerInner(
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
+  const mcpServers = await resolveMcpServersForRuntime(MCP_SERVERS);
   const existingEntry = pool.get(sessionId);
   const selectedCodexRuntime =
     modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
@@ -1149,7 +1151,7 @@ async function runContainerInner(
     media,
     audioTranscriptsPrepended,
     pluginTools,
-    mcpServers: MCP_SERVERS,
+    mcpServers,
     taskModels,
     runtimeEnv,
     contextGuard: {

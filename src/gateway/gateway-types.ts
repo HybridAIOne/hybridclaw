@@ -1355,15 +1355,37 @@ export interface GatewayAdminSchedulerResponse {
   jobs: GatewayAdminSchedulerJob[];
 }
 
+export type GatewayAdminMcpAuthState = 'connected' | 'expired' | 'unauthorized';
+
+export interface GatewayAdminMcpAuthStatus {
+  method: 'oauth' | 'none';
+  state?: GatewayAdminMcpAuthState;
+  expiresAt?: number | null;
+  scope?: string;
+}
+
 export interface GatewayAdminMcpServer {
   name: string;
   enabled: boolean;
   summary: string;
   config: McpServerConfig;
+  auth: GatewayAdminMcpAuthStatus;
 }
 
 export interface GatewayAdminMcpResponse {
   servers: GatewayAdminMcpServer[];
+}
+
+export interface GatewayAdminMcpOAuthStartResponse {
+  serverName: string;
+  authorizationUrl: string;
+  state: string;
+  expiresAt: number;
+}
+
+export interface GatewayAdminMcpOAuthStatusResponse {
+  name: string;
+  auth: GatewayAdminMcpAuthStatus;
 }
 
 export interface GatewayAdminAuditEntry {

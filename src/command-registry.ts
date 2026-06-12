@@ -275,8 +275,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     description: 'Show current settings',
   },
   mcp: {
-    command: '/mcp [list|add|toggle|remove|reconnect] [name] [json]',
-    description: 'Manage MCP servers',
+    command:
+      '/mcp [list|add|edit|login|logout|status|toggle|remove|reconnect] [name] [json]',
+    description:
+      'Manage MCP servers (guided add/edit wizard and OAuth login in the TUI)',
   },
   model: {
     command:
@@ -2180,6 +2182,45 @@ function buildSlashCommandCatalogDefinitions(
             },
           ],
         },
+        {
+          kind: 'subcommand',
+          name: 'login',
+          description: 'Start the OAuth login flow for an MCP server',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'MCP server name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'logout',
+          description: 'Clear stored OAuth credentials for an MCP server',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'MCP server name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show connection status for an MCP server',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'MCP server name',
+              required: true,
+            },
+          ],
+        },
       ],
     },
     {
@@ -3437,7 +3478,10 @@ export function parseCanonicalSlashCommandArgs(
       if (
         subcommand === 'remove' ||
         subcommand === 'toggle' ||
-        subcommand === 'reconnect'
+        subcommand === 'reconnect' ||
+        subcommand === 'login' ||
+        subcommand === 'logout' ||
+        subcommand === 'status'
       ) {
         const name = normalizeStringOption(interaction, 'name', true);
         return name ? ['mcp', subcommand, name] : null;

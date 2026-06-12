@@ -20,6 +20,7 @@ import {
 import { createApprovalPresentation } from './gateway/approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './gateway/chat-approval.js';
 import {
+  fetchGatewayAdminMcp,
   fetchGatewayAdminSkills,
   type GatewayChatApprovalEvent,
   type GatewayChatResult,
@@ -94,6 +95,10 @@ import {
   resolveTuiHistoryFetchLimit,
 } from './tui-history.js';
 import { TuiMultilineInputController } from './tui-input.js';
+import {
+  promptTuiMcpServerWizard,
+  runTuiMcpOAuthLogin,
+} from './tui-mcp-wizard.js';
 import {
   isGoalContinuationSource,
   normalizeGoalContinuationText,
@@ -2743,6 +2748,52 @@ async function handleSlashCommand(
       }
       await promptSkillConfigSelection(rl);
       return true;
+    }
+    case 'mcp': {
+      const sub = (parts[1] || '').trim().toLowerCase();
+      if (sub === 'add' && parts.length <= 3) {
+        await promptTuiMcpServerWizard({
+          rl,
+          presetName: (parts[2] || '').trim(),
+        });
+        return true;
+      }
+      if (sub === 'edit') {
+        const name = (parts[2] || '').trim();
+        if (!name) {
+          printInfo('Usage: /mcp edit <name>');
+          return true;
+        }
+        let existing = null;
+        try {
+          const response = await fetchGatewayAdminMcp();
+          existing =
+            response.servers.find((server) => server.name === name) || null;
+        } catch (error) {
+          printInfo(
+            `Failed to load MCP servers: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return true;
+        }
+        if (!existing) {
+          printInfo(
+            `MCP server "${name}" was not found. Run /mcp add to create it.`,
+          );
+          return true;
+        }
+        await promptTuiMcpServerWizard({ rl, existing });
+        return true;
+      }
+      if (sub === 'login') {
+        const name = (parts[2] || '').trim();
+        if (!name) {
+          printInfo('Usage: /mcp login <name>');
+          return true;
+        }
+        await runTuiMcpOAuthLogin({ name });
+        return true;
+      }
+      break;
     }
     case 'info':
       await runGatewayCommand(['bot', 'info'], rl);
