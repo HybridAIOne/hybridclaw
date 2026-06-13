@@ -599,9 +599,8 @@ export function createWhatsAppConnectionManager(params?: {
     clearWhatsAppPairingState();
     connectionOpen = false;
     socket = null;
-    const statusCode = resolveDisconnectStatusCode(
-      update.lastDisconnect?.error,
-    );
+    const disconnectError = update.lastDisconnect?.error;
+    const statusCode = resolveDisconnectStatusCode(disconnectError);
     if (statusCode === DisconnectReason.loggedOut) {
       childLogger.warn(
         'WhatsApp session logged out; scan a new QR code to reconnect',
@@ -621,6 +620,7 @@ export function createWhatsAppConnectionManager(params?: {
     rejectWaiters(new Error('WhatsApp connection closed'));
     scheduleReconnect(
       statusCode != null ? `status:${statusCode}` : 'connection-close',
+      disconnectError,
     );
     await sleep(0);
   };

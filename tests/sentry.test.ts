@@ -169,6 +169,38 @@ describe('Sentry observability', () => {
     });
   });
 
+  test('drops expected transport exceptions before sending events', async () => {
+    process.env.SENTRY_DSN = 'https://public@example.com/1';
+    const { initSentry } = await importFreshSentry();
+
+    await initSentry();
+    const options = sentryInit.mock.calls[0]?.[0] as {
+      beforeSend: (
+        event: Record<string, unknown>,
+        hint?: { originalException?: unknown },
+      ) => Record<string, unknown> | null;
+    };
+
+    expect(
+      options.beforeSend(
+        {},
+        { originalException: new Error('Opening handshake has timed out') },
+      ),
+    ).toBeNull();
+    expect(
+      options.beforeSend({
+        exception: {
+          values: [
+            {
+              type: 'Error',
+              value: 'Opening handshake has timed out',
+            },
+          ],
+        },
+      }),
+    ).toBeNull();
+  });
+
   test('keeps mechanism tag authoritative over caller tags', async () => {
     process.env.SENTRY_DSN = 'https://public@example.com/1';
     const { captureSentryException, initSentry } = await importFreshSentry();
