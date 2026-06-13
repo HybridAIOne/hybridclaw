@@ -167,9 +167,41 @@ test('start + complete flow discovers metadata, registers a client, and stores t
   expect(record?.tokens?.accessToken).toBe('access-1');
   expect(record?.tokens?.refreshToken).toBe('refresh-1');
 
-  const storePath = path.join(homeDir, 'mcp-oauth.json');
+  // Credentials live in the encrypted runtime secret store: the entry name
+  // (hex of "linear") is visible, the token values are not.
+  const storePath = path.join(homeDir, 'credentials.json');
   expect(fs.existsSync(storePath)).toBe(true);
   expect(fs.statSync(storePath).mode & 0o777).toBe(0o600);
+  const rawStore = fs.readFileSync(storePath, 'utf-8');
+  expect(rawStore).toContain('MCP_OAUTH_6C696E656172');
+  expect(rawStore).not.toContain('access-1');
+  expect(rawStore).not.toContain('refresh-1');
+});
+
+test('server names too long for hex encoding fall back to a digest secret name', async () => {
+  const homeDir = makeTempHome();
+  const mod = await importFreshMcpOAuth(homeDir);
+  stubOAuthServerFetch();
+  const longName = `srv-${'a'.repeat(80)}`;
+
+  const started = await mod.startMcpOAuthFlow({
+    serverName: longName,
+    serverUrl: 'https://mcp.example.com/mcp',
+    redirectUri: 'http://127.0.0.1:8787/api/mcp/oauth/callback',
+  });
+  await mod.completeMcpOAuthFlow({ state: started.state, code: 'code-1' });
+
+  expect(mod.getMcpOAuthRecord(longName)?.tokens?.accessToken).toBe(
+    'access-1',
+  );
+  const rawStore = fs.readFileSync(
+    path.join(homeDir, 'credentials.json'),
+    'utf-8',
+  );
+  expect(rawStore).toContain('MCP_OAUTH_H_');
+
+  expect(mod.clearMcpOAuth(longName)).toBe(true);
+  expect(mod.getMcpOAuthRecord(longName)).toBeNull();
 });
 
 test('falls back to the server origin as issuer without protected resource metadata', async () => {

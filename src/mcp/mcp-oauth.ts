@@ -7,19 +7,24 @@
  * - RFC 7591 dynamic client registration
  * - Authorization code flow with PKCE (S256) and RFC 8707 resource indicators
  *
- * Tokens are stored in `~/.hybridclaw/mcp-oauth.json` (0600) and injected as
- * `Authorization` headers when MCP server configs are handed to the container.
+ * Credentials are stored in the encrypted runtime secret store
+ * (`~/.hybridclaw/credentials.json`) under one `MCP_OAUTH_*` entry per server
+ * and injected as `Authorization` headers when MCP server configs are handed
+ * to the container.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 
-import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
+import {
+  readStoredRuntimeSecret,
+  saveNamedRuntimeSecrets,
+} from '../security/runtime-secrets.js';
 import type { McpServerConfig } from '../types/models.js';
+import { isRecord } from '../utils/type-guards.js';
 import { supportsMcpOAuth } from './server-config.js';
 
-const MCP_OAUTH_FILE = 'mcp-oauth.json';
+const MCP_OAUTH_SECRET_PREFIX = 'MCP_OAUTH_';
+const MAX_SECRET_NAME_LENGTH = 128;
 const DISCOVERY_TIMEOUT_MS = 10_000;
 const TOKEN_TIMEOUT_MS = 20_000;
 const PENDING_FLOW_TTL_MS = 10 * 60_000;
@@ -79,34 +84,43 @@ interface AuthorizationServerMetadata {
 
 const pendingFlows = new Map<string, PendingMcpOAuthFlow>();
 
-function mcpOAuthStorePath(): string {
-  return path.join(DEFAULT_RUNTIME_HOME_DIR, MCP_OAUTH_FILE);
+/**
+ * Map a server name to its runtime secret name. Hex encoding keeps the result
+ * within the secret name charset without collisions (`my-server` vs
+ * `my_server`); names beyond the 128-char secret name cap fall back to a
+ * digest, whose `H_` marker cannot clash with hex output.
+ */
+function mcpOAuthSecretName(serverName: string): string {
+  const hex = Buffer.from(serverName, 'utf-8').toString('hex').toUpperCase();
+  const name = `${MCP_OAUTH_SECRET_PREFIX}${hex}`;
+  if (name.length <= MAX_SECRET_NAME_LENGTH) return name;
+  const digest = createHash('sha256')
+    .update(serverName, 'utf-8')
+    .digest('hex')
+    .toUpperCase();
+  return `${MCP_OAUTH_SECRET_PREFIX}H_${digest}`;
 }
 
-function readStore(): Record<string, McpOAuthRecord> {
+function readMcpOAuthRecordFromStore(
+  serverName: string,
+): McpOAuthRecord | null {
+  const raw = readStoredRuntimeSecret(mcpOAuthSecretName(serverName));
+  if (!raw) return null;
   try {
-    const raw = fs.readFileSync(mcpOAuthStorePath(), 'utf-8');
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {};
-    }
-    return parsed as Record<string, McpOAuthRecord>;
+    const parsed: unknown = JSON.parse(raw);
+    return isRecord(parsed) ? (parsed as unknown as McpOAuthRecord) : null;
   } catch {
-    return {};
+    return null;
   }
 }
 
-function writeStore(store: Record<string, McpOAuthRecord>): void {
-  const filePath = mcpOAuthStorePath();
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(store, null, 2)}\n`, {
-    mode: 0o600,
+function writeMcpOAuthRecordToStore(
+  serverName: string,
+  record: McpOAuthRecord,
+): void {
+  saveNamedRuntimeSecrets({
+    [mcpOAuthSecretName(serverName)]: JSON.stringify(record),
   });
-  try {
-    fs.chmodSync(filePath, 0o600);
-  } catch {
-    // best effort on platforms without chmod support
-  }
 }
 
 function generatePkcePair(): { verifier: string; challenge: string } {
@@ -368,7 +382,7 @@ export async function startMcpOAuthFlow(input: {
       ? authServer.scopesSupported.join(' ')
       : '');
 
-  const existing = readStore()[input.serverName];
+  const existing = readMcpOAuthRecordFromStore(input.serverName);
   const canReuseClient =
     existing &&
     existing.serverUrl === serverUrl &&
@@ -455,25 +469,22 @@ export async function completeMcpOAuthFlow(input: {
   }
   const tokens = await requestToken(flow.record.tokenEndpoint, params);
 
-  const store = readStore();
-  store[flow.serverName] = {
+  writeMcpOAuthRecordToStore(flow.serverName, {
     ...flow.record,
     tokens,
     updatedAt: new Date().toISOString(),
-  };
-  writeStore(store);
+  });
   return { serverName: flow.serverName };
 }
 
 export function getMcpOAuthRecord(serverName: string): McpOAuthRecord | null {
-  return readStore()[serverName] || null;
+  return readMcpOAuthRecordFromStore(serverName);
 }
 
 export function clearMcpOAuth(serverName: string): boolean {
-  const store = readStore();
-  if (!store[serverName]) return false;
-  delete store[serverName];
-  writeStore(store);
+  const secretName = mcpOAuthSecretName(serverName);
+  if (!readStoredRuntimeSecret(secretName)) return false;
+  saveNamedRuntimeSecrets({ [secretName]: null });
   return true;
 }
 
@@ -482,7 +493,7 @@ export function getMcpOAuthStatus(
   config: Pick<McpServerConfig, 'auth' | 'url'>,
 ): McpOAuthStatus {
   if (config.auth !== 'oauth') return { method: 'none' };
-  const record = readStore()[serverName];
+  const record = readMcpOAuthRecordFromStore(serverName);
   if (
     !record?.tokens?.accessToken ||
     (config.url && record.serverUrl !== config.url.trim())
@@ -508,9 +519,8 @@ export function getMcpOAuthStatus(
  */
 export async function ensureFreshMcpAccessToken(
   serverName: string,
-  records: Record<string, McpOAuthRecord> = readStore(),
 ): Promise<string | null> {
-  const record = records[serverName];
+  const record = readMcpOAuthRecordFromStore(serverName);
   const tokens = record?.tokens;
   if (!record || !tokens?.accessToken) return null;
 
@@ -527,16 +537,14 @@ export async function ensureFreshMcpAccessToken(
 
   try {
     const refreshed = await requestToken(record.tokenEndpoint, params);
-    const store = readStore();
-    store[serverName] = {
+    writeMcpOAuthRecordToStore(serverName, {
       ...record,
       tokens: {
         ...refreshed,
         refreshToken: refreshed.refreshToken || tokens.refreshToken,
       },
       updatedAt: new Date().toISOString(),
-    };
-    writeStore(store);
+    });
     return refreshed.accessToken;
   } catch (err) {
     logger.warn(
@@ -556,7 +564,6 @@ export async function ensureFreshMcpAccessToken(
 export async function resolveMcpServersForRuntime(
   servers: Record<string, McpServerConfig>,
 ): Promise<Record<string, McpServerConfig>> {
-  const records = readStore();
   const entries = await Promise.all(
     Object.entries(servers).map(
       async ([name, config]): Promise<[string, McpServerConfig]> => {
@@ -567,7 +574,7 @@ export async function resolveMcpServersForRuntime(
         ) {
           return [name, config];
         }
-        const accessToken = await ensureFreshMcpAccessToken(name, records);
+        const accessToken = await ensureFreshMcpAccessToken(name);
         if (!accessToken) return [name, config];
         return [
           name,

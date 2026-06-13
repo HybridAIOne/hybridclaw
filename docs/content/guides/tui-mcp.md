@@ -56,8 +56,9 @@ for remote servers — then log in:
 The gateway performs the full OAuth 2.1 flow on the host: it discovers the
 authorization server (RFC 9728/8414), registers a client dynamically
 (RFC 7591), runs the PKCE authorization-code exchange through
-`/api/mcp/oauth/callback`, and stores tokens in `~/.hybridclaw/mcp-oauth.json`
-(mode 0600). A fresh `Authorization` header is injected into the container's
+`/api/mcp/oauth/callback`, and stores tokens encrypted at rest in the runtime
+secret store (`~/.hybridclaw/credentials.json`, one `MCP_OAUTH_*` entry per
+server). A fresh `Authorization` header is injected into the container's
 MCP config on every turn, and tokens are refreshed automatically.
 
 The same flow is available in the web console on the MCP page via the
