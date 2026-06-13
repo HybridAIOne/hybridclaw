@@ -145,7 +145,7 @@ export function isHybridAIEmptyVisibleCompletion(
   const choice = response.choices[0];
   if (!choice) return false;
   if ((choice.message.tool_calls || []).length > 0) return false;
-  return !normalizeMessageContentToText(choice.message.content);
+  return !normalizeMessageContentToText(choice.message.content).trim();
 }
 
 export function summarizeHybridAICompletionForDebug(
