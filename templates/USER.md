@@ -19,6 +19,14 @@ _Learn about the person you're helping. Update this as you go._
 
 _(What do they care about? What projects are they working on? What annoys them? What makes them laugh? Build this over time.)_
 
+## Helpful Links
+
+_(The canonical base URL lives in runtime config at `deployment.public_url`; provisioning may mirror derived absolute URLs here. Include available links in the first jobs email, and do not invent missing cloud URLs.)_
+
+- **Agent chat:**
+- **WhatsApp channel setup:**
+- **Documentation:**
+
 ## Suggested First Jobs
 
 _(After hatching, keep a short list of practical jobs the user may want HybridClaw to do based on their goals, tools, and `TASK_IDEAS.md`.)_

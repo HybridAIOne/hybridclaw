@@ -380,6 +380,7 @@ describe('ChannelsPage', () => {
   });
 
   afterEach(() => {
+    window.history.replaceState(null, '', '/');
     vi.clearAllMocks();
   });
 
@@ -1105,6 +1106,24 @@ describe('ChannelsPage', () => {
       (await screen.findByRole('img', { name: 'WhatsApp pairing QR' }))
         .textContent,
     ).toBe('▄▄\n██');
+  });
+
+  it('selects WhatsApp settings from the whatsapp hash fragment', async () => {
+    window.history.replaceState(null, '', '/admin/channels#whatsapp');
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /WhatsApp/i });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'WhatsApp settings' }),
+      ).toBeTruthy();
+    });
   });
 
   it('does not show email as active when the password is not configured', async () => {

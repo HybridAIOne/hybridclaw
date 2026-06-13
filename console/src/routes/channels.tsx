@@ -2937,12 +2937,30 @@ export function ChannelsPage() {
     const firstCatalogEntry = catalog[0];
     if (!firstCatalogEntry) return;
     setSelectedKind((current) => {
+      if (
+        window.location.hash === '#whatsapp' &&
+        catalog.some((entry) => entry.kind === 'whatsapp')
+      ) {
+        return 'whatsapp';
+      }
       if (current && catalog.some((entry) => entry.kind === current)) {
         return current;
       }
       return firstCatalogEntry.kind;
     });
   }, [catalog]);
+
+  useEffect(() => {
+    if (selectedKind !== 'whatsapp' || window.location.hash !== '#whatsapp') {
+      return;
+    }
+    window.setTimeout(() => {
+      const target = document.getElementById('whatsapp');
+      if (typeof target?.scrollIntoView === 'function') {
+        target.scrollIntoView({ block: 'start' });
+      }
+    }, 0);
+  }, [selectedKind]);
 
   // Clear any prior save success/error state as soon as the user resumes
   // editing, so a stale toast or button label doesn't follow them around.
@@ -3044,7 +3062,10 @@ export function ChannelsPage() {
         </Card>
 
         <Form form={form} onSubmit={() => saveMutation.mutate(draft)}>
-          <Card variant="muted">
+          <Card
+            id={selectedChannel?.kind === 'whatsapp' ? 'whatsapp' : undefined}
+            variant="muted"
+          >
             <CardHeader>
               <CardTitle>
                 {selectedChannel
