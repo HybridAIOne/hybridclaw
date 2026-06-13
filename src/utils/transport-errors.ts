@@ -23,6 +23,8 @@ const EXPECTED_TRANSPORT_ERROR_MESSAGE_RE =
 interface ErrorLike {
   cause?: unknown;
   code?: unknown;
+  data?: unknown;
+  error?: unknown;
   hostname?: unknown;
   // Keep the standard AggregateError shape, but avoid speculative wrappers.
   errors?: unknown;
@@ -82,34 +84,15 @@ function findTransportErrorDetails(
 
   if (error && typeof error === 'object') {
     const candidate = error as ErrorLike;
-    if (Array.isArray(candidate.errors)) {
-      for (const nested of candidate.errors) {
-        const nestedDetails = findTransportErrorDetails(nested, depth + 1);
-        if (nestedDetails.code || nestedDetails.host || nestedDetails.message) {
-          return nestedDetails;
-        }
+    for (const nested of getNestedTransportErrors(candidate)) {
+      const nestedDetails = findTransportErrorDetails(nested, depth + 1);
+      if (nestedDetails.code || nestedDetails.host || nestedDetails.message) {
+        return nestedDetails;
       }
-    }
-
-    const causeDetails = findTransportErrorDetails(candidate.cause, depth + 1);
-    if (causeDetails.code || causeDetails.host || causeDetails.message) {
-      return causeDetails;
     }
   }
 
   return details;
-}
-
-function getTransportErrorCode(error: unknown): string {
-  return findTransportErrorDetails(error).code;
-}
-
-function getTransportErrorHost(
-  error: unknown,
-  fallbackHost?: string | null,
-): string {
-  const host = findTransportErrorDetails(error).host;
-  return host || String(fallbackHost || '').trim();
 }
 
 function hasMeaningfulHost(host: string): boolean {
@@ -128,8 +111,9 @@ export function describeExpectedTransportError(
   subject: string,
   fallbackHost?: string | null,
 ): string {
-  const code = getTransportErrorCode(error);
-  const host = getTransportErrorHost(error, fallbackHost);
+  const details = findTransportErrorDetails(error);
+  const code = details.code;
+  const host = details.host || String(fallbackHost || '').trim();
 
   switch (code) {
     case 'ENOTFOUND':
@@ -161,6 +145,9 @@ export function describeExpectedTransportError(
     case 'EPIPE':
       return `${subject} socket closed unexpectedly.`;
     default:
+      if (/\b(timed out|timeout)\b/i.test(details.message)) {
+        return `${formatTransportEndpoint(subject, host)} timed out.`;
+      }
       if (hasMeaningfulHost(host)) {
         return `${subject} is temporarily unavailable at ${host}.`;
       }
@@ -176,6 +163,23 @@ function hasExpectedTransportSignature(
   return (
     EXPECTED_TRANSPORT_ERROR_CODES.has(code) || messagePattern.test(message)
   );
+}
+
+function getNestedTransportErrors(candidate: ErrorLike): unknown[] {
+  const nested: unknown[] = [];
+  if (Array.isArray(candidate.errors)) {
+    nested.push(...candidate.errors);
+  }
+  if (candidate.cause != null) {
+    nested.push(candidate.cause);
+  }
+  if (candidate.data != null) {
+    nested.push(candidate.data);
+  }
+  if (candidate.error != null) {
+    nested.push(candidate.error);
+  }
+  return nested;
 }
 
 function matchesExpectedTransportError(
@@ -203,19 +207,8 @@ function matchesExpectedTransportError(
     return true;
   }
 
-  if (
-    Array.isArray(candidate.errors) &&
-    candidate.errors.some((nested) =>
-      matchesExpectedTransportError(nested, messagePattern, depth + 1),
-    )
-  ) {
-    return true;
-  }
-
-  return matchesExpectedTransportError(
-    candidate.cause,
-    messagePattern,
-    depth + 1,
+  return getNestedTransportErrors(candidate).some((nested) =>
+    matchesExpectedTransportError(nested, messagePattern, depth + 1),
   );
 }
 

@@ -1,4 +1,5 @@
 export const MAX_STALLED_MODEL_TURNS = 20;
+export const MAX_EMPTY_VISIBLE_COMPLETION_RETRIES = 1;
 
 export function advanceStalledTurnCount(params: {
   current: number;
@@ -21,4 +22,15 @@ export function shouldRetryEmptyFinalResponse(params: {
     params.toolExecutionCount > 0 &&
     params.artifactCount === 0
   );
+}
+
+export function shouldRetryEmptyVisibleCompletion(params: {
+  retryCount: number;
+  maxRetries?: number;
+}): boolean {
+  const maxRetries = Math.max(
+    0,
+    Math.floor(params.maxRetries ?? MAX_EMPTY_VISIBLE_COMPLETION_RETRIES),
+  );
+  return params.retryCount < maxRetries;
 }
