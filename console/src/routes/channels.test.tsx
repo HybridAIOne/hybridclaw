@@ -1085,6 +1085,7 @@ describe('ChannelsPage', () => {
         jid: null,
         pairingQrText: '▄▄\n██',
         pairingUpdatedAt: new Date().toISOString(),
+        pairingError: null,
       },
     });
 
@@ -1106,6 +1107,52 @@ describe('ChannelsPage', () => {
       (await screen.findByRole('img', { name: 'WhatsApp pairing QR' }))
         .textContent,
     ).toBe('▄▄\n██');
+  });
+
+  it('renders the WhatsApp pairing error when the gateway has no QR', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      email: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      imessage: {
+        passwordConfigured: false,
+        passwordSource: null,
+      },
+      whatsapp: {
+        linked: false,
+        jid: null,
+        pairingQrText: null,
+        pairingUpdatedAt: '2026-06-13T21:00:00.000Z',
+        pairingError:
+          'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Retrying connection in 1s.',
+      },
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /WhatsApp/i });
+    fireEvent.click(screen.getByRole('button', { name: /WhatsApp/i }));
+
+    expect(
+      await screen.findByText(
+        'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Retrying connection in 1s.',
+      ),
+    ).toBeTruthy();
   });
 
   it('selects WhatsApp settings from the whatsapp hash fragment', async () => {

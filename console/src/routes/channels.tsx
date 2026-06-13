@@ -537,6 +537,7 @@ function WhatsAppChannelEditor(props: {
   form: UseFormControllerReturn<AdminConfig>;
   linked: boolean;
   pairingQrText: string | null;
+  pairingError: string | null;
 }) {
   return (
     <>
@@ -618,7 +619,7 @@ function WhatsAppChannelEditor(props: {
             </pre>
           ) : (
             <p className="muted-copy">
-              Waiting for a fresh QR from the gateway.
+              {props.pairingError || 'Waiting for a fresh QR from the gateway.'}
             </p>
           )}
         </div>
@@ -2742,6 +2743,7 @@ function renderSelectedEditor(
   whatsappStatus: {
     linked: boolean;
     pairingQrText: string | null;
+    pairingError: string | null;
   },
   signalStatus: {
     cliAvailable: boolean;
@@ -2770,6 +2772,7 @@ function renderSelectedEditor(
           form={form}
           linked={whatsappStatus.linked}
           pairingQrText={whatsappStatus.pairingQrText}
+          pairingError={whatsappStatus.pairingError}
         />
       );
     case 'slack':
@@ -3017,6 +3020,7 @@ export function ChannelsPage() {
   const whatsappStatus = {
     linked: statusQuery.data?.whatsapp?.linked ?? false,
     pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
+    pairingError: statusQuery.data?.whatsapp?.pairingError ?? null,
   };
   const signalStatus = {
     cliAvailable: statusQuery.data?.signal?.cliAvailable ?? false,

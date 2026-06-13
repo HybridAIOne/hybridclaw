@@ -21,6 +21,7 @@ import {
 } from './message-store.js';
 import {
   clearWhatsAppPairingState,
+  setWhatsAppPairingError,
   setWhatsAppPairingQrText,
 } from './pairing-state.js';
 
@@ -141,6 +142,7 @@ function logExpectedWhatsAppTransport(
     'WhatsApp WebSocket',
     WHATSAPP_TRANSPORT_HOST,
   )} ${nextAction}`;
+  setWhatsAppPairingError(message);
   if (level === 'debug') {
     target.debug(message);
     return;
@@ -417,10 +419,13 @@ export function createWhatsAppConnectionManager(params?: {
       reason === 'status:408' ||
       reason === 'status:428'
     ) {
-      childLogger.warn(
-        `WhatsApp connection was lost. Retrying connection in ${formatReconnectDelay(delayMs)}.`,
-      );
+      const message = `WhatsApp connection was lost. Retrying connection in ${formatReconnectDelay(delayMs)}.`;
+      setWhatsAppPairingError(message);
+      childLogger.warn(message);
     } else {
+      setWhatsAppPairingError(
+        `WhatsApp connection is not ready. Retrying connection in ${formatReconnectDelay(delayMs)}.`,
+      );
       logWhatsAppMessage(childLogger, 'warn', 'WhatsApp reconnect scheduled', {
         delayMs,
         reason,
