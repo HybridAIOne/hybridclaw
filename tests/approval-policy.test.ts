@@ -1001,6 +1001,60 @@ autonomy:
     expect(evaluation.reason).toBe('this changes the local dependency state');
   });
 
+  test('root BOOTSTRAP.md delete is allowed as onboarding cleanup', () => {
+    const pendingStorePath = tempTrustStorePath('bootstrap-pending');
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+      tempTrustStorePath('bootstrap-agent-trust'),
+      tempTrustStorePath('bootstrap-all-trust'),
+      tempTrustStorePath('bootstrap-legacy-trust'),
+      undefined,
+      pendingStorePath,
+    );
+
+    for (const bootstrapPath of [
+      'BOOTSTRAP.md',
+      './BOOTSTRAP.md',
+      '/workspace/BOOTSTRAP.md',
+    ]) {
+      const evaluation = runtime.evaluateToolCall({
+        toolName: 'delete',
+        argsJson: JSON.stringify({ path: bootstrapPath }),
+        latestUserPrompt: 'Finish onboarding',
+      });
+
+      expect(evaluation.tier).toBe('green');
+      expect(evaluation.decision).toBe('auto');
+      expect(evaluation.actionKey).toBe('delete:bootstrap');
+      expect(evaluation.reason).toContain('one-time onboarding file');
+    }
+
+    expect(fs.existsSync(pendingStorePath)).toBe(false);
+  });
+
+  test('other delete calls still require approval', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+      tempTrustStorePath('delete-agent-trust'),
+      tempTrustStorePath('delete-all-trust'),
+      tempTrustStorePath('delete-legacy-trust'),
+      undefined,
+      tempTrustStorePath('delete-pending'),
+    );
+
+    for (const deletePath of ['notes.md', 'memory/BOOTSTRAP.md']) {
+      const evaluation = runtime.evaluateToolCall({
+        toolName: 'delete',
+        argsJson: JSON.stringify({ path: deletePath }),
+        latestUserPrompt: 'Delete a workspace file',
+      });
+
+      expect(evaluation.tier).toBe('red');
+      expect(evaluation.decision).toBe('required');
+      expect(evaluation.reason).toBe('deletion is destructive');
+    }
+  });
+
   test('message read-only actions are green', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
