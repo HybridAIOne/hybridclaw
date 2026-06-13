@@ -160,9 +160,6 @@
     "typescript": "5.9.3",
     "vitest": "4.1.8"
   },
-  "optionalDependencies": {
-    "appdmg": "0.6.6"
-  },
   "overrides": {
     "undici": "6.24.1",
     "lodash": "4.18.1",

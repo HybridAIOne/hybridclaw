@@ -84,9 +84,8 @@ npm run desktop:mac
 ```
 
 `npm run desktop:mac` runs the root build first, then the desktop workspace
-build. The desktop build stages runtime dependencies, packages the app with
-`electron-builder --mac dir zip`, and creates a custom DMG with
-`desktop/scripts/build-dmg.mjs`.
+build. The desktop build stages runtime dependencies and packages the app,
+ZIP, block map, and DMG with `electron-builder --mac dir zip dmg`.
 
 Expected outputs are under `desktop/release/`:
 
