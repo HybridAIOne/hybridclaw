@@ -25,6 +25,16 @@ export interface EmailConnectionManager {
   stop: () => Promise<void>;
 }
 
+type EmailConnectionConfig = Pick<
+  RuntimeEmailConfig,
+  | 'address'
+  | 'folders'
+  | 'imapHost'
+  | 'imapPort'
+  | 'imapSecure'
+  | 'pollIntervalMs'
+>;
+
 interface PersistedFolderCursorState {
   uidValidity: string | null;
   lastProcessedUid: number;
@@ -155,7 +165,7 @@ async function savePersistedFolderCursorState(
 }
 
 export function createEmailConnectionManager(
-  config: RuntimeEmailConfig,
+  config: EmailConnectionConfig,
   password: string,
   onNewMessages: (messages: EmailFetchedMessage[]) => Promise<void>,
 ): EmailConnectionManager {

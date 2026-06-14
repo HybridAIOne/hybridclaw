@@ -304,7 +304,8 @@
     "folders": ["INBOX"],
     "allowFrom": [],
     "textChunkLimit": 50000,
-    "mediaMaxMb": 20
+    "mediaMaxMb": 20,
+    "accounts": []
   },
   "hybridai": {
     "baseUrl": "https://hybridai.one",

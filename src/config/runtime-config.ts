@@ -725,6 +725,23 @@ export interface RuntimeEmailConfig {
   allowFrom: string[];
   textChunkLimit: number;
   mediaMaxMb: number;
+  accounts: RuntimeEmailAccountConfig[];
+}
+
+export interface RuntimeEmailAccountConfig {
+  agentId: string;
+  imapHost: string;
+  imapPort: number;
+  imapSecure: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  address: string;
+  password: string;
+  pollIntervalMs: number;
+  folders: string[];
+  allowFrom: string[];
+  mediaMaxMb: number;
 }
 
 export interface RuntimeChannelInstructionsConfig {
@@ -1657,6 +1674,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     allowFrom: [],
     textChunkLimit: 50_000,
     mediaMaxMb: 20,
+    accounts: [],
   },
   hybridai: {
     baseUrl: 'https://hybridai.one',
@@ -3955,10 +3973,11 @@ function normalizeEmailConfig(
   fallback: RuntimeEmailConfig,
   opts?: {
     password?: unknown;
+    accountPasswords?: unknown[];
   },
 ): RuntimeEmailConfig {
   const raw = isRecord(value) ? value : {};
-  return {
+  const base = {
     enabled: normalizeBoolean(raw.enabled, fallback.enabled),
     imapHost: normalizeString(raw.imapHost, fallback.imapHost, {
       allowEmpty: true,
@@ -4008,6 +4027,112 @@ function normalizeEmailConfig(
       min: 1,
       max: 100,
     }),
+  };
+  const rawAccounts = Array.isArray(raw.accounts) ? raw.accounts : [];
+  return {
+    ...base,
+    accounts: rawAccounts
+      .map((account, index) =>
+        normalizeEmailAccountConfig(
+          account,
+          fallback.accounts[index],
+          base,
+          opts?.accountPasswords?.[index],
+        ),
+      )
+      .filter((account): account is RuntimeEmailAccountConfig =>
+        Boolean(account),
+      ),
+  };
+}
+
+function normalizeEmailAccountConfig(
+  value: unknown,
+  fallback: RuntimeEmailAccountConfig | undefined,
+  parent: Omit<RuntimeEmailConfig, 'accounts'>,
+  password: unknown,
+): RuntimeEmailAccountConfig | null {
+  if (!isRecord(value)) return null;
+  return {
+    agentId: normalizeString(
+      value.agentId,
+      fallback?.agentId ?? DEFAULT_AGENT_ID,
+      {
+        allowEmpty: false,
+      },
+    ),
+    imapHost: normalizeString(
+      value.imapHost,
+      fallback?.imapHost ?? parent.imapHost,
+      {
+        allowEmpty: true,
+      },
+    ),
+    imapPort: normalizeInteger(
+      value.imapPort,
+      fallback?.imapPort ?? parent.imapPort,
+      {
+        min: 1,
+        max: 65_535,
+      },
+    ),
+    imapSecure: normalizeBoolean(
+      value.imapSecure,
+      fallback?.imapSecure ?? parent.imapSecure,
+    ),
+    smtpHost: normalizeString(
+      value.smtpHost,
+      fallback?.smtpHost ?? parent.smtpHost,
+      {
+        allowEmpty: true,
+      },
+    ),
+    smtpPort: normalizeInteger(
+      value.smtpPort,
+      fallback?.smtpPort ?? parent.smtpPort,
+      {
+        min: 1,
+        max: 65_535,
+      },
+    ),
+    smtpSecure: normalizeBoolean(
+      value.smtpSecure,
+      fallback?.smtpSecure ?? parent.smtpSecure,
+    ),
+    address: normalizeString(value.address, fallback?.address ?? '', {
+      allowEmpty: true,
+    }),
+    password: normalizeString(
+      password ?? value.password,
+      fallback?.password ?? '',
+      {
+        allowEmpty: true,
+      },
+    ),
+    pollIntervalMs: normalizeInteger(
+      value.pollIntervalMs,
+      fallback?.pollIntervalMs ?? parent.pollIntervalMs,
+      {
+        min: 1_000,
+        max: 3_600_000,
+      },
+    ),
+    folders: normalizeStringArray(
+      value.folders,
+      fallback?.folders ?? parent.folders,
+    ),
+    allowFrom: normalizeStringArray(
+      value.allowFrom,
+      fallback?.allowFrom ?? parent.allowFrom,
+    ),
+    mediaMaxMb: normalizeInteger(
+      value.mediaMaxMb,
+      fallback?.mediaMaxMb ?? parent.mediaMaxMb,
+      {
+        min: 1,
+        max: 100,
+      },
+    ),
   };
 }
 
@@ -5128,9 +5253,41 @@ function preserveSecretInputs(
     if (!isSecretRefInput(sourceValue)) continue;
     setSecretInputOnSource(serializable, secretPath, cloneConfig(sourceValue));
   }
+  preserveEmailAccountSecretInputs(serializable, source);
   preserveSlackWebhookSecretInputs(serializable, source);
   preserveDiscordWebhookSecretInputs(serializable, source);
   preserveLocalEndpointSecretInputs(serializable, source);
+}
+
+function preserveEmailAccountSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  const sourceEmail = isRecord(source.email) ? source.email : null;
+  const sourceAccounts =
+    sourceEmail && Array.isArray(sourceEmail.accounts)
+      ? sourceEmail.accounts
+      : null;
+  if (!sourceAccounts) return;
+
+  const serializableEmail = isRecord(serializable.email)
+    ? serializable.email
+    : {};
+  serializable.email = serializableEmail;
+  const serializableAccounts = Array.isArray(serializableEmail.accounts)
+    ? serializableEmail.accounts
+    : [];
+  serializableEmail.accounts = serializableAccounts;
+
+  for (let index = 0; index < sourceAccounts.length; index += 1) {
+    const sourceAccount = sourceAccounts[index];
+    if (!isRecord(sourceAccount) || !isSecretRefInput(sourceAccount.password)) {
+      continue;
+    }
+    const target = serializableAccounts[index];
+    if (!isRecord(target)) continue;
+    target.password = cloneConfig(sourceAccount.password);
+  }
 }
 
 function resolveConfiguredSecretInput(
@@ -6484,6 +6641,18 @@ function normalizeRuntimeConfig(
       required: isSecretRefInput(rawEmail.password) && emailEnabled,
     },
   );
+  const rawEmailAccounts = Array.isArray(rawEmail.accounts)
+    ? rawEmail.accounts
+    : [];
+  const resolvedEmailAccountPasswords = rawEmailAccounts.map(
+    (rawAccount, index) => {
+      if (!isRecord(rawAccount)) return undefined;
+      return resolveConfiguredSecretInput(rawAccount.password, {
+        path: `email.accounts[${index}].password`,
+        required: isSecretRefInput(rawAccount.password) && emailEnabled,
+      });
+    },
+  );
   const rawVoiceTwilio = isRecord(rawVoice.twilio) ? rawVoice.twilio : {};
   const resolvedVoiceAuthToken = resolveConfiguredSecretInput(
     rawVoiceTwilio.authToken,
@@ -7032,6 +7201,7 @@ function normalizeRuntimeConfig(
     ),
     email: normalizeEmailConfig(rawEmail, DEFAULT_RUNTIME_CONFIG.email, {
       password: resolvedEmailPassword,
+      accountPasswords: resolvedEmailAccountPasswords,
     }),
     hybridai: {
       baseUrl: hybridBaseUrl,
