@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## [0.24.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.2) - 2026-06-14
+
+### Added
+
+- **Admin log viewer**: The admin console includes a Logs route and sidebar
+  entry for inspecting configured gateway and model-response debug log tails.
+  Operators can see file status, size, modified time, and capped tail content
+  through the gateway API without shelling into the host.
+
+### Changed
+
+- **Desktop macOS packaging**: Desktop DMG builds use
+  `electron-builder --mac dir zip dmg` end to end, removing the custom
+  `appdmg` path and scripts. The desktop release guide documents the expected
+  app, ZIP, block map, and DMG outputs, and the dependency-policy baseline is
+  aligned with the Electron packaging lockfile.
+
+### Fixed
+
+- **WhatsApp auth lock recovery**: Stale WhatsApp auth locks from a previous
+  process lifetime with the same PID are cleared before acquiring a fresh
+  lock, preventing reconnect, linking, or reset flows from blocking on
+  orphaned lock metadata.
+
 ## [0.24.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.24.1) - 2026-06-14
 
 ### Added

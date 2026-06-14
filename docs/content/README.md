@@ -27,15 +27,15 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
-- HybridClaw v0.24.1 improves first-run onboarding with exact helpful links
-  for agent chat, WhatsApp setup, and documentation, plus direct
-  `#whatsapp` routing in the channel console.
-- WhatsApp pairing and WebSocket transport failures now surface clearer
-  operator-facing diagnostics, while expected handshake timeouts are filtered
-  before Sentry reporting.
-- Hatching cleanup can remove the one-time root `BOOTSTRAP.md` without an
-  approval interruption, and HybridAI empty visible completions get one
-  targeted retry before the turn fails.
+- HybridClaw v0.24.2 adds admin console runtime log inspection for gateway and
+  model-response debug logs, including readable/missing state, file metadata,
+  and capped tails through the gateway API.
+- WhatsApp auth locking clears stale same-PID locks left by earlier process
+  lifetimes, so linking, reconnect, and reset flows can recover from orphaned
+  lock files without manual cleanup.
+- Desktop macOS release packaging uses `electron-builder` to produce app, ZIP,
+  block map, and DMG artifacts from one build path, with the desktop release
+  guide covering signing, notarization, stapling, and upload order.
 - HybridAI Cloud launches hosted HybridClaw environments from
   [hybridclaw.io](https://hybridclaw.io) when teams want the fastest managed
   path instead of preparing local infrastructure first.

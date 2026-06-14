@@ -886,40 +886,40 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.24.1</div>
+    <div class="section-label">Latest release: v0.24.2</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.24.1 is a patch release focused on smoother onboarding links, clearer WhatsApp pairing diagnostics, safer hatching cleanup, and more resilient transient provider and WebSocket failures.</p>
+    <p class="section-desc">HybridClaw v0.24.2 is a patch release focused on operator log visibility, WhatsApp auth-lock recovery, and a simpler electron-builder desktop DMG packaging path.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f517;</div>
-      <h3>Onboarding links</h3>
-      <p>New agent workspaces include helpful links for agent chat, WhatsApp setup, and documentation, and the first-jobs email uses the exact deployment URLs already recorded in <code>USER.md</code>.</p>
+      <div class="feature-icon">&#x1f4dc;</div>
+      <h3>Admin logs</h3>
+      <p>The admin console includes a Logs route for inspecting configured gateway and model-response debug log files without shell access to the host.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f50d;</div>
+      <h3>Log tails</h3>
+      <p>Log inspection shows file status, size, modified time, and capped tail content through the gateway API, including a refresh control for active diagnosis.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f4f1;</div>
-      <h3>WhatsApp pairing</h3>
-      <p>The admin Channels page surfaces WhatsApp DNS, reconnect, and pairing failures directly in the setup panel instead of leaving operators waiting for a fresh QR code.</p>
+      <h3>WhatsApp locks</h3>
+      <p>WhatsApp auth locking clears stale same-PID lock files from earlier process lifetimes before reconnect, linking, or reset flows try to acquire a fresh lock.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f9f9;</div>
-      <h3>Hatching cleanup</h3>
-      <p>The one-time root <code>BOOTSTRAP.md</code> file can be removed after onboarding without an approval interruption, while ordinary delete operations remain guarded.</p>
+      <div class="feature-icon">&#x1f4e6;</div>
+      <h3>Desktop DMGs</h3>
+      <p>macOS desktop builds use <code>electron-builder --mac dir zip dmg</code> directly, removing the custom DMG script path and the extra <code>appdmg</code> dependency.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x21bb;</div>
-      <h3>HybridAI retries</h3>
-      <p>HybridAI responses with no visible text and no tool call get one targeted retry before the container fails the turn, including whitespace-only completions.</p>
+      <div class="feature-icon">&#x1f4bf;</div>
+      <h3>Release assets</h3>
+      <p>The desktop release guide documents the expected app bundle, ZIP, block map, and DMG outputs plus the signing, notarization, stapling, and upload order.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1f6e1;</div>
-      <h3>Transport noise filtering</h3>
-      <p>Expected WebSocket handshake timeouts and nested transport errors are classified consistently, described clearly, and filtered before Sentry reporting.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1f9ed;</div>
-      <h3>Direct setup routes</h3>
-      <p>Opening the channel console with <code>#whatsapp</code> selects the WhatsApp editor and scrolls to the setup panel so cloud onboarding links land in the right place.</p>
+      <h3>Packaging baseline</h3>
+      <p>The dependency policy baseline reflects the Electron packaging lockfile, keeping release checks aligned with the current desktop build chain.</p>
     </div>
   </div>
 </section>
