@@ -27,6 +27,15 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- HybridClaw v0.24.1 improves first-run onboarding with exact helpful links
+  for agent chat, WhatsApp setup, and documentation, plus direct
+  `#whatsapp` routing in the channel console.
+- WhatsApp pairing and WebSocket transport failures now surface clearer
+  operator-facing diagnostics, while expected handshake timeouts are filtered
+  before Sentry reporting.
+- Hatching cleanup can remove the one-time root `BOOTSTRAP.md` without an
+  approval interruption, and HybridAI empty visible completions get one
+  targeted retry before the turn fails.
 - HybridAI Cloud launches hosted HybridClaw environments from
   [hybridclaw.io](https://hybridclaw.io) when teams want the fastest managed
   path instead of preparing local infrastructure first.

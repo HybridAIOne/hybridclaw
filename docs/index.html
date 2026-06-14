@@ -886,40 +886,40 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.19.1</div>
+    <div class="section-label">Latest release: v0.24.1</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.19.1 keeps the 0.19 release line focused on standing goals, native speech transcription, webhook targets, diagram-as-code tools, and reliable npm release verification.</p>
+    <p class="section-desc">HybridClaw v0.24.1 is a patch release focused on smoother onboarding links, clearer WhatsApp pairing diagnostics, safer hatching cleanup, and more resilient transient provider and WebSocket failures.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f3af;</div>
-      <h3>Standing goals</h3>
-      <p><code>/goal</code> keeps a per-thread completion condition active, queues supervised continuations, and pauses cleanly for approvals, interruptions, or explicit operator control.</p>
+      <div class="feature-icon">&#x1f517;</div>
+      <h3>Onboarding links</h3>
+      <p>New agent workspaces include helpful links for agent chat, WhatsApp setup, and documentation, and the first-jobs email uses the exact deployment URLs already recorded in <code>USER.md</code>.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f399;</div>
-      <h3>Speech transcription</h3>
-      <p>The native <code>audio_transcribe</code> tool and bundled speech skills support transcription, language detection, timestamps, diarization, artifacts, and usage accounting.</p>
+      <div class="feature-icon">&#x1f4f1;</div>
+      <h3>WhatsApp pairing</h3>
+      <p>The admin Channels page surfaces WhatsApp DNS, reconnect, and pairing failures directly in the setup panel instead of leaving operators waiting for a fresh QR code.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4e3;</div>
-      <h3>Webhook channels</h3>
-      <p><code>discord_webhook</code> and <code>slack_webhook</code> provide outbound-only default and named targets with encrypted webhook URLs, chunking, status checks, and managed POST-only policy grants.</p>
+      <div class="feature-icon">&#x1f9f9;</div>
+      <h3>Hatching cleanup</h3>
+      <p>The one-time root <code>BOOTSTRAP.md</code> file can be removed after onboarding without an approval interruption, while ordinary delete operations remain guarded.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4ca;</div>
-      <h3>Diagram runtime</h3>
-      <p>The <code>diagram</code> skill and native tools create, update, and validate Mermaid-first diagrams with PlantUML, Graphviz DOT, and Excalidraw JSON adapters.</p>
+      <div class="feature-icon">&#x21bb;</div>
+      <h3>HybridAI retries</h3>
+      <p>HybridAI responses with no visible text and no tool call get one targeted retry before the container fails the turn, including whitespace-only completions.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x26a1;</div>
-      <h3>Stable prompt prefix</h3>
-      <p>Dynamic turn context now lands after the static system prompt, improving provider prefix-cache reuse while trace exports record the prompt-prefix hashes.</p>
+      <div class="feature-icon">&#x1f6e1;</div>
+      <h3>Transport noise filtering</h3>
+      <p>Expected WebSocket handshake timeouts and nested transport errors are classified consistently, described clearly, and filtered before Sentry reporting.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f5a5;</div>
-      <h3>Chat and TUI polish</h3>
-      <p>Web chat can delete stored browser sessions and refresh rotated local web tokens, while the TUI renders Markdown tables directly in terminal output.</p>
+      <div class="feature-icon">&#x1f9ed;</div>
+      <h3>Direct setup routes</h3>
+      <p>Opening the channel console with <code>#whatsapp</code> selects the WhatsApp editor and scrolls to the setup panel so cloud onboarding links land in the right place.</p>
     </div>
   </div>
 </section>
