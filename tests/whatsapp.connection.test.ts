@@ -165,9 +165,13 @@ async function importFreshConnectionModule(options?: {
   });
 
   const module = await import('../src/channels/whatsapp/connection.ts');
+  const pairingState = await import(
+    '../src/channels/whatsapp/pairing-state.ts'
+  );
   return {
     APP_VERSION,
     ...module,
+    pairingState,
     qrcodeGenerate,
     sockets,
     whatsappLogger,
@@ -278,7 +282,12 @@ test('waitForSocket does not revive the manager after stop during implicit start
 });
 
 test('transport-level WhatsApp emitters are handled without throwing', async () => {
-  const { createWhatsAppConnectionManager, sockets, whatsappLogger } =
+  const {
+    createWhatsAppConnectionManager,
+    pairingState,
+    sockets,
+    whatsappLogger,
+  } =
     await importFreshConnectionModule({
       logLevel: 'debug',
       rootLevel: 'debug',
@@ -301,6 +310,9 @@ test('transport-level WhatsApp emitters are handled without throwing', async () 
   ).not.toThrow();
 
   expect(whatsappLogger.debug).toHaveBeenCalledWith(
+    'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
+  );
+  expect(pairingState.getWhatsAppPairingState().error).toBe(
     'WhatsApp WebSocket DNS lookup failed for web.whatsapp.com. Reconnect will be retried automatically.',
   );
 });

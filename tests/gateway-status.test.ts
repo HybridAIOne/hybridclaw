@@ -873,6 +873,7 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
     getWhatsAppPairingState: vi.fn(() => ({
       pairingQrText: '▄▄\n██',
       updatedAt: '2026-04-08T10:00:00.000Z',
+      error: null,
     })),
   }));
 
@@ -889,6 +890,7 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
     jid: null,
     pairingQrText: '▄▄\n██',
     pairingUpdatedAt: '2026-04-08T10:00:00.000Z',
+    pairingError: null,
   });
 });
 
