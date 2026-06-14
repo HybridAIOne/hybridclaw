@@ -12,6 +12,7 @@ export const WHATSAPP_AUTH_DIR = path.join(
 );
 const WHATSAPP_AUTH_LOCK_TIMEOUT_MS = 2_000;
 const WHATSAPP_AUTH_LOCK_CORRUPT_STALE_MS = 10_000;
+const WHATSAPP_AUTH_LOCK_PROCESS_START_SKEW_MS = 1_000;
 const WHATSAPP_AUTH_FILE_MODE = 0o600;
 
 interface WhatsAppAuthLockMetadata {
@@ -71,9 +72,34 @@ function readLockMetadata(lockPath: string): WhatsAppAuthLockMetadata | null {
   }
 }
 
+function parseLockStartedAt(metadata: WhatsAppAuthLockMetadata): number | null {
+  const startedAtMs = Date.parse(metadata.startedAt);
+  return Number.isFinite(startedAtMs) ? startedAtMs : null;
+}
+
+function isLockFromPreviousCurrentProcessLifetime(
+  metadata: WhatsAppAuthLockMetadata,
+): boolean {
+  if (metadata.pid !== process.pid) return false;
+  const startedAtMs = parseLockStartedAt(metadata);
+  if (startedAtMs == null) return false;
+  const processStartedAtMs = Date.now() - process.uptime() * 1000;
+  return (
+    startedAtMs < processStartedAtMs - WHATSAPP_AUTH_LOCK_PROCESS_START_SKEW_MS
+  );
+}
+
 function maybeClearInactiveAuthLock(lockPath: string): boolean {
   const metadata = readLockMetadata(lockPath);
   if (metadata?.pid != null) {
+    if (isLockFromPreviousCurrentProcessLifetime(metadata)) {
+      try {
+        fsSync.rmSync(lockPath, { force: true });
+        return true;
+      } catch {
+        return false;
+      }
+    }
     if (isProcessRunning(metadata.pid)) return false;
     try {
       fsSync.rmSync(lockPath, { force: true });

@@ -83,6 +83,7 @@ function makeConfig(): AdminConfig {
       healthPort: 9090,
       webApiToken: '',
       gatewayBaseUrl: '',
+      gatewayInternalBaseUrl: 'http://127.0.0.1:9090',
       gatewayApiToken: '',
       dbPath: '',
       logLevel: 'info',

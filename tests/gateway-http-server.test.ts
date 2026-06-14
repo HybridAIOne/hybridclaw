@@ -5831,6 +5831,41 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('returns admin log file metadata and selected tail', async () => {
+    const dataDir = makeTempDataDir();
+    const logPath = path.join(dataDir, 'gateway', 'gateway.log');
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(logPath, 'first line\nsecond line\nthird line\n', 'utf8');
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      url: '/api/admin/logs?file=gateway&tailBytes=11',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    const payload = JSON.parse(res.body) as {
+      files: Array<{ id: string; exists: boolean; path: string }>;
+      selected: { fileId: string; content: string; truncated: boolean };
+    };
+    expect(payload.files).toContainEqual(
+      expect.objectContaining({
+        id: 'gateway',
+        exists: true,
+        path: logPath,
+      }),
+    );
+    expect(payload.selected).toEqual(
+      expect.objectContaining({
+        fileId: 'gateway',
+        content: 'third line\n',
+        truncated: true,
+      }),
+    );
+  });
+
   test('returns admin agents for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/agents' });

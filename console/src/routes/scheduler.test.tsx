@@ -310,6 +310,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       healthPort: 3001,
       webApiToken: 'token',
       gatewayBaseUrl: 'http://localhost:3000',
+      gatewayInternalBaseUrl: 'http://127.0.0.1:3000',
       gatewayApiToken: 'token',
       dbPath: '/tmp/hybridclaw.db',
       logLevel: 'info',

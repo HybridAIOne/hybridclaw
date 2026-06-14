@@ -1,5 +1,8 @@
 import type { SkillConfigChannelKind } from '../channels/channel.js';
-import { GATEWAY_API_TOKEN, GATEWAY_BASE_URL } from '../config/config.js';
+import {
+  GATEWAY_API_TOKEN,
+  GATEWAY_CLIENT_BASE_URL,
+} from '../config/config.js';
 import {
   type GatewayAdminSkillsResponse,
   type GatewayAdminSuspendedSession,
@@ -41,7 +44,7 @@ export { renderGatewayCommand };
 export type GatewayChatRequest = GatewayChatRequestBody;
 
 function gatewayUrl(pathname: string): string {
-  const base = GATEWAY_BASE_URL.replace(/\/+$/, '');
+  const base = GATEWAY_CLIENT_BASE_URL.replace(/\/+$/, '');
   const path = pathname.startsWith('/') ? pathname : `/${pathname}`;
   return `${base}${path}`;
 }
@@ -57,7 +60,9 @@ async function requestJson<T>(pathname: string, init: RequestInit): Promise<T> {
     response = await fetch(gatewayUrl(pathname), init);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`Gateway request failed (${GATEWAY_BASE_URL}): ${detail}`);
+    throw new Error(
+      `Gateway request failed (${GATEWAY_CLIENT_BASE_URL}): ${detail}`,
+    );
   }
 
   const payload = await response.json().catch(() => ({}));

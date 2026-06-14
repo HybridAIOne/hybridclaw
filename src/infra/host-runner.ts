@@ -27,7 +27,7 @@ import {
   CONTEXT_GUARD_OVERFLOW_RATIO,
   CONTEXT_GUARD_PER_RESULT_SHARE,
   GATEWAY_API_TOKEN,
-  GATEWAY_BASE_URL,
+  GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
@@ -178,7 +178,7 @@ function resolveHostAgentBrowserBinary(): string | undefined {
 
 function buildHostGatewayRuntimeEnv(): Record<string, string> {
   return {
-    HYBRIDCLAW_GATEWAY_URL: GATEWAY_BASE_URL,
+    HYBRIDCLAW_GATEWAY_URL: GATEWAY_CLIENT_BASE_URL,
     HYBRIDCLAW_GATEWAY_TOKEN: GATEWAY_API_TOKEN || '',
   };
 }
@@ -959,7 +959,7 @@ async function runHostProcessInner(
     contextWindow: modelRuntime.contextWindow,
     modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
-    gatewayBaseUrl: GATEWAY_BASE_URL,
+    gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
     gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
