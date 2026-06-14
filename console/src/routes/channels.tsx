@@ -537,6 +537,7 @@ function WhatsAppChannelEditor(props: {
   form: UseFormControllerReturn<AdminConfig>;
   linked: boolean;
   pairingQrText: string | null;
+  pairingError: string | null;
 }) {
   return (
     <>
@@ -618,7 +619,7 @@ function WhatsAppChannelEditor(props: {
             </pre>
           ) : (
             <p className="muted-copy">
-              Waiting for a fresh QR from the gateway.
+              {props.pairingError || 'Waiting for a fresh QR from the gateway.'}
             </p>
           )}
         </div>
@@ -2742,6 +2743,7 @@ function renderSelectedEditor(
   whatsappStatus: {
     linked: boolean;
     pairingQrText: string | null;
+    pairingError: string | null;
   },
   signalStatus: {
     cliAvailable: boolean;
@@ -2770,6 +2772,7 @@ function renderSelectedEditor(
           form={form}
           linked={whatsappStatus.linked}
           pairingQrText={whatsappStatus.pairingQrText}
+          pairingError={whatsappStatus.pairingError}
         />
       );
     case 'slack':
@@ -2937,12 +2940,30 @@ export function ChannelsPage() {
     const firstCatalogEntry = catalog[0];
     if (!firstCatalogEntry) return;
     setSelectedKind((current) => {
+      if (
+        window.location.hash === '#whatsapp' &&
+        catalog.some((entry) => entry.kind === 'whatsapp')
+      ) {
+        return 'whatsapp';
+      }
       if (current && catalog.some((entry) => entry.kind === current)) {
         return current;
       }
       return firstCatalogEntry.kind;
     });
   }, [catalog]);
+
+  useEffect(() => {
+    if (selectedKind !== 'whatsapp' || window.location.hash !== '#whatsapp') {
+      return;
+    }
+    window.setTimeout(() => {
+      const target = document.getElementById('whatsapp');
+      if (typeof target?.scrollIntoView === 'function') {
+        target.scrollIntoView({ block: 'start' });
+      }
+    }, 0);
+  }, [selectedKind]);
 
   // Clear any prior save success/error state as soon as the user resumes
   // editing, so a stale toast or button label doesn't follow them around.
@@ -2999,6 +3020,7 @@ export function ChannelsPage() {
   const whatsappStatus = {
     linked: statusQuery.data?.whatsapp?.linked ?? false,
     pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
+    pairingError: statusQuery.data?.whatsapp?.pairingError ?? null,
   };
   const signalStatus = {
     cliAvailable: statusQuery.data?.signal?.cliAvailable ?? false,
@@ -3044,7 +3066,10 @@ export function ChannelsPage() {
         </Card>
 
         <Form form={form} onSubmit={() => saveMutation.mutate(draft)}>
-          <Card variant="muted">
+          <Card
+            id={selectedChannel?.kind === 'whatsapp' ? 'whatsapp' : undefined}
+            variant="muted"
+          >
             <CardHeader>
               <CardTitle>
                 {selectedChannel

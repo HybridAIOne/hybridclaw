@@ -4483,6 +4483,7 @@ export async function getGatewayStatus(
       ...whatsappAuth,
       pairingQrText: whatsappPairing.pairingQrText,
       pairingUpdatedAt: whatsappPairing.updatedAt,
+      pairingError: whatsappPairing.error,
     },
     providerHealth,
     localBackends,

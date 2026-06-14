@@ -232,6 +232,15 @@ describe('workspace bootstrap lifecycle', () => {
     expect(fs.readFileSync(taskIdeasPath, 'utf-8')).toContain(
       '# Hatching Task Ideas',
     );
+    const userPath = path.join(workspaceDir, 'USER.md');
+    expect(fs.readFileSync(userPath, 'utf-8')).toContain('## Helpful Links');
+    expect(fs.readFileSync(userPath, 'utf-8')).toContain(
+      '- **WhatsApp channel setup:**',
+    );
+    const bootstrapPath = path.join(workspaceDir, 'BOOTSTRAP.md');
+    expect(fs.readFileSync(bootstrapPath, 'utf-8')).toContain(
+      'Use the exact URLs',
+    );
 
     const files = workspace.loadBootstrapFiles('agent-test');
     expect(files.some((file) => file.name === 'TASK_IDEAS.md')).toBe(true);

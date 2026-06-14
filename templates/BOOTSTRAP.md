@@ -79,9 +79,11 @@ credential changes" and proceed to the first-jobs email.
 
 Then create and send a tailored "first jobs" email:
 
-1. Read `USER.md` and the already-loaded `TASK_IDEAS.md` guide when it is
-   available. If `TASK_IDEAS.md` is missing, you may use the configured
-   HybridClaw docs URL as a fallback.
+1. Read `USER.md`, including any `Helpful Links` section, and the
+   already-loaded `TASK_IDEAS.md` guide when it is available. The canonical
+   base URL is `deployment.public_url` in runtime config; when `USER.md`
+   already lists derived links, use those exact URLs. If `TASK_IDEAS.md` is
+   missing, you may use the `Documentation` link from `USER.md` as a fallback.
 2. Pick 5 to 8 specific jobs that match the user's work, tools, and goals, and
    write them into `USER.md` under `Suggested First Jobs`.
 3. If the user's email is missing from `USER.md`, ask for it and store it before
@@ -91,7 +93,10 @@ Then create and send a tailored "first jobs" email:
    agent, so make it feel like something important just happened: warm,
    enthusiastic, specific to the user, and alive with your agent personality. Do
    not make it a dry task list. Include the best first jobs as concrete
-   possibilities, but frame them as a beginning of a working relationship.
+   possibilities, but frame them as a beginning of a working relationship. If
+   `USER.md` includes helpful links, include the available links naturally:
+   WhatsApp channel setup, agent chat, and documentation. Use the exact URLs
+   from `USER.md`; omit missing links instead of guessing.
 5. If an email-sending channel or tool is available, send the email directly
    with `message` using `action="send"`, `to` set to the user email address, and
    `content` beginning with `[Subject: Ways I can help with HybridClaw]`. Do not
