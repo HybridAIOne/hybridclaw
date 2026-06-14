@@ -11,11 +11,11 @@
     "build:icon": "node scripts/build-icon.mjs",
     "build:runtime": "node scripts/prepare-runtime.mjs",
     "build": "npm run build:icon && npm run build:runtime && tsc --project tsconfig.json",
-    "build:dmg": "node scripts/run-build-dmg.mjs",
+    "build:dmg": "electron-builder --mac dmg",
     "start": "node scripts/start-dev.mjs",
     "test": "vitest run --configLoader runner --config vitest.config.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json",
-    "dist:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir zip && npm run build:dmg",
+    "dist:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir zip dmg",
     "pack:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir",
     "dist:linux": "npm run build:icon && npm run build:runtime && electron-builder --linux AppImage deb",
     "pack:linux": "npm run build:icon && npm run build:runtime && electron-builder --linux dir"
