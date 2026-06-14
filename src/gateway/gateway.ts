@@ -1920,9 +1920,12 @@ async function startEmailIntegration(): Promise<boolean> {
     logger.info('Email integration disabled: email.enabled=false');
     return false;
   }
-  const hasAccountList = emailConfig.accounts.length > 0;
+  const emailAccounts = Array.isArray(emailConfig.accounts)
+    ? emailConfig.accounts
+    : [];
+  const hasAccountList = emailAccounts.length > 0;
   const hasConfiguredAccount = hasAccountList
-    ? emailConfig.accounts.some((account) => account.address.trim())
+    ? emailAccounts.some((account) => account.address.trim())
     : Boolean(emailConfig.address.trim());
   if (!hasConfiguredAccount) {
     logger.info('Email integration disabled: no email account configured');
