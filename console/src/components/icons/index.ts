@@ -23,6 +23,7 @@ export { Jobs } from './Jobs';
 export { Lightbulb } from './Lightbulb';
 export { Local } from './Local';
 export { LogOut } from './LogOut';
+export { Logs } from './Logs';
 export { Menu } from './Menu';
 export { Minus } from './Minus';
 export { Models } from './Models';

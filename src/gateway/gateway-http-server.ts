@@ -186,6 +186,7 @@ import {
   readRequestBody,
   sendJson,
 } from './gateway-http-utils.js';
+import { getGatewayAdminLogs } from './gateway-log-service.js';
 import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
@@ -3932,6 +3933,26 @@ function handleApiConfigReload(res: ServerResponse): void {
   });
 }
 
+async function handleApiAdminLogs(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  try {
+    sendJson(
+      res,
+      200,
+      await getGatewayAdminLogs({
+        fileId: url.searchParams.get('file'),
+        tailBytes: url.searchParams.get('tailBytes'),
+      }),
+    );
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
 }
@@ -6936,6 +6957,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/statistics' && method === 'GET') {
             handleApiAdminStatistics(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/logs' && method === 'GET') {
+            await handleApiAdminLogs(res, url);
             return;
           }
           if (

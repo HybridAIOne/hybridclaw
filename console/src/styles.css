@@ -1490,9 +1490,14 @@ th {
 }
 
 .whatsapp-pairing-qr {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 70vh;
   margin: 0;
   padding: 16px;
-  overflow-x: auto;
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: #fff;
@@ -1500,8 +1505,31 @@ th {
   font-family:
     ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
-  font-size: 0.68rem;
-  line-height: 1;
+  font-size: 0.52rem;
+  line-height: 0.92;
+  white-space: pre;
+}
+
+.logs-layout {
+  align-items: start;
+}
+
+.log-viewer {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 62vh;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg);
+  color: var(--text);
+  font-family:
+    ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
   white-space: pre;
 }
 

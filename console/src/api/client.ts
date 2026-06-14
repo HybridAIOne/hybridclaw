@@ -48,6 +48,7 @@ import type {
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
   AdminLanHttpAccessMode,
+  AdminLogsResponse,
   AdminMcpConfig,
   AdminMcpResponse,
   AdminModelsResponse,
@@ -339,6 +340,20 @@ export function fetchStatistics(
       : '';
   return requestJson<AdminStatisticsResponse>(
     `/api/admin/statistics${search}`,
+    { token },
+  );
+}
+
+export function fetchAdminLogs(
+  token: string,
+  params?: { fileId?: string | null; tailBytes?: number },
+): Promise<AdminLogsResponse> {
+  const query = new URLSearchParams();
+  if (params?.fileId) query.set('file', params.fileId);
+  if (params?.tailBytes) query.set('tailBytes', String(params.tailBytes));
+  const suffix = query.toString();
+  return requestJson<AdminLogsResponse>(
+    suffix ? `/api/admin/logs?${suffix}` : '/api/admin/logs',
     { token },
   );
 }
