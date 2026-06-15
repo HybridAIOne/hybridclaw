@@ -38,6 +38,7 @@ import {
   type Actor,
   ActorValidationError,
   actorFromLegacyFields,
+  createUserActor,
   normalizeActor,
 } from '../identity/actor.js';
 import {
@@ -10496,7 +10497,7 @@ function readPayloadActorFromLegacyFields(
     return actorFromLegacyFields({ userId, agentId });
   }
   if (userId) {
-    return { type: 'user', id: formatLocalOwnerUserId(userId) };
+    return createUserActor(formatLocalOwnerUserId(userId));
   }
   if (agentId) {
     return actorFromLegacyFields({ agentId });
