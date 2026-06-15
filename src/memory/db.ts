@@ -10480,14 +10480,28 @@ function readPayloadActor(
   }
 
   try {
-    return actorFromLegacyFields({
-      userId: readPayloadStringValue(payload, 'userId'),
-      agentId: readPayloadStringValue(payload, 'agentId'),
-    });
+    return readPayloadActorFromLegacyFields(payload);
   } catch (error) {
     warnInvalidAuditActor(error, options);
     return null;
   }
+}
+
+function readPayloadActorFromLegacyFields(
+  payload: Record<string, unknown>,
+): Actor | null {
+  const userId = readPayloadStringValue(payload, 'userId')?.trim() || '';
+  const agentId = readPayloadStringValue(payload, 'agentId')?.trim() || '';
+  if (userId && agentId) {
+    return actorFromLegacyFields({ userId, agentId });
+  }
+  if (userId) {
+    return { type: 'user', id: formatLocalOwnerUserId(userId) };
+  }
+  if (agentId) {
+    return actorFromLegacyFields({ agentId });
+  }
+  return null;
 }
 
 function readAuditActorFromPayloadText(payloadText: string): Actor | null {
