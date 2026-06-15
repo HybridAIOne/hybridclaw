@@ -1519,6 +1519,12 @@ th {
   font-weight: 700;
 }
 
+.email-default-agent-target {
+  margin-left: 8px;
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
 .email-account-row {
   padding: 14px;
   border: 1px solid var(--line);

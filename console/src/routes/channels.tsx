@@ -37,6 +37,7 @@ import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { useFormMutation } from '../hooks/use-form-mutation';
+import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
 import {
@@ -138,6 +139,12 @@ function setEmailAccountPasswordRefId(
 
 function formatAgentOptionLabel(agent: AdminAgent): string {
   return agent.name ? `${agent.name} (${agent.id})` : agent.id;
+}
+
+function formatDefaultEmailAgentLabel(agents: AdminAgent[]): string {
+  const defaultAgent = agents.find((agent) => agent.id === DEFAULT_AGENT_ID);
+  if (defaultAgent) return formatAgentOptionLabel(defaultAgent);
+  return `Main Agent (${DEFAULT_AGENT_ID})`;
 }
 
 function createEmailAccountKey(): string {
@@ -1540,7 +1547,12 @@ function EmailChannelEditor(props: {
       ) : null}
 
       <div className="email-account-section-header">
-        <h4>Default agent mailbox</h4>
+        <h4>
+          Default agent mailbox:
+          <span className="email-default-agent-target">
+            {formatDefaultEmailAgentLabel(props.agents)}
+          </span>
+        </h4>
       </div>
 
       <div className="field-grid">

@@ -474,6 +474,26 @@ describe('ChannelsPage', () => {
     );
   });
 
+  it('shows the target agent for the default email mailbox', async () => {
+    const config = makeConfig();
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    fetchAdminAgentsMock.mockResolvedValue([
+      makeAgent({ id: 'main', name: 'Main Agent' }),
+    ]);
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Email/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /Email/i }));
+
+    screen.getByText(/Default agent mailbox:/);
+    screen.getByText('Main Agent (main)');
+  });
+
   it('saves agent mailbox mappings through the email channel editor', async () => {
     const config = makeConfig();
     fetchConfigMock.mockResolvedValue({
