@@ -435,6 +435,9 @@ describe('MessageBlock artifacts', () => {
     );
 
     expect(renderMarkdownMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('status', { name: 'Assistant is thinking' }),
+    ).not.toBeNull();
     expect(container.querySelectorAll('span')).toHaveLength(3);
   });
 

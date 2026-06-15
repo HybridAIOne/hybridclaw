@@ -11,7 +11,6 @@ import type {
 import { buildApprovalSummary, nextMsgId } from '../../lib/chat-helpers';
 import { requestChatStream } from '../../lib/chat-stream';
 import { getErrorMessage } from '../../lib/error-message';
-import { addAgentAttribution } from './agent-mention-display';
 import {
   type ChatHistoryUiData,
   chatHistoryQueryKey,
@@ -40,6 +39,16 @@ interface UseChatStreamOptions {
   resolveAddressedAgentPresentation?: (
     content: string,
   ) => AssistantPresentation | null;
+}
+
+function mutatesAgentList(content: string): boolean {
+  const parts = content.trim().split(/\s+/);
+  const command = parts[0]?.replace(/^\/+/, '').toLowerCase();
+  const subcommand = parts[1]?.toLowerCase();
+  return (
+    (command === 'agent' || command === 'agents') &&
+    (subcommand === 'create' || subcommand === 'install')
+  );
 }
 
 export interface UseChatStreamReturn {
@@ -317,7 +326,6 @@ export function useChatStream(
             if (userMsgId && m.id === userMsgId && m.role === 'user') {
               return {
                 ...m,
-                content: addAgentAttribution(m.content, addressedAgentId),
                 addressedAgentPresentation: addressedAgentId
                   ? (result.assistantPresentation ?? null)
                   : null,
@@ -346,6 +354,11 @@ export function useChatStream(
         });
 
         refreshRecent();
+        if (finalRole === 'command' && mutatesAgentList(content)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['agents-list', token],
+          });
+        }
       } catch (err) {
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
         const errorText = getErrorMessage(err);
@@ -379,6 +392,7 @@ export function useChatStream(
       onSessionIdCorrection,
       onModelResolved,
       resolveAddressedAgentPresentation,
+      queryClient,
       setError,
       refreshRecent,
     ],

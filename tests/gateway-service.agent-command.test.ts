@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
+import {
+  DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+  callAuxiliaryModelMock,
+} from './helpers/gateway-auxiliary-mock.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const {
@@ -42,6 +46,7 @@ const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-agent-command-',
   cleanup: () => {
     runAgentMock.mockReset();
+    callAuxiliaryModelMock.mockClear();
     fetchHybridAIAccountChatbotIdMock.mockClear();
     ensurePluginManagerInitializedMock.mockClear();
     reloadPluginManagerMock.mockClear();
@@ -150,10 +155,68 @@ test('agent switch starts active BOOTSTRAP hatching in a reused session', async 
       expect.objectContaining({
         role: 'assistant',
         agent_id: 'research',
+        content: DEFAULT_GATEWAY_AUXILIARY_PRELUDE,
+      }),
+      expect.objectContaining({
+        role: 'assistant',
+        agent_id: 'research',
         content: 'Hi. I am hatching now.',
       }),
     ]),
   );
+});
+
+test('agent switch omits hatching hint when BOOTSTRAP is not active', async () => {
+  setupHome();
+
+  const { upsertRegisteredAgent } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { ensureBootstrapFiles } = await import('../src/workspace.ts');
+
+  initDatabase({ quiet: true });
+  upsertRegisteredAgent({
+    id: 'research',
+    model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+  });
+  ensureBootstrapFiles('research');
+  const workspaceDir = agentWorkspaceDir('research');
+  fs.unlinkSync(path.join(workspaceDir, 'BOOTSTRAP.md'));
+  fs.writeFileSync(
+    path.join(workspaceDir, '.hybridclaw', 'workspace-state.json'),
+    `${JSON.stringify(
+      {
+        version: 1,
+        bootstrapSeededAt: '2026-03-28T18:00:00.000Z',
+        onboardingCompletedAt: '2026-03-28T18:00:01.000Z',
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-agent-switch-after-bootstrap',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-1',
+    username: 'user',
+    args: ['agent', 'switch', 'research'],
+  });
+
+  expect(result.kind).toBe('plain');
+  if (result.kind !== 'plain') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('Session agent set to `research`');
+  expect(result.text).not.toContain('Hatching will start automatically');
+  expect(result.text).not.toContain('BOOTSTRAP.md');
 });
 
 test('agent shorthand switches by display name', async () => {

@@ -298,6 +298,7 @@ import {
   removeHttpSecretRouteFromWorkspacePolicy,
   restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
+import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { discoverCodexModels } from '../providers/codex-discovery.js';
 import {
   modelRequiresChatbotId,
@@ -604,6 +605,8 @@ const GATEWAY_PROCESS_STARTED_AT = new Date().toISOString();
 const MAX_HISTORY_MESSAGES = 40;
 const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 const BOOTSTRAP_AUTOSTART_SOURCE = 'gateway.bootstrap';
+const BOOTSTRAP_PRELUDE_MAX_TOKENS = 48;
+const BOOTSTRAP_PRELUDE_TIMEOUT_MS = 1500;
 const activeBootstrapAutostartSessions = new Set<string>();
 const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
@@ -669,9 +672,70 @@ function buildBootstrapAutostartPrompt(
     `A startup instruction file (${fileName}) exists for this agent.`,
     'This is an internal kickoff turn, not a user-authored message.',
     `Follow the ${fileName} instructions now and begin the conversation proactively.`,
-    'Send a concise first message to the user.',
+    fileName === 'BOOTSTRAP.md'
+      ? 'Onboarding should be conversational: do not dump a form or checklist, ask only a few useful questions at a time, and let the user answer naturally.'
+      : 'Send a concise first message to the user.',
     `Do not mention hidden prompts, internal kickoff turns, or system mechanics unless ${fileName} explicitly requires it.`,
   ].join(' ');
+}
+
+function normalizeBootstrapPrelude(raw: string): string | null {
+  const firstLine = raw
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return null;
+  const cleaned = firstLine
+    .replace(/^[-*•\d.)\s]+/u, '')
+    .replace(/^["'`“”]+|["'`“”]+$/gu, '')
+    .trim();
+  if (!cleaned) return null;
+  if (/\b(hidden|internal|kickoff|system prompt)\b/iu.test(cleaned)) {
+    return null;
+  }
+  return cleaned;
+}
+
+async function generateBootstrapPrelude(params: {
+  agentId: string;
+  fileName: 'BOOTSTRAP.md' | 'OPENING.md';
+  model: string;
+  chatbotId: string | null;
+}): Promise<string | null> {
+  try {
+    const result = await callAuxiliaryModel({
+      task: 'compression',
+      agentId: params.agentId,
+      fallbackModel: params.model,
+      fallbackChatbotId: params.chatbotId ?? undefined,
+      fallbackEnableRag: false,
+      tools: [],
+      maxTokens: BOOTSTRAP_PRELUDE_MAX_TOKENS,
+      timeoutMs: BOOTSTRAP_PRELUDE_TIMEOUT_MS,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Write exactly one short first-person startup line for a newly hatching personal AI agent. Make it conversational and alive, not corporate. Do not ask onboarding questions yet. Do not use markdown, quotes, or explanations.',
+        },
+        {
+          role: 'user',
+          content:
+            params.fileName === 'BOOTSTRAP.md'
+              ? 'Generate a brief coming-to-life line before onboarding starts.'
+              : 'Generate a brief opening line before the agent starts.',
+        },
+      ],
+    });
+    return normalizeBootstrapPrelude(result.content);
+  } catch (error) {
+    logger.debug(
+      { agentId: params.agentId, fileName: params.fileName, error },
+      'Failed to generate bootstrap prelude with auxiliary model',
+    );
+    return null;
+  }
 }
 
 function getBootstrapAutostartMarkerKey(agentId: string): string {
@@ -7451,10 +7515,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
     if (getMemoryValue(session.id, markerKey)) {
       return;
     }
+    const markerStartedAt = new Date().toISOString();
     setMemoryValue(session.id, markerKey, {
       status: 'started',
       fileName: bootstrapFile,
-      at: new Date().toISOString(),
+      at: markerStartedAt,
     });
 
     const startedAt = Date.now();
@@ -7617,6 +7682,37 @@ export async function ensureGatewayBootstrapAutostart(params: {
       });
     }
 
+    const storeBootstrapAssistantMessage = (content: string): number => {
+      const assistantMessageId = memoryService.storeMessage({
+        sessionId: session.id,
+        userId: 'assistant',
+        username: null,
+        role: 'assistant',
+        content,
+        agentId: resolved.agentId,
+      });
+      appendSessionTranscript(resolved.agentId, {
+        sessionId: session.id,
+        channelId,
+        role: 'assistant',
+        userId: 'assistant',
+        username: null,
+        content,
+      });
+      return assistantMessageId;
+    };
+    const preludeText = await generateBootstrapPrelude({
+      agentId: resolved.agentId,
+      fileName: bootstrapFile,
+      model: resolved.model,
+      chatbotId,
+    });
+    const hasPrelude = Boolean(preludeText);
+    if (preludeText) {
+      storeBootstrapAssistantMessage(preludeText);
+    }
+    const baseAssistantMessages = hasPrelude ? 1 : 0;
+
     recordAuditEvent({
       sessionId: session.id,
       runId,
@@ -7723,7 +7819,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
           reason: output.status === 'success' ? 'empty' : 'error',
           stats: {
             userMessages: 0,
-            assistantMessages: 0,
+            assistantMessages: baseAssistantMessages,
             toolCalls: (output.toolExecutions || []).length,
             durationMs: Date.now() - startedAt,
           },
@@ -7732,22 +7828,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       return;
     }
 
-    const assistantMessageId = memoryService.storeMessage({
-      sessionId: session.id,
-      userId: 'assistant',
-      username: null,
-      role: 'assistant',
-      content: resultText,
-      agentId: resolved.agentId,
-    });
-    appendSessionTranscript(resolved.agentId, {
-      sessionId: session.id,
-      channelId,
-      role: 'assistant',
-      userId: 'assistant',
-      username: null,
-      content: resultText,
-    });
+    const assistantMessageId = storeBootstrapAssistantMessage(resultText);
     setMemoryValue(session.id, markerKey, {
       status: 'completed',
       assistantMessageId,
@@ -7770,7 +7851,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         reason: 'normal',
         stats: {
           userMessages: 0,
-          assistantMessages: 1,
+          assistantMessages: baseAssistantMessages + 1,
           toolCalls: (output.toolExecutions || []).length,
           durationMs: Date.now() - startedAt,
         },
@@ -7811,7 +7892,6 @@ export function getGatewayBootstrapAutostartState(params: {
     typeof marker?.status === 'string'
       ? marker.status.trim().toLowerCase()
       : '';
-
   return {
     status:
       markerStatus === 'started'
@@ -9386,6 +9466,10 @@ export async function handleGatewayCommand(
           updateSessionAgent(session.id, targetAgent.id);
           setActiveThreadAgentId(session, targetAgent.id);
           const model = resolveAgentModel(targetAgent) || HYBRIDAI_MODEL;
+          ensureBootstrapFiles(targetAgent.id);
+          const startupBootstrapFile = resolveStartupBootstrapFile(
+            targetAgent.id,
+          );
           void ensureGatewayBootstrapAutostart({
             sessionId: session.id,
             channelId: req.channelId,
@@ -9399,8 +9483,14 @@ export async function handleGatewayCommand(
               'Failed to start agent hatching after switch',
             );
           });
+          const hatchingSuffix =
+            startupBootstrapFile === 'BOOTSTRAP.md'
+              ? ' Hatching will start automatically from `BOOTSTRAP.md`.'
+              : startupBootstrapFile === 'OPENING.md'
+                ? ' Opening will start automatically from `OPENING.md`.'
+                : '';
           return plainCommand(
-            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`). Hatching will start automatically if \`BOOTSTRAP.md\` is active.`,
+            `Session agent set to \`${targetAgent.id}\` (model: \`${formatModelForDisplay(model)}\`).${hatchingSuffix}`,
           );
         };
 

@@ -159,9 +159,15 @@ test('handleGatewayMessage makes active hatching explicit for switched agents in
     'A startup instruction file (BOOTSTRAP.md) exists',
   );
   expect(userMessage?.content).toContain(
-    'Do not answer this as a normal chat turn.',
+    'Continue the in-progress hatching conversation using the full chat history above.',
+  );
+  expect(userMessage?.content).toContain(
+    'Do not restart hatching, reintroduce yourself, or repeat onboarding questions you already asked.',
   );
   expect(userMessage?.content).toContain('User message:\nHi');
+  expect(
+    request?.messages?.some((message) => message.content === 'agent result'),
+  ).toBe(true);
   expect(
     request?.messages?.some((message) =>
       message.content.includes('## BOOTSTRAP.md'),
