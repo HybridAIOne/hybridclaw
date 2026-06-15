@@ -1,13 +1,12 @@
 import {
+  CodexAuthError,
   type CodexResolvedCredentials,
-  getCodexAuthStatus,
   resolveCodexCredentials,
 } from '../auth/codex-auth.js';
 import { logger } from '../logger.js';
 import { CODEX_CLIENT_VERSION } from './codex-constants.js';
 import {
   createDiscoveryStore,
-  discoveryStoreStateUpdate,
   isRecord,
   normalizeBaseUrl,
   readPositiveInteger,
@@ -143,21 +142,14 @@ function createHttpStatusError(status: number): Error & { httpStatus: number } {
   return err;
 }
 
-function readHttpStatus(error: unknown): number | null {
-  const status = (error as { httpStatus?: unknown } | null)?.httpStatus;
-  return typeof status === 'number' && Number.isFinite(status) ? status : null;
-}
-
 function isCodexReloginError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.name === 'CodexAuthError' &&
-    (error as { reloginRequired?: unknown }).reloginRequired === true
-  );
+  return error instanceof CodexAuthError && error.reloginRequired;
 }
 
 function isCodexAuthDiscoveryFailure(error: unknown): boolean {
-  const httpStatus = readHttpStatus(error);
+  const status = (error as { httpStatus?: unknown } | null)?.httpStatus;
+  const httpStatus =
+    typeof status === 'number' && Number.isFinite(status) ? status : null;
   return httpStatus === 401 || httpStatus === 403 || isCodexReloginError(error);
 }
 
@@ -231,18 +223,6 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
-    const auth = getCodexAuthStatus();
-    if (!auth.authenticated || auth.reloginRequired) {
-      try {
-        await resolveCodexCredentials({ allowCodexCliImportFallback: true });
-      } catch {
-        discoveryStore.replaceState(buildEmptyCodexDiscoveryState(), {
-          skipCache: true,
-        });
-        return [];
-      }
-    }
-
     const state = await discoveryStore.discover(fetchCodexModelsWithAuthRetry, {
       force: opts?.force,
       onError: (err, staleState) => {
@@ -251,9 +231,11 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
             { err },
             'Codex model discovery skipped because credentials were rejected',
           );
-          return discoveryStoreStateUpdate(buildEmptyCodexDiscoveryState(), {
+          return {
+            _tag: 'update',
+            state: buildEmptyCodexDiscoveryState(),
             skipCache: true,
-          });
+          };
         }
         logger.warn({ err }, 'Codex model discovery failed');
         return staleState;

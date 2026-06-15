@@ -1,9 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
-import {
-  createDiscoveryStore,
-  discoveryStoreStateUpdate,
-} from '../src/providers/utils.js';
+import { createDiscoveryStore } from '../src/providers/utils.js';
 
 test('discovery store caches error fallbacks until the TTL expires', async () => {
   vi.useFakeTimers();
@@ -43,15 +40,14 @@ test('discovery store can skip caching an error fallback', async () => {
   const fetchFreshState = vi.fn(async () => {
     throw new Error('provider unavailable');
   });
-  const onError = vi.fn((_err: unknown, staleState: { models: string[] }) =>
-    discoveryStoreStateUpdate(
-      {
-        ...staleState,
-        models: ['uncached-fallback'],
-      },
-      { skipCache: true },
-    ),
-  );
+  const onError = vi.fn((_err: unknown, staleState: { models: string[] }) => ({
+    _tag: 'update' as const,
+    state: {
+      ...staleState,
+      models: ['uncached-fallback'],
+    },
+    skipCache: true,
+  }));
 
   await expect(store.discover(fetchFreshState, { onError })).resolves.toEqual({
     models: ['uncached-fallback'],

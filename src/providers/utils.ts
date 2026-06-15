@@ -21,34 +21,21 @@ export function formatUnknownError(error: unknown): string {
     : String(error);
 }
 
-const DISCOVERY_STORE_STATE_UPDATE = Symbol('discoveryStoreStateUpdate');
-
-export interface DiscoveryStoreStateUpdate<T> {
-  readonly [DISCOVERY_STORE_STATE_UPDATE]: true;
-  readonly state: T;
-  readonly skipCache?: boolean;
+interface DiscoveryStoreStateUpdate<T> {
+  _tag: 'update';
+  state: T;
+  skipCache?: boolean;
 }
 
-export function discoveryStoreStateUpdate<T>(
-  state: T,
-  opts?: { skipCache?: boolean },
-): DiscoveryStoreStateUpdate<T> {
-  return {
-    [DISCOVERY_STORE_STATE_UPDATE]: true,
-    state,
-    ...(opts?.skipCache ? { skipCache: true } : {}),
-  };
-}
+type DiscoveryStoreOnErrorResult<T> = T | DiscoveryStoreStateUpdate<T>;
 
 function isDiscoveryStoreStateUpdate<T>(
-  value: T | DiscoveryStoreStateUpdate<T>,
+  value: DiscoveryStoreOnErrorResult<T>,
 ): value is DiscoveryStoreStateUpdate<T> {
   return (
     typeof value === 'object' &&
     value !== null &&
-    (value as { [DISCOVERY_STORE_STATE_UPDATE]?: unknown })[
-      DISCOVERY_STORE_STATE_UPDATE
-    ] === true
+    (value as { _tag?: unknown })._tag === 'update'
   );
 }
 
@@ -70,9 +57,8 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
         err: unknown,
         staleState: T,
       ) =>
-        | T
-        | DiscoveryStoreStateUpdate<T>
-        | Promise<T | DiscoveryStoreStateUpdate<T>>;
+        | DiscoveryStoreOnErrorResult<T>
+        | Promise<DiscoveryStoreOnErrorResult<T>>;
     },
   ): Promise<T> => {
     if (

@@ -1236,8 +1236,10 @@ export async function loginWithBrowserPkce(): Promise<{
 
 function resolveCodexCliAuthPath(): string {
   const codexHome = (process.env.CODEX_HOME || '').trim();
-  const baseDir = codexHome || path.join(os.homedir(), '.codex');
-  return path.join(baseDir, 'auth.json');
+  const baseDir = codexHome
+    ? path.resolve(codexHome)
+    : path.join(os.homedir(), '.codex');
+  return path.resolve(baseDir, 'auth.json');
 }
 
 function readImportedTokenData(filePath: string): {
@@ -1359,11 +1361,20 @@ function saveImportedCodexCliCredentials(
   path: string;
   importedFrom: string;
 } {
+  const expiresAt = extractExpiresAtFromJwt(imported.accessToken);
+  if (expiresAt <= Date.now()) {
+    throw new CodexAuthError(
+      'codex_auth_missing_access_token',
+      `Codex CLI credentials at ${importPath} have already expired.`,
+      { reloginRequired: true },
+    );
+  }
+
   const credentials: CodexStoredCredentials = {
     accessToken: imported.accessToken,
     refreshToken: imported.refreshToken,
     accountId: imported.accountId,
-    expiresAt: extractExpiresAtFromJwt(imported.accessToken),
+    expiresAt,
     provider: CODEX_AUTH_PROVIDER,
     authMethod: CODEX_AUTH_METHOD,
     source: 'codex-cli-import',
@@ -1373,7 +1384,7 @@ function saveImportedCodexCliCredentials(
   return { credentials, path: filePath, importedFrom: importPath };
 }
 
-export function importCodexCliCredentialsFromStore(): {
+function importCodexCliCredentialsFromStore(): {
   credentials: CodexStoredCredentials;
   path: string;
   importedFrom: string;

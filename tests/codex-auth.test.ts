@@ -37,6 +37,32 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.sig`;
 }
 
+function writeCodexCliTokenAuthStore(
+  homeDir: string,
+  accessToken: string,
+  refreshToken = 'refresh_import',
+): string {
+  const codexHome = path.join(homeDir, 'codex-home');
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.writeFileSync(
+    path.join(codexHome, 'auth.json'),
+    `${JSON.stringify(
+      {
+        tokens: {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        },
+        last_refresh: '2026-03-06T12:00:00.000Z',
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+  process.env.CODEX_HOME = codexHome;
+  return codexHome;
+}
+
 async function importFreshCodexAuth(
   homeDir: string,
   options?: {
@@ -444,7 +470,6 @@ describe('codex auth refresh', () => {
 
   it('falls back to Codex CLI credentials when forced refresh requires relogin', async () => {
     const homeDir = makeTempHome();
-    const codexHome = path.join(homeDir, 'codex-home');
     const staleToken = makeJwt({
       exp: Math.floor(Date.now() / 1000) + 3_600,
       chatgpt_account_id: 'acct_stale',
@@ -453,24 +478,7 @@ describe('codex auth refresh', () => {
       exp: Math.floor(Date.now() / 1000) + 7_200,
       chatgpt_account_id: 'acct_import',
     });
-
-    fs.mkdirSync(codexHome, { recursive: true });
-    fs.writeFileSync(
-      path.join(codexHome, 'auth.json'),
-      `${JSON.stringify(
-        {
-          tokens: {
-            access_token: importedToken,
-            refresh_token: 'refresh_import',
-          },
-          last_refresh: '2026-03-06T12:00:00.000Z',
-        },
-        null,
-        2,
-      )}\n`,
-      'utf-8',
-    );
-    process.env.CODEX_HOME = codexHome;
+    writeCodexCliTokenAuthStore(homeDir, importedToken);
 
     const codexAuth = await importFreshCodexAuth(homeDir);
     codexAuth.saveCodexAuthStore(
@@ -903,38 +911,44 @@ describe('codex auth CLI import', () => {
 
   it('imports credentials from the Codex CLI auth store without an interactive prompt', async () => {
     const homeDir = makeTempHome();
-    const codexHome = path.join(homeDir, 'codex-home');
     const accessToken = makeJwt({
       exp: Math.floor(Date.now() / 1000) + 3_600,
       chatgpt_account_id: 'acct_import',
     });
-
-    fs.mkdirSync(codexHome, { recursive: true });
-    fs.writeFileSync(
-      path.join(codexHome, 'auth.json'),
-      `${JSON.stringify(
-        {
-          tokens: {
-            access_token: accessToken,
-            refresh_token: 'refresh_import',
-          },
-          last_refresh: '2026-03-06T12:00:00.000Z',
-        },
-        null,
-        2,
-      )}\n`,
-      'utf-8',
-    );
-    process.env.CODEX_HOME = codexHome;
+    const codexHome = writeCodexCliTokenAuthStore(homeDir, accessToken);
 
     const codexAuth = await importFreshCodexAuth(homeDir);
-    const result = codexAuth.importCodexCliCredentialsFromStore();
+    const resolved = await codexAuth.resolveCodexCredentials({
+      allowCodexCliImportFallback: true,
+    });
     const stored = codexAuth.loadCodexAuthStore(homeDir);
 
-    expect(result.importedFrom).toBe(path.join(codexHome, 'auth.json'));
-    expect(result.credentials.source).toBe('codex-cli-import');
+    expect(resolved.accountId).toBe('acct_import');
+    expect(resolved.apiKey).toBe(accessToken);
     expect(stored.credentials?.accountId).toBe('acct_import');
     expect(stored.credentials?.source).toBe('codex-cli-import');
+    expect(fs.existsSync(path.join(codexHome, 'auth.json'))).toBe(true);
+  });
+
+  it('rejects expired credentials from the Codex CLI auth store', async () => {
+    const homeDir = makeTempHome();
+    const expiredToken = makeJwt({
+      exp: Math.floor(Date.now() / 1000) - 60,
+      chatgpt_account_id: 'acct_expired',
+    });
+    writeCodexCliTokenAuthStore(homeDir, expiredToken);
+
+    const codexAuth = await importFreshCodexAuth(homeDir);
+
+    await expect(
+      codexAuth.resolveCodexCredentials({
+        allowCodexCliImportFallback: true,
+      }),
+    ).rejects.toMatchObject({
+      code: 'codex_auth_missing_access_token',
+      reloginRequired: true,
+    });
+    expect(codexAuth.loadCodexAuthStore(homeDir).credentials).toBeNull();
   });
 });
 

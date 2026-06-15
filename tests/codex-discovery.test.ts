@@ -2,7 +2,21 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 async function importFreshDiscovery() {
   vi.resetModules();
+  class CodexAuthError extends Error {
+    reloginRequired: boolean;
+
+    constructor(
+      _code: string,
+      message: string,
+      options?: { reloginRequired?: boolean },
+    ) {
+      super(message);
+      this.name = 'CodexAuthError';
+      this.reloginRequired = options?.reloginRequired === true;
+    }
+  }
   vi.doMock('../src/auth/codex-auth.js', () => ({
+    CodexAuthError,
     getCodexAuthStatus: vi.fn(() => ({
       authenticated: true,
       reloginRequired: false,
@@ -88,7 +102,10 @@ describe('codex discovery', () => {
     const discovery = await importFreshDiscovery();
     const auth = await import('../src/auth/codex-auth.js');
     vi.mocked(auth.resolveCodexCredentials).mockImplementation(
-      async (opts?: { forceRefresh?: boolean }) => ({
+      async (opts?: {
+        allowCodexCliImportFallback?: boolean;
+        forceRefresh?: boolean;
+      }) => ({
         baseUrl: 'https://api.openai.com/v1',
         headers: {
           Authorization: opts?.forceRefresh
@@ -139,13 +156,16 @@ describe('codex discovery', () => {
 
     const discovery = await importFreshDiscovery();
     const auth = await import('../src/auth/codex-auth.js');
-    const reloginError = new Error('relogin required') as Error & {
-      reloginRequired: boolean;
-    };
-    reloginError.name = 'CodexAuthError';
-    reloginError.reloginRequired = true;
+    const reloginError = new auth.CodexAuthError(
+      'codex_refresh_failed',
+      'relogin required',
+      { reloginRequired: true },
+    );
     vi.mocked(auth.resolveCodexCredentials).mockImplementation(
-      async (opts?: { forceRefresh?: boolean }) => {
+      async (opts?: {
+        allowCodexCliImportFallback?: boolean;
+        forceRefresh?: boolean;
+      }) => {
         if (opts?.forceRefresh) throw reloginError;
         return {
           baseUrl: 'https://api.openai.com/v1',
