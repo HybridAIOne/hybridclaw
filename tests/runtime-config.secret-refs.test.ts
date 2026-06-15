@@ -207,6 +207,49 @@ describe('runtime config secret refs', () => {
     });
   });
 
+  test('preserves newly submitted email account password refs during config writes', async () => {
+    const homeDir = makeTempHome();
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    runtimeSecrets.saveRuntimeSecrets({
+      SUPPORT_EMAIL_PASSWORD: 'support-email-password',
+    });
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const email = config.email as Record<string, unknown>;
+      email.enabled = true;
+      email.imapHost = 'imap.example.com';
+      email.smtpHost = 'smtp.example.com';
+      email.accounts = [];
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    const next = runtimeConfig.getRuntimeConfig() as unknown as Record<
+      string,
+      unknown
+    >;
+    const email = next.email as Record<string, unknown>;
+    email.accounts = [
+      {
+        agentId: 'support',
+        address: 'support@example.com',
+        password: { source: 'store', id: 'SUPPORT_EMAIL_PASSWORD' },
+        folders: ['INBOX'],
+        allowFrom: ['customer@example.com'],
+      },
+    ];
+    runtimeConfig.saveRuntimeConfig(
+      next as unknown as Parameters<typeof runtimeConfig.saveRuntimeConfig>[0],
+    );
+
+    const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+    const saved = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      email?: { accounts?: Array<{ password?: unknown }> };
+    };
+    expect(saved.email?.accounts?.[0]?.password).toEqual({
+      source: 'store',
+      id: 'SUPPORT_EMAIL_PASSWORD',
+    });
+  });
+
   test('canonicalizes legacy browser cloud env refs to stored refs', async () => {
     const homeDir = makeTempHome();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

@@ -87,6 +87,11 @@ Optional tuning:
 
 ## Multiple Mailboxes And Agents
 
+In the web admin console, open **Channels > Email**, use **Add agent mailbox**,
+select the target agent, enter that mailbox address, and set the password
+SecretRef id for a secret stored in **Secrets**. The top-level IMAP/SMTP
+fields act as shared defaults; each agent mailbox row can override them.
+
 For separate mailbox credentials per agent, set `email.accounts`. When this
 array is present, HybridClaw polls those accounts instead of the single
 top-level `email.address` account. Each account can inherit shared IMAP/SMTP

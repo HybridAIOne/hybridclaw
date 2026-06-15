@@ -382,14 +382,36 @@ function describeEmail(
   options: ChannelCatalogOptions,
 ): ChannelCatalogItem {
   const passwordConfigured = options.emailPasswordConfigured === true;
+  const accounts = Array.isArray(config.email.accounts)
+    ? config.email.accounts
+    : [];
+  const configuredAccounts = accounts.filter(
+    (account) => account.address || account.agentId,
+  );
+  const activeAccount = accounts.some((account) => {
+    const password = account.password;
+    const passwordRefConfigured =
+      typeof password === 'string'
+        ? password.trim().length > 0
+        : Boolean(password?.id);
+    return (
+      passwordRefConfigured &&
+      !!account.agentId &&
+      !!account.address &&
+      !!account.imapHost &&
+      !!account.smtpHost
+    );
+  });
   const active =
     config.email.enabled &&
-    passwordConfigured &&
-    !!config.email.address &&
-    !!config.email.imapHost &&
-    !!config.email.smtpHost;
+    (activeAccount ||
+      (passwordConfigured &&
+        !!config.email.address &&
+        !!config.email.imapHost &&
+        !!config.email.smtpHost));
   const configured =
     active ||
+    configuredAccounts.length > 0 ||
     !!config.email.address ||
     !!config.email.imapHost ||
     !!config.email.smtpHost ||
@@ -403,7 +425,12 @@ function describeEmail(
   return {
     kind: 'email',
     label: 'Email',
-    summary: config.email.address || 'No mailbox address configured yet',
+    summary:
+      configuredAccounts.length > 0
+        ? `${configuredAccounts.length} agent mailbox${
+            configuredAccounts.length === 1 ? '' : 'es'
+          }`
+        : config.email.address || 'No mailbox address configured yet',
     statusTone,
     statusLabel:
       statusTone === 'active'

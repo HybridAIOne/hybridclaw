@@ -1,9 +1,14 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AdminConfig, AdminConfigResponse } from '../api/types';
+import type {
+  AdminAgent,
+  AdminConfig,
+  AdminConfigResponse,
+} from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { ChannelsPage } from './channels';
 
+const fetchAdminAgentsMock = vi.fn<() => Promise<AdminAgent[]>>();
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchEmailConfigMock = vi.fn();
 const fetchSignalLinkMock = vi.fn();
@@ -16,6 +21,7 @@ const validateTokenMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchAdminAgents: () => fetchAdminAgentsMock(),
   fetchConfig: () => fetchConfigMock(),
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
@@ -252,6 +258,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       allowFrom: ['ops@example.com'],
       textChunkLimit: 50000,
       mediaMaxMb: 20,
+      accounts: [],
     },
     container: {
       sandboxMode: 'container',
@@ -281,12 +288,33 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
   };
 }
 
+function makeAgent(overrides: Partial<AdminAgent> = {}): AdminAgent {
+  return {
+    id: 'main',
+    name: 'Main',
+    model: 'gpt-5',
+    skills: [],
+    chatbotId: null,
+    enableRag: true,
+    proxy: null,
+    role: null,
+    reportsTo: null,
+    delegatesTo: null,
+    peers: null,
+    workspace: null,
+    workspacePath: '/tmp/main-agent',
+    markdownFiles: [],
+    ...overrides,
+  };
+}
+
 function renderChannelsPage(): void {
   renderWithProviders(<ChannelsPage />);
 }
 
 describe('ChannelsPage', () => {
   beforeEach(() => {
+    fetchAdminAgentsMock.mockReset();
     fetchConfigMock.mockReset();
     fetchEmailConfigMock.mockReset();
     fetchSignalLinkMock.mockReset();
@@ -297,6 +325,7 @@ describe('ChannelsPage', () => {
     startSignalLinkMock.mockReset();
     validateTokenMock.mockReset();
     useAuthMock.mockReset();
+    fetchAdminAgentsMock.mockResolvedValue([]);
     const gatewayStatus = {
       hybridai: {
         apiKeyConfigured: false,
@@ -440,6 +469,71 @@ describe('ChannelsPage', () => {
       expect.objectContaining({
         email: expect.objectContaining({
           address: 'support@example.com',
+        }),
+      }),
+    );
+  });
+
+  it('saves agent mailbox mappings through the email channel editor', async () => {
+    const config = makeConfig();
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    fetchAdminAgentsMock.mockResolvedValue([
+      makeAgent({ id: 'support', name: 'Support Agent' }),
+    ]);
+    saveConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+
+    renderChannelsPage();
+
+    await screen.findByRole('button', { name: /Email/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /Email/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent mailbox' }));
+
+    await screen.findByRole('option', {
+      name: 'Support Agent (support)',
+    });
+
+    fireEvent.change(screen.getByLabelText('Agent'), {
+      target: { value: 'support' },
+    });
+    fireEvent.change(screen.getByLabelText('Mailbox address'), {
+      target: { value: 'support@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Password SecretRef id'), {
+      target: { value: 'SUPPORT_EMAIL_PASSWORD' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save channel settings' }),
+    );
+
+    await waitFor(() => {
+      expect(saveConfigMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      'test-token',
+      expect.objectContaining({
+        email: expect.objectContaining({
+          accounts: [
+            expect.objectContaining({
+              agentId: 'support',
+              address: 'support@example.com',
+              password: {
+                source: 'store',
+                id: 'SUPPORT_EMAIL_PASSWORD',
+              },
+              imapHost: 'imap.example.com',
+              smtpHost: 'smtp.example.com',
+              folders: ['INBOX'],
+              allowFrom: ['ops@example.com'],
+            }),
+          ],
         }),
       }),
     );

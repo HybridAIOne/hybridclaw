@@ -175,6 +175,7 @@ import {
 } from '../config/config.js';
 import {
   getRuntimeConfig,
+  getRuntimeConfigSourceSnapshot,
   isGoogleApisUrlPrefix,
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
@@ -5538,7 +5539,50 @@ function redactGatewayAdminConfigSecrets(config: RuntimeConfig): RuntimeConfig {
   for (const webhook of Object.values(redacted.discordWebhook.webhooks)) {
     webhook.webhookUrl = '';
   }
+  preserveGatewayAdminEmailAccountPasswordRefs(redacted);
   return redacted;
+}
+
+function preserveGatewayAdminEmailAccountPasswordRefs(config: RuntimeConfig) {
+  const source = getRuntimeConfigSourceSnapshot();
+  const sourceEmail =
+    source.email &&
+    typeof source.email === 'object' &&
+    !Array.isArray(source.email)
+      ? (source.email as Record<string, unknown>)
+      : null;
+  const sourceAccounts = Array.isArray(sourceEmail?.accounts)
+    ? sourceEmail.accounts
+    : [];
+  for (let index = 0; index < sourceAccounts.length; index += 1) {
+    const sourceAccount = sourceAccounts[index];
+    const password =
+      sourceAccount &&
+      typeof sourceAccount === 'object' &&
+      !Array.isArray(sourceAccount)
+        ? (sourceAccount as Record<string, unknown>).password
+        : null;
+    if (!isStoredSecretRef(password)) continue;
+    const account = config.email.accounts[index];
+    if (!account) continue;
+    (
+      account as unknown as {
+        password: { source: 'store'; id: string };
+      }
+    ).password = { source: 'store', id: password.id };
+  }
+}
+
+function isStoredSecretRef(
+  value: unknown,
+): value is { source: 'store'; id: string } {
+  return (
+    Boolean(value) &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    (value as { source?: unknown }).source === 'store' &&
+    typeof (value as { id?: unknown }).id === 'string'
+  );
 }
 
 export function getGatewayAdminConfig(): GatewayAdminConfigResponse {

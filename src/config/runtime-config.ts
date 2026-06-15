@@ -5292,6 +5292,55 @@ function preserveEmailAccountSecretInputs(
   }
 }
 
+function mergeSubmittedSecretInputs(
+  base: Record<string, unknown>,
+  submitted: unknown,
+): Record<string, unknown> {
+  const merged = cloneConfig(base);
+  if (!isRecord(submitted)) return merged;
+
+  for (const secretPath of SECRET_INPUT_PATHS) {
+    const submittedValue = getSecretInputFromSource(submitted, secretPath);
+    if (!isSecretRefInput(submittedValue)) continue;
+    setSecretInputOnSource(
+      merged,
+      secretPath,
+      cloneConfig(submittedValue) as SecretInput,
+    );
+  }
+
+  const submittedEmail = isRecord(submitted.email) ? submitted.email : null;
+  const submittedAccounts =
+    submittedEmail && Array.isArray(submittedEmail.accounts)
+      ? submittedEmail.accounts
+      : null;
+  if (!submittedAccounts) return merged;
+
+  const mergedEmail = isRecord(merged.email) ? merged.email : {};
+  merged.email = mergedEmail;
+  const mergedAccounts = Array.isArray(mergedEmail.accounts)
+    ? [...mergedEmail.accounts]
+    : [];
+  mergedEmail.accounts = mergedAccounts;
+
+  for (let index = 0; index < submittedAccounts.length; index += 1) {
+    const submittedAccount = submittedAccounts[index];
+    if (
+      !isRecord(submittedAccount) ||
+      !isSecretRefInput(submittedAccount.password)
+    ) {
+      continue;
+    }
+    const mergedAccount = isRecord(mergedAccounts[index])
+      ? { ...mergedAccounts[index] }
+      : {};
+    mergedAccount.password = cloneConfig(submittedAccount.password);
+    mergedAccounts[index] = mergedAccount;
+  }
+
+  return merged;
+}
+
 function resolveConfiguredSecretInput(
   value: unknown,
   opts: {
@@ -8564,6 +8613,10 @@ export function getRuntimeConfig(): RuntimeConfig {
   return cloneConfig(currentConfig);
 }
 
+export function getRuntimeConfigSourceSnapshot(): Record<string, unknown> {
+  return cloneConfig(currentConfigSource);
+}
+
 export function getRuntimeConfigLoadError(): RuntimeConfigLoadError | null {
   return currentConfigLoadError ? { ...currentConfigLoadError } : null;
 }
@@ -8645,12 +8698,13 @@ export function saveRuntimeConfig(
     containerSandboxModeExplicit: sandboxModeExplicit,
     containerMaxConcurrentExplicit: maxConcurrentExplicit,
   };
+  const sourceConfig = mergeSubmittedSecretInputs(currentConfigSource, next);
   const nextSource = buildSerializableConfig(
     normalized,
     {
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
-    currentConfigSource,
+    sourceConfig,
   );
   writeConfigFile(
     normalized,
@@ -8658,7 +8712,7 @@ export function saveRuntimeConfig(
       omitImplicitSandboxMode: !sandboxModeExplicit,
     },
     meta,
-    currentConfigSource,
+    sourceConfig,
   );
   currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);
